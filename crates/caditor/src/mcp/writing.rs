@@ -266,6 +266,14 @@ pub enum ModellingError {
     NothingToDrill { sketch: String },
     #[error("there is no body to drill; make one first or give body")]
     NoBodyToDrill,
+    #[error("slot_length and slot_angle go with a slot; leave out shape round")]
+    SlotSizeOnRound,
+    #[error("point_angle goes with a drill point; leave out bottom flat")]
+    PointAngleOnFlat,
+    #[error("give second_distance or second_end, not both")]
+    TwoSecondEnds,
+    #[error("a hole ends at a distance, through all or up to a plane, not up to a curved surface")]
+    SurfaceEndOfHole,
 }
 
 fn value(

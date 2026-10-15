@@ -2,10 +2,10 @@ use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
-    CombineOperation, Document, EdgeGroup, Edit, FeatureId, FeatureKind, LinearDirection,
-    LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind, PlaneReference, Primitive,
-    PrimitiveAnchor, PrimitiveKind, Revolve, RevolveAxis, RevolveExtent, Shell, ShellSide,
-    SolidFeature, TurnCentre, repeatable_on,
+    CombineOperation, Document, EdgeGroup, Edit, Evaluation, FeatureId, FeatureKind,
+    LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind, PlaneReference,
+    Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+    Shell, ShellSide, SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -21,10 +21,12 @@ use crate::{
         places::{self, AxisChoice, PlaneChoice},
         references::{self, EntityName, Named, body_label},
         session::{Session, Work},
+        solids::{WallName, wall_of},
         tools::{Answer, ToolError},
         writing::{ModellingError, OperationName, apply, operation_words, with_feature},
     },
-    mirror_tools, move_tools, offset_face_tools, pattern_tools, primitive_tools, shell_tools,
+    mirror_tools, move_tools, offset_face_tools, pattern_tools, primitive_tools, scene, selection,
+    shell_tools,
     solid_tools::{self, Reach},
     units::{LengthUnit, Units},
     visibility,
@@ -62,11 +64,54 @@ pub struct Revolution {
     pub axis: Option<RevolveAxisChoice>,
     pub angle: Option<Amount>,
     pub second_angle: Option<Amount>,
+    pub up_to: Option<PlaneChoice>,
     pub symmetric: Option<bool>,
     pub reversed: Option<bool>,
+    pub regions: Option<RegionsAsk>,
+    pub thin_wall: Option<WallAsk>,
+    pub wall_side: Option<WallName>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AllName {
+    All,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum RegionsAsk {
+    All(AllName),
+    Inside(Vec<[f64; 2]>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OffName {
+    Off,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum WallAsk {
+    Off(OffName),
+    Thickness(Amount),
+}
+
+impl WallAsk {
+    pub fn thickness(&self) -> Option<&Amount> {
+        match self {
+            Self::Off(_) => None,
+            Self::Thickness(thickness) => Some(thickness),
+        }
+    }
+
+    pub fn is_off(&self) -> bool {
+        matches!(self, Self::Off(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -353,6 +398,14 @@ pub enum FeatureError {
         size: &'static str,
         second: &'static str,
     },
+    #[error("{sketch} has no closed region to choose")]
+    NoRegions { sketch: String },
+    #[error("{sketch} has no region around {at}; get_sketch lists a point inside each region")]
+    NoRegionAt { sketch: String, at: String },
+    #[error("regions takes a point inside each region wanted, such as [[5, 5]], or \"all\"")]
+    NoRegionPoints,
+    #[error("a revolve ends up_to a plane or turns by an angle, not both")]
+    UpToWithAngle,
     #[error("the original stays; skipped names copies from 1 on (or [column, row] in a grid)")]
     SkippedOriginal,
 }
@@ -483,6 +536,42 @@ pub(super) fn sketch_of<'d>(
     };
     let (feature, sketch) = references::sketch(document, &named)?;
     Ok((feature.id(), feature.name.as_str(), sketch))
+}
+
+pub(super) fn regions_chosen(
+    evaluation: &Evaluation,
+    (sketch, name): (FeatureId, &str),
+    asked: Option<&RegionsAsk>,
+    kept: RegionChoice,
+) -> Result<RegionChoice, FeatureError> {
+    let points = match asked {
+        None => return Ok(kept),
+        Some(RegionsAsk::All(_)) => return Ok(RegionChoice::All),
+        Some(RegionsAsk::Inside(points)) if points.is_empty() => {
+            return Err(FeatureError::NoRegionPoints);
+        }
+        Some(RegionsAsk::Inside(points)) => points,
+    };
+    let regions =
+        selection::sketch_regions(evaluation, sketch).ok_or_else(|| FeatureError::NoRegions {
+            sketch: name.to_owned(),
+        })?;
+    let keys = points
+        .iter()
+        .map(|[x, y]| {
+            regions
+                .iter()
+                .find(|region| region.region.contains(Point2::new(*x, *y)))
+                .map(|region| region.region.key())
+                .ok_or_else(|| FeatureError::NoRegionAt {
+                    sketch: name.to_owned(),
+                    at: format!("[{x}, {y}]"),
+                })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    Ok(RegionChoice::Chosen(scene::region_references(
+        &keys, regions,
+    )))
 }
 
 pub(super) fn added(
@@ -623,6 +712,11 @@ pub fn revolve_built(
     let second = parsed(session, asked.second_angle.as_ref(), |session, angle| {
         turn(session, "second_angle", angle)
     })?;
+    let thickness = parsed(
+        session,
+        asked.thin_wall.as_ref().and_then(WallAsk::thickness),
+        |session, wall| length(session, "thin_wall", wall),
+    )?;
     session.evaluate(work)?;
     let values = session.parameters();
     let document = session.document();
@@ -642,12 +736,26 @@ pub fn revolve_built(
             RevolveAxis::Model(places::axis(document, evaluation, choice)?)
         }
     };
-    let changes_extent = angle.is_some()
-        || second.is_some()
-        || asked.symmetric.is_some()
-        || asked.reversed.is_some();
-    let extent = match base {
-        Some(base) if !changes_extent => base.extent.clone(),
+    let turns = angle.is_some() || second.is_some() || asked.symmetric.is_some();
+    if asked.up_to.is_some() && turns {
+        return Err(FeatureError::UpToWithAngle.into());
+    }
+    let kept_end = base.and_then(|base| match &base.extent {
+        RevolveExtent::UpTo { target, reversed } => Some((target.clone(), *reversed)),
+        _ => None,
+    });
+    let extent = match (&asked.up_to, kept_end, base) {
+        (Some(choice), kept, _) => RevolveExtent::up_to(
+            places::plane(document, evaluation, choice)?,
+            asked
+                .reversed
+                .unwrap_or(kept.is_some_and(|(_, reversed)| reversed)),
+        ),
+        (None, Some((target, reversed)), _) if !turns => RevolveExtent::UpTo {
+            target,
+            reversed: asked.reversed.unwrap_or(reversed),
+        },
+        (None, _, Some(base)) if !turns && asked.reversed.is_none() => base.extent.clone(),
         _ => {
             let kept = base.map_or(
                 RevolveSides {
@@ -668,16 +776,28 @@ pub fn revolve_built(
             .extent()?
         }
     };
-    let regions = match base {
-        Some(base) if base.sketch == sketch => base.regions.clone(),
-        Some(_) | None => caditor_document::RegionChoice::All,
-    };
+    let regions = regions_chosen(
+        evaluation,
+        (sketch, sketch_name),
+        asked.regions.as_ref(),
+        match base {
+            Some(base) if base.sketch == sketch => base.regions.clone(),
+            Some(_) | None => RegionChoice::All,
+        },
+    )?;
+    let wall = wall_of(
+        thickness,
+        asked.wall_side,
+        base.and_then(|base| base.wall.as_deref()),
+        asked.thin_wall.as_ref().is_some_and(WallAsk::is_off),
+    )?;
     let revolve = match base {
         Some(base) => Revolve {
             sketch,
             regions,
             axis,
             extent,
+            wall,
             ..base.clone()
         },
         None => Revolve {
@@ -689,7 +809,7 @@ pub fn revolve_built(
             start: None,
             other_bodies: Vec::new(),
             side: None,
-            wall: None,
+            wall,
         },
     };
     let asked_operation = operation_asked(

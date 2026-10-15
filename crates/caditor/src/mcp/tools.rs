@@ -441,7 +441,7 @@ impl Tool {
                  turned off is a reference, measured but no longer driving. One undo step."
             }
             Self::AddExtrusion => {
-                "Extrudes every closed region of a sketch. With no operation, it decides like \
+                "Extrudes every closed region of a sketch, or the regions chosen by a point inside each, or a thin wall along its curves. Ends at a distance, through all, the next face, a plane or a curved face, on one side or both, square to the sketch or along an axis. With no operation, it decides like \
                  the app: a sketch on a face cuts into that body, otherwise it adds to the body \
                  it reaches or makes a new body. With an operation (new_body, add, remove, \
                  intersect) it does that; a cut from a sketch on the cut body's face runs into \
@@ -450,7 +450,9 @@ impl Tool {
             Self::AddHole => {
                 "Drills a hole at every free point and circle centre of a sketch, square to the \
                  sketch plane, into the body the sketch lies on (or the given body). Depth is an \
-                 expression or \"through all\". One undo step."
+                 expression or \"through all\". Plain, counterbored, countersunk or stepped, \
+                 round or slot, flat or drill point, sized by the diameter given or by the \
+                 circles drawn. One undo step."
             }
             Self::Undo => "Undoes the last change, whoever made it in this session.",
             Self::Redo => "Redoes the last change undone.",
@@ -470,7 +472,7 @@ impl Tool {
                 "Measures the shortest distance between two things, each a point, a face or an edge of a body, with the closest points on each, and the angle between them when they have one (two planes, two lines, a line and a plane)."
             }
             Self::AddRevolve => {
-                "Revolves every closed region of a sketch about an axis: a line of the sketch, its horizontal or vertical axis, or a model axis. A full turn unless an angle is given. With no operation it decides like the app: it adds to the body it reaches or makes a new body. One undo step."
+                "Revolves every closed region of a sketch (or the regions chosen by a point inside each, or a thin wall along its curves) about an axis: a line of the sketch, its horizontal or vertical axis, or a model axis. A full turn unless an angle is given, or up to a plane. With no operation it decides like the app: it adds to the body it reaches or makes a new body. One undo step."
             }
             Self::AddFillet => {
                 "Rounds edges of a body: edge keys from list_edges, every edge around faces from list_faces, or every edge of the body. One undo step; a radius too large for the edges fails the feature with the reason."

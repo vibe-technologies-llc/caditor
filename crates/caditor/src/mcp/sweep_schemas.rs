@@ -20,6 +20,69 @@ fn up_to() -> Value {
     })
 }
 
+pub(super) fn regions() -> Value {
+    json!({
+        "description": "Which closed regions to use instead of all of them: a point [x, y] inside each region wanted, in the sketch's own millimetre coordinates (get_sketch lists a point inside each region), or \"all\"",
+        "anyOf": [
+            { "type": "string", "enum": ["all"] },
+            {
+                "type": "array",
+                "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                "minItems": 1
+            }
+        ]
+    })
+}
+
+pub(super) fn thin_wall() -> Value {
+    json!({
+        "description": "Use a wall of this thickness along the sketch's curves instead of its regions, such as \"1 mm\"; \"off\" takes a thin wall off again",
+        "anyOf": [{ "type": "string", "enum": ["off"] }, amount("A thickness")]
+    })
+}
+
+pub(super) fn wall_side() -> Value {
+    choice(
+        &["inside", "outside", "centred"],
+        "With thin_wall: which side of the curves the wall lies",
+    )
+}
+
+fn surface() -> Value {
+    json!({
+        "type": "object",
+        "description": "A curved or flat face {body, face} that stops it, found as it stands before the new feature",
+        "properties": {
+            "body": reference("The body, by id or name"),
+            "face": { "type": "string", "description": "A face key from list_faces" }
+        },
+        "required": ["body", "face"],
+        "additionalProperties": false
+    })
+}
+
+fn second_end() -> Value {
+    json!({
+        "type": "object",
+        "description": "The other side of the sketch plane ends in something other than a distance: give one of distance, through_all, up_to or up_to_surface, and for up_to an end_offset",
+        "properties": {
+            "distance": amount("How far it goes on the other side"),
+            "through_all": flag("Cut through the whole body on the other side"),
+            "up_to": up_to(),
+            "up_to_surface": surface(),
+            "end_offset": amount("With up_to: stop this far short of it (negative: beyond)")
+        },
+        "additionalProperties": false
+    })
+}
+
+fn direction() -> Value {
+    json!({
+        "description": "Extrude along an axis instead of square to the sketch: X, Y, Z, an edge {body, edge}, a round face {body, face}, a sketch line {sketch, line}, a datum axis {datum}; \"square\" goes back to square",
+        "anyOf": [{ "type": "string", "enum": ["square"] }, axis()]
+    })
+}
+
 fn path() -> Value {
     json!({
         "description": "What it follows: {sketch, curves} with the entity ids of lines, arcs or curves, {body, edges} with edge keys from list_edges, or {helix}",
@@ -96,13 +159,17 @@ pub fn extrusion() -> Value {
         "distance": amount("How far, as an expression such as \"20 mm\""),
         "through_all": flag("Cut through the whole body"),
         "up_to": up_to(),
+        "up_to_surface": surface(),
         "end_offset": amount("With up_to: stop this far short of it (negative: beyond)"),
         "symmetric": flag("Half the distance each way from the sketch plane"),
         "second_distance": amount("How far it also goes on the other side of the sketch plane"),
+        "second_end": second_end(),
         "start_offset": amount("Start this far from the sketch plane instead of on it"),
         "taper": amount("Draft angle of the sides, such as \"3 deg\"; negative narrows the other way"),
-        "thin_wall": amount("Extrude a wall of this thickness along the sketch's curves instead of its regions"),
-        "wall_side": choice(&["inside", "outside", "centred"], "With thin_wall: which side of the curves the wall lies"),
+        "direction": direction(),
+        "regions": regions(),
+        "thin_wall": thin_wall(),
+        "wall_side": wall_side(),
         "reversed": flag("Extrude against the sketch plane's normal")
     })));
     object(Value::Object(properties), &["sketch"])
@@ -116,10 +183,30 @@ pub fn hole() -> Value {
             "depth": amount("An expression, or \"through all\""),
             "up_to": up_to(),
             "end_offset": amount("With up_to: stop this far short of it"),
-            "style": choice(&["plain", "counterbore", "countersink"], "The hole's mouth"),
+            "style": choice(&["plain", "counterbore", "countersink", "stepped"], "The hole's mouth"),
             "head_diameter": amount("The counterbore's or countersink's diameter"),
             "head_depth": amount("The counterbore's depth"),
             "head_angle": amount("The countersink's angle, such as \"90 deg\""),
+            "steps": {
+                "type": "array",
+                "description": "A stepped hole's flat-bottomed steps from the mouth inward, each narrowing into the hole (at most 8); gives style stepped",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "diameter": amount("The step's diameter"),
+                        "depth": amount("The step's depth")
+                    },
+                    "required": ["diameter", "depth"],
+                    "additionalProperties": false
+                },
+                "minItems": 1
+            },
+            "shape": choice(&["round", "slot"], "A round hole, or a slot centred on each point"),
+            "slot_length": amount("The slot's length between its ends; gives shape slot"),
+            "slot_angle": amount("The slot's direction in the sketch, such as \"45 deg\"; gives shape slot"),
+            "bottom": choice(&["flat", "drill_point"], "The blind hole's bottom: flat or a drill point cone"),
+            "point_angle": amount("The drill point's angle, such as \"118 deg\"; gives bottom drill_point"),
+            "sizing": choice(&["typed", "circles", "circles_and_heads"], "Size each hole by the diameter given, by the circle drawn at it, or by the circle with its head scaled with it"),
             "standard": { "type": "string", "description": "A metric screw size, such as \"M6\", sizing the hole and its head" },
             "fit": choice(&["close", "normal", "loose", "tapped", "tapped_fine", "heat_set_insert"], "With standard: a clearance fit, a tap drill or an insert hole"),
             "thread_form": choice(&["modelled", "cosmetic"], "A tapped hole's thread: cut into the body or drawn"),

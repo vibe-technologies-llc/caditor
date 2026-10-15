@@ -1,7 +1,8 @@
 use caditor_document::{
-    BodyOperation, Document, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureKind, Hole,
-    HoleDepth, HoleFit, HoleStandard, HoleStyle, MetricSize, RegionChoice, SolidFeature,
-    SolidStart, ThreadForm, ThreadHand, Wall, hole_centres,
+    BodyOperation, Document, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
+    FeatureKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
+    HoleStep, HoleStyle, MetricSize, RegionChoice, SolidFeature, SolidStart, ThreadForm,
+    ThreadHand, Wall, hole_centres,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::WallSide;
@@ -14,10 +15,10 @@ use crate::{
     last_values::Starts,
     mcp::{
         features::{
-            Amount, Built, FeatureError, added, amount, chosen_operation, length, parsed,
-            signed_length, sketch_of, turn,
+            Amount, Built, FeatureError, RegionsAsk, WallAsk, added, amount, chosen_operation,
+            length, parsed, regions_chosen, signed_length, sketch_of, turn,
         },
-        places::{self, PlaneChoice},
+        places::{self, AxisChoice, OnFace, PlaneChoice},
         references::{self, Named, body_label},
         session::{Session, Work},
         tools::{Answer, ToolError},
@@ -60,6 +61,29 @@ impl WallName {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SquareName {
+    Square,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum DirectionAsk {
+    Square(SquareName),
+    Axis(AxisChoice),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecondEnd {
+    pub distance: Option<Amount>,
+    pub through_all: Option<bool>,
+    pub up_to: Option<UpTo>,
+    pub up_to_surface: Option<OnFace>,
+    pub end_offset: Option<Amount>,
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Extrusion {
@@ -67,12 +91,16 @@ pub struct Extrusion {
     pub distance: Option<Amount>,
     pub through_all: Option<bool>,
     pub up_to: Option<UpTo>,
+    pub up_to_surface: Option<OnFace>,
     pub end_offset: Option<Amount>,
     pub symmetric: Option<bool>,
     pub second_distance: Option<Amount>,
+    pub second_end: Option<SecondEnd>,
     pub start_offset: Option<Amount>,
     pub taper: Option<Amount>,
-    pub thin_wall: Option<Amount>,
+    pub direction: Option<DirectionAsk>,
+    pub regions: Option<RegionsAsk>,
+    pub thin_wall: Option<WallAsk>,
     pub wall_side: Option<WallName>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
@@ -85,9 +113,11 @@ impl Extrusion {
         self.distance.is_some()
             || self.through_all.is_some()
             || self.up_to.is_some()
+            || self.up_to_surface.is_some()
             || self.end_offset.is_some()
             || self.symmetric.is_some()
             || self.second_distance.is_some()
+            || self.second_end.is_some()
             || self.reversed.is_some()
     }
 }
@@ -98,6 +128,7 @@ pub enum StyleName {
     Plain,
     Counterbore,
     Countersink,
+    Stepped,
 }
 
 impl StyleName {
@@ -106,8 +137,48 @@ impl StyleName {
             Self::Plain => Kind::Plain,
             Self::Counterbore => Kind::Counterbore,
             Self::Countersink => Kind::Countersink,
+            Self::Stepped => Kind::Stepped,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeName {
+    Round,
+    Slot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BottomName {
+    Flat,
+    DrillPoint,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SizingName {
+    Typed,
+    Circles,
+    CirclesAndHeads,
+}
+
+impl SizingName {
+    fn sizing(self) -> HoleSizing {
+        match self {
+            Self::Typed => HoleSizing::Typed,
+            Self::Circles => HoleSizing::Circles,
+            Self::CirclesAndHeads => HoleSizing::CirclesAndHeads,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepAsk {
+    pub diameter: Amount,
+    pub depth: Amount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -179,6 +250,13 @@ pub struct Drilling {
     pub head_diameter: Option<Amount>,
     pub head_depth: Option<Amount>,
     pub head_angle: Option<Amount>,
+    pub steps: Option<Vec<StepAsk>>,
+    pub shape: Option<ShapeName>,
+    pub slot_length: Option<Amount>,
+    pub slot_angle: Option<Amount>,
+    pub bottom: Option<BottomName>,
+    pub point_angle: Option<Amount>,
+    pub sizing: Option<SizingName>,
     pub standard: Option<String>,
     pub fit: Option<FitName>,
     pub thread_form: Option<FormName>,
@@ -194,27 +272,46 @@ enum End {
     ThroughAll,
     Next,
     Plane(caditor_document::PlaneReference),
+    Surface(FaceAttachment),
+}
+
+struct EndAsk<'a> {
+    distance: Option<Expression>,
+    through_all: bool,
+    up_to: Option<&'a UpTo>,
+    surface: Option<&'a OnFace>,
 }
 
 fn end_asked(
     document: &Document,
     evaluation: &Evaluation,
-    (distance, through_all, up_to): (Option<Expression>, bool, Option<&UpTo>),
+    ask: EndAsk<'_>,
 ) -> Result<Option<End>, ToolError> {
-    let given =
-        usize::from(distance.is_some()) + usize::from(through_all) + usize::from(up_to.is_some());
+    let given = usize::from(ask.distance.is_some())
+        + usize::from(ask.through_all)
+        + usize::from(ask.up_to.is_some())
+        + usize::from(ask.surface.is_some());
     if given > 1 {
         return Err(ModellingError::TwoEnds.into());
     }
-    Ok(match (distance, through_all, up_to) {
-        (Some(distance), _, _) => Some(End::Distance(distance)),
-        (None, true, _) => Some(End::ThroughAll),
-        (None, false, Some(UpTo::Next(NextFace::Next))) => Some(End::Next),
-        (None, false, Some(UpTo::Plane(choice))) => {
-            Some(End::Plane(places::plane(document, evaluation, choice)?))
-        }
-        (None, false, None) => None,
-    })
+    Ok(
+        match (ask.distance, ask.through_all, ask.up_to, ask.surface) {
+            (Some(distance), _, _, _) => Some(End::Distance(distance)),
+            (None, true, _, _) => Some(End::ThroughAll),
+            (None, false, Some(UpTo::Next(NextFace::Next)), _) => Some(End::Next),
+            (None, false, Some(UpTo::Plane(choice)), _) => {
+                Some(End::Plane(places::plane(document, evaluation, choice)?))
+            }
+            (None, false, None, Some(on)) => {
+                let (at, face) = places::face_at_bar(document, evaluation, on)?;
+                Some(End::Surface(FaceAttachment {
+                    body: at.body,
+                    face,
+                }))
+            }
+            (None, false, None, None) => None,
+        },
+    )
 }
 
 impl End {
@@ -224,15 +321,17 @@ impl End {
             Self::ThroughAll => ExtrudeEnd::ThroughAll,
             Self::Next => ExtrudeEnd::up_to_next(),
             Self::Plane(plane) => ExtrudeEnd::up_to_face(plane),
+            Self::Surface(face) => ExtrudeEnd::up_to_surface(face),
         }
     }
 
-    fn drilled(self) -> HoleDepth {
+    fn drilled(self) -> Result<HoleDepth, ModellingError> {
         match self {
-            Self::Distance(depth) => HoleDepth::Blind(depth),
-            Self::ThroughAll => HoleDepth::ThroughAll,
-            Self::Next => HoleDepth::up_to_next(),
-            Self::Plane(plane) => HoleDepth::up_to_face(plane),
+            Self::Distance(depth) => Ok(HoleDepth::Blind(depth)),
+            Self::ThroughAll => Ok(HoleDepth::ThroughAll),
+            Self::Next => Ok(HoleDepth::up_to_next()),
+            Self::Plane(plane) => Ok(HoleDepth::up_to_face(plane)),
+            Self::Surface(_) => Err(ModellingError::SurfaceEndOfHole),
         }
     }
 }
@@ -298,12 +397,25 @@ fn offset_end(end: ExtrudeEnd, offset: Option<Expression>) -> Result<ExtrudeEnd,
     }
 }
 
-fn wall_of(
+fn offset_optional(
+    end: Option<ExtrudeEnd>,
+    offset: Option<Expression>,
+) -> Result<Option<ExtrudeEnd>, ToolError> {
+    match (end, offset) {
+        (None, Some(_)) => Err(ModellingError::OffsetWithoutUpTo.into()),
+        (end, offset) => end.map(|end| offset_end(end, offset)).transpose(),
+    }
+}
+
+pub(super) fn wall_of(
     thickness: Option<Expression>,
     side: Option<WallName>,
     kept: Option<&Wall>,
+    off: bool,
 ) -> Result<Option<Box<Wall>>, ToolError> {
     Ok(match (thickness, kept) {
+        _ if off && side.is_some() => return Err(ModellingError::SideWithoutWall.into()),
+        _ if off => None,
         (Some(thickness), kept) => Some(Box::new(Wall {
             thickness,
             side: side
@@ -337,10 +449,22 @@ pub fn extrude_built(
     let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
         length(session, "distance", distance)
     })?;
+    if asked.second_distance.is_some() && asked.second_end.is_some() {
+        return Err(ModellingError::TwoSecondEnds.into());
+    }
+    let second_ask = asked.second_end.as_ref();
     let second = parsed(
         session,
-        asked.second_distance.as_ref(),
+        asked
+            .second_distance
+            .as_ref()
+            .or_else(|| second_ask.and_then(|second| second.distance.as_ref())),
         |session, distance| length(session, "second_distance", distance),
+    )?;
+    let second_offset = parsed(
+        session,
+        second_ask.and_then(|second| second.end_offset.as_ref()),
+        |session, offset| signed_length(session, "second_end.end_offset", offset),
     )?;
     let end_offset = parsed(session, asked.end_offset.as_ref(), |session, offset| {
         signed_length(session, "end_offset", offset)
@@ -351,14 +475,16 @@ pub fn extrude_built(
     let taper = parsed(session, asked.taper.as_ref(), |session, taper| {
         turn(session, "taper", taper)
     })?;
-    let thickness = parsed(session, asked.thin_wall.as_ref(), |session, wall| {
-        length(session, "thin_wall", wall)
-    })?;
+    let thickness = parsed(
+        session,
+        asked.thin_wall.as_ref().and_then(WallAsk::thickness),
+        |session, wall| length(session, "thin_wall", wall),
+    )?;
     session.evaluate(work)?;
     let values = session.parameters();
     let document = session.document();
     let evaluation = session.evaluation();
-    let (sketch, _, _) = sketch_of(
+    let (sketch, sketch_name, _) = sketch_of(
         document,
         asked.sketch.as_ref(),
         base.map(|base| base.sketch),
@@ -366,8 +492,26 @@ pub fn extrude_built(
     let end = end_asked(
         document,
         evaluation,
-        (distance, through_all, asked.up_to.as_ref()),
+        EndAsk {
+            distance,
+            through_all,
+            up_to: asked.up_to.as_ref(),
+            surface: asked.up_to_surface.as_ref(),
+        },
     )?;
+    let second_end = match second_ask {
+        Some(second_ask) => end_asked(
+            document,
+            evaluation,
+            EndAsk {
+                distance: second.clone(),
+                through_all: second_ask.through_all.unwrap_or(false),
+                up_to: second_ask.up_to.as_ref(),
+                surface: second_ask.up_to_surface.as_ref(),
+            },
+        )?,
+        None => second.map(End::Distance),
+    };
     let extent = match base {
         Some(base) if !asked.changes_extent() => base.extent.clone(),
         _ => {
@@ -388,9 +532,12 @@ pub fn extrude_built(
                 .transpose()?;
             ExtrudeSides {
                 end,
-                second: second
-                    .map(ExtrudeEnd::Distance)
-                    .or(kept.second.filter(|_| !symmetric)),
+                second: offset_optional(
+                    second_end
+                        .map(End::extruded)
+                        .or(kept.second.filter(|_| !symmetric)),
+                    second_offset,
+                )?,
                 symmetric,
                 reversed: asked.reversed.unwrap_or(kept.reversed),
             }
@@ -399,10 +546,15 @@ pub fn extrude_built(
     };
     let template = Extrude {
         sketch,
-        regions: match base {
-            Some(base) if base.sketch == sketch => base.regions.clone(),
-            Some(_) | None => RegionChoice::All,
-        },
+        regions: regions_chosen(
+            evaluation,
+            (sketch, sketch_name),
+            asked.regions.as_ref(),
+            match base {
+                Some(base) if base.sketch == sketch => base.regions.clone(),
+                Some(_) | None => RegionChoice::All,
+            },
+        )?,
         extent,
         operation: base.map_or(BodyOperation::NewBody, |base| base.operation),
         start: start_offset
@@ -418,8 +570,15 @@ pub fn extrude_built(
             thickness,
             asked.wall_side,
             base.and_then(|base| base.wall.as_deref()),
+            asked.thin_wall.as_ref().is_some_and(WallAsk::is_off),
         )?,
-        direction: base.and_then(|base| base.direction.clone()),
+        direction: match &asked.direction {
+            None => base.and_then(|base| base.direction.clone()),
+            Some(DirectionAsk::Square(_)) => None,
+            Some(DirectionAsk::Axis(choice)) => {
+                Some(Box::new(places::axis(document, evaluation, choice)?))
+            }
+        },
     };
     let chosen = asked
         .body
@@ -556,6 +715,55 @@ fn headed(style: &mut HoleStyle, head: Head) -> Result<(), ModellingError> {
     Ok(())
 }
 
+fn shaped(
+    shape: &mut HoleShape,
+    asked: (Option<ShapeName>, Option<Expression>, Option<Expression>),
+) -> Result<(), ModellingError> {
+    let (name, length, angle) = asked;
+    let sized = length.is_some() || angle.is_some();
+    if name == Some(ShapeName::Round) {
+        if sized {
+            return Err(ModellingError::SlotSizeOnRound);
+        }
+        *shape = HoleShape::Round;
+        return Ok(());
+    }
+    if name == Some(ShapeName::Slot) || sized {
+        let base = match shape.clone() {
+            slot @ HoleShape::Slot { .. } => slot,
+            HoleShape::Round => hole_tools::default_slot(LengthUnit::Millimetre),
+        };
+        if let HoleShape::Slot {
+            length: kept_length,
+            angle: kept_angle,
+        } = base
+        {
+            *shape = HoleShape::Slot {
+                length: length.unwrap_or(kept_length),
+                angle: angle.unwrap_or(kept_angle),
+            };
+        }
+    }
+    Ok(())
+}
+
+fn bottomed(
+    bottom: &mut HoleBottom,
+    asked: (Option<BottomName>, Option<Expression>),
+) -> Result<(), ModellingError> {
+    *bottom = match (asked, bottom.clone()) {
+        ((Some(BottomName::Flat), Some(_)), _) => return Err(ModellingError::PointAngleOnFlat),
+        ((Some(BottomName::Flat), None), _) => HoleBottom::Flat,
+        ((Some(BottomName::DrillPoint) | None, Some(angle)), _) => HoleBottom::DrillPoint(angle),
+        ((Some(BottomName::DrillPoint), None), kept @ HoleBottom::DrillPoint(_)) => kept,
+        ((Some(BottomName::DrillPoint), None), HoleBottom::Flat) => {
+            hole_tools::default_drill_point()
+        }
+        ((None, None), kept) => kept,
+    };
+    Ok(())
+}
+
 fn standardised(
     hole: &mut Hole,
     standard: Option<&str>,
@@ -631,6 +839,32 @@ pub fn drill_built(
     let thread_depth = parsed(session, asked.thread_depth.as_ref(), |session, depth| {
         length(session, "thread_depth", depth)
     })?;
+    let steps = asked
+        .steps
+        .as_ref()
+        .map(|steps| {
+            steps
+                .iter()
+                .map(|step| {
+                    Ok(HoleStep {
+                        diameter: length(session, "steps diameter", &step.diameter)?,
+                        depth: length(session, "steps depth", &step.depth)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ToolError>>()
+        })
+        .transpose()?;
+    let slot_length = parsed(
+        session,
+        asked.slot_length.as_ref(),
+        |session, length_asked| length(session, "slot_length", length_asked),
+    )?;
+    let slot_angle = parsed(session, asked.slot_angle.as_ref(), |session, angle| {
+        turn(session, "slot_angle", angle)
+    })?;
+    let point_angle = parsed(session, asked.point_angle.as_ref(), |session, angle| {
+        amount(session, "point_angle", angle, Dimension::ANGLE, true)
+    })?;
     session.evaluate(work)?;
     let document = session.document();
     let evaluation = session.evaluation();
@@ -656,7 +890,16 @@ pub fn drill_built(
     if base.is_none() && diameter.is_none() && asked.standard.is_none() {
         return Err(ModellingError::NoDiameter.into());
     }
-    let end = end_asked(document, evaluation, (depth, through, asked.up_to.as_ref()))?;
+    let end = end_asked(
+        document,
+        evaluation,
+        EndAsk {
+            distance: depth,
+            through_all: through,
+            up_to: asked.up_to.as_ref(),
+            surface: None,
+        },
+    )?;
     if base.is_none() && end.is_none() {
         return Err(ModellingError::NoDepth.into());
     }
@@ -673,7 +916,7 @@ pub fn drill_built(
             hole.standard = None;
         }
         if let Some(end) = end {
-            hole.depth = end.drilled();
+            hole.depth = end.drilled()?;
         }
         if let Some(offset) = end_offset {
             if !hole.depth.takes_offset() {
@@ -686,7 +929,23 @@ pub fn drill_built(
                 .kind()
                 .style_for(hole.standard, LengthUnit::Millimetre);
         }
+        if let Some(steps) = steps {
+            if asked.style.is_some_and(|style| style != StyleName::Stepped) {
+                return Err(ModellingError::HeadWithoutStyle {
+                    size: "steps",
+                    style: "stepped",
+                }
+                .into());
+            }
+            hole.style = HoleStyle::Stepped(steps);
+            hole.standard = None;
+        }
         headed(&mut hole.style, head)?;
+        shaped(&mut hole.shape, (asked.shape, slot_length, slot_angle))?;
+        bottomed(&mut hole.bottom, (asked.bottom, point_angle))?;
+        if let Some(sizing) = asked.sizing {
+            hole.sizing = sizing.sizing();
+        }
         let threads =
             asked.thread_form.is_some() || asked.thread_hand.is_some() || thread_depth.is_some();
         if threads {

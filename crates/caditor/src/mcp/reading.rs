@@ -1,10 +1,11 @@
 use caditor_document::{
-    Document, Evaluation, Feature, FeatureState, PrincipalPlane, SolidResult, face_plane,
+    Document, Evaluation, Feature, FeatureState, PrincipalPlane, SketchRegion, SolidResult,
+    face_plane,
 };
 use caditor_file::{PngExportError, png_bytes};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    Accuracy, FaceForm, MeasureError, extent, face_area, face_form, interruptible,
+    Accuracy, FaceForm, MeasureError, RegionMesh, extent, face_area, face_form, interruptible,
 };
 use caditor_render::{
     Background, GraphicsSettings, ImageError, ImageRequest, OffscreenRenderer,
@@ -25,7 +26,7 @@ use crate::{
         tools::{Answer, ToolError},
     },
     model::display_name,
-    sketch_placement,
+    selection, sketch_placement,
     sketch_status::{SketchSummary, up_to_date_result},
     snapshot::{self, Unmeshed},
 };
@@ -552,6 +553,9 @@ pub fn sketch(
         }
     }
     answer.insert("entities".to_owned(), Value::Array(entities(shown)));
+    if let Some(regions) = selection::sketch_regions(evaluation, feature.id()) {
+        answer.insert("regions".to_owned(), Value::Array(regions_listed(regions)));
+    }
     answer.insert(
         "constraints".to_owned(),
         Value::Array(constraints(
@@ -561,6 +565,21 @@ pub fn sketch(
         )),
     );
     Ok(answer)
+}
+
+fn regions_listed(regions: &[SketchRegion]) -> Vec<Value> {
+    regions
+        .iter()
+        .map(|region| {
+            let mut entry = Map::new();
+            if let Some(inside) = region.mesh.as_ref().and_then(RegionMesh::anchor) {
+                entry.insert("inside".to_owned(), point2(inside));
+            }
+            entry.insert("area".to_owned(), rounded(region.region.area()));
+            entry.insert("holes".to_owned(), json!(region.region.holes().len()));
+            Value::Object(entry)
+        })
+        .collect()
 }
 
 fn lies_on(document: &Document, feature: &Feature, definition: &Sketch) -> String {
