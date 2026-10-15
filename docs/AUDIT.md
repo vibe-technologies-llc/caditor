@@ -1,101 +1,245 @@
 # Audit
 
-High-confidence findings against commit `b1d3d3bd` (master, 2026-10-13). Depth was a
-pass over the whole workspace, with the known remainder in `BUGS.md`, `PERFORMANCE.md`,
-`FEATURES.md`, `DECISIONS.md`, `PLATFORMS.md` and `CHECKS.md` treated as already tracked
-and not repeated here. Each item below was read in the current tree. Low-confidence
-leads were dropped.
+Direction pass against commit `81ff7c4c` (master, 2026-10-15). The question was what is
+missing, or needlessly awkward, across sketching and the solid workflow that follows it.
 
-Verification commands for a fix, matching this repo: `cargo test -p <crate> <test>`,
-`cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo deny check`,
-and `rust-formatter`. The OpenGL finding is the one the Linux `check` job already runs:
-`WGPU_BACKEND=gl LIBGL_ALWAYS_SOFTWARE=1 CADITOR_REQUIRE_GPU=1 cargo test --locked -p caditor-render --lib offscreen_tests`.
+`docs/FEATURES.md`, `docs/DECISIONS.md` and `docs/BUGS.md` are the project's own remainder.
+This pass does not restate them. The six items below are the ones a modelling session hits
+that those files either omit or leave unordered. Each was read in the current tree.
+
+The earlier correctness audit that this file replaced is the history of `docs/AUDIT.md` at
+`b1d3d3bd`. Those seven items were not re-checked here.
+
+Verification for a change, matching this repo: `cargo test -p <crate> <test>`,
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `rust-formatter`.
+A sketch or feature change also updates its page under `crates/caditor/guide/` and the rules
+file that describes it, in the same commit.
 
 ## Findings
 
-Ordered by leverage (impact against effort, at high confidence).
+Ordered by leverage: how often the workflow pays for the gap, divided by how much of the
+model has to change. The first four are absent from `FEATURES.md`. The last two are already
+specified there; they are here because they are the next capabilities the same workflow runs
+into, and the small items above them should land first.
 
-| # | Finding | Category | Impact | Effort | Risk | Evidence |
+| # | Finding | Kind | Impact | Effort | Risk | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Piece rows are not a real tree selection | Correctness | A body command can change the open feature | S | Low | `panels.rs`, `feature_tree.rs`, `visibility.rs` |
-| 2 | The mesh pipeline does not build on OpenGL | Correctness | The 3D view cannot be created on the GL backend; CI `check` is red | M | Medium | `viewport.wgsl`, CI run 38435662052 |
-| 3 | Recovery trusts the path stored in the journal | Security | Startup reads that path; Restore saves there later | M | Medium | `recovery.rs`, `model.rs` |
-| 4 | CSV quoting does not stop a formula cell | Security | The documented control does not do what it says | S | Low | `csv.rs`, `file-import-export.md` |
-| 5 | Two copies of skrifa are linked | Dependencies | `cargo deny check` fails; a second font parser is in the binary | S | Low | `Cargo.lock`, `deny.toml`, `dependencies.md` |
-| 6 | Sketch frames rebuild the body-snap key every time | Performance | Cost grows with shown bodies while a sketch is open | S | Low | `body_snap.rs` |
-| 7 | Every recompute glimpse rebuilds the same body set | Performance | A full recompute of a large import is quadratic in that set | S | Low | `recompute.rs` |
+| 1 | Project one curve at a time, one undo each | Convenience | Reusing a profile is a click per curve | S | Low | `projecting.rs`, `viewport.rs` |
+| 2 | A projection cannot be turned into ordinary geometry | Convenience | A section or an outline cannot be edited | S | Low | `edit.rs`, `project-and-intersect.md` |
+| 3 | A circular pattern of points lays out no holes | Missing behaviour | A bolt circle drawn in the sketch does not drill | M | Medium | `pattern.rs`, `hole.rs` |
+| 4 | New features remember only eleven starting values | Convenience | Revolve, pipe, rib, wall, offset and spacing start over | S | Low | `last_values.rs` |
+| 5 | A sketch cannot carry text | Missing tool, already tracked | No engraving, no label that extrudes | L | Medium | `FEATURES.md` Sketching |
+| 6 | A sweep path cannot be drawn in space | Missing tool, already tracked | A handle or a pipe run has to be edges of a body | L | High | `FEATURES.md` Sketching |
 
-### 1. Keep a piece row selected, and do not retarget feature commands onto the open feature
+### 1. Project a whole sketch, or the current selection, in one step
 
-- **Evidence**: A Bodies row stores the body's id (`crates/caditor/src/bodies_tree.rs`, the click calls `feature_tree::choose_among` with that id). For a body of each separate piece that id is a piece id (`FeatureId::piece`), not a feature id. `Document::feature` (`crates/caditor-document/src/document.rs`) looks the id up raw (`feature_list.rs` `get_by_id`) and does not find a piece. `PanelState::forget_missing` (`crates/caditor/src/panels.rs`) keeps a chosen id only when `document.feature` finds it, and `app.rs` calls it on every revision, so the next edit drops the piece row. `visibility::hideable_rows` uses the same `feature` filter, so Hide selection never sees a piece chosen only in the tree. `feature_tree::current_feature` also misses the piece id and falls through to the open feature; `targets` then, when the chosen ids do not contain that open feature, returns the open feature alone. Suppress, Hide or show feature, and Delete feature therefore change the open feature.
-- **Impact**: Selecting a piece of a separating feature does not survive the next edit, with no notice. Hide selection of that row hides nothing. While another feature is open, Suppress, Hide or show feature, and Delete feature change that feature instead of the piece's maker. The row's own eye is unaffected: `visibility::toggle_body` already branches on `is_piece`. `body_selection::tree_bodies` already keeps a piece id.
-- **Effort**: S.
-- **Risk**: Low. A normal body row is still its feature id. The change is which id stays chosen and which feature those commands receive.
+- **Evidence**: Project accepts one pick at a time. `projectable` (`crates/caditor/src/projecting.rs`)
+  allows a single `Pickable::SketchEntity`, and `projections_of` returns one outline for it. A
+  face is the exception: the same function calls `face_projections` and returns every boundary
+  edge. The click path (`crates/caditor/src/viewport.rs`, `pick_action` while
+  `active.tool.projects()`) applies that one transaction immediately, so each curve is its own
+  undo step. The guide (`crates/caditor/guide/project-and-intersect.md`) describes "a curve or
+  point of another sketch", one at a time. Nothing reads the selection, and a sketch row is not
+  a projectable pick.
+- **Impact**: Copying a mounting profile, a logo outline or a pocket from one sketch onto a
+  parallel face is a click and an undo step per curve. A face outline is already one step. The
+  two gestures do the same job.
+- **Effort**: S. Coarse: a day, including the UI test.
+- **Risk**: Low. Each curve is still the same `add_projection` the click uses. A curve the
+  sketch already projects is skipped today (`already_projected`); a batch must skip the same way
+  and say what it skipped.
 - **Confidence**: High.
-- **Fix sketch**: Treat a chosen id as still present when `body_maker` exists. Give `hideable_rows` and `current_feature` the same `is_piece` branch `tree_bodies` has, so a piece row stands for that body. Add a UI test that selects a piece, edits something else, and checks the row is still chosen, and that Delete feature with another feature open does not delete that feature.
+- **Trade-off**: One transaction is the right size, matching a face. Projecting every curve of
+  a sketch that was not meant (construction axes of that sketch, a gear's pitch circles) needs
+  the same filter Project uses now: skip reference geometry, and leave construction curves in,
+  since a click on one projects it.
+- **Fix sketch**: Add a command, offered while Project is active and while curves of one earlier
+  sketch or edges of one body are selected: one transaction, the label "Project N curves of
+  <name>", built by calling `projections_of` per pick and skipping sources already present.
+  Selecting the other sketch's row projects its non-reference curves. Intersect stays per face;
+  Shift-click already intersects the whole body.
 
-### 2. Stop the mesh shader loading the shadow depth texture
+### 2. Break a projection or an intersection into ordinary curves
 
-- **Evidence**: `crates/caditor-render/src/viewport.wgsl` binds `shadow_map` as `texture_depth_2d`. `bounced` reads it with `textureLoad`. `shade`, which `fs_mesh` and `fs_mesh_solid` call, calls `bounced` whenever a face carries a finish and rendered shading is on, so the load is in the mesh fragment shader even for a scene that never takes that branch. The Linux `check` job's OpenGL step (`WGPU_BACKEND=gl`, llvmpipe, `offscreen_tests`) fails while creating the pipeline labelled `meshes`: naga reports that WGSL `textureLoad` from depth textures is not supported in GLSL. Run [38435662052](https://github.com/vibe-technologies-llc/caditor/actions/runs/38435662052) on `b1d3d3bd` is that failure; the Vulkan tests and the Windows job in the same run succeeded. `textureSampleCompareLevel` of the same map, used for the shadow comparison, is a different operation and is not the line that fails.
-- **Impact**: On the OpenGL backend the mesh pipeline is never created, so the 3D view cannot draw. `packaging/INSTALL.md` promises OpenGL, and CI treats that backend as a required check, which is red on master. The gamma-space resolve already listed in `BUGS.md` is a separate, narrower GL limit.
-- **Effort**: M.
-- **Risk**: Medium. Bounce reconstructs a position from that depth. A second colour target, or a load from a non-depth copy of the depth, has to match the comparison sampler's values or the bounce lighting shifts.
+- **Evidence**: `Edit::SetSketchProjection` (`crates/caditor-document/src/edit.rs`) already takes
+  `source: Option<ProjectionSource>`. `source: None` is applied when a projected entity is
+  deleted (`edit/sketch.rs`, `remove_sketch_items`) and is tested on its own
+  (`projection_tests.rs`, the test that unprojects one of two curves and leaves the shared
+  points projected while the other curve still carries them). No command sends that edit for a
+  curve the user wants to keep. The guide says projected geometry cannot be dragged and follows
+  its source. Trim, extend, split and the sketch fillet refuse it (`guide/trim-and-extend.md`).
+- **Impact**: Intersect and Project are how a sketch starts from a body: the section of a turned
+  part, the outline of a face, the curves of an earlier sketch. The result is locked. Changing
+  one length means deleting the projection and redrawing it, and the dimensions on it go with
+  the deletion. Breaking the link keeps the curve, its points and its dimensions, and later
+  edits to the source no longer move it.
+- **Effort**: S.
+- **Risk**: Low. The edit exists. The subtle case is a point shared with a projection that is
+  still linked: the point stays projected, which the existing test already requires.
 - **Confidence**: High.
-- **Fix sketch**: Keep the depth comparison sampler for shadows. Feed `bounced` a sampled depth that the GLSL backend can load (a non-depth texture written in the light pass, or an equivalent naga accepts). The GL `offscreen_tests` step must pass, including a scene that bounces light. Do not weaken the step to skip the backend.
+- **Trade-off**: After the break, the curve is a snapshot. Say so in the notice ("Line 3 no
+  longer follows the body"). Offer it on the selected projected curves, from the sketch menu,
+  the palette and the context menu. Do not break a link as a side effect of trimming; trimming
+  a projection stays a refusal until the user breaks the link.
+- **Fix sketch**: One "Make ordinary" transaction of `SetSketchProjection { source: None }` per
+  selected projected entity, settled like any other sketch edit. A UI test projects a face,
+  breaks one edge, moves a point of it, recomputes, and checks the other edges still follow the
+  face.
 
-### 3. Bind a recovered journal to the file it actually belongs to
+### 3. A circular pattern of points does not become holes
 
-- **Evidence**: `recovery::inspect` (`crates/caditor-file/src/recovery.rs`) decodes the journal and, while deciding whether it is already saved, calls `load` on `contents.file`, the path stored in the journal header. `scan`, which startup runs, inspects every `*.journal` in the recovery directory, the adjacent journal of each recent file, and journals named by a marker. It does not check that the header path is the file the journal sits beside. `journal_for` does rebind that path when a model is opened; `scan` does not. `Model::restore` stores `Recovered.file` as the session path, so the storage worker journals beside it and the next save writes the recovered document there. The recovery card does show that path (`files/dialogs.rs`, the muted line under the change count).
-- **Impact**: A journal caditor is willing to scan is enough to make startup parse whatever regular file the header names, before any prompt. Restore then makes that path the open model. Nothing requires an adjacent journal to name the model it sits next to. The card shows the path, so a person who reads it can refuse; the read itself is not gated on that.
-- **Effort**: M.
-- **Risk**: Medium. Fallback journals are named by a hash of the real path, and an untitled journal has no model path. Rejecting every header path that is not the journal's neighbour would drop a legitimate fallback recovery.
-- **Fix sketch**: For a journal next to a model, keep it only when the header path is that model (same path or same file identity). For a `file-<hash>.journal`, keep it only when the hash matches the header path. Do not call `load` on any other path. Keep `journal_for`'s rebind. Test a header that names a different file: the scan does not read it, and Restore does not offer it.
+- **Evidence**: A hole drills `free_points` plus the centre of every circle that is not
+  construction (`crates/caditor-document/src/hole.rs`, `centres`). `free_points`
+  (`crates/caditor-sketch/src/sketch.rs`) is every point no curve uses; a constraint does not
+  count. A rectangular pattern ties points with horizontal and vertical distances only
+  (`pattern.rs`, `tie` through `shift_constraints`), so those points stay free and a hole
+  drills each copy. A circular pattern ties them with construction lines from the hub to each
+  point (`pattern.rs`, `tie_turns` / `ray_to`: `Entity::Line { start: hub, end: point }` then
+  `set_construction`). Those lines use the points, so `centres` drops every copy and the hub.
+  The hole guide says the tool drills loose points and circles. It never says a circular
+  pattern of points is not loose. Separately, a point cannot be construction at all
+  (`Sketch::set_construction` returns `PointAsConstruction`; the test
+  `curves_become_construction_geometry_and_points_never_do`). The hole list already skips an id
+  that is in the construction set, but no point can get there.
+- **Impact**: Six points around a centre is the usual way to draw a bolt circle. Drawn with the
+  circular pattern, then handed to Hole, it drills nothing. The same six points in a rectangular
+  pattern drill. The workaround is to pattern circles instead of points, and there is no way to
+  mark the centre as a layout point so that, once the copies do drill, the centre stays undrilled.
+- **Effort**: M. The pattern and the hole rule are each small; the behaviour change for existing
+  hole sketches is the part that needs care.
+- **Risk**: Medium. If every point that only a construction curve uses becomes a hole, a
+  construction line drawn as a guide in a hole sketch gains a hole at each loose end. A corner
+  that also belongs to an ordinary line stays as it is, because an ordinary curve still uses it.
+- **Confidence**: High that the circular pattern drills nothing. Medium on which rule should
+  change; the escape hatch below is the decision.
+- **Trade-off**: Construction lines are the solver's way of holding an angle about a point
+  (`Angle` is between lines). Deleting the rays would drop the constraint that keeps the copies
+  spaced. The rays should stay. Hole placement is what should look through them.
+- **Fix sketch**: Treat a point as free for `centres` when every curve that uses it is
+  construction. Allow a point to be construction, drawn as a layout point, and keep it out of
+  `centres` (the filter is already there). The hub of a bolt circle is then marked construction
+  and is not drilled; the copies, used only by the pattern's construction rays, are drilled.
+  Before changing the rule, search hole sketches in the tests for a construction line with a
+  loose end. If any shipped behaviour depends on that end not drilling, stop and special-case
+  the pattern rays instead of every construction curve. Update `guide/hole.md`,
+  `guide/sketch-patterns.md` and `guide/sketches.md`, and the sketch and document rules.
 
-### 4. Make a formula-looking CSV cell text, not only a quoted field
+### 4. Remember the starting value of the tools that still start from a constant
 
-- **Evidence**: `csv_cell` (`crates/caditor-file/src/csv.rs`) quotes a cell that starts with `=`, `+`, `-` or `@`. Quoting is RFC 4180 syntax; after a spreadsheet parses the file, the cell value still starts with that character. `file-import-export.md` says the quotes exist so a spreadsheet never reads the cell as a formula. They do not. Parameter notes are free text, and a configuration name is any trimmed one-line string; both are written as cells. The parameter and configuration guides tell people to open these files in a spreadsheet. Parameter names cannot start with `=`.
-- **Impact**: A note or a configuration name that starts with a formula character is still a formula when the exported CSV is opened. The control the format rule describes is not the control that works.
-- **Effort**: S.
-- **Risk**: Low. A text marker has to be stripped on import, or a note, a name, or a genuine negative expression comes back with the marker still in it. Corpus files that only check quoting need an update in the same change, and corpus files are write-once, so the change is a new behaviour of today's writer, not a rewrite of an old file.
-- **Fix sketch**: When writing a cell whose value starts with a formula introducer, prefix a marker spreadsheets keep as text, and strip that same prefix when reading. Cover a note and a configuration name in the round-trip tests. Update the sentence in `file-import-export.md` so it describes the marker.
+- **Evidence**: `Remembered` (`crates/caditor/src/last_values.rs`) has eleven slots: fillet and
+  chamfer size, chamfer form and second distance or angle, shell thickness, hole diameter and
+  blind depth, extrusion distance, linear count, circular count. `app-modelling.md` lists those
+  and no others. A new revolve is always a full turn (`solid_tools.rs`, `RevolveExtent::Full`).
+  A thin wall is always 1 mm centred (`default_wall`, `DEFAULT_WALL_THICKNESS`). A pipe is always
+  10 mm with the default bend (`pipe_tools.rs`, `Pipe::new` from `DEFAULT_SIZE`). A rib is always
+  2 mm (`rib_tools.rs`, `DEFAULT_THICKNESS`). An offset face is always the default distance
+  (`offset_face_tools.rs`, `DEFAULT_DISTANCE`). A pattern's spacing is computed from the body's
+  size on each create (`pattern_tools.rs`, `direction`) and is not one of the remembered slots;
+  only the count is.
+- **Impact**: The second bracket, the second pipe and the second rib in a session start as if
+  the first had not been set. Extrude, hole, fillet and shell already carry the last value
+  across sessions, through the preferences file, including a value that names a parameter.
+- **Effort**: S per slot. The mechanism is `Remembered`, `Starts::of` and `last_values::changes`.
+  Doing the set above together is still S.
+- **Risk**: Low. A stored text that no longer parses, or names a missing parameter, already
+  falls back to that slot's default (`Starts::of`). A full-turn revolve has no angle to store;
+  remember the angle only when the user set a partial turn.
+- **Confidence**: High.
+- **Trade-off**: Remembering a spacing fights the current default, which scales with the body so
+  the copies start clear of it. Keep that as the default the first time, and remember only after
+  the user has edited a spacing. Do not remember twist, end scale or a loft weight until someone
+  asks; those were just added and their defaults (0°, 1, free ends) are the common case.
+- **Fix sketch**: Add slots for the revolve angle, wall thickness, pipe size, pipe bend, rib
+  thickness and offset distance, on the same path fillet size already uses. Cover each in
+  `ui_tests/remembered_starts.rs`: set a value, make another feature, see the value, restart
+  the harness from the stored preferences, see it again.
 
-### 5. Link one skrifa
+### 5. Sketch text, then emboss
 
-- **Evidence**: `dependencies.md` says skrifa is the copy epaint builds, so no second font parser is compiled. The workspace pins `skrifa` 0.48.0 (`Cargo.toml`), and `caditor-file` uses it for SVG text (`import/svg/font.rs`). `Cargo.lock` also has skrifa 0.44.0 on read-fonts 0.41.0, required by epaint 0.36.2, and skrifa 0.48.0 on read-fonts 0.45.0, required by `caditor-file`. `deny.toml` sets `multiple-versions = "deny"` and does not skip either crate. `cargo deny check bans` with cargo-deny 0.20.2 (the version CI pins) reports both duplicates. CI has not reached that step on `b1d3d3bd` because the OpenGL tests fail first; the check job runs `cargo deny --locked check` after them.
-- **Impact**: The Linux and Windows graphs compile two font parsers. The dependency rule is false, and the dependency check fails as soon as the OpenGL step is green.
-- **Effort**: S, if 0.48's API use in `font.rs` still builds against 0.44. M if it does not and the duplicate has to be an explicit skip until epaint moves.
-- **Risk**: Low for a skip recorded with a reason. Medium for pinning `caditor-file` back to 0.44, which can change SVG outlines or kerning if 0.48 is load-bearing. Stop and report if the 0.44 build of `font.rs` does not compile, rather than widening the pin silently.
-- **Fix sketch**: Prefer one version. If epaint's 0.44 cannot serve `font.rs`, add versioned `deny.toml` skips with that reason and rewrite the "no second font parser" sentence in the same change. `cargo deny check` must pass.
+- **Evidence**: `docs/FEATURES.md` (Sketching, "Tools missing") names text: a font, a height,
+  bold and italic, set along a curve, letters becoming closed regions that extrude. The drawing
+  tools on `guide/sketches.md` list every other shape and do not list text. Emboss and deboss of
+  that profile onto a flat or curved face is a separate modelling entry, blocked by this one.
+  SVG import already turns text into outlines through Inter (`file-import-export.md`), so the
+  outline conversion exists for files brought in, and a letter typed in a sketch does not use it.
+- **Impact**: A part number, a logo or a scale mark cannot be typed. It is either imported as
+  frozen outlines from an SVG or drawn curve by curve. Neither follows a parameter, and neither
+  sits on a curve the way the roadmap describes.
+- **Effort**: L. A new sketch entity (or a group of regions owned by one text record), a file
+  record, the solver holding the outlines fixed the way projected geometry is held, and the
+  emboss feature after that. Coarse: more than a week for text alone.
+- **Risk**: Medium. Letter outlines that overlap, and a count of curves that changes when the
+  string changes, are the same problem the parametric gear entry already names. Regions have to
+  survive a one-character edit without renaming every face of the extrusion.
+- **Confidence**: High that it is missing. The scope is the roadmap's, not a new design.
+- **Trade-off**: Ship the sketch text first, on a plane, extrudable as ordinary regions.
+  Emboss onto a curved face is the blocked entry and should stay blocked until text has a stable
+  region identity. Use the Inter faces the SVG importer already takes, so a typed label and an
+  imported label match.
+- **Fix sketch**: This is a design task, not a small patch. Start from `Sketch::add_gear`'s
+  "draw outlines once, held fixed" and from `import/svg/lettering.rs`, and write the file record
+  before the emboss feature. Stop if the region keys change when the string is edited by one
+  character; that has to be settled before an extrusion can depend on the text.
 
-### 6. Rebuild the body-snap basis only when it can have changed
+### 6. A sweep path drawn in space
 
-- **Evidence**: While a sketch is edited, each 3D-view frame refreshes body snaps. `BodySnaps::refreshed` (`crates/caditor/src/body_snap.rs`) always builds a `Basis` before comparing it with the one it kept. `Basis::of` walks every shown body, looks it up in the sketch's seen-body map, and clones each result `Arc` into a new vector. `same` then discards that vector when nothing changed. This is not the per-entity snap walk already listed in `PERFORMANCE.md`.
-- **Impact**: Every frame with a sketch open does work proportional to the number of shown bodies, allocations included, even when the snap cache is still valid. On an assembly of a few thousand bodies that is paid on hover and orbit, on the UI thread, before any snapping.
-- **Effort**: S.
-- **Risk**: Low. The basis is a cache key. Skipping a rebuild that should have run snaps to a stale body until the next real change, so the cheap key has to include the edited sketch, its plane, and the evaluation identity the basis already compares.
-- **Fix sketch**: Return before `Basis::of` when a cheap key matches the kept basis. Rebuild the body list only when that key changes. A test can refresh twice on an unchanged model and assert the generation does not move.
+- **Evidence**: `docs/FEATURES.md` (Sketching) states that a sketch lies on one plane, so a path
+  that bends in space cannot be drawn. A sweep or a pipe can follow curves of one sketch, edges
+  of one body, or a helix (`app-modelling.md`, Sweep and Pipe). The helix, the twist and the end
+  scale landed in `81ff7c4c`. What remains for a handle, a cable or a pipe run is a path the user
+  draws, rather than edges of a body built only to carry the path. Guide rails and a non-even
+  twist are the other half of that same roadmap entry; they matter after a path can leave the plane.
+- **Impact**: Every 3D path is either a helix (one pitch, one radius) or a chain of edges, which
+  means an extra body. The planar sketch tools cannot place a point off the plane.
+- **Effort**: L. The roadmap names the solver work: 3D points, and coincident, distance,
+  parallel, perpendicular and fix in space. Coarse: a multi-week feature. It is blocked by no
+  decision in `DECISIONS.md`; it is simply large.
+- **Risk**: High. A second kind of sketch touches the solver, the file format, picking, the
+  drawing tools and every feature that stores a sketch id. A path-only subset (lines in space,
+  used by sweep and pipe, no regions) is smaller and still does the job.
+- **Confidence**: High that the workflow stops at planar sketches and body edges.
+- **Trade-off**: A full 3D sketch with regions, splines and dimensions is the roadmap's text.
+  The part a sweep needs first is an open chain of lines and arcs with typed coordinates. Ship
+  that, and leave sketch regions on a plane. Do not fold this into the helix; a helix is one
+  curve with a pitch, and a handle is not.
+- **Fix sketch**: Design the path-only subset against `SweepPath` before adding entities. If the
+  file format cannot tell a path sketch from a profile sketch without a new record, add the
+  record so an older reader reports the feature as from a newer version (`file-format.md`).
 
-### 7. Build the glimpse body set once per recompute
+## Already tracked, and left there
 
-- **Evidence**: `offer_glimpse` (`crates/caditor-document/src/recompute.rs`) runs once per feature that misses the cache, before that feature is computed. Each call collects `settling`'s body ids into a new `BTreeSet`, and it does that before the glimpse time budget is consulted. `settled_bodies` only needs the set to skip piece ids that are already listed; an ordinary body returns immediately.
-- **Impact**: A full recompute (a first open, a mesh-quality change, or an edit that misses the cache all the way down) inserts that set once per such feature. On a few thousand imported bodies the set is the whole body list, so the walk is quadratic in it, on the recompute worker, including features for which no glimpse is sent. Headless export that skips display data does not take this path. The lead-screw time in `PERFORMANCE.md` is a different cost.
-- **Effort**: S.
-- **Risk**: Low. The set is a filter of piece ids. Building it once at the start of the walk has the same contents.
-- **Fix sketch**: Compute the set once in the walk and pass it into `offer_glimpse`. A recompute of many separate bodies should not rebuild it per feature; an existing parallel or import test can count the constructions if a test seam already exists, and otherwise the structural change is the check.
+These are real gaps in the same workflow. `FEATURES.md` already says what they are and how big
+they are, so they are not findings of this pass:
 
-## Direction
-
-No new product direction. Assemblies, surfaces and sheet metal are already the open scope questions in `DECISIONS.md`, and the unfinished tools are already listed in `FEATURES.md`. The highest-leverage work that is not in the table above is still the tracked one: STEP bodies that import as facets (`BUGS.md`, STEP import) and booleans that fail on near-coincident tori and sub-resolution contacts (`BUGS.md`, Kernel). Those are hard, already described, and not re-planned here.
+- Direct editing of an imported face (move, tilt, replace). This is the top modelling gap for a
+  STEP body with no history.
+- Spline handles, inserting a spline point, and offset or fillet of a spline.
+- A gear that rebuilds when its module or its tooth count changes.
+- A sketch pattern along a path.
+- The silhouette of a body brought into a sketch, and 2D drawings. Both wait on vector
+  hidden-line removal.
+- Guide rails, round sweep corners, and a loft tangent to a face.
+- Assemblies, deriving another file, surfaces and sheet metal. Each is an open scope decision
+  in `DECISIONS.md`.
 
 ## Considered and rejected
 
-- A timed-out or failed reach check counting as a touch, including `Reaches::most` returning the later body when nothing overlapped. `app-modelling.md` says a failed or timed-out check counts as a touch, and a forward touch is never turned around.
-- The footprint test comparing boxes. The same page says the comparison is of boxes, and a profile that covers most of a face but not its extremes still cuts.
-- The ignored `ttf-parser` advisory. `deny.toml` and `dependencies.md` already record that it arrives only through winit's window decorations.
-- 3MF part paths, SVG and XML expansion limits, zenity and notify-send argument lists, and the zstd single-frame guard. Those checks are present and match the rules that describe them.
-- The OpenGL resolve staying in gamma. Already in `BUGS.md`, and blocked on wgpu's GL backend. The mesh-pipeline failure above is the one that stops the view being created.
-- Re-listing `PERFORMANCE.md`, `FEATURES.md` and `PLATFORMS.md`. They are the project's own remainder and were used as the baseline, not as new findings.
+- Tracing a reference image into curves automatically. The picture is there to draw over by
+  eye (`document.md`, Reference image). A bitmap fitter would produce curves the solver then has
+  to hold, and nothing in the image code samples pixels as snap targets. Not worth a first version.
+- A pierce constraint. A datum point where an axis meets a plane, then Project, already places
+  that point.
+- A rounded-rectangle tool. A rectangle and a sketch fillet of its four corners stay parametric
+  through the radius dimension.
+- Turning an extrusion into a revolve in place. `SetFeatureKind` refuses a kind change, so
+  dependents keep a meaningful body. The user deletes and recreates.
+- Chain and ordinate dimensions in the sketch. Dimension fully from a datum point already adds
+  the horizontal and vertical distances that define each free point (`Sketch::datum_dimensions`).
+- Remembering twist, end scale and loft weights. Their defaults are the common case, and they
+  were added in `81ff7c4c`.
 
 ## What this pass did not do
 
-Kernel boolean, shell, blend and STEP healing were not re-derived line by line; their known failures stay in `BUGS.md`. Fuzz targets were not re-run. No Windows desktop session was used. `cargo deny check bans` was run locally; the full `cargo deny check` advisories and licences pass was not, beyond that bans failure.
+Kernel booleans, shells, blends and STEP healing were not re-read; their failures stay in
+`BUGS.md`. The seven items of the previous `docs/AUDIT.md` were not re-verified. No UI session
+was driven. Fuzz targets were not run.
