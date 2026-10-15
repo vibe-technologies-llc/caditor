@@ -1467,3 +1467,58 @@ fn a_hole_reaching_the_body_counts_even_when_the_cut_merges_faces_of_the_body() 
         assert!(removed > 0.0, "{height} {depth}: {removed}");
     }
 }
+
+#[test]
+fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
+    let mut pair = pair();
+    let mut sketch = Sketch::new(top());
+    let centre = sketch.add_point(Point2::new(10.0, 5.0));
+    let bolt = sketch.add_point(Point2::new(13.0, 5.0));
+    let guide = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(19.0, 1.0));
+    sketch.set_construction(guide, true).unwrap();
+    sketch
+        .circular_pattern(
+            &[bolt],
+            centre,
+            &caditor_sketch::CircularPattern {
+                count: 4,
+                spread: caditor_sketch::Spread::FullTurn,
+            },
+        )
+        .unwrap();
+    let centres = hole_centres(&sketch);
+    let mut transaction = pair.document.transaction("Drill");
+    let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
+    let hole = transaction.add_feature(
+        "Hole 1",
+        FeatureKind::Hole(Hole {
+            sketch: sketch_id,
+            body: pair.plate,
+            diameter: expression(&pair.document, "1 mm"),
+            depth: HoleDepth::ThroughAll,
+            style: HoleStyle::Plain,
+            reversed: false,
+            shape: HoleShape::Round,
+            standard: None,
+            sizing: HoleSizing::Typed,
+            bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
+        }),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(centres.len(), 4);
+    assert!(
+        centres
+            .iter()
+            .all(|(_, at)| (at.distance(Point2::new(10.0, 5.0)) - 3.0).abs() < 1e-6)
+    );
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.cuts(hole).len(), 4);
+    let removed = 4.0 * PI * 0.5 * 0.5 * 4.0;
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}

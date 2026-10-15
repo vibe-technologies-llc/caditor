@@ -57,8 +57,14 @@ paths:
   deliberately holds a point to the whole line or circle (`Form::OnLine`, the circle form), since
   snapping to an extension relies on it. Recompute keeps them in `SketchResult::beyond` so the app
   says so rather than bounding the solve.
-- `Sketch::free_points`: points no curve uses (a constraint using one does not count), in one pass;
-  the hole feature drills at them.
+- `Sketch::free_points`: points no curve uses (a constraint using one does not count), in one pass.
+- `Sketch::layout_points`: the free points plus every point whose only users are layout rays ending
+  at it. A ray is a construction line, not projected, tied by an active `Equal` or `Angle` to another
+  construction line from the same start (`layout_rays`), which is how a circular pattern holds its
+  copies; the hub where rays start is used as a start, so it is never a layout point. Holes drill and
+  point patterns copy at these, so a circular pattern of points is a bolt circle. A generic
+  "points only construction curves use" rule was rejected: a hole's From an edge and Concentric
+  placements project construction lines and circles whose loose points must not drill.
 - `Ellipse`: centre point, major-axis end point and a minor radius (finite, above zero,
   `InvalidMinorRadius`); `EllipticalArc` adds start and end points, counter-clockwise
   (`Role::Elliptic`). `Sketch::ellipse` gives the `EllipseGeometry`, parameter the angle of

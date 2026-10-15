@@ -745,7 +745,7 @@ impl Context<'_> {
         let base = self.resolver.point(&points.base)?;
         let placed = self.sketch(points.sketch)?;
         let plane = placed.sketch.plane();
-        let ids = placed.sketch.free_points();
+        let ids = placed.sketch.layout_points();
         if ids.is_empty() {
             let name = &placed.name;
             return Err(self.resolver.error(

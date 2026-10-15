@@ -3,7 +3,7 @@
 {command:model.linear_pattern} repeats a body along one or two directions;
 {command:model.circular_pattern} repeats it about an axis. {command:model.curve_pattern} repeats
 it along a curve of a sketch, and {command:model.point_pattern} places a copy at each lone point of
-a sketch.
+a sketch (the points of a [circular sketch pattern](sketch-patterns) count, its centre does not).
 
 A new linear or circular pattern starts from the count last used on one, kept between sessions.
 

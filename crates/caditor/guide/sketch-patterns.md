@@ -27,3 +27,7 @@ type:
 
 The preview follows what you type, and Enter makes the copies. Spacings and angles may be
 [expressions](expressions). For patterns of bodies and features, see [Patterns](patterns).
+
+The copies are held by construction lines from the centre. A circular pattern of points is a bolt
+circle: a [hole](hole) drills the original and every copy, and a point pattern places a copy at
+each, while the centre point the lines start from is left alone.

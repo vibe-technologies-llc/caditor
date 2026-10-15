@@ -716,8 +716,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   plane at its foot (from the draft's evaluation while one is shown); a drag's point is projected onto
   the face (`hole_on_curve::moved_to`) and only the datum point moves.
 - Otherwise it takes the sketch as Extrude does (edited, selected, or with nothing selected the opened
-  or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it
-  (`hole_centres`); its body is the one the sketch is attached to, else the one whose faces are
+  or last one; else `NOTHING_TO_DRILL`) and needs at least one layout point (`sketch.md`) or circle
+  in it (`hole_centres`); its body is the one the sketch is attached to, else the one whose faces are
   selected, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm, hides the
   sketch and opens the panel.
 - Panel specifics: a size sets exact millimetre values, and typing any hole, counterbore or

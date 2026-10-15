@@ -426,7 +426,7 @@ pub fn centres(sketch: &Sketch) -> Vec<(EntityId, Point2)> {
         Entity::Circle { center, .. } if !sketch.is_construction(id) => Some(*center),
         _ => None,
     });
-    let points: BTreeSet<EntityId> = sketch.free_points().into_iter().chain(circled).collect();
+    let points: BTreeSet<EntityId> = sketch.layout_points().into_iter().chain(circled).collect();
     points
         .into_iter()
         .filter_map(|id| Some((id, sketch.point(id)?)))

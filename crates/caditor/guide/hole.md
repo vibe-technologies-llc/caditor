@@ -48,7 +48,10 @@
   square into the face and asks you to click where the hole goes. Drag the square or an arrow at
   its centre to slide it over the face, staying square to it, or use **Choose in the view** on
   **Placed on** to put it somewhere else.
-- With a sketch selected or being edited, it drills at each of its loose points and circles.
+- With a sketch selected or being edited, it drills at each of its loose points and circles. A
+  point counts as loose when no curve uses it, or when the only curves using it are the
+  construction lines a [circular pattern](sketch-patterns) holds its copies with: so a circular
+  pattern of points drills a bolt circle, and the centre the lines start from is not drilled.
 
 A new hole starts from the diameter and blind depth last used on one, kept between sessions
 (values naming a parameter the model lacks fall back to 6 mm and 10 mm).

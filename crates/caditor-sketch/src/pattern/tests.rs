@@ -785,3 +785,54 @@ fn an_inactive_coincident_does_not_hold_a_point_on_the_pattern_centre() {
             .any(|(_, constraint)| *constraint == Constraint::Coincident(root, EntityId::ORIGIN))
     );
 }
+
+#[test]
+fn a_circular_pattern_of_points_lays_out_every_copy_but_not_its_centre() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = sketch.add_point(Point2::new(5.0, 5.0));
+    let bolt = sketch.add_point(Point2::new(15.0, 5.0));
+    let guide = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(20.0, -10.0));
+    sketch.set_construction(guide, true).unwrap();
+    let lone = sketch.add_point(Point2::new(30.0, 30.0));
+
+    let free = sketch.free_points();
+    let copies = sketch.circular_pattern(&[bolt], centre, &turns(6)).unwrap();
+    let laid_out = sketch.layout_points();
+
+    assert_eq!(free, vec![centre, bolt, lone]);
+    assert_eq!(copies.len(), 5);
+    assert_eq!(sketch.free_points(), vec![lone]);
+    assert!(laid_out.contains(&bolt));
+    assert!(laid_out.contains(&lone));
+    assert!(copies.iter().all(|copy| laid_out.contains(copy)));
+    assert!(!laid_out.contains(&centre));
+    assert_eq!(laid_out.len(), 7);
+    assert!(
+        sketch
+            .entity(guide)
+            .unwrap()
+            .points()
+            .into_iter()
+            .all(|end| !laid_out.contains(&end))
+    );
+}
+
+#[test]
+fn a_circular_pattern_about_the_origin_lays_out_its_points_and_not_the_hub_it_adds() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let bolt = sketch.add_point(Point2::new(10.0, 0.0));
+
+    let copies = sketch
+        .circular_pattern(&[bolt], EntityId::ORIGIN, &turns(4))
+        .unwrap();
+    let laid_out = sketch.layout_points();
+
+    assert_eq!(copies.len(), 3);
+    assert_eq!(laid_out.len(), 4);
+    assert!(laid_out.contains(&bolt));
+    assert!(
+        laid_out
+            .iter()
+            .all(|point| sketch.point(*point).unwrap().length() > 1.0)
+    );
+}

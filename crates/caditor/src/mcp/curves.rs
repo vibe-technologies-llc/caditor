@@ -278,7 +278,7 @@ pub fn point_pattern_built(
         kept.map(|kept| kept.sketch),
     )?;
     let has_points =
-        solved(evaluation, sketch).is_some_and(|solved| !solved.free_points().is_empty());
+        solved(evaluation, sketch).is_some_and(|solved| !solved.layout_points().is_empty());
     if !has_points {
         return Err(CurveToolError::NoPoints {
             sketch: sketch_name.to_owned(),

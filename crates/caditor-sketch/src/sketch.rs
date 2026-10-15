@@ -1328,6 +1328,59 @@ impl Sketch {
             .collect()
     }
 
+    pub fn layout_points(&self) -> Vec<EntityId> {
+        let rays = self.layout_rays();
+        let mut users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
+        for (curve, entity) in &self.entities {
+            for point in entity.points() {
+                users.entry(point).or_default().push(*curve);
+            }
+        }
+        let ends_a_ray = |point: EntityId, curve: &EntityId| {
+            rays.contains(curve)
+                && matches!(self.entities.get(curve), Some(Entity::Line { end, .. }) if *end == point)
+        };
+        self.entities
+            .iter()
+            .filter(|(id, entity)| {
+                matches!(entity, Entity::Point(_))
+                    && !self.construction.contains(id)
+                    && users
+                        .get(id)
+                        .is_none_or(|curves| curves.iter().all(|curve| ends_a_ray(**id, curve)))
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    fn layout_rays(&self) -> BTreeSet<EntityId> {
+        let hub_of = |line: EntityId| match self.entities.get(&line) {
+            Some(Entity::Line { start, end })
+                if start != end
+                    && self.construction.contains(&line)
+                    && !self.projected.contains(&line) =>
+            {
+                Some(*start)
+            }
+            _ => None,
+        };
+        self.active_constraints()
+            .filter_map(|(_, constraint)| match constraint {
+                Constraint::Equal(first, second)
+                | Constraint::Angle {
+                    from: first,
+                    to: second,
+                    ..
+                } => Some((*first, *second)),
+                _ => None,
+            })
+            .filter(|(first, second)| {
+                first != second && hub_of(*first).is_some_and(|hub| hub_of(*second) == Some(hub))
+            })
+            .flat_map(|(first, second)| [first, second])
+            .collect()
+    }
+
     pub fn entities_using(&self, id: EntityId) -> Vec<EntityId> {
         self.entities
             .iter()

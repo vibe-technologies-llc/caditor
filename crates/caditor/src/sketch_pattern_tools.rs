@@ -46,7 +46,7 @@ fn solved(model: &Model, sketch: FeatureId) -> Option<&Sketch> {
 pub fn qualifies(model: &Model, shape: Shape, sketch: FeatureId) -> bool {
     solved(model, sketch).is_some_and(|solved| match shape {
         Shape::Curve => is_curve_path(solved),
-        Shape::Points => !solved.free_points().is_empty(),
+        Shape::Points => !solved.layout_points().is_empty(),
         Shape::Linear | Shape::Circular => false,
     })
 }

@@ -772,10 +772,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Hole (`hole.rs`)
 
-- `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its
-  sketch (`Sketch::free_points`: no curve uses it, not construction; a point only a constraint uses
-  counts) and at the centre of every non-construction circle (`hole::centres`), down the sketch
-  plane's normal, or up when reversed.
+- `Hole { sketch, body, diameter, depth, style, reversed }` drills at every layout point of its
+  sketch (`Sketch::layout_points`, `sketch.md`: free points and the far ends of a circular
+  pattern's rays, never their hub) and at the centre of every non-construction circle
+  (`hole::centres`), down the sketch plane's normal, or up when reversed.
 - `HoleDepth`: blind, through all (as an extrusion's), up to next or up to face (boxed
   `PlaneReference` resolved like an extrusion's end; body, datum, frame counted, face healed),
   each up-to with an optional signed `offset`. Each hole's depth is where its axis meets the plane
@@ -1207,7 +1207,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   whether it is closed, and `copy_at` for the placement, point and tangent of the copy at an arc
   length, so the pattern's arrows stand where its copies do.
 - `PatternKind::Points` (`PointsPattern`) places a copy at every lone point of an earlier sketch
-  (`Sketch::free_points`, solved), moved from `base`, a `PointReference` resolved like a datum
+  (`Sketch::layout_points`, solved), moved from `base`, a `PointReference` resolved like a datum
   point's (datum, frame, body, sketch and origins counted, edge or face healed). A point on the base
   is the original and makes no copy; no lone points fails with the fix on the sketch. A copy's index
   is its point's id plus one split into two words (`point_instance`, `instance_point`; the original
