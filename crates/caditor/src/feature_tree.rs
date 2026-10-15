@@ -1452,7 +1452,7 @@ fn rename_field(
         width,
         renaming.focus_pending,
         |text| {
-            field::checked(
+            field::checked::<field::CheckError>(
                 document,
                 Transaction::single(
                     format!("Rename {}", feature.name),

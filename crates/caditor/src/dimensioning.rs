@@ -429,17 +429,43 @@ pub fn hover_words(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum DimensionToolError {
+    #[error("{prompt}")]
+    Waiting { prompt: String },
+    #[error("{0}")]
+    Unfitting(&'static str),
+    #[error("{0}")]
+    Unproposed(String),
+}
+
+impl From<String> for DimensionToolError {
+    fn from(error: String) -> Self {
+        Self::Unproposed(error)
+    }
+}
+
+impl From<DimensionToolError> for String {
+    fn from(error: DimensionToolError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn dimension(
     model: &Model,
     feature: FeatureId,
     staged: &Staged,
     pointer: Option<Point2>,
-) -> Result<Added, String> {
+) -> Result<Added, DimensionToolError> {
     let (definition, shown, picks) = (&staged.definition, &staged.shown, &staged.picks);
     let tool = match fitting(shown, picks) {
         Fit::Ready(tool) => placed(shown, picks, pointer).unwrap_or(tool),
-        Fit::Waiting => return Err(prompt(shown, staged.names(), picks, pointer).0),
-        Fit::Refused(reason) => return Err(reason.to_owned()),
+        Fit::Waiting => {
+            return Err(DimensionToolError::Waiting {
+                prompt: prompt(shown, staged.names(), picks, pointer).0,
+            });
+        }
+        Fit::Refused(reason) => return Err(DimensionToolError::Unfitting(reason)),
     };
     let constraints = tool.candidates_among(definition, shown, picks, &definition.relations())?;
     let constraints = sketch_tools::in_unit(constraints, model.units());

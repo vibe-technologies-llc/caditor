@@ -1,4 +1,6 @@
-use caditor_expression::{Dimension, Expression};
+use std::{convert, fmt::Display};
+
+use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::MAX_LENGTH;
 use egui::{
@@ -11,7 +13,7 @@ use egui::{
 use crate::{
     appearance::{self, SPACE_M, SPACE_SM},
     canvas,
-    field::{self, Expected},
+    field::{self, Expected, ExpressionError},
     icons,
     model::Model,
     sketch_drag::Transform,
@@ -165,7 +167,7 @@ pub fn sides(text: &str) -> Option<usize> {
     digits.then(|| count.parse().unwrap_or(usize::MAX))
 }
 
-pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), String>> {
+pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), TypedValueError>> {
     let trimmed = text.trim();
     let split = trimmed.len().checked_sub(RHO_WORD.len())?;
     let (value, word) = (trimmed.get(..split)?, trimmed.get(split..)?);
@@ -265,9 +267,9 @@ impl TypedPoint {
         self.waiting = false;
     }
 
-    pub fn open_with(&mut self, text: String, error: String) {
+    pub fn open_with(&mut self, text: String, error: impl Display) {
         self.text = Some(text);
-        self.error = Some(error);
+        self.error = Some(error.to_string());
         self.focus_pending = true;
         self.waiting = false;
     }
@@ -458,12 +460,62 @@ const DIRECTION: Part = Part {
     expected: ANGLE,
 };
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TypedValueError {
+    #[error("The {noun} is missing")]
+    Missing { noun: &'static str },
+    #[error("{label}: {source}")]
+    Expression {
+        label: &'static str,
+        source: ExpressionError,
+    },
+    #[error("{label}: {}", field::sentence(&.source.to_string()))]
+    Unevaluable {
+        label: &'static str,
+        source: EvalError,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TypedPointError {
+    #[error(transparent)]
+    Value(#[from] TypedValueError),
+    #[error("{}", FORMS)]
+    Forms,
+    #[error("{FORMS}; a length alone needs a placed point to measure from")]
+    LengthNeedsPlacedPoint,
+    #[error("Point the way the length should go, or type length < angle")]
+    NoDirection,
+    #[error("Keep the point within {} m of the sketch's origin", .limit / 1_000.0)]
+    PointTooFar { limit: f64 },
+    #[error("{}", HEADING_NEEDS_A_POINT)]
+    HeadingNeedsPoint,
+    #[error("{}", LENGTH_LOCK_NEEDS_A_POINT)]
+    LengthLockNeedsPoint,
+    #[error("{}", LENGTH_LOCK_ABOVE_ZERO)]
+    LengthLockNotPositive,
+    #[error("Keep the length within {} m", .limit / 1_000.0)]
+    LengthTooLong { limit: f64 },
+}
+
+impl convert::From<TypedValueError> for String {
+    fn from(error: TypedValueError) -> Self {
+        error.to_string()
+    }
+}
+
+impl convert::From<TypedPointError> for String {
+    fn from(error: TypedPointError) -> Self {
+        error.to_string()
+    }
+}
+
 fn typed_value(
     model: &Model,
     text: &str,
     part: Part,
     measured: Measured,
-) -> Result<TypedValue, String> {
+) -> Result<TypedValue, TypedValueError> {
     let Part {
         label,
         noun,
@@ -471,7 +523,7 @@ fn typed_value(
     } = part;
     let text = text.trim();
     if text.is_empty() {
-        return Err(format!("The {noun} is missing"));
+        return Err(TypedValueError::Missing { noun });
     }
     let expression = field::parse_expression(
         model.document(),
@@ -480,11 +532,11 @@ fn typed_value(
         expected,
         model.units(),
     )
-    .map_err(|error| format!("{label}: {error}"))?;
+    .map_err(|source| TypedValueError::Expression { label, source })?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);
     let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
-        .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))?;
+        .map_err(|source| TypedValueError::Unevaluable { label, source })?;
     Ok(TypedValue {
         measured,
         expression,
@@ -492,7 +544,11 @@ fn typed_value(
     })
 }
 
-fn offset(model: &Model, text: &str, from: From) -> Result<(Vector2, Vec<TypedValue>), String> {
+fn offset(
+    model: &Model,
+    text: &str,
+    from: From,
+) -> Result<(Vector2, Vec<TypedValue>), TypedPointError> {
     let coordinates = coordinates(text);
     let polar = polar(text);
     match (coordinates.as_slice(), polar.as_slice()) {
@@ -515,19 +571,15 @@ fn offset(model: &Model, text: &str, from: From) -> Result<(Vector2, Vec<TypedVa
         ([length], [_]) => {
             let length = typed_value(model, length, DISTANCE, Measured::Length)?;
             let Some(last) = from.last else {
-                return Err(format!(
-                    "{FORMS}; a length alone needs a placed point to measure from"
-                ));
+                return Err(TypedPointError::LengthNeedsPlacedPoint);
             };
             let direction = from
                 .toward
                 .and_then(|toward| (toward - last).try_normalize())
-                .ok_or_else(|| {
-                    "Point the way the length should go, or type length < angle".to_owned()
-                })?;
+                .ok_or(TypedPointError::NoDirection)?;
             Ok((direction * length.value, vec![length]))
         }
-        _ => Err(FORMS.to_owned()),
+        _ => Err(TypedPointError::Forms),
     }
 }
 
@@ -559,7 +611,11 @@ pub fn transform_field(transform: Transform) -> TransformField {
     }
 }
 
-pub fn parse_transform(model: &Model, text: &str, transform: Transform) -> Result<f64, String> {
+pub fn parse_transform(
+    model: &Model,
+    text: &str,
+    transform: Transform,
+) -> Result<f64, TypedValueError> {
     let part = match transform {
         Transform::Rotate => DIRECTION,
         Transform::Scale => Part {
@@ -571,11 +627,11 @@ pub fn parse_transform(model: &Model, text: &str, transform: Transform) -> Resul
     typed_value(model, text, part, Measured::Angle).map(|typed| typed.value)
 }
 
-pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, String> {
+pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, TypedPointError> {
     parse_placed(model, text, from).map(|placed| placed.position)
 }
 
-pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, String>> {
+pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, TypedPointError>> {
     let text = text.strip_prefix(RELATIVE_MARK).unwrap_or(text);
     let [length, angle] = polar(text)[..] else {
         return None;
@@ -584,17 +640,23 @@ pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, 
         return None;
     }
     Some(
-        typed_value(model, angle, DIRECTION, Measured::Angle).and_then(|angle| {
-            let last = from.last.ok_or_else(|| HEADING_NEEDS_A_POINT.to_owned())?;
-            Ok(Heading {
-                degrees: angle.value,
-                dimension: angle.dimension(Some(last)),
-            })
-        }),
+        typed_value(model, angle, DIRECTION, Measured::Angle)
+            .map_err(TypedPointError::from)
+            .and_then(|angle| {
+                let last = from.last.ok_or(TypedPointError::HeadingNeedsPoint)?;
+                Ok(Heading {
+                    degrees: angle.value,
+                    dimension: angle.dimension(Some(last)),
+                })
+            }),
     )
 }
 
-pub fn length_lock(model: &Model, text: &str, from: From) -> Option<Result<LengthLock, String>> {
+pub fn length_lock(
+    model: &Model,
+    text: &str,
+    from: From,
+) -> Option<Result<LengthLock, TypedPointError>> {
     let text = text.strip_prefix(RELATIVE_MARK).unwrap_or(text);
     let [length, angle] = polar(text)[..] else {
         return None;
@@ -603,25 +665,25 @@ pub fn length_lock(model: &Model, text: &str, from: From) -> Option<Result<Lengt
         return None;
     }
     Some(
-        typed_value(model, length, DISTANCE, Measured::Length).and_then(|length| {
-            let last = from
-                .last
-                .ok_or_else(|| LENGTH_LOCK_NEEDS_A_POINT.to_owned())?;
-            if length.value <= 0.0 {
-                return Err(LENGTH_LOCK_ABOVE_ZERO.to_owned());
-            }
-            if length.value > MAX_LENGTH {
-                return Err(format!("Keep the length within {} m", MAX_LENGTH / 1_000.0));
-            }
-            Ok(LengthLock {
-                length: length.value,
-                dimension: length.dimension(Some(last)),
-            })
-        }),
+        typed_value(model, length, DISTANCE, Measured::Length)
+            .map_err(TypedPointError::from)
+            .and_then(|length| {
+                let last = from.last.ok_or(TypedPointError::LengthLockNeedsPoint)?;
+                if length.value <= 0.0 {
+                    return Err(TypedPointError::LengthLockNotPositive);
+                }
+                if length.value > MAX_LENGTH {
+                    return Err(TypedPointError::LengthTooLong { limit: MAX_LENGTH });
+                }
+                Ok(LengthLock {
+                    length: length.value,
+                    dimension: length.dimension(Some(last)),
+                })
+            }),
     )
 }
 
-pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, String> {
+pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, TypedPointError> {
     let (relative, text) = match text.strip_prefix(RELATIVE_MARK) {
         Some(rest) => (true, rest),
         None => (false, text),
@@ -631,10 +693,7 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Str
     let measured_from = if relative || alone { from.last } else { None };
     let point = measured_from.unwrap_or(Point2::ZERO) + offset;
     if point.abs().max_element() > MAX_LENGTH {
-        return Err(format!(
-            "Keep the point within {} m of the sketch's origin",
-            MAX_LENGTH / 1_000.0
-        ));
+        return Err(TypedPointError::PointTooFar { limit: MAX_LENGTH });
     }
     Ok(Placed {
         position: point,
@@ -715,7 +774,7 @@ mod tests {
             Some((Measured::Angle, Some(last)))
         );
         assert_eq!(relative.map(|found| found.degrees), Some(30.0));
-        assert_eq!(without_point, Some(Err(HEADING_NEEDS_A_POINT.to_owned())));
+        assert_eq!(without_point, Some(Err(TypedPointError::HeadingNeedsPoint)));
         for text in ["10 < 30", "10, 20", "5", "1, 2 < 3"] {
             assert!(heading(&model, text, from).is_none(), "{text}");
         }
@@ -744,9 +803,9 @@ mod tests {
         assert_eq!(relative.map(|found| found.length), Some(12.0));
         assert_eq!(
             without_point,
-            Some(Err(LENGTH_LOCK_NEEDS_A_POINT.to_owned()))
+            Some(Err(TypedPointError::LengthLockNeedsPoint))
         );
-        assert_eq!(zero, Some(Err(LENGTH_LOCK_ABOVE_ZERO.to_owned())));
+        assert_eq!(zero, Some(Err(TypedPointError::LengthLockNotPositive)));
         for text in ["<30", "10 < 30", "10, 20", "5", "1, 2 <"] {
             assert!(length_lock(&model, text, from).is_none(), "{text}");
         }

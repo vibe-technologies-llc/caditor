@@ -861,7 +861,11 @@ impl SketchEditing {
                 self.enter(feature, model, since);
             }
             Err(reason) => {
-                refuse_new_sketch(model, &reason, EditingCommand::NewSketchOnDatum(datum));
+                refuse_new_sketch(
+                    model,
+                    &reason.to_string(),
+                    EditingCommand::NewSketchOnDatum(datum),
+                );
             }
         }
     }

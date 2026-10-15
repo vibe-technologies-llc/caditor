@@ -481,7 +481,7 @@ impl HoleDrag {
                     format!("Move {name}"),
                     kept.into_iter().chain(named).collect(),
                 );
-                field::checked(document, transaction).ok()
+                field::checked::<field::CheckError>(document, transaction).ok()
             }
             HoleGrip::Along(point) => {
                 hole_placement::slid(model, feature, hole, point, self.slide.at()).ok()

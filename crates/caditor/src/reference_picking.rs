@@ -362,17 +362,39 @@ fn held_prompt(model: &Model, picking: Picking) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ChangeError {
+    #[error("{}", GONE)]
+    Gone { feature: FeatureId },
+    #[error("{name} no longer takes this reference")]
+    NotTaken { name: String },
+    #[error("{0}")]
+    Unconverted(String),
+}
+
+impl From<String> for ChangeError {
+    fn from(error: String) -> Self {
+        Self::Unconverted(error)
+    }
+}
+
+impl From<ChangeError> for String {
+    fn from(error: ChangeError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn change(
     model: &Model,
     feature: FeatureId,
     slot: Slot,
     selection: &Selection,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ChangeError> {
     let owner = model
         .document()
         .feature(feature)
-        .ok_or_else(|| GONE.to_owned())?;
-    match (slot, &owner.kind) {
+        .ok_or(ChangeError::Gone { feature })?;
+    let changed = match (slot, &owner.kind) {
         (Slot::RevolveAxis, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::selected_axis_change(model, selection, feature, revolve)
         }
@@ -487,8 +509,13 @@ pub fn change(
         (Slot::MeasuredItem(part), FeatureKind::Measurement(measurement)) => {
             measurement_tools::item_change(model, selection, feature, measurement, part)
         }
-        _ => Err(format!("{} no longer takes this reference", owner.name)),
-    }
+        _ => {
+            return Err(ChangeError::NotTaken {
+                name: owner.name.clone(),
+            });
+        }
+    };
+    Ok(changed?)
 }
 
 fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {

@@ -1,7 +1,7 @@
-use std::ops::RangeInclusive;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use caditor_file::Settings;
-use caditor_render::LightDirection;
+use caditor_render::{Backdrop, Environment, LightDirection};
 
 use crate::preferences::Choice;
 
@@ -14,6 +14,8 @@ const ENVIRONMENT_KEY: &str = "rendering.environment";
 const BOUNCE_KEY: &str = "rendering.bounce";
 const EXPOSURE_KEY: &str = "rendering.exposure";
 const SHADOWS_KEY: &str = "rendering.shadows";
+const BACKDROP_TURN_KEY: &str = "rendering.backdrop_turn";
+const BACKDROP_EXPOSURE_KEY: &str = "rendering.backdrop_exposure";
 const OCCLUSION_KEY: &str = "rendering.occlusion";
 pub const AZIMUTH: RangeInclusive<f64> = -180.0..=180.0;
 pub const ELEVATION: RangeInclusive<f64> = 0.0..=90.0;
@@ -23,6 +25,8 @@ pub const ENVIRONMENT: RangeInclusive<f64> = 0.0..=2.0;
 pub const BOUNCE: RangeInclusive<f64> = 0.0..=3.0;
 pub const EXPOSURE: RangeInclusive<f64> = -4.0..=4.0;
 pub const OCCLUSION: RangeInclusive<f64> = 0.0..=2.0;
+pub const BACKDROP_TURN: RangeInclusive<f64> = -180.0..=180.0;
+pub const BACKDROP_EXPOSURE: RangeInclusive<f64> = -4.0..=4.0;
 const LUMINANCE: [f64; 3] = [0.2126, 0.7152, 0.0722];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -73,6 +77,8 @@ pub struct Lighting {
     pub occlusion: f64,
     pub exposure: f64,
     pub shadows: bool,
+    pub backdrop_turn: f64,
+    pub backdrop_exposure: f64,
 }
 
 impl Default for Lighting {
@@ -88,6 +94,8 @@ impl Default for Lighting {
             occlusion: 1.0,
             exposure: 0.0,
             shadows: true,
+            backdrop_turn: 0.0,
+            backdrop_exposure: 0.0,
         }
     }
 }
@@ -110,6 +118,12 @@ impl Lighting {
             occlusion: number(OCCLUSION_KEY, OCCLUSION, defaults.occlusion),
             exposure: number(EXPOSURE_KEY, EXPOSURE, defaults.exposure),
             shadows: raw.flag(SHADOWS_KEY).unwrap_or(defaults.shadows),
+            backdrop_turn: number(BACKDROP_TURN_KEY, BACKDROP_TURN, defaults.backdrop_turn),
+            backdrop_exposure: number(
+                BACKDROP_EXPOSURE_KEY,
+                BACKDROP_EXPOSURE,
+                defaults.backdrop_exposure,
+            ),
         }
     }
 
@@ -124,6 +138,8 @@ impl Lighting {
         settings.set_number(OCCLUSION_KEY, self.occlusion);
         settings.set_number(EXPOSURE_KEY, self.exposure);
         settings.set_flag(SHADOWS_KEY, self.shadows);
+        settings.set_number(BACKDROP_TURN_KEY, self.backdrop_turn);
+        settings.set_number(BACKDROP_EXPOSURE_KEY, self.backdrop_exposure);
     }
 
     pub fn render(&self) -> caditor_render::Lighting {
@@ -141,6 +157,14 @@ impl Lighting {
             shadows: self.shadows,
             bounce: self.bounce as f32,
             occlusion: self.occlusion as f32,
+        }
+    }
+
+    pub fn backdrop(&self, environment: Arc<Environment>) -> Backdrop {
+        Backdrop {
+            environment,
+            turn: self.backdrop_turn.to_radians() as f32,
+            stops: self.backdrop_exposure as f32,
         }
     }
 
@@ -215,6 +239,8 @@ mod tests {
             occlusion: 0.5,
             exposure: -1.5,
             shadows: false,
+            backdrop_turn: -45.0,
+            backdrop_exposure: 1.5,
         };
         let mut settings = Settings::default();
         lighting.write(&mut settings);
@@ -229,7 +255,9 @@ mod tests {
             Lighting::from_settings(&Settings::default()),
             Lighting::default()
         );
+        odd.set_number(BACKDROP_TURN_KEY, 900.0);
         let read = Lighting::from_settings(&odd);
+        assert_eq!(read.backdrop_turn, *BACKDROP_TURN.end());
         assert_eq!(read.frame, LightFrame::Model);
         assert_eq!(read.elevation, *ELEVATION.end());
         assert_eq!(read.strength, Lighting::default().strength);
@@ -276,5 +304,21 @@ mod tests {
             Lighting::default().render().direction,
             LightDirection::Model { .. }
         ));
+    }
+
+    #[test]
+    fn the_picture_turns_by_degrees_in_radians_and_brightens_by_stops() {
+        let environment = Arc::new(Environment::new(32, 16, vec![1.0; 32 * 16 * 3]).unwrap());
+        let lighting = Lighting {
+            backdrop_turn: 90.0,
+            backdrop_exposure: -2.0,
+            ..Lighting::default()
+        };
+
+        let backdrop = lighting.backdrop(Arc::clone(&environment));
+
+        assert!((backdrop.turn - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert_eq!(backdrop.stops, -2.0);
+        assert!(Arc::ptr_eq(&backdrop.environment, &environment));
     }
 }

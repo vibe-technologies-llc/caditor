@@ -751,6 +751,7 @@ dependencies = [
  "caditor-geometry",
  "caditor-windows",
  "glam 0.34.1",
+ "half",
  "log",
  "naga",
  "parking_lot",

@@ -83,7 +83,7 @@ pub fn show(
                         label: document.body_label(body)?,
                         selected: body == remove.body,
                         change: change(model, id, Remove { body }).map(|transaction| {
-                            feature_fields::applied(&feature.name, Ok(transaction))
+                            feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
                         }),
                     })
                 })

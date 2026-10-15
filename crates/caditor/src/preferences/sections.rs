@@ -233,6 +233,9 @@ impl Section {
                 "bounced light",
                 "indirect",
                 "sky",
+                "sky picture",
+                "hdr",
+                "environment",
                 "exposure",
                 "colour temperature",
             ],
@@ -369,7 +372,10 @@ impl Section {
                 to.tooltip_delay = from.tooltip_delay;
             }
             Self::InTheView => to.view_details = from.view_details,
-            Self::RenderedView => to.lighting = from.lighting,
+            Self::RenderedView => {
+                to.lighting = from.lighting;
+                to.backdrop.clone_from(&from.backdrop);
+            }
             Self::NavigationView => {
                 to.navigation.projection = from.navigation.projection;
                 to.navigation.field_of_view = from.navigation.field_of_view;

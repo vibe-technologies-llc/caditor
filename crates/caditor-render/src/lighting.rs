@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use caditor_geometry::{Point3, Vector3};
 use glam::{DMat4, DVec4, Mat4};
 
 use crate::{
     camera::View,
+    environment::Environment,
+    environment_textures::{self, EnvironmentViews},
     gpu::{self, Pack},
 };
 
@@ -23,6 +27,7 @@ const SHADOW_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
 };
 const FARTHEST_SHADOW_DEPTH: f32 = 1.0;
 const LEVEL_HEADING: f64 = 1e-6;
+const MOST_ENVIRONMENT_GAIN: f32 = 1024.0;
 const LONGEST_GROUND_SHADOW: f64 = 3.0;
 const LOWEST_SUN_FOR_GROUND_SHADOWS: f64 = 0.05;
 
@@ -209,6 +214,7 @@ pub(crate) struct LightUniform {
     bounce: [f32; 4],
     ground: [f32; 4],
     sky_view: [f32; 4],
+    environment: [f32; 4],
     shadow_matrix: Mat4,
     relative_from_light: Mat4,
 }
@@ -221,6 +227,7 @@ impl LightUniform {
         bounce: [0.0; 4],
         ground: [0.0; 4],
         sky_view: [0.0; 4],
+        environment: [0.0; 4],
         shadow_matrix: Mat4::ZERO,
         relative_from_light: Mat4::ZERO,
     };
@@ -255,8 +262,16 @@ impl LightUniform {
             },
             ground: ground.map_or([0.0; 4], |ground| ground.uniform(view.eye())),
             sky_view: [(tan_y * view.aspect()) as f32, tan_y as f32, 0.0, 0.0],
+            environment: [0.0; 4],
             shadow_matrix: frame.map_or(Mat4::ZERO, |frame| frame.matrix),
             relative_from_light: frame.map_or(Mat4::ZERO, |frame| frame.relative_from_light),
+        }
+    }
+
+    pub(crate) fn with_environment(self, environment: [f32; 4]) -> Self {
+        Self {
+            environment,
+            ..self
         }
     }
 
@@ -276,6 +291,7 @@ impl LightUniform {
             .floats(&self.bounce)
             .floats(&self.ground)
             .floats(&self.sky_view)
+            .floats(&self.environment)
             .mat4(self.shadow_matrix)
             .mat4(self.relative_from_light);
     }
@@ -308,15 +324,20 @@ fn exposure_scale(stops: f32) -> f32 {
 
 pub(crate) struct LightPass {
     layout: wgpu::BindGroupLayout,
-    stand_in: wgpu::BindGroup,
     sampler: wgpu::Sampler,
-    made: Option<Made>,
+    environment_sampler: wgpu::Sampler,
+    stand_in_targets: LightTargets,
+    stand_in_environment: EnvironmentViews,
+    targets: Option<LightTargets>,
+    environment: Option<BoundEnvironment>,
+    refused_environment: Option<Arc<Environment>>,
+    bind_group: wgpu::BindGroup,
     refused: bool,
 }
 
-struct Made {
-    targets: LightTargets,
-    bind_group: wgpu::BindGroup,
+struct BoundEnvironment {
+    source: Arc<Environment>,
+    views: EnvironmentViews,
 }
 
 struct LightTargets {
@@ -343,6 +364,12 @@ pub(crate) enum LightPassReady {
     NewlyRefused,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct EnvironmentBound {
+    pub rebound: bool,
+    pub newly_refused: bool,
+}
+
 impl LightPass {
     pub(crate) fn new(device: &wgpu::Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -367,6 +394,14 @@ impl LightPass {
                 bounce_entry(2, wgpu::TextureSampleType::Float { filterable: false }),
                 bounce_entry(3, wgpu::TextureSampleType::Float { filterable: false }),
                 bounce_entry(4, wgpu::TextureSampleType::Uint),
+                bounce_entry(5, wgpu::TextureSampleType::Float { filterable: true }),
+                bounce_entry(6, wgpu::TextureSampleType::Float { filterable: true }),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -378,37 +413,61 @@ impl LightPass {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let stand_in = bind_group(device, &layout, &sampler, &LightTargets::new(device, 1));
+        Self::with_layout(device, layout, sampler)
+    }
+
+    fn with_layout(
+        device: &wgpu::Device,
+        layout: wgpu::BindGroupLayout,
+        sampler: wgpu::Sampler,
+    ) -> Self {
+        let environment_sampler = environment_textures::sampler(device);
+        let stand_in_targets = LightTargets::new(device, 1);
+        let stand_in_environment = environment_textures::stand_in(device);
+        let bind_group = bind_group(
+            device,
+            &layout,
+            (&sampler, &environment_sampler),
+            (&stand_in_targets, &stand_in_environment),
+        );
         Self {
             layout,
-            stand_in,
             sampler,
-            made: None,
+            environment_sampler,
+            stand_in_targets,
+            stand_in_environment,
+            targets: None,
+            environment: None,
+            refused_environment: None,
+            bind_group,
             refused: false,
         }
     }
 
     pub(crate) fn sibling(&self, device: &wgpu::Device) -> Self {
-        Self {
-            layout: self.layout.clone(),
-            stand_in: bind_group(
-                device,
-                &self.layout,
-                &self.sampler,
-                &LightTargets::new(device, 1),
-            ),
-            sampler: self.sampler.clone(),
-            made: None,
-            refused: false,
-        }
+        Self::with_layout(device, self.layout.clone(), self.sampler.clone())
     }
 
     pub(crate) fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.layout
     }
 
+    fn rebind(&mut self, device: &wgpu::Device) {
+        self.bind_group = bind_group(
+            device,
+            &self.layout,
+            (&self.sampler, &self.environment_sampler),
+            (
+                self.targets.as_ref().unwrap_or(&self.stand_in_targets),
+                self.environment
+                    .as_ref()
+                    .map_or(&self.stand_in_environment, |bound| &bound.views),
+            ),
+        );
+    }
+
     pub(crate) fn ensure(&mut self, device: &wgpu::Device) -> LightPassReady {
-        if self.made.is_some() {
+        if self.targets.is_some() {
             return LightPassReady::Ready;
         }
         if self.refused {
@@ -418,10 +477,8 @@ impl LightPass {
         let (targets, error) = gpu::scoped(device, || LightTargets::new(device, side));
         match error {
             None => {
-                self.made = Some(Made {
-                    bind_group: bind_group(device, &self.layout, &self.sampler, &targets),
-                    targets,
-                });
+                self.targets = Some(targets);
+                self.rebind(device);
                 LightPassReady::Ready
             }
             Some(error) => {
@@ -434,17 +491,75 @@ impl LightPass {
         }
     }
 
-    pub(crate) fn bind_group(&self) -> &wgpu::BindGroup {
-        self.made
+    pub(crate) fn bind_environment(
+        &mut self,
+        (device, queue): (&wgpu::Device, &wgpu::Queue),
+        wanted: Option<&Arc<Environment>>,
+    ) -> EnvironmentBound {
+        let Some(wanted) = wanted else {
+            self.refused_environment = None;
+            let rebound = self.environment.take().is_some();
+            if rebound {
+                self.rebind(device);
+            }
+            return EnvironmentBound {
+                rebound,
+                newly_refused: false,
+            };
+        };
+        let held = self
+            .environment
             .as_ref()
-            .map_or(&self.stand_in, |made| &made.bind_group)
+            .is_some_and(|bound| Arc::ptr_eq(&bound.source, wanted));
+        let declined = self
+            .refused_environment
+            .as_ref()
+            .is_some_and(|refused| Arc::ptr_eq(refused, wanted));
+        if held || declined {
+            return EnvironmentBound::default();
+        }
+        let (views, error) = gpu::scoped(device, || {
+            environment_textures::upload(device, queue, wanted)
+        });
+        let views = views.filter(|_| error.is_none());
+        let newly_refused = views.is_none();
+        if let Some(error) = error {
+            log::warn!("the graphics device refused the environment picture: {error}");
+        }
+        self.refused_environment = newly_refused.then(|| Arc::clone(wanted));
+        self.environment = views.map(|views| BoundEnvironment {
+            source: Arc::clone(wanted),
+            views,
+        });
+        self.rebind(device);
+        EnvironmentBound {
+            rebound: true,
+            newly_refused,
+        }
+    }
+
+    pub(crate) fn environment_uniform(&self, turn: f32, stops: f32) -> [f32; 4] {
+        let Some(bound) = &self.environment else {
+            return [0.0; 4];
+        };
+        let gain = if stops.is_finite() { stops.exp2() } else { 1.0 };
+        [
+            if turn.is_finite() { turn } else { 0.0 },
+            gain.clamp(f32::MIN_POSITIVE, MOST_ENVIRONMENT_GAIN),
+            bound.source.level_count().saturating_sub(1) as f32,
+            0.0,
+        ]
+    }
+
+    pub(crate) fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
     }
 
     pub(crate) fn begin_pass<'a>(
         &self,
         encoder: &'a mut wgpu::CommandEncoder,
     ) -> Option<wgpu::RenderPass<'a>> {
-        let made = self.made.as_ref()?;
+        let targets = self.targets.as_ref()?;
         let cleared = |view| {
             Some(wgpu::RenderPassColorAttachment {
                 view,
@@ -459,12 +574,12 @@ impl LightPass {
         Some(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow map"),
             color_attachments: &[
-                cleared(&made.targets.albedo),
-                cleared(&made.targets.normals),
-                cleared(&made.targets.lit_depth),
+                cleared(&targets.albedo),
+                cleared(&targets.normals),
+                cleared(&targets.lit_depth),
             ],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &made.targets.depth,
+                view: &targets.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(FARTHEST_SHADOW_DEPTH),
                     store: wgpu::StoreOp::Store,
@@ -516,8 +631,8 @@ fn light_texture(
 fn bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    sampler: &wgpu::Sampler,
-    targets: &LightTargets,
+    (sampler, environment_sampler): (&wgpu::Sampler, &wgpu::Sampler),
+    (targets, environment): (&LightTargets, &EnvironmentViews),
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("shadow map"),
@@ -542,6 +657,18 @@ fn bind_group(
             wgpu::BindGroupEntry {
                 binding: 4,
                 resource: wgpu::BindingResource::TextureView(&targets.lit_depth),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&environment.radiance),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&environment.irradiance),
+            },
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::Sampler(environment_sampler),
             },
         ],
     })

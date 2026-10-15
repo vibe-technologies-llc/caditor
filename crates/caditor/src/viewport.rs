@@ -8,9 +8,9 @@ use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_kernel::EdgeName;
 use caditor_render::{
-    Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection, ProjectionMode,
-    Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_snap_spacing,
-    is_cut_away, section_slack,
+    Backdrop, Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection,
+    ProjectionMode, Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect,
+    grid_snap_spacing, is_cut_away, section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use egui::{
@@ -829,6 +829,10 @@ impl ViewportState {
 
     pub fn set_lighting(&mut self, lighting: Lighting) {
         self.scenes.set_lighting(Some(lighting));
+    }
+
+    pub fn set_backdrop(&mut self, backdrop: Option<Backdrop>) {
+        self.scenes.set_backdrop(backdrop);
     }
 
     pub fn model_centre(&self) -> Option<Point3> {
@@ -1735,6 +1739,7 @@ impl ViewportState {
         built.scene.grid = None;
         built.scene.section = self.scenes.section().to_vec();
         built.scene.lighting = self.scenes.lighting().filter(|_| built.rendered);
+        built.scene.backdrop = self.scenes.backdrop().filter(|_| built.rendered);
         let view = view.reaching(built.everything);
         let shown_height = self.view_pixels().map_or(size.height, |shown| shown.height);
         ImageView {
@@ -4430,7 +4435,7 @@ impl ViewportState {
             return;
         }
         if let Some(rho) = typed_point::rho(model, &typed.text) {
-            let set = rho.and_then(|(value, typed)| {
+            let set = rho.map_err(String::from).and_then(|(value, typed)| {
                 self.drawing.set_rho(value, typed).map_err(str::to_owned)
             });
             if let Err(reason) = set {
@@ -4453,7 +4458,7 @@ impl ViewportState {
             return;
         }
         if let Some(lock) = typed_point::length_lock(model, &typed.text, from) {
-            let locked = lock.and_then(|lock| {
+            let locked = lock.map_err(String::from).and_then(|lock| {
                 let dimensions = lock
                     .dimension
                     .filter(|_| self.typed_dimensions)
@@ -4706,7 +4711,9 @@ impl ViewportState {
                 last: Some(fresh.anchor),
                 toward: None,
             };
-            typed_point::parse(model, &typed.text, from).map(|target| fresh.to(target))
+            typed_point::parse(model, &typed.text, from)
+                .map_err(String::from)
+                .map(|target| fresh.to(target))
         });
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),

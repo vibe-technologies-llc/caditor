@@ -55,10 +55,11 @@ env_logger = {
     features = ["auto-color", "humantime"]
 }
 glam = "0.34.1"
+half = { version = "2.7.1", default-features = false }
 image = {
     version = "0.25.10",
     default-features = false,
-    features = ["bmp", "gif", "jpeg", "png", "qoi", "tga", "tiff", "webp"]
+    features = ["bmp", "gif", "hdr", "jpeg", "png", "qoi", "tga", "tiff", "webp"]
 }
 jiff = {
     version = "0.2.38",

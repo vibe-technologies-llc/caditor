@@ -12,8 +12,9 @@ use crate::{
     annotation_layout,
     annotations::{self, Annotations, Surface},
     canvas,
+    feature_fields::{self, QuantityError},
     feature_values::{self, FeatureValue, ValueSlot},
-    field::{self, Expected, NamedField},
+    field::{self, NamedEditError, NamedField},
     model::{Action, Model},
     reversing, scene,
     selection::{Pickable, Selection},
@@ -187,29 +188,19 @@ fn label_text(model: &Model, value: &FeatureValue) -> String {
     }
 }
 
-fn value_change(model: &Model, value: &FeatureValue, text: &str) -> Result<Transaction, String> {
+type ValueEditError = NamedEditError<QuantityError, feature_values::ChangeError>;
+
+fn value_change(
+    model: &Model,
+    value: &FeatureValue,
+    text: &str,
+) -> Result<Transaction, ValueEditError> {
     let document = model.document();
     let parameters = model.parameters();
     let units = model.units();
     let owner = owner_of(value);
-    let parse = |text: &str| {
-        let parsed = field::parse_expression(
-            document,
-            parameters,
-            text,
-            Expected {
-                dimension: Some(value.dimension),
-                non_negative: false,
-            },
-            units,
-        )?;
-        let evaluated = parameters
-            .evaluate_expression(&parsed)
-            .map_err(|error| field::sentence(&error.to_string()))?
-            .value;
-        value.rule.check(evaluated)?;
-        Ok(parsed)
-    };
+    let parse =
+        |text: &str| feature_fields::parse_quantity(model, value.dimension, value.rule, text);
     let named = NamedField {
         document,
         parameters,

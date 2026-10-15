@@ -26,6 +26,7 @@ use crate::{
     analysis::{Analysis, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, Skin, Skins},
+    backdrop::Backdrop,
     body_selection, canvas,
     comb::CombTool,
     comb_panel,
@@ -53,7 +54,7 @@ use crate::{
         WindowPlacement,
     },
     lighting::Lighting,
-    lighting_panel::{self, LightingTool},
+    lighting_panel::{self, LightingTool, SkyPicture},
     logo,
     measure::MeasureTool,
     measure_panel::{self, MeasureContext},
@@ -188,6 +189,7 @@ pub struct Workspace {
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
     pub lighting: LightingTool,
+    pub backdrop: Backdrop,
     pub tidying: Tidying,
     pub section: SectionTool,
     pub guide: Guide,
@@ -254,6 +256,7 @@ impl Workspace {
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
             lighting: LightingTool::default(),
+            backdrop: Backdrop::default(),
             tidying: Tidying::default(),
             section: SectionTool::default(),
             guide: Guide::default(),
@@ -607,6 +610,7 @@ pub fn show(
         comb,
         isocurves,
         lighting,
+        backdrop,
         tidying,
         section,
         guide,
@@ -723,6 +727,17 @@ pub fn show(
     if commands.available(Command::ResetLighting) {
         actions.push(Action::Preferences(PreferencesCommand::Change(
             PreferenceChange::Lighting(Lighting::default()),
+        )));
+        actions.push(Action::Preferences(PreferencesCommand::Change(
+            PreferenceChange::Backdrop(None),
+        )));
+    }
+    if commands.available(Command::ChooseBackdrop) {
+        actions.push(Action::File(FileCommand::ChooseBackdrop));
+    }
+    if commands.available(Command::ClearBackdrop) {
+        actions.push(Action::Preferences(PreferencesCommand::Change(
+            PreferenceChange::Backdrop(None),
         )));
     }
     section_commands(model, viewport, section, &mut commands);
@@ -931,14 +946,35 @@ pub fn show(
     };
     viewport.set_isocurves(lines);
     if lighting.open {
-        let asked =
-            lighting_panel::show(ui, preferences.lighting, viewport.style(), room, lighting);
+        let sky = SkyPicture {
+            path: preferences.backdrop.as_deref(),
+            status: backdrop.status(),
+        };
+        let asked = lighting_panel::show(
+            ui,
+            (preferences.lighting, sky),
+            viewport.style(),
+            room,
+            lighting,
+        );
         if let Some(command) = asked.command {
             actions.push(Action::Preferences(command));
         }
         deferred_commands.extend(asked.run);
     }
     viewport.set_lighting(preferences.lighting.render());
+    backdrop.follow(preferences.backdrop.as_deref(), &|| model.waker());
+    if let Some((path, failure)) = backdrop.poll() {
+        actions.push(Action::Inform(Notice::failure(format!(
+            "Could not use “{}” as the rendered view's sky: {failure}. The plain sky is drawn instead.",
+            crate::model::display_name(Some(&path)),
+        ))));
+    }
+    viewport.set_backdrop(
+        backdrop
+            .environment()
+            .map(|environment| preferences.lighting.backdrop(Arc::clone(environment))),
+    );
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
     actions.extend(tidied.actions);
     if let Some(feature) = editing.feature().filter(|_| gearing_open(editing)) {
@@ -1531,6 +1567,14 @@ pub fn perform(
             }
             other => model.perform(other),
         }
+    }
+    if let Some(path) = files.take_backdrop_chosen() {
+        workspace.backdrop.reload();
+        workspace.preferences_command(
+            PreferencesCommand::Change(PreferenceChange::Backdrop(Some(path))),
+            model,
+            files,
+        );
     }
     if let Some(exports) = files.take_exports_to_remember() {
         workspace.preferences_command(PreferencesCommand::RememberExports(exports), model, files);

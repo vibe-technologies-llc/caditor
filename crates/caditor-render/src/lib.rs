@@ -3,6 +3,8 @@
 mod by_mesh;
 mod camera;
 mod culling;
+mod environment;
+mod environment_textures;
 mod gpu;
 mod image;
 mod kept;
@@ -37,6 +39,10 @@ pub use crate::{
         Camera, DEFAULT_FIELD_OF_VIEW_DEGREES, PlaneProjection, Projection, ProjectionMode, View,
         Viewpoint,
     },
+    environment::{
+        Environment, EnvironmentError, IRRADIANCE_HEIGHT, IRRADIANCE_WIDTH,
+        LEAST_ENVIRONMENT_WIDTH, MAX_ENVIRONMENT_WIDTH, direction_of,
+    },
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
     lighting::{LightDirection, Lighting},
@@ -50,9 +56,9 @@ pub use crate::{
     pictures::{MAX_PICTURE_TEXTURE_SIDE, PictureTexture, ScenePicture},
     runs::{PolylineRun, PolylineSource, RunPolyline},
     scene::{
-        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,
-        PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, StrokeKind, ViewportRect,
-        is_cut_away, kept_span, section_slack,
+        Backdrop, Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker,
+        PickHit, PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, StrokeKind,
+        ViewportRect, is_cut_away, kept_span, section_slack,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     silhouette::Silhouette,
@@ -110,6 +116,10 @@ pub enum RenderFault {
         "The graphics device refused the memory for the rendered view's ambient occlusion, so it is drawn without it. Make the window smaller or close other programs that use the graphics card."
     )]
     OcclusionRefused,
+    #[error(
+        "The graphics device refused the memory for the rendered view's environment picture, so it is drawn with the plain sky. Choose a smaller picture or close other programs that use the graphics card."
+    )]
+    EnvironmentRefused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -681,6 +691,9 @@ impl Renderer {
         }
         if faults.occlusion {
             self.faults.push(RenderFault::OcclusionRefused);
+        }
+        if faults.environment {
+            self.faults.push(RenderFault::EnvironmentRefused);
         }
         if faults.picking {
             self.faults.push(RenderFault::PickingRefused);

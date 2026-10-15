@@ -1310,6 +1310,7 @@ pub fn build_keeping(
             silhouettes: builder.silhouettes,
             reflection: aids.reflection.unwrap_or_default(),
             lighting: None,
+            backdrop: None,
             section: Vec::new(),
             batches: iter::once(Arc::new(builder.scene))
                 .chain(builder.part_batches)

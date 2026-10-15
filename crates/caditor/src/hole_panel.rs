@@ -173,7 +173,9 @@ impl Panel<'_> {
                         standard: None,
                         ..self.hole.clone()
                     })
-                    .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                    .map(|transaction| {
+                        feature_fields::applied(&name, Ok::<_, String>(transaction))
+                    }),
             };
             let sizes = MetricSize::ALL.into_iter().map(|size| {
                 let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
@@ -183,7 +185,9 @@ impl Panel<'_> {
                     selected: current.is_some_and(|current| current.size == size),
                     change: self
                         .change(hole_tools::with_standard(self.hole, standard, unit))
-                        .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                        .map(|transaction| {
+                            feature_fields::applied(&name, Ok::<_, String>(transaction))
+                        }),
                 }
             });
             std::iter::once(custom).chain(sizes).collect()
@@ -276,7 +280,9 @@ impl Panel<'_> {
                                 class: (*class != default).then_some(*class),
                                 ..self.hole.thread.clone()
                             })
-                            .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                            .map(|transaction| {
+                                feature_fields::applied(&name, Ok::<_, String>(transaction))
+                            }),
                     })
                     .collect()
             },
@@ -750,7 +756,10 @@ impl Panel<'_> {
                                 ..self.hole.clone()
                             })
                             .map(|transaction| {
-                                feature_fields::applied(&self.feature.name, Ok(transaction))
+                                feature_fields::applied(
+                                    &self.feature.name,
+                                    Ok::<_, String>(transaction),
+                                )
                             }),
                     })
                 })

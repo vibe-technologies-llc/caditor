@@ -214,10 +214,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
   wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
   through.
-- [low · medium] The rendered view's surroundings are a procedural sky and a shadow-catching
-  ground; a user cannot load an HDR image as the backdrop and light, choose a backdrop or ground,
-  nor give a material texture, bump or clear-coat maps, and the ground bounces no light or occlusion
-  onto the bodies.
+- [low · medium] The rendered view's surroundings are a procedural sky or a Radiance `.hdr`
+  picture (`render.md`, the environment) over a shadow-catching ground; a user cannot read an
+  OpenEXR picture (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which
+  `cargo deny` refuses), choose a plain-colour backdrop or a visible ground, nor give a material texture, bump or
+  clear-coat maps, and the ground bounces no light or occlusion onto the bodies.
 - [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only part of the model: an
   assistant can read the tree, parameters, bodies, faces, edges and sketches, measure between
   points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,

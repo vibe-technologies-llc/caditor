@@ -238,3 +238,80 @@ fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu(
     assert!(renamed.width() > 0.0);
     assert!(harness.workspace.lighting.open);
 }
+
+fn radiance_file(folder: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let mut bytes = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16 +X 32\n".to_vec();
+    for _ in 0..32 * 16 {
+        bytes.extend([128, 64, 32, 131]);
+    }
+    let path = folder.join(name);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+#[test]
+fn a_sky_picture_chosen_in_the_lighting_panel_is_read_in_the_background_and_reaches_the_rendered_scene()
+ {
+    let folder = tempfile::tempdir().unwrap();
+    let picture = radiance_file(folder.path(), "studio.hdr");
+    let mut harness = plate();
+    choose_from_menu(&mut harness, "Rendered");
+    run_from_palette(&mut harness, "light the rendered view");
+    harness.frame();
+    let plain = harness.built().scene.backdrop.is_none();
+
+    harness.answer_dialog(Some(picture.clone()));
+    run_from_palette(&mut harness, "choose a sky picture for the rendered view");
+    harness.wait_until("the sky picture is ready", |harness| {
+        harness.workspace.backdrop.environment().is_some()
+    });
+    harness.frame();
+    let backdrop = harness.built().scene.backdrop;
+    let stored = harness.workspace.preferences.backdrop.clone();
+    let remembered = crate::backdrop::read(&harness.workspace.preferences.settings());
+
+    run_from_palette(&mut harness, "use the plain sky in the rendered view");
+    harness.frame();
+    harness.frame();
+
+    assert!(plain);
+    assert!(harness.shows(crate::lighting_panel::SKY_PICTURE));
+    let backdrop = backdrop.expect("the rendered scene carries the picture");
+    assert_eq!(
+        (backdrop.environment.width(), backdrop.environment.height()),
+        (32, 16)
+    );
+    assert_eq!(stored.as_deref(), Some(picture.as_path()));
+    assert_eq!(remembered.as_deref(), Some(picture.as_path()));
+    assert!(harness.workspace.preferences.backdrop.is_none());
+    assert!(harness.built().scene.backdrop.is_none());
+    assert!(harness.workspace.backdrop.environment().is_none());
+}
+
+#[test]
+fn a_sky_picture_that_cannot_be_read_says_so_and_the_plain_sky_stays() {
+    let folder = tempfile::tempdir().unwrap();
+    let notes = folder.path().join("notes.hdr");
+    std::fs::write(&notes, b"not a picture").unwrap();
+    let mut harness = plate();
+    choose_from_menu(&mut harness, "Rendered");
+    run_from_palette(&mut harness, "light the rendered view");
+
+    harness.answer_dialog(Some(notes));
+    run_from_palette(&mut harness, "choose a sky picture for the rendered view");
+    harness.wait_until("the sky picture is refused", |harness| {
+        matches!(
+            harness.workspace.backdrop.status(),
+            crate::backdrop::Status::Failed(..)
+        )
+    });
+    harness.frame();
+    harness.frame();
+
+    let notice = harness.model.notice().expect("the refusal is announced");
+    assert!(notice.text.contains("Radiance"), "{}", notice.text);
+    assert!(notice.text.contains("notes.hdr"), "{}", notice.text);
+    assert!(harness.workspace.backdrop.environment().is_none());
+    assert!(harness.built().scene.backdrop.is_none());
+    assert!(harness.workspace.preferences.backdrop.is_some());
+}
