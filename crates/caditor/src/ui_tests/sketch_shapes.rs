@@ -1229,6 +1229,7 @@ fn a_spline_takes_clicked_control_points_until_enter() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
     harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
     assert!(harness.shows("Click the spline's first control point"));
     let clicked = [
         Point2::new(10.0, 10.0),
@@ -1268,7 +1269,6 @@ fn a_spline_takes_clicked_control_points_until_enter() {
 fn a_fit_point_spline_closes_on_its_first_point_and_passes_every_point() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
-    harness.use_tool(Key::S);
     harness.use_tool(Key::S);
     assert!(harness.shows("Click the first point the spline passes"));
     let clicked = [

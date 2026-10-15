@@ -125,6 +125,7 @@ fn enter_on_a_spline_with_too_few_points_says_so_and_keeps_them() {
     let feature = harness.draw_on_new_sketch();
 
     harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
     harness.click_at(Point2::new(10.0, 10.0));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.frame();

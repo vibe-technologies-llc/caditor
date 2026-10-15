@@ -37,10 +37,10 @@ pub enum SlotMode {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SplineMode {
     #[default]
-    Control,
     Fit,
-    ClosedControl,
+    Control,
     ClosedFit,
+    ClosedControl,
 }
 
 impl SplineMode {
@@ -121,10 +121,10 @@ impl ShapeMode {
         Self::Slot(SlotMode::Ends),
         Self::Slot(SlotMode::Center),
         Self::Slot(SlotMode::Arc),
-        Self::Spline(SplineMode::Control),
         Self::Spline(SplineMode::Fit),
-        Self::Spline(SplineMode::ClosedControl),
+        Self::Spline(SplineMode::Control),
         Self::Spline(SplineMode::ClosedFit),
+        Self::Spline(SplineMode::ClosedControl),
         Self::Blend(BlendMode::Tangent),
         Self::Blend(BlendMode::Curvature),
         Self::Offset(OffsetMode::OneSide),
@@ -173,10 +173,10 @@ impl ShapeMode {
                 SlotMode::Arc => SlotMode::Ends,
             }),
             Self::Spline(mode) => Self::Spline(match mode {
-                SplineMode::Control => SplineMode::Fit,
-                SplineMode::Fit => SplineMode::ClosedControl,
-                SplineMode::ClosedControl => SplineMode::ClosedFit,
-                SplineMode::ClosedFit => SplineMode::Control,
+                SplineMode::Fit => SplineMode::Control,
+                SplineMode::Control => SplineMode::ClosedFit,
+                SplineMode::ClosedFit => SplineMode::ClosedControl,
+                SplineMode::ClosedControl => SplineMode::Fit,
             }),
             Self::Blend(mode) => Self::Blend(match mode {
                 BlendMode::Tangent => BlendMode::Curvature,
@@ -425,7 +425,7 @@ mod tests {
     all_variants!(CircleMode: Center, TwoPoints, ThreePoints);
     all_variants!(PolygonMode: Corner, SideMiddle, Side);
     all_variants!(SlotMode: Ends, Center, Arc);
-    all_variants!(SplineMode: Control, Fit, ClosedControl, ClosedFit);
+    all_variants!(SplineMode: Fit, Control, ClosedFit, ClosedControl);
     all_variants!(BlendMode: Tangent, Curvature);
     all_variants!(OffsetMode: OneSide, BothRound, BothFlat);
 

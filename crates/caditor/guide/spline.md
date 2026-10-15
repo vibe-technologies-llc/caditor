@@ -3,12 +3,12 @@
 {command:sketch.spline} draws a smooth curve. It has four ways of drawing; press the tool's key
 again to go to the next, or choose one from the Curve button's menu:
 
-- {command:sketch.spline.control}: the curve follows the points you click without passing through
-  the ones in the middle.
 - {command:sketch.spline.fit}: the curve passes through every point you click, travelling
   between them in step with how far apart they are, so points bunched close together and far
-  apart do not make it loop or overshoot.
-- {command:sketch.spline.closed_control} and {command:sketch.spline.closed_fit}: the same, closed
+  apart do not make it loop or overshoot. This is the way the tool starts in.
+- {command:sketch.spline.control}: the curve follows the points you click without passing through
+  the ones in the middle.
+- {command:sketch.spline.closed_fit} and {command:sketch.spline.closed_control}: the same, closed
   smoothly back to the first point, so the spline bounds a region that extrudes.
 
 Press Enter, or click the last point again, to finish; clicking the first point closes an open

@@ -147,6 +147,7 @@ fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_
     );
 
     harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
     harness.click_at(Point2::new(50.0, 5.0));
     harness.click_at(Point2::new(50.02, 25.0));
     harness.click_at(Point2::new(70.0, 30.0));

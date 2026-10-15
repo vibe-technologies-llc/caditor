@@ -262,9 +262,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   ribbon and keymap stay small and a shape is found under its one key. Arcs stay separate tools under
   one Arc button, and Spline, Ellipse and Elliptical arc under one Curve button (`app-look.md`),
   since an ellipse is a curve of its own, not a way to draw another.
-- Spline has four ways (`SplineMode`): control points, fit points (the curve passes each placed
+- Spline has four ways (`SplineMode`), fit points first and the default (the curve passes each placed
   point, which stays a point to constrain and dimension, spaced centripetally, `SplineKind::fit`),
-  and both closed, where Enter closes the loop. Clicking the first point closes either open way.
+  control points, and both closed, where Enter closes the loop. Clicking the first point closes either open way.
 - Blend curve (`ShapeMode::Blend`, `ShapeModes::blend`: tangent G1 or curvature-continuous G2) and
   Offset (`ShapeMode::Offset`, `ShapeModes::offset`: three ways) keep theirs likewise; the modify
   tool reads the way each frame and its prompt leads with it.
