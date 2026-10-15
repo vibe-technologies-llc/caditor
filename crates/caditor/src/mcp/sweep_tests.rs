@@ -346,3 +346,181 @@ fn a_web_takes_a_draft_and_free_ends_and_edits_them() {
     assert!(near(plain, hollow + 2.0 * 35.0 * 50.0), "{plain}");
     assert_ne!(steep["failing"], json!([]), "{steep}");
 }
+
+#[test]
+fn lofts_use_a_single_region_of_a_sketch_and_end_in_a_point() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let (bottom, _) = sketch_on(
+        &mut client,
+        json!({ "plane": "XY" }),
+        json!([
+            { "kind": "rectangle", "corner": [100, 0], "opposite": [110, 10] },
+            { "kind": "rectangle", "corner": [200, 0], "opposite": [220, 10] }
+        ]),
+    );
+    let datum = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": 20 }),
+    );
+    let (top, _) = sketch_on(
+        &mut client,
+        json!({ "datum": datum }),
+        json!([{ "kind": "rectangle", "corner": [100, 0], "opposite": [110, 10] }]),
+    );
+    let loft = added(
+        &mut client,
+        "add_loft",
+        json!({
+            "profiles": [{ "sketch": bottom, "inside": [105, 5] }, top],
+            "skin": "ruled"
+        }),
+    );
+    assert!(near(total_volume(&mut client), 2000.0));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({
+            "feature": loft,
+            "profiles": [{ "sketch": bottom, "inside": [205, 5] }, top]
+        }),
+    );
+    let shifted = total_volume(&mut client);
+    assert!(near(shifted, 3000.0), "{shifted}");
+
+    let missed = client.tool_error(
+        "add_loft",
+        json!({ "profiles": [{ "sketch": bottom, "inside": [150, 5] }, top] }),
+    );
+    assert!(missed.contains("no region around"), "{missed}");
+
+    let apex = added(
+        &mut client,
+        "add_datum_point",
+        json!({ "offset": [105, 5, 40] }),
+    );
+    let pyramid = added(
+        &mut client,
+        "add_loft",
+        json!({
+            "profiles": [{ "sketch": bottom, "inside": [105, 5] }],
+            "end": { "datum": apex },
+            "skin": "ruled"
+        }),
+    );
+    let drawn = total_volume(&mut client) - shifted;
+    assert!(near(drawn, 100.0 * 40.0 / 3.0), "{drawn}");
+    added(
+        &mut client,
+        "edit_feature",
+        json!({
+            "feature": pyramid,
+            "end": "off",
+            "profiles": [{ "sketch": bottom, "inside": [105, 5] }, top]
+        }),
+    );
+    assert!(near(total_volume(&mut client) - shifted, 2000.0));
+
+    let closed = client.tool_error(
+        "add_loft",
+        json!({ "profiles": [bottom, top], "closed": true, "end": { "datum": apex } }),
+    );
+    assert!(closed.contains("one of closed or end"), "{closed}");
+    client.finish();
+}
+
+fn circle_centre_x(client: &mut Client, body: &Value) -> f64 {
+    let edges = client.tool("list_edges", json!({ "body": body }));
+    let circle = edges["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|edge| edge["kind"] == "circle")
+        .unwrap_or_else(|| panic!("no circle: {edges}"));
+    number(&circle["center"][0])
+}
+
+#[test]
+fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 40.0, 20.0], [0.0, 0.0], "Block");
+    let (circle, _) = sketch_on(
+        &mut client,
+        json!({ "plane": "XY" }),
+        json!([{ "kind": "circle", "center": [15, 20], "radius": 5 }]),
+    );
+    let top = faces_of(&mut client, &block)
+        .into_iter()
+        .find(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
+        .unwrap();
+    let lean = added(
+        &mut client,
+        "add_datum_point",
+        json!({ "offset": [5, 0, 20] }),
+    );
+    let slant = added(
+        &mut client,
+        "add_datum_axis",
+        json!({ "through_points": ["origin", { "datum": lean }] }),
+    );
+    let split = added(
+        &mut client,
+        "add_split_face",
+        json!({ "body": block, "faces": [top["face"]], "along": { "sketch": circle }, "carry": "Z" }),
+    );
+    assert_eq!(faces_of(&mut client, &block).len(), 7);
+    assert!(close(circle_centre_x(&mut client, &block), 15.0));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": split, "carry": { "datum": slant } }),
+    );
+    assert!(close(circle_centre_x(&mut client, &block), 20.0));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": split, "carry": "square" }),
+    );
+    assert!(close(circle_centre_x(&mut client, &block), 15.0));
+
+    let drum = added(
+        &mut client,
+        "add_primitive",
+        json!({
+            "kind": "cylinder", "diameter": 20, "height": 30, "plane": "XY", "at": [200, 0],
+            "anchor": "base_centre", "operation": "new_body", "name": "Drum"
+        }),
+    );
+    let side = faces_of(&mut client, &drum)
+        .into_iter()
+        .find(|face| face["surface"] == "cylinder")
+        .unwrap();
+    let tangent = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "YZ", "offset": 210 }),
+    );
+    let (mark, _) = sketch_on(
+        &mut client,
+        json!({ "datum": tangent }),
+        json!([{ "kind": "circle", "center": [0, 15], "radius": 3 }]),
+    );
+    let before = faces_of(&mut client, &drum).len();
+    added(
+        &mut client,
+        "add_split_face",
+        json!({ "body": drum, "faces": [side["face"]], "along": { "sketch": mark }, "carry": "wrapped" }),
+    );
+    assert!(faces_of(&mut client, &drum).len() > before);
+
+    let any = faces_of(&mut client, &block)[0]["face"].clone();
+    let no_sketch = client.tool_error(
+        "add_split_face",
+        json!({ "body": block, "faces": [any], "along": "YZ", "carry": "wrapped" }),
+    );
+    assert!(no_sketch.contains("curves of a sketch"), "{no_sketch}");
+    client.finish();
+}

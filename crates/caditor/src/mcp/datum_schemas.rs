@@ -167,7 +167,11 @@ pub fn import() -> Value {
         json!({
             "file": { "type": "string", "description": "The file to import, in the model's folder or an allowed one: .step, .stp, .stl, .obj, .3mf, .dxf or .svg" },
             "sketch": reference("A drawing only: the sketch it goes into"),
-            "plane": choice(&["XY", "XZ", "YZ"], "A drawing only: the plane of the new sketch it goes into, XY by default")
+            "plane": choice(&["XY", "XZ", "YZ"], "A drawing only: the plane of the new sketch it goes into, XY by default"),
+            "unit": choice(&["as_in_file", "micrometres", "millimetres", "centimetres", "metres"], "A drawing only: the unit its numbers are in, as the file says by default"),
+            "scale": { "type": "number", "description": "A drawing only: a factor from 0.000001 to 1000000 to scale it by, 1 by default" },
+            "recentre": { "type": "boolean", "description": "A drawing only: move it so its middle lies on the sketch's origin" },
+            "left_out_layers": { "type": "array", "items": { "type": "string" }, "description": "A drawing only: layers (a DXF's layers, an SVG's layers and top groups, named as the answer's layers lists them) to leave out" }
         }),
         &["file"],
     )

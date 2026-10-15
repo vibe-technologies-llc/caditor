@@ -257,6 +257,19 @@ pub fn shell() -> Value {
             "body": reference("The body hollowed out"),
             "open_faces": keys("Face keys from list_faces to leave open; none makes a closed hollow"),
             "thickness": amount("The wall thickness, such as \"2 mm\""),
+            "face_thicknesses": {
+                "type": "array",
+                "description": "Walls of their own thickness at some faces, as the faces left open do not have: replaces the earlier list, and [] gives every wall the same thickness",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "face": { "type": "string", "description": "A face key from list_faces" },
+                        "thickness": amount("That wall's thickness")
+                    },
+                    "required": ["face", "thickness"],
+                    "additionalProperties": false
+                }
+            },
             "side": { "type": "string", "enum": ["inside", "outside", "both_sides"] },
             "name": name()
         }),
@@ -314,6 +327,7 @@ pub fn mirror() -> Value {
         json!({
             "body": reference("The body mirrored"),
             "features": features("Instead of a body: holes, cuts or bosses of one body, mirrored on it"),
+            "faces": keys("Instead of the body or features: face keys from list_faces of the body, mirrored on it, such as a pocket's walls and floor; [] mirrors the whole body again"),
             "plane": plane(),
             "keep_original": { "type": "boolean", "description": "Keep the body as well as its image (default true)" },
             "name": name()

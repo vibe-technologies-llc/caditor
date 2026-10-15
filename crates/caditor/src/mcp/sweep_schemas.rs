@@ -1,7 +1,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::mcp::{
-    feature_schemas::{amount, axis, features, keys, name, operation, plane},
+    feature_schemas::{amount, axis, keys, name, operation, plane, point},
     tools::{object, reference},
 };
 
@@ -245,7 +245,28 @@ pub fn pipe() -> Value {
 
 pub fn loft() -> Value {
     let properties = with_target(properties(json!({
-        "profiles": features("The sketches it passes through, in order, two at least"),
+        "profiles": {
+            "type": "array",
+            "description": "The sketches it passes through, in order, two at least (one with an end point); a sketch may instead be {sketch, inside: [x, y]} for the one region around that point",
+            "items": {
+                "anyOf": [
+                    { "type": ["integer", "string"] },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "sketch": reference("The sketch, by feature id or name"),
+                            "inside": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+                        },
+                        "required": ["sketch", "inside"],
+                        "additionalProperties": false
+                    }
+                ]
+            }
+        },
+        "end": {
+            "description": "Ends in a point after the last profile, as a cone's apex: (\"origin\", a corner {body, corner}, a round edge's centre, a sketch or datum point); \"off\" takes it away",
+            "anyOf": [{ "type": "string", "enum": ["off"] }, point()]
+        },
         "skin": choice(&["smooth", "ruled"], "Smooth through every profile (the default) or straight between each pair"),
         "closed": flag("Run on from the last profile back into the first, making a ring of three profiles or more"),
         "start_weight": amount("Leave the first profile square to its plane with this weight, such as 1; 0 leaves it free. Smooth, open lofts only"),
@@ -313,6 +334,10 @@ pub fn split_face() -> Value {
             "body": reference("The body, by id or name"),
             "faces": keys("Face keys from list_faces"),
             "along": along(),
+            "carry": {
+                "description": "With along {sketch}: how the curves reach the faces: \"square\" (the default, straight onto them), \"wrapped\" around a cylinder, cone or flat face, or along an axis as add_linear_pattern takes it",
+                "anyOf": [{ "type": "string", "enum": ["square", "wrapped"] }, axis()]
+            },
             "name": name()
         }),
         &["body", "faces", "along"],

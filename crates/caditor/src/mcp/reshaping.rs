@@ -12,7 +12,7 @@ use crate::{
             Amount, Built, FeatureError, added, amount, body_of, face_references, needed, parsed,
             signed_length,
         },
-        places::{self, PlaneChoice},
+        places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
         session::{Session, Work},
         tools::{Answer, ToolError},
@@ -43,12 +43,27 @@ pub enum AlongChoice {
     Body(AlongBody),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CarryName {
+    Square,
+    Wrapped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum CarryChoice {
+    Named(CarryName),
+    Along(AxisChoice),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceSplitting {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
     pub along: Option<AlongChoice>,
+    pub carry: Option<CarryChoice>,
     pub name: Option<String>,
 }
 
@@ -84,6 +99,8 @@ pub enum ReshapeError {
     NoFaces { verb: &'static str },
     #[error("{body} cannot be split along itself; give another body as the tool")]
     AlongItself { body: String },
+    #[error("carry wrapped or along an axis goes with curves of a sketch: give along {{sketch}}")]
+    CarryWithoutSketch,
 }
 
 fn along(
@@ -162,7 +179,24 @@ pub fn split_face_built(
         asked.along.as_ref(),
         base.map(|base| &base.along),
     )?;
-    let split = match base {
+    let carry = match &asked.carry {
+        None => None,
+        Some(CarryChoice::Named(CarryName::Square)) => Some(SplitCarry::Square),
+        Some(CarryChoice::Named(CarryName::Wrapped)) => Some(SplitCarry::Wrapped),
+        Some(CarryChoice::Along(choice)) => Some(SplitCarry::Along(Box::new(places::axis(
+            session.document(),
+            session.evaluation(),
+            choice,
+        )?))),
+    };
+    if carry
+        .as_ref()
+        .is_some_and(|carry| *carry != SplitCarry::Square)
+        && along.sketch().is_none()
+    {
+        return Err(ReshapeError::CarryWithoutSketch.into());
+    }
+    let mut split = match base {
         Some(base) => SplitFace {
             body,
             faces,
@@ -175,6 +209,9 @@ pub fn split_face_built(
             carry: SplitCarry::Square,
         },
     };
+    if let Some(carry) = carry {
+        split.carry = carry;
+    }
     let label = body_label(session.document(), body);
     Ok(Built::new(
         FeatureKind::SplitFace(split),

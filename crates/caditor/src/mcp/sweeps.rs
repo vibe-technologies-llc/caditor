@@ -14,10 +14,10 @@ use crate::{
     bodies, coil_tools, loft_tools,
     mcp::{
         features::{
-            Amount, Built, FeatureError, added, amount, body_of, count, edge_references, length,
-            needed, operation_asked, parsed, sketch_of, turn,
+            Amount, Built, FeatureError, OffName, added, amount, body_of, count, edge_references,
+            length, needed, operation_asked, parsed, region_at, sketch_of, sketch_regions_of, turn,
         },
-        places::{self, AxisChoice},
+        places::{self, AxisChoice, PointChoice},
         references::{self, EntityName, Named, body_label},
         session::{Session, Work},
         solids::{FormName, HandName},
@@ -109,8 +109,30 @@ pub enum SkinName {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ProfileRegion {
+    pub sketch: Named,
+    pub inside: [f64; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum ProfileAsk {
+    Whole(Named),
+    Region(ProfileRegion),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum LoftEnd {
+    Off(OffName),
+    Point(PointChoice),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lofting {
-    pub profiles: Option<Vec<Named>>,
+    pub profiles: Option<Vec<ProfileAsk>>,
+    pub end: Option<LoftEnd>,
     pub skin: Option<SkinName>,
     pub closed: Option<bool>,
     pub start_weight: Option<Amount>,
@@ -244,6 +266,8 @@ pub enum SweepToolError {
     NotAHelix { name: String },
     #[error("a loft goes through at least two sketches, given in order")]
     TooFewProfiles,
+    #[error("a closed loft has no end point; give one of closed or end")]
+    EndAndClosed,
     #[error("give the wall's thickness or hollow false, not both")]
     WallAndSolid,
     #[error("a coil is sized by two of turns, pitch and height, not all three")]
@@ -493,18 +517,37 @@ pub fn loft_built(
     let end_weight = weight(session, "end_weight", asked.end_weight.as_ref())?;
     session.evaluate(work)?;
     let document = session.document();
+    let evaluation = session.evaluation();
+    if asked.closed == Some(true) && matches!(asked.end, Some(LoftEnd::Point(_))) {
+        return Err(SweepToolError::EndAndClosed.into());
+    }
+    let end = match &asked.end {
+        Some(LoftEnd::Off(_)) => None,
+        Some(LoftEnd::Point(choice)) => Some(places::point(document, evaluation, choice)?),
+        None => base.and_then(|base| base.end.clone()),
+    };
     let profiles = match (&asked.profiles, base) {
-        (Some(named), _) => {
-            let mut profiles = Vec::with_capacity(named.len());
-            for sketch in named {
-                let (feature, _) = references::sketch(document, sketch)?;
-                profiles.push(LoftSection::whole(feature.id()));
+        (Some(asked_profiles), _) => {
+            let mut profiles = Vec::with_capacity(asked_profiles.len());
+            for profile in asked_profiles {
+                let (named, inside) = match profile {
+                    ProfileAsk::Whole(named) => (named, None),
+                    ProfileAsk::Region(region) => (&region.sketch, Some(region.inside)),
+                };
+                let (feature, _) = references::sketch(document, named)?;
+                let region = match inside {
+                    None => None,
+                    Some(at) => {
+                        let regions = sketch_regions_of(evaluation, (feature.id(), &feature.name))?;
+                        Some(region_at(regions, &feature.name, at)?.reference())
+                    }
+                };
+                profiles.push(LoftSection {
+                    sketch: feature.id(),
+                    region,
+                });
             }
-            let least = if base.is_some_and(|base| base.end.is_some()) {
-                1
-            } else {
-                2
-            };
+            let least = if end.is_some() { 1 } else { 2 };
             if profiles.len() < least {
                 return Err(SweepToolError::TooFewProfiles.into());
             }
@@ -527,8 +570,16 @@ pub fn loft_built(
             SkinName::Ruled => LoftSkin::Ruled,
         };
     }
+    loft.end = end;
     if let Some(closed) = asked.closed {
         loft.closed = closed;
+        if closed {
+            loft.end = None;
+        }
+    }
+    if matches!(asked.end, Some(LoftEnd::Point(_))) {
+        loft.closed = false;
+        loft.square_end = None;
     }
     let squared = |weight: Expression| (!solid_panel::is_zero(&weight)).then_some(weight);
     if let Some(weight) = start_weight {

@@ -2,10 +2,10 @@ use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
-    CombineOperation, Document, EdgeGroup, Edit, Evaluation, FeatureId, FeatureKind,
+    CombineOperation, Document, EdgeGroup, Edit, Evaluation, FaceThickness, FeatureId, FeatureKind,
     LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind, PlaneReference,
     Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
-    Shell, ShellSide, SolidFeature, TurnCentre, repeatable_on,
+    Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -159,10 +159,18 @@ impl SideName {
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct FaceWall {
+    pub face: String,
+    pub thickness: Amount,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Shelling {
     pub body: Option<Named>,
     pub open_faces: Option<Vec<String>>,
     pub thickness: Option<Amount>,
+    pub face_thicknesses: Option<Vec<FaceWall>>,
     pub side: Option<SideName>,
     pub name: Option<String>,
 }
@@ -269,6 +277,7 @@ impl NewPrimitive {
 pub struct Mirroring {
     pub body: Option<Named>,
     pub features: Option<Vec<Named>>,
+    pub faces: Option<Vec<String>>,
     pub plane: Option<PlaneChoice>,
     pub keep_original: Option<bool>,
     pub name: Option<String>,
@@ -398,6 +407,8 @@ pub enum FeatureError {
         size: &'static str,
         second: &'static str,
     },
+    #[error("mirror the faces or the features, not both")]
+    FacesAndFeatures,
     #[error("{sketch} has no closed region to choose")]
     NoRegions { sketch: String },
     #[error("{sketch} has no region around {at}; get_sketch lists a point inside each region")]
@@ -552,26 +563,37 @@ pub(super) fn regions_chosen(
         }
         Some(RegionsAsk::Inside(points)) => points,
     };
-    let regions =
-        selection::sketch_regions(evaluation, sketch).ok_or_else(|| FeatureError::NoRegions {
-            sketch: name.to_owned(),
-        })?;
+    let regions = sketch_regions_of(evaluation, (sketch, name))?;
     let keys = points
         .iter()
-        .map(|[x, y]| {
-            regions
-                .iter()
-                .find(|region| region.region.contains(Point2::new(*x, *y)))
-                .map(|region| region.region.key())
-                .ok_or_else(|| FeatureError::NoRegionAt {
-                    sketch: name.to_owned(),
-                    at: format!("[{x}, {y}]"),
-                })
-        })
+        .map(|at| region_at(regions, name, *at).map(|region| region.region.key()))
         .collect::<Result<BTreeSet<_>, _>>()?;
     Ok(RegionChoice::Chosen(scene::region_references(
         &keys, regions,
     )))
+}
+
+pub(super) fn sketch_regions_of<'e>(
+    evaluation: &'e Evaluation,
+    (sketch, name): (FeatureId, &str),
+) -> Result<&'e [SketchRegion], FeatureError> {
+    selection::sketch_regions(evaluation, sketch).ok_or_else(|| FeatureError::NoRegions {
+        sketch: name.to_owned(),
+    })
+}
+
+pub(super) fn region_at<'e>(
+    regions: &'e [SketchRegion],
+    sketch: &str,
+    [x, y]: [f64; 2],
+) -> Result<&'e SketchRegion, FeatureError> {
+    regions
+        .iter()
+        .find(|region| region.region.contains(Point2::new(x, y)))
+        .ok_or_else(|| FeatureError::NoRegionAt {
+            sketch: sketch.to_owned(),
+            at: format!("[{x}, {y}]"),
+        })
 }
 
 pub(super) fn added(
@@ -1074,12 +1096,41 @@ pub fn shell_built(
     let thickness = parsed(session, asked.thickness.as_ref(), |session, thickness| {
         length(session, "thickness", thickness)
     })?;
+    let wall_thicknesses = asked
+        .face_thicknesses
+        .as_ref()
+        .map(|walls| {
+            walls
+                .iter()
+                .map(|wall| length(session, "face_thicknesses thickness", &wall.thickness))
+                .collect::<Result<Vec<_>, ToolError>>()
+        })
+        .transpose()?;
     session.evaluate(work)?;
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let open = match (&asked.open_faces, base) {
         (Some(keys), _) => face_references(session, body, keys)?,
         (None, Some(base)) => base.open.clone(),
         (None, None) => Vec::new(),
+    };
+    let faces = match (&asked.face_thicknesses, wall_thicknesses) {
+        (Some(walls), Some(thicknesses)) => walls
+            .iter()
+            .zip(thicknesses)
+            .map(|(wall, thickness)| {
+                let face = face_references(session, body, std::slice::from_ref(&wall.face))?
+                    .into_iter()
+                    .next();
+                face.map(|face| FaceThickness { face, thickness })
+                    .ok_or_else(|| {
+                        ToolError::from(references::ReferenceError::NoFace {
+                            body: body_label(session.document(), body),
+                            face: wall.face.clone(),
+                        })
+                    })
+            })
+            .collect::<Result<Vec<_>, ToolError>>()?,
+        _ => base.map(|base| base.faces.clone()).unwrap_or_default(),
     };
     let shell = Shell {
         body,
@@ -1093,7 +1144,7 @@ pub fn shell_built(
             .map(SideName::side)
             .or_else(|| base.map(|base| base.side))
             .unwrap_or(ShellSide::Inside),
-        faces: base.map(|base| base.faces.clone()).unwrap_or_default(),
+        faces,
     };
     let label = body_label(session.document(), body);
     Ok(
@@ -1351,12 +1402,32 @@ pub fn mirror_built(
     base: Option<&Mirror>,
 ) -> Result<Built, ToolError> {
     session.evaluate(work)?;
-    let (body, mirrored) = kept_subject(
-        session,
-        (asked.body.as_ref(), asked.features.as_deref()),
-        base.map(|base| (base.body, base.mirrored.as_slice())),
-        "mirror",
-    )?;
+    let faced = asked.faces.as_ref().is_some_and(|faces| !faces.is_empty());
+    let (body, mirrored) = if faced {
+        if asked
+            .features
+            .as_ref()
+            .is_some_and(|features| !features.is_empty())
+        {
+            return Err(FeatureError::FacesAndFeatures.into());
+        }
+        (
+            body_of(session, asked.body.as_ref(), base.map(|base| base.body))?,
+            Vec::new(),
+        )
+    } else {
+        kept_subject(
+            session,
+            (asked.body.as_ref(), asked.features.as_deref()),
+            base.map(|base| (base.body, base.mirrored.as_slice())),
+            "mirror",
+        )?
+    };
+    let faces = match (&asked.faces, base) {
+        (Some(keys), _) => face_references(session, body, keys)?,
+        (None, Some(base)) if base.body == body && base.mirrored == mirrored => base.faces.clone(),
+        (None, _) => Vec::new(),
+    };
     let document = session.document();
     let plane = match &asked.plane {
         Some(choice) => places::plane(document, session.evaluation(), choice)?,
@@ -1373,13 +1444,16 @@ pub fn mirror_built(
         },
         None => Mirror::new(body, plane).mirroring(mirrored.clone()),
     };
+    mirror.faces = faces;
     if let Some(keep) = asked.keep_original {
         mirror.keep_original = keep;
     }
-    let title = if mirrored.is_empty() {
+    let title = if !mirrored.is_empty() {
+        mirror_tools::FEATURES_TITLE
+    } else if mirror.faces.is_empty() {
         mirror_tools::TITLE
     } else {
-        mirror_tools::FEATURES_TITLE
+        mirror_tools::FACES_TITLE
     };
     let repeats = subject_details(document, body, &mirrored);
     Ok(Built::new(FeatureKind::Mirror(mirror), title, asked.name).telling("repeats", repeats))

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{
-    feature_tests::{added, body_count, box_of, close, started, total_volume},
+    feature_tests::{added, body_count, box_of, close, number, started, total_volume},
     tests::Client,
 };
 
@@ -237,6 +237,76 @@ fn files_are_imported_and_the_model_saved_under_another_name_within_the_folders(
             .document
             .features()
             .all(|feature| feature.name != "Speck")
+    );
+    client.finish();
+}
+
+#[test]
+fn drawings_are_imported_with_a_unit_a_scale_recentred_and_without_layers() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    fs::write(
+        folder.path().join("layers.svg"),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">
+              <g id="Outline"><rect x="10" y="10" width="20" height="10"/></g>
+              <g id="Marks"><rect x="50" y="10" width="5" height="5"/></g>
+            </svg>"##,
+    )
+    .unwrap();
+
+    let plain = client.tool("import", json!({ "file": "layers.svg", "plane": "XY" }));
+    assert_eq!(plain["curves"], 8, "{plain}");
+    assert_eq!(plain["layers"], json!(["Outline", "Marks"]), "{plain}");
+    client.tool("undo", json!({}));
+
+    let trimmed = client.tool(
+        "import",
+        json!({ "file": "layers.svg", "left_out_layers": ["marks"], "scale": 2 }),
+    );
+    assert_eq!(trimmed["curves"], 4, "{trimmed}");
+    added(
+        &mut client,
+        "add_extrusion",
+        json!({ "sketch": "layers", "distance": 5, "operation": "new_body" }),
+    );
+    assert!(close(total_volume(&mut client), 40.0 * 20.0 * 5.0));
+    let bodies = client.tool("list_bodies", json!({}));
+    let corner = &bodies["bodies"][0]["bounding_box"]["min"];
+    assert!(close(number(&corner[0]), 20.0), "{bodies}");
+    client.tool("undo", json!({}));
+    client.tool("undo", json!({}));
+
+    client.tool(
+        "import",
+        json!({ "file": "layers.svg", "left_out_layers": ["Marks"], "recentre": true }),
+    );
+    added(
+        &mut client,
+        "add_extrusion",
+        json!({ "sketch": "layers", "distance": 5, "operation": "new_body" }),
+    );
+    let bodies = client.tool("list_bodies", json!({}));
+    let corner = &bodies["bodies"][0]["bounding_box"]["min"];
+    assert!(close(number(&corner[0]), -10.0), "{bodies}");
+
+    let centimetres = client.tool(
+        "import",
+        json!({ "file": "layers.svg", "unit": "centimetres", "plane": "XZ" }),
+    );
+    assert_eq!(centimetres["curves"], 8, "{centimetres}");
+
+    let no_layer = client.tool_error(
+        "import",
+        json!({ "file": "layers.svg", "left_out_layers": ["Holes"] }),
+    );
+    assert!(no_layer.contains("Outline, Marks"), "{no_layer}");
+    let huge = client.tool_error("import", json!({ "file": "layers.svg", "scale": 1e9 }));
+    assert!(huge.contains("a factor from"), "{huge}");
+    client.tool("export", json!({ "file": "part.step" }));
+    let on_model = client.tool_error("import", json!({ "file": "part.step", "scale": 2 }));
+    assert!(
+        on_model.contains("for a DXF or SVG drawing only"),
+        "{on_model}"
     );
     client.finish();
 }

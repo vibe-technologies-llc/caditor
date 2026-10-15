@@ -1,12 +1,14 @@
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
 
 use caditor_document::MAX_RECORDS;
 use caditor_file::{
-    DrawingOptions, ImportError, MAX_MODEL_RECORDS, MeshResolution, ReadingProgress, SketchTarget,
-    TextOutlines, bodies_transaction, drawing_transaction, read_drawing,
+    Drawing, DrawingOptions, DrawingUnit, ImportError, MAX_MODEL_RECORDS, MAX_SCALE, MIN_SCALE,
+    MeshResolution, ReadingProgress, SketchTarget, TextOutlines, bodies_transaction,
+    drawing_transaction, read_drawing,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -44,12 +46,47 @@ pub struct Exporting {
     pub height: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitName {
+    AsInFile,
+    Micrometres,
+    Millimetres,
+    Centimetres,
+    Metres,
+}
+
+impl UnitName {
+    fn unit(self) -> DrawingUnit {
+        match self {
+            Self::AsInFile => DrawingUnit::AsInFile,
+            Self::Micrometres => DrawingUnit::Micrometres,
+            Self::Millimetres => DrawingUnit::Millimetres,
+            Self::Centimetres => DrawingUnit::Centimetres,
+            Self::Metres => DrawingUnit::Metres,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Importing {
     pub file: String,
     pub sketch: Option<Named>,
     pub plane: Option<PlaneName>,
+    pub unit: Option<UnitName>,
+    pub scale: Option<f64>,
+    pub recentre: Option<bool>,
+    pub left_out_layers: Option<Vec<String>>,
+}
+
+impl Importing {
+    fn drawing_options_given(&self) -> bool {
+        self.unit.is_some()
+            || self.scale.is_some()
+            || self.recentre.is_some()
+            || self.left_out_layers.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -98,6 +135,16 @@ pub enum FileError {
     TooManyRecords { file: String },
     #[error("sketch and plane place a DXF or SVG drawing; a model's bodies come in where they are")]
     PlacedModel,
+    #[error("unit, scale, recentre and left_out_layers are for a DXF or SVG drawing only")]
+    DrawingOptionsOnModel,
+    #[error("a drawing scale is a factor from {min} to {max}, not {given}")]
+    ScaleOutOfRange { given: f64, min: f64, max: f64 },
+    #[error("“{file}” has no layer “{layer}”; its layers are {layers}")]
+    NoLayer {
+        file: String,
+        layer: String,
+        layers: String,
+    },
     #[error("a drawing goes into an existing sketch or onto a plane in a new one, not both")]
     SketchAndPlane,
     #[error("“{file}” must end in .caditor to save the model to it")]
@@ -318,6 +365,41 @@ fn import_model(
     apply(session, work, transaction, details)
 }
 
+fn drawing_options(
+    asked: &Importing,
+    drawing: &Drawing,
+    shown: &str,
+) -> Result<DrawingOptions, FileError> {
+    let defaults = DrawingOptions::default();
+    let mut left_out_layers = BTreeSet::new();
+    for layer in asked.left_out_layers.iter().flatten() {
+        let index = drawing
+            .layers
+            .iter()
+            .position(|known| known.eq_ignore_ascii_case(layer.trim()))
+            .ok_or_else(|| FileError::NoLayer {
+                file: shown.to_owned(),
+                layer: layer.clone(),
+                layers: drawing.layers.join(", "),
+            })?;
+        left_out_layers.insert(index);
+    }
+    let options = DrawingOptions {
+        unit: asked.unit.map_or(defaults.unit, UnitName::unit),
+        scale: asked.scale.unwrap_or(defaults.scale),
+        recentre: asked.recentre.unwrap_or(defaults.recentre),
+        left_out_layers,
+    };
+    if !options.is_valid() {
+        return Err(FileError::ScaleOutOfRange {
+            given: options.scale,
+            min: MIN_SCALE,
+            max: MAX_SCALE,
+        });
+    }
+    Ok(options)
+}
+
 fn import_drawing(
     session: &mut Session,
     work: &Work<'_>,
@@ -342,7 +424,8 @@ fn import_drawing(
     };
     let drawing = read_drawing(path, text_outlines, &work.cancel_token())
         .map_err(|source| import_failure(&shown, source))?;
-    let arranged = drawing.arranged(&DrawingOptions::default());
+    let options = drawing_options(asked, &drawing, &shown)?;
+    let arranged = drawing.arranged(&options);
     let imported = drawing_transaction(
         session.document(),
         &arranged,
@@ -358,6 +441,7 @@ fn import_drawing(
     }
     let mut details = Map::new();
     details.insert("curves".to_owned(), json!(imported.curves));
+    details.insert("layers".to_owned(), json!(drawing.layers));
     notes_into(&mut details, arranged.notes);
     let answer = apply(session, work, imported.transaction, details)?;
     Ok(with_feature(session, answer, imported.sketch))
@@ -381,6 +465,9 @@ pub fn import_file(
     }
     if asked.sketch.is_some() || asked.plane.is_some() {
         return Err(FileError::PlacedModel.into());
+    }
+    if asked.drawing_options_given() {
+        return Err(FileError::DrawingOptionsOnModel.into());
     }
     import_model(session, work, &path, shown)
 }

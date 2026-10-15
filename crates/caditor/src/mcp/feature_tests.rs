@@ -463,3 +463,107 @@ fn features_are_renamed_suppressed_reordered_and_deleted() {
     assert_eq!(kept["failing"][0]["new"], true);
     client.finish();
 }
+
+#[test]
+fn a_shell_gives_chosen_walls_a_thickness_of_their_own() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+    let bottom = face_where(&mut client, &block, [0.0, 0.0, -1.0]);
+
+    let shell = added(
+        &mut client,
+        "add_shell",
+        json!({
+            "body": block, "open_faces": [top], "thickness": 2,
+            "face_thicknesses": [{ "face": bottom, "thickness": "5 mm" }]
+        }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        24_000.0 - 36.0 * 26.0 * 15.0
+    ));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": shell, "face_thicknesses": [] }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        24_000.0 - 36.0 * 26.0 * 18.0
+    ));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": shell, "face_thicknesses": [{ "face": bottom, "thickness": 4 }] }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        24_000.0 - 36.0 * 26.0 * 16.0
+    ));
+    client.tool("undo", json!({}));
+    client.tool("undo", json!({}));
+    assert!(close(
+        total_volume(&mut client),
+        24_000.0 - 36.0 * 26.0 * 15.0
+    ));
+    client.finish();
+}
+
+#[test]
+fn a_mirror_reflects_the_chosen_faces_of_a_body() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [-20.0, 0.0], "Block");
+    let datum = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": 20 }),
+    );
+    let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({ "sketch": sketch, "items": [{ "kind": "point", "at": [10, 15] }] }),
+    );
+    added(
+        &mut client,
+        "add_hole",
+        json!({ "sketch": sketch, "diameter": 4, "depth": 10, "body": block }),
+    );
+    let drilled = 24_000.0 - PI * 4.0 * 10.0;
+    assert!(close(total_volume(&mut client), drilled));
+
+    let faces = client.tool("list_faces", json!({ "body": block }));
+    let hole_faces: Vec<Value> = faces["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|face| {
+            face["surface"] == "cylinder"
+                || (face["surface"] == "plane" && number(&face["area"]) < 20.0)
+        })
+        .map(|face| face["face"].clone())
+        .collect();
+    assert_eq!(hole_faces.len(), 2, "{faces}");
+
+    let mirror = added(
+        &mut client,
+        "add_mirror",
+        json!({ "body": block, "faces": hole_faces, "plane": "YZ" }),
+    );
+    assert!(close(total_volume(&mut client), drilled - PI * 4.0 * 10.0));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": mirror, "faces": [] }),
+    );
+    assert!(close(total_volume(&mut client), 24_000.0));
+
+    let both = client.tool_error(
+        "add_mirror",
+        json!({ "body": block, "faces": hole_faces, "features": [mirror], "plane": "YZ" }),
+    );
+    assert!(both.contains("not both"), "{both}");
+    client.finish();
+}
