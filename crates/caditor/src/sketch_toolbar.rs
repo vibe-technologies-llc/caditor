@@ -242,7 +242,7 @@ const MODIFY_MENU: &[&[Command]] = &[
         Command::PasteGeometry,
         Command::DeleteSelection,
     ],
-    &[Command::IntersectBody],
+    &[Command::ProjectSketch, Command::IntersectBody],
 ];
 const CONSTRAIN_MENU: &[&[Command]] = &[&[Command::FindRelations, Command::CheckSketch]];
 const DIMENSION_MENU: &[&[Command]] = &[

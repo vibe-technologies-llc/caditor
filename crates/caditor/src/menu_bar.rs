@@ -1042,7 +1042,7 @@ impl Menus<'_> {
                         ],
                     );
                     ui.separator();
-                    self.item(ui, Command::IntersectBody);
+                    self.items(ui, [Command::ProjectSketch, Command::IntersectBody]);
                 },
             );
             submenu(

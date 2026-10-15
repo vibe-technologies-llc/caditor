@@ -12,6 +12,12 @@ sketch are shown to click. An axis comes in as a line reaching across the bodies
 where it runs straight through the sketch. Hover shows what a click would add. Projected curves
 make regions and take constraints like drawn ones.
 
+Shift-click a curve or point of another sketch to project the whole of that sketch in one step:
+every curve, construction ones included, and every point no curve uses, with one Undo for all of
+them. {command:sketch.project_sketch} does the same from the keyboard on the highlighted curve, or
+on the one other sketch chosen in the [feature tree](feature-tree). Anything already projected is
+left out, and the message says how much.
+
 A projected edge follows its body when an earlier sketch is changed. If [Trim](trim-and-extend) or
 split cuts the edge's curve in two and the parts still run on end to end, the projection becomes the
 whole of them, with its points and the [constraints](constraints) and

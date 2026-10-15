@@ -3625,6 +3625,28 @@ impl ViewportState {
             actions.extend(pick_action(Some(face), None, model, editing, true).unwrap_or_default());
             return;
         }
+        let sketch = editing
+            .active()
+            .ok_or(projecting::NO_SKETCH_TO_PROJECT)
+            .and_then(|active| {
+                projecting::sketch_to_project(
+                    model,
+                    active,
+                    self.keyboard_highlight.or(self.hovered),
+                    &self.chosen_rows,
+                )
+                .map(|source| (active, source))
+            });
+        if commands.invoke(Command::ProjectSketch, &sketch)
+            && let Ok((active, source)) = sketch
+        {
+            actions.extend(projected(projecting::project_sketch(
+                model,
+                active.feature,
+                source,
+            )));
+            return;
+        }
         let activation = self
             .keyboard_highlight
             .ok_or("Highlight an item first, with Highlight the next item in the view");
@@ -6380,6 +6402,19 @@ fn edge_feature(model: &Model, body: FeatureId, edge: EdgeName) -> Option<Featur
         .max_by_key(|feature| document.feature_index(*feature))
 }
 
+fn projected(projection: Result<projecting::Projection, String>) -> Vec<Action> {
+    match projection {
+        Ok(projection) => std::iter::once(Action::Apply(projection.transaction))
+            .chain(
+                projection
+                    .left_out
+                    .map(|words| Action::Inform(Notice::info(format!("{words}.")))),
+            )
+            .collect(),
+        Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
+    }
+}
+
 fn pick_action(
     pickable: Option<Pickable>,
     ray: Option<Ray>,
@@ -6452,10 +6487,7 @@ fn pick_action(
     if let Some(active) = editing.active().filter(|active| active.tool.projects()) {
         let target = pickable.filter(|pickable| projecting::projectable(model, active, *pickable));
         return Some(match target {
-            Some(target) => match projecting::project(model, active, target, whole) {
-                Ok(transaction) => vec![Action::Apply(transaction)],
-                Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
-            },
+            Some(target) => projected(projecting::project(model, active, target, whole)),
             None => Vec::new(),
         });
     }

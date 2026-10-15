@@ -4,7 +4,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
-use super::{CAMERA_SETTLE, Harness, extruded_plate};
+use super::{CAMERA_SETTLE, Harness, extruded_plate, run_from_palette};
 use crate::{editing::Tool, model::Action, selection::Pickable};
 
 #[test]
@@ -297,4 +297,131 @@ fn the_project_tool_brings_in_the_principal_axes_the_origin_and_datum_points() {
     harness.settle();
 
     assert!(harness.shows_containing(crate::projecting::ALREADY_PROJECTED));
+}
+
+#[test]
+fn shift_click_or_the_palette_projects_a_whole_earlier_sketch_in_one_step() {
+    let mut harness = Harness::new();
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(40.0, 40.0),
+        Point2::new(0.0, 40.0),
+    ];
+    let first_side = outline.add_line(corners[0], corners[1]);
+    for (start, end) in corners.iter().zip(corners.iter().cycle().skip(1)).skip(1) {
+        outline.add_line(*start, *end);
+    }
+    outline.add_point(Point2::new(20.0, 20.0));
+    let source = harness.add_sketch(outline);
+    let above = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let sketch = harness.add_sketch(Sketch::new(above));
+    harness.edit(sketch);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let side = Pickable::SketchEntity {
+        feature: source,
+        entity: first_side,
+    };
+    let shift_click = |harness: &mut Harness| {
+        let position = harness.hover_pickable(above, Point2::new(20.0, 0.0), side);
+        harness
+            .events
+            .push(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+        harness.frame();
+        for pressed in [true, false] {
+            harness.events.push(egui::Event::PointerButton {
+                pos: position,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::SHIFT,
+            });
+            harness.frame();
+        }
+        harness
+            .events
+            .push(egui::Event::ModifiersChanged(Modifiers::NONE));
+        harness.frame();
+        harness.settle();
+    };
+    let counts = |harness: &Harness| {
+        let shown = harness.shown(sketch);
+        let projected: Vec<EntityId> = harness.sketch(sketch).projected().collect();
+        let lines = projected
+            .iter()
+            .filter(|id| matches!(shown.entity(**id), Some(Entity::Line { .. })))
+            .count();
+        let lone = projected
+            .iter()
+            .filter(|id| matches!(shown.entity(**id), Some(Entity::Point(_))))
+            .filter(|id| shown.entities_using(**id).is_empty())
+            .count();
+        (lines, lone)
+    };
+
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.hover_pickable(above, Point2::new(20.0, 0.0), side);
+    harness.frame();
+
+    assert!(harness.shows_containing("or with Shift all of Plate"));
+
+    shift_click(&mut harness);
+
+    assert_eq!(counts(&harness), (4, 1));
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Project 4 curves and 1 point of Plate")
+    );
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    harness.click_pickable(above, Point2::new(20.0, 0.0), side);
+    harness.settle();
+
+    assert_eq!(counts(&harness), (1, 0));
+    assert!(
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Project Line") && label.ends_with("of Plate"))
+    );
+
+    shift_click(&mut harness);
+
+    assert_eq!(counts(&harness), (4, 1));
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Project 3 curves and 1 point of Plate")
+    );
+    assert!(harness.shows_containing("1 curve of Plate was already projected, so it was left out"));
+
+    shift_click(&mut harness);
+
+    assert!(harness.shows_containing("Every curve and point of Plate is already projected"));
+
+    harness.perform(Action::Undo);
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(counts(&harness), (0, 0));
+
+    for _ in 0..40 {
+        if matches!(
+            harness.workspace.viewport.keyboard_highlight(),
+            Some(Pickable::SketchEntity { feature, .. }) if feature == source
+        ) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    run_from_palette(&mut harness, "project every curve of another sketch");
+    harness.settle();
+
+    assert_eq!(counts(&harness), (4, 1));
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Project 4 curves and 1 point of Plate")
+    );
 }

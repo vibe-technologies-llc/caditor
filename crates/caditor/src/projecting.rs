@@ -7,7 +7,7 @@ use caditor_document::{
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
 use caditor_kernel::{EdgeId, EdgeReference, FaceId};
-use caditor_sketch::EntityId;
+use caditor_sketch::{Entity, EntityId};
 
 use crate::{
     bodies, body_selection::face_boundary, datum_tools, editing::ActiveSketch, model::Model,
@@ -15,6 +15,8 @@ use crate::{
 };
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
+pub const NO_SKETCH_TO_PROJECT: &str = "Highlight a curve of another sketch with the Project tool, \
+                                        or choose one other sketch in the feature tree";
 const NOTHING_TO_PROJECT: &str =
     "Every edge of that face is seen end-on from this sketch or already projected into it";
 pub const ALREADY_INTERSECTED: &str = "That cut is already drawn in this sketch";
@@ -70,7 +72,19 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
             _ => None,
         };
     }
-    let what = match pickable {
+    let what = projected_words(model, sketch, pickable)?;
+    let whole = match pickable {
+        Pickable::SketchEntity { feature, .. } => document
+            .feature(feature)
+            .map(|owner| format!(", or with Shift all of {}", owner.name)),
+        _ => None,
+    };
+    Some(format!("Project {what}{}", whole.unwrap_or_default()))
+}
+
+fn projected_words(model: &Model, sketch: FeatureId, pickable: Pickable) -> Option<String> {
+    let document = model.document();
+    Some(match pickable {
         Pickable::Edge { body, edge } => {
             let result = seen(model, sketch, body)?;
             bodies::describe_edge(document, result, edge)
@@ -95,8 +109,21 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
         Pickable::Axis(axis) => format!("the {}", axis.name()),
         Pickable::Origin => "the origin".to_owned(),
         _ => return None,
-    };
-    Some(format!("Project {what}"))
+    })
+}
+
+pub struct Projection {
+    pub transaction: Transaction,
+    pub left_out: Option<String>,
+}
+
+impl From<Transaction> for Projection {
+    fn from(transaction: Transaction) -> Self {
+        Self {
+            transaction,
+            left_out: None,
+        }
+    }
 }
 
 pub fn project(
@@ -104,10 +131,175 @@ pub fn project(
     active: ActiveSketch,
     pickable: Pickable,
     whole: bool,
-) -> Result<Transaction, String> {
+) -> Result<Projection, String> {
     if active.tool.intersects() {
-        return intersect(model, active.feature, pickable, whole);
+        return intersect(model, active.feature, pickable, whole).map(Projection::from);
     }
+    if whole && let Pickable::SketchEntity { feature, .. } = pickable {
+        return project_sketch(model, active.feature, feature);
+    }
+    project_one(model, active, pickable).map(Projection::from)
+}
+
+pub fn sketch_to_project(
+    model: &Model,
+    active: ActiveSketch,
+    highlighted: Option<Pickable>,
+    chosen_rows: &[FeatureId],
+) -> Result<FeatureId, &'static str> {
+    let from_view = highlighted
+        .filter(|_| active.tool.projects() && !active.tool.intersects())
+        .and_then(|pickable| match pickable {
+            Pickable::SketchEntity { feature, .. } if feature != active.feature => Some(feature),
+            _ => None,
+        });
+    if let Some(sketch) = from_view {
+        return Ok(sketch);
+    }
+    let document = model.document();
+    match chosen_rows {
+        [row]
+            if *row != active.feature
+                && document
+                    .feature(*row)
+                    .is_some_and(|feature| feature.kind.sketch().is_some()) =>
+        {
+            Ok(*row)
+        }
+        _ => Err(NO_SKETCH_TO_PROJECT),
+    }
+}
+
+pub fn project_sketch(
+    model: &Model,
+    sketch: FeatureId,
+    source: FeatureId,
+) -> Result<Projection, String> {
+    let document = model.document();
+    refuse_later(document, source, sketch)?;
+    let (definition, plane) = sketch_plane(model, sketch)?;
+    let owner = document
+        .feature(source)
+        .ok_or_else(|| "That sketch no longer exists".to_owned())?;
+    let shown = model
+        .displayed_sketch(owner)
+        .ok_or_else(|| format!("{} has not been computed yet", owner.name))?;
+    let lone_points: BTreeSet<EntityId> = shown.free_points().into_iter().collect();
+    let candidates: Vec<(ProjectionSource, Outline)> = shown
+        .entities()
+        .filter(|(id, entity)| !id.is_reference() && is_projected_whole(*id, entity, &lone_points))
+        .filter_map(|(id, _)| {
+            let outline = sketch_outline(&shown, id, &plane)?;
+            Some((
+                ProjectionSource::SketchEntity {
+                    sketch: source,
+                    entity: id,
+                },
+                outline,
+            ))
+        })
+        .collect();
+    let total = Counted::of(candidates.iter().map(|(_, outline)| outline));
+    let fresh: Vec<(ProjectionSource, Outline)> = candidates
+        .into_iter()
+        .filter(|(source, _)| !already_projected(definition, source))
+        .collect();
+    if total.is_empty() {
+        return Err(format!("{} has no curves or points to project", owner.name));
+    }
+    let projected = Counted::of(fresh.iter().map(|(_, outline)| outline));
+    if projected.is_empty() {
+        return Err(format!(
+            "Every curve and point of {} is already projected into this sketch",
+            owner.name
+        ));
+    }
+    let mut transaction =
+        document.transaction(format!("Project {} of {}", projected.words(), owner.name));
+    for (source, outline) in &fresh {
+        transaction.add_projection(sketch, source.clone(), outline);
+    }
+    let skipped = total.less(projected);
+    let left_out = (!skipped.is_empty()).then(|| {
+        format!(
+            "{} of {} {} already projected, so {} left out",
+            skipped.words(),
+            owner.name,
+            skipped.verb(),
+            skipped.pronoun_verb()
+        )
+    });
+    Ok(Projection {
+        transaction: transaction.finish(),
+        left_out,
+    })
+}
+
+fn is_projected_whole(id: EntityId, entity: &Entity, lone_points: &BTreeSet<EntityId>) -> bool {
+    !matches!(entity, Entity::Point(_)) || lone_points.contains(&id)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Counted {
+    curves: usize,
+    points: usize,
+}
+
+impl Counted {
+    fn of<'a>(outlines: impl Iterator<Item = &'a Outline>) -> Self {
+        let (points, curves): (Vec<&Outline>, Vec<&Outline>) =
+            outlines.partition(|outline| matches!(outline, Outline::Point(_)));
+        Self {
+            curves: curves.len(),
+            points: points.len(),
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.curves == 0 && self.points == 0
+    }
+
+    fn less(self, other: Self) -> Self {
+        Self {
+            curves: self.curves.saturating_sub(other.curves),
+            points: self.points.saturating_sub(other.points),
+        }
+    }
+
+    fn words(self) -> String {
+        let counted = |count: usize, one: &str, many: &str| match count {
+            0 => None,
+            1 => Some(format!("1 {one}")),
+            _ => Some(format!("{count} {many}")),
+        };
+        [
+            counted(self.curves, "curve", "curves"),
+            counted(self.points, "point", "points"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" and ")
+    }
+
+    fn is_one(self) -> bool {
+        self.curves + self.points == 1
+    }
+
+    fn verb(self) -> &'static str {
+        if self.is_one() { "was" } else { "were" }
+    }
+
+    fn pronoun_verb(self) -> &'static str {
+        if self.is_one() { "it was" } else { "they were" }
+    }
+}
+
+fn project_one(
+    model: &Model,
+    active: ActiveSketch,
+    pickable: Pickable,
+) -> Result<Transaction, String> {
     let sketch = active.feature;
     let document = model.document();
     let (definition, plane) = sketch_plane(model, sketch)?;
@@ -122,7 +314,10 @@ pub fn project(
             _ => ALREADY_PROJECTED.to_owned(),
         });
     }
-    let label = describe(model, active, pickable).unwrap_or_else(|| "Project geometry".to_owned());
+    let label = projected_words(model, sketch, pickable).map_or_else(
+        || "Project geometry".to_owned(),
+        |what| format!("Project {what}"),
+    );
     let mut transaction = document.transaction(label);
     for (source, outline) in &fresh {
         transaction.add_projection(sketch, source.clone(), outline);

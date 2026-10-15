@@ -291,6 +291,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   it), a corner shared by two vertices of one name and anything already projected
   (`ProjectionSource::is_same_source`) are refused in words. The highlight commands step only
   through projectable items.
+- Shift-click on a curve or point of another sketch (`projecting::project` with `whole`), or
+  `Command::ProjectSketch` (no default key; palette, Modify group menu, Sketch › Modify geometry)
+  on the highlighted or hovered curve of another sketch, else the one other sketch chosen in the
+  tree (`projecting::sketch_to_project`), projects that whole sketch as one transaction
+  (`projecting::project_sketch`, "Project 4 curves and 1 point of <sketch>"): every non-reference
+  curve, construction included, and every lone point (`Sketch::free_points`), each through the same
+  `add_projection` a click makes. Sources already projected are left out and an info notice says
+  how many (`Projection::left_out`); all already projected, or a later sketch, is refused in words.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's corner menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
   (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and

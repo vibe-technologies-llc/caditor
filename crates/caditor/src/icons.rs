@@ -189,6 +189,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CutGeometry => phosphor::SCISSORS,
         Command::PasteGeometry => phosphor::CLIPBOARD,
         Command::IntersectBody => phosphor::INTERSECTION,
+        Command::ProjectSketch => phosphor::STACK,
         Command::SketchTool(tool) => self::tool(tool),
         Command::ShapeMode(mode) => shape_mode(mode),
         Command::Constraint(tool) => constraint(tool),
