@@ -35,7 +35,7 @@ pub enum HistoryCommand {
 enum Listing {
     Loading,
     Loaded(History),
-    Failed(String),
+    Failed(LoadError),
 }
 
 #[derive(Default)]
@@ -73,7 +73,7 @@ impl VersionHistory {
         {
             *listing = match result {
                 Ok(history) => Listing::Loaded(history),
-                Err(error) => Listing::Failed(error.to_string()),
+                Err(error) => Listing::Failed(error),
             };
         }
         let still_listed = match (&self.shown, &self.preview) {
@@ -243,9 +243,9 @@ pub fn dialog(
                     ui.label("Reading the saved versions…");
                 });
             }
-            Listing::Failed(reason) => {
+            Listing::Failed(error) => {
                 widgets::callout(ui, Tone::Error, |ui| {
-                    ui.label(format!("The versions could not be read: {reason}."));
+                    ui.label(format!("The versions could not be read: {error}."));
                 });
             }
             Listing::Loaded(listed) => {

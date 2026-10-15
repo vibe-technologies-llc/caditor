@@ -37,8 +37,6 @@ pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export 
 const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
 pub const DEFAULT_SHEET_WIDTH: f64 = 600.0;
 pub const DEFAULT_SPACING: f64 = 5.0;
-const NOT_A_WIDTH: &str = "Enter a sheet width greater than zero";
-const NOT_A_SPACING: &str = "Enter a spacing of zero or more";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DrawingSource {
@@ -699,7 +697,7 @@ fn sheet_fields(
                 "Sheet width",
                 exporter.choices.sheet_width,
                 DrawingCommand::SheetWidth as fn(f64) -> DrawingCommand,
-                parse_width as fn(&Model, &str) -> Result<f64, String>,
+                parse_width as fn(&Model, &str) -> Result<f64, SheetLengthError>,
             ),
             (
                 "Spacing",
@@ -716,7 +714,7 @@ fn sheet_fields(
                     &modifying::length_text(model.units(), stored),
                     widgets::FIELD_WIDTH,
                     false,
-                    |text| parse(model, text),
+                    |text| parse(model, text).map_err(String::from),
                 );
                 if let Some(length) = field.committed {
                     *command = Some(FileCommand::DrawingExport(change(length)));
@@ -742,18 +740,38 @@ fn sheet_fields(
     }
 }
 
-pub fn parse_width(model: &Model, text: &str) -> Result<f64, String> {
-    let length = modifying::Value::typed(model, text)?.millimetres;
-    (length.is_finite() && length > 0.0)
-        .then_some(length)
-        .ok_or_else(|| NOT_A_WIDTH.to_owned())
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SheetLengthError {
+    #[error("Enter a sheet width greater than zero")]
+    NotAWidth,
+    #[error("Enter a spacing of zero or more")]
+    NotASpacing,
+    #[error("{0}")]
+    Typed(String),
 }
 
-pub fn parse_spacing(model: &Model, text: &str) -> Result<f64, String> {
-    let length = modifying::Value::typed(model, text)?.millimetres;
+impl From<SheetLengthError> for String {
+    fn from(error: SheetLengthError) -> Self {
+        error.to_string()
+    }
+}
+
+pub fn parse_width(model: &Model, text: &str) -> Result<f64, SheetLengthError> {
+    let length = modifying::Value::typed(model, text)
+        .map_err(SheetLengthError::Typed)?
+        .millimetres;
+    (length.is_finite() && length > 0.0)
+        .then_some(length)
+        .ok_or(SheetLengthError::NotAWidth)
+}
+
+pub fn parse_spacing(model: &Model, text: &str) -> Result<f64, SheetLengthError> {
+    let length = modifying::Value::typed(model, text)
+        .map_err(SheetLengthError::Typed)?
+        .millimetres;
     (length.is_finite() && length >= 0.0)
         .then_some(length)
-        .ok_or_else(|| NOT_A_SPACING.to_owned())
+        .ok_or(SheetLengthError::NotASpacing)
 }
 
 #[cfg(test)]

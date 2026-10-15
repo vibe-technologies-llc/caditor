@@ -1,25 +1,25 @@
 use std::fmt;
 
-use crate::part21::{Exchange, Instance, List, Parameter, Record};
+use crate::{
+    part21::{Exchange, Instance, List, Parameter, Record},
+    read::fault::Fault,
+};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Problem {
     pub entity: u64,
-    pub reason: String,
+    pub fault: Fault,
 }
 
 impl Problem {
-    pub fn new(entity: u64, reason: impl Into<String>) -> Self {
-        Self {
-            entity,
-            reason: reason.into(),
-        }
+    pub fn new(entity: u64, fault: Fault) -> Self {
+        Self { entity, fault }
     }
 }
 
 impl fmt::Display for Problem {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "#{} {}", self.entity, self.reason)
+        write!(formatter, "#{} {}", self.entity, self.fault)
     }
 }
 
@@ -45,7 +45,7 @@ impl<'a> Graph<'a> {
         self.exchange
             .instance(id)
             .map(|instance| Entity { id, instance })
-            .ok_or_else(|| Problem::new(id, "is missing from the file"))
+            .ok_or_else(|| Problem::new(id, Fault::MissingFromFile))
     }
 
     pub fn entities(&self) -> impl Iterator<Item = Entity<'a>> + 'a {
@@ -78,7 +78,7 @@ impl<'a> Entity<'a> {
 
     pub fn record(&self, name: &str) -> Read<Fields<'a>> {
         self.find(name)
-            .ok_or_else(|| Problem::new(self.id, format!("is not a {}", friendly(name))))
+            .ok_or_else(|| Problem::new(self.id, Fault::NotOfKind(name.to_owned())))
     }
 
     pub fn find(&self, name: &str) -> Option<Fields<'a>> {
@@ -95,7 +95,7 @@ impl<'a> Entity<'a> {
                 id: self.id,
                 record,
             })
-            .ok_or_else(|| Problem::new(self.id, "combines several kinds"))
+            .ok_or_else(|| Problem::new(self.id, Fault::CombinesKinds))
     }
 }
 
@@ -110,26 +110,26 @@ impl<'a> Fields<'a> {
         self.record
             .parameters()
             .get(index)
-            .ok_or_else(|| Problem::new(self.id, "has too few values"))
+            .ok_or_else(|| Problem::new(self.id, Fault::TooFewValues))
     }
 
     pub fn real(&self, index: usize) -> Read<f64> {
         self.get(index)?
             .real()
             .filter(|value| value.is_finite())
-            .ok_or_else(|| Problem::new(self.id, "has a number that cannot be read"))
+            .ok_or_else(|| Problem::new(self.id, Fault::UnreadableNumber))
     }
 
     pub fn integer(&self, index: usize) -> Read<i64> {
         self.get(index)?
             .integer()
-            .ok_or_else(|| Problem::new(self.id, "has a count that cannot be read"))
+            .ok_or_else(|| Problem::new(self.id, Fault::UnreadableCount))
     }
 
     pub fn reference(&self, index: usize) -> Read<u64> {
         self.get(index)?
             .reference()
-            .ok_or_else(|| Problem::new(self.id, "has a value where a reference belongs"))
+            .ok_or_else(|| Problem::new(self.id, Fault::ReferenceExpected))
     }
 
     pub fn optional_reference(&self, index: usize) -> Option<u64> {
@@ -139,13 +139,13 @@ impl<'a> Fields<'a> {
     pub fn list(&self, index: usize) -> Read<List<'a>> {
         self.get(index)?
             .list()
-            .ok_or_else(|| Problem::new(self.id, "has a value where a list belongs"))
+            .ok_or_else(|| Problem::new(self.id, Fault::ListExpected))
     }
 
     pub fn logical(&self, index: usize) -> Read<bool> {
         self.get(index)?
             .logical()
-            .ok_or_else(|| Problem::new(self.id, "has a value where true or false belongs"))
+            .ok_or_else(|| Problem::new(self.id, Fault::LogicalExpected))
     }
 
     pub fn name(&self, index: usize) -> Option<String> {
@@ -161,7 +161,7 @@ impl<'a> Fields<'a> {
                 value
                     .real()
                     .filter(|value| value.is_finite())
-                    .ok_or_else(|| Problem::new(self.id, "has a number that cannot be read"))
+                    .ok_or_else(|| Problem::new(self.id, Fault::UnreadableNumber))
             })
             .collect()
     }
@@ -176,7 +176,7 @@ pub(crate) fn references(items: List<'_>, context: u64) -> Read<Vec<u64>> {
         .iter()
         .map(|item| {
             item.reference()
-                .ok_or_else(|| Problem::new(context, "has a value where a reference belongs"))
+                .ok_or_else(|| Problem::new(context, Fault::ReferenceExpected))
         })
         .collect()
 }

@@ -379,7 +379,35 @@ pub fn with_png_extension(path: PathBuf) -> PathBuf {
     PathBuf::from(named)
 }
 
-pub fn scaled(size: SurfaceSize, scale: ImageScale) -> Result<SurfaceSize, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SizeBlocked {
+    #[error("Show the 3D view to export it at its size.")]
+    NoView,
+    #[error("An image export is already running.")]
+    Running,
+    #[error(
+        "At {} the image would be {width} × {height} pixels, more than the {MAX_IMAGE_SIDE} \
+         pixels a side caditor draws. Choose a smaller size or scale.",
+        .scale.name()
+    )]
+    TooLarge {
+        scale: ImageScale,
+        width: u64,
+        height: u64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Enter a whole number of pixels from 1 to {MAX_IMAGE_SIDE}")]
+pub struct SideOutOfRange;
+
+impl From<SideOutOfRange> for String {
+    fn from(error: SideOutOfRange) -> Self {
+        error.to_string()
+    }
+}
+
+pub fn scaled(size: SurfaceSize, scale: ImageScale) -> Result<SurfaceSize, SizeBlocked> {
     let side = |length: u32| {
         length
             .checked_mul(scale.factor())
@@ -387,13 +415,11 @@ pub fn scaled(size: SurfaceSize, scale: ImageScale) -> Result<SurfaceSize, Strin
     };
     match (side(size.width), side(size.height)) {
         (Some(width), Some(height)) => Ok(SurfaceSize { width, height }),
-        _ => Err(format!(
-            "At {} the image would be {} × {} pixels, more than the {MAX_IMAGE_SIDE} pixels a side \
-             caditor draws. Choose a smaller size or scale.",
-            scale.name(),
-            u64::from(size.width) * u64::from(scale.factor()),
-            u64::from(size.height) * u64::from(scale.factor()),
-        )),
+        _ => Err(SizeBlocked::TooLarge {
+            scale,
+            width: u64::from(size.width) * u64::from(scale.factor()),
+            height: u64::from(size.height) * u64::from(scale.factor()),
+        }),
     }
 }
 
@@ -492,13 +518,14 @@ pub fn dialog(
         let mut command = None;
         let size = exporter
             .base_size(view)
-            .ok_or_else(|| "Show the 3D view to export it at its size.".to_owned())
+            .ok_or(SizeBlocked::NoView)
             .and_then(|size| scaled(size, exporter.scale));
         let blocker = if exporter.is_running() {
-            Err("An image export is already running.".to_owned())
+            Err(SizeBlocked::Running)
         } else {
             size
         };
+        let blocked = blocker.as_ref().err().map(ToString::to_string);
         widgets::dialog_body(ui, |ui| {
             size_choice(ui, exporter, view, &mut command);
             scale_choice(ui, exporter, &mut command);
@@ -513,17 +540,12 @@ pub fn dialog(
                 ));
             }
         });
-        export::warnings(
-            ui,
-            model,
-            FAILED_OUTCOME,
-            blocker.as_ref().err().map(String::as_str),
-        );
+        export::warnings(ui, model, FAILED_OUTCOME, blocked.as_deref());
         widgets::footer(ui, |ui| {
             let export = widgets::primary_button(ui, "Export…");
             let response = ui.add_enabled(blocker.is_ok(), export);
             let response = match &blocker {
-                Err(blocker) => response.on_disabled_hover_text(blocker),
+                Err(blocker) => response.on_disabled_hover_text(blocker.to_string()),
                 Ok(_) => response,
             };
             if response.clicked()
@@ -588,7 +610,7 @@ fn size_choice(
                             &stored.to_string(),
                             widgets::FIELD_WIDTH,
                             false,
-                            parse_side,
+                            |text| parse_side(text).map_err(String::from),
                         );
                         ui.label(widgets::muted("px", ui));
                         if let Some(side) = field.committed {
@@ -607,11 +629,11 @@ fn size_choice(
     }
 }
 
-pub fn parse_side(text: &str) -> Result<u32, String> {
+pub fn parse_side(text: &str) -> Result<u32, SideOutOfRange> {
     text.parse::<u32>()
         .ok()
         .filter(|side| (1..=MAX_IMAGE_SIDE).contains(side))
-        .ok_or_else(|| format!("Enter a whole number of pixels from 1 to {MAX_IMAGE_SIDE}"))
+        .ok_or(SideOutOfRange)
 }
 
 fn scale_choice(ui: &mut Ui, exporter: &ImageExporter, command: &mut Option<ImageCommand>) {
@@ -687,7 +709,10 @@ mod tests {
             ImageScale::Four,
         )
         .unwrap_err();
-        assert!(refused.contains("10000 × 40 pixels"), "{refused}");
+        assert!(
+            refused.to_string().contains("10000 × 40 pixels"),
+            "{refused}"
+        );
         assert!(
             scaled(
                 SurfaceSize {

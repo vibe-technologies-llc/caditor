@@ -29,10 +29,14 @@ paths:
   `SHELL_BASED_SURFACE_MODEL` as named kernel solids plus notes, or a `ReadError` in words; surface
   bodies are left out with a note. No solids is `ReadError::NoSolids(Held)`, naming the schema and
   any open surface bodies, tessellated shapes or wireframes. A failing body does not stop the others;
-  when none is left the first failure is `ReadError::NotRebuilt { name, entity, reason }`, else the
+  when none is left the first failure is `ReadError::NotRebuilt { name, entity, fault }`, else the
   first placement that left a body out is `ReadError::NotPlaced { name, misplacement }`
   (`Misplacement` also words the notes).
-- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity.
+- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. A reader
+  failure is a `Problem` (entity id and `Fault`, `read/fault.rs`): `Fault` is an enum of one variant
+  per failure, carrying typed data (a kernel error as its source, an offset's `OffsetRefusal`, the
+  STEP kind's name) and worded by its `Display` to continue "its entity #N …"; no reader function
+  builds a message string. `Fault::Build` carries the `BuildError` and the file's precision, and
   `describe_build` words every `BuildError` and `ValidationError` in an exhaustive `match` (no ids or
   topology terms; raw text goes to the debug log), so a new kernel variant fails to compile until
   worded; `no_note_about_a_body_that_cannot_be_rebuilt_shows_kernel_internals` pins it. A solid whose

@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    fmt,
     path::{self, Path, PathBuf},
 };
 
@@ -26,8 +27,8 @@ pub const IMPORT_HINT: &str = "Add a DXF or SVG drawing to the sketch you are ed
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;
-pub const TOO_SHORT: &str = "every curve in it is too short to draw";
 pub const NO_BODIES: &str = "it holds no solid bodies";
+pub const TOO_SHORT: &str = "every curve in it is too short to draw";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportReport {
@@ -174,20 +175,45 @@ pub struct KeptSource {
     pub name: String,
 }
 
-pub fn kept_source(document: &Document, feature: FeatureId) -> Result<KeptSource, String> {
-    let owner = document
-        .feature(feature)
-        .ok_or_else(|| "The imported body no longer exists.".to_owned())?;
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum KeptSourceError {
+    #[error("The imported body no longer exists.")]
+    Deleted,
+    #[error("{name} is not an imported body.")]
+    NotImported { name: String },
+    #[error(
+        "{name} was imported before caditor kept where files came from. Use Replace from file \
+         to choose “{origin}”."
+    )]
+    PathNotKept { name: String, origin: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BodiesRefusal {
+    #[error("{NO_BODIES}")]
+    NoBodies,
+    #[error(
+        "it holds {} and none is named {name}; rename the body in the file or the feature to \
+         match",
+        count(*.bodies, "body", "bodies")
+    )]
+    NoneNamed { bodies: usize, name: String },
+}
+
+pub fn kept_source(document: &Document, feature: FeatureId) -> Result<KeptSource, KeptSourceError> {
+    let owner = document.feature(feature).ok_or(KeptSourceError::Deleted)?;
     let FeatureKind::Import(import) = &owner.kind else {
-        return Err(format!("{} is not an imported body.", owner.name));
+        return Err(KeptSourceError::NotImported {
+            name: owner.name.clone(),
+        });
     };
-    let path = import.path.clone().ok_or_else(|| {
-        format!(
-            "{} was imported before caditor kept where files came from. Use Replace from file \
-             to choose “{}”.",
-            owner.name, import.source
-        )
-    })?;
+    let path = import
+        .path
+        .clone()
+        .ok_or_else(|| KeptSourceError::PathNotKept {
+            name: owner.name.clone(),
+            origin: import.source.clone(),
+        })?;
     Ok(KeptSource {
         path,
         name: owner.name.clone(),
@@ -266,7 +292,7 @@ pub fn place_bodies(
         }
     };
     if imported.bodies.is_empty() {
-        return nothing_imported(model, &file, NO_BODIES, imported.notes);
+        return nothing_imported(model, &file, BodiesRefusal::NoBodies, imported.notes);
     }
     let transaction =
         bodies_transaction(model.document(), &imported.bodies, format!("Import {file}"));
@@ -335,9 +361,9 @@ pub fn replace_body(
     };
     let body = match replacement(&imported.bodies, &name) {
         Ok(body) => body,
-        Err(reason) => {
+        Err(refusal) => {
             model.set_notice(Notice::failure(format!(
-                "{name} was not replaced from “{file}”: {reason}."
+                "{name} was not replaced from “{file}”: {refusal}."
             )));
             return None;
         }
@@ -381,7 +407,10 @@ pub fn replace_body(
     })
 }
 
-fn replacement<'a>(bodies: &'a [ImportedBody], name: &str) -> Result<&'a ImportedBody, String> {
+fn replacement<'a>(
+    bodies: &'a [ImportedBody],
+    name: &str,
+) -> Result<&'a ImportedBody, BodiesRefusal> {
     let named_after = |body: &ImportedBody| {
         let base = body.name.trim();
         name == base
@@ -391,18 +420,15 @@ fn replacement<'a>(bodies: &'a [ImportedBody], name: &str) -> Result<&'a Importe
                 .is_some_and(|number| number.parse::<u32>().is_ok())
     };
     match bodies {
-        [] => Err(NO_BODIES.to_owned()),
+        [] => Err(BodiesRefusal::NoBodies),
         [only] => Ok(only),
         several => several
             .iter()
             .find(|body| body.name.trim() == name)
             .or_else(|| several.iter().find(|body| named_after(body)))
-            .ok_or_else(|| {
-                format!(
-                    "it holds {} and none is named {name}; rename the body in the file or the \
-                     feature to match",
-                    count(several.len(), "body", "bodies")
-                )
+            .ok_or_else(|| BodiesRefusal::NoneNamed {
+                bodies: several.len(),
+                name: name.to_owned(),
             }),
     }
 }
@@ -444,7 +470,7 @@ fn stored_len<'a>(kinds: impl Iterator<Item = &'a FeatureKind>) -> usize {
 fn nothing_imported(
     model: &mut Model,
     file: &str,
-    reason: &str,
+    reason: impl fmt::Display,
     notes: Vec<String>,
 ) -> Option<ImportReport> {
     model.set_notice(Notice::failure(format!(

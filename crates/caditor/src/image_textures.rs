@@ -14,15 +14,21 @@ use caditor_render::PictureTexture;
 
 use crate::model::Waker;
 
-pub const UNSHOWABLE: &str = "the picture could not be prepared for showing";
+#[derive(Debug, thiserror::Error)]
+pub enum PictureFailure {
+    #[error(transparent)]
+    Undecodable(#[from] PictureReadError),
+    #[error("the picture could not be prepared for showing")]
+    Unshowable,
+}
 
-type Decoded = (PictureDigest, Result<Arc<PictureTexture>, String>);
+type Decoded = (PictureDigest, Result<Arc<PictureTexture>, PictureFailure>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum Entry {
     Decoding,
     Ready(Arc<PictureTexture>),
-    Failed(String),
+    Failed(PictureFailure),
 }
 
 pub struct ImageTextures {
@@ -46,15 +52,15 @@ impl Default for ImageTextures {
     }
 }
 
-pub fn texture_of(pixels: RgbaPixels) -> Result<Arc<PictureTexture>, String> {
+pub fn texture_of(pixels: RgbaPixels) -> Result<Arc<PictureTexture>, PictureFailure> {
     PictureTexture::new(pixels.width, pixels.height, pixels.rgba)
         .map(Arc::new)
-        .ok_or_else(|| UNSHOWABLE.to_owned())
+        .ok_or(PictureFailure::Unshowable)
 }
 
-fn decoded(picture: &Picture) -> Result<Arc<PictureTexture>, String> {
+fn decoded(picture: &Picture) -> Result<Arc<PictureTexture>, PictureFailure> {
     decode_picture(picture.bytes())
-        .map_err(|error: PictureReadError| error.to_string())
+        .map_err(PictureFailure::from)
         .and_then(texture_of)
 }
 
@@ -96,7 +102,7 @@ impl ImageTextures {
         }
     }
 
-    pub fn failure(&self, digest: PictureDigest) -> Option<&str> {
+    pub fn failure(&self, digest: PictureDigest) -> Option<&PictureFailure> {
         match self.entries.get(&digest) {
             Some(Entry::Failed(reason)) => Some(reason),
             Some(Entry::Decoding | Entry::Ready(_)) | None => None,
@@ -151,7 +157,7 @@ impl ImageTextures {
                 let result = panic::catch_unwind(AssertUnwindSafe(|| decoded(&picture)))
                     .unwrap_or_else(|_| {
                         log::error!("decoding a reference image panicked");
-                        Err(UNSHOWABLE.to_owned())
+                        Err(PictureFailure::Unshowable)
                     });
                 if sender.send((digest, result)).is_ok() {
                     wake();
@@ -163,7 +169,7 @@ impl ImageTextures {
             {
                 log::error!("could not start a thread to decode a reference image: {error}");
                 self.entries
-                    .insert(digest, Entry::Failed(UNSHOWABLE.to_owned()));
+                    .insert(digest, Entry::Failed(PictureFailure::Unshowable));
             }
         }
     }

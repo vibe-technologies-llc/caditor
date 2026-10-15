@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use caditor_document::{ImportOutcome, ImportRow, ImportedParameter, ParameterImport};
+use caditor_document::{EditError, ImportOutcome, ImportRow, ImportedParameter, ParameterImport};
 use caditor_file::{
     PARAMETERS_EXTENSION, ParameterFileError, parameters_csv, read_parameters, write_parameters,
 };
@@ -164,7 +164,7 @@ impl Files {
                     plan,
                 });
             }
-            Err(reason) => model.set_notice(Notice::failure(reason)),
+            Err(error) => model.set_notice(Notice::failure(error.to_string())),
         }
     }
 
@@ -182,9 +182,9 @@ impl Files {
                 draft.replace = replace;
                 match plan(model, &draft.path, &draft.rows, replace) {
                     Ok(plan) => draft.plan = plan,
-                    Err(reason) => {
+                    Err(error) => {
                         self.parameter_import = None;
-                        model.set_notice(Notice::failure(reason));
+                        model.set_notice(Notice::failure(error.to_string()));
                     }
                 }
             }
@@ -203,11 +203,20 @@ impl Files {
                         }
                         model.set_notice(notice);
                     }
-                    Err(reason) => model.set_notice(Notice::failure(reason)),
+                    Err(error) => model.set_notice(Notice::failure(error.to_string())),
                 }
             }
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ParameterPlanError {
+    #[error("Could not import parameters from “{name}”: {source}.")]
+    Refused {
+        name: String,
+        source: Box<EditError>,
+    },
 }
 
 fn plan(
@@ -215,12 +224,15 @@ fn plan(
     path: &Path,
     rows: &[ImportedParameter],
     replace: bool,
-) -> Result<ParameterImport, String> {
+) -> Result<ParameterImport, ParameterPlanError> {
     let name = display_name(Some(path));
     model
         .document()
         .plan_parameter_import(format!("Import parameters from {name}"), rows, replace)
-        .map_err(|error| format!("Could not import parameters from “{name}”: {error}."))
+        .map_err(|source| ParameterPlanError::Refused {
+            name,
+            source: Box::new(source),
+        })
 }
 
 fn summary(plan: &ParameterImport) -> Notice {

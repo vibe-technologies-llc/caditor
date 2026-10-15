@@ -7,7 +7,7 @@ use caditor_render::PictureTexture;
 use super::{Event, Files, Purpose};
 use crate::{
     editing::{EditingCommand, SketchEditing},
-    image_textures,
+    image_textures::{self, PictureFailure},
     image_tools::{self, ImageTarget},
     model::{Action, Model, Notice, display_name},
 };
@@ -17,7 +17,7 @@ pub const PICTURE_KIND: &str = "Pictures";
 #[derive(Debug)]
 pub struct ReadImage {
     pub picture: Arc<Picture>,
-    pub texture: Result<Arc<PictureTexture>, String>,
+    pub texture: Result<Arc<PictureTexture>, PictureFailure>,
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use caditor_document::{
-    CellChange, ColumnOutcome, ConfigurationImport, ImportColumn, ImportRowPlan,
+    CellChange, ColumnOutcome, ConfigurationImport, EditError, ImportColumn, ImportRowPlan,
     ImportedConfigurations, RowOutcome,
 };
 use caditor_file::{
@@ -162,7 +162,7 @@ impl Files {
                     plan,
                 });
             }
-            Err(reason) => model.set_notice(Notice::failure(reason)),
+            Err(error) => model.set_notice(Notice::failure(error.to_string())),
         }
     }
 
@@ -180,9 +180,9 @@ impl Files {
                 draft.replace = replace;
                 match plan(model, &draft.path, &draft.file, replace) {
                     Ok(plan) => draft.plan = plan,
-                    Err(reason) => {
+                    Err(error) => {
                         self.configuration_import = None;
-                        model.set_notice(Notice::failure(reason));
+                        model.set_notice(Notice::failure(error.to_string()));
                     }
                 }
             }
@@ -201,11 +201,20 @@ impl Files {
                         }
                         model.set_notice(notice);
                     }
-                    Err(reason) => model.set_notice(Notice::failure(reason)),
+                    Err(error) => model.set_notice(Notice::failure(error.to_string())),
                 }
             }
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ConfigurationPlanError {
+    #[error("Could not import configurations from “{name}”: {source}.")]
+    Refused {
+        name: String,
+        source: Box<EditError>,
+    },
 }
 
 fn plan(
@@ -213,7 +222,7 @@ fn plan(
     path: &Path,
     file: &ImportedConfigurations,
     replace: bool,
-) -> Result<ConfigurationImport, String> {
+) -> Result<ConfigurationImport, ConfigurationPlanError> {
     let name = display_name(Some(path));
     model
         .document()
@@ -223,7 +232,10 @@ fn plan(
             replace,
             model.evaluation(),
         )
-        .map_err(|error| format!("Could not import configurations from “{name}”: {error}."))
+        .map_err(|source| ConfigurationPlanError::Refused {
+            name,
+            source: Box::new(source),
+        })
 }
 
 fn summary(plan: &ConfigurationImport) -> Notice {
