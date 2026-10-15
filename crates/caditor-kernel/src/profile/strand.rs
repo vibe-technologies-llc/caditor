@@ -247,7 +247,7 @@ impl Strand {
         }
     }
 
-    fn keeps_course_of(&self, original: &Self, tolerance: f64) -> bool {
+    pub fn keeps_course_of(&self, original: &Self, tolerance: f64) -> bool {
         match (*self, *original) {
             (Self::Line { start, end }, Self::Line { .. }) => {
                 (end - start).dot(original.start_tangent()) > tolerance
@@ -291,6 +291,21 @@ impl Strand {
             .into_iter()
             .filter(|point| point.is_finite())
             .min_by(|a, b| a.distance(aim).total_cmp(&b.distance(aim)))
+    }
+
+    pub fn ray_crossings(&self, origin: Point2, direction: Vector2) -> Vec<Point2> {
+        match *self {
+            Self::Line { .. } => {
+                let tangent = self.start_tangent();
+                let turn = direction.perp_dot(tangent);
+                if turn.abs() <= SMOOTH_TURN * SMOOTH_TURN {
+                    return Vec::new();
+                }
+                let along = (self.start() - origin).perp_dot(tangent) / turn;
+                vec![origin + direction * along]
+            }
+            Self::Arc { center, radius, .. } => line_circle(origin, direction, center, radius),
+        }
     }
 
     pub fn curve(&self) -> Result<(Curve2, Interval, bool), GeometryError> {
@@ -383,9 +398,13 @@ fn circle_circle(first: Point2, radius: f64, second: Point2, other_radius: f64) 
     vec![foot + axis.perp() * across, foot - axis.perp() * across]
 }
 
+pub(crate) fn is_smooth_turn(leaving: Vector2, entering: Vector2) -> bool {
+    leaving.perp_dot(entering).abs() <= SMOOTH_TURN
+}
+
 pub(crate) fn is_smooth(before: &Strand, after: &Strand) -> bool {
     let (leaving, entering) = (before.end_tangent(), after.start_tangent());
-    leaving.perp_dot(entering).abs() <= SMOOTH_TURN && leaving.dot(entering) > 0.0
+    is_smooth_turn(leaving, entering) && leaving.dot(entering) > 0.0
 }
 
 pub(crate) fn offset_strands(

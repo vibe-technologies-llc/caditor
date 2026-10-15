@@ -1,4 +1,5 @@
 mod arrangement;
+mod course;
 mod culprits;
 mod error;
 mod geometry;
