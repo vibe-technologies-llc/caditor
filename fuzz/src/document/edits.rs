@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
     FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
-    ParameterOwner, PieceStandIns, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
-    Rgb, RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets, SetMember, Setting,
-    SketchAttachment, Transaction,
+    ParameterOwner, PieceStandIns, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Rgb, RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets,
+    SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch};
@@ -58,6 +58,12 @@ fn optional_text(input: &mut Unstructured) -> Result<Option<String>> {
     } else {
         None
     })
+}
+
+fn folder(input: &mut Unstructured) -> Result<Vec<String>> {
+    (0..input.int_in_range(0u8..=3)?)
+        .map(|_| text(input))
+        .collect()
 }
 
 fn chosen<T: Clone>(input: &mut Unstructured, items: &[T]) -> Result<Option<T>> {
@@ -187,6 +193,7 @@ fn appearance(input: &mut Unstructured, scene: &Scene, body: FeatureId) -> Resul
             None
         },
         name: optional_text(input)?,
+        folder: folder(input)?,
         opacity: opacity(input)?,
         finish: finish(input)?,
         faces,
