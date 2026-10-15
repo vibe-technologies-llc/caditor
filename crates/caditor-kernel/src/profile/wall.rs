@@ -5,13 +5,13 @@ use thiserror::Error;
 
 use crate::{
     build::curves,
-    curve2::Curve2,
     error::GeometryError,
     interrupt::{self, Interrupted},
     profile::{
         PieceBound, PieceId, ProfileCurve, ProfileError, ProfileLoop, Region, RegionKey,
+        course::{Course, offset_courses, outline_of},
         source::Source,
-        strand::{OffsetFailure, Strand, offset_strands, polygon, polygons_cross, signed_area},
+        strand::{OffsetFailure, Strand, polygons_cross, signed_area},
     },
     tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
 };
@@ -35,8 +35,6 @@ pub enum WallError {
     NotPositive,
     #[error("the wall is thicker than {MAX_SIZE} mm")]
     BeyondMaximum,
-    #[error("{} cannot be given a wall; only lines, arcs and circles can", curves(.entities))]
-    UnsupportedCurve { entities: Vec<u64> },
     #[error("three or more curves meet at one point: {}", curves(.entities))]
     Branches { entities: Vec<u64> },
     #[error("the curves turn straight back where {} meet", curves(.entities))]
@@ -58,8 +56,7 @@ pub enum WallError {
 impl WallError {
     pub fn entities(&self) -> Vec<u64> {
         match self {
-            Self::UnsupportedCurve { entities }
-            | Self::Branches { entities }
+            Self::Branches { entities }
             | Self::Folds { entities }
             | Self::TooThick { entities }
             | Self::Apart { entities } => entities.clone(),
@@ -77,7 +74,7 @@ impl WallError {
 
 struct Element {
     entity: u64,
-    strand: Strand,
+    strand: Course,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,23 +125,11 @@ pub fn wall_regions(
         .iter()
         .map(Source::from_curve)
         .collect::<Result<_, _>>()?;
-    let unsupported: Vec<u64> = sources
-        .iter()
-        .filter(|source| matches!(source.curve, Curve2::BSpline(_) | Curve2::Ellipse(_)))
-        .map(|source| source.entity)
-        .collect();
-    if !unsupported.is_empty() {
-        return Err(WallError::UnsupportedCurve {
-            entities: unsupported,
-        });
-    }
     let elements: Vec<Element> = sources
         .iter()
-        .filter_map(|source| {
-            Some(Element {
-                entity: source.entity,
-                strand: Strand::of_curve(&source.curve, source.range, false)?,
-            })
+        .map(|source| Element {
+            entity: source.entity,
+            strand: Course::of_curve(&source.curve, source.range, false),
         })
         .collect();
     let size = sources
@@ -165,12 +150,8 @@ pub fn wall_regions(
         .iter()
         .flat_map(Region::loops)
         .map(|profile_loop| {
-            let strands: Vec<Strand> = profile_loop
-                .pieces()
-                .iter()
-                .filter_map(Strand::of_piece)
-                .collect();
-            polygon(&strands)
+            let courses: Vec<Course> = profile_loop.pieces().iter().map(Course::of_piece).collect();
+            outline_of(&courses)
         })
         .collect();
     if polygons_cross(&polygons) {
@@ -292,18 +273,18 @@ fn chain_region(
         .iter()
         .filter_map(|link| Some((elements.get(link.element)?, link.forward)))
         .collect();
-    let strands: Vec<Strand> = linked
+    let strands: Vec<Course> = linked
         .iter()
         .map(|(element, forward)| {
             if *forward {
-                element.strand
+                element.strand.clone()
             } else {
                 element.strand.reversed()
             }
         })
         .collect();
     let entities: Vec<u64> = linked.iter().map(|(element, _)| element.entity).collect();
-    let inside_is_left = signed_area(&polygon(&strands)) >= 0.0;
+    let inside_is_left = signed_area(&outline_of(&strands)) >= 0.0;
     let (left, right) = match (side, inside_is_left) {
         (WallSide::Centred, _) => (0.5 * thickness, 0.5 * thickness),
         (WallSide::Inside, true) | (WallSide::Outside, false) => (thickness, 0.0),
@@ -321,10 +302,8 @@ fn chain_region(
             OffsetFailure::Folds(..) => WallError::Folds { entities: named },
         }
     };
-    let left_side =
-        offset_strands(&strands, chain.closed, left, None, tolerance).map_err(failure)?;
-    let right_side =
-        offset_strands(&strands, chain.closed, -right, None, tolerance).map_err(failure)?;
+    let left_side = offset_courses(&strands, chain.closed, left, tolerance).map_err(failure)?;
+    let right_side = offset_courses(&strands, chain.closed, -right, tolerance).map_err(failure)?;
     let right_pieces = right_side
         .iter()
         .zip(&linked)

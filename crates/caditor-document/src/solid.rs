@@ -1592,14 +1592,6 @@ fn wall_failure(context: &Context<'_>, error: &WallError) -> Failure {
             "Enter a thinner wall.".to_owned(),
             context.own(),
         ),
-        WallError::UnsupportedCurve { .. } => context.error(
-            format!(
-                "In {sketch}, {curves} cannot be given a wall; a thin wall follows only lines, \
-                 arcs and circles."
-            ),
-            format!("Draw it with lines and arcs in {sketch}, or turn off the thin wall."),
-            context.in_sketch(),
-        ),
         WallError::Branches { .. } => context.error(
             format!(
                 "In {sketch}, {curves} meet at one point, so the thin wall cannot tell which way \

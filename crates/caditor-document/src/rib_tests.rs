@@ -1,5 +1,5 @@
 use caditor_expression::Expression;
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceReference, PointClass, SamplingTolerance, Solid, Surface};
 use caditor_sketch::Sketch;
 
@@ -619,4 +619,126 @@ fn a_rib_parallel_to_its_sketch_leaves_its_draft_aside() {
         model.body,
         BOX_VOLUME + 0.5 * 35.0 * 25.0 * 4.0,
     );
+}
+
+fn run_to_walls(from: Point2, outward: Vector2) -> f64 {
+    let reach = |start: f64, step: f64, low: f64, high: f64| {
+        if step > 0.0 {
+            (high - start) / step
+        } else if step < 0.0 {
+            (low - start) / step
+        } else {
+            f64::INFINITY
+        }
+    };
+    reach(from.x, outward.x, 5.0, 95.0).min(reach(from.y, outward.y, 5.0, 55.0))
+}
+
+fn path_inside_box(sketch: &Sketch) -> f64 {
+    let curves = crate::solid::profile_curves(sketch);
+    let (path, range) = curves.first().unwrap().curve().unwrap();
+    let ahead = |parameter: f64| path.evaluate(parameter).first.normalize();
+    let start = path.point(range.start());
+    let end = path.point(range.end());
+    path.length(range)
+        + run_to_walls(start, -ahead(range.start()))
+        + run_to_walls(end, ahead(range.end()))
+}
+
+fn top_plane() -> Plane {
+    Plane::new(Point3::new(0.0, 0.0, 30.0), Vector3::Z).unwrap()
+}
+
+#[test]
+fn a_web_along_an_elliptical_arc_runs_its_ends_on_to_the_walls() {
+    let mut sketch = Sketch::new(top_plane());
+    sketch.add_elliptical_arc(
+        Point2::new(50.0, 30.0),
+        Point2::new(70.0, 30.0),
+        10.0,
+        Point2::new(70.0, 30.0),
+        Point2::new(30.0, 30.0),
+    );
+    let model = ribbed(sketch, web);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let half_perimeter = 0.5 * std::f64::consts::PI * (3.0 * 30.0 - (70.0_f64 * 50.0).sqrt());
+    let expected = BOX_VOLUME + 4.0 * 25.0 * (half_perimeter + 50.0);
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+    let solid = evaluation.body(model.body).unwrap();
+    assert_eq!(
+        solid.classify_point(Point3::new(50.0, 40.0, 20.0)),
+        PointClass::Inside
+    );
+    assert_eq!(
+        solid.classify_point(Point3::new(50.0, 30.0, 20.0)),
+        PointClass::Outside
+    );
+}
+
+#[test]
+fn a_web_along_a_spline_runs_its_ends_on_and_reads_by_its_curve() {
+    let mut sketch = Sketch::new(top_plane());
+    sketch.add_spline(&[
+        Point2::new(30.0, 20.0),
+        Point2::new(45.0, 40.0),
+        Point2::new(60.0, 20.0),
+        Point2::new(75.0, 40.0),
+    ]);
+    let length = path_inside_box(&sketch);
+    let model = ribbed(sketch, web);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let expected = BOX_VOLUME + 4.0 * 25.0 * length;
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - expected).abs() < 2e-3 * (expected - BOX_VOLUME),
+        "{found} {expected}"
+    );
+    let words: Vec<String> = evaluation
+        .body(model.body)
+        .unwrap()
+        .faces()
+        .filter_map(|(_, face)| face.origin())
+        .filter(|origin| origin.feature() == model.rib.raw())
+        .map(|origin| describe_origin(&model.document, Some(origin)))
+        .collect();
+    assert!(
+        words
+            .iter()
+            .any(|word| word.starts_with("Rib 1 side from Spline")),
+        "{words:?}"
+    );
+}
+
+#[test]
+fn a_web_along_a_spline_with_a_draft_fails_saying_only_lines_and_arcs_take_one() {
+    let mut sketch = Sketch::new(top_plane());
+    sketch.add_spline(&[
+        Point2::new(30.0, 20.0),
+        Point2::new(45.0, 40.0),
+        Point2::new(60.0, 20.0),
+        Point2::new(75.0, 40.0),
+    ]);
+    let model = ribbed(sketch, |rib| {
+        web(rib);
+        rib.draft = length("3 deg");
+    });
+
+    let error = failure(&evaluate(&model.document), model.rib);
+
+    assert!(
+        error.reason.contains("only lines and arcs"),
+        "{}",
+        error.reason
+    );
+    assert!(error.remedy.contains("draft"), "{}", error.remedy);
 }

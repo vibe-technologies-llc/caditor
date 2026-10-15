@@ -60,9 +60,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [low · medium] A web (`rib.rs`) is thickened only along lines and arcs (`wall_regions` refuses
-  splines and ellipses), and a rib parallel to its sketch takes no draft and runs its free arc ends
-  on only along their tangent (both are a web's alone).
+- [low · medium] A web (`rib.rs`) along a spline or ellipse takes no draft (`extrude_tapered`
+  refuses them) and two such curves meeting at a sharp corner are `Apart`, and a rib parallel to
+  its sketch takes no draft and runs its free arc ends on only along their tangent (both are a
+  web's alone).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
