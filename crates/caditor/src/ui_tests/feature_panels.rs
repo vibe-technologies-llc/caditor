@@ -15,8 +15,7 @@ use crate::{
     commands::Command,
     datum_tools::{PLANE_CHOICES, POINT_CHOICES},
     feature_fields::{
-        self, ABOVE_ZERO, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION,
-        TURN,
+        self, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION, TURN,
     },
     mirror_panel,
     model::Action,
@@ -207,7 +206,7 @@ fn every_panel_refuses_a_value_with_the_shared_wording() {
     assert!(harness.shows(crate::pattern_panel::CIRCULAR_HINT));
     assert_eq!(
         crate::feature_fields::Rule::AboveZero.check(-1.0),
-        Err(ABOVE_ZERO.to_owned())
+        Err(crate::feature_fields::RuleError::AboveZero)
     );
 }
 

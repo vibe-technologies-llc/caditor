@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use caditor_document::{Document, PlaneReference, Transaction, capitalized, describe_plane};
 use egui::{Id, Ui, WidgetText};
 
@@ -15,13 +17,13 @@ pub fn label(document: &Document, plane: &PlaneReference) -> String {
     capitalized(&describe_plane(document, plane))
 }
 
-pub fn combo<T>(
+pub fn combo<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     document: &Document,
     planes: Vec<PlaneReference>,
     current: Option<&PlaneReference>,
-    change: impl Fn(&PlaneReference) -> Result<T, String>,
+    change: impl Fn(&PlaneReference) -> Result<T, E>,
 ) -> Option<T> {
     let shown: WidgetText = match current {
         Some(current) => label(document, current).into(),
@@ -37,13 +39,13 @@ pub fn combo<T>(
     )
 }
 
-pub fn combo_showing<T>(
+pub fn combo_showing<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     document: &Document,
     (shown, is_current): (WidgetText, impl Fn(&PlaneReference) -> bool),
     planes: Vec<PlaneReference>,
-    change: impl Fn(&PlaneReference) -> Result<T, String>,
+    change: impl Fn(&PlaneReference) -> Result<T, E>,
 ) -> Option<T> {
     feature_fields::principal_combo(ui, id, shown, || {
         planes
@@ -57,20 +59,20 @@ pub fn combo_showing<T>(
     })
 }
 
-pub struct Row<'a> {
+pub struct Row<'a, E = String> {
     pub caption: &'a str,
     pub id: Id,
     pub planes: Vec<PlaneReference>,
     pub current: Option<&'a PlaneReference>,
-    pub picker: Picker<'a>,
+    pub picker: Picker<'a, E>,
     pub remove: Option<&'a str>,
 }
 
-pub fn row(
+pub fn row<E: Display, P>(
     ui: &mut Ui,
     model: &Model,
-    row: Row<'_>,
-    change: impl Fn(&PlaneReference) -> Result<Transaction, String>,
+    row: Row<'_, P>,
+    change: impl Fn(&PlaneReference) -> Result<Transaction, E>,
     actions: &mut Vec<Action>,
 ) -> bool {
     widgets::caption(ui, row.caption);

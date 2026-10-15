@@ -1,7 +1,7 @@
 use caditor_document::{
-    Document, Edit, Evaluation, FaceAttachment, Feature, FeatureId, FeatureKind, FeatureState,
-    PrincipalPlane, SketchAttachment, SketchFeature, Transaction, body_part, describe_plane,
-    displayed_frame, face_plane,
+    Document, Edit, EditError, Evaluation, FaceAttachment, Feature, FeatureId, FeatureKind,
+    FeatureState, PrincipalPlane, SketchAttachment, SketchFeature, Transaction, body_part,
+    describe_plane, displayed_frame, face_plane,
 };
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{FaceReference, Solid};
@@ -305,14 +305,28 @@ pub fn describe(document: &Document, attachment: &SketchAttachment) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum NewSketchError {
+    #[error("The selected plane has no position yet")]
+    PlaneUnplaced { datum: DatumTarget },
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
+
+impl From<NewSketchError> for String {
+    fn from(error: NewSketchError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn new_sketch_on_datum(
     model: &Model,
     datum: DatumTarget,
-) -> Result<(Transaction, FeatureId), String> {
+) -> Result<(Transaction, FeatureId), NewSketchError> {
     let document = model.document();
     let plane = datum
         .plane(model.evaluation())
-        .ok_or("The selected plane has no position yet")?;
+        .ok_or(NewSketchError::PlaneUnplaced { datum })?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
@@ -323,9 +337,7 @@ pub fn new_sketch_on_datum(
         }),
     );
     let transaction = transaction.finish();
-    document
-        .check(&transaction)
-        .map_err(|error| error.to_string())?;
+    document.check(&transaction)?;
     Ok((transaction, feature))
 }
 

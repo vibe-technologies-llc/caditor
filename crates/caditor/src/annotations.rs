@@ -1688,6 +1688,7 @@ impl Annotations {
                                         text,
                                         model.units(),
                                     )
+                                    .map_err(String::from)
                                 } else {
                                     sketch_tools::dimension_change(
                                         model,

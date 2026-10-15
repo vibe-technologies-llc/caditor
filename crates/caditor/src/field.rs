@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use caditor_document::{
-    Document, Edit, FeatureId, Parameter, ParameterOwner, ParameterValues, Transaction,
+    Document, Edit, EditError, FeatureId, Parameter, ParameterOwner, ParameterValues, Transaction,
 };
-use caditor_expression::{Dimension, Expression, Naming, ParameterId};
+use caditor_expression::{Dimension, EvalError, Expression, Naming, ParameterId, ParseError};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
     Align, Event, Id, Key, Margin, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
@@ -112,36 +112,36 @@ fn take_step(ui: &Ui) -> Option<Step> {
     })
 }
 
-pub fn commit_field<T>(
+pub fn commit_field<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     stored: &str,
     width: f32,
     focus: bool,
-    validate: impl FnOnce(&str) -> Result<T, String>,
+    validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
     field(ui, id, stored, width, focus, false, validate)
 }
 
-pub fn value_field<T>(
+pub fn value_field<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     stored: &str,
     width: f32,
     focus: bool,
-    validate: impl FnOnce(&str) -> Result<T, String>,
+    validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
     field(ui, id, stored, width, focus, true, validate)
 }
 
-fn field<T>(
+fn field<T, E: Display>(
     ui: &mut Ui,
     id: Id,
     stored: &str,
     width: f32,
     focus: bool,
     value: bool,
-    validate: impl FnOnce(&str) -> Result<T, String>,
+    validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
     let editing = ui.memory(|memory| memory.has_focus(id));
     let editing_parameter = completion::take_editing(ui, id);
@@ -243,10 +243,10 @@ fn field<T>(
                     committed = Some(value);
                     draft = None;
                 }
-                Err(message) => {
+                Err(error) => {
                     draft = Some(Draft {
                         text,
-                        error: Some(message),
+                        error: Some(error.to_string()),
                         stored: stored.to_owned(),
                     });
                 }
@@ -471,25 +471,43 @@ impl Expected {
     };
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ExpressionError {
+    #[error(transparent)]
+    Unreadable(#[from] ParseError),
+    #[error("{}", sentence(&.0.to_string()))]
+    Unevaluable(EvalError),
+    #[error("{}", sentence(&.0.to_string()))]
+    WrongDimension(EvalError),
+    #[error("The value cannot be negative")]
+    Negative,
+}
+
+impl From<ExpressionError> for String {
+    fn from(error: ExpressionError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn parse_expression(
     document: &Document,
     parameters: &ParameterValues,
     text: &str,
     expected: Expected,
     unit: impl Into<Units>,
-) -> Result<Expression, String> {
+) -> Result<Expression, ExpressionError> {
     let unit = unit.into();
-    let expression = document.parse(text).map_err(|error| error.to_string())?;
+    let expression = document.parse(text)?;
     let value = parameters
         .evaluate_expression(&expression)
-        .map_err(|error| sentence(&error.to_string()))?;
+        .map_err(ExpressionError::Unevaluable)?;
     if let Some(dimension) = expected.dimension {
         expression
             .evaluate_as(dimension, &|id| parameters.value(id))
-            .map_err(|error| sentence(&error.to_string()))?;
+            .map_err(ExpressionError::WrongDimension)?;
     }
     if expected.non_negative && value.value < 0.0 {
-        return Err("The value cannot be negative".to_owned());
+        return Err(ExpressionError::Negative);
     }
     Ok(
         match unit.attach_plain(expected.dimension, value.dimension) {
@@ -505,7 +523,7 @@ pub fn parameter_expression(
     text: &str,
     current: Option<Dimension>,
     unit: impl Into<Units>,
-) -> Result<Expression, String> {
+) -> Result<Expression, ExpressionError> {
     let unit = unit.into();
     let expression = parse_expression(document, parameters, text, Expected::ANYTHING, unit)?;
     let plain = parameters
@@ -517,8 +535,6 @@ pub fn parameter_expression(
         _ => expression,
     })
 }
-
-pub const NOT_NAMEABLE: &str = "This value cannot be given a name here";
 
 pub fn value_text(document: &Document, owner: &ParameterOwner, expression: &Expression) -> String {
     match document.owned_parameter(owner, expression) {
@@ -598,47 +614,87 @@ pub struct NamedField<'a> {
     pub current: &'a Expression,
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum CheckError {
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
+
+impl From<CheckError> for String {
+    fn from(error: CheckError) -> Self {
+        error.to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum NamedEditError<P, H> {
+    #[error("{0}")]
+    Unparsed(P),
+    #[error("{0}")]
+    Unheld(H),
+    #[error(transparent)]
+    Rejected(CheckError),
+    #[error("This value cannot be given a name here")]
+    NotNameable,
+    #[error(
+        "{parameter} is the reading of {measurement}, taken again on every recompute; change \
+         the model to change it"
+    )]
+    MeasuredReading {
+        parameter: String,
+        measurement: String,
+    },
+}
+
+impl<P: Display, H: Display> From<NamedEditError<P, H>> for String {
+    fn from(error: NamedEditError<P, H>) -> Self {
+        error.to_string()
+    }
+}
+
 impl NamedField<'_> {
-    pub fn transaction(
+    pub fn transaction<P, H>(
         &self,
         text: &str,
-        parse: impl Fn(&str) -> Result<Expression, String>,
-        hold: impl FnOnce(Expression) -> Result<Transaction, String>,
-    ) -> Result<Transaction, String> {
+        parse: impl Fn(&str) -> Result<Expression, P>,
+        hold: impl FnOnce(Expression) -> Result<Transaction, H>,
+    ) -> Result<Transaction, NamedEditError<P, H>> {
         let document = self.document;
         let held = document.owned_parameter(&self.owner, self.current);
+        let parsed = |text: &str| parse(text).map_err(NamedEditError::Unparsed);
         match (Naming::split(text), held) {
-            (None, None) => hold(parse(text)?),
+            (None, None) => hold(parsed(text)?).map_err(NamedEditError::Unheld),
             (None, Some(parameter)) => {
-                let unnamed = hold(parse(text)?)?;
+                let unnamed = hold(parsed(text)?).map_err(NamedEditError::Unheld)?;
                 checked(document, document.releasing(unnamed, [parameter.id()]))
+                    .map_err(NamedEditError::Rejected)
             }
             (Some(naming), Some(parameter)) => self.edit_parameter(parameter, &naming, parse),
             (Some(naming), None) => {
-                let expression = self.with_unit(parse(naming.expression)?);
+                let expression = self.with_unit(parsed(naming.expression)?);
                 let marker =
                     Expression::Negate(Box::new(Expression::Negate(Box::new(expression.clone()))));
-                let holding = hold(marker.clone())?;
+                let holding = hold(marker.clone()).map_err(NamedEditError::Unheld)?;
                 let mut transaction = document.transaction(format!("Name {}", naming.name));
                 let id =
                     transaction.add_owned_parameter(naming.name, expression, self.owner.clone());
                 let (holding, count) = holding.substituting(&marker, &Expression::Parameter(id));
                 if count == 0 {
-                    return Err(NOT_NAMEABLE.to_owned());
+                    return Err(NamedEditError::NotNameable);
                 }
                 for edit in holding.edits() {
                     transaction.edit(edit.clone());
                 }
-                checked(document, transaction.finish())
+                checked(document, transaction.finish()).map_err(NamedEditError::Rejected)
             }
         }
     }
 
-    pub fn through_reference(
+    pub fn through_reference<P, H>(
         &self,
         text: &str,
-        parse: impl Fn(&str) -> Result<Expression, String>,
-    ) -> Option<Result<Transaction, String>> {
+        parse: impl Fn(&str) -> Result<Expression, P>,
+    ) -> Option<Result<Transaction, NamedEditError<P, H>>> {
         let document = self.document;
         if document
             .owned_parameter(&self.owner, self.current)
@@ -649,22 +705,22 @@ impl NamedField<'_> {
         let parameter = referenced_parameter(document, self.current)?;
         let naming = Naming::split(text)?;
         if let Some(measurement) = document.measurement_of(parameter.id()) {
-            return Some(Err(format!(
-                "{} is the reading of {}, taken again on every recompute; change the model to \
-                 change it",
-                parameter.name, measurement.name
-            )));
+            return Some(Err(NamedEditError::MeasuredReading {
+                parameter: parameter.name.clone(),
+                measurement: measurement.name.clone(),
+            }));
         }
         Some(self.edit_parameter(parameter, &naming, parse))
     }
 
-    fn edit_parameter(
+    fn edit_parameter<P, H>(
         &self,
         parameter: &Parameter,
         naming: &Naming<'_>,
-        parse: impl Fn(&str) -> Result<Expression, String>,
-    ) -> Result<Transaction, String> {
-        let expression = self.with_unit(parse(naming.expression)?);
+        parse: impl Fn(&str) -> Result<Expression, P>,
+    ) -> Result<Transaction, NamedEditError<P, H>> {
+        let expression =
+            self.with_unit(parse(naming.expression).map_err(NamedEditError::Unparsed)?);
         let id = parameter.id();
         let renaming = (naming.name != parameter.name).then(|| Edit::RenameParameter {
             id,
@@ -679,6 +735,7 @@ impl NamedField<'_> {
                 renaming.into_iter().chain(changing).collect(),
             ),
         )
+        .map_err(NamedEditError::Rejected)
     }
 
     fn with_unit(&self, expression: Expression) -> Expression {
@@ -715,13 +772,54 @@ pub enum Reference {
     Followed,
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum DimensionValueError {
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error("{}", sentence(&.0.to_string()))]
+    Unevaluable(EvalError),
+    #[error(
+        "A {} cannot be negative. It keeps the side the points are drawn on, so enter its size \
+         alone.",
+        .kind.to_lowercase()
+    )]
+    NegativeOffset { kind: &'static str },
+    #[error("{}", sentence(&.0.to_string()))]
+    Refused(DimensionError),
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum DimensionEditError {
+    #[error("The sketch no longer exists")]
+    SketchGone { sketch: FeatureId },
+    #[error("The dimension no longer exists")]
+    DimensionGone {
+        sketch: FeatureId,
+        constraint: ConstraintId,
+    },
+    #[error(transparent)]
+    Named(NamedEditError<DimensionValueError, CheckError>),
+}
+
+impl From<NamedEditError<DimensionValueError, CheckError>> for DimensionEditError {
+    fn from(error: NamedEditError<DimensionValueError, CheckError>) -> Self {
+        Self::Named(error)
+    }
+}
+
+impl From<DimensionEditError> for String {
+    fn from(error: DimensionEditError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn dimension_transaction(
     document: &Document,
     parameters: &ParameterValues,
     target: DimensionTarget,
     text: &str,
     unit: impl Into<Units>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DimensionEditError> {
     dimension_edit(
         document,
         parameters,
@@ -737,16 +835,22 @@ pub fn dimension_edit(
     (target, reference): (DimensionTarget, Reference),
     text: &str,
     unit: impl Into<Units>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DimensionEditError> {
     let unit = unit.into();
     let owner = document
         .feature(target.feature)
-        .ok_or_else(|| "The sketch no longer exists".to_owned())?;
+        .ok_or(DimensionEditError::SketchGone {
+            sketch: target.feature,
+        })?;
+    let dimension_gone = DimensionEditError::DimensionGone {
+        sketch: target.feature,
+        constraint: target.constraint,
+    };
     let definition = owner
         .kind
         .sketch()
         .and_then(|sketch| sketch.constraint(target.constraint))
-        .ok_or_else(|| "The dimension no longer exists".to_owned())?;
+        .ok_or_else(|| dimension_gone.clone())?;
     let offset = matches!(
         definition,
         Constraint::HorizontalDistance { .. } | Constraint::VerticalDistance { .. }
@@ -755,28 +859,24 @@ pub fn dimension_edit(
         dimension: definition.dimension_kind(),
         non_negative: !offset && !matches!(definition, Constraint::Angle { .. }),
     };
-    let current = definition
-        .dimension()
-        .ok_or_else(|| "The dimension no longer exists".to_owned())?;
-    let parse = |text: &str| {
+    let current = definition.dimension().ok_or(dimension_gone)?;
+    let parse = |text: &str| -> Result<Expression, DimensionValueError> {
         let value = parse_expression(document, parameters, text, expected, unit)?;
         let quantity = parameters
             .evaluate_expression(&value)
-            .map_err(|error| sentence(&error.to_string()))?;
+            .map_err(DimensionValueError::Unevaluable)?;
         definition
             .check_dimension_value(quantity.value)
             .map_err(|error| match error {
-                DimensionError::Negative if offset => format!(
-                    "A {} cannot be negative. It keeps the side the points are drawn on, so \
-                     enter its size alone.",
-                    definition.kind_name().to_lowercase()
-                ),
-                other => sentence(&other.to_string()),
+                DimensionError::Negative if offset => DimensionValueError::NegativeOffset {
+                    kind: definition.kind_name(),
+                },
+                other => DimensionValueError::Refused(other),
             })?;
         Ok(value)
     };
     let hold = |value| {
-        checked(
+        checked::<CheckError>(
             document,
             Transaction::single(
                 format!("Edit dimension in {}", owner.name),
@@ -799,16 +899,19 @@ pub fn dimension_edit(
     if reference == Reference::Followed
         && let Some(edited) = field.through_reference(text, parse)
     {
-        return edited;
+        return Ok(edited?);
     }
-    field.transaction(text, parse, hold)
+    Ok(field.transaction(text, parse, hold)?)
 }
 
-pub fn checked(document: &Document, transaction: Transaction) -> Result<Transaction, String> {
+pub fn checked<E: From<CheckError>>(
+    document: &Document,
+    transaction: Transaction,
+) -> Result<Transaction, E> {
     document
         .check(&transaction)
         .map(|()| transaction)
-        .map_err(|error| error.to_string())
+        .map_err(|error| CheckError::from(error).into())
 }
 
 pub fn value_preview(
@@ -860,6 +963,7 @@ mod tests {
             expected,
             LengthUnit::Millimetre,
         )
+        .map_err(|error| error.to_string())
     }
 
     const LENGTH: Expected = Expected {
@@ -970,6 +1074,7 @@ mod tests {
         };
         let edit = |text| {
             dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
+                .map_err(|error| error.to_string())
         };
 
         assert_eq!(
@@ -1008,6 +1113,7 @@ mod tests {
         let edit = |document: &Document, text| {
             let parameters = ParameterValues::evaluate(document);
             dimension_transaction(document, &parameters, target, text, LengthUnit::Millimetre)
+                .map_err(|error| error.to_string())
         };
         let held = |document: &Document| {
             let value = document
@@ -1075,6 +1181,7 @@ mod tests {
         };
         let edit = |text| {
             dimension_transaction(&document, &parameters, target, text, LengthUnit::Millimetre)
+                .map_err(|error| error.to_string())
         };
 
         assert_eq!(

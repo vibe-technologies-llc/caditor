@@ -29,12 +29,12 @@ pub fn placed(document: &Document, feature: FeatureId, import: Import) -> Option
     ))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum PlacementError {
     #[error("The feature no longer exists")]
     FeatureGone,
-    #[error("{0}")]
-    Checked(String),
+    #[error(transparent)]
+    Checked(#[from] field::CheckError),
 }
 
 impl From<PlacementError> for String {
@@ -50,7 +50,7 @@ fn change(
 ) -> Result<Transaction, PlacementError> {
     let document = model.document();
     let transaction = placed(document, feature, import).ok_or(PlacementError::FeatureGone)?;
-    field::checked(document, transaction).map_err(PlacementError::Checked)
+    field::checked(document, transaction)
 }
 
 struct Panel<'a> {

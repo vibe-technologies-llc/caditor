@@ -4435,7 +4435,7 @@ impl ViewportState {
             return;
         }
         if let Some(rho) = typed_point::rho(model, &typed.text) {
-            let set = rho.and_then(|(value, typed)| {
+            let set = rho.map_err(String::from).and_then(|(value, typed)| {
                 self.drawing.set_rho(value, typed).map_err(str::to_owned)
             });
             if let Err(reason) = set {
@@ -4458,7 +4458,7 @@ impl ViewportState {
             return;
         }
         if let Some(lock) = typed_point::length_lock(model, &typed.text, from) {
-            let locked = lock.and_then(|lock| {
+            let locked = lock.map_err(String::from).and_then(|lock| {
                 let dimensions = lock
                     .dimension
                     .filter(|_| self.typed_dimensions)
@@ -4711,7 +4711,9 @@ impl ViewportState {
                 last: Some(fresh.anchor),
                 toward: None,
             };
-            typed_point::parse(model, &typed.text, from).map(|target| fresh.to(target))
+            typed_point::parse(model, &typed.text, from)
+                .map_err(String::from)
+                .map(|target| fresh.to(target))
         });
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),

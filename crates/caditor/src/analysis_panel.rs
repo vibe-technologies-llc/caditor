@@ -115,7 +115,7 @@ fn limit_row(
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,
-        |text| {
+        |text| -> Result<_, String> {
             let parsed = field::parse_expression(
                 document,
                 parameters,

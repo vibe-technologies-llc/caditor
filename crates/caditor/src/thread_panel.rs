@@ -187,7 +187,9 @@ impl Panel<'_> {
                                 class: family.default_class(side),
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                            .map(|transaction| {
+                                feature_fields::applied(&name, Ok::<_, String>(transaction))
+                            }),
                     })
                     .collect()
             },
@@ -217,7 +219,9 @@ impl Panel<'_> {
                                 size,
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                            .map(|transaction| {
+                                feature_fields::applied(&name, Ok::<_, String>(transaction))
+                            }),
                     })
                     .collect()
             },
@@ -256,7 +260,9 @@ impl Panel<'_> {
                                 class: *class,
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                            .map(|transaction| {
+                                feature_fields::applied(&name, Ok::<_, String>(transaction))
+                            }),
                     })
                     .collect()
             },

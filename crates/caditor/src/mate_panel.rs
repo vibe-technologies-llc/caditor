@@ -7,7 +7,7 @@ use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
-    feature_fields::{self, AxisRow, Picker, Quantity, Rule, Shown},
+    feature_fields::{self, AxisRow, Choice, Picker, Quantity, Rule, Shown},
     mate_tools::{self, MatePart},
     model::{Action, Model},
     plane_selector,
@@ -99,7 +99,13 @@ impl Panel<'_> {
         };
         let mut actions = Vec::new();
         match end {
-            End::Moving(_) => feature_fields::axis_row(ui, model, row, None, &mut actions),
+            End::Moving(_) => feature_fields::axis_row(
+                ui,
+                model,
+                row,
+                None::<&dyn Fn() -> Vec<Choice>>,
+                &mut actions,
+            ),
             End::Target(part) => {
                 let listed = || {
                     feature_fields::model_axis_choices(model, id, Some(axis), &|axis| {

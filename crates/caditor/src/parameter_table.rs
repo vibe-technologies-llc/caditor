@@ -490,7 +490,7 @@ fn row(
         widths.name,
         state.wants_focus(name_focus),
         |text| {
-            field::checked(
+            field::checked::<field::CheckError>(
                 document,
                 Transaction::single(
                     format!("Rename {}", parameter.name),
@@ -517,7 +517,7 @@ fn row(
         &expression_text,
         widths.expression,
         state.wants_focus(value_focus),
-        |text| {
+        |text| -> Result<_, String> {
             if let Some(measurement) = &measured_by {
                 return Err(format!(
                     "{} is the reading of {measurement}, taken again on every recompute; change \

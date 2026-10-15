@@ -398,7 +398,7 @@ pub(super) fn amount(
         expected,
         Units::default(),
     )
-    .map_err(refused)?;
+    .map_err(|error| refused(error.into()))?;
     let plain_angle = dimension == Dimension::ANGLE
         && parameters
             .evaluate_expression(&parsed)
