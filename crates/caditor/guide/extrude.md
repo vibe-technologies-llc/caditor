@@ -9,7 +9,10 @@ body, or cuts them into one.
   sketch. Selected regions alone are swept; selecting curves that close up sweeps what they
   enclose.
 - With flat faces of one body selected that lie in one plane, it extrudes them outward together,
-  through a hidden sketch that follows their edges.
+  through a hidden sketch that follows their edges. A revolved face that looks flat but is a
+  shallow cone, because the sketch line that made it is a little off square to the axis, is
+  refused saying how far it slopes: constrain that line Horizontal or Vertical and it becomes
+  flat.
 - With nothing selected, it takes the last sketch not yet swept. When features already sweep
   some of its regions, only the remaining ones are taken, so each part of a sketch can be
   extruded on its own with its own taper and distance.

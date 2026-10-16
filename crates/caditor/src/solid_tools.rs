@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeSet};
+use std::{borrow::Cow, collections::BTreeSet, f64::consts::FRAC_PI_2};
 
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
@@ -8,7 +8,9 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
-use caditor_kernel::{ANGULAR_RESOLUTION, LINEAR_RESOLUTION, RegionKey, WallSide};
+use caditor_kernel::{
+    ANGULAR_RESOLUTION, FaceId, LINEAR_RESOLUTION, RegionKey, Solid, Surface, WallSide,
+};
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
@@ -34,6 +36,8 @@ pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
 pub const DEFAULT_WALL_THICKNESS: f64 = 1.0;
 const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_GAP: f64 = 1e-6;
+const NEARLY_FLAT_DEGREES: f64 = 1.0;
+const SLOPE_SHOWN_DOWN_TO_DEGREES: f64 = 0.001;
 pub const NOTHING_TO_EXTRUDE: &str =
     "Select flat faces of one plane of a body to extrude them, or the curves of a sketch";
 pub const SEVERAL_SKETCHES: &str =
@@ -60,6 +64,18 @@ impl Reason for SweepSourceError {
 pub enum FaceSweepError {
     #[error("The selected face is curved; only a flat face can be {}", .sweep.passive())]
     NotFlat { sweep: Sweep },
+    #[error(
+        "{face} is not quite flat: it slopes {} from flat, so it cannot be {}; make the sketch line \
+         that made it square to the axis it was turned about, with a Horizontal or Vertical \
+         constraint",
+        slope_words(*.degrees),
+        .sweep.passive()
+    )]
+    NearlyFlat {
+        sweep: Sweep,
+        face: String,
+        degrees: f64,
+    },
     #[error("The selected faces do not lie in one plane; select flat faces of one plane only")]
     NotInOnePlane,
     #[error("Faces of several bodies are selected; select faces of one body only")]
@@ -368,6 +384,22 @@ pub fn faces_to_sweep(
     ))
 }
 
+fn slope_off_flat(solid: &Solid, face: FaceId) -> Option<f64> {
+    let Surface::Cone(cone) = solid.face(face)?.surface() else {
+        return None;
+    };
+    let degrees = (FRAC_PI_2 - cone.half_angle().abs()).abs().to_degrees();
+    (degrees < NEARLY_FLAT_DEGREES).then_some(degrees)
+}
+
+fn slope_words(degrees: f64) -> String {
+    if degrees < SLOPE_SHOWN_DOWN_TO_DEGREES {
+        format!("less than {SLOPE_SHOWN_DOWN_TO_DEGREES}°")
+    } else {
+        format!("{degrees:.3}°")
+    }
+}
+
 fn face_profile(
     model: &Model,
     faces: &[FaceChoice],
@@ -385,9 +417,16 @@ fn face_profile(
     let planes = faces
         .iter()
         .map(|face| {
-            bodies::find_face(shown, face.face)
-                .and_then(|id| face_plane(&shown.solid, id))
-                .ok_or(FaceSweepError::NotFlat { sweep })
+            let id =
+                bodies::find_face(shown, face.face).ok_or(FaceSweepError::NotFlat { sweep })?;
+            face_plane(&shown.solid, id).ok_or_else(|| match slope_off_flat(&shown.solid, id) {
+                Some(degrees) => FaceSweepError::NearlyFlat {
+                    sweep,
+                    face: bodies::describe_face_id(model.document(), shown, id),
+                    degrees,
+                },
+                None => FaceSweepError::NotFlat { sweep },
+            })
         })
         .collect::<Result<Vec<Plane>, _>>()?;
     if let Some((first, rest)) = planes.split_first()

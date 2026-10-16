@@ -264,7 +264,12 @@ pub(crate) fn density(surface: &Surface, bounds: Aabb2, tolerance: &SamplingTole
     };
     let us = lattice(bounds.min().x, bounds.max().x, u_knots);
     let vs = lattice(bounds.min().y, bounds.max().y, v_knots);
-    let mut u_needs = vec![0.0_f64; us.len()];
+    let least_u_need = if turns_with_u(surface) {
+        1.0 / tolerance.angle()
+    } else {
+        0.0
+    };
+    let mut u_needs = vec![least_u_need; us.len()];
     let mut v_needs = vec![0.0_f64; vs.len()];
     let (mut u_speeds, mut v_speeds, mut count) = (0.0, 0.0, 0.0);
     for (v, v_need) in vs.iter().zip(v_needs.iter_mut()) {
@@ -464,6 +469,17 @@ fn scale(sum: f64, count: f64) -> f64 {
     } else {
         1.0
     }
+}
+
+fn turns_with_u(surface: &Surface) -> bool {
+    matches!(
+        surface,
+        Surface::Cylinder(_)
+            | Surface::Cone(_)
+            | Surface::Sphere(_)
+            | Surface::Torus(_)
+            | Surface::Revolution(_)
+    )
 }
 
 fn step_for(curvature: f64, tolerance: &SamplingTolerance) -> f64 {

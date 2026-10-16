@@ -291,7 +291,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`solid_tools::create_on_faces`). Revolve does the same with the axis, straight edge or round face
   picked last (`FaceProfile::axis`), a full turn as `RevolveAxis::Model`, refusing faces without one
   (`NO_AXIS_FOR_FACE`). A curved face, faces of two bodies or two planes are refused
-  (`solid_tools::faces_to_sweep`, via `Offers::extrude_faces` and `revolve_faces`). A selected face
+  (`solid_tools::faces_to_sweep`, via `Offers::extrude_faces` and `revolve_faces`); a cone within
+  `NEARLY_FLAT_DEGREES` of flat (a revolved sketch line a little off square to its axis) is
+  refused as `FaceSweepError::NearlyFlat`, naming the face, its slope and the Horizontal or
+  Vertical constraint that makes it flat. A selected face
   never falls through to the last sketch.
 - Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches refused,
   `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis) do they guess the

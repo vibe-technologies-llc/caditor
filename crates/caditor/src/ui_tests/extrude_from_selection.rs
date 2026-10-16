@@ -3,8 +3,10 @@ use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
-use super::{Harness, attached_body, extruded_plate, open_extrude, open_hole, top_edge_along_x};
-use crate::{editing::EditingCommand, model::Action, selection::Pickable};
+use super::{
+    Harness, attached_body, extruded_plate, offer, open_extrude, open_hole, top_edge_along_x,
+};
+use crate::{commands::Command, editing::EditingCommand, model::Action, selection::Pickable};
 
 #[test]
 fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
@@ -262,4 +264,55 @@ fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
         (grown - 40.0 * std::f64::consts::SQRT_2 * 10.0).abs() < 1.0,
         "{grown}"
     );
+}
+
+#[test]
+fn extrude_refuses_a_revolved_face_just_off_flat_saying_how_to_make_it_flat() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    let corners = [
+        Point2::new(1.0, 0.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(20.0, 5.0),
+        Point2::new(12.0, 5.0),
+        Point2::new(12.0, 10.0),
+        Point2::new(1.0, 10.01),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        section.add_line(*corner, corners[(index + 1) % corners.len()]);
+    }
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the revolve is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let pickables: Vec<Pickable> = harness.built().picks.pickables().collect();
+    let shown = crate::bodies::shown(harness.model.evaluation(), revolve).expect("it is built");
+    let sloped = pickables
+        .into_iter()
+        .find(|pickable| match pickable {
+            Pickable::Face { body, face } if *body == revolve => {
+                crate::bodies::find_face(shown, *face)
+                    .and_then(|id| shown.solid.face(id))
+                    .is_some_and(|face| matches!(face.surface(), caditor_kernel::Surface::Cone(_)))
+            }
+            _ => false,
+        })
+        .expect("the top is a cone a little off flat");
+
+    harness.select([sloped]);
+    harness.frame();
+    let refusal = offer(&harness, Command::Extrude)
+        .availability
+        .expect_err("extrude refuses the face");
+
+    assert!(refusal.contains("is not quite flat"), "{refusal}");
+    assert!(refusal.contains("Horizontal or Vertical"), "{refusal}");
 }

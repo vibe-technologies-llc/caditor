@@ -19,7 +19,7 @@ use crate::{
         Random, arc, assert_cancelled_anywhere, assert_watertight, circle, line, polls_during,
         rectangle, spline,
     },
-    tolerance::{MAX_SIZE, SamplingTolerance},
+    tolerance::{MAX_SIZE, MeshQuality, SamplingTolerance},
     topology::{BuildError, Solid},
 };
 
@@ -1598,4 +1598,60 @@ fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_work() 
     assert_eq!(validated, Ok(()));
     assert_eq!(solid.shells().count(), 2);
     assert!(polls < NEARLY_TOUCHING_LUMPS_POLLS, "{polls} polls");
+}
+
+#[test]
+fn a_nearly_flat_revolved_cone_around_a_hole_meshes_without_reaching_into_the_hole() {
+    let hole = 1.0;
+    let corners = [
+        (hole, 0.0),
+        (20.0, 0.0),
+        (20.0, 5.0),
+        (12.0, 5.0),
+        (12.0, 10.0),
+        (hole, 10.01),
+    ];
+    let curves: Vec<ProfileCurve> = (0..corners.len())
+        .map(|index| {
+            let next = corners.get((index + 1) % corners.len()).unwrap();
+            line(index as u64 + 1, *corners.get(index).unwrap(), *next)
+        })
+        .collect();
+
+    let solid = revolve(&Plane::XY, &regions(&curves), y_axis(), full(), FEATURE).unwrap();
+    let cones = solid
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), crate::surface::Surface::Cone(_)))
+        .count();
+    let off_axis = |point: Point3| (point.x * point.x + point.z * point.z).sqrt();
+
+    assert_eq!(cones, 1);
+    for quality in [MeshQuality::COARSE, MeshQuality::SMOOTH] {
+        let mesh = solid.display_mesh(&quality).unwrap();
+        let nearest = mesh
+            .triangles()
+            .iter()
+            .flat_map(|triangle| {
+                let corner = |at: usize| {
+                    let vertex = mesh
+                        .vertices()
+                        .get(*triangle.get(at).unwrap() as usize)
+                        .unwrap();
+                    *mesh.positions().get(vertex.position as usize).unwrap()
+                };
+                let (a, b, c) = (corner(0), corner(1), corner(2));
+                (0..=8).flat_map(move |i| {
+                    (0..=8 - i).map(move |j| {
+                        a + (b - a) * (f64::from(i) / 8.0) + (c - a) * (f64::from(j) / 8.0)
+                    })
+                })
+            })
+            .map(off_axis)
+            .fold(f64::INFINITY, f64::min);
+
+        assert!(
+            nearest > hole - 0.05,
+            "{quality:?} reaches {nearest} from the axis"
+        );
+    }
 }

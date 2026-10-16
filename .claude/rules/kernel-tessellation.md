@@ -19,7 +19,11 @@ paths:
   `MAX_LATTICE`), each lattice span takes the larger need of its ends, and lines sit at equal steps
   of accumulated need. No span may need more than `MAX_SEGMENTS` across the face (a pole's
   degenerate curvature must not attract every line). A direction without curvature gets
-  `FLAT_SEGMENTS` cells whatever its length.
+  `FLAT_SEGMENTS` cells whatever its length. On a rotational surface (u the angle round its axis)
+  the need along u is at least one cell per `SamplingTolerance::angle` of turn, what a cylinder's
+  curvature gives, since the normal curvature of a nearly flat cone's u lines is near zero while
+  they still turn: with too few columns its cells spanned a half turn and triangles reached across
+  a hole round the axis.
 - Curved kinds are refined a whole direction at a time until sampled cells bow from their chords,
   measured along the surface normal (ignoring parameter stretch), by at most `GRID_SHARE` of the
   chord tolerance; a cell whose diagonal bows more than its sides refines both directions.
