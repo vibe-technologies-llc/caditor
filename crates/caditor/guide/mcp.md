@@ -24,7 +24,9 @@ first, so two programs never change one model at once.
   [expression](expressions).
 - Read each body's volume, surface area, centre of mass and bounding box, worked out exactly as
   [Measure](measure) does, the faces of a body with their kind, size and a stable key, and its
-  edges with their kind, length, radius and the faces they lie between.
+  edges with their kind, length, radius and the faces they lie between. Either list can show a
+  body as one feature received it, and editing that feature names faces and edges as it received
+  them, so an edge a fillet rounded away can be named again.
 - Measure the distance between two points, faces or edges, and the angle between them when they
   have one.
 - Read a sketch: its plane, entities, constraints and dimensions, the degrees of freedom left and

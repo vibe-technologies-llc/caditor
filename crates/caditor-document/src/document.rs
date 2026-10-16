@@ -1811,6 +1811,14 @@ impl Document {
         }
     }
 
+    #[must_use]
+    pub fn rolled_back_before(&self, feature: FeatureId) -> Self {
+        Self {
+            rollback: RollbackBar::Before(feature),
+            ..self.clone()
+        }
+    }
+
     pub fn is_rolled_back(&self, id: FeatureId) -> bool {
         self.feature_index(id)
             .is_some_and(|index| index >= self.bar_index())

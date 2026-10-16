@@ -219,22 +219,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   OpenEXR picture (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which
   `cargo deny` refuses), choose a plain-colour backdrop or a visible ground, nor give a material texture, bump or
   clear-coat maps, and the ground bounces no light or occlusion onto the bodies.
-- [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only part of the model: an
-  assistant can read the tree, parameters, bodies, faces, edges and sketches, measure between
-  points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,
-  rectangles, circles, arcs and tangent arcs, slots, polygons, splines, conics, ellipses and
-  elliptical arcs with constraints and dimensions (adding, removing and editing them) on a
-  principal plane, datum plane, coordinate system or flat face, trim, extend, offset, mirror,
-  pattern, fillet, chamfer, move, rotate and scale sketch geometry, project body edges and faces
-  into a sketch, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add
-  primitives, mirror, pattern in a row, grid, circle, along curves or at points, combine, move
-  and mate bodies, add datum planes, axes and points every way, coordinate systems and helices,
-  sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies, edit any
-  of those features, rename, suppress, reorder and delete features, import models, meshes and
-  drawings, undo, redo, save, save under another name and export.
-  What remains, through the same `Session` layer:
-  - Faces and edges named in an edit are found on the body as it stands now, so an edge a fillet
-    rounded away cannot be named again.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

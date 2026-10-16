@@ -12,7 +12,8 @@ use crate::{
         curves, datums,
         features::{self, Built},
         mates,
-        references::{self, Named},
+        places::PlaceError,
+        references::{self, Named, ReferenceError},
         reshaping,
         session::{Session, Work},
         solids, sweeps,
@@ -41,6 +42,61 @@ pub enum FeatureEditError {
     NotEditable { name: String },
     #[error("say what to change in {name}, with the arguments {tool} takes")]
     NothingGiven { name: String, tool: &'static str },
+    #[error(
+        "{body} had no face {face} as {feature} received it; list_faces with before set to \
+         {feature} gives the faces to name when editing it"
+    )]
+    NoFaceBefore {
+        feature: String,
+        body: String,
+        face: String,
+    },
+    #[error(
+        "{body} had no edge {edge} as {feature} received it; list_edges with before set to \
+         {feature} gives the edges to name when editing it"
+    )]
+    NoEdgeBefore {
+        feature: String,
+        body: String,
+        edge: String,
+    },
+    #[error("{name} does not change a body, so there is no body before it to list")]
+    NothingBefore { name: String },
+}
+
+fn as_received(error: ToolError, feature: &str) -> ToolError {
+    match error {
+        ToolError::Reference(ReferenceError::NoFace { body, face }) => {
+            FeatureEditError::NoFaceBefore {
+                feature: feature.to_owned(),
+                body,
+                face,
+            }
+            .into()
+        }
+        ToolError::Place(PlaceError::NoEdge { body, edge }) => FeatureEditError::NoEdgeBefore {
+            feature: feature.to_owned(),
+            body,
+            edge,
+        }
+        .into(),
+        other => other,
+    }
+}
+
+pub fn viewed_before<T>(
+    session: &mut Session,
+    before: Option<&Named>,
+    run: impl FnOnce(&Session) -> Result<T, ToolError>,
+) -> Result<T, ToolError> {
+    let Some(named) = before else {
+        return run(session);
+    };
+    let found = references::feature(session.document(), named)?;
+    let (feature, name) = (found.id(), found.name.clone());
+    session
+        .looking_before(feature, |session| run(session))
+        .ok_or(FeatureEditError::NothingBefore { name })?
 }
 
 pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
@@ -272,7 +328,13 @@ pub fn edit(session: &mut Session, work: &Work<'_>, asked: Editing) -> Result<An
         }
         .into());
     }
-    let Some(built) = rebuilt(session, work, (tool, &kind), &asked.values)? else {
+    session.evaluate(work)?;
+    let rebuilding = |session: &mut Session| rebuilt(session, work, (tool, &kind), &asked.values);
+    let built = match session.looking_before(feature, rebuilding) {
+        Some(result) => result.map_err(|error| as_received(error, &name))?,
+        None => rebuilding(session)?,
+    };
+    let Some(built) = built else {
         return Err(FeatureEditError::NotEditable { name }.into());
     };
     let document = session.document();
