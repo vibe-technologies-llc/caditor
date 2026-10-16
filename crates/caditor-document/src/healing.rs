@@ -212,7 +212,12 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
         }
         FeatureKind::Coil(coil) => visit_axis(&mut coil.axis, "axis it winds around", visitor),
-        FeatureKind::Helix(helix) => visit_axis(&mut helix.axis, "axis it winds around", visitor),
+        FeatureKind::Helix(helix) => {
+            visit_axis(&mut helix.axis, "axis it winds around", visitor);
+            if let Some(point) = &mut helix.start_point {
+                visit_point(point, "point it starts at", visitor);
+            }
+        }
         FeatureKind::Rib(_) => {}
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();

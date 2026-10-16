@@ -660,7 +660,12 @@ impl FeatureKind {
                 coil.operation = renamed_operation(coil.operation, rename);
                 rename_axis(&mut coil.axis, rename);
             }
-            Self::Helix(helix) => rename_axis(&mut helix.axis, rename),
+            Self::Helix(helix) => {
+                rename_axis(&mut helix.axis, rename);
+                if let Some(point) = &mut helix.start_point {
+                    rename_point(point, rename);
+                }
+            }
             Self::Rib(rib) => {
                 rib.sketch = rename(rib.sketch);
                 rib.body = rename(rib.body);

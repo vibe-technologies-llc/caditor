@@ -1,8 +1,10 @@
 use std::f64::consts::TAU;
 
-use caditor_document::{AxisReference, FeatureId, Helix, PrincipalAxis, SweepPath};
+use caditor_document::{
+    AxisReference, Edit, FeatureId, Helix, PointReference, PrincipalAxis, SweepPath, Transaction,
+};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_sketch::Sketch;
+use caditor_sketch::{Entity, Sketch};
 use egui::{Id, Key, Modifiers};
 
 use super::{
@@ -12,7 +14,7 @@ use super::{
 use crate::{
     coil_panel, coil_tools,
     editing::EditingCommand,
-    helix_panel, helix_tools,
+    helix_panel, helix_tools, icons,
     model::Action,
     selection::{Axis, Pickable},
     solid_panel,
@@ -108,6 +110,23 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
     assert!(harness.document().feature(sweep).is_none());
 }
 
+fn click_removal_beside(harness: &mut Harness, label: &str) {
+    let row = harness
+        .texts
+        .iter()
+        .find(|(shown, _)| shown == label)
+        .expect("the row is on screen")
+        .1;
+    let button = harness
+        .texts
+        .iter()
+        .filter(|(shown, _)| shown == icons::REMOVE)
+        .map(|(_, rect)| rect.center())
+        .find(|center| (center.y - row.center().y).abs() < row.height() * 2.0)
+        .expect("the row can be removed");
+    harness.click_screen(button);
+}
+
 fn open_vertical_helix(harness: &mut Harness) -> FeatureId {
     harness.select([Pickable::Axis(Axis::Z)]);
     run_from_palette(harness, "helix");
@@ -193,4 +212,105 @@ fn dragging_a_helix_s_diameter_and_pitch_arrows_changes_them_in_one_undoable_cha
         "{before} to {after} with steps of {step}"
     );
     undone_and_redone(&mut harness, "the pitch drag", pitch);
+}
+
+#[test]
+fn picking_a_sketch_point_starts_the_helix_at_its_angle_and_follows_it_until_removed() {
+    let mut harness = Harness::new();
+    let mut drawn = Sketch::new(Plane::XY);
+    let mark = drawn.add_point(Point2::new(0.0, 7.0));
+    let marks = harness.add_sketch(drawn);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let helix = open_vertical_helix(&mut harness);
+    let typed = start_of(&harness, helix);
+
+    harness.select([Pickable::SketchEntity {
+        feature: marks,
+        entity: mark,
+    }]);
+    harness.frame();
+    harness.click_beside(icons::USE_SELECTED, helix_panel::STARTS_AT);
+    harness.settle();
+    let pointed = start_of(&harness, helix);
+
+    assert!(harness.shows(helix_panel::STARTS_AT));
+    assert!(!harness.shows(helix_panel::START_ANGLE));
+    assert_eq!(harness.model.undo_label(), Some("Edit Helix 1"));
+    assert_eq!(
+        helix_of(&harness, helix).start_point,
+        Some(PointReference::Sketch {
+            sketch: marks,
+            entity: mark
+        })
+    );
+    assert!(
+        typed.distance(Point3::new(RADIUS, 0.0, 0.0)) < 1e-9,
+        "{typed}"
+    );
+    assert!(
+        pointed.distance(Point3::new(0.0, RADIUS, 0.0)) < 1e-9,
+        "{pointed}"
+    );
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Move the mark",
+        Edit::SetSketchEntity {
+            feature: marks,
+            id: mark,
+            entity: Entity::Point(Point2::new(-7.0, 0.0)),
+        },
+    )));
+    harness.settle();
+    let followed = start_of(&harness, helix);
+
+    assert!(
+        followed.distance(Point3::new(-RADIUS, 0.0, 0.0)) < 1e-9,
+        "{followed}"
+    );
+
+    click_removal_beside(&mut harness, helix_panel::STARTS_AT);
+    harness.settle();
+
+    let returned = start_of(&harness, helix);
+
+    assert_eq!(helix_of(&harness, helix).start_point, None);
+    assert!(harness.shows(helix_panel::START_ANGLE));
+    assert!(
+        returned.distance(Point3::new(RADIUS, 0.0, 0.0)) < 1e-9,
+        "{returned}"
+    );
+}
+
+#[test]
+fn a_point_on_the_helix_axis_fails_the_helix_in_words_naming_the_remedy() {
+    let mut harness = Harness::new();
+    let mut drawn = Sketch::new(Plane::XY);
+    let mark = drawn.add_point(Point2::ZERO);
+    let marks = harness.add_sketch(drawn);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let helix = open_vertical_helix(&mut harness);
+
+    harness.select([Pickable::SketchEntity {
+        feature: marks,
+        entity: mark,
+    }]);
+    harness.frame();
+    harness.click_beside(icons::USE_SELECTED, helix_panel::STARTS_AT);
+    harness.settle();
+
+    let reason = harness
+        .model
+        .evaluation()
+        .feature(helix)
+        .and_then(|status| match &status.state {
+            caditor_document::FeatureState::Failed(error) => Some(error.reason()),
+            _ => None,
+        })
+        .expect("the helix fails");
+    assert_eq!(
+        reason,
+        "The start point of Helix 1 lies on its axis, so it has no angle round it."
+    );
 }

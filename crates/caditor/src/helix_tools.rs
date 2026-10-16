@@ -1,6 +1,7 @@
 use caditor_document::{
     AxisReference, CoilLength, CoilSizing, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS, Document,
-    Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixResult, Transaction,
+    Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixResult, PointReference,
+    Transaction,
 };
 use caditor_expression::Expression;
 use caditor_geometry::Point3;
@@ -28,8 +29,14 @@ pub enum HelixError {
     NoAxis,
     #[error("The helix already winds around that axis")]
     AlreadyAround,
+    #[error("Select a corner, round edge, sketch point or datum point made before the helix")]
+    NoStartPoint,
+    #[error("The helix already starts at that point")]
+    AlreadyStartsThere,
     #[error(transparent)]
     AxisSelection(datum_tools::OneChoiceError),
+    #[error(transparent)]
+    PointSelection(datum_tools::OneChoiceError),
     #[error(transparent)]
     Choice(#[from] ChoiceRefusal),
     #[error(transparent)]
@@ -114,6 +121,32 @@ pub fn axis_change(
         return Err(HelixError::AlreadyAround);
     }
     change(model, feature, with_axis(helix, axis))
+}
+
+pub fn with_start_point(helix: &Helix, start_point: Option<PointReference>) -> Helix {
+    Helix {
+        start_point,
+        ..helix.clone()
+    }
+}
+
+pub fn start_point_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    helix: &Helix,
+) -> Result<Transaction, HelixError> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or(HelixError::Gone { feature })?;
+    let point = datum_tools::only_point(model, selection, index)
+        .map_err(HelixError::PointSelection)?
+        .ok_or(HelixError::NoStartPoint)?;
+    if helix.start_point.as_ref() == Some(&point) {
+        return Err(HelixError::AlreadyStartsThere);
+    }
+    change(model, feature, with_start_point(helix, Some(point)))
 }
 
 pub fn reversed(helix: &Helix) -> Helix {

@@ -53,6 +53,7 @@ pub enum Slot {
     PrimitivePlace,
     CoilAxis,
     HelixAxis,
+    HelixStart,
     MateMoving(MatePart),
     MateTarget(MatePart),
     FrameOrigin,
@@ -100,6 +101,7 @@ impl Slot {
             | Self::PrimitivePlace
             | Self::CoilAxis
             | Self::HelixAxis
+            | Self::HelixStart
             | Self::MateTarget(_)
             | Self::FrameOrigin
             | Self::FrameAxis
@@ -214,6 +216,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click {AXIS} or a sketch line to wind the helix around, or press Escape to leave it \
              where it is"
         ),
+        Slot::HelixStart => "Click a corner, round edge, sketch point or datum point to start the \
+                             helix at, or press Escape to leave it where it is"
+            .to_owned(),
         Slot::HolePlace => {
             "Click a flat face where the hole goes, or press Escape to leave it where it is"
                 .to_owned()
@@ -535,6 +540,10 @@ pub fn change(
         }
         (Slot::HelixAxis, FeatureKind::Helix(helix)) => {
             helix_tools::axis_change(model, selection, feature, helix).map_err(ChangeError::from)
+        }
+        (Slot::HelixStart, FeatureKind::Helix(helix)) => {
+            helix_tools::start_point_change(model, selection, feature, helix)
+                .map_err(ChangeError::from)
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)

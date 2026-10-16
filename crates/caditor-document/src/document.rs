@@ -395,7 +395,10 @@ impl FeatureKind {
             Self::Pipe(pipe) => used.extend(pipe.path.body()),
             Self::Loft(loft) => used.extend(loft.end.as_ref().and_then(PointReference::body)),
             Self::Coil(coil) => used.extend(coil.axis.body()),
-            Self::Helix(helix) => used.extend(helix.axis.body()),
+            Self::Helix(helix) => {
+                used.extend(helix.axis.body());
+                used.extend(helix.start_point.as_ref().and_then(PointReference::body));
+            }
             Self::Rib(_) => {}
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
@@ -524,7 +527,12 @@ impl FeatureKind {
             Self::Hole(hole) => hole.end_frame().into_iter().collect(),
             Self::Measurement(measurement) => measurement.frames(),
             Self::Coil(coil) => coil.axis.frame().into_iter().collect(),
-            Self::Helix(helix) => helix.axis.frame().into_iter().collect(),
+            Self::Helix(helix) => helix
+                .axis
+                .frame()
+                .into_iter()
+                .chain(helix.start_point.as_ref().and_then(PointReference::frame))
+                .collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -571,7 +579,6 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Pipe(_)
             | Self::Coil(_)
-            | Self::Helix(_)
             | Self::Rib(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -583,6 +590,12 @@ impl FeatureKind {
             | Self::Remove(_)
             | Self::Thread(_)
             | Self::ReferenceImage(_) => BTreeSet::new(),
+            Self::Helix(helix) => helix
+                .start_point
+                .as_ref()
+                .and_then(PointReference::datum)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -647,7 +660,17 @@ impl FeatureKind {
                 )
                 .collect(),
             Self::Coil(coil) => coil.axis.sketch_entity().into_iter().collect(),
-            Self::Helix(helix) => helix.axis.sketch_entity().into_iter().collect(),
+            Self::Helix(helix) => helix
+                .axis
+                .sketch_entity()
+                .into_iter()
+                .chain(
+                    helix
+                        .start_point
+                        .as_ref()
+                        .and_then(PointReference::sketch_entity),
+                )
+                .collect(),
             Self::Loft(loft) => loft
                 .end
                 .as_ref()
@@ -699,7 +722,12 @@ impl FeatureKind {
             Self::Pipe(pipe) => pipe.path.sketch().into_iter().collect(),
             Self::Loft(loft) => loft.reference_sketches(),
             Self::Coil(coil) => coil.axis.sketch().into_iter().collect(),
-            Self::Helix(helix) => helix.axis.sketch().into_iter().collect(),
+            Self::Helix(helix) => helix
+                .axis
+                .sketch()
+                .into_iter()
+                .chain(helix.start_point.as_ref().and_then(PointReference::sketch))
+                .collect(),
             Self::Rib(rib) => BTreeSet::from([rib.sketch]),
             Self::Sketch(_)
             | Self::Blend(_)

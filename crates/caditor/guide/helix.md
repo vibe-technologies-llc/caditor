@@ -27,8 +27,15 @@ drawn on the YZ plane is carried along it instead.
 - **Diameter** is the helix's diameter at its start.
 - **Taper** narrows or widens it as it rises: a positive angle widens it, a negative one draws it
   in, within 80° either way.
+- **Starts at** starts the helix at the angle of a point: select a corner of a body (the end of an
+  edge is one), the centre of a round edge, a sketch point or a datum point, then use the
+  selection or choose it in the view. The helix then begins on the half-plane through that point
+  and its axis, and follows the point when it moves; the **x** beside the name goes back to the
+  typed angle. A point on the axis has no angle round it, so the helix fails saying so until you
+  pick another point or remove it.
 - **Start angle** turns where the helix starts round its axis, counter-clockwise seen from the
-  axis's end, whichever way the helix turns; 0° starts it where the axis's X direction points.
+  axis's end, whichever way the helix turns; 0° starts it where the axis's X direction points. It
+  is hidden while a point is chosen, and used again when the point is removed.
 - **Turning**: **Counter-clockwise** (right-handed) or **Clockwise** (left-handed), seen from its
   end looking back along the axis.
 

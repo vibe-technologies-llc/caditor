@@ -36,6 +36,7 @@ pub struct Helixing {
     pub height: Option<Amount>,
     pub taper: Option<Amount>,
     pub start_angle: Option<Amount>,
+    pub start_point: Option<PointChoice>,
     pub clockwise: Option<bool>,
     pub name: Option<String>,
 }
@@ -138,6 +139,14 @@ pub fn helix_built(
     }
     if let Some(start) = start {
         helix.start = start;
+        helix.start_point = None;
+    }
+    if let Some(choice) = &asked.start_point {
+        helix.start_point = Some(places::point(
+            session.document(),
+            session.evaluation(),
+            choice,
+        )?);
     }
     helix.length = coil_length(&helix.length, (turns, pitch, height))?;
     if let Some(clockwise) = asked.clockwise {

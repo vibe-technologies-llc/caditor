@@ -2,8 +2,8 @@ use std::f64::consts::TAU;
 
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::SamplingTolerance;
-use caditor_sketch::Sketch;
+use caditor_kernel::{SamplingTolerance, vertex_names};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::*;
 
@@ -255,4 +255,240 @@ fn a_start_angle_that_is_not_an_angle_fails_the_helix_in_words() {
     let error = failure(&evaluation, model.helix);
 
     assert!(error.reason().contains("start angle"), "{}", error.reason());
+}
+
+struct Pointed {
+    document: Document,
+    marks: FeatureId,
+    mark: EntityId,
+    helix: FeatureId,
+}
+
+fn marks_at(position: Point2) -> (Sketch, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let mark = sketch.add_point(position);
+    (sketch, mark)
+}
+
+fn pointed(position: Point2, helix: impl FnOnce(PointReference) -> Helix) -> Pointed {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let (sketch, mark) = marks_at(position);
+    let marks = transaction.add_feature("Marks", FeatureKind::from(sketch));
+    let helix = transaction.add_feature(
+        "Helix 1",
+        FeatureKind::Helix(helix(PointReference::Sketch {
+            sketch: marks,
+            entity: mark,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    Pointed {
+        document,
+        marks,
+        mark,
+        helix,
+    }
+}
+
+fn started_at(point: PointReference) -> Helix {
+    Helix {
+        start_point: Some(point),
+        ..helix_of(2.0, 3.0)
+    }
+}
+
+fn start_of(evaluation: &Evaluation, helix: FeatureId) -> Point3 {
+    evaluation
+        .feature(helix)
+        .unwrap()
+        .result
+        .as_deref()
+        .and_then(FeatureResult::helix)
+        .and_then(HelixResult::start)
+        .unwrap()
+}
+
+#[test]
+fn a_helix_started_at_a_sketch_point_takes_the_angle_of_that_point_round_its_axis() {
+    let model = pointed(Point2::new(0.0, 7.0), started_at);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(
+        start_of(&evaluation, model.helix).distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9,
+        "{:?}",
+        start_of(&evaluation, model.helix)
+    );
+}
+
+#[test]
+fn the_picked_point_wins_over_the_typed_angle_which_returns_once_the_point_is_cleared() {
+    let mut model = pointed(Point2::new(0.0, 7.0), |point| Helix {
+        start: Expression::measure(180.0, Unit::Degree),
+        ..started_at(point)
+    });
+
+    let with_point = start_of(&evaluate(&model.document), model.helix);
+    let mut cleared = model
+        .document
+        .feature(model.helix)
+        .unwrap()
+        .kind
+        .helix()
+        .unwrap()
+        .clone();
+    cleared.start_point = None;
+    model
+        .document
+        .apply(Transaction::single(
+            "Clear",
+            Edit::SetFeatureKind {
+                id: model.helix,
+                kind: FeatureKind::Helix(cleared),
+            },
+        ))
+        .unwrap();
+    let without_point = start_of(&evaluate(&model.document), model.helix);
+
+    assert!(with_point.distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9);
+    assert!(without_point.distance(Point3::new(-10.0, 0.0, 0.0)) < 1e-9);
+}
+
+#[test]
+fn the_start_follows_the_point_when_the_sketch_moves_it() {
+    let mut model = pointed(Point2::new(7.0, 0.0), started_at);
+    let before = start_of(&evaluate(&model.document), model.helix);
+
+    model
+        .document
+        .apply(Transaction::single(
+            "Move",
+            Edit::SetSketchEntity {
+                feature: model.marks,
+                id: model.mark,
+                entity: Entity::Point(Point2::new(-7.0, 0.0)),
+            },
+        ))
+        .unwrap();
+    let after = start_of(&evaluate(&model.document), model.helix);
+
+    assert!(before.distance(Point3::new(10.0, 0.0, 0.0)) < 1e-9);
+    assert!(after.distance(Point3::new(-10.0, 0.0, 0.0)) < 1e-9);
+}
+
+#[test]
+fn a_reversed_helix_still_starts_at_the_angle_of_the_point_in_the_world() {
+    let model = pointed(Point2::new(0.0, 7.0), |point| Helix {
+        reversed: true,
+        ..started_at(point)
+    });
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(start_of(&evaluation, model.helix).distance(Point3::new(0.0, 10.0, 0.0)) < 1e-9);
+}
+
+#[test]
+fn a_point_on_the_axis_fails_the_helix_in_words() {
+    let model = pointed(Point2::new(0.0, 0.0), started_at);
+
+    let evaluation = evaluate(&model.document);
+    let error = failure(&evaluation, model.helix);
+
+    assert_eq!(
+        error.reason(),
+        "The start point of Helix 1 lies on its axis, so it has no angle round it."
+    );
+    assert_eq!(
+        error.remedy(),
+        "Pick a point off the axis, or type a start angle instead."
+    );
+}
+
+#[test]
+fn a_helix_started_at_a_corner_of_a_body_follows_it_by_name() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut outline = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(10.0, 8.0),
+        Point2::new(0.0, 8.0),
+    ];
+    for index in 0..4 {
+        outline.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+    let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(mm(4.0), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+    let solid = evaluation.body(base).unwrap();
+    let names = vertex_names(solid);
+    let corner = Point3::new(10.0, 8.0, 4.0);
+    let (id, _) = solid
+        .vertices()
+        .find(|(_, vertex)| vertex.point().distance(corner) < 1e-9)
+        .unwrap();
+    let vertex = names
+        .iter()
+        .find(|(vertex, _)| **vertex == id)
+        .map(|(_, name)| *name)
+        .unwrap();
+    let mut transaction = document.transaction("Helix");
+    let helix = transaction.add_feature(
+        "Helix 1",
+        FeatureKind::Helix(started_at(PointReference::Vertex { body: base, vertex })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+    let angle = 8.0_f64.atan2(10.0);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(
+        start_of(&evaluation, helix).distance(Point3::new(
+            10.0 * angle.cos(),
+            10.0 * angle.sin(),
+            0.0
+        )) < 1e-9
+    );
+    assert!(
+        document
+            .feature(helix)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&base)
+    );
+}
+
+#[test]
+fn a_helix_depends_on_the_sketch_holding_its_start_point() {
+    let model = pointed(Point2::new(0.0, 7.0), started_at);
+
+    let helix = model.document.feature(model.helix).unwrap();
+
+    assert!(helix.kind.features().contains(&model.marks));
+    assert!(helix.kind.reference_sketches().contains(&model.marks));
+    assert_eq!(
+        model.document.dependents_of(&[model.marks]),
+        vec![model.helix]
+    );
 }
