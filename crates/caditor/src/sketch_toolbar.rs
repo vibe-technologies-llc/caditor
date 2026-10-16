@@ -23,7 +23,7 @@ use crate::{
     menu_bar::MenuEntries,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
-    queued,
+    queued::{self, Pending},
     ribbon::{self, GroupMenu, GroupTools, explained},
     section::SectionCommand,
     selection::Selection,
@@ -574,7 +574,7 @@ pub fn show(
         actions.push(queued::refused(
             command,
             &command.title(),
-            queued::CONSTRAINT_CHECK,
+            &Pending::ConstraintCheck,
         ));
     } else if let Some((tool, constraints)) = request.constraints {
         let projections = if bodies.is_empty() {

@@ -13,7 +13,8 @@ use crate::{
     editing::{self, EditingCommand},
     field::{self, CheckError},
     model::{Action, Model},
-    move_tools, pattern_tools, queued,
+    move_tools, pattern_tools,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
 };
 
@@ -29,7 +30,7 @@ pub enum MirrorToolError {
     NoFaces,
     #[error("Select faces of one body only")]
     OneBodyOnly,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape,
     #[error("Some of the selected faces are no longer part of the model")]
     FacesGone,
@@ -58,6 +59,14 @@ pub enum MirrorToolError {
 impl Reason for MirrorToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::NoShape => Some(Pending::BodyShape),
+            Self::ChosenBody(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -144,11 +153,7 @@ pub fn create_faces_actions(model: &Model, source: &FaceMirrorSource) -> Vec<Act
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(error) => vec![queued::refused(
-            Command::MirrorFaces,
-            FACES_TITLE,
-            &error.to_string(),
-        )],
+        Err(error) => vec![queued::refused(Command::MirrorFaces, FACES_TITLE, &error)],
     }
 }
 

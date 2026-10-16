@@ -13,6 +13,7 @@ use crate::{
     field::{self, CheckError},
     hole_tools,
     model::{Action, Model, Notice},
+    queued::Pending,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
@@ -58,6 +59,13 @@ pub enum PrimitiveError {
 impl Reason for PrimitiveError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::FaceAttachment(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

@@ -16,7 +16,7 @@ use crate::{
     editing::{self, EditingCommand},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    queued,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
 };
@@ -45,7 +45,7 @@ pub enum FaceToolError {
     SeveralBodies,
     #[error("Select the faces of a body to {purpose}")]
     NoFaces { purpose: FacePurpose },
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape,
     #[error("Some of the selected faces are no longer part of the model")]
     FacesGone,
@@ -54,6 +54,10 @@ pub enum FaceToolError {
 impl Reason for FaceToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape).then_some(Pending::BodyShape)
     }
 }
 
@@ -140,11 +144,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(
-            Command::OffsetFace,
-            TITLE,
-            &reason.to_string(),
-        )],
+        Err(reason) => vec![queued::refused(Command::OffsetFace, TITLE, &reason)],
     }
 }
 

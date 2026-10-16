@@ -66,7 +66,7 @@ use crate::{
         StartingToggles, Transitions, ViewDetails, ZoomToward,
     },
     primitive_tools, projecting,
-    queued::{self, Queued, Rerun},
+    queued::{Pending, Queued, Rerun},
     reference_picking::{self, Slot},
     reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
@@ -223,7 +223,7 @@ impl Reason for ListRefusal {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum TypedEditError {
-    #[error("{}", queued::SKETCH_SHOWN)]
+    #[error("{}", Pending::SketchShown)]
     SketchShown,
     #[error(transparent)]
     Moved(#[from] sketch_drag::MoveError),
@@ -233,6 +233,12 @@ enum TypedEditError {
     Point(#[from] TypedPointError),
     #[error(transparent)]
     Value(#[from] TypedValueError),
+}
+
+impl TypedEditError {
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::SketchShown).then_some(Pending::SketchShown)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -4761,7 +4767,9 @@ impl ViewportState {
                     self.add_to_selection(feature, entities, false);
                 }
             }
-            Outcome::Refused(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Outcome::Refused(reason) => {
+                actions.push(Action::Inform(Notice::warning(reason.to_string())))
+            }
         }
     }
 
@@ -4797,9 +4805,8 @@ impl ViewportState {
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
-                let error = error.to_string();
                 queue_typed(&typed.entered, typed_point::MOVE_LABEL, &error, actions);
-                self.typed_point.open_with(typed.entered, error);
+                self.typed_point.open_with(typed.entered, error.to_string());
                 self.moving = Some(moving);
             }
         }
@@ -4899,9 +4906,8 @@ impl ViewportState {
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
-                let error = error.to_string();
                 queue_typed(&typed.entered, field.label, &error, actions);
-                self.typed_point.open_with(typed.entered, error);
+                self.typed_point.open_with(typed.entered, error.to_string());
                 self.transforming = Some(transforming);
             }
         }
@@ -6373,9 +6379,10 @@ fn fresh_from_sketch<T, E: Into<TypedEditError>>(
     refresh(&shown).map_err(Into::into)
 }
 
-fn queue_typed(entered: &str, title: &str, error: &str, actions: &mut Vec<Action>) {
-    if let Some(waiting) = Queued::new(Rerun::Typed(entered.to_owned()), title, error) {
-        actions.push(Action::Queue(Box::new(waiting)));
+fn queue_typed(entered: &str, title: &str, error: &TypedEditError, actions: &mut Vec<Action>) {
+    if let Some(pending) = error.pending() {
+        let rerun = Rerun::Typed(entered.to_owned());
+        actions.push(Action::Queue(Box::new(Queued::new(rerun, title, pending))));
     }
 }
 

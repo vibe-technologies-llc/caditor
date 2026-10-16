@@ -7,13 +7,13 @@ use crate::{
     editing::Tool,
     feature_tree::count,
     model::Model,
-    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
 };
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-enum MirrorRefusal {
+pub enum MirrorRefusal {
     #[error(transparent)]
     SketchGone(#[from] trimming::SketchGone),
     #[error("{}: {source}.", Tool::Mirror.label())]
@@ -28,7 +28,6 @@ pub const TRANSACTION: &str = "Mirror geometry";
 const GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: back to Select";
 const GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: let go of the selection";
 const LINE_KEYS: &str = "Esc: change what is mirrored";
-const NOTHING_SELECTED: &str = "select what to mirror first: click it or drag a box around it";
 
 #[derive(Debug, Clone, Default)]
 pub struct Mirroring {
@@ -161,7 +160,7 @@ impl Mirroring {
             return self.activate(model, feature);
         }
         if self.selected.is_empty() {
-            return Outcome::Refused(trimming::refusal(Tool::Mirror, NOTHING_SELECTED));
+            return Outcome::Refused(Refusal::NothingToMirror);
         }
         self.gathering = false;
         Outcome::Nothing

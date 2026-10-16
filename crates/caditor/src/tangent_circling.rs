@@ -203,9 +203,7 @@ impl TangentCircling {
         }
         let mut curves = self.picked.clone();
         curves.push(curve);
-        self.draw(model, feature, curves, None)
-            .map_err(|error| error.to_string())
-            .into()
+        self.draw(model, feature, curves, None).into()
     }
 
     pub fn enter_text(

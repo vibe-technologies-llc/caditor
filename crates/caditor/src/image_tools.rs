@@ -14,6 +14,7 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model, Notice},
     primitive_tools,
+    queued::Pending,
     reference_picking::Slot,
     selection::{Pickable, Selection},
     solid_tools,
@@ -61,6 +62,13 @@ pub enum ImageTargetError {
 impl Reason for ImageTargetError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::ChosenSpot(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

@@ -14,7 +14,8 @@ use crate::{
     editing::{self, EditingCommand},
     field::{self, CheckError},
     model::{Action, Model},
-    projecting, queued,
+    projecting,
+    queued::{self, Pending},
     reference_picking::{Picking, Slot},
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
@@ -55,6 +56,13 @@ pub enum LoftError {
 impl Reason for LoftError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::FacePlacement(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -270,7 +278,7 @@ pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Loft, TITLE, &reason.to_string())],
+        Err(reason) => vec![queued::refused(Command::Loft, TITLE, &reason)],
     }
 }
 

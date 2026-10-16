@@ -69,11 +69,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(
-            Command::DeleteFace,
-            TITLE,
-            &reason.to_string(),
-        )],
+        Err(reason) => vec![queued::refused(Command::DeleteFace, TITLE, &reason)],
     }
 }
 

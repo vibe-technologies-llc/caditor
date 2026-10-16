@@ -13,7 +13,7 @@ use crate::{
     feature_fields::ChoiceRefusal,
     field::{self, CheckError},
     model::{Action, Model},
-    queued,
+    queued::Pending,
     selection::{Pickable, Selection},
     solid_tools,
     units::LengthUnit,
@@ -32,29 +32,21 @@ pub enum BodyChoiceError {
     Nothing { instruction: &'static str },
     #[error("{SEVERAL_BODIES}")]
     Several,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape,
-}
-
-impl BodyChoiceError {
-    fn text(self) -> &'static str {
-        match self {
-            Self::Nothing { instruction } => instruction,
-            Self::Several => SEVERAL_BODIES,
-            Self::NoShape => queued::BODY_SHAPE,
-        }
-    }
-}
-
-impl From<BodyChoiceError> for &'static str {
-    fn from(error: BodyChoiceError) -> Self {
-        error.text()
-    }
 }
 
 impl Reason for BodyChoiceError {
     fn reason(&self) -> Cow<'static, str> {
-        Cow::Borrowed(self.text())
+        match self {
+            Self::Nothing { instruction } => Cow::Borrowed(*instruction),
+            Self::Several => Cow::Borrowed(SEVERAL_BODIES),
+            Self::NoShape => Cow::Owned(self.to_string()),
+        }
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape).then_some(Pending::BodyShape)
     }
 }
 

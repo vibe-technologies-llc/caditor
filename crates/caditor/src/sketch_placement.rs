@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     Document, Edit, EditError, Evaluation, FaceAttachment, Feature, FeatureId, FeatureKind,
     FeatureState, PrincipalPlane, SketchAttachment, SketchFeature, Transaction, body_part,
@@ -9,9 +11,11 @@ use caditor_sketch::Sketch;
 
 use crate::{
     bodies::{self, FaceKey},
+    commands::Reason,
     datum_tools, editing,
     model::Model,
-    queued, scene,
+    queued::{self, Pending},
+    scene,
     selection::{Pickable, Selection},
 };
 
@@ -92,7 +96,7 @@ pub enum AttachmentError {
     Gone,
     #[error("{}", NOT_FLAT)]
     NotFlat,
-    #[error("{}", NOT_RECOMPUTED)]
+    #[error("{}", Pending::ModelUpToThere)]
     NotRecomputed,
     #[error("{}", FACE_MADE_AFTER)]
     MadeAfter,
@@ -109,6 +113,16 @@ impl AttachmentError {
             Self::MadeAfter => FACE_MADE_AFTER,
             Self::NotFlatHere => NOT_FLAT_HERE,
         }
+    }
+}
+
+impl Reason for AttachmentError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Borrowed(AttachmentError::reason(*self))
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NotRecomputed).then_some(Pending::ModelUpToThere)
     }
 }
 
@@ -338,6 +352,12 @@ pub enum NewSketchError {
     PlaneUnplaced { datum: DatumTarget },
     #[error(transparent)]
     Rejected(#[from] EditError),
+}
+
+impl Reason for NewSketchError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
 }
 
 pub fn new_sketch_on_datum(

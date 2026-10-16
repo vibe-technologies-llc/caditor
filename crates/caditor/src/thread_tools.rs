@@ -12,7 +12,7 @@ use crate::{
     editing::EditingCommand,
     field::{self, CheckError},
     model::{Action, Model},
-    queued,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
     sketch_placement,
 };
@@ -27,7 +27,7 @@ pub enum ThreadToolError {
     OneFaceOnly,
     #[error("Select a cylindrical face: a bore, a shaft or a boss")]
     NotRound,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape,
     #[error("The selected face is no longer part of the model")]
     FaceGone,
@@ -46,6 +46,10 @@ pub enum ThreadToolError {
 impl Reason for ThreadToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape).then_some(Pending::BodyShape)
     }
 }
 
@@ -130,7 +134,7 @@ pub fn create_actions(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(error) => vec![queued::refused(Command::Thread, TITLE, &error.to_string())],
+        Err(error) => vec![queued::refused(Command::Thread, TITLE, &error)],
     }
 }
 

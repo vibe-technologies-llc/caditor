@@ -1,25 +1,25 @@
-use std::{borrow::Cow, fmt::Display};
+use std::borrow::Cow;
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, EvalError, Expression, Quantity};
-use caditor_sketch::{EntityId, Faceting, Sketch};
+use caditor_sketch::{EntityId, Faceting, FilletError, Sketch};
 
 use crate::{
-    blend_curving::BlendCurving,
+    blend_curving::{BlendCurving, BlendCurvingError},
     commands::Reason,
     drawing::Preview,
     editing::{ActiveSketch, Tool},
     field::{self, Expected, ExpressionError},
     filleting::{CornerCut, Filleting, FilletingError},
-    gearing::{GearSettings, Gearing},
-    mirroring::Mirroring,
+    gearing::{GearSettings, Gearing, GearingError},
+    mirroring::{MirrorRefusal, Mirroring},
     model::Model,
-    offsetting::{self, Offsetting},
+    offsetting::{self, Offsetting, OffsettingError},
     patterning::{PatternKind, Patterning, PatterningError},
     shape_modes::{ShapeMode, ShapeModes},
     sketch_tools,
     snap::{Pointer, Screen},
-    tangent_circling::TangentCircling,
+    tangent_circling::{TangentCircling, TangentCirclingError},
     units::Units,
 };
 
@@ -47,19 +47,41 @@ impl SketchVersion {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum Refusal {
+    #[error("{}: select what to mirror first: click it or drag a box around it.", Tool::Mirror.label())]
+    NothingToMirror,
+    #[error("{}: select what to repeat first: click it or drag a box around it.", .tool.label())]
+    NothingToRepeat { tool: Tool },
+    #[error("{}: {source}.", .tool.label())]
+    Fillet { tool: Tool, source: FilletError },
+    #[error(transparent)]
+    Filleting(#[from] FilletingError),
+    #[error(transparent)]
+    Offsetting(#[from] OffsettingError),
+    #[error(transparent)]
+    Mirroring(#[from] MirrorRefusal),
+    #[error(transparent)]
+    Gearing(#[from] GearingError),
+    #[error(transparent)]
+    BlendCurving(#[from] BlendCurvingError),
+    #[error(transparent)]
+    TangentCircling(#[from] TangentCirclingError),
+}
+
 #[derive(Debug)]
 pub enum Outcome {
     Nothing,
     Apply(Transaction),
     Select(Vec<EntityId>),
-    Refused(String),
+    Refused(Refusal),
 }
 
-impl<E: Display> From<Result<Transaction, E>> for Outcome {
+impl<E: Into<Refusal>> From<Result<Transaction, E>> for Outcome {
     fn from(result: Result<Transaction, E>) -> Self {
         match result {
             Ok(transaction) => Self::Apply(transaction),
-            Err(reason) => Self::Refused(reason.to_string()),
+            Err(reason) => Self::Refused(reason.into()),
         }
     }
 }

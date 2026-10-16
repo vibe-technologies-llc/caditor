@@ -12,7 +12,7 @@ use crate::{
     feature_tree::count,
     field::{self, Expected, ExpressionError},
     model::Model,
-    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError, ValueField},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError, ValueField},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
     typed_point,
@@ -40,7 +40,6 @@ pub const CIRCULAR_KEYS: &str = "A count alone spaces them over a full turn; cou
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
-const NOTHING_SELECTED: &str = "select what to repeat first: click it or drag a box around it";
 pub const RECTANGULAR_FIELD: ValueField = ValueField {
     label: "Repeat",
     placeholder: "4 x 10, 3 x 15",
@@ -318,7 +317,9 @@ impl Patterning {
 
     pub fn finish(&mut self) -> Outcome {
         if self.selected.is_empty() {
-            return Outcome::Refused(trimming::refusal(self.kind.tool(), NOTHING_SELECTED));
+            return Outcome::Refused(Refusal::NothingToRepeat {
+                tool: self.kind.tool(),
+            });
         }
         if self.kind == PatternKind::Rectangular || !self.gathering {
             return self.activate();

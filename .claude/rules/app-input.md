@@ -190,9 +190,13 @@ paths:
 
 ## Queued actions
 
-- A refusal that only says the model is not ready is never "try again": its reason is one of
-  `queued.rs`'s constants (`BODY_SHAPE`, `BODIES_SHAPE`, `MODEL_UP_TO_THERE`, `SKETCH_SHOWN`,
-  `CONSTRAINT_CHECK`), which `Awaited::of` recognises, and the action is queued instead. The app's
+- A refusal that only says the model is not ready is never "try again": its error answers
+  `Reason::pending` with a `queued::Pending` variant (`BodyShape`, `BodiesShape`,
+  `ModelUpToThere`, `SketchShown`, `ConstraintCheck`; `Pending::awaited` says whether a recompute
+  or a constraint check is waited for), and the action is queued instead. Every error enum that
+  can carry one (a variant of its own, or a wrapped `BodyChoiceError`, `AttachmentError`, ...)
+  forwards it in its `Reason` impl; `Offer::pending` and `palette::State::Waiting` carry it to the
+  menus and the palette. The app's
   refusal sink (`queued::refused`, also used by the tools' `create_actions` and the sketch bar for a
   constraint while one is checked), a palette entry unavailable for such a reason (chosen anyway,
   so it is refused and queued next frame), New sketch on a face not recomputed

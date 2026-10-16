@@ -25,7 +25,7 @@ use crate::{
         sketching,
         tools::{Answer, ToolError},
     },
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::{self, AttachmentError, FaceChoice},
     sketch_status::up_to_date_result,
     units::Units,
 };
@@ -207,7 +207,7 @@ pub enum SketchingError {
     #[error("a face is named with its body: give both body and face")]
     FaceWithoutBody,
     #[error("the sketch cannot go on that face: {reason}")]
-    UnusableFace { reason: &'static str },
+    UnusableFace { reason: AttachmentError },
     #[error("{0} is not a finite number of millimetres within a kilometre of the sketch origin")]
     Coordinate(f64),
     #[error("a circle's radius must be a finite number above zero, not {0}")]
@@ -467,9 +467,7 @@ pub fn add_sketch(
                 FaceChoice { body, face: key },
                 document.bar_index(),
             )
-            .map_err(|reason| SketchingError::UnusableFace {
-                reason: reason.reason(),
-            })?;
+            .map_err(|reason| SketchingError::UnusableFace { reason })?;
             let sketch_name = asked
                 .name
                 .unwrap_or_else(|| editing::next_sketch_name(document));

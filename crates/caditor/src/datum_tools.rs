@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumKind, DatumPlane, DatumPoint,
     DatumResult, Document, Edit, Evaluation, FaceTangent, Feature, FeatureId, FeatureKind,
@@ -9,9 +11,11 @@ use caditor_kernel::{EdgeReference, FaceReference, Surface, vertex_names};
 
 use crate::{
     bodies,
+    commands::Reason,
     editing::{self, EditingCommand},
     measure,
     model::{Action, Model, Notice},
+    queued::Pending,
     selection::{Pickable, Selection},
     sketch_placement::{self, AttachmentError, FaceChoice, StateError},
     solid_tools,
@@ -40,6 +44,12 @@ pub enum OneChoiceError {
     DatumMadeLater,
 }
 
+impl Reason for OneChoiceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum UnusableSelection {
     #[error("{}", self.text())]
@@ -63,6 +73,14 @@ pub enum UnusableSelection {
 }
 
 impl UnusableSelection {
+    fn pending(self) -> Option<Pending> {
+        match self {
+            Self::Face(error) => error.pending(),
+            Self::EdgeState(state) | Self::CornerState(state) => state.face().pending(),
+            _ => None,
+        }
+    }
+
     fn text(self) -> &'static str {
         match self {
             Self::FaceNeitherFlatNorRound => {
@@ -106,8 +124,21 @@ pub enum DatumFromSelectionError {
     Unusable(UnusableSelection),
 }
 
+impl Reason for DatumFromSelectionError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Unusable(unusable) => unusable.pending(),
+            _ => None,
+        }
+    }
+}
+
 impl DatumFromSelectionError {
-    pub fn text(self) -> &'static str {
+    fn text(self) -> &'static str {
         match self {
             Self::PlaneChoices => {
                 "Select a plane or flat face to offset (and an axis to turn about), three \

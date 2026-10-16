@@ -14,7 +14,7 @@ use crate::{
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    queued::{self, Rerun},
+    queued::{self, Pending, Rerun},
     selection::{Pickable, Selection},
 };
 
@@ -34,7 +34,7 @@ pub enum ShellError {
          those only"
     )]
     NotOpenable,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape { body: FeatureId },
     #[error("Some of the selected faces are no longer part of the model")]
     FacesGone,
@@ -55,6 +55,10 @@ pub enum ShellError {
 impl Reason for ShellError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape { .. }).then_some(Pending::BodyShape)
     }
 }
 
@@ -147,7 +151,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(Command::Shell, TITLE, &reason.to_string())],
+        Err(reason) => vec![queued::refused(Command::Shell, TITLE, &reason)],
     }
 }
 
@@ -350,7 +354,7 @@ pub fn own_thickness_click(model: &Model, feature: FeatureId, pickable: Pickable
         return vec![queued::refused_rerun(
             rerun,
             OWN_THICKNESS_TITLE,
-            queued::BODY_SHAPE,
+            &Pending::BodyShape,
         )];
     }
     let toggled = clicked_face(model, feature, pickable)

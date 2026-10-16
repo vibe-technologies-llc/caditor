@@ -181,7 +181,7 @@ impl Offsetting {
             let chain = sketch.offset_chain_through(curve);
             return match sketch.offset_chain(&chain) {
                 Ok(_) => Outcome::Select(chain),
-                Err(source) => Outcome::Refused(OffsettingError::Refused { source }.to_string()),
+                Err(source) => Outcome::Refused(OffsettingError::Refused { source }.into()),
             };
         }
         match &self.chain {
@@ -192,15 +192,13 @@ impl Offsetting {
                 let Some(value) = Value::pointed(model, distance) else {
                     return Outcome::Nothing;
                 };
-                commit(model, feature, chain, self.mode, side, value)
-                    .map_err(|error| error.to_string())
-                    .into()
+                commit(model, feature, chain, self.mode, side, value).into()
             }
             Some(Err(source)) => Outcome::Refused(
                 OffsettingError::Refused {
                     source: source.clone(),
                 }
-                .to_string(),
+                .into(),
             ),
             None => Outcome::Nothing,
         }

@@ -15,8 +15,8 @@ use crate::{
     field::Expected,
     model::Model,
     modifying::{
-        HighlightNeeded, Hint, Outcome, Prompt, SketchVersion, StepError, Value, ValueError,
-        ValueField, length_text,
+        HighlightNeeded, Hint, Outcome, Prompt, Refusal, SketchVersion, StepError, Value,
+        ValueError, ValueField, length_text,
     },
     patterning,
     snap::{self, Pointer, Screen},
@@ -631,9 +631,10 @@ impl Filleting {
                 self.pending = None;
                 Outcome::Nothing
             }
-            (Some(Err(error)), _) => {
-                Outcome::Refused(trimming::refusal(self.cut.tool(), &error.to_string()))
-            }
+            (Some(Err(error)), _) => Outcome::Refused(Refusal::Fillet {
+                tool: self.cut.tool(),
+                source: error,
+            }),
             (None, Some(pick)) => {
                 self.pending = match self.pending {
                     Some(first) if first.curve == pick.curve => None,
@@ -680,7 +681,7 @@ impl Filleting {
         match self.last.clone() {
             Some(last) => self
                 .enter_text(model, feature, &last)
-                .unwrap_or_else(|error| Outcome::Refused(error.to_string())),
+                .unwrap_or_else(|error| Outcome::Refused(error.into())),
             None => self.round_at_pointer(model, feature),
         }
     }
@@ -689,7 +690,10 @@ impl Filleting {
         let size = match &self.rounding {
             Some(Ok(cuts)) => cuts.first().map(|cut| cut.size()),
             Some(Err(error)) => {
-                return Outcome::Refused(trimming::refusal(self.cut.tool(), &error.to_string()));
+                return Outcome::Refused(Refusal::Fillet {
+                    tool: self.cut.tool(),
+                    source: error.clone(),
+                });
             }
             None => None,
         };

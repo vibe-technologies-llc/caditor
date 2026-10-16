@@ -194,7 +194,7 @@ fn the_smart_dimension_takes_a_line_clicked_after_it_and_enter_dimensions_its_le
     harness.use_tool(Key::D);
     assert_eq!(harness.tool(), Some(Tool::Dimension));
     assert!(harness.workspace.viewport.selection().is_empty());
-    assert!(harness.shows(dimensioning::PICK_FIRST));
+    assert!(harness.shows(&dimensioning::Unfit::PickFirst.to_string()));
 
     harness.hover_pickable(
         Plane::XY,

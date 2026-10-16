@@ -1,19 +1,17 @@
+use std::borrow::Cow;
+
 use caditor_document::FeatureId;
 use egui::Ui;
 
 use crate::{
-    commands::Command,
+    commands::{Command, Reason},
     editing::EditingCommand,
     model::{Action, Model, Notice, RecomputeStatus},
     selection::Pickable,
     widgets,
 };
 
-pub const BODY_SHAPE: &str = "The body has no shape yet";
-pub const BODIES_SHAPE: &str = "A selected body has no shape yet";
 pub const MODEL_UP_TO_THERE: &str = "The model is not recomputed up to there yet";
-pub const SKETCH_SHOWN: &str = "The sketch is being recalculated";
-pub const CONSTRAINT_CHECK: &str = "The last constraint is still being checked against the sketch";
 pub const QUEUE_ON_CLICK: &str = "Click to run it once the model has recomputed.";
 pub const CANCEL_HOVER: &str = "Do not run it when the model is ready (Esc)";
 const RECOMPUTE_FIRST: &str = "recompute the model first";
@@ -26,15 +24,42 @@ pub enum Awaited {
     ConstraintCheck,
 }
 
-impl Awaited {
-    pub fn of(reason: &str) -> Option<Self> {
-        match reason {
-            BODY_SHAPE | BODIES_SHAPE | MODEL_UP_TO_THERE | SKETCH_SHOWN => Some(Self::Recompute),
-            CONSTRAINT_CHECK => Some(Self::ConstraintCheck),
-            _ => None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Pending {
+    #[error("The body has no shape yet")]
+    BodyShape,
+    #[error("A selected body has no shape yet")]
+    BodiesShape,
+    #[error("{MODEL_UP_TO_THERE}")]
+    ModelUpToThere,
+    #[error("The sketch is being recalculated")]
+    SketchShown,
+    #[error("The last constraint is still being checked against the sketch")]
+    ConstraintCheck,
+}
+
+impl Pending {
+    pub fn awaited(self) -> Awaited {
+        match self {
+            Self::BodyShape | Self::BodiesShape | Self::ModelUpToThere | Self::SketchShown => {
+                Awaited::Recompute
+            }
+            Self::ConstraintCheck => Awaited::ConstraintCheck,
         }
     }
+}
 
+impl Reason for Pending {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        Some(*self)
+    }
+}
+
+impl Awaited {
     fn what(self) -> &'static str {
         match self {
             Self::Recompute => "the model to recompute",
@@ -58,18 +83,16 @@ pub enum Rerun {
 pub struct Queued {
     rerun: Rerun,
     title: String,
-    reason: String,
-    awaited: Awaited,
+    pending: Pending,
 }
 
 impl Queued {
-    pub fn new(rerun: Rerun, title: impl Into<String>, reason: &str) -> Option<Self> {
-        Some(Self {
-            awaited: Awaited::of(reason)?,
+    pub fn new(rerun: Rerun, title: impl Into<String>, pending: Pending) -> Self {
+        Self {
             rerun,
             title: title.into(),
-            reason: reason.to_owned(),
-        })
+            pending,
+        }
     }
 
     pub fn rerun(&self) -> &Rerun {
@@ -77,15 +100,15 @@ impl Queued {
     }
 
     pub fn awaited(&self) -> Awaited {
-        self.awaited
+        self.pending.awaited()
     }
 
     pub fn words(&self) -> String {
-        format!("{}: waiting for {}…", self.title, self.awaited.what())
+        format!("{}: waiting for {}…", self.title, self.awaited().what())
     }
 
     pub fn refusal(&self, status: RecomputeStatus) -> String {
-        let first = match (self.awaited, status) {
+        let first = match (self.awaited(), status) {
             (Awaited::Recompute, RecomputeStatus::Cancelled) => Some(RECOMPUTE_FIRST),
             (Awaited::Recompute, RecomputeStatus::Stopped) => Some(RESTART_FIRST),
             (Awaited::Recompute, RecomputeStatus::UpToDate | RecomputeStatus::Running { .. }) => {
@@ -94,20 +117,20 @@ impl Queued {
             (Awaited::ConstraintCheck, _) => None,
         };
         match first {
-            Some(first) => format!("{}: {}; {first}.", self.title, self.reason),
-            None => format!("{}: {}.", self.title, self.reason),
+            Some(first) => format!("{}: {}; {first}.", self.title, self.pending),
+            None => format!("{}: {}.", self.title, self.pending),
         }
     }
 }
 
-pub fn refused(command: Command, title: &str, reason: &str) -> Action {
+pub fn refused(command: Command, title: &str, reason: &impl Reason) -> Action {
     refused_rerun(Rerun::Command(command), title, reason)
 }
 
-pub fn refused_rerun(rerun: Rerun, title: &str, reason: &str) -> Action {
-    match Queued::new(rerun, title, reason) {
-        Some(queued) => Action::Queue(Box::new(queued)),
-        None => Action::Inform(Notice::warning(format!("{title}: {reason}"))),
+pub fn refused_rerun(rerun: Rerun, title: &str, reason: &impl Reason) -> Action {
+    match reason.pending() {
+        Some(pending) => Action::Queue(Box::new(Queued::new(rerun, title, pending))),
+        None => Action::Inform(Notice::warning(format!("{title}: {}", reason.reason()))),
     }
 }
 
@@ -138,7 +161,7 @@ impl Queue {
 
     pub fn follow(&mut self, from: u64, to: u64) {
         if let Some((queued, basis)) = &mut self.held
-            && queued.awaited == Awaited::ConstraintCheck
+            && queued.awaited() == Awaited::ConstraintCheck
             && basis.revision == from
         {
             basis.revision = to;
@@ -178,17 +201,18 @@ mod tests {
     use super::*;
 
     fn moving() -> Queued {
-        Queued::new(Rerun::Command(Command::Move), "Move", BODY_SHAPE).unwrap()
+        Queued::new(Rerun::Command(Command::Move), "Move", Pending::BodyShape)
     }
 
     #[test]
     fn only_a_reason_that_something_running_can_answer_is_queued() {
-        assert!(Queued::new(Rerun::Command(Command::Move), "Move", "Select a body").is_none());
+        let unanswerable = refused(Command::Move, "Move", &"Select a body");
+        let answerable = refused(Command::Move, "Move", &Pending::BodyShape);
+
+        assert!(matches!(unanswerable, Action::Inform(_)));
+        assert!(matches!(answerable, Action::Queue(_)));
         assert_eq!(moving().awaited(), Awaited::Recompute);
-        assert_eq!(
-            Awaited::of(CONSTRAINT_CHECK),
-            Some(Awaited::ConstraintCheck)
-        );
+        assert_eq!(Pending::ConstraintCheck.awaited(), Awaited::ConstraintCheck);
     }
 
     #[test]
@@ -216,8 +240,11 @@ mod tests {
     #[test]
     fn a_constraint_waiting_for_a_check_follows_the_change_the_check_applied() {
         let mut queue = Queue::default();
-        let parallel =
-            Queued::new(Rerun::Command(Command::Move), "Parallel", CONSTRAINT_CHECK).unwrap();
+        let parallel = Queued::new(
+            Rerun::Command(Command::Move),
+            "Parallel",
+            Pending::ConstraintCheck,
+        );
         queue.hold(parallel, 1, 4);
         queue.follow(4, 5);
         assert!(queue.current(1, 5).is_some());

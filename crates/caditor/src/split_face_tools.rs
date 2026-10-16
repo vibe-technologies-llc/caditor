@@ -14,7 +14,7 @@ use crate::{
     editing::{self, EditingCommand},
     field::{self, CheckError},
     model::{Action, Model, Notice},
-    queued,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
     split_tools::{self, SplitError},
 };
@@ -28,7 +28,7 @@ pub enum SplitFaceError {
     ChooseFaces,
     #[error("Select faces of one body only")]
     OneBody,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape { body: FeatureId },
     #[error("Some of the selected faces are no longer part of the model")]
     FacesGone,
@@ -63,6 +63,14 @@ pub enum SplitFaceError {
 impl Reason for SplitFaceError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::NoShape { .. } => Some(Pending::BodyShape),
+            Self::Along(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -172,11 +180,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(
-            Command::SplitFace,
-            TITLE,
-            &reason.to_string(),
-        )],
+        Err(reason) => vec![queued::refused(Command::SplitFace, TITLE, &reason)],
     }
 }
 

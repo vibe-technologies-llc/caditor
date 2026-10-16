@@ -12,7 +12,7 @@ use crate::{
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model},
-    queued,
+    queued::{self, Pending},
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sweep_tools::{self, PathPick, SweepError},
@@ -37,6 +37,13 @@ pub enum PipeError {
 impl Reason for PipeError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Path(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -131,7 +138,7 @@ pub fn create_actions(model: &Model, start: &PipeStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Pipe, TITLE, &reason.to_string())],
+        Err(reason) => vec![queued::refused(Command::Pipe, TITLE, &reason)],
     }
 }
 

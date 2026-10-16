@@ -861,11 +861,7 @@ impl SketchEditing {
                 self.enter(feature, model, since);
             }
             Err(reason) => {
-                refuse_new_sketch(
-                    model,
-                    &reason.to_string(),
-                    EditingCommand::NewSketchOnDatum(datum),
-                );
+                refuse_new_sketch(model, &reason, EditingCommand::NewSketchOnDatum(datum));
             }
         }
     }
@@ -877,11 +873,7 @@ impl SketchEditing {
                 model.perform(Action::Apply(transaction));
                 self.enter(feature, model, since);
             }
-            Err(reason) => refuse_new_sketch(
-                model,
-                &reason.to_string(),
-                EditingCommand::NewSketchOnFace(face),
-            ),
+            Err(reason) => refuse_new_sketch(model, &reason, EditingCommand::NewSketchOnFace(face)),
         }
     }
 
@@ -922,14 +914,14 @@ fn switches(command: EditingCommand) -> bool {
     )
 }
 
-fn refuse_new_sketch(model: &mut Model, reason: &str, retry: EditingCommand) {
+fn refuse_new_sketch(model: &mut Model, reason: &impl Reason, retry: EditingCommand) {
     let title = Command::NewSketch.title();
-    model.perform(
-        match Queued::new(Rerun::Editing(retry), title.clone(), reason) {
-            Some(queued) => Action::Queue(Box::new(queued)),
-            None => Action::Inform(Notice::warning(format!("{title}: {reason}."))),
-        },
-    );
+    model.perform(match reason.pending() {
+        Some(pending) => {
+            Action::Queue(Box::new(Queued::new(Rerun::Editing(retry), title, pending)))
+        }
+        None => Action::Inform(Notice::warning(format!("{title}: {}.", reason.reason()))),
+    });
 }
 
 fn is_empty(sketch: &Sketch) -> bool {

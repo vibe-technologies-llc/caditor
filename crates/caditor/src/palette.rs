@@ -11,7 +11,6 @@ use crate::{
     commands::{Command, Keymap, Offer, Scope},
     feature_tree, icons,
     panels::Focus,
-    queued::Awaited,
     toggles::{Shown, ToggleStates},
     widgets::{self, DialogWidth, ListHeight, Tone},
 };
@@ -73,6 +72,7 @@ pub enum Choice {
 pub enum State {
     Ready,
     Unavailable(Cow<'static, str>),
+    Waiting(Cow<'static, str>),
     OutOfContext(&'static str),
 }
 
@@ -97,13 +97,12 @@ impl Entry {
     }
 
     fn waits(&self) -> bool {
-        matches!(&self.state, State::Unavailable(reason) if Awaited::of(reason).is_some())
-            && matches!(self.choice, Choice::Command(_))
+        matches!(&self.state, State::Waiting(_)) && matches!(self.choice, Choice::Command(_))
     }
 
     fn detail(&self) -> String {
         match (&self.state, self.choice) {
-            (State::Unavailable(reason), _) => {
+            (State::Unavailable(reason) | State::Waiting(reason), _) => {
                 format!("{} is not available: {reason}.", self.title)
             }
             (State::OutOfContext(reason), _) => {
@@ -129,7 +128,7 @@ impl Entry {
     fn rank(&self) -> u8 {
         match self.state {
             State::Ready => 0,
-            State::Unavailable(_) => 1,
+            State::Unavailable(_) | State::Waiting(_) => 1,
             State::OutOfContext(_) => 2,
         }
     }
@@ -250,9 +249,10 @@ impl Palette {
             else {
                 continue;
             };
-            let state = match &offer.availability {
-                Ok(()) => State::Ready,
-                Err(reason) => State::Unavailable(reason.clone()),
+            let state = match (&offer.availability, offer.pending) {
+                (Ok(()), _) => State::Ready,
+                (Err(reason), Some(_)) => State::Waiting(reason.clone()),
+                (Err(reason), None) => State::Unavailable(reason.clone()),
             };
             let recent = self.recent_position(offer.command);
             let group = if !searching && recent < RECENT_LIMIT && state == State::Ready {
@@ -695,6 +695,7 @@ mod tests {
             } else {
                 Err(Cow::Borrowed("Select edges"))
             },
+            pending: None,
             detail: None,
         }
     }

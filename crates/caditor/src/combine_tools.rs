@@ -9,7 +9,7 @@ use crate::{
     commands::Reason,
     editing::{self, EditingCommand},
     model::{Action, Model},
-    queued,
+    queued::Pending,
     selection::Selection,
 };
 
@@ -22,13 +22,17 @@ pub enum CombineError {
     NeedTwo,
     #[error("Select faces or edges of two bodies only, or two bodies in the tree")]
     MoreThanTwo,
-    #[error("{}", queued::BODIES_SHAPE)]
+    #[error("{}", Pending::BodiesShape)]
     NoShape,
 }
 
 impl Reason for CombineError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape).then_some(Pending::BodiesShape)
     }
 }
 

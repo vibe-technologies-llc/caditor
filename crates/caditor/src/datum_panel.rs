@@ -17,6 +17,7 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model},
     plane_selector,
+    queued::Pending,
     reference_picking::Slot,
     selection::Selection,
     solid_tools, widgets,
@@ -117,6 +118,13 @@ pub enum DatumError {
 impl Reason for DatumError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::FromSelection(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

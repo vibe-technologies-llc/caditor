@@ -480,10 +480,6 @@ pub fn reshape<E: From<SketchGone>>(
     Ok(transaction.finish())
 }
 
-pub fn refusal(tool: Tool, reason: &str) -> String {
-    format!("{}: {reason}.", tool.label())
-}
-
 pub fn capitalized(text: &str) -> String {
     let mut characters = text.chars();
     match characters.next() {

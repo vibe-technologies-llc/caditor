@@ -4,7 +4,8 @@ use crate::{
     blend_tools::{self, BlendError, EdgeSource},
     coil_tools::{self, CoilStart},
     combine_tools::{self, BodyPair, CombineError},
-    datum_tools, delete_face_tools,
+    datum_tools::{self, DatumFromSelectionError},
+    delete_face_tools,
     editing::SketchEditing,
     hole_tools::{self, HoleStart, HoleStartError},
     image_tools::{self, ImageTarget, ImageTargetError},
@@ -54,10 +55,10 @@ pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
 pub struct Offers {
     pub sketch_target: Result<SketchTarget, TargetError>,
     pub model_axes: Vec<(Pickable, AxisReference)>,
-    pub datum_plane: Result<Datum, &'static str>,
-    pub datum_axis: Result<DatumAxis, &'static str>,
-    pub datum_point: Result<Datum, &'static str>,
-    pub coordinate_system: Result<Datum, &'static str>,
+    pub datum_plane: Result<Datum, DatumFromSelectionError>,
+    pub datum_axis: Result<DatumAxis, DatumFromSelectionError>,
+    pub datum_point: Result<Datum, DatumFromSelectionError>,
+    pub coordinate_system: Result<Datum, DatumFromSelectionError>,
     pub blend: Result<EdgeSource, BlendError>,
     pub extrude_faces: Option<Result<FaceProfile, FaceSweepError>>,
     pub revolve_faces: Option<Result<FaceProfile, FaceSweepError>>,
@@ -142,14 +143,10 @@ impl Offers {
                 Shape::Points,
             ),
             model_axes,
-            datum_plane: datum_tools::plane_from_selection(model, selection, end)
-                .map_err(datum_tools::DatumFromSelectionError::text),
-            datum_axis: datum_tools::axis_from_selection(model, selection, end)
-                .map_err(datum_tools::DatumFromSelectionError::text),
-            datum_point: datum_tools::point_from_selection(model, selection, end)
-                .map_err(datum_tools::DatumFromSelectionError::text),
-            coordinate_system: datum_tools::frame_from_selection(model, selection, end)
-                .map_err(datum_tools::DatumFromSelectionError::text),
+            datum_plane: datum_tools::plane_from_selection(model, selection, end),
+            datum_axis: datum_tools::axis_from_selection(model, selection, end),
+            datum_point: datum_tools::point_from_selection(model, selection, end),
+            coordinate_system: datum_tools::frame_from_selection(model, selection, end),
             blend: blend_tools::selected_edges(model, selection, tree),
             shell: shell_tools::selected_faces(model, selection),
             offset_face: offset_face_tools::selected_faces(model, selection),

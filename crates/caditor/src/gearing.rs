@@ -685,7 +685,7 @@ impl Gearing {
         if drawn.is_ok() {
             self.shown = None;
         }
-        drawn.map_err(|error| error.to_string()).into()
+        drawn.into()
     }
 
     pub fn steppable(&self) -> Result<(), StepError> {

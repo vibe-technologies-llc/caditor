@@ -14,6 +14,7 @@ use crate::{
     model::Model,
     move_tools::{self, BodyChoiceError},
     pattern_tools::{self, PatternSource, Shape},
+    queued::Pending,
     selection::{Pickable, Selection},
     units::LengthUnit,
 };
@@ -71,6 +72,13 @@ pub enum SketchSourceError {
 impl Reason for SketchSourceError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Body(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

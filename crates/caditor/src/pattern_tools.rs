@@ -18,6 +18,7 @@ use crate::{
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     move_tools,
+    queued::Pending,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_pattern_tools, solid_tools,
@@ -80,6 +81,13 @@ pub enum PatternToolError {
 impl Reason for PatternToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::ChosenBody(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

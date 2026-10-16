@@ -161,10 +161,7 @@ impl BlendCurving {
                 self.blend = None;
                 Outcome::Nothing
             }
-            Some(first) => self
-                .draw(model, feature, first, end)
-                .map_err(|error| error.to_string())
-                .into(),
+            Some(first) => self.draw(model, feature, first, end).into(),
             None => {
                 self.first = Some(end);
                 self.blend = None;

@@ -14,6 +14,7 @@ use crate::{
     measure,
     model::{Action, Model},
     move_tools,
+    queued::Pending,
     selection::{Pickable, Selection},
     sketch_placement,
     units::LengthUnit,
@@ -50,6 +51,13 @@ pub enum ScaleError {
 impl Reason for ScaleError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Body(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
