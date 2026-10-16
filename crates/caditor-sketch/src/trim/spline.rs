@@ -343,6 +343,13 @@ struct Stretch {
     to: f64,
 }
 
+struct Halves {
+    near: Stretch,
+    far: Stretch,
+    near_shape: Reshape,
+    far_shape: Reshape,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fate {
     Kept,
@@ -544,6 +551,81 @@ impl Sketch {
                 Ok(Trimmed::Deleted)
             }
         }
+    }
+
+    pub(crate) fn spline_split_is_inside(
+        &self,
+        curve: EntityId,
+        at: Point2,
+        tolerance: f64,
+    ) -> Result<bool, SketchError> {
+        let spline = self.spline(curve).ok_or(SketchError::NoSuchEntity(curve))?;
+        let length = spline.length();
+        if length.partial_cmp(&0.0) != Some(Ordering::Greater) {
+            return Ok(false);
+        }
+        let parameter = closest_spline_parameter(&spline, at);
+        let slack = tolerance / length;
+        let inside = spline.point_at(parameter).distance(at) <= tolerance
+            && parameter > slack
+            && parameter < 1.0 - slack;
+        if inside {
+            self.spline_halves(curve, parameter)?;
+        }
+        Ok(inside)
+    }
+
+    fn spline_halves(&self, curve: EntityId, parameter: f64) -> Result<Halves, SketchError> {
+        let no_piece = || SketchError::NoExactPiece {
+            entity: curve,
+            label: self.entity_label(curve),
+        };
+        let near = Stretch {
+            from: 0.0,
+            to: parameter,
+        };
+        let far = Stretch {
+            from: parameter,
+            to: 1.0,
+        };
+        Ok(Halves {
+            near,
+            far,
+            near_shape: self
+                .spline_reshape(curve, near.from, near.to)
+                .ok_or_else(no_piece)?,
+            far_shape: self
+                .spline_reshape(curve, far.from, far.to)
+                .ok_or_else(no_piece)?,
+        })
+    }
+
+    pub(crate) fn split_spline(
+        &mut self,
+        curve: EntityId,
+        point: EntityId,
+    ) -> Result<EntityId, SketchError> {
+        let Some(Entity::Spline { points, .. }) = self.entity(curve).cloned() else {
+            return Err(SketchError::NoSuchEntity(curve));
+        };
+        let at = self.point(point).ok_or(SketchError::NoSuchEntity(point))?;
+        let spline = self.spline(curve).ok_or(SketchError::NoSuchEntity(curve))?;
+        let mut halves = self.spline_halves(curve, closest_spline_parameter(&spline, at))?;
+        let fates = self.spline_fates(curve, halves.near, Some(halves.far));
+        halves.near_shape.set_end(true, Slot::Kept(point));
+        halves.far_shape.set_end(false, Slot::Kept(point));
+        self.place_spline(curve, halves.near_shape, &fates.leaving())?;
+        let far_points = self.slot_points(&halves.far_shape.slots);
+        let piece = self.add_piece(
+            curve,
+            Entity::Spline {
+                points: far_points,
+                kind: halves.far_shape.kind,
+            },
+        )?;
+        self.move_constraints(fates.moved, curve, piece)?;
+        self.drop_unused(&points)?;
+        Ok(piece)
     }
 
     fn shorten_spline(

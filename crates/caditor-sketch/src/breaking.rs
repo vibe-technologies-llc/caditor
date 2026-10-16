@@ -9,7 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum BreakError {
-    #[error("select the lines, arcs and elliptical arcs to break")]
+    #[error("select the lines, arcs, elliptical arcs and splines to break")]
     NothingSelected,
     #[error("none of the selected curves crosses another curve between its ends")]
     NothingToBreak,
@@ -17,8 +17,18 @@ pub enum BreakError {
     NoSuchCurve(EntityId),
     #[error("{label} is not a curve, so it cannot be broken")]
     NotACurve { entity: EntityId, label: String },
-    #[error("{label} cannot be broken; only lines, arcs and elliptical arcs can")]
-    NotLineOrArc { entity: EntityId, label: String },
+    #[error(
+        "{label} cannot be broken; only lines, arcs, elliptical arcs and splines drawn from \
+         control points can"
+    )]
+    NotBreakable { entity: EntityId, label: String },
+    #[error(
+        "{label} passes through its points, so it cannot be broken without changing its shape; \
+         trim it, or draw it from control points instead"
+    )]
+    FitSpline { entity: EntityId, label: String },
+    #[error("{label} is closed, so it has no ends to break between; trim it open first")]
+    ClosedSpline { entity: EntityId, label: String },
     #[error("{label} has no length to break")]
     NoLength { entity: EntityId, label: String },
     #[error("{label} is built into the sketch, so it cannot be broken")]
@@ -39,7 +49,9 @@ impl BreakError {
             self,
             Self::NoSuchCurve(_)
                 | Self::NotACurve { .. }
-                | Self::NotLineOrArc { .. }
+                | Self::NotBreakable { .. }
+                | Self::FitSpline { .. }
+                | Self::ClosedSpline { .. }
                 | Self::NoLength { .. }
                 | Self::Reference { .. }
                 | Self::Projected { .. }
@@ -102,16 +114,26 @@ impl Sketch {
 
     fn break_at_crossings(&mut self, curve: EntityId) -> Result<Vec<EntityId>, BreakError> {
         let label = || self.entity_label(curve);
-        if let Some(Entity::Spline { .. }) = self.entity(curve) {
-            return Err(BreakError::NotLineOrArc {
+        let spline = match self.entity(curve) {
+            Some(Entity::Spline { kind, .. }) => Some(*kind),
+            _ => None,
+        };
+        if spline.is_some_and(|kind| kind.passes_its_points()) {
+            return Err(BreakError::FitSpline {
                 entity: curve,
                 label: label(),
             });
         }
         let cuts = match self.open_cuts(curve) {
             Ok(Some(cuts)) => cuts,
+            Ok(None) if spline.is_some() => {
+                return Err(BreakError::ClosedSpline {
+                    entity: curve,
+                    label: label(),
+                });
+            }
             Ok(None) => {
-                return Err(BreakError::NotLineOrArc {
+                return Err(BreakError::NotBreakable {
                     entity: curve,
                     label: label(),
                 });
@@ -145,7 +167,7 @@ impl Sketch {
         match error {
             TrimError::NoSuchCurve(entity) => BreakError::NoSuchCurve(entity),
             TrimError::NotACurve { entity, .. } => BreakError::NotACurve { entity, label },
-            TrimError::NoPiece { entity, .. } => BreakError::NotLineOrArc { entity, label },
+            TrimError::NoPiece { entity, .. } => BreakError::NotBreakable { entity, label },
             TrimError::NoLength { entity, .. } => BreakError::NoLength { entity, label },
             TrimError::Reference { entity, .. } => BreakError::Reference { entity, label },
             TrimError::Projected { entity, .. } => BreakError::Projected { entity, label },

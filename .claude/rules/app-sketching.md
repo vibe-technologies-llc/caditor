@@ -146,13 +146,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   or `NOTHING_FREE`. The degrees-of-freedom pill runs it. Select all and Select free check
   availability each frame with early exits (`can_select_all`, `can_select_free`).
 - Split (`Command::SplitCurve`, `sketch_tools::SplitChange`) takes one selected point and the line,
-  arc or elliptical arc selected with it or the one such curve it lies on by `Coincident`; else
-  `NOTHING_TO_SPLIT`. A point placed on a curve first (the Point tool snaps onto it) gives a split
-  anywhere. Break (`Command::BreakCurves`, `BreakChange`) breaks each selected line, arc and
-  elliptical arc at every crossing with other curves and the axes in one transaction (`sketch.md`,
-  Break); else `NOTHING_TO_BREAK`. Respace (`Command::RespaceFitSplines`, `RespaceChange`) turns
-  selected evenly spaced fit-point splines (files saved before centripetal spacing) into centripetal
-  ones (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.
+  arc, elliptical arc or spline selected with it or the one such curve it lies on by
+  `Coincident`; else `NOTHING_TO_SPLIT`. A point placed on a curve first (the Point tool snaps onto
+  it) gives a split anywhere. Break (`Command::BreakCurves`, `BreakChange`) breaks each selected
+  line, arc, elliptical arc and spline at every crossing with other curves and the axes in one
+  transaction (`sketch.md`, Break); else `NOTHING_TO_BREAK`.
+  Respace (`Command::RespaceFitSplines`, `RespaceChange`) turns selected evenly spaced fit-point
+  splines (files saved before centripetal spacing) into centripetal ones
+  (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", solved like a
   drag; button and command share availability (`Moving::offered`). Positions and the relative anchor
   are taken afresh from the displayed sketch at Enter (`Moving::refreshed`, `Transforming::refreshed`),

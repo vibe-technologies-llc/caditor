@@ -14,8 +14,18 @@ const TOLERANCE: f64 = 1e-7;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SplitError {
-    #[error("{label} cannot be split; only lines, arcs and elliptical arcs can")]
-    NotLineOrArc { entity: EntityId, label: String },
+    #[error(
+        "{label} cannot be split; only lines, arcs, elliptical arcs and splines drawn from control \
+         points can"
+    )]
+    NotSplittable { entity: EntityId, label: String },
+    #[error(
+        "{label} passes through its points, so it cannot be split without changing its shape; \
+         trim it, or draw it from control points instead"
+    )]
+    FitSpline { entity: EntityId, label: String },
+    #[error("{label} is closed, so one point does not split it; trim it open first")]
+    ClosedSpline { entity: EntityId, label: String },
     #[error("{label} is not a point")]
     NotAPoint { entity: EntityId, label: String },
     #[error("{point} does not lie on {curve} between its ends")]
@@ -28,7 +38,7 @@ pub enum SplitError {
 
 impl Sketch {
     pub fn check_split(&self, curve: EntityId, point: EntityId) -> Result<(), SplitError> {
-        let not_line_or_arc = || SplitError::NotLineOrArc {
+        let not_splittable = || SplitError::NotSplittable {
             entity: curve,
             label: self.entity_label(curve),
         };
@@ -51,14 +61,14 @@ impl Sketch {
             point: self.entity_label(point),
             curve: self.entity_label(curve),
         };
-        let entity = self.entity(curve).ok_or_else(not_line_or_arc)?;
+        let entity = self.entity(curve).ok_or_else(not_splittable)?;
         if entity.points().contains(&point) {
             return Err(not_on());
         }
         let tolerance = TOLERANCE * at.abs().max_element().max(1.0);
         let inside = match entity {
             Entity::Line { .. } => {
-                let (start, end) = self.line_endpoints(curve).ok_or_else(not_line_or_arc)?;
+                let (start, end) = self.line_endpoints(curve).ok_or_else(not_splittable)?;
                 let along = end - start;
                 let length = along.length();
                 let direction = along.try_normalize().ok_or_else(not_on)?;
@@ -67,7 +77,7 @@ impl Sketch {
                 distance <= tolerance && reach > tolerance && reach < length - tolerance
             }
             Entity::Arc { .. } => {
-                let arc = self.arc(curve).ok_or_else(not_line_or_arc)?;
+                let arc = self.arc(curve).ok_or_else(not_splittable)?;
                 let off = (at.distance(arc.center) - arc.radius).abs();
                 let turned = (direction_angle(at - arc.center) - arc.start_angle).rem_euclid(TAU);
                 let slack = if arc.radius > 0.0 {
@@ -78,18 +88,31 @@ impl Sketch {
                 off <= tolerance && turned > slack && turned < arc.sweep - slack
             }
             Entity::EllipticalArc { .. } => {
-                let ellipse = self.ellipse(curve).ok_or_else(not_line_or_arc)?;
+                let ellipse = self.ellipse(curve).ok_or_else(not_splittable)?;
                 let reach = ellipse.major_radius().max(ellipse.minor_radius);
                 let off = intersect::ellipse_level(&ellipse, at).abs();
                 let turned = (ellipse.parameter_of(at) - ellipse.start).rem_euclid(TAU);
                 let slack = if reach > 0.0 { tolerance / reach } else { 0.0 };
                 off <= tolerance && turned > slack && turned < ellipse.sweep - slack
             }
-            Entity::Point(_)
-            | Entity::Circle { .. }
-            | Entity::Spline { .. }
-            | Entity::Ellipse { .. } => {
-                return Err(not_line_or_arc());
+            Entity::Spline { kind, .. } => {
+                if kind.passes_its_points() {
+                    return Err(SplitError::FitSpline {
+                        entity: curve,
+                        label: self.entity_label(curve),
+                    });
+                }
+                if kind.is_closed() {
+                    return Err(SplitError::ClosedSpline {
+                        entity: curve,
+                        label: self.entity_label(curve),
+                    });
+                }
+                self.spline_split_is_inside(curve, at, tolerance)
+                    .map_err(SplitError::Edit)?
+            }
+            Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => {
+                return Err(not_splittable());
             }
         };
         if inside { Ok(()) } else { Err(not_on()) }
@@ -233,17 +256,19 @@ impl Sketch {
                 }
                 Ok(piece)
             }
-            Entity::Point(_)
-            | Entity::Circle { .. }
-            | Entity::Spline { .. }
-            | Entity::Ellipse { .. } => Err(SketchError::WrongKind {
-                entity: curve,
-                found: self.entity_label(curve),
-                needed: "a line, an arc or an elliptical arc",
-            }),
+            Entity::Spline { .. } => self.split_spline(curve, point),
+            Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => {
+                Err(SketchError::WrongKind {
+                    entity: curve,
+                    found: self.entity_label(curve),
+                    needed: "a line, an arc, an elliptical arc or a spline",
+                })
+            }
         }
     }
 }
 
+#[cfg(test)]
+mod spline_tests;
 #[cfg(test)]
 mod tests;

@@ -431,7 +431,7 @@ fn ellipses_cut_other_curves_but_cannot_be_split_or_extended_whole() {
     let on_ellipse = sketch.add_point(Point2::new(20.0, 3.0));
     assert!(matches!(
         sketch.check_split(ellipse, on_ellipse),
-        Err(crate::SplitError::NotLineOrArc { .. })
+        Err(crate::SplitError::NotSplittable { .. })
     ));
     assert!(matches!(
         sketch.trim(line, Point2::new(20.0, 0.0)),

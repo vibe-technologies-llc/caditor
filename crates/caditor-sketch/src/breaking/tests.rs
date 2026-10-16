@@ -191,11 +191,11 @@ fn a_curve_without_crossings_or_that_cannot_be_broken_is_refused_in_words() {
     ));
     assert!(matches!(
         sketch.break_curve(circle),
-        Err(BreakError::NotLineOrArc { .. })
+        Err(BreakError::NotBreakable { .. })
     ));
     assert!(matches!(
         sketch.break_curve(spline),
-        Err(BreakError::NotLineOrArc { .. })
+        Err(BreakError::NoCrossing { .. })
     ));
     assert!(matches!(
         sketch.break_curve(EntityId::HORIZONTAL_AXIS),

@@ -395,19 +395,26 @@ relative to the extent.
   A line's pieces are `Collinear` or each keeps horizontal or vertical; a point that was the line's
   `Midpoint` makes the pieces `Equal`. An arc's pieces share the centre, so one radius with no
   constraint added. Tangent, parallel, perpendicular and angle constraints joined at the far end
-  move to the far piece (`far_constraints`, as trim). Circles, whole ellipses, splines and
-  projected curves are refused.
-- Break (`breaking.rs`): `break_curve` splits a line, arc or elliptical arc at every crossing with
-  the other curves and the two axes, found as trim finds cuts (`open_cuts`). Each cut goes through
-  `split_at` from the curve's start toward its end, the next cut lying on the piece just made, so
-  `Collinear` constraints chain without repeating. The cut point is the end point of a cutter lying
-  there when one does, else a new point held on the cutter by `Coincident` (an axis included); a
-  crossing shared by several cutters is joined to one. Pieces keep the curve's constraints as a
-  split does and are fully determined by the crossings, so the degrees of freedom do not change.
+  move to the far piece (`far_constraints`, as trim). A spline (`split_spline` in `trim/spline.rs`)
+  is cut at the parameter of the drawn `BSpline` closest to the point, both pieces exact by the
+  blossoming trim uses (`spline_halves`): the point is the last control point of the near piece
+  and the first of the far one, the constraints fall as in a trim of the stretch (`spline_fates`),
+  and the pieces get no constraint to each other. Control splines, pieces and conics split; a
+  fit-point spline (`FitSpline`: no fit spline holds a piece exactly) and a closed one
+  (`ClosedSpline`: one point only opens it) are refused in words, as are circles, whole ellipses
+  and projected curves.
+- Break (`breaking.rs`): `break_curve` splits a line, arc, elliptical arc or open control spline at
+  every crossing with the other curves and the two axes, found as trim finds cuts (`open_cuts`).
+  Each cut goes through `split_at` from the curve's start toward its end, the next cut lying on the
+  piece just made, so `Collinear` constraints chain without repeating. The cut point is the end
+  point of a cutter lying there when one does, else a new point held on the cutter by `Coincident`
+  (an axis included); a crossing shared by several cutters is joined to one. Pieces keep the
+  curve's constraints as a split does and are fully determined by the crossings, so the degrees of
+  freedom of lines and arcs do not change (a spline's pieces add control points).
   `break_curves` breaks each of several curves in turn on a working copy, skipping those that
-  cannot break (circles, whole ellipses, splines, reference or projected curves, curves crossing
-  nothing); `BreakError` names the curve for a single refusal, else `NothingToBreak` or
-  `NothingSelected`.
+  cannot break (circles, whole ellipses, fit-point and closed splines, reference or projected
+  curves, curves crossing nothing); `BreakError` names the curve for a single refusal, else
+  `NothingToBreak` or `NothingSelected`.
 
 ## Relations the geometry shows (`inference.rs`)
 

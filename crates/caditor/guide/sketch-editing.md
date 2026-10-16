@@ -15,9 +15,12 @@ Escape or the status bar's Cancel drops it.
 
 ## Splitting and breaking
 
-- {command:sketch.split_curve} cuts a line, arc or elliptical arc at a selected point on it.
-- {command:sketch.break_curves} breaks the selected lines, arcs and elliptical arcs at every
-  crossing.
+- {command:sketch.split_curve} cuts a line, arc, elliptical arc or spline at a selected point on
+  it. A spline drawn from control points splits into two splines of exactly the same curve; one
+  drawn through fit points, or a closed one, is refused with the reason (trim a closed spline open
+  first).
+- {command:sketch.break_curves} breaks the selected lines, arcs, elliptical arcs and splines at
+  every crossing.
 - [Trim and Extend](trim-and-extend) cut away or lengthen pieces with a click.
 
 ## Copy and paste

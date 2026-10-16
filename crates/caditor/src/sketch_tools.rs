@@ -2220,11 +2220,11 @@ mod tests {
     }
 }
 
-pub const NOTHING_TO_SPLIT: &str = "Select a point lying on a line, arc or elliptical arc, with \
-                                    that curve when the point lies on several";
+pub const NOTHING_TO_SPLIT: &str = "Select a point lying on a line, arc, elliptical arc or spline, \
+                                    with that curve when the point lies on several";
 pub const SPLIT_TITLE: &str = "Split curve";
 pub const NOTHING_TO_BREAK: &str =
-    "Select the lines, arcs and elliptical arcs to break at their crossings";
+    "Select the lines, arcs, elliptical arcs and splines to break at their crossings";
 pub const BREAK_TITLE: &str = "Break curves";
 pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
                                       the spacing of their points";
@@ -2412,6 +2412,7 @@ impl SplitChange {
                                 Entity::Line { .. }
                                     | Entity::Arc { .. }
                                     | Entity::EllipticalArc { .. }
+                                    | Entity::Spline { .. }
                             )
                         )
                     })
@@ -2462,7 +2463,10 @@ impl BreakChange {
                     && matches!(
                         sketch.entity(*id),
                         Some(
-                            Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. }
+                            Entity::Line { .. }
+                                | Entity::Arc { .. }
+                                | Entity::EllipticalArc { .. }
+                                | Entity::Spline { .. }
                         )
                     )
             })

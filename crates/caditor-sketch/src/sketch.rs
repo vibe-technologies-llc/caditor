@@ -98,6 +98,8 @@ pub enum SketchError {
     TooFewPiecePoints,
     #[error("the end spans of a piece of a spline must be finite and longer than nothing")]
     InvalidEndSpans,
+    #[error("{label} cannot be cut at that point into pieces that keep its shape")]
+    NoExactPiece { entity: EntityId, label: String },
     #[error("it uses {label} twice")]
     SameEntity { entity: EntityId, label: String },
     #[error("it needs {needed}, but {found} is not one")]

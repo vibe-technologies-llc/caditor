@@ -332,6 +332,66 @@ fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
 }
 
 #[test]
+fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 50.0),
+        Point2::new(10.0, 65.0),
+        Point2::new(20.0, 40.0),
+        Point2::new(30.0, 62.0),
+        Point2::new(40.0, 36.0),
+        Point2::new(50.0, 58.0),
+        Point2::new(60.0, 50.0),
+    ]);
+    let whole = sketch.spline(spline).unwrap();
+    let cut = whole.point_at(0.4);
+    let point = sketch.add_point(cut);
+    sketch
+        .add_constraint(Constraint::Coincident(point, spline))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let off_curve = |sketch: &Sketch| {
+        entities_of_kind(sketch, "Spline")
+            .into_iter()
+            .filter_map(|piece| sketch.spline(piece))
+            .flat_map(|piece| (0..=32).map(move |step| piece.point_at(f64::from(step) / 32.0)))
+            .map(|at| {
+                let parameter = (0..=20000)
+                    .map(|step| f64::from(step) / 20000.0)
+                    .min_by(|a, b| {
+                        whole
+                            .point_at(*a)
+                            .distance(at)
+                            .total_cmp(&whole.point_at(*b).distance(at))
+                    })
+                    .unwrap();
+                whole.point_at(parameter).distance(at)
+            })
+            .fold(0.0, f64::max)
+    };
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: point,
+    }]);
+    run_from_palette(&mut harness, "split the selected curve");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Spline").len(), 2);
+    assert!(off_curve(sketch) < 1e-3);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::sketch_tools::SPLIT_TITLE)
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Spline").len(), 1);
+}
+
+#[test]
 fn a_sketch_fillet_takes_its_radius_from_the_pointer_and_escape_backs_out_a_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
