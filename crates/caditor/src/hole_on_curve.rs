@@ -112,7 +112,8 @@ pub fn create(
     face: FaceChoice,
 ) -> Result<(Transaction, FeatureId, String), &'static str> {
     let document = model.document();
-    let attachment = sketch_placement::surface_at(model, face, document.bar_index())?;
+    let attachment = sketch_placement::surface_at(model, face, document.bar_index())
+        .map_err(sketch_placement::AttachmentError::reason)?;
     let (at, normal) = spot(model, face, None).ok_or(NO_SPOT)?;
     let plane = Plane::new(at, normal).ok_or(NO_SPOT)?;
     let name = editing::next_feature_name(document, TITLE);

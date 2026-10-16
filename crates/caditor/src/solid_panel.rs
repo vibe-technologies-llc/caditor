@@ -1638,8 +1638,8 @@ fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
     match pickable {
         Pickable::Face { body, face } => {
             match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
-                Err(sketch_placement::NOT_FLAT) => Some(CURVED_TARGET),
-                Err(reason) => Some(reason),
+                Err(sketch_placement::AttachmentError::NotFlat) => Some(CURVED_TARGET),
+                Err(reason) => Some(reason.reason()),
                 Ok(_) => None,
             }
         }
@@ -1704,7 +1704,7 @@ fn selected_end(
     };
     sketch_placement::surface_at(model, choice, index)
         .map(ExtrudeEnd::up_to_surface)
-        .map_err(str::to_owned)
+        .map_err(|error| error.to_string())
 }
 
 fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {

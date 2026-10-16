@@ -1,6 +1,7 @@
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
 use caditor_sketch::{Caps, Chain, EntityId, Faceting, OffsetError, Outline, Side, Sketch};
+use thiserror::Error;
 
 use crate::{
     drawing::Preview,
@@ -10,7 +11,7 @@ use crate::{
     modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
     shape_modes::OffsetMode,
     snap::{Pointer, Screen},
-    trimming::{self, capitalized},
+    trimming::{self, SketchGone, capitalized},
     units::Units,
 };
 
@@ -30,6 +31,14 @@ pub const FIELD: ValueField = ValueField {
     placeholder: "distance",
     action: "offset",
 };
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum OffsettingError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}: {source}.", Tool::Offset.label())]
+    Refused { source: OffsetError },
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Offsetting {
@@ -172,7 +181,7 @@ impl Offsetting {
             let chain = sketch.offset_chain_through(curve);
             return match sketch.offset_chain(&chain) {
                 Ok(_) => Outcome::Select(chain),
-                Err(error) => Outcome::Refused(trimming::refusal(Tool::Offset, &error.to_string())),
+                Err(source) => Outcome::Refused(OffsettingError::Refused { source }.to_string()),
             };
         }
         match &self.chain {
@@ -183,11 +192,16 @@ impl Offsetting {
                 let Some(value) = Value::pointed(model, distance) else {
                     return Outcome::Nothing;
                 };
-                commit(model, feature, chain, self.mode, side, value).into()
+                commit(model, feature, chain, self.mode, side, value)
+                    .map_err(|error| error.to_string())
+                    .into()
             }
-            Some(Err(error)) => {
-                Outcome::Refused(trimming::refusal(Tool::Offset, &error.to_string()))
-            }
+            Some(Err(source)) => Outcome::Refused(
+                OffsettingError::Refused {
+                    source: source.clone(),
+                }
+                .to_string(),
+            ),
             None => Outcome::Nothing,
         }
     }
@@ -197,15 +211,18 @@ impl Offsetting {
         model: &Model,
         feature: FeatureId,
         value: Value,
-    ) -> Result<Outcome, String> {
+    ) -> Result<Outcome, OffsettingError> {
         let chain = match &self.chain {
             Some(Ok(chain)) => chain,
-            Some(Err(error)) => return Err(trimming::refusal(Tool::Offset, &error.to_string())),
+            Some(Err(source)) => {
+                return Err(OffsettingError::Refused {
+                    source: source.clone(),
+                });
+            }
             None => {
-                return Err(trimming::refusal(
-                    Tool::Offset,
-                    &OffsetError::NothingSelected.to_string(),
-                ));
+                return Err(OffsettingError::Refused {
+                    source: OffsetError::NothingSelected,
+                });
             }
         };
         let side = self.side(chain);
@@ -232,13 +249,13 @@ fn commit(
     mode: OffsetMode,
     side: Side,
     value: Value,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, OffsettingError> {
     let curves = chain.curves();
     let label = match mode.caps() {
         Some(_) => BOTH_TRANSACTION,
         None => TRANSACTION,
     };
-    trimming::reshaped(model, feature, label.to_owned(), |sketch| {
+    trimming::reshape(model, feature, label.to_owned(), |sketch| {
         match mode.caps() {
             Some(caps) => {
                 sketch.offset_both_sides(&curves, value.millimetres, value.expression, caps)
@@ -246,6 +263,6 @@ fn commit(
             None => sketch.offset(&curves, side, value.millimetres, value.expression),
         }
         .map(|_| ())
-        .map_err(|error| trimming::refusal(Tool::Offset, &error.to_string()))
+        .map_err(|source| OffsettingError::Refused { source })
     })
 }

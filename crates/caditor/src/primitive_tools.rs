@@ -159,7 +159,8 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
         }
         pickable => {
             let choice = FaceChoice::of(pickable).ok_or(NOT_A_PLACE)?;
-            let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)?;
+            let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)
+                .map_err(sketch_placement::AttachmentError::reason)?;
             Ok(Place {
                 plane: PlaneReference::Face(attachment),
                 frame,

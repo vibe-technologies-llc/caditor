@@ -4,6 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 use caditor_sketch::Sketch;
+use thiserror::Error;
 
 use crate::{
     datum_tools,
@@ -28,11 +29,27 @@ const NOT_A_PATH: &str =
     "The curves of the selected sketch do not join end to end into one chain to follow";
 const POINTLESS: &str = "The selected sketch has no lone points to place copies at";
 const MADE_LATER: &str = "The selected sketch is made after the pattern";
-const NO_SKETCH_SELECTED: &str = "Select a curve or point of a sketch made before the pattern";
-const NO_POINT_SELECTED: &str =
-    "Select one corner, round edge, sphere, sketch point or datum point for the base point";
-const GONE: &str = "The feature no longer exists";
 const NOT_FROM_A_SKETCH: &str = "Only a curve or point pattern follows a sketch";
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PatternSketchError {
+    #[error("The feature no longer exists")]
+    Gone,
+    #[error("Select a curve or point of a sketch made before the pattern")]
+    NoSketchSelected,
+    #[error(
+        "Select one corner, round edge, sphere, sketch point or datum point for the base point"
+    )]
+    NoPointSelected,
+    #[error("Only a point pattern has a base point")]
+    NotAPointPattern,
+    #[error("It is already placed from that point")]
+    AlreadyPlacedFromThatPoint,
+    #[error("{0}")]
+    Sketch(&'static str),
+    #[error("{0}")]
+    Change(String),
+}
 
 fn solved(model: &Model, sketch: FeatureId) -> Option<&Sketch> {
     model
@@ -248,12 +265,17 @@ pub fn sketch_change(
     selection: &Selection,
     feature: FeatureId,
     pattern: &Pattern,
-) -> Result<Transaction, String> {
-    let before = model.document().feature_index(feature).ok_or(GONE)?;
+) -> Result<Transaction, PatternSketchError> {
+    let before = model
+        .document()
+        .feature_index(feature)
+        .ok_or(PatternSketchError::Gone)?;
     let shape = Shape::of(&pattern.kind);
-    let sketch = selected_sketch(model, selection, shape, before)?.ok_or(NO_SKETCH_SELECTED)?;
-    let changed = with_sketch(pattern, sketch)?;
-    pattern_tools::change(model, feature, changed)
+    let sketch = selected_sketch(model, selection, shape, before)
+        .map_err(PatternSketchError::Sketch)?
+        .ok_or(PatternSketchError::NoSketchSelected)?;
+    let changed = with_sketch(pattern, sketch).map_err(PatternSketchError::Sketch)?;
+    pattern_tools::change(model, feature, changed).map_err(PatternSketchError::Change)
 }
 
 pub fn base_change(
@@ -261,14 +283,17 @@ pub fn base_change(
     selection: &Selection,
     feature: FeatureId,
     pattern: &Pattern,
-) -> Result<Transaction, String> {
-    let index = model.document().feature_index(feature).ok_or(GONE)?;
+) -> Result<Transaction, PatternSketchError> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or(PatternSketchError::Gone)?;
     let mut picked = selection.iter();
     let base = match (picked.next(), picked.next()) {
         (Some(only), None) => datum_tools::point_reference(model, only, index),
         _ => None,
     }
-    .ok_or(NO_POINT_SELECTED)?;
+    .ok_or(PatternSketchError::NoPointSelected)?;
     with_base(model, feature, pattern, base)
 }
 
@@ -277,12 +302,12 @@ pub fn with_base(
     feature: FeatureId,
     pattern: &Pattern,
     base: PointReference,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PatternSketchError> {
     let PatternKind::Points(points) = &pattern.kind else {
-        return Err("Only a point pattern has a base point".to_owned());
+        return Err(PatternSketchError::NotAPointPattern);
     };
     if points.base == base {
-        return Err("It is already placed from that point".to_owned());
+        return Err(PatternSketchError::AlreadyPlacedFromThatPoint);
     }
     let kind = PatternKind::Points(PointsPattern {
         base,
@@ -296,4 +321,5 @@ pub fn with_base(
             ..pattern.clone()
         },
     )
+    .map_err(PatternSketchError::Change)
 }

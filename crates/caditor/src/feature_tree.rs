@@ -2272,7 +2272,8 @@ fn place_change(
     if feature.kind.sketch().is_none() {
         return Err(format!("{} is not a sketch", feature.name));
     }
-    sketch_placement::place_on_selection(model, selection, feature.id()).map_err(str::to_owned)
+    sketch_placement::place_on_selection(model, selection, feature.id())
+        .map_err(|error| error.to_string())
 }
 
 fn axis_change(
@@ -3088,7 +3089,8 @@ fn placement(
             }
         }
         Err(reason) => {
-            ui.add_enabled(false, button).on_disabled_hover_text(reason);
+            ui.add_enabled(false, button)
+                .on_disabled_hover_text(reason.to_string());
         }
     }
 }

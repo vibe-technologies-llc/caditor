@@ -93,7 +93,8 @@ fn face_sketch(
     (face, index): (FaceChoice, usize),
     name: String,
 ) -> Result<FeatureId, &'static str> {
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)
+        .map_err(sketch_placement::AttachmentError::reason)?;
     let shown = bodies::shown(model.evaluation(), face.body).ok_or(FACE_GONE)?;
     let found = bodies::find_face(shown, face.face).ok_or(FACE_GONE)?;
     let outline = projecting::face_projections(shown, face.body, &[found], &plane);

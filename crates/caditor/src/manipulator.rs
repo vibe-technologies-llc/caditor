@@ -1,12 +1,13 @@
 use caditor_document::{Document, Edit, FeatureId, FeatureKind, ParameterOwner, Transaction};
-use caditor_expression::{Dimension, Expression, ParameterId};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Ray, Vector2};
 use caditor_render::{Batch, View};
+use thiserror::Error;
 
 use crate::{
-    feature_fields::Rule,
+    feature_fields::{Rule, RuleError},
     feature_tree,
-    field::{self, Expected},
+    field::{self, CheckError, Expected, ExpressionError},
     handle_snap::{Guide, Snap},
     hole_handles::{self, HoleDrag, HoleHandles},
     image_handles::{self, ImageDrag, ImageHandles},
@@ -21,7 +22,22 @@ use crate::{
     value_handles::{self, ValueDrag, ValueHandles},
 };
 
-pub const TWO_VALUES: &str = "Type two values split by a comma, such as 10, 20";
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum TypingError {
+    #[error("Type two values split by a comma, such as 10, 20")]
+    TwoValues,
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Unevaluable(EvalError),
+    #[error(transparent)]
+    Rule(#[from] RuleError),
+    #[error("{label} cannot be set here")]
+    CannotSetHere { label: String },
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+}
+
 const DRAGGED: &str = "handle-dragged-feature";
 
 pub fn publish_dragged(ctx: &egui::Context, feature: Option<FeatureId>) {
@@ -339,14 +355,14 @@ impl Typing {
         }
     }
 
-    pub fn parse(&self, model: &Model, text: &str) -> Result<Vec<Expression>, String> {
+    pub fn parse(&self, model: &Model, text: &str) -> Result<Vec<Expression>, TypingError> {
         let parts = if self.rules.len() == 1 {
             vec![text]
         } else {
             typed_point::coordinates(text)
         };
         if parts.len() != self.rules.len() {
-            return Err(TWO_VALUES.to_owned());
+            return Err(TypingError::TwoValues);
         }
         let parameters = model.parameters();
         parts
@@ -365,7 +381,7 @@ impl Typing {
                 )?;
                 let value = parameters
                     .evaluate_expression(&parsed)
-                    .map_err(|error| field::sentence(&error.to_string()))?;
+                    .map_err(TypingError::Unevaluable)?;
                 rule.check(value.value)?;
                 Ok(parsed)
             })
@@ -376,7 +392,7 @@ impl Typing {
         &self,
         model: &Model,
         values: Vec<Expression>,
-    ) -> Result<Transaction, String> {
+    ) -> Result<Transaction, TypingError> {
         let feature = self.feature;
         let first = values.first().cloned();
         let built = match self.handle {
@@ -396,7 +412,9 @@ impl Typing {
                 move_manipulator::typed(model, feature, self.handle, &values)
             }
         };
-        let transaction = built.ok_or_else(|| format!("{} cannot be set here", self.label))?;
+        let transaction = built.ok_or_else(|| TypingError::CannotSetHere {
+            label: self.label.clone(),
+        })?;
         field::checked(model.document(), transaction)
     }
 }

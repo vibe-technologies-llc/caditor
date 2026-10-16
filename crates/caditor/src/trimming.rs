@@ -3,6 +3,7 @@ use caditor_geometry::Point2;
 use caditor_sketch::{
     Entity, EntityId, ExtendError, Extension, Faceting, Piece, Sketch, TrimError,
 };
+use thiserror::Error;
 
 use crate::{
     drawing::Preview,
@@ -20,6 +21,26 @@ const NOTHING_TO_EXTEND: &str =
 pub const TRIM_PROMPT: &str = "Click a piece of a curve to trim it away, or drag across pieces";
 pub const EXTEND_PROMPT: &str =
     "Click near the end of a line, arc, elliptical arc or spline to extend it";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("The sketch being edited no longer exists.")]
+pub struct SketchGone;
+
+impl From<SketchGone> for String {
+    fn from(error: SketchGone) -> Self {
+        error.to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum TrimmingError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}: {source}.", Tool::Trim.label())]
+    Trim { source: TrimError },
+    #[error("{}: {source}.", Tool::Extend.label())]
+    Extend { source: ExtendError },
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
@@ -183,12 +204,12 @@ impl Trimming {
         self.highlight = targets.into_iter().nth(next);
     }
 
-    pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, String> {
+    pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, TrimmingError> {
         let aim = self.hover.clone();
         self.act(model, aim)
     }
 
-    pub fn activate(&mut self, model: &Model) -> Result<Option<Transaction>, String> {
+    pub fn activate(&mut self, model: &Model) -> Result<Option<Transaction>, TrimmingError> {
         let aim = self.aim().cloned();
         self.highlight = None;
         self.act(model, aim)
@@ -207,7 +228,7 @@ impl Trimming {
         self.path = None;
     }
 
-    pub fn finish_path(&mut self, model: &Model) -> Result<Option<Transaction>, String> {
+    pub fn finish_path(&mut self, model: &Model) -> Result<Option<Transaction>, TrimmingError> {
         let (Some(path), Some((feature, _))) = (self.path.take(), self.context) else {
             return Ok(None);
         };
@@ -215,18 +236,18 @@ impl Trimming {
         let label = match pieces.as_slice() {
             [] => return Ok(None),
             [piece] => {
-                let sketch = working(model, feature).ok_or_else(sketch_gone)?;
+                let sketch = working(model, feature).ok_or(SketchGone)?;
                 format!("Trim {}", sketch.entity_label(piece.curve))
             }
             pieces => format!("Trim {}", count(pieces.len(), "piece", "pieces")),
         };
-        reshaped(model, feature, label, |sketch| {
+        reshape(model, feature, label, |sketch| {
             for piece in &pieces {
                 let middle = piece.middle();
                 if let Some(curve) = carrier(sketch, piece.curve, middle) {
                     sketch
                         .trim(curve, middle)
-                        .map_err(|error| refusal(Tool::Trim, &error.to_string()))?;
+                        .map_err(|source| TrimmingError::Trim { source })?;
                 }
             }
             Ok(())
@@ -289,24 +310,28 @@ impl Trimming {
         }
     }
 
-    fn act(&mut self, model: &Model, aim: Option<Aim>) -> Result<Option<Transaction>, String> {
+    fn act(
+        &mut self,
+        model: &Model,
+        aim: Option<Aim>,
+    ) -> Result<Option<Transaction>, TrimmingError> {
         let (Some((feature, tool)), Some(aim)) = (self.context, aim) else {
             return Ok(None);
         };
-        let sketch = working(model, feature).ok_or_else(sketch_gone)?;
+        let sketch = working(model, feature).ok_or(SketchGone)?;
         let curve = sketch.entity_label(aim.curve);
         let transaction = match tool {
-            Tool::Extend => reshaped(model, feature, format!("Extend {curve}"), |sketch| {
+            Tool::Extend => reshape(model, feature, format!("Extend {curve}"), |sketch| {
                 sketch
                     .extend(aim.curve, aim.near)
                     .map(|_| ())
-                    .map_err(|error| refusal(tool, &error.to_string()))
+                    .map_err(|source| TrimmingError::Extend { source })
             }),
-            _ => reshaped(model, feature, format!("Trim {curve}"), |sketch| {
+            _ => reshape(model, feature, format!("Trim {curve}"), |sketch| {
                 sketch
                     .trim(aim.curve, aim.near)
                     .map(|_| ())
-                    .map_err(|error| refusal(tool, &error.to_string()))
+                    .map_err(|source| TrimmingError::Trim { source })
             }),
         }?;
         self.hover = None;
@@ -449,13 +474,13 @@ pub fn working(model: &Model, feature: FeatureId) -> Option<Sketch> {
     Some(working)
 }
 
-pub fn reshaped(
+pub fn reshape<E: From<SketchGone>>(
     model: &Model,
     feature: FeatureId,
     label: String,
-    change: impl FnOnce(&mut Sketch) -> Result<(), String>,
-) -> Result<Transaction, String> {
-    let before = working(model, feature).ok_or_else(sketch_gone)?;
+    change: impl FnOnce(&mut Sketch) -> Result<(), E>,
+) -> Result<Transaction, E> {
+    let before = working(model, feature).ok_or(SketchGone)?;
     let mut after = before.clone();
     change(&mut after)?;
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
@@ -463,12 +488,17 @@ pub fn reshaped(
     Ok(transaction.finish())
 }
 
-pub fn refusal(tool: Tool, reason: &str) -> String {
-    format!("{}: {reason}.", tool.label())
+pub fn reshaped(
+    model: &Model,
+    feature: FeatureId,
+    label: String,
+    change: impl FnOnce(&mut Sketch) -> Result<(), String>,
+) -> Result<Transaction, String> {
+    reshape(model, feature, label, change)
 }
 
-pub fn sketch_gone() -> String {
-    "The sketch being edited no longer exists.".to_owned()
+pub fn refusal(tool: Tool, reason: &str) -> String {
+    format!("{}: {reason}.", tool.label())
 }
 
 pub fn capitalized(text: &str) -> String {

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fmt::Display, sync::Arc, time::Duration};
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
@@ -4080,7 +4080,7 @@ impl ViewportState {
             })
         });
         let offer = match (&moving, label) {
-            (Err(reason), None) => Err(reason.clone()),
+            (Err(reason), None) => Err(*reason),
             _ => Ok(()),
         };
         if commands.invoke(Command::MoveGeometry, &offer) {
@@ -4705,7 +4705,9 @@ impl ViewportState {
             }
             return;
         };
-        let fresh = fresh_from_sketch(model, moving.feature, |sketch| moving.refreshed(sketch));
+        let fresh = fresh_from_sketch(model, moving.feature, |sketch| {
+            moving.refreshed(sketch).map_err(|error| error.to_string())
+        });
         let target = fresh.and_then(|fresh| {
             let from = typed_point::From {
                 last: Some(fresh.anchor),
@@ -4806,13 +4808,15 @@ impl ViewportState {
             return;
         };
         let commands = fresh_from_sketch(model, transforming.feature, |sketch| {
-            transforming.refreshed(sketch)
+            transforming
+                .refreshed(sketch)
+                .map_err(|error| error.to_string())
         })
         .and_then(|fresh| {
             let amount = typed_point::parse_transform(model, &typed.text, transform)?;
             match transform {
-                Transform::Rotate => fresh.rotated(amount),
-                Transform::Scale => fresh.scaled(amount),
+                Transform::Rotate => fresh.rotated(amount).map_err(|error| error.to_string()),
+                Transform::Scale => fresh.scaled(amount).map_err(|error| error.to_string()),
             }
         });
         match commands {
@@ -6336,10 +6340,10 @@ fn ended_action(ended: Ended) -> Option<Action> {
     }
 }
 
-fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action> {
+fn outcome_action(outcome: Result<Option<Transaction>, impl Display>) -> Option<Action> {
     match outcome {
         Ok(transaction) => transaction.map(Action::Apply),
-        Err(reason) => Some(Action::Inform(Notice::warning(reason))),
+        Err(reason) => Some(Action::Inform(Notice::warning(reason.to_string()))),
     }
 }
 

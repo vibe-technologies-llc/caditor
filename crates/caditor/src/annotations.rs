@@ -1696,6 +1696,7 @@ impl Annotations {
                                         text,
                                         surface.first_dimension_scales,
                                     )
+                                    .map_err(String::from)
                                 }
                             },
                         );

@@ -467,7 +467,9 @@ pub fn add_sketch(
                 FaceChoice { body, face: key },
                 document.bar_index(),
             )
-            .map_err(|reason| SketchingError::UnusableFace { reason })?;
+            .map_err(|reason| SketchingError::UnusableFace {
+                reason: reason.reason(),
+            })?;
             let sketch_name = asked
                 .name
                 .unwrap_or_else(|| editing::next_sketch_name(document));

@@ -358,7 +358,8 @@ pub fn create_on_faces(
 ) -> Result<(Transaction, FeatureId, String), &'static str> {
     let document = model.document();
     let first = profile.first().ok_or(NO_OUTLINE)?;
-    let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())
+        .map_err(sketch_placement::AttachmentError::reason)?;
     let shown = bodies::shown(model.evaluation(), profile.body).ok_or(NO_OUTLINE)?;
     let ids = profile
         .faces

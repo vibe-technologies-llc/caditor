@@ -114,7 +114,8 @@ fn chosen_surface(
     let [(pickable, choice)] = curved.as_slice() else {
         return Ok(None);
     };
-    let face = sketch_placement::surface_at(model, *choice, index)?;
+    let face = sketch_placement::surface_at(model, *choice, index)
+        .map_err(sketch_placement::AttachmentError::reason)?;
     Ok(Some((SplitAlong::Surface(face), Some(*pickable))))
 }
 

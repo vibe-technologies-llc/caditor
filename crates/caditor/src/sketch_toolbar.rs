@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use caditor_document::{Feature, FeatureId, FeatureKind};
 use caditor_sketch::{Constraint, ConstraintId, EntityId, Sketch};
@@ -6,17 +6,18 @@ use egui::{
     Align, Align2, CornerRadius, FontId, Id, Label, Layout, Margin, Popup, Rect, Response,
     RichText, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetText, vec2,
 };
+use thiserror::Error;
 
 use crate::{
     annotations,
     appearance::{
         self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, SPACE_XS, Tokens, WIDGET_RADIUS,
     },
-    body_picks::{self, BodyPick, Projections, Staged},
+    body_picks::{self, BodyPick, Projections, Staged, Unstaged},
     body_snap::BodySnaps,
-    commands::{self, Command, CommandFrame},
+    commands::{self, Command, CommandFrame, Reason},
     constraint_trial::ConstraintTrial,
-    editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
+    editing::{ActiveSketch, CancelRefusal, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
     menu_bar::MenuEntries,
@@ -27,11 +28,11 @@ use crate::{
     section::SectionCommand,
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
-    sketch_drag::{self, Moving},
+    sketch_drag::{self, MoveError, Moving, SelectionError},
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
-        self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, RespaceChange,
-        SplitChange, UnlinkChange,
+        self, ActivityChange, BreakChange, ConstraintOfferError, ConstraintTool,
+        ConstructionChange, RespaceChange, SketchChangeError, SplitChange, UnlinkChange,
     },
     toggles::ToggleStates,
     units::Units,
@@ -166,11 +167,9 @@ pub const DISABLE_LABEL: &str = "Disable";
 pub const ENABLE_LABEL: &str = "Enable";
 const SELECT_KEY: &str = "Esc once nothing is being drawn or picked";
 const FINISH_KEYS: &str = "Esc with Select active and nothing selected";
-const NOTHING_TO_DISABLE: &str = "Select a constraint or a dimension to disable or enable it";
 const DISABLE_HELP: &str = "A disabled constraint stays in the sketch but no longer holds; a disabled dimension shows the measured value instead";
 const ENABLE_HELP: &str = "Make the selected constraints hold again";
 pub const REFERENCE_ADDED: &str = "That geometry is already fully determined, so the dimension shows the measured value as a reference; enable it to make it drive instead";
-const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
 const MOVE_HELP: &str = "Move the selected geometry to a typed position, or by a typed offset";
@@ -311,7 +310,33 @@ fn constraint_commands(dimensions: bool) -> impl Iterator<Item = Command> {
         .map(Command::Constraint)
 }
 
-type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
+type Offer = (ConstraintTool, Result<Vec<Constraint>, Unavailable>);
+
+#[derive(Debug, Clone, PartialEq, Error)]
+enum Unavailable {
+    #[error(transparent)]
+    Constraint(#[from] ConstraintOfferError),
+    #[error(transparent)]
+    Staging(#[from] Unstaged),
+    #[error(transparent)]
+    Change(#[from] SketchChangeError),
+    #[error(transparent)]
+    Move(#[from] MoveError),
+    #[error(transparent)]
+    Selection(#[from] SelectionError),
+    #[error(transparent)]
+    Cancel(#[from] CancelRefusal),
+    #[error("Select a constraint or a dimension to disable or enable it")]
+    NothingToDisable,
+    #[error("Select sketch geometry or constraints to delete them")]
+    NothingToDelete,
+}
+
+impl Reason for Unavailable {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 struct OfferBasis {
@@ -344,7 +369,8 @@ fn offers_among(
         .map(|tool| {
             let candidates = tool
                 .candidates_among(definition, shown, picks, &relations)
-                .map(|constraints| sketch_tools::in_unit(constraints, units));
+                .map(|constraints| sketch_tools::in_unit(constraints, units))
+                .map_err(Unavailable::from);
             (tool, candidates)
         })
         .collect()
@@ -387,7 +413,7 @@ impl ConstraintOffers {
                         ),
                         Err(unstaged) => ConstraintTool::ALL
                             .into_iter()
-                            .map(|tool| (tool, Err(unstaged.to_string())))
+                            .map(|tool| (tool, Err(Unavailable::from(unstaged.clone()))))
                             .collect(),
                     }
                 };
@@ -453,7 +479,7 @@ pub fn show(
     let breaking = BreakChange::of(&shown, &selected);
     let unlinking = match &feature.kind {
         FeatureKind::Sketch(sketch) => UnlinkChange::of(sketch, &selected),
-        _ => Err(sketch_tools::NOTHING_TO_UNLINK.to_owned()),
+        _ => Err(SketchChangeError::NothingToUnlink),
     };
     let respacing = RespaceChange::of(&shown, &selected);
     let activity = ActivityChange::of(
@@ -470,13 +496,13 @@ pub fn show(
                 active.tool.draws(),
             )
             .map(|_| ())
-            .map_err(|_| reason)
+            .map_err(|_| Unavailable::from(reason))
         });
-    let select_all = sketch_drag::can_select_all(&shown).map_err(str::to_owned);
+    let select_all = sketch_drag::can_select_all(&shown).map_err(Unavailable::from);
     let cancel = editing
         .sketch_cancelling(model)
         .map(|_| ())
-        .map_err(|refusal| refusal.to_string());
+        .map_err(Unavailable::from);
 
     let tokens = appearance::tokens(ui);
     let mut bar = Bar {
@@ -487,12 +513,24 @@ pub fn show(
         offers: &offers,
         construction: construction.as_ref(),
         activity: activity.as_ref(),
-        split: split.as_ref().map(|_| ()).map_err(String::clone),
-        breaking: breaking.as_ref().map(|_| ()).map_err(String::clone),
-        unlinking: unlinking.as_ref().map(|_| ()).map_err(String::clone),
-        respacing: respacing.as_ref().map(|_| ()).map_err(String::clone),
+        split: split
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        breaking: breaking
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        unlinking: unlinking
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        respacing: respacing
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
         deletable: if deletable.is_empty() {
-            Err(NOTHING_TO_DELETE.to_owned())
+            Err(Unavailable::NothingToDelete)
         } else {
             Ok(())
         },
@@ -595,7 +633,7 @@ pub fn show(
     {
         actions.push(match change.transaction(model, feature.id()) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::warning(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
     if request.breaking
@@ -603,7 +641,7 @@ pub fn show(
     {
         actions.push(match change.transaction(model, feature.id()) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::warning(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
     if request.unlinking
@@ -624,7 +662,7 @@ pub fn show(
     {
         actions.push(match change.transaction(model, feature.id()) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::warning(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
     if request.delete && !deletable.is_empty() {
@@ -743,14 +781,14 @@ struct Bar<'a, 'b> {
     offers: &'a [Offer],
     construction: Option<&'a ConstructionChange>,
     activity: Option<&'a ActivityChange>,
-    split: Result<(), String>,
-    breaking: Result<(), String>,
-    unlinking: Result<(), String>,
-    respacing: Result<(), String>,
-    deletable: Result<(), String>,
-    moving: Result<(), String>,
-    select_all: Result<(), String>,
-    cancel: Result<(), String>,
+    split: Result<(), Unavailable>,
+    breaking: Result<(), Unavailable>,
+    unlinking: Result<(), Unavailable>,
+    respacing: Result<(), Unavailable>,
+    deletable: Result<(), Unavailable>,
+    moving: Result<(), Unavailable>,
+    select_all: Result<(), Unavailable>,
+    cancel: Result<(), Unavailable>,
     commands: &'a mut CommandFrame<'b>,
     last_offers: &'a [commands::Offer],
     toggles: ToggleStates,
@@ -1402,7 +1440,7 @@ impl Bar<'_, '_> {
         let availability = self
             .activity
             .map(|_| ())
-            .ok_or_else(|| NOTHING_TO_DISABLE.to_owned());
+            .ok_or(Unavailable::NothingToDisable);
         let invoked = self
             .commands
             .invoke(Command::ToggleConstraintActive, &availability);
@@ -1455,7 +1493,7 @@ impl Bar<'_, '_> {
         command: Command,
         label: &str,
         help: &str,
-        availability: &Result<(), String>,
+        availability: &Result<(), Unavailable>,
     ) -> bool {
         let button = ToolButton::new(icons::command(command), label).compact();
         let response = ui.add_enabled(availability.is_ok(), button);
@@ -1480,7 +1518,7 @@ impl Bar<'_, '_> {
                 .commands
                 .with_keys(Command::DeleteSelection, DELETE_HELP))
         } else {
-            Err(NOTHING_TO_DELETE.to_owned())
+            Err(Unavailable::NothingToDelete.to_string())
         };
         let response = explained(response, DELETE_LABEL, &help);
         if response.clicked() || invoked {
@@ -1546,7 +1584,7 @@ impl Bar<'_, '_> {
         &mut self,
         ui: &mut Ui,
         tool: ConstraintTool,
-        offer: &Result<Vec<Constraint>, String>,
+        offer: &Result<Vec<Constraint>, Unavailable>,
     ) -> Rect {
         let command = Command::Constraint(tool);
         let invoked = self.commands.invoke(command, offer);

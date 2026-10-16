@@ -432,7 +432,9 @@ impl Modifying {
                 None => Ok(Outcome::Nothing),
             },
             State::Tangent(tangent) => match self.context {
-                Some((feature, _)) => tangent.enter_text(model, feature, text),
+                Some((feature, _)) => tangent
+                    .enter_text(model, feature, text)
+                    .map_err(|error| error.to_string()),
                 None => Ok(Outcome::Nothing),
             },
             State::Offset(_)
@@ -479,7 +481,9 @@ impl Modifying {
             return Ok(Outcome::Nothing);
         };
         match &mut self.state {
-            State::Offset(offsetting) => offsetting.enter_value(model, feature, value),
+            State::Offset(offsetting) => offsetting
+                .enter_value(model, feature, value)
+                .map_err(|error| error.to_string()),
             State::Fillet(_)
             | State::Mirror(_)
             | State::Pattern(_)

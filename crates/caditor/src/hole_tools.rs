@@ -285,7 +285,8 @@ pub fn create_on_face(
     face: FaceChoice,
 ) -> Result<(Transaction, FeatureId, String), &'static str> {
     let document = model.document();
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())
+        .map_err(sketch_placement::AttachmentError::reason)?;
     let middle = face_middle(model, face, &plane).ok_or(sketch_placement::NOT_FLAT)?;
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, TITLE);

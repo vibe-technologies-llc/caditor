@@ -1,5 +1,6 @@
 use caditor_document::PlaneReference;
 use egui::{Id, Ui};
+use thiserror::Error;
 
 use crate::{
     datum_tools,
@@ -7,7 +8,7 @@ use crate::{
     feature_fields,
     model::{Action, Model},
     plane_selector,
-    sketch_placement::{self, DatumTarget},
+    sketch_placement::{self, DatumTarget, NewSketchError},
     widgets,
 };
 
@@ -17,9 +18,16 @@ pub const CANCEL: &str = "Cancel";
 const DESCRIPTION: &str = "Choose the plane to sketch on here, or click a plane or a flat face \
                            in the view";
 const CANCEL_HOVER: &str = "Stop choosing a plane (Esc)";
-const FACES_IN_THE_VIEW: &str = "Click a flat face in the view to sketch on it";
 
-fn command(model: &Model, plane: &PlaneReference) -> Result<Action, String> {
+#[derive(Debug, Clone, PartialEq, Error)]
+enum PlaneChoiceError {
+    #[error("Click a flat face in the view to sketch on it")]
+    FaceInTheView,
+    #[error(transparent)]
+    NewSketch(#[from] NewSketchError),
+}
+
+fn command(model: &Model, plane: &PlaneReference) -> Result<Action, PlaneChoiceError> {
     let command = match plane {
         PlaneReference::Principal(plane) => EditingCommand::NewSketch(Some(*plane)),
         PlaneReference::Datum(datum) => on_datum(model, DatumTarget::Plane(*datum))?,
@@ -30,12 +38,12 @@ fn command(model: &Model, plane: &PlaneReference) -> Result<Action, String> {
                 plane: *plane,
             },
         )?,
-        PlaneReference::Face(_) => return Err(FACES_IN_THE_VIEW.to_owned()),
+        PlaneReference::Face(_) => return Err(PlaneChoiceError::FaceInTheView),
     };
     Ok(Action::Editing(command))
 }
 
-fn on_datum(model: &Model, target: DatumTarget) -> Result<EditingCommand, String> {
+fn on_datum(model: &Model, target: DatumTarget) -> Result<EditingCommand, NewSketchError> {
     sketch_placement::new_sketch_on_datum(model, target)?;
     Ok(EditingCommand::NewSketchOnDatum(target))
 }

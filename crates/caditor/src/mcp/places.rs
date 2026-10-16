@@ -296,7 +296,7 @@ pub fn on_face(
     )
     .map_err(|reason| PlaceError::NotAPlane {
         what: format!("face {} of {}", on.face, body_label(document, body)),
-        reason: reason.to_owned(),
+        reason: reason.to_string(),
     })?;
     Ok(FacePlace {
         reference: PlaneReference::Face(attachment),
