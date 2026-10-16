@@ -107,9 +107,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   opening the opened faces of the body before, see-through and still picked (`Builder::opened_faces`),
   so a click on the opening closes it. A failed or pending blend or shell shows the body before it
   (`OpenView::Before`).
-- Material-removing features (extrusion or revolve removing, hole) show the body solid as cut and only
-  their tools (`Evaluation::cuts`) in `ScenePalette::cut_preview` over everything
-  (`Scene::overlay_meshes`, edges on the front layer), never picked.
+- Material-removing features (extrusion or revolve removing, hole, modelled thread, pattern and
+  mirror of cuts) show the body solid as cut and only their tools (`Evaluation::cuts`) in
+  `ScenePalette::cut_preview` over everything (`Scene::overlay_meshes`, edges on the front layer),
+  never picked. Each tool is shown clipped to the body it cuts as the feature sees it
+  (`bodies::clipping_body`, `shown_cut`), so a drill or thread groove hanging past the body shows
+  only what it removes; the worker clips it (`Recomputer::mesh_within`) and nothing shows until
+  then. A feature cutting several bodies (`Feature::bodies`) shows its tools whole, and a tool the
+  kernel cannot clip shows whole too.
 - Typing in any open feature's value field previews before Enter: every value row is
   `feature_fields::expression_row_drafting`; valid text becomes `Action::Preview` with the transaction
   it would commit, never applied. `Model` applies it to a copy of the document (`DraftPreview`, dropped

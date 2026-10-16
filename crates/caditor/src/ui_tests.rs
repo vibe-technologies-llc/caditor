@@ -711,6 +711,7 @@ impl Harness {
         matches!(self.model.status(), RecomputeStatus::Running { .. })
             || self.model.bodies_pending()
             || self.model.masses_pending()
+            || self.model.requested_meshes_pending()
             || self.model.pictures().pending()
     }
 

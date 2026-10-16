@@ -150,7 +150,11 @@ paths:
 - The state before an open blend or shell, and the tools of an open cut (`SolidResult::cuts`: the
   swept tool of an extrusion or revolve removing from a body, each drill of a hole, the placed
   copies of a pattern's repeated cuts or a mirror's reflected ones), are meshed only when the app
-  asks (`Recomputer::mesh`). An addition keeps its swept tool as `SolidResult::joins`, which only a
+  asks (`Recomputer::mesh`). `Recomputer::mesh_within` first clips a cut to a body
+  (`SolidResult::clip_within`, the intersection kept once in the cut as `Clipped`: `Within` a new
+  result, `Outside` when nothing is left, `Whole` when the boolean fails; a cancelled clip is not
+  kept) and meshes what is shown; the cuts themselves stay whole, since patterns and mirrors place
+  them on other bodies. An addition keeps its swept tool as `SolidResult::joins`, which only a
   pattern or mirror of features reads; a blend keeps its `BlendRecipe` (`SolidResult::blended`)
   and a shell its `ShellRecipe` (`SolidResult::shelled`, holding the state before it) likewise,
   compared by `same_shapes` with the cuts and joins.

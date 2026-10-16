@@ -1355,3 +1355,34 @@ fn a_hole_starts_on_any_flat_face_of_both_halves_of_a_split_body() {
     assert_eq!(refusals_on_flat_faces(&mut harness), Vec::<String>::new());
     assert!(drill_end_face(&mut harness, half));
 }
+
+#[test]
+fn an_open_hole_on_the_edge_of_a_face_previews_only_what_it_cuts_from_the_body() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let sketch = open_hole(&harness, hole).sketch;
+    let point = harness
+        .sketch(sketch)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
+        .expect("the hole's sketch holds its point");
+
+    harness.type_into_field(Id::unique(("hole-position", hole, point, 0_usize)), "0 mm");
+    harness.settle();
+    let previewed = harness
+        .built()
+        .scene
+        .overlay_meshes
+        .iter()
+        .filter_map(|instance| instance.mesh.bounds())
+        .reduce(caditor_geometry::Aabb::union)
+        .expect("the cut is previewed");
+
+    assert!(previewed.min().x > -1e-6, "{previewed:?}");
+    assert!(previewed.max().z < 10.0 + 1e-6, "{previewed:?}");
+    assert!(previewed.max().x > 2.9, "{previewed:?}");
+}

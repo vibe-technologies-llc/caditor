@@ -220,7 +220,7 @@ pub use crate::{
     },
     shell::{FaceThickness, Shell, ShellSide, openable_face},
     solid::{
-        AxisSide, BodyOperation, ExactMass, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex,
+        AxisSide, BodyOperation, Clipped, ExactMass, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex,
         ReachedEnd, ReachedSide, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchRegion,
         SolidFeature, SolidResult, SolidStart, Wall, body_part, body_parts, displayed_start_offset,
         profile_curve, sketch_regions,

@@ -22,6 +22,7 @@ use caditor_sketch::{Constraint, Entity, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
+    bodies::{self, ShownCut},
     body_picks,
     commands::Reason,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
@@ -674,6 +675,21 @@ impl Model {
         self.display.meshing.is_pending()
     }
 
+    #[cfg(test)]
+    pub fn requested_meshes_pending(&self) -> bool {
+        self.mesh_requested.iter().any(|requested| {
+            requested
+                .solid()
+                .is_some_and(|solid| match solid.clipped() {
+                    Some(caditor_document::Clipped::Within(clipped)) => {
+                        clipped.solid().is_some_and(|clipped| !clipped.is_meshed())
+                    }
+                    Some(caditor_document::Clipped::Outside) => false,
+                    Some(caditor_document::Clipped::Whole) | None => !solid.is_meshed(),
+                })
+        })
+    }
+
     pub fn bodies_preparing(&self) -> Option<(usize, usize)> {
         self.display.meshing.preparing()
     }
@@ -882,24 +898,14 @@ impl Model {
             self.drop_draft();
         }
         let drafted = self.draft_body_result().map(|(_, result)| result);
-        let cuts = self
-            .draft_cuts()
-            .unwrap_or_default()
-            .iter()
-            .chain(feature.map_or(&[][..], |feature| self.evaluation.cuts(feature)));
-        let open: Vec<Arc<FeatureResult>> = match feature {
-            Some(feature) => self
-                .evaluation
-                .body_before(feature)
-                .into_iter()
-                .chain(cuts)
-                .chain(drafted.as_ref())
-                .cloned()
-                .collect(),
-            None => Vec::new(),
-        };
-        self.mesh_requested
-            .retain(|requested| open.iter().any(|result| Arc::ptr_eq(result, requested)));
+        let ShownWhileOpen { open, clipping } = feature.map_or_else(Default::default, |feature| {
+            self.shown_while_open(feature, drafted)
+        });
+        self.mesh_requested.retain(|requested| {
+            open.iter()
+                .chain(clipping.iter().map(|(cut, _)| cut))
+                .any(|result| Arc::ptr_eq(result, requested))
+        });
         self.shown_before = open.clone();
         let Some(feature) = feature else {
             return;
@@ -908,6 +914,23 @@ impl Model {
             .document()
             .feature(feature)
             .map_or_else(String::new, |feature| feature.name.clone());
+        for (cut, within) in clipping {
+            if self
+                .mesh_requested
+                .iter()
+                .any(|requested| Arc::ptr_eq(requested, &cut))
+            {
+                continue;
+            }
+            let sent = self.recomputer.as_ref().is_some_and(|recomputer| {
+                recomputer
+                    .mesh_within(Arc::clone(&cut), within, name.clone())
+                    .is_ok()
+            });
+            if sent {
+                self.mesh_requested.push(cut);
+            }
+        }
         for result in open {
             if result.solid().is_none_or(|solid| solid.is_meshed()) {
                 self.display
@@ -929,6 +952,46 @@ impl Model {
                 self.mesh_requested.push(result);
             }
         }
+    }
+
+    fn shown_while_open(
+        &self,
+        feature: FeatureId,
+        drafted: Option<Arc<FeatureResult>>,
+    ) -> ShownWhileOpen {
+        let document = self.document();
+        let draft = self
+            .draft
+            .as_ref()
+            .and_then(|draft| Some((draft.evaluation.as_ref()?, draft.feature)));
+        let cuts = draft
+            .map(|(evaluation, drafted)| (evaluation, evaluation.cuts(drafted)))
+            .into_iter()
+            .chain(std::iter::once((
+                &self.evaluation,
+                self.evaluation.cuts(feature),
+            )));
+        let mut open: Vec<Arc<FeatureResult>> = self
+            .evaluation
+            .body_before(feature)
+            .cloned()
+            .into_iter()
+            .collect();
+        let mut clipping = Vec::new();
+        for (evaluation, cut) in
+            cuts.flat_map(|(evaluation, cuts)| cuts.iter().map(move |cut| (evaluation, cut)))
+        {
+            let within = bodies::clipping_body(document, evaluation, feature, cut);
+            match bodies::shown_cut(cut, within.is_some()) {
+                ShownCut::Shown(shown) => open.push(Arc::clone(shown)),
+                ShownCut::Hidden => {}
+                ShownCut::Clipping => {
+                    clipping.extend(within.map(|within| (Arc::clone(cut), Arc::clone(within))))
+                }
+            }
+        }
+        open.extend(drafted);
+        ShownWhileOpen { open, clipping }
     }
 
     pub fn request_regions(&mut self, sketch: Option<FeatureId>) {
@@ -2023,7 +2086,12 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
         .collect()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+struct ShownWhileOpen {
+    open: Vec<Arc<FeatureResult>>,
+    clipping: Vec<(Arc<FeatureResult>, Arc<FeatureResult>)>,
+}
+
 struct DraftPreview {
     feature: FeatureId,
     kind: FeatureKind,

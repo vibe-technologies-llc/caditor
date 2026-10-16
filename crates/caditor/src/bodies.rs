@@ -14,7 +14,7 @@ use std::{
 };
 
 use caditor_document::{
-    Document, EdgeGroup, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState,
+    Clipped, Document, EdgeGroup, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState,
     Resolution, SolidResult, openable_face,
 };
 pub use caditor_document::{describe_origin, origin_feature};
@@ -93,6 +93,51 @@ pub fn find_vertex(body: &SolidResult, key: VertexKey) -> Option<VertexId> {
         .vertices_named(key.name)
         .get(occurrence)
         .copied()
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ShownCut<'a> {
+    Clipping,
+    Shown(&'a Arc<FeatureResult>),
+    Hidden,
+}
+
+pub fn clipping_body<'a>(
+    document: &Document,
+    evaluation: &'a Evaluation,
+    feature: FeatureId,
+    cut: &FeatureResult,
+) -> Option<&'a Arc<FeatureResult>> {
+    let cuts_one_body = document.feature(feature)?.bodies().len() == 1;
+    cuts_one_body
+        .then(|| evaluation.body_state_seen_by(feature, cut.solid()?.body))
+        .flatten()
+}
+
+pub fn shown_cut(cut: &Arc<FeatureResult>, clipping: bool) -> ShownCut<'_> {
+    let Some(solid) = cut.solid().filter(|_| clipping) else {
+        return ShownCut::Shown(cut);
+    };
+    match solid.clipped() {
+        None => ShownCut::Clipping,
+        Some(Clipped::Within(clipped)) => ShownCut::Shown(clipped),
+        Some(Clipped::Outside) => ShownCut::Hidden,
+        Some(Clipped::Whole) => ShownCut::Shown(cut),
+    }
+}
+
+pub fn shown_cuts<'a>(
+    document: &Document,
+    evaluation: &Evaluation,
+    feature: FeatureId,
+    cuts: &'a [Arc<FeatureResult>],
+) -> Vec<ShownCut<'a>> {
+    cuts.iter()
+        .map(|cut| {
+            let clipping = clipping_body(document, evaluation, feature, cut).is_some();
+            shown_cut(cut, clipping)
+        })
+        .collect()
 }
 
 pub fn shown(evaluation: &Evaluation, body: FeatureId) -> Option<&SolidResult> {
@@ -838,21 +883,33 @@ impl BodyMeshes {
             })
         });
         let wanted = match (feature, draft.cuts) {
-            (Some(_), Some(drafted)) => drafted,
-            (Some(feature), None) => evaluation.cuts(feature),
-            (None, _) => &[][..],
+            (Some(feature), Some(drafted)) => shown_cuts(
+                document,
+                draft.evaluation.unwrap_or(evaluation),
+                feature,
+                drafted,
+            ),
+            (Some(feature), None) => {
+                shown_cuts(document, evaluation, feature, evaluation.cuts(feature))
+            }
+            (None, _) => Vec::new(),
         };
-        let pending = wanted
-            .iter()
-            .any(|cut| matches!(meshing.lookup(cut), Converted::Pending));
+        let pending = wanted.iter().any(|cut| match cut {
+            ShownCut::Clipping => true,
+            ShownCut::Shown(cut) => matches!(meshing.lookup(cut), Converted::Pending),
+            ShownCut::Hidden => false,
+        });
         let cuts: Vec<Arc<BodyMesh>> = if pending && self.cuts_of == feature {
             self.cuts.clone()
         } else {
             wanted
                 .iter()
-                .filter_map(|cut| match meshing.lookup(cut) {
-                    Converted::Ready(mesh) => Some(Arc::clone(mesh)),
-                    Converted::Pending | Converted::Missing => None,
+                .filter_map(|cut| match cut {
+                    ShownCut::Shown(cut) => match meshing.lookup(cut) {
+                        Converted::Ready(mesh) => Some(Arc::clone(mesh)),
+                        Converted::Pending | Converted::Missing => None,
+                    },
+                    ShownCut::Clipping | ShownCut::Hidden => None,
                 })
                 .collect()
         };

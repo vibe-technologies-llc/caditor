@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use crate::{
     document::Document,
     recompute::{CancelToken, Evaluation, Evaluator, FeatureResult, Recompute},
+    solid::Clipped,
 };
 
 const NO_JOB: u64 = u64::MAX;
@@ -78,6 +79,7 @@ enum Message {
     Recompute(Job),
     Mesh {
         result: Arc<FeatureResult>,
+        within: Option<Arc<FeatureResult>>,
         name: String,
     },
     MeshQuality(MeshQuality),
@@ -274,7 +276,27 @@ impl Recomputer {
     pub fn mesh(&self, result: Arc<FeatureResult>, name: String) -> Result<(), WorkerStopped> {
         self.handle
             .jobs
-            .send(Message::Mesh { result, name })
+            .send(Message::Mesh {
+                result,
+                within: None,
+                name,
+            })
+            .map_err(|_| WorkerStopped)
+    }
+
+    pub fn mesh_within(
+        &self,
+        cut: Arc<FeatureResult>,
+        body: Arc<FeatureResult>,
+        name: String,
+    ) -> Result<(), WorkerStopped> {
+        self.handle
+            .jobs
+            .send(Message::Mesh {
+                result: cut,
+                within: Some(body),
+                name,
+            })
             .map_err(|_| WorkerStopped)
     }
 
@@ -283,6 +305,7 @@ impl Recomputer {
             .jobs
             .send(Message::Mesh {
                 result,
+                within: None,
                 name: String::new(),
             })
             .map_err(|_| WorkerStopped)
@@ -442,6 +465,7 @@ fn start_worker(evaluator: &Arc<dyn Evaluator>, wake: &SharedWake) -> std::io::R
 
 struct PendingMesh {
     result: Arc<FeatureResult>,
+    within: Option<Arc<FeatureResult>>,
     name: String,
 }
 
@@ -470,9 +494,17 @@ fn work(
                     job.retry_failures |= latest.as_ref().is_some_and(|job| job.retry_failures);
                     latest = Some(job);
                 }
-                Message::Mesh { result, name } => {
+                Message::Mesh {
+                    result,
+                    within,
+                    name,
+                } => {
                     meshes.retain(|pending| !Arc::ptr_eq(&pending.result, &result));
-                    meshes.push(PendingMesh { result, name });
+                    meshes.push(PendingMesh {
+                        result,
+                        within,
+                        name,
+                    });
                 }
                 Message::MeshQuality(quality) => recompute.set_mesh_quality(quality),
                 Message::Forget => {
@@ -644,11 +676,24 @@ fn mesh_pending(
             return;
         }
         if let Some(solid) = pending.result.solid() {
-            interruptible(cancel.interrupt(), || {
-                solid.tessellate(&pending.name, quality, None)
-            });
-            if !solid.is_meshed() {
-                return;
+            let shown = match pending.within.as_deref().and_then(FeatureResult::solid) {
+                Some(body) => {
+                    match interruptible(cancel.interrupt(), || solid.clip_within(&body.solid)) {
+                        None => return,
+                        Some(Clipped::Within(clipped)) => clipped.solid(),
+                        Some(Clipped::Outside) => None,
+                        Some(Clipped::Whole) => Some(solid),
+                    }
+                }
+                None => Some(solid),
+            };
+            if let Some(shown) = shown {
+                interruptible(cancel.interrupt(), || {
+                    shown.tessellate(&pending.name, quality, None)
+                });
+                if !shown.is_meshed() {
+                    return;
+                }
             }
             wake();
         } else if let Some(sketch) = pending.result.sketch() {
@@ -1088,10 +1133,12 @@ mod tests {
         let mut meshes = vec![
             PendingMesh {
                 result: Arc::clone(&old),
+                within: None,
                 name: "Old".to_owned(),
             },
             PendingMesh {
                 result: Arc::clone(&new),
+                within: None,
                 name: "New".to_owned(),
             },
         ];

@@ -738,6 +738,14 @@ pub struct SolidResult {
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
     mass: OnceLock<Box<Result<ExactMass, MeasureError>>>,
+    clipped: OnceLock<Clipped>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Clipped {
+    Within(Arc<FeatureResult>),
+    Outside,
+    Whole,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -809,6 +817,7 @@ impl SolidResult {
             bounds: OnceLock::new(),
             names: OnceLock::new(),
             mass: OnceLock::new(),
+            clipped: OnceLock::new(),
         }
     }
 
@@ -919,6 +928,35 @@ impl SolidResult {
             let _ = self.mass.set(Box::new(found));
         }
         found
+    }
+
+    pub fn clipped(&self) -> Option<&Clipped> {
+        self.clipped.get()
+    }
+
+    pub fn clip_within(&self, body: &Solid) -> Option<&Clipped> {
+        if let Some(found) = self.clipped.get() {
+            return Some(found);
+        }
+        let met = panic::catch_unwind(AssertUnwindSafe(|| {
+            boolean(&self.solid, body, BooleanOperation::Intersection)
+        }));
+        let clipped = match met {
+            Ok(Ok(within)) => Clipped::Within(Arc::new(FeatureResult::Solid(SolidResult::new(
+                self.body, within,
+            )))),
+            Ok(Err(BooleanError::Empty)) => Clipped::Outside,
+            Ok(Err(BooleanError::Cancelled(_))) => return None,
+            Ok(Err(error)) => {
+                log::warn!("a cutting tool could not be clipped to its body: {error}");
+                Clipped::Whole
+            }
+            Err(_) => {
+                log::warn!("clipping a cutting tool to its body panicked");
+                Clipped::Whole
+            }
+        };
+        Some(self.clipped.get_or_init(|| clipped))
     }
 
     pub fn is_mass_known(&self) -> bool {
