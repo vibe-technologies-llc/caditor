@@ -71,7 +71,17 @@ const RELATIVE_HOVER: &str = "Positions, directions and the distances along X, Y
                               in this coordinate system";
 const WORLD_HOVER: &str = "Read from the origin along the principal axes";
 
-pub fn relative(model: &Model, tool: &MeasureTool) -> Result<Relative, String> {
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RelativeError {
+    #[error(
+        "The chosen coordinate system no longer exists, so the readings are relative to the world"
+    )]
+    FrameGone,
+    #[error("{name} has no result yet, so the readings are relative to the world")]
+    NoResult { name: String },
+}
+
+pub fn relative(model: &Model, tool: &MeasureTool) -> Result<Relative, RelativeError> {
     let Some(frame) = tool.relative_to else {
         return Ok(Relative::WORLD);
     };
@@ -80,16 +90,10 @@ pub fn relative(model: &Model, tool: &MeasureTool) -> Result<Relative, String> {
         .feature(frame)
         .map(|feature| feature.name.clone());
     match name {
-        None => Err(
-            "The chosen coordinate system no longer exists, so the readings are relative to the \
-             world"
-                .to_owned(),
-        ),
+        None => Err(RelativeError::FrameGone),
         Some(name) => displayed_frame(model.evaluation(), frame)
             .and_then(|placed| Relative::to(&placed))
-            .ok_or_else(|| {
-                format!("{name} has no result yet, so the readings are relative to the world")
-            }),
+            .ok_or(RelativeError::NoResult { name }),
     }
 }
 
@@ -776,7 +780,7 @@ pub fn show(
     let panel = widgets::side_panel_parts(ui, room, PANEL, &HEADER, header_actions, |ui| {
         relative_row(ui, context.model, &mut relative_to);
         if let Err(problem) = &relative {
-            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
+            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
             ui.add_space(SPACE_M);
         }
         widgets::panel_scroll(ui, PANEL.id, |ui| {
@@ -867,7 +871,7 @@ fn perform(
                         kept.name
                     ))));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(error) => actions.push(Action::Inform(Notice::warning(error.to_string()))),
             }
         }
     }
@@ -909,7 +913,7 @@ fn readings(
     frame: Option<FeatureId>,
 ) -> Option<RowChoice> {
     if let Some(problem) = readout.problem {
-        widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
+        widgets::callout(ui, Tone::Warning, |ui| ui.label(problem.to_string()));
         ui.add_space(SPACE_M);
     }
     let mut chosen = None;

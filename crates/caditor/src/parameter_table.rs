@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet, fmt::Display};
 
 use caditor_document::{
-    Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterOwner, ParameterUser, Transaction,
+    Document, Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterOwner, ParameterUser,
+    Transaction,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use egui::{
@@ -11,8 +12,10 @@ use egui::{
 
 use crate::{
     appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
-    commands::{Command, CommandFrame},
-    completion, field, icons,
+    commands::{Command, CommandFrame, Reason},
+    completion,
+    field::{self, CheckError, ExpressionError},
+    icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
     preferences::PreferencesCommand,
@@ -44,8 +47,6 @@ const MAX_LISTED_USERS: usize = 12;
 pub const USED_BY: &str = "Used by";
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
-const NO_PARAMETER_CHOSEN: &str =
-    "Click or tab into a parameter's name or expression in the Parameters section first";
 pub const MOVE_UP_LABEL: &str = "Move up";
 pub const MOVE_DOWN_LABEL: &str = "Move down";
 pub const SAVE_NOTE_LABEL: &str = "Save note";
@@ -57,15 +58,70 @@ const FILTER_FIELD: &str = "parameter-filter";
 pub const FILTER_HINT: &str = "Filter parameters by name, expression or owner";
 const NO_MATCH: &str = "No parameter matches the filter.";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
-const NO_PARAMETERS: &str = "The model has no parameters";
-const ALL_USED: &str = "Every parameter is in use: a dimension, a feature or another parameter \
-                        refers to each one";
 const DELETE_UNUSED_HOVER: &str = "Delete every parameter nothing refers to, in one change that \
                                    Undo takes back";
 const MAX_NAMED_DELETED: usize = 4;
 const NOTE_EXPLANATION: &str = "What the parameter is for, where its value comes from, or what \
                                 to keep in mind when changing it. It shows when hovering the \
                                 note icon beside its value. Leave it empty to remove the note.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Click or tab into a parameter's name or expression in the Parameters section first")]
+pub struct NoParameterChosen;
+
+impl Reason for NoParameterChosen {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum MoveError {
+    #[error(transparent)]
+    Unchosen(#[from] NoParameterChosen),
+    #[error("{name} is already the first {kind}")]
+    First { name: String, kind: &'static str },
+    #[error("{name} is already the last {kind}")]
+    Last { name: String, kind: &'static str },
+}
+
+impl Reason for MoveError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum UnusedError {
+    #[error("The model has no parameters")]
+    NoParameters,
+    #[error(
+        "Every parameter is in use: a dimension, a feature or another parameter refers to each one"
+    )]
+    AllUsed,
+}
+
+impl Reason for UnusedError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum ValueEditError {
+    #[error(
+        "{parameter} is the reading of {measurement}, taken again on every recompute; change the \
+         model to change it"
+    )]
+    MeasuredReading {
+        parameter: String,
+        measurement: String,
+    },
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+}
 
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
@@ -171,9 +227,9 @@ impl UnusedDeletion {
     pub(crate) fn of(
         document: &Document,
         used: &BTreeSet<ParameterId>,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, UnusedError> {
         if document.parameters().is_empty() {
-            return Err(NO_PARAMETERS);
+            return Err(UnusedError::NoParameters);
         }
         let unused: Vec<&Parameter> = document
             .parameters()
@@ -181,7 +237,7 @@ impl UnusedDeletion {
             .filter(|parameter| !used.contains(&parameter.id()))
             .collect();
         if unused.is_empty() {
-            return Err(ALL_USED);
+            return Err(UnusedError::AllUsed);
         }
         let names: Vec<String> = unused
             .iter()
@@ -517,13 +573,12 @@ fn row(
         &expression_text,
         widths.expression,
         state.wants_focus(value_focus),
-        |text| -> Result<_, String> {
+        |text| -> Result<_, ValueEditError> {
             if let Some(measurement) = &measured_by {
-                return Err(format!(
-                    "{} is the reading of {measurement}, taken again on every recompute; change \
-                     the model to change it",
-                    parameter.name
-                ));
+                return Err(ValueEditError::MeasuredReading {
+                    parameter: parameter.name.clone(),
+                    measurement: measurement.clone(),
+                });
             }
             let current = match model.parameters().get(id) {
                 Some(Ok(value)) => Some(value.dimension),
@@ -734,14 +789,19 @@ fn users_menu(
     }
 }
 
-fn menu_entry<T>(ui: &mut Ui, glyph: &str, label: &str, outcome: &Result<T, String>) -> bool {
+fn menu_entry<T, E: Display>(
+    ui: &mut Ui,
+    glyph: &str,
+    label: &str,
+    outcome: &Result<T, E>,
+) -> bool {
     let response = ui
         .add_enabled_ui(outcome.is_ok(), |ui| {
             widgets::menu_item(ui, glyph, label, None)
         })
         .inner;
     let response = match outcome {
-        Err(reason) => response.on_disabled_hover_text(reason),
+        Err(reason) => response.on_disabled_hover_text(reason.to_string()),
         Ok(_) => response,
     };
     let clicked = response.clicked();
@@ -785,7 +845,7 @@ impl Direction {
         self,
         document: &Document,
         parameter: &Parameter,
-    ) -> Result<Transaction, String> {
+    ) -> Result<Transaction, MoveError> {
         let id = parameter.id();
         let group: Vec<usize> = document
             .parameters()
@@ -797,7 +857,7 @@ impl Direction {
         let place = group
             .iter()
             .position(|index| document.parameters().get(*index).map(Parameter::id) == Some(id))
-            .ok_or_else(|| NO_PARAMETER_CHOSEN.to_owned())?;
+            .ok_or(NoParameterChosen)?;
         let kind = if parameter.is_model_parameter() {
             "model parameter"
         } else {
@@ -807,9 +867,12 @@ impl Direction {
             Self::Up => place.checked_sub(1).and_then(|above| group.get(above)),
             Self::Down => group.get(place + 1),
         };
-        let target = *target.ok_or_else(|| match self {
-            Self::Up => format!("{} is already the first {kind}", parameter.name),
-            Self::Down => format!("{} is already the last {kind}", parameter.name),
+        let target = *target.ok_or_else(|| {
+            let name = parameter.name.clone();
+            match self {
+                Self::Up => MoveError::First { name, kind },
+                Self::Down => MoveError::Last { name, kind },
+            }
         })?;
         let way = match self {
             Self::Up => "up",
@@ -831,7 +894,7 @@ enum Deletion {
         id: ParameterId,
         name: String,
         expression: String,
-        transaction: Result<Transaction, String>,
+        transaction: Result<Transaction, EditError>,
     },
 }
 
@@ -847,9 +910,7 @@ impl Deletion {
         Self::Inlined {
             id: parameter.id(),
             expression: document.expression_text(&parameter.expression),
-            transaction: document
-                .inline_parameter(parameter.id())
-                .map_err(|error| error.to_string()),
+            transaction: document.inline_parameter(parameter.id()),
             name,
         }
     }
@@ -875,12 +936,12 @@ impl Deletion {
                      the model stays as it is. {}",
                     used_by(&document.parameter_users(*id))
                 ),
-                Err(reason) => reason.clone(),
+                Err(reason) => reason.to_string(),
             },
         }
     }
 
-    fn transaction(&self) -> Result<&Transaction, &str> {
+    fn transaction(&self) -> Result<&Transaction, &EditError> {
         match self {
             Self::Unused { transaction, .. }
             | Self::Inlined {
@@ -898,7 +959,7 @@ impl Deletion {
         match self.transaction() {
             Ok(transaction) => actions.push(Action::Apply(transaction.clone())),
             Err(reason) => {
-                actions.push(Action::Inform(Notice::warning(reason)));
+                actions.push(Action::Inform(Notice::warning(reason.to_string())));
                 return;
             }
         }
@@ -1041,7 +1102,7 @@ pub fn commands(
     let detail = chosen.map(|parameter| parameter.name.clone());
     for direction in Direction::BOTH {
         let moving = chosen.map_or_else(
-            || Err(NO_PARAMETER_CHOSEN.to_owned()),
+            || Err(NoParameterChosen.into()),
             |parameter| direction.transaction(document, parameter),
         );
         if commands.invoke_detailed(direction.command(), detail.clone(), &moving)
@@ -1050,13 +1111,13 @@ pub fn commands(
             actions.push(Action::Apply(moving));
         }
     }
-    let noting = chosen.ok_or_else(|| NO_PARAMETER_CHOSEN.to_owned());
+    let noting = chosen.ok_or(NoParameterChosen);
     if commands.invoke_detailed(Command::ParameterNote, detail.clone(), &noting)
         && let Ok(parameter) = noting
     {
         state.noting = Some(NoteDraft::of(parameter));
     }
-    let delete = chosen.ok_or_else(|| NO_PARAMETER_CHOSEN.to_owned());
+    let delete = chosen.ok_or(NoParameterChosen);
     if commands.invoke_detailed(Command::DeleteParameter, detail, &delete)
         && let Ok(parameter) = delete
     {

@@ -493,6 +493,7 @@ pub fn change(
         }
         (Slot::ImagePlace, FeatureKind::ReferenceImage(image)) => {
             image_tools::place_change(model, selection, feature, image)
+                .map_err(|error| error.to_string())
         }
         (Slot::MateMoving(part), FeatureKind::Mate(mate)) => {
             mate_tools::moving_change(model, selection, feature, mate, part)
@@ -508,6 +509,7 @@ pub fn change(
         }
         (Slot::MeasuredItem(part), FeatureKind::Measurement(measurement)) => {
             measurement_tools::item_change(model, selection, feature, measurement, part)
+                .map_err(|error| error.to_string())
         }
         _ => {
             return Err(ChangeError::NotTaken {

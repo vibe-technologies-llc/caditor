@@ -72,7 +72,10 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, image: ReferenceImage) -> Result<caditor_document::Transaction, String> {
+    fn change(
+        &self,
+        image: ReferenceImage,
+    ) -> Result<caditor_document::Transaction, image_tools::ImageError> {
         image_tools::change(self.model, self.id(), image)
     }
 

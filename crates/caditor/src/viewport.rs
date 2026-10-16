@@ -1,10 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
     PasteOrigin, PatternKind, Rgb, SavedView, SolidFeature, Transaction,
 };
-use caditor_file::PastedGeometry;
+use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_kernel::EdgeName;
 use caditor_render::{
@@ -12,7 +12,7 @@ use caditor_render::{
     ProjectionMode, Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect,
     grid_snap_spacing, is_cut_away, section_slack,
 };
-use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
+use caditor_sketch::{ClipError, ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use egui::{
     Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
     Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
@@ -31,7 +31,7 @@ use crate::{
     canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Waited},
     clipboard,
     comb::CombDrawing,
-    commands::{CameraMove, Command, CommandFrame, Pasted, StandardView},
+    commands::{CameraMove, Command, CommandFrame, Pasted, Reason, StandardView},
     delete_face_tools, dimensioning,
     display::Displayed,
     display_picker,
@@ -88,7 +88,7 @@ use crate::{
     symmetric_drawing::{self, Mirror, Symmetry},
     system_motion, toggles,
     trimming::{self, Trimming},
-    typed_point::{self, Typed, TypedPoint},
+    typed_point::{self, Typed, TypedPoint, TypedPointError, TypedValueError},
     upload_badge::UploadRequest,
     view_aids::{DefaultBody, ViewAids},
     view_cube::{self, Corner, CubeAction, CubePlacement, CubeTexts},
@@ -160,11 +160,71 @@ const MEASURE_LABEL_LIFT: f32 = 6.0;
 const PROBLEM_LABEL_LIFT: f32 = 9.0;
 const PLACE_SHARE: f64 = 0.2;
 const MIN_PLACE_REACH: f64 = 1.0;
-const LIST_NOT_WITH_TOOL: &str =
-    "This tool picks its own targets: press Esc to go back to Select first";
 const NO_VIEW_YET: &str = "The 3D view is not shown yet";
 const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum CopyError {
+    #[error("Nothing was copied: {0}.")]
+    Clip(ClipError),
+    #[error("Nothing was copied: {0}.")]
+    Text(ClipboardError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum SymmetryError {
+    #[error("{}", symmetric_drawing::NO_LINE_SELECTED)]
+    NoLineSelected,
+    #[error("{refusal}")]
+    ChosenLine { refusal: &'static str },
+}
+
+impl Reason for SymmetryError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum StartCardRefusal {
+    #[error("{}", start_card::NOT_EMPTY)]
+    NotEmpty,
+    #[error("{}", start_card::ALREADY_SHOWN)]
+    AlreadyShown,
+}
+
+impl Reason for StartCardRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum ListRefusal {
+    #[error("This tool picks its own targets: press Esc to go back to Select first")]
+    WithTool,
+    #[error("{}", NOTHING_TO_HIGHLIGHT)]
+    NothingToHighlight,
+}
+
+impl Reason for ListRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum TypedEditError {
+    #[error("{}", queued::SKETCH_SHOWN)]
+    SketchShown,
+    #[error("{refusal}")]
+    SketchDrag { refusal: String },
+    #[error(transparent)]
+    Point(#[from] TypedPointError),
+    #[error(transparent)]
+    Value(#[from] TypedValueError),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SketchScreen {
@@ -511,14 +571,12 @@ fn copied_text(
     feature: FeatureId,
     sketch: &Sketch,
     selected: &[EntityId],
-) -> Result<(String, String), String> {
-    let clip = sketch
-        .clip(selected)
-        .map_err(|error| format!("Nothing was copied: {error}."))?;
+) -> Result<(String, String), CopyError> {
+    let clip = sketch.clip(selected).map_err(CopyError::Clip)?;
     let parameters = CarriedParameters::of(model.document(), model.parameters(), clip.parameters());
     let text =
         caditor_file::sketch_clipboard_text(&clip, &parameters, &clipboard::source(model), feature)
-            .map_err(|error| format!("Nothing was copied: {error}."))?;
+            .map_err(CopyError::Text)?;
     Ok((text, clipboard::described(&clip)))
 }
 
@@ -739,17 +797,20 @@ impl ViewportState {
         self.symmetry.is_some()
     }
 
-    fn symmetry_offered(&self, model: &Model, editing: &SketchEditing) -> Result<Symmetry, String> {
-        let feature = editing
-            .feature()
-            .ok_or_else(|| symmetric_drawing::NO_LINE_SELECTED.to_owned())?;
+    fn symmetry_offered(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+    ) -> Result<Symmetry, SymmetryError> {
+        let feature = editing.feature().ok_or(SymmetryError::NoLineSelected)?;
         let shown = model
             .document()
             .feature(feature)
             .and_then(|owner| model.displayed_sketch(owner))
-            .ok_or_else(|| symmetric_drawing::NO_LINE_SELECTED.to_owned())?;
+            .ok_or(SymmetryError::NoLineSelected)?;
         let selected = sketch_tools::selected_entities(&self.selection, feature);
-        let line = symmetric_drawing::chosen_line(&shown, &selected).map_err(str::to_owned)?;
+        let line = symmetric_drawing::chosen_line(&shown, &selected)
+            .map_err(|refusal| SymmetryError::ChosenLine { refusal })?;
         Ok(Symmetry { feature, line })
     }
 
@@ -1368,11 +1429,11 @@ impl ViewportState {
         &self,
         model: &Model,
         editing: &SketchEditing,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), StartCardRefusal> {
         if !is_blank(model, editing) {
-            Err(start_card::NOT_EMPTY)
+            Err(StartCardRefusal::NotEmpty)
         } else if self.start_card.shown_in(model.session()) {
-            Err(start_card::ALREADY_SHOWN)
+            Err(StartCardRefusal::AlreadyShown)
         } else {
             Ok(())
         }
@@ -3676,11 +3737,11 @@ impl ViewportState {
         }
     }
 
-    fn list_availability(&self) -> Result<(), &'static str> {
+    fn list_availability(&self) -> Result<(), ListRefusal> {
         if self.trimming.is_active() || self.modifying.is_active() {
-            Err(LIST_NOT_WITH_TOOL)
+            Err(ListRefusal::WithTool)
         } else if !self.scenes.has_pickables() {
-            Err(NOTHING_TO_HIGHLIGHT)
+            Err(ListRefusal::NothingToHighlight)
         } else {
             Ok(())
         }
@@ -4161,7 +4222,7 @@ impl ViewportState {
         let copyable = if selected.iter().any(|entity| !entity.is_reference()) {
             Ok(())
         } else {
-            Err(NOTHING_TO_COPY.to_owned())
+            Err(NOTHING_TO_COPY)
         };
         let copying = commands.invoke(Command::CopyGeometry, &copyable);
         let cutting = commands.invoke(Command::CutGeometry, &copyable);
@@ -4189,10 +4250,10 @@ impl ViewportState {
                         actions.push(Action::Inform(Notice::success(format!("Copied {what}."))));
                     }
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(error) => actions.push(Action::Inform(Notice::warning(error.to_string()))),
             }
         }
-        if commands.invoke(Command::PasteGeometry, &Ok::<(), String>(())) {
+        if commands.invoke(Command::PasteGeometry, &Ok::<(), &'static str>(())) {
             match commands.pasted() {
                 Pasted::Unread => commands.ask_for_paste(Command::PasteGeometry),
                 Pasted::Nothing => actions.push(Action::Inform(Notice::warning(NOTHING_TO_PASTE))),
@@ -4435,9 +4496,11 @@ impl ViewportState {
             return;
         }
         if let Some(rho) = typed_point::rho(model, &typed.text) {
-            let set = rho.map_err(String::from).and_then(|(value, typed)| {
-                self.drawing.set_rho(value, typed).map_err(str::to_owned)
-            });
+            let set = rho
+                .map_err(|error| error.to_string())
+                .and_then(|(value, typed)| {
+                    self.drawing.set_rho(value, typed).map_err(str::to_owned)
+                });
             if let Err(reason) = set {
                 self.typed_point.open_with(typed.entered, reason);
             }
@@ -4458,7 +4521,7 @@ impl ViewportState {
             return;
         }
         if let Some(lock) = typed_point::length_lock(model, &typed.text, from) {
-            let locked = lock.map_err(String::from).and_then(|lock| {
+            let locked = lock.map_err(|error| error.to_string()).and_then(|lock| {
                 let dimensions = lock
                     .dimension
                     .filter(|_| self.typed_dimensions)
@@ -4711,13 +4774,13 @@ impl ViewportState {
                 last: Some(fresh.anchor),
                 toward: None,
             };
-            typed_point::parse(model, &typed.text, from)
-                .map_err(String::from)
-                .map(|target| fresh.to(target))
+            let target = typed_point::parse(model, &typed.text, from)?;
+            Ok(fresh.to(target))
         });
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
+                let error = error.to_string();
                 queue_typed(&typed.entered, typed_point::MOVE_LABEL, &error, actions);
                 self.typed_point.open_with(typed.entered, error);
                 self.moving = Some(moving);
@@ -4814,10 +4877,12 @@ impl ViewportState {
                 Transform::Rotate => fresh.rotated(amount),
                 Transform::Scale => fresh.scaled(amount),
             }
+            .map_err(|refusal| TypedEditError::SketchDrag { refusal })
         });
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
+                let error = error.to_string();
                 queue_typed(&typed.entered, field.label, &error, actions);
                 self.typed_point.open_with(typed.entered, error);
                 self.transforming = Some(transforming);
@@ -6279,13 +6344,13 @@ fn fresh_from_sketch<T>(
     model: &Model,
     feature: FeatureId,
     refresh: impl FnOnce(&Sketch) -> Result<T, String>,
-) -> Result<T, String> {
+) -> Result<T, TypedEditError> {
     let shown = model
         .document()
         .feature(feature)
         .and_then(|owner| model.displayed_sketch(owner))
-        .ok_or_else(|| queued::SKETCH_SHOWN.to_owned())?;
-    refresh(&shown)
+        .ok_or(TypedEditError::SketchShown)?;
+    refresh(&shown).map_err(|refusal| TypedEditError::SketchDrag { refusal })
 }
 
 fn queue_typed(entered: &str, title: &str, error: &str, actions: &mut Vec<Action>) {
@@ -6336,10 +6401,10 @@ fn ended_action(ended: Ended) -> Option<Action> {
     }
 }
 
-fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action> {
+fn outcome_action<E: Display>(outcome: Result<Option<Transaction>, E>) -> Option<Action> {
     match outcome {
         Ok(transaction) => transaction.map(Action::Apply),
-        Err(reason) => Some(Action::Inform(Notice::warning(reason))),
+        Err(reason) => Some(Action::Inform(Notice::warning(reason.to_string()))),
     }
 }
 

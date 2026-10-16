@@ -1,6 +1,6 @@
 use caditor_document::{
-    Configuration, ConfigurationId, ConfiguredValue, Document, MAX_CONFIGURATION_NAME_CHARS, Rgb,
-    Setting, Transaction,
+    Configuration, ConfigurationId, ConfiguredValue, Document, EditError,
+    MAX_CONFIGURATION_NAME_CHARS, Rgb, Setting, Transaction,
 };
 use egui::{Grid, Id, Key, ScrollArea, TextEdit, Ui};
 
@@ -8,7 +8,8 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     body_appearance::{DEFAULT_COLOUR_NAME, SWATCHES},
     commands::Command,
-    completion, field,
+    completion,
+    field::{self, ExpressionError},
     files::{FileCommand, configurations as table_files},
     icons,
     model::Model,
@@ -117,17 +118,36 @@ pub fn colour_name(colour: Option<Rgb>) -> String {
     }
 }
 
-fn checked(document: &Document, built: Result<Transaction, String>) -> Result<Transaction, String> {
-    let transaction = built?;
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ConfigurationError {
+    #[error(transparent)]
+    Refused(EditError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Rejected(EditError),
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+}
+
+impl From<ConfigurationError> for String {
+    fn from(error: ConfigurationError) -> Self {
+        error.to_string()
+    }
+}
+
+fn checked(
+    document: &Document,
+    built: Result<Transaction, EditError>,
+) -> Result<Transaction, ConfigurationError> {
+    let transaction = built.map_err(ConfigurationError::Refused)?;
     document
         .check(&transaction)
-        .map_err(|error| field::sentence(&error.to_string()))?;
+        .map_err(ConfigurationError::Rejected)?;
     Ok(transaction)
 }
 
 fn applying(
     draft: &mut ConfigurationsDraft,
-    built: Result<Transaction, String>,
+    built: Result<Transaction, ConfigurationError>,
 ) -> Option<Outcome> {
     match built {
         Ok(transaction) => {
@@ -135,17 +155,17 @@ fn applying(
             Some(Outcome::Apply(transaction))
         }
         Err(problem) => {
-            draft.problem = Some(problem);
+            draft.problem = Some(problem.to_string());
             None
         }
     }
 }
 
-pub fn switching(document: &Document, id: ConfigurationId) -> Result<Transaction, String> {
-    checked(
-        document,
-        document.activating(id).map_err(|error| error.to_string()),
-    )
+pub fn switching(
+    document: &Document,
+    id: ConfigurationId,
+) -> Result<Transaction, ConfigurationError> {
+    checked(document, document.activating(id))
 }
 
 pub fn dialog(
@@ -308,14 +328,11 @@ fn table_row(
         if widgets::icon_button(ui, icons::COPY, DUPLICATE_HOVER).clicked() {
             let built = document
                 .duplicating_configuration(row.id)
-                .map(|(transaction, _)| transaction)
-                .map_err(|error| error.to_string());
+                .map(|(transaction, _)| transaction);
             outcome = applying(draft, checked(document, built));
         }
         if widgets::icon_button(ui, icons::DELETE, DELETE_HOVER).clicked() {
-            let built = document
-                .deleting_configuration(row.id)
-                .map_err(|error| error.to_string());
+            let built = document.deleting_configuration(row.id);
             outcome = applying(draft, checked(document, built));
         }
     });
@@ -332,12 +349,10 @@ fn setting_change(
     row: &Configuration,
     value: ConfiguredValue,
     setting: Setting,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ConfigurationError> {
     checked(
         document,
-        document
-            .setting_configuration(row.id, value, setting)
-            .map_err(|error| error.to_string()),
+        document.setting_configuration(row.id, value, setting),
     )
 }
 
@@ -463,9 +478,7 @@ fn renaming_cell(
         return None;
     }
     let renaming = draft.renaming.take()?;
-    let built = document
-        .renaming_configuration(renaming.id, &renaming.to)
-        .map_err(|error| error.to_string());
+    let built = document.renaming_configuration(renaming.id, &renaming.to);
     applying(draft, checked(document, built))
 }
 
@@ -492,9 +505,7 @@ fn adding(ui: &mut Ui, document: &Document, draft: &mut ConfigurationsDraft) -> 
             });
         });
         if let Some(value) = chosen {
-            let built = document
-                .configuring(value)
-                .map_err(|error| error.to_string());
+            let built = document.configuring(value);
             outcome = applying(draft, checked(document, built));
         }
     });

@@ -1,7 +1,7 @@
 use caditor_document::{
-    AxisReference, Between, DatumResult, Document, Edit, FeatureId, FeatureKind, FeatureState,
-    MASS, MeasuredItem, Measurement, MeasurementResult, Of, ParameterOwner, PlaneReference,
-    PointReference, PrincipalAxis, Reading, TracedEdge, Transaction, trace_edge,
+    AxisReference, Between, DatumResult, Document, Edit, EditError, FeatureId, FeatureKind,
+    FeatureState, MASS, MeasuredItem, Measurement, MeasurementResult, Of, ParameterOwner,
+    PlaneReference, PointReference, PrincipalAxis, Reading, TracedEdge, Transaction, trace_edge,
 };
 use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::Point3;
@@ -12,7 +12,8 @@ use caditor_kernel::{
 use caditor_sketch::Entity;
 
 use crate::{
-    bodies, datum_tools, editing, field,
+    bodies, datum_tools, editing,
+    field::{self, CheckError},
     measure::APPROXIMATELY,
     measure_panel::mass_text,
     model::Model,
@@ -28,27 +29,66 @@ pub const READING: &str = "Reading";
 pub const ALONG_AN_AXIS: &str = "Offset along an axis";
 pub const POSITION_ALONG_AN_AXIS: &str = "Position along an axis";
 const AREA: Dimension = Dimension::new(2, 0);
-const GONE: &str = "The measurement no longer exists";
-const CHOOSE_ONE: &str = "Select the one item it should measure first";
-const ONE_ITEM: &str = "Select only the one item it should measure";
-const NOT_MEASURABLE: &str = "A kept measurement cannot hold that; choose a point, an edge, a \
-                              face, an axis, a plane, sketch geometry or a centre of mass";
-const NOT_OF_A_BODY: &str = "Choose a face, edge or corner of the body it should measure";
-const MADE_LATER: &str = "That is made further down the tree than the measurement, or is not \
-                          worked out yet; choose something made before it";
-const SPLIT_UNEVENLY: &str = "A sketch edit split that edge and only some of its pieces can be \
-                              traced; choose the piece you mean";
-const NOT_AN_AXIS: &str = "Choose an axis, a straight edge, a round face or a sketch line to \
-                           measure along";
-const SAME_ITEM: &str = "It already measures that";
-const NO_ANGLE: &str = "A point has no direction, so there is no angle to measure";
-const ONE_ITEM_ONLY: &str = "This reading takes one item; switch to Distance, Angle or an offset \
-                             along an axis to measure between two";
 const AXIS_NAMES: [(PrincipalAxis, &str); 3] = [
     (PrincipalAxis::X, "X"),
     (PrincipalAxis::Y, "Y"),
     (PrincipalAxis::Z, "Z"),
 ];
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum MeasurementError {
+    #[error("The measurement no longer exists")]
+    Gone,
+    #[error("Select the one item it should measure first")]
+    ChooseOne,
+    #[error("Select only the one item it should measure")]
+    OnlyOneSelected,
+    #[error(
+        "A kept measurement cannot hold that; choose a point, an edge, a face, an axis, a plane, \
+         sketch geometry or a centre of mass"
+    )]
+    NotMeasurable,
+    #[error("Choose a face, edge or corner of the body it should measure")]
+    NotOfABody,
+    #[error(
+        "That is made further down the tree than the measurement, or is not worked out yet; \
+         choose something made before it"
+    )]
+    MadeLater,
+    #[error(
+        "A sketch edit split that edge and only some of its pieces can be traced; choose the \
+         piece you mean"
+    )]
+    SplitUnevenly,
+    #[error("Choose an axis, a straight edge, a round face or a sketch line to measure along")]
+    NotAnAxis,
+    #[error("It already measures that")]
+    SameItem,
+    #[error("A point has no direction, so there is no angle to measure")]
+    NoAngle,
+    #[error(
+        "This reading takes one item; switch to Distance, Angle or an offset along an axis to \
+         measure between two"
+    )]
+    OneItemOnly,
+    #[error("{} has no {}", capitalised(item), quantity.label().to_lowercase())]
+    NoQuantity { item: String, quantity: Of },
+    #[error(
+        "{} is not a point or a body, so it has no position",
+        capitalised(item)
+    )]
+    NoPosition { item: String },
+    #[error(
+        "{} has no length, radius, sweep, area, perimeter, volume, mass or position; choose an \
+         edge, a curve, a face, a point or a centre of mass",
+        capitalised(item)
+    )]
+    NothingToRead { item: String },
+    #[error("The measurement could not be kept: {0}.")]
+    Unkept(EditError),
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Keepable {
@@ -249,12 +289,16 @@ pub fn item_of(model: &Model, pickable: Pickable) -> Option<MeasuredItem> {
     })
 }
 
-fn body_at(model: &Model, pickable: Pickable, index: usize) -> Result<MeasuredItem, String> {
+fn body_at(
+    model: &Model,
+    pickable: Pickable,
+    index: usize,
+) -> Result<MeasuredItem, MeasurementError> {
     let body = match pickable {
         Pickable::CentreOfMass(body) => Some(body),
         other => other.body(),
     }
-    .ok_or(NOT_OF_A_BODY)?;
+    .ok_or(MeasurementError::NotOfABody)?;
     let made_before = model
         .document()
         .feature_index(body.maker())
@@ -262,12 +306,16 @@ fn body_at(model: &Model, pickable: Pickable, index: usize) -> Result<MeasuredIt
     if made_before && sketch_placement::body_state_before(model, body, index).is_ok() {
         Ok(MeasuredItem::Body(body))
     } else {
-        Err(MADE_LATER.to_owned())
+        Err(MeasurementError::MadeLater)
     }
 }
 
-pub fn item_at(model: &Model, pickable: Pickable, index: usize) -> Result<MeasuredItem, String> {
-    let item = item_of(model, pickable).ok_or(NOT_MEASURABLE)?;
+pub fn item_at(
+    model: &Model,
+    pickable: Pickable,
+    index: usize,
+) -> Result<MeasuredItem, MeasurementError> {
+    let item = item_of(model, pickable).ok_or(MeasurementError::NotMeasurable)?;
     let document = model.document();
     let made_before = item.features().into_iter().all(|feature| {
         document
@@ -279,7 +327,7 @@ pub fn item_at(model: &Model, pickable: Pickable, index: usize) -> Result<Measur
         MeasuredItem::Edge { body, edge } => {
             match state(*body).map(|solid| trace_edge(document, solid, edge)) {
                 Some(TracedEdge::Found(_)) => true,
-                Some(TracedEdge::PartlyTraced) => return Err(SPLIT_UNEVENLY.to_owned()),
+                Some(TracedEdge::PartlyTraced) => return Err(MeasurementError::SplitUnevenly),
                 Some(TracedEdge::Gone) | None => false,
             }
         }
@@ -304,7 +352,7 @@ pub fn item_at(model: &Model, pickable: Pickable, index: usize) -> Result<Measur
     if made_before && found_there {
         Ok(item)
     } else {
-        Err(MADE_LATER.to_owned())
+        Err(MeasurementError::MadeLater)
     }
 }
 
@@ -497,21 +545,6 @@ fn capitalised(text: &str) -> String {
     })
 }
 
-fn has_no(document: &Document, item: &MeasuredItem, quantity: Of) -> String {
-    format!(
-        "{} has no {}",
-        capitalised(&item.describe(document)),
-        quantity.label().to_lowercase()
-    )
-}
-
-fn has_no_position(document: &Document, item: &MeasuredItem) -> String {
-    format!(
-        "{} is not a point or a body, so it has no position",
-        capitalised(&item.describe(document))
-    )
-}
-
 fn principal_x() -> MeasuredItem {
     MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
 }
@@ -521,7 +554,7 @@ fn read_as(
     reading: &Reading,
     quantity: Quantity,
     index: usize,
-) -> Result<Reading, String> {
+) -> Result<Reading, MeasurementError> {
     let document = model.document();
     let pair = match reading {
         Reading::Between { first, second, .. } | Reading::Along { first, second, .. } => {
@@ -535,7 +568,7 @@ fn read_as(
                 .into_iter()
                 .any(|item| form_of(model, item, index) == Form::Point) =>
         {
-            Err(NO_ANGLE.to_owned())
+            Err(MeasurementError::NoAngle)
         }
         (Quantity::Between(quantity), Some((first, second)), _) => Ok(Reading::Between {
             quantity,
@@ -564,7 +597,10 @@ fn read_as(
                     item: item.clone(),
                 })
             } else {
-                Err(has_no(document, item, quantity))
+                Err(MeasurementError::NoQuantity {
+                    item: item.describe(document),
+                    quantity,
+                })
             }
         }
         (Quantity::Position, None, Reading::Of { item, .. } | Reading::Position { item, .. }) => {
@@ -577,11 +613,13 @@ fn read_as(
                         .unwrap_or_else(principal_x),
                 })
             } else {
-                Err(has_no_position(document, item))
+                Err(MeasurementError::NoPosition {
+                    item: item.describe(document),
+                })
             }
         }
-        (Quantity::Of(_) | Quantity::Position, _, _) => Err(ONE_ITEM_ONLY.to_owned()),
-        (Quantity::Between(_) | Quantity::Along, _, _) => Err(ONE_ITEM_ONLY.to_owned()),
+        (Quantity::Of(_) | Quantity::Position, _, _) => Err(MeasurementError::OneItemOnly),
+        (Quantity::Between(_) | Quantity::Along, _, _) => Err(MeasurementError::OneItemOnly),
     }
 }
 
@@ -605,15 +643,17 @@ pub fn quantity_change(
     feature: FeatureId,
     measurement: &Measurement,
     quantity: Quantity,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MeasurementError> {
     let document = model.document();
-    let index = document.feature_index(feature).ok_or(GONE)?;
+    let index = document
+        .feature_index(feature)
+        .ok_or(MeasurementError::Gone)?;
     let reading = read_as(model, &measurement.reading, quantity, index)?;
     let changed = Measurement {
         reading,
         parameter: measurement.parameter,
     };
-    let transaction = edit(document, feature, changed).ok_or(GONE)?;
+    let transaction = edit(document, feature, changed).ok_or(MeasurementError::Gone)?;
     field::checked(document, transaction)
 }
 
@@ -623,7 +663,7 @@ fn with_item(
     part: MeasuredPart,
     item: MeasuredItem,
     index: usize,
-) -> Result<Reading, String> {
+) -> Result<Reading, MeasurementError> {
     let document = model.document();
     let placed = match (reading.clone(), part) {
         (Reading::Of { quantity, .. }, MeasuredPart::First) => {
@@ -638,7 +678,11 @@ fn with_item(
                     item,
                     axis: principal_x(),
                 },
-                None => return Err(nothing_to_read(document, &item)),
+                None => {
+                    return Err(MeasurementError::NothingToRead {
+                        item: item.describe(document),
+                    });
+                }
             }
         }
         (Reading::Position { axis, .. }, MeasuredPart::First) => {
@@ -649,7 +693,9 @@ fn with_item(
                 let quantity = Of::ALL
                     .into_iter()
                     .find(|quantity| of_allows(*quantity, form))
-                    .ok_or_else(|| nothing_to_read(document, &item))?;
+                    .ok_or_else(|| MeasurementError::NothingToRead {
+                        item: item.describe(document),
+                    })?;
                 Reading::Of { quantity, item }
             }
         }
@@ -659,7 +705,7 @@ fn with_item(
         },
         (Reading::Of { .. }, MeasuredPart::Second | MeasuredPart::Axis)
         | (Reading::Position { .. }, MeasuredPart::Second) => {
-            return Err(ONE_ITEM_ONLY.to_owned());
+            return Err(MeasurementError::OneItemOnly);
         }
         (
             Reading::Between {
@@ -696,22 +742,14 @@ fn with_item(
             second,
             axis: item,
         },
-        (Reading::Between { .. }, MeasuredPart::Axis) => return Err(NOT_AN_AXIS.to_owned()),
+        (Reading::Between { .. }, MeasuredPart::Axis) => return Err(MeasurementError::NotAnAxis),
     };
     match read_as(model, &placed, Quantity::of(&placed), index) {
-        Err(reason) if reason == NO_ANGLE => {
+        Err(MeasurementError::NoAngle) => {
             read_as(model, &placed, Quantity::Between(Between::Distance), index)
         }
         other => other,
     }
-}
-
-fn nothing_to_read(document: &Document, item: &MeasuredItem) -> String {
-    format!(
-        "{} has no length, radius, sweep, area, perimeter, volume, mass or position; choose an \
-         edge, a curve, a face, a point or a centre of mass",
-        capitalised(&item.describe(document))
-    )
 }
 
 pub fn reading_with(
@@ -720,18 +758,20 @@ pub fn reading_with(
     measurement: &Measurement,
     part: MeasuredPart,
     item: MeasuredItem,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MeasurementError> {
     let document = model.document();
-    let index = document.feature_index(feature).ok_or(GONE)?;
+    let index = document
+        .feature_index(feature)
+        .ok_or(MeasurementError::Gone)?;
     let reading = with_item(model, &measurement.reading, part, item, index)?;
     if reading == measurement.reading {
-        return Err(SAME_ITEM.to_owned());
+        return Err(MeasurementError::SameItem);
     }
     let changed = Measurement {
         reading,
         parameter: measurement.parameter,
     };
-    let transaction = edit(document, feature, changed).ok_or(GONE)?;
+    let transaction = edit(document, feature, changed).ok_or(MeasurementError::Gone)?;
     field::checked(document, transaction)
 }
 
@@ -741,17 +781,21 @@ pub fn item_change(
     feature: FeatureId,
     measurement: &Measurement,
     part: MeasuredPart,
-) -> Result<Transaction, String> {
-    let index = model.document().feature_index(feature).ok_or(GONE)?;
+) -> Result<Transaction, MeasurementError> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or(MeasurementError::Gone)?;
     let mut picked = selection.iter();
-    let pickable = picked.next().ok_or(CHOOSE_ONE)?;
+    let pickable = picked.next().ok_or(MeasurementError::ChooseOne)?;
     if picked.next().is_some() {
-        return Err(ONE_ITEM.to_owned());
+        return Err(MeasurementError::OnlyOneSelected);
     }
     let reads_a_body = matches!(part.item(&measurement.reading), Some(MeasuredItem::Body(_)));
     let item = match part {
         MeasuredPart::Axis => MeasuredItem::Axis(
-            datum_tools::axis_reference(model, pickable, index).ok_or(NOT_AN_AXIS)?,
+            datum_tools::axis_reference(model, pickable, index)
+                .ok_or(MeasurementError::NotAnAxis)?,
         ),
         MeasuredPart::First | MeasuredPart::Second if reads_a_body => {
             body_at(model, pickable, index)?
@@ -773,7 +817,7 @@ pub fn keep(
     reading: Reading,
     stem: &str,
     standing: Expression,
-) -> Result<Kept, String> {
+) -> Result<Kept, MeasurementError> {
     let name = parameter_table::unused_name(document, stem);
     let feature = editing::next_feature_name(document, TITLE);
     let label = match reading {
@@ -801,7 +845,7 @@ pub fn keep(
     let transaction = transaction.finish();
     document
         .check(&transaction)
-        .map_err(|error| format!("The measurement could not be kept: {error}."))?;
+        .map_err(MeasurementError::Unkept)?;
     Ok(Kept {
         transaction,
         parameter,

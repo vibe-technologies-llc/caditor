@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ffi::OsString,
     path::{Path, PathBuf},
 };
@@ -13,7 +14,7 @@ use egui::Id;
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies,
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, Reason},
     export,
     feature_tree::count,
     field,
@@ -28,13 +29,11 @@ use crate::{
 pub const SKETCH_HINT: &str = "Save the curves of one or more sketches as a DXF or SVG drawing in \
                                millimetres, side by side or nested on a sheet";
 pub const NOT_A_SKETCH: &str = "Choose a sketch in the feature tree, or edit one, to export it";
-pub const NOT_SOLVED: &str = "The sketch has not been solved, so there is nothing to export yet";
 pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat faces, with any \
                              sketches chosen in the feature tree, as a DXF or SVG drawing in \
                              millimetres, side by side or nested on a sheet, for laser or CNC \
                              cutting";
 pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export their outlines";
-const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
 pub const DEFAULT_SHEET_WIDTH: f64 = 600.0;
 pub const DEFAULT_SPACING: f64 = 5.0;
 
@@ -231,23 +230,41 @@ impl DrawingExporter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ExportSourceError {
+    #[error("{}", NOT_A_SKETCH)]
+    NotASketch,
+    #[error("The sketch has not been solved, so there is nothing to export yet")]
+    NotSolved,
+    #[error("{}", NOT_A_FACE)]
+    NotAFace,
+    #[error("A selected face is curved; only flat faces export as drawings")]
+    Curved,
+}
+
+impl Reason for ExportSourceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 pub fn exportable_sketches(
     model: &Model,
     targets: &[&Feature],
-) -> Result<Vec<FeatureId>, &'static str> {
+) -> Result<Vec<FeatureId>, ExportSourceError> {
     let sketches: Vec<&Feature> = targets
         .iter()
         .copied()
         .filter(|feature| feature.kind.sketch().is_some())
         .collect();
     if sketches.is_empty() {
-        return Err(NOT_A_SKETCH);
+        return Err(ExportSourceError::NotASketch);
     }
     if sketches
         .iter()
         .any(|feature| model.displayed_sketch(feature).is_none())
     {
-        return Err(NOT_SOLVED);
+        return Err(ExportSourceError::NotSolved);
     }
     Ok(sketches.iter().map(|feature| feature.id()).collect())
 }
@@ -285,10 +302,10 @@ pub fn body_name(model: &Model, choice: FaceChoice) -> String {
 pub fn exportable_faces(
     model: &Model,
     selection: &Selection,
-) -> Result<Vec<FaceChoice>, &'static str> {
+) -> Result<Vec<FaceChoice>, ExportSourceError> {
     let choices: Vec<FaceChoice> = selection.iter().filter_map(FaceChoice::of).collect();
     if choices.is_empty() {
-        return Err(NOT_A_FACE);
+        return Err(ExportSourceError::NotAFace);
     }
     if choices
         .iter()
@@ -296,7 +313,7 @@ pub fn exportable_faces(
     {
         Ok(choices)
     } else {
-        Err(CURVED)
+        Err(ExportSourceError::Curved)
     }
 }
 
@@ -307,7 +324,10 @@ pub fn faces_name(model: &Model, choices: &[FaceChoice]) -> Option<String> {
     }
 }
 
-fn chosen_sketches(model: &Model, chosen: &[FeatureId]) -> Result<Vec<FeatureId>, &'static str> {
+fn chosen_sketches(
+    model: &Model,
+    chosen: &[FeatureId],
+) -> Result<Vec<FeatureId>, ExportSourceError> {
     let sketches: Vec<&Feature> = model
         .document()
         .features()
@@ -323,7 +343,7 @@ fn face_source(
     model: &Model,
     selection: &Selection,
     chosen: &[FeatureId],
-) -> Result<DrawingSource, &'static str> {
+) -> Result<DrawingSource, ExportSourceError> {
     let faces = exportable_faces(model, selection)?;
     let sketches = chosen_sketches(model, chosen)?;
     Ok(if sketches.is_empty() {
@@ -353,8 +373,7 @@ pub fn face_commands(
         .as_ref()
         .ok()
         .and_then(|source| source_detail(model, source));
-    let available = exportable.as_ref().map(|_| ()).map_err(|reason| *reason);
-    if commands.invoke_detailed(Command::ExportFace, detail, &available)
+    if commands.invoke_detailed(Command::ExportFace, detail, &exportable)
         && let Ok(source) = exportable
     {
         actions.push(Action::File(FileCommand::ExportDrawing(source)));
@@ -714,7 +733,7 @@ fn sheet_fields(
                     &modifying::length_text(model.units(), stored),
                     widgets::FIELD_WIDTH,
                     false,
-                    |text| parse(model, text).map_err(String::from),
+                    |text| parse(model, text),
                 );
                 if let Some(length) = field.committed {
                     *command = Some(FileCommand::DrawingExport(change(length)));
@@ -748,12 +767,6 @@ pub enum SheetLengthError {
     NotASpacing,
     #[error("{0}")]
     Typed(String),
-}
-
-impl From<SheetLengthError> for String {
-    fn from(error: SheetLengthError) -> Self {
-        error.to_string()
-    }
 }
 
 pub fn parse_width(model: &Model, text: &str) -> Result<f64, SheetLengthError> {
