@@ -60,7 +60,7 @@ pub enum FeatureEditError {
         body: String,
         edge: String,
     },
-    #[error("{name} does not change a body, so there is no body before it to list")]
+    #[error("{name} works on no body that exists before it, so there is none to list")]
     NothingBefore { name: String },
 }
 

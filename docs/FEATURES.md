@@ -224,10 +224,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] An MCP `edit_feature` names faces and edges on the body as the edited feature
-  received it only for features that change a body (`mcp.md`): a mirror's `faces`, a pipe's
-  `{body, edges}` and an extrusion's `up_to_surface` on its own body are still found on the body as
-  it stands now, since those features record no input body.
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

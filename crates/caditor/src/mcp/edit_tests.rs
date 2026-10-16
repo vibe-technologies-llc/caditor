@@ -829,7 +829,7 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
     let not_a_body_change =
         client.tool_error("list_edges", json!({ "body": block, "before": "Block" }));
     assert!(
-        not_a_body_change.contains("does not change a body"),
+        not_a_body_change.contains("works on no body"),
         "{not_a_body_change}"
     );
 
@@ -851,5 +851,189 @@ fn an_edit_names_the_edges_and_faces_the_feature_received() {
         json!({ "feature": shell, "open_faces": ["abc"] }),
     );
     assert!(gone.contains("had no face abc"), "{gone}");
+    client.finish();
+}
+
+fn face_keys(client: &mut Client, body: &Value) -> Vec<String> {
+    client.tool("list_faces", json!({ "body": body }))["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|face| face["face"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn slab_cut(client: &mut Client, body: &Value, corners: [[f64; 2]; 2], from: f64) {
+    let datum = added(
+        client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": from }),
+    );
+    let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
+    let [corner, opposite] = corners;
+    client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "rectangle", "corner": corner, "opposite": opposite }]
+        }),
+    );
+    added(
+        client,
+        "add_extrusion",
+        json!({ "sketch": sketch, "distance": 50, "operation": "remove", "body": body }),
+    );
+}
+
+#[test]
+fn a_pipe_along_a_rounded_edge_is_edited_with_the_edge_it_received() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let long = line_edges(&mut client, &block, None)
+        .into_iter()
+        .find(|(_, length)| close(*length, 40.0))
+        .unwrap()
+        .0;
+
+    let pipe = added(
+        &mut client,
+        "add_pipe",
+        json!({
+            "path": { "body": block, "edges": [long] },
+            "size": 2,
+            "operation": "new_body"
+        }),
+    );
+    let thin = total_volume(&mut client);
+    added(
+        &mut client,
+        "add_fillet",
+        json!({ "body": block, "edges": [long], "radius": 2 }),
+    );
+    let rounded = total_volume(&mut client);
+
+    let now: Vec<String> = line_edges(&mut client, &block, None)
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    assert!(!now.contains(&long), "{now:?}");
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": pipe, "path": { "body": block, "edges": [long] }, "size": 4 }),
+    );
+    let thick = total_volume(&mut client);
+
+    assert!(rounded < thin);
+    assert!((thick - rounded - PI * 3.0 * 40.0).abs() < 0.5, "{thick}");
+    client.finish();
+}
+
+#[test]
+fn an_extrusion_up_to_a_face_is_edited_with_the_face_it_received() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [100.0, 0.0], "Block");
+    let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+    let low = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": -30 }),
+    );
+    let sketch = client.tool("add_sketch", json!({ "datum": low }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "rectangle", "corner": [110, 10], "opposite": [112, 12] }]
+        }),
+    );
+    let column = added(
+        &mut client,
+        "add_extrusion",
+        json!({
+            "sketch": sketch,
+            "up_to_surface": { "body": block, "face": top },
+            "operation": "new_body"
+        }),
+    );
+    slab_cut(&mut client, &block, [[95.0, -5.0], [145.0, 35.0]], 10.0);
+    let lowered = total_volume(&mut client);
+
+    assert!(!face_keys(&mut client, &block).contains(&top));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({
+            "feature": column,
+            "up_to_surface": { "body": block, "face": top },
+            "start_offset": 5
+        }),
+    );
+
+    assert!(close(total_volume(&mut client) - lowered, -20.0));
+    client.finish();
+}
+
+#[test]
+fn a_mirror_of_faces_is_edited_with_the_faces_it_received() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [-20.0, 0.0], "Block");
+    let datum = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": 20 }),
+    );
+    let sketch = client.tool("add_sketch", json!({ "datum": datum }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({ "sketch": sketch, "items": [{ "kind": "point", "at": [10, 15] }] }),
+    );
+    added(
+        &mut client,
+        "add_hole",
+        json!({ "sketch": sketch, "diameter": 4, "depth": 10, "body": block }),
+    );
+    let hole_faces: Vec<Value> = client.tool("list_faces", json!({ "body": block }))["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|face| {
+            face["surface"] == "cylinder"
+                || (face["surface"] == "plane" && number(&face["area"]) < 20.0)
+        })
+        .map(|face| face["face"].clone())
+        .collect();
+    let mirror = added(
+        &mut client,
+        "add_mirror",
+        json!({ "body": block, "faces": hole_faces, "plane": "YZ" }),
+    );
+    slab_cut(&mut client, &block, [[0.0, -5.0], [25.0, 35.0]], 5.0);
+    let now = face_keys(&mut client, &block);
+    assert!(
+        hole_faces
+            .iter()
+            .any(|face| !now.contains(&face.as_str().unwrap().to_owned())),
+        "{now:?}"
+    );
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": mirror, "faces": [] }),
+    );
+    let unmirrored = total_volume(&mut client);
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": mirror, "faces": hole_faces }),
+    );
+
+    assert!(total_volume(&mut client) < unmirrored);
     client.finish();
 }

@@ -560,10 +560,11 @@ impl Evaluation {
 
     #[must_use]
     pub fn standing_before(&self, feature: &Feature) -> Option<Self> {
-        let body = feature.kind.body_input()?;
-        let state = *self.inputs_before.get(&feature.id())?;
+        let seen = self.seen_bodies.get(&feature.id())?;
         let mut before = self.clone();
-        before.bodies.insert(body, state);
+        before
+            .bodies
+            .extend(seen.iter().map(|(body, state)| (*body, *state)));
         Some(before)
     }
 
