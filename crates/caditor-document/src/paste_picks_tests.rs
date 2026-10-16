@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use caditor_expression::{Expression, Unit};
+use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{EdgeReference, FaceOrigin, Solid, VertexName, vertex_names};
 use caditor_sketch::Sketch;
@@ -611,4 +611,311 @@ fn picks_alike_in_structure_are_told_apart_only_by_where_they_lie() {
     assert_eq!(choose(0, &originals, &moved), Err(Unmatched::Missing));
     assert_eq!(choose(0, &originals[..1], &lone), Ok(30));
     assert_eq!(choose(0, &originals, &stacked), Err(Unmatched::Ambiguous));
+}
+
+fn level_plane(document: &mut Document, level: ParameterId) -> FeatureId {
+    add(
+        document,
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: Expression::Parameter(level),
+        })),
+    )
+}
+
+fn cut_on(document: &mut Document, body: FeatureId, datum: FeatureId) -> FeatureId {
+    let evaluation = evaluate(document);
+    let solid = evaluation.body(body).unwrap().clone();
+    let Some(DatumResult::Plane(plane)) = evaluation
+        .feature(datum)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::datum)
+    else {
+        panic!("expected a plane");
+    };
+    let mut transaction = document.transaction("Cut");
+    let sketch = transaction.add_feature(
+        "Cut",
+        FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(Plane::XY), datum)),
+    );
+    for curve in section_curves(body, &solid, plane, sketch).unwrap() {
+        transaction.add_projection(sketch, curve.source, &curve.outline);
+    }
+    document.apply(transaction.finish()).unwrap();
+    sketch
+}
+
+fn projected_ends(evaluation: &Evaluation, sketch: FeatureId) -> Vec<[Point3; 2]> {
+    let geometry = &evaluation
+        .feature(sketch)
+        .and_then(|status| status.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .unwrap()
+        .geometry;
+    let plane = geometry.plane();
+    geometry
+        .entities()
+        .filter(|(id, _)| geometry.is_projected(*id))
+        .filter_map(|(id, _)| geometry.line_endpoints(id))
+        .map(|(start, end)| [plane.to_world(start), plane.to_world(end)])
+        .collect()
+}
+
+fn section_bodies(document: &Document, sketch: FeatureId) -> Vec<FeatureId> {
+    let FeatureKind::Sketch(definition) = &document.feature(sketch).unwrap().kind else {
+        panic!("expected a sketch");
+    };
+    definition
+        .projections
+        .values()
+        .filter_map(|source| match source {
+            ProjectionSource::Section { body, .. } => Some(*body),
+            _ => None,
+        })
+        .collect()
+}
+
+fn model_with_level() -> (Model, FeatureId, FeatureId) {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Level");
+    let level = transaction.add_parameter("level", transaction.parse("2 mm").unwrap());
+    model.document.apply(transaction.finish()).unwrap();
+    let datum = level_plane(&mut model.document, level);
+    let cut = cut_on(&mut model.document, model.base, datum);
+    (model, datum, cut)
+}
+
+#[test]
+fn a_cut_through_a_copied_body_is_pasted_cutting_the_copy() {
+    let (
+        Model {
+            mut document,
+            outline,
+            base,
+        },
+        datum,
+        cut,
+    ) = model_with_level();
+    let features = copied(&document, &[outline, base, datum, cut]);
+
+    let paste = finding(
+        &document,
+        &features,
+        &carried(&document, &features),
+        PasteOrigin::ThisDocument,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    document.apply(paste.transaction).unwrap();
+    let evaluation = evaluate(&document);
+
+    let [_, base_copy, _, cut_copy] = paste.pasted[..] else {
+        panic!(
+            "expected four copies, got {:?}, {:?}",
+            paste.pasted, paste.left_out
+        );
+    };
+    assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
+    assert_eq!(
+        evaluation.feature(cut_copy).unwrap().state,
+        FeatureState::UpToDate
+    );
+    let ends = projected_ends(&evaluation, cut_copy);
+    assert_eq!(section_bodies(&document, cut_copy), vec![base_copy; 4]);
+    assert_eq!(ends.len(), 4);
+    assert!(
+        ends.iter()
+            .flatten()
+            .all(|point| (point.z - 2.0).abs() < 1e-6)
+    );
+}
+
+#[test]
+fn a_cut_pasted_into_another_model_is_taken_where_that_model_puts_its_plane() {
+    let (
+        Model {
+            document,
+            outline,
+            base,
+        },
+        datum,
+        cut,
+    ) = model_with_level();
+    let features = copied(&document, &[outline, base, datum, cut]);
+    let parameters = carried(&document, &features);
+    let mut other = Document::default();
+    let mut transaction = other.transaction("Level");
+    transaction.add_parameter("level", transaction.parse("3 mm").unwrap());
+    other.apply(transaction.finish()).unwrap();
+
+    let paste = finding(
+        &other,
+        &features,
+        &parameters,
+        PasteOrigin::Elsewhere,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    other.apply(paste.transaction).unwrap();
+    let evaluation = evaluate(&other);
+
+    let cut_copy = paste.pasted[3];
+    let ends = projected_ends(&evaluation, cut_copy);
+
+    assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
+    assert_eq!(
+        evaluation.feature(cut_copy).unwrap().state,
+        FeatureState::UpToDate
+    );
+    assert_eq!(ends.len(), 4);
+    assert!(
+        ends.iter()
+            .flatten()
+            .all(|point| (point.z - 3.0).abs() < 1e-6)
+    );
+}
+
+#[test]
+fn a_cut_whose_copy_the_plane_no_longer_reaches_is_left_out_with_its_reason() {
+    let (
+        Model {
+            document,
+            outline,
+            base,
+        },
+        datum,
+        cut,
+    ) = model_with_level();
+    let features = copied(&document, &[outline, base, datum, cut]);
+    let parameters = carried(&document, &features);
+    let mut other = Document::default();
+    let mut transaction = other.transaction("Level");
+    transaction.add_parameter("level", transaction.parse("9 mm").unwrap());
+    other.apply(transaction.finish()).unwrap();
+
+    let paste = finding(
+        &other,
+        &features,
+        &parameters,
+        PasteOrigin::Elsewhere,
+        &CancelToken::never(),
+    )
+    .unwrap();
+
+    assert_eq!(paste.left_out.len(), 1);
+    assert_eq!(paste.left_out[0].name, "Cut");
+    assert!(
+        matches!(paste.left_out[0].reason, PasteRefusal::PickNotFound { .. }),
+        "{:?}",
+        paste.left_out
+    );
+}
+
+fn patterned_twice() -> (Document, FeatureId, FeatureId, FeatureId) {
+    let Model {
+        mut document, base, ..
+    } = model();
+    let pattern = add(
+        &mut document,
+        "Pattern 1",
+        FeatureKind::from(Pattern::new(
+            base,
+            PatternKind::Linear {
+                first: LinearDirection {
+                    axis: AxisReference::Principal(PrincipalAxis::X),
+                    count: Expression::Number(2.0),
+                    spacing: Expression::measure(20.0, Unit::Millimetre),
+                    measured: LinearSpacing::BetweenCopies,
+                    reversed: false,
+                },
+                second: None,
+            },
+        )),
+    );
+    let corner = corner_at(
+        evaluate(&document).body(base).unwrap(),
+        Point3::new(30.0, 8.0, 4.0),
+    );
+    let point = add(
+        &mut document,
+        "Point 1",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Vertex {
+                body: base,
+                vertex: corner,
+            },
+            offset: [
+                Expression::Number(0.0),
+                Expression::Number(0.0),
+                Expression::Number(0.0),
+            ],
+        })),
+    );
+    (document, base, pattern, point)
+}
+
+#[test]
+fn a_corner_on_a_body_outside_the_copy_follows_the_copied_faces_around_it() {
+    let (mut document, base, pattern, point) = patterned_twice();
+    let features = copied(&document, &[pattern, point]);
+
+    let paste = finding(
+        &document,
+        &features,
+        &carried(&document, &features),
+        PasteOrigin::ThisDocument,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    document.apply(paste.transaction).unwrap();
+    let evaluation = evaluate(&document);
+
+    let result = |feature: FeatureId| {
+        evaluation
+            .feature(feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::datum)
+            .cloned()
+    };
+
+    assert!(paste.left_out.is_empty(), "{:?}", paste.left_out);
+    assert_eq!(copied_picks(&features), 1);
+    assert_eq!(
+        result(point),
+        Some(DatumResult::Point(Point3::new(30.0, 8.0, 4.0)))
+    );
+    assert_eq!(
+        result(paste.pasted[1]),
+        Some(DatumResult::Point(Point3::new(50.0, 8.0, 4.0)))
+    );
+    assert!(evaluation.body(base).is_some());
+}
+
+#[test]
+fn a_corner_the_copies_leave_untouched_stays_where_it_was_picked() {
+    let (mut document, _, pattern, point) = patterned_twice();
+    let features = copied(&document, &[point]);
+
+    let paste = finding(
+        &document,
+        &features,
+        &carried(&document, &features),
+        PasteOrigin::ThisDocument,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    document.apply(paste.transaction).unwrap();
+    let evaluation = evaluate(&document);
+
+    assert_eq!(copied_picks(&features), 0);
+    assert_eq!(
+        evaluation
+            .feature(paste.pasted[0])
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::datum),
+        Some(&DatumResult::Point(Point3::new(30.0, 8.0, 4.0)))
+    );
+    assert!(document.feature(pattern).is_some());
 }

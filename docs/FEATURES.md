@@ -222,10 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] A copy from another model keeps none of its references outside the copied set. A
-  sketch's section projection of a copied body is still left out, its edge being named by the
-  sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed
-  onto copied faces around it.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

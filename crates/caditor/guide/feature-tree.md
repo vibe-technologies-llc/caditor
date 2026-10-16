@@ -76,7 +76,9 @@ it again after a stop.
   state: "failed", "outdated", "waiting", "suppressed" or "hidden".
 - {command:model.copy_features} and {command:model.paste_features} copy features through the
   clipboard, within a model or into another. A fillet, shell, sketch on a face or anything else
-  copied with the features whose faces, edges or corners it picks is pasted onto the copies:
+  copied with the features whose faces, edges or corners it picks is pasted onto the copies,
+  and so is a sketch with the cut of a copied body through its plane and a corner picked on a
+  body that was not copied when copied features have changed the faces around it:
   caditor finds each pick again on them in the background, computing only the copies, with
   progress in the status bar and {command:model.cancel_paste} to stop. A pick it cannot find, or cannot tell from another, leaves
   that feature out and the notice says why.
