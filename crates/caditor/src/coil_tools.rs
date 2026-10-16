@@ -34,8 +34,8 @@ pub enum CoilError {
     NoAxis,
     #[error("The coil already winds around that axis")]
     AlreadyAround,
-    #[error("{0}")]
-    AxisSelection(&'static str),
+    #[error(transparent)]
+    AxisSelection(datum_tools::OneChoiceError),
     #[error(transparent)]
     Choice(#[from] ChoiceRefusal),
     #[error(transparent)]

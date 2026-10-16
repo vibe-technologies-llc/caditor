@@ -13,7 +13,7 @@ use crate::{
     measure,
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::{self, AttachmentError, FaceChoice, StateError},
     solid_tools,
 };
 
@@ -21,18 +21,127 @@ pub const DEFAULT_OFFSET: f64 = 10.0;
 pub const DEFAULT_ANGLE: f64 = 45.0;
 pub const SEVERAL_PLANES: &str =
     "Several planes or flat faces are selected; select only the one to use";
-pub const DATUM_NOT_A_PLANE: &str =
-    "The selected datum is an axis, a point or a coordinate system; select a plane or flat face";
-pub const DATUM_MADE_LATER: &str =
-    "The selected datum plane comes later in the tree; select one made before this feature";
 
-pub const SEVERAL_AXES: &str =
-    "Several axes, straight edges or round faces are selected; select only the one to use";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OneChoiceError {
+    #[error("{}", SEVERAL_PLANES)]
+    SeveralPlanes,
+    #[error("Several points are selected; select only the one to use")]
+    SeveralPoints,
+    #[error("Several axes, straight edges or round faces are selected; select only the one to use")]
+    SeveralAxes,
+    #[error(
+        "The selected datum is an axis, a point or a coordinate system; select a plane or flat face"
+    )]
+    DatumNotAPlane,
+    #[error(
+        "The selected datum plane comes later in the tree; select one made before this feature"
+    )]
+    DatumMadeLater,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum UnusableSelection {
+    #[error("{}", self.text())]
+    FaceNeitherFlatNorRound,
+    #[error("{}", self.text())]
+    Face(AttachmentError),
+    #[error("{}", self.text())]
+    EdgeState(StateError),
+    #[error("{}", self.text())]
+    EdgeNeitherStraightNorRound,
+    #[error("{}", self.text())]
+    CornerState(StateError),
+    #[error("{}", self.text())]
+    CornerNotFound,
+    #[error("{}", self.text())]
+    SketchPointLater,
+    #[error("{}", self.text())]
+    CoordinateSystemOrigin,
+    #[error("{}", self.text())]
+    AfterThisPoint,
+}
+
+impl UnusableSelection {
+    fn text(self) -> &'static str {
+        match self {
+            Self::FaceNeitherFlatNorRound => {
+                "The selected face is neither flat nor round, so it gives no plane or axis"
+            }
+            Self::Face(error) => error.reason(),
+            Self::EdgeState(state) => state.edge(),
+            Self::EdgeNeitherStraightNorRound => {
+                "The selected edge is neither straight nor round, so it gives no axis or centre"
+            }
+            Self::CornerState(state) => state.corner(),
+            Self::CornerNotFound => {
+                "The selected corner is not found where this datum sits in the tree"
+            }
+            Self::SketchPointLater => "Only sketch points made before this datum can place it",
+            Self::CoordinateSystemOrigin => {
+                "Select one of the coordinate system's axes or planes rather than its origin"
+            }
+            Self::AfterThisPoint => {
+                "The selected plane, axis or point comes after this point in the tree"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DatumFromSelectionError {
+    #[error("{}", self.text())]
+    PlaneChoices,
+    #[error("{}", self.text())]
+    SeveralStartPlanes,
+    #[error("{}", self.text())]
+    SeveralTurnAxes,
+    #[error("{}", self.text())]
+    AxisChoices,
+    #[error("{}", self.text())]
+    PointChoices,
+    #[error("{}", self.text())]
+    FrameChoices,
+    #[error(transparent)]
+    Unusable(UnusableSelection),
+}
+
+impl DatumFromSelectionError {
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::PlaneChoices => {
+                "Select a plane or flat face to offset (and an axis to turn about), three \
+                 points, two planes to lie midway between, an axis and a point, two lines in \
+                 one plane, a round or curved edge to stand square to, or a curved face and a \
+                 point to touch it nearest"
+            }
+            Self::SeveralStartPlanes => "Select only one plane or flat face to start from",
+            Self::SeveralTurnAxes => {
+                "Select only one axis, straight edge or round face to turn about"
+            }
+            Self::AxisChoices => {
+                "Select one axis, straight edge or round face, two planes or flat faces that \
+                 cross, two points, a plane and a point to stand square on, or a curved face \
+                 and a point to stand square to it nearest"
+            }
+            Self::PointChoices => {
+                "Select one corner, round edge, sphere or torus, sketch point or datum point to \
+                 place it at, a face to sit at its centre, a straight or curved edge to measure \
+                 along, two lines that cross, a line and a plane, or three planes"
+            }
+            Self::FrameChoices => {
+                "Select at most one point for its origin, one axis or straight edge for its X \
+                 axis and one plane or flat face for its XY plane"
+            }
+            Self::Unusable(unusable) => unusable.text(),
+        }
+    }
+}
 
 fn only<T: PartialEq>(
     candidates: impl Iterator<Item = T>,
-    several: &'static str,
-) -> Result<Option<T>, &'static str> {
+    several: OneChoiceError,
+) -> Result<Option<T>, OneChoiceError> {
     let mut found: Vec<T> = Vec::new();
     for candidate in candidates {
         if !found.contains(&candidate) {
@@ -49,27 +158,25 @@ pub fn only_plane(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<PlaneReference>, &'static str> {
+) -> Result<Option<PlaneReference>, OneChoiceError> {
     only(
         selection
             .iter()
             .filter_map(|pickable| plane_reference(model, pickable, index)),
-        SEVERAL_PLANES,
+        OneChoiceError::SeveralPlanes,
     )
 }
-
-pub const SEVERAL_POINTS: &str = "Several points are selected; select only the one to use";
 
 pub fn only_point(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<PointReference>, &'static str> {
+) -> Result<Option<PointReference>, OneChoiceError> {
     only(
         selection
             .iter()
             .filter_map(|pickable| point_reference(model, pickable, index)),
-        SEVERAL_POINTS,
+        OneChoiceError::SeveralPoints,
     )
 }
 
@@ -77,12 +184,12 @@ pub fn only_axis(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<AxisReference>, &'static str> {
+) -> Result<Option<AxisReference>, OneChoiceError> {
     only(
         selection
             .iter()
             .filter_map(|pickable| axis_reference(model, pickable, index)),
-        SEVERAL_AXES,
+        OneChoiceError::SeveralAxes,
     )
 }
 
@@ -96,21 +203,21 @@ pub fn chosen_plane(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<ChosenPlane>, &'static str> {
+) -> Result<Option<ChosenPlane>, OneChoiceError> {
     let document = model.document();
     let mut planes = Vec::new();
     for pickable in selection.iter() {
         match pickable {
             Pickable::Plane(plane) => planes.push(PlaneReference::Principal(plane)),
             Pickable::Datum(feature) if !is_datum(document, feature, DatumKind::Plane) => {
-                return Err(DATUM_NOT_A_PLANE);
+                return Err(OneChoiceError::DatumNotAPlane);
             }
             Pickable::Datum(feature) if !comes_before(document, feature, index) => {
-                return Err(DATUM_MADE_LATER);
+                return Err(OneChoiceError::DatumMadeLater);
             }
             Pickable::Datum(feature) => planes.push(PlaneReference::Datum(feature)),
             Pickable::FramePlane { feature, .. } if !comes_before(document, feature, index) => {
-                return Err(DATUM_MADE_LATER);
+                return Err(OneChoiceError::DatumMadeLater);
             }
             Pickable::FramePlane { feature, plane } => planes.push(PlaneReference::Frame {
                 frame: feature,
@@ -126,7 +233,7 @@ pub fn chosen_plane(
                 face: None,
             }));
         }
-        [_, _, ..] => return Err(SEVERAL_PLANES),
+        [_, _, ..] => return Err(OneChoiceError::SeveralPlanes),
         [] => {}
     }
     let faces: Vec<ChosenPlane> = selection
@@ -142,7 +249,7 @@ pub fn chosen_plane(
     match faces.as_slice() {
         [] => Ok(None),
         [face] => Ok(Some(face.clone())),
-        [_, _, ..] => Err(SEVERAL_PLANES),
+        [_, _, ..] => Err(OneChoiceError::SeveralPlanes),
     }
 }
 
@@ -429,7 +536,7 @@ struct Chosen {
     planes: Vec<PlaneReference>,
     axes: Vec<AxisReference>,
     points: Vec<PointReference>,
-    unusable: Option<&'static str>,
+    unusable: Option<UnusableSelection>,
 }
 
 fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
@@ -456,51 +563,42 @@ fn chosen(model: &Model, selection: &Selection, index: usize) -> Chosen {
     }
 }
 
-fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'static str> {
+fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<UnusableSelection> {
     let state = |body| sketch_placement::body_state_before(model, body, index).err();
     match pickable {
-        Pickable::Face { body, face } => Some(
+        Pickable::Face { body, face } => {
             match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
                 Err(sketch_placement::AttachmentError::NotFlat) => {
-                    "The selected face is neither flat nor round, so it gives no plane or axis"
+                    Some(UnusableSelection::FaceNeitherFlatNorRound)
                 }
-                Err(reason) => reason.reason(),
-                Ok(_) => return None,
-            },
-        ),
-        Pickable::Edge { body, .. } => Some(match state(body) {
-            Some(error) => error.edge(),
-            None => {
-                "The selected edge is neither straight nor round, so it gives no axis or centre"
+                Err(error) => Some(UnusableSelection::Face(error)),
+                Ok(_) => None,
             }
+        }
+        Pickable::Edge { body, .. } => Some(match state(body) {
+            Some(error) => UnusableSelection::EdgeState(error),
+            None => UnusableSelection::EdgeNeitherStraightNorRound,
         }),
         Pickable::Vertex { body, .. } => Some(match state(body) {
-            Some(error) => error.corner(),
-            None => "The selected corner is not found where this datum sits in the tree",
+            Some(error) => UnusableSelection::CornerState(error),
+            None => UnusableSelection::CornerNotFound,
         }),
-        Pickable::SketchEntity { .. } => {
-            Some("Only sketch points made before this datum can place it")
-        }
+        Pickable::SketchEntity { .. } => Some(UnusableSelection::SketchPointLater),
         Pickable::Datum(feature) if is_datum(model.document(), feature, DatumKind::Frame) => {
-            Some("Select one of the coordinate system's axes or planes rather than its origin")
+            Some(UnusableSelection::CoordinateSystemOrigin)
         }
         Pickable::Datum(_) | Pickable::FrameAxis { .. } | Pickable::FramePlane { .. } => {
-            Some("The selected plane, axis or point comes after this point in the tree")
+            Some(UnusableSelection::AfterThisPoint)
         }
         _ => None,
     }
 }
 
-pub const PLANE_CHOICES: &str = "Select a plane or flat face to offset (and an axis to turn about), \
-                             three points, two planes to lie midway between, an axis and a point, \
-                             two lines in one plane, a round or curved edge to stand square to, \
-                             or a curved face and a point to touch it nearest";
-
 pub fn plane_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Datum, &'static str> {
+) -> Result<Datum, DatumFromSelectionError> {
     match (
         plane_by_references(model, selection, index),
         face_tangent(model, selection, index),
@@ -516,7 +614,7 @@ fn plane_by_references(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Datum, &'static str> {
+) -> Result<Datum, DatumFromSelectionError> {
     if let Some(station) = only_pickable(selection)
         .filter(|pickable| axis_reference(model, *pickable, index).is_none())
         .and_then(|pickable| curve_station(model, pickable, index))
@@ -531,8 +629,8 @@ fn plane_by_references(
         points,
         unusable,
     } = chosen(model, selection, index);
-    if let Some(reason) = unusable {
-        return Err(reason);
+    if let Some(unusable) = unusable {
+        return Err(DatumFromSelectionError::Unusable(unusable));
     }
     match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
         ([], [first, second], []) => {
@@ -560,17 +658,17 @@ fn plane_by_references(
                 point.clone(),
             )));
         }
-        (_, _, [_, ..]) => return Err(PLANE_CHOICES),
+        (_, _, [_, ..]) => return Err(DatumFromSelectionError::PlaneChoices),
         _ => {}
     }
     if planes.len() > 1 {
-        return Err("Select only one plane or flat face to start from");
+        return Err(DatumFromSelectionError::SeveralStartPlanes);
     }
     if axes.len() > 1 {
-        return Err("Select only one axis, straight edge or round face to turn about");
+        return Err(DatumFromSelectionError::SeveralTurnAxes);
     }
     if planes.is_empty() && axes.is_empty() && !selection.is_empty() {
-        return Err(PLANE_CHOICES);
+        return Err(DatumFromSelectionError::PlaneChoices);
     }
     let base = planes
         .into_iter()
@@ -596,7 +694,7 @@ pub fn axis_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<DatumAxis, &'static str> {
+) -> Result<DatumAxis, DatumFromSelectionError> {
     match (
         axis_by_references(model, selection, index),
         face_tangent(model, selection, index),
@@ -610,39 +708,30 @@ fn axis_by_references(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<DatumAxis, &'static str> {
+) -> Result<DatumAxis, DatumFromSelectionError> {
     let Chosen {
         planes,
         axes,
         points,
         unusable,
     } = chosen(model, selection, index);
-    if let Some(reason) = unusable {
-        return Err(reason);
+    if let Some(unusable) = unusable {
+        return Err(DatumFromSelectionError::Unusable(unusable));
     }
     match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
         ([], [axis], []) => Ok(DatumAxis::Along(axis.clone())),
         ([first, second], [], []) => Ok(DatumAxis::Intersection(first.clone(), second.clone())),
         ([], [], [first, second]) => Ok(DatumAxis::Points(first.clone(), second.clone())),
         ([plane], [], [point]) => Ok(DatumAxis::NormalTo(plane.clone(), point.clone())),
-        _ => Err(
-            "Select one axis, straight edge or round face, two planes or flat faces that cross, \
-             two points, a plane and a point to stand square on, or a curved face and a point to \
-             stand square to it nearest",
-        ),
+        _ => Err(DatumFromSelectionError::AxisChoices),
     }
 }
-
-pub const POINT_CHOICES: &str = "Select one corner, round edge, sphere or torus, sketch point or \
-                                 datum point to place it at, a face to sit at its centre, a \
-                                 straight or curved edge to measure along, two lines that cross, \
-                                 a line and a plane, or three planes";
 
 pub fn point_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Datum, &'static str> {
+) -> Result<Datum, DatumFromSelectionError> {
     let unit = model.length_unit();
     let placed = |base| {
         Datum::Point(DatumPoint {
@@ -672,8 +761,8 @@ pub fn point_from_selection(
         points,
         unusable,
     } = chosen(model, selection, index);
-    if let Some(reason) = unusable {
-        return Err(reason);
+    if let Some(unusable) = unusable {
+        return Err(DatumFromSelectionError::Unusable(unusable));
     }
     match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
         ([], [first, second], []) => Ok(Datum::PointBy(PointBy::LinesCross(
@@ -691,12 +780,9 @@ pub fn point_from_selection(
         ]))),
         ([], [], []) if selection.is_empty() => Ok(placed(PointReference::Origin)),
         ([], [], [point]) => Ok(placed(point.clone())),
-        _ => Err(POINT_CHOICES),
+        _ => Err(DatumFromSelectionError::PointChoices),
     }
 }
-
-pub const FRAME_CHOICES: &str = "Select at most one point for its origin, one axis or straight \
-                                 edge for its X axis and one plane or flat face for its XY plane";
 
 fn steepness(along: Vector3, normal: Option<Vector3>) -> f64 {
     normal.map_or(0.0, |normal| {
@@ -725,7 +811,7 @@ pub fn frame_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Datum, &'static str> {
+) -> Result<Datum, DatumFromSelectionError> {
     let mut origin = None;
     let mut x_axis = None;
     let mut plane = None;
@@ -733,18 +819,18 @@ pub fn frame_from_selection(
         let direction = || measure::direction_of(model, pickable);
         if let Some(found) = plane_reference(model, pickable, index) {
             if plane.replace((found, direction())).is_some() {
-                return Err(FRAME_CHOICES);
+                return Err(DatumFromSelectionError::FrameChoices);
             }
         } else if let Some(found) = axis_reference(model, pickable, index) {
             if x_axis.replace((found, direction())).is_some() {
-                return Err(FRAME_CHOICES);
+                return Err(DatumFromSelectionError::FrameChoices);
             }
         } else if let Some(found) = point_reference(model, pickable, index) {
             if origin.replace(found).is_some() {
-                return Err(FRAME_CHOICES);
+                return Err(DatumFromSelectionError::FrameChoices);
             }
-        } else if let Some(reason) = why_unusable(model, pickable, index) {
-            return Err(reason);
+        } else if let Some(unusable) = why_unusable(model, pickable, index) {
+            return Err(DatumFromSelectionError::Unusable(unusable));
         }
     }
     let normal = plane.as_ref().and_then(|(_, normal)| *normal);

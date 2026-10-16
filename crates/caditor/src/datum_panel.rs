@@ -106,16 +106,12 @@ pub enum DatumError {
     AlreadyTurnsAboutSelection,
     #[error("Select an axis, straight edge or round face made before this plane")]
     NoRotationAxis,
-    #[error("{0}")]
-    Selection(&'static str),
+    #[error(transparent)]
+    Choice(#[from] datum_tools::OneChoiceError),
+    #[error(transparent)]
+    FromSelection(#[from] datum_tools::DatumFromSelectionError),
     #[error(transparent)]
     Check(#[from] CheckError),
-}
-
-impl From<&'static str> for DatumError {
-    fn from(error: &'static str) -> Self {
-        Self::Selection(error)
-    }
 }
 
 impl Reason for DatumError {

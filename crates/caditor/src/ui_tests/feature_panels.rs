@@ -13,7 +13,7 @@ use super::{
 use crate::{
     bodies,
     commands::Command,
-    datum_tools::{PLANE_CHOICES, POINT_CHOICES},
+    datum_tools::DatumFromSelectionError,
     feature_fields::{
         self, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION, TURN,
     },
@@ -333,18 +333,26 @@ fn plane_and_point_refuse_a_selection_holding_nothing_they_can_use() {
                 region,
             },
             "datum plane",
-            PLANE_CHOICES,
+            DatumFromSelectionError::PlaneChoices,
         ),
-        (Pickable::CentreOfMass(plate), "datum plane", PLANE_CHOICES),
+        (
+            Pickable::CentreOfMass(plate),
+            "datum plane",
+            DatumFromSelectionError::PlaneChoices,
+        ),
         (
             Pickable::SketchRegion {
                 feature: sketch,
                 region,
             },
             "datum point",
-            POINT_CHOICES,
+            DatumFromSelectionError::PointChoices,
         ),
-        (Pickable::CentreOfMass(plate), "datum point", POINT_CHOICES),
+        (
+            Pickable::CentreOfMass(plate),
+            "datum point",
+            DatumFromSelectionError::PointChoices,
+        ),
     ] {
         harness.select([selected]);
         run_from_palette(&mut harness, tool);
@@ -356,7 +364,7 @@ fn plane_and_point_refuse_a_selection_holding_nothing_they_can_use() {
             harness
                 .model
                 .notice()
-                .is_some_and(|notice| notice.text.contains(choices)),
+                .is_some_and(|notice| notice.text.contains(&choices.to_string())),
             "{tool} with {selected:?}"
         );
     }

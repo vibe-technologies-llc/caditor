@@ -52,8 +52,8 @@ pub enum SplitFaceError {
     NotOneSurface,
     #[error("{name} does not split faces")]
     DoesNotSplitFaces { name: String },
-    #[error("{0}")]
-    ChosenAxis(String),
+    #[error(transparent)]
+    ChosenAxis(datum_tools::OneChoiceError),
     #[error(transparent)]
     Along(#[from] SplitError),
     #[error(transparent)]
@@ -262,7 +262,7 @@ pub fn direction_change(
         .feature_index(feature)
         .ok_or(SplitFaceError::Gone { feature })?;
     let axis = datum_tools::only_axis(model, selection, index)
-        .map_err(|error| SplitFaceError::ChosenAxis(error.into()))?
+        .map_err(SplitFaceError::ChosenAxis)?
         .ok_or(SplitFaceError::NoDirection)?;
     if split.direction() == Some(&axis) {
         return Err(SplitFaceError::AlreadyCarried);

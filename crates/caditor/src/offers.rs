@@ -141,10 +141,14 @@ impl Offers {
                 Shape::Points,
             ),
             model_axes,
-            datum_plane: datum_tools::plane_from_selection(model, selection, end),
-            datum_axis: datum_tools::axis_from_selection(model, selection, end),
-            datum_point: datum_tools::point_from_selection(model, selection, end),
-            coordinate_system: datum_tools::frame_from_selection(model, selection, end),
+            datum_plane: datum_tools::plane_from_selection(model, selection, end)
+                .map_err(datum_tools::DatumFromSelectionError::text),
+            datum_axis: datum_tools::axis_from_selection(model, selection, end)
+                .map_err(datum_tools::DatumFromSelectionError::text),
+            datum_point: datum_tools::point_from_selection(model, selection, end)
+                .map_err(datum_tools::DatumFromSelectionError::text),
+            coordinate_system: datum_tools::frame_from_selection(model, selection, end)
+                .map_err(datum_tools::DatumFromSelectionError::text),
             blend: blend_tools::selected_edges(model, selection, tree),
             shell: shell_tools::selected_faces(model, selection),
             offset_face: offset_face_tools::selected_faces(model, selection),
