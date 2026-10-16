@@ -1622,8 +1622,7 @@ fn context_menu(
     if let Some(open) = row.taking_regions
         && feature.kind.sketch().is_some()
     {
-        let taking =
-            solid_tools::take_sketch_regions(model, open, feature.id()).map_err(String::from);
+        let taking = solid_tools::take_sketch_regions(model, open, feature.id());
         let title = format!("Take all regions of {} for {}", feature.name, open.name);
         if menu_entry(
             ui,

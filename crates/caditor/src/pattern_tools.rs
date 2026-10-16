@@ -81,12 +81,6 @@ impl Reason for PatternToolError {
     }
 }
 
-impl From<PatternToolError> for String {
-    fn from(error: PatternToolError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
     Linear,

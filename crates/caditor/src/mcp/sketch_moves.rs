@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt::Display};
+use std::collections::BTreeSet;
 
 use caditor_expression::Dimension;
 use caditor_geometry::Vector2;
@@ -59,13 +59,6 @@ fn solved_shape<'s>(target: &Target<'s>) -> Result<&'s Sketch, ToolError> {
         })
 }
 
-fn unmovable(reason: impl Display) -> ToolError {
-    SketchEditError::Unmovable {
-        reason: reason.to_string(),
-    }
-    .into()
-}
-
 pub(super) fn move_geometry(
     session: &Session,
     work: &Work<'_>,
@@ -74,7 +67,8 @@ pub(super) fn move_geometry(
 ) -> Result<Planned, ToolError> {
     let items = target.entities(&asked.items)?;
     let shown = solved_shape(target)?;
-    let moving = sketch_drag::Moving::of(shown, target.feature, &items).map_err(unmovable)?;
+    let moving =
+        sketch_drag::Moving::of(shown, target.feature, &items).map_err(SketchEditError::Unmoved)?;
     let destination = match (asked.by, asked.to) {
         (Some([x, y]), None) => moving.anchor + Vector2::new(coordinate(x)?, coordinate(y)?),
         (None, Some(to)) => point(to)?,
@@ -92,7 +86,8 @@ fn transformed(
 ) -> Result<Transforming, ToolError> {
     let items = target.entities(asked_items)?;
     let Some(about) = about else {
-        return Transforming::of(shown, target.feature, &items, transform).map_err(unmovable);
+        return Transforming::of(shown, target.feature, &items, transform)
+            .map_err(|error| SketchEditError::Untransformed(error).into());
     };
     let pivot = target.point_of(about)?;
     let moved_points: BTreeSet<EntityId> = items
@@ -117,8 +112,8 @@ fn transformed(
             entity: about.clone(),
         })?;
     let selected: Vec<EntityId> = items.into_iter().chain([pivot]).collect();
-    let mut transforming =
-        Transforming::of(shown, target.feature, &selected, transform).map_err(unmovable)?;
+    let mut transforming = Transforming::of(shown, target.feature, &selected, transform)
+        .map_err(SketchEditError::Untransformed)?;
     transforming.pivot = pivot_at;
     Ok(transforming)
 }
@@ -138,7 +133,9 @@ pub(super) fn rotate(
         asked.about.as_ref(),
         Transform::Rotate,
     )?;
-    let commands = transforming.rotated(angle.value).map_err(unmovable)?;
+    let commands = transforming
+        .rotated(angle.value)
+        .map_err(SketchEditError::Untransformed)?;
     dragged(session, work, target, shown, commands)
 }
 
@@ -159,7 +156,9 @@ pub(super) fn scale(
         asked.about.as_ref(),
         Transform::Scale,
     )?;
-    let commands = transforming.scaled(asked.factor).map_err(unmovable)?;
+    let commands = transforming
+        .scaled(asked.factor)
+        .map_err(SketchEditError::Untransformed)?;
     dragged(session, work, target, shown, commands)
 }
 

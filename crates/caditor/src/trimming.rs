@@ -26,12 +26,6 @@ pub const EXTEND_PROMPT: &str =
 #[error("The sketch being edited no longer exists.")]
 pub struct SketchGone;
 
-impl From<SketchGone> for String {
-    fn from(error: SketchGone) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum TrimmingError {
     #[error(transparent)]
@@ -486,15 +480,6 @@ pub fn reshape<E: From<SketchGone>>(
     let mut transaction = sketch_tools::settled_transaction(model, feature, label);
     transaction.reshape_sketch(feature, &before, &after);
     Ok(transaction.finish())
-}
-
-pub fn reshaped(
-    model: &Model,
-    feature: FeatureId,
-    label: String,
-    change: impl FnOnce(&mut Sketch) -> Result<(), String>,
-) -> Result<Transaction, String> {
-    reshape(model, feature, label, change)
 }
 
 pub fn refusal(tool: Tool, reason: &str) -> String {

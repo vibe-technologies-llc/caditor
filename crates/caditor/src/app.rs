@@ -436,7 +436,7 @@ impl Workspace {
                         self.viewport.replace_selection(chosen.pickables);
                         Notice::info(chosen.report)
                     }
-                    Err(reason) => Notice::warning(reason),
+                    Err(reason) => Notice::warning(reason.to_string()),
                 };
                 model.perform(Action::Inform(notice));
             }
@@ -669,7 +669,7 @@ pub fn show(
     if let Some(id) = palette.take_configuration() {
         actions.push(match configurations::switching(model.document(), id) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::warning(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);

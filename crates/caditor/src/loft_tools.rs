@@ -52,12 +52,6 @@ pub enum LoftError {
     Check(#[from] CheckError),
 }
 
-impl From<LoftError> for String {
-    fn from(error: LoftError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for LoftError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

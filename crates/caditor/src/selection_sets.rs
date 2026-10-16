@@ -49,11 +49,6 @@ pub enum SelectionSetError {
     Rejected(#[from] EditError),
 }
 
-impl From<SelectionSetError> for String {
-    fn from(error: SelectionSetError) -> Self {
-        error.to_string()
-    }
-}
 const EXPLANATION: &str = "Keep a group of faces, edges or bodies under a name and select it \
                            again later, for a fillet, a hide or a pattern. Sets belong to the \
                            model and follow its faces and edges as it changes.";

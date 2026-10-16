@@ -59,7 +59,7 @@ pub fn combo_showing<T, E: Display>(
     })
 }
 
-pub struct Row<'a, E = String> {
+pub struct Row<'a, E> {
     pub caption: &'a str,
     pub id: Id,
     pub planes: Vec<PlaneReference>,

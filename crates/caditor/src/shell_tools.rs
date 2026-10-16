@@ -52,12 +52,6 @@ pub enum ShellError {
     Checked(#[from] CheckError),
 }
 
-impl From<ShellError> for String {
-    fn from(error: ShellError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for ShellError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

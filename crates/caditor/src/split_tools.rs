@@ -47,12 +47,6 @@ pub enum SplitError {
     Checked(#[from] CheckError),
 }
 
-impl From<SplitError> for String {
-    fn from(error: SplitError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for SplitError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

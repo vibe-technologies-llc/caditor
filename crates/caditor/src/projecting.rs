@@ -112,12 +112,6 @@ pub enum ProjectionError {
     NotIntersectable,
 }
 
-impl From<ProjectionError> for String {
-    fn from(error: ProjectionError) -> Self {
-        error.to_string()
-    }
-}
-
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
 pub const NO_SKETCH_TO_PROJECT: &str = "Highlight a curve of another sketch with the Project tool, \
                                         or choose one other sketch in the feature tree";

@@ -87,24 +87,16 @@ pub enum PatternTextError {
     NotWholeCount,
 }
 
-impl From<PatternTextError> for String {
-    fn from(error: PatternTextError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PatterningError {
     #[error(transparent)]
     Text(#[from] PatternTextError),
-    #[error("{words}")]
-    Reshaped { words: String },
-}
-
-impl From<PatterningError> for String {
-    fn from(error: PatterningError) -> Self {
-        error.to_string()
-    }
+    #[error(transparent)]
+    SketchGone(#[from] trimming::SketchGone),
+    #[error("{}: {source}.", .tool.label())]
+    Pattern { tool: Tool, source: PatternError },
+    #[error("{}: {CENTRE_FIRST}.", .tool.label())]
+    CentreFirst { tool: Tool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -354,9 +346,9 @@ impl Patterning {
         let spec = parse(model, self.kind, text)?;
         let selected = self.selected.clone();
         let centre = self.centre();
-        let reason = |error: PatternError| trimming::refusal(tool, &error.to_string());
+        let reason = |source| PatterningError::Pattern { tool, source };
         let transaction =
-            trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
+            trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
                 match (&spec, centre) {
                     (Spec::Rectangular(pattern), _) => sketch
                         .rectangular_pattern(&selected, pattern)
@@ -366,10 +358,9 @@ impl Patterning {
                         .circular_pattern(&selected, centre, pattern)
                         .map(|_| ())
                         .map_err(reason),
-                    (Spec::Circular(_), None) => Err(trimming::refusal(tool, CENTRE_FIRST)),
+                    (Spec::Circular(_), None) => Err(PatterningError::CentreFirst { tool }),
                 }
-            })
-            .map_err(|words| PatterningError::Reshaped { words })?;
+            })?;
         Ok(Outcome::Apply(transaction))
     }
 

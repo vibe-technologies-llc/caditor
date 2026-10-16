@@ -118,12 +118,6 @@ impl From<&'static str> for DatumError {
     }
 }
 
-impl From<DatumError> for String {
-    fn from(error: DatumError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for DatumError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

@@ -37,12 +37,6 @@ enum PlacementError {
     Checked(#[from] field::CheckError),
 }
 
-impl From<PlacementError> for String {
-    fn from(error: PlacementError) -> Self {
-        error.to_string()
-    }
-}
-
 fn change(
     model: &Model,
     feature: FeatureId,
@@ -83,7 +77,7 @@ impl Panel<'_> {
             feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
                 let mut changed = import.clone();
                 rebuild(&mut changed.placement, value);
-                change(model, id, changed).map_err(String::from)
+                change(model, id, changed)
             });
         self.actions.extend(drafting.into_actions(id));
     }
@@ -117,7 +111,7 @@ pub fn placement(
         let chosen = feature_fields::frame_row(ui, model.document(), &row, |frame| {
             let mut changed = import.clone();
             changed.placement.frame = frame;
-            change(model, feature.id(), changed).map_err(String::from)
+            change(model, feature.id(), changed)
         });
         panel.actions.extend(chosen);
         for axis in MoveAxis::ALL {

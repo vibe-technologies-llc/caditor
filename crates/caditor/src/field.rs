@@ -483,12 +483,6 @@ pub enum ExpressionError {
     Negative,
 }
 
-impl From<ExpressionError> for String {
-    fn from(error: ExpressionError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn parse_expression(
     document: &Document,
     parameters: &ParameterValues,
@@ -620,12 +614,6 @@ pub enum CheckError {
     Rejected(#[from] EditError),
 }
 
-impl From<CheckError> for String {
-    fn from(error: CheckError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum NamedEditError<P, H> {
     #[error("{0}")]
@@ -644,12 +632,6 @@ pub enum NamedEditError<P, H> {
         parameter: String,
         measurement: String,
     },
-}
-
-impl<P: Display, H: Display> From<NamedEditError<P, H>> for String {
-    fn from(error: NamedEditError<P, H>) -> Self {
-        error.to_string()
-    }
 }
 
 impl NamedField<'_> {
@@ -804,12 +786,6 @@ pub enum DimensionEditError {
 impl From<NamedEditError<DimensionValueError, CheckError>> for DimensionEditError {
     fn from(error: NamedEditError<DimensionValueError, CheckError>) -> Self {
         Self::Named(error)
-    }
-}
-
-impl From<DimensionEditError> for String {
-    fn from(error: DimensionEditError) -> Self {
-        error.to_string()
     }
 }
 

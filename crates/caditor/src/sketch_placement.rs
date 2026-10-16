@@ -100,12 +100,6 @@ pub enum AttachmentError {
     NotFlatHere,
 }
 
-impl From<AttachmentError> for String {
-    fn from(error: AttachmentError) -> Self {
-        error.to_string()
-    }
-}
-
 impl AttachmentError {
     pub fn reason(self) -> &'static str {
         match self {

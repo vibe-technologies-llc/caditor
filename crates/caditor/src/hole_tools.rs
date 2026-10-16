@@ -88,12 +88,6 @@ pub enum HoleToolError {
     OnCurve(#[from] CurveHoleError),
 }
 
-impl From<HoleToolError> for String {
-    fn from(error: HoleToolError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HoleSource {
     pub sketch: FeatureId,

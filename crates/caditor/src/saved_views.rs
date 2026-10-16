@@ -37,12 +37,6 @@ pub enum SavedViewError {
     Rejected(#[from] EditError),
 }
 
-impl From<SavedViewError> for String {
-    fn from(error: SavedViewError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn saved_view(viewpoint: Viewpoint) -> SavedView {
     SavedView {
         target: viewpoint.target,

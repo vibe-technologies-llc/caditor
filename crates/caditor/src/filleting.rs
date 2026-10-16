@@ -183,8 +183,8 @@ pub enum FilletingError {
     ChooseFirst { tool: Tool },
     #[error("{}: {error}.", .tool.label())]
     Fillet { tool: Tool, error: FilletError },
-    #[error("{0}")]
-    Reshaping(String),
+    #[error(transparent)]
+    SketchGone(#[from] trimming::SketchGone),
     #[error(transparent)]
     Value(#[from] ValueError),
     #[error(transparent)]
@@ -719,14 +719,11 @@ impl Filleting {
             (CornerCut::Chamfer, 1) => CHAMFER_TRANSACTION,
             (CornerCut::Chamfer, _) => CHAMFER_CORNERS_TRANSACTION,
         };
-        let refused = |error: FilletError| {
-            FilletingError::Fillet {
-                tool: cut.tool(),
-                error,
-            }
-            .to_string()
+        let refused = |error: FilletError| FilletingError::Fillet {
+            tool: cut.tool(),
+            error,
         };
-        let rounded = trimming::reshaped(model, feature, label.to_owned(), |sketch| {
+        let rounded = trimming::reshape(model, feature, label.to_owned(), |sketch| {
             for aim in &aims {
                 let current = aim.found_in(sketch).map_err(refused)?;
                 match (cut, &size) {
@@ -740,9 +737,8 @@ impl Filleting {
                 }
                 .map_err(refused)?;
             }
-            Ok(())
-        })
-        .map_err(FilletingError::Reshaping)?;
+            Ok::<_, FilletingError>(())
+        })?;
         self.chosen = None;
         self.more.clear();
         self.left_out = None;

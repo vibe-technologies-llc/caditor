@@ -103,7 +103,7 @@ impl Panel<'_> {
                 ui,
                 model,
                 row,
-                None::<&dyn Fn() -> Vec<Choice>>,
+                None::<&dyn Fn() -> Vec<Choice<Action, mate_tools::MateError>>>,
                 &mut actions,
             ),
             End::Target(part) => {

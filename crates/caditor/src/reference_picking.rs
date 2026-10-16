@@ -368,20 +368,52 @@ pub enum ChangeError {
     Gone { feature: FeatureId },
     #[error("{name} no longer takes this reference")]
     NotTaken { name: String },
-    #[error("{0}")]
-    Unconverted(String),
-}
-
-impl From<String> for ChangeError {
-    fn from(error: String) -> Self {
-        Self::Unconverted(error)
-    }
-}
-
-impl From<ChangeError> for String {
-    fn from(error: ChangeError) -> Self {
-        error.to_string()
-    }
+    #[error(transparent)]
+    Coil(#[from] coil_tools::CoilError),
+    #[error(transparent)]
+    Datum(#[from] datum_panel::DatumError),
+    #[error(transparent)]
+    Helix(#[from] helix_tools::HelixError),
+    #[error(transparent)]
+    HolePanel(#[from] hole_panel::HolePanelError),
+    #[error(transparent)]
+    HolePlacement(#[from] hole_placement::HolePlacementError),
+    #[error(transparent)]
+    Hole(#[from] hole_tools::HoleToolError),
+    #[error(transparent)]
+    Image(#[from] image_tools::ImageError),
+    #[error(transparent)]
+    Loft(#[from] loft_tools::LoftError),
+    #[error(transparent)]
+    Mate(#[from] mate_tools::MateError),
+    #[error(transparent)]
+    Measurement(#[from] measurement_tools::MeasurementError),
+    #[error(transparent)]
+    Mirror(#[from] mirror_tools::MirrorToolError),
+    #[error(transparent)]
+    Move(#[from] move_tools::MoveError),
+    #[error(transparent)]
+    Pattern(#[from] pattern_tools::PatternToolError),
+    #[error(transparent)]
+    Pipe(#[from] pipe_tools::PipeError),
+    #[error(transparent)]
+    Primitive(#[from] primitive_tools::PrimitiveError),
+    #[error(transparent)]
+    Scale(#[from] scale_tools::ScaleError),
+    #[error(transparent)]
+    Shell(#[from] shell_tools::ShellError),
+    #[error(transparent)]
+    SketchPattern(#[from] sketch_pattern_tools::PatternSketchError),
+    #[error(transparent)]
+    Solid(#[from] solid_panel::SolidChangeError),
+    #[error(transparent)]
+    SplitFace(#[from] split_face_tools::SplitFaceError),
+    #[error(transparent)]
+    Split(#[from] split_tools::SplitError),
+    #[error(transparent)]
+    Sweep(#[from] sweep_tools::SweepError),
+    #[error(transparent)]
+    Thread(#[from] thread_tools::ThreadToolError),
 }
 
 pub fn change(
@@ -394,144 +426,145 @@ pub fn change(
         .document()
         .feature(feature)
         .ok_or(ChangeError::Gone { feature })?;
-    let changed = match (slot, &owner.kind) {
+    match (slot, &owner.kind) {
         (Slot::RevolveAxis, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::selected_axis_change(model, selection, feature, revolve)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::ExtrudeTarget(side), FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::target_change(model, selection, feature, extrude, side)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
-            solid_panel::start_change(model, selection, feature, solid).map_err(String::from)
+            solid_panel::start_change(model, selection, feature, solid).map_err(ChangeError::from)
         }
         (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
-            sweep_tools::path_change(model, selection, feature, sweep).map_err(String::from)
+            sweep_tools::path_change(model, selection, feature, sweep).map_err(ChangeError::from)
         }
         (Slot::SweepPath, FeatureKind::Pipe(pipe)) => {
-            pipe_tools::path_change(model, selection, feature, pipe).map_err(String::from)
+            pipe_tools::path_change(model, selection, feature, pipe).map_err(ChangeError::from)
         }
         (Slot::LoftProfiles, FeatureKind::Loft(loft)) => {
-            loft_tools::profile_change(model, selection, feature, loft).map_err(String::from)
+            loft_tools::profile_change(model, selection, feature, loft).map_err(ChangeError::from)
         }
         (Slot::LoftEnd, FeatureKind::Loft(loft)) => {
-            loft_tools::end_change(model, selection, feature, loft).map_err(String::from)
+            loft_tools::end_change(model, selection, feature, loft).map_err(ChangeError::from)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
-            solid_panel::direction_change(model, selection, feature, extrude).map_err(String::from)
+            solid_panel::direction_change(model, selection, feature, extrude)
+                .map_err(ChangeError::from)
         }
         (Slot::RevolveTarget, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::revolve_target_change(model, selection, feature, revolve)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::HoleTarget, FeatureKind::Hole(hole)) => {
-            hole_panel::target_change(model, selection, feature, hole).map_err(String::from)
+            hole_panel::target_change(model, selection, feature, hole).map_err(ChangeError::from)
         }
         (Slot::HolePlace, FeatureKind::Hole(hole)) => {
-            hole_tools::place_change(model, selection, feature, hole).map_err(String::from)
+            hole_tools::place_change(model, selection, feature, hole).map_err(ChangeError::from)
         }
         (Slot::HoleEdge(point), FeatureKind::Hole(hole)) => {
             hole_placement::edge_change(model, selection, feature, hole, point)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::HoleConcentric(point), FeatureKind::Hole(hole)) => {
             hole_placement::concentric_change(model, selection, feature, hole, point)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::HoleAdd, FeatureKind::Hole(hole)) => {
-            hole_placement::add_change(model, selection, feature, hole).map_err(String::from)
+            hole_placement::add_change(model, selection, feature, hole).map_err(ChangeError::from)
         }
         (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
-            shell_tools::own_thickness_change(model, selection, feature).map_err(String::from)
+            shell_tools::own_thickness_change(model, selection, feature).map_err(ChangeError::from)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
-            mirror_tools::plane_change(model, selection, feature, mirror).map_err(String::from)
+            mirror_tools::plane_change(model, selection, feature, mirror).map_err(ChangeError::from)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
-            split_tools::along_change(model, selection, feature, split).map_err(String::from)
+            split_tools::along_change(model, selection, feature, split).map_err(ChangeError::from)
         }
         (Slot::SplitPlane, FeatureKind::SplitFace(split)) => {
-            split_face_tools::along_change(model, selection, feature, split).map_err(String::from)
+            split_face_tools::along_change(model, selection, feature, split)
+                .map_err(ChangeError::from)
         }
         (Slot::SplitDirection, FeatureKind::SplitFace(split)) => {
             split_face_tools::direction_change(model, selection, feature, split)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::PatternSecond, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::Second)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::PatternPath, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::sketch_change(model, selection, feature, pattern)
-                .map_err(|error| error.to_string())
+                .map_err(ChangeError::from)
         }
         (Slot::PatternBase, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::base_change(model, selection, feature, pattern)
-                .map_err(|error| error.to_string())
+                .map_err(ChangeError::from)
         }
         (Slot::DatumBase, FeatureKind::Datum(datum)) => {
-            datum_panel::base_change(model, selection, feature, datum).map_err(String::from)
+            datum_panel::base_change(model, selection, feature, datum).map_err(ChangeError::from)
         }
         (Slot::DatumRotation, FeatureKind::Datum(datum)) => {
-            datum_panel::rotation_change(model, selection, feature, datum).map_err(String::from)
+            datum_panel::rotation_change(model, selection, feature, datum)
+                .map_err(ChangeError::from)
         }
         (Slot::FrameOrigin, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::Origin)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::FrameAxis, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::XAxis)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::FramePlane, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::Plane)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
-            move_tools::axis_change(model, selection, feature, movement).map_err(String::from)
+            move_tools::axis_change(model, selection, feature, movement).map_err(ChangeError::from)
         }
         (Slot::CoilAxis, FeatureKind::Coil(coil)) => {
-            coil_tools::axis_change(model, selection, feature, coil).map_err(String::from)
+            coil_tools::axis_change(model, selection, feature, coil).map_err(ChangeError::from)
         }
         (Slot::HelixAxis, FeatureKind::Helix(helix)) => {
-            helix_tools::axis_change(model, selection, feature, helix).map_err(String::from)
+            helix_tools::axis_change(model, selection, feature, helix).map_err(ChangeError::from)
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
-                .map_err(String::from)
+                .map_err(ChangeError::from)
         }
         (Slot::ImagePlace, FeatureKind::ReferenceImage(image)) => {
-            image_tools::place_change(model, selection, feature, image)
-                .map_err(|error| error.to_string())
+            image_tools::place_change(model, selection, feature, image).map_err(ChangeError::from)
         }
         (Slot::MateMoving(part), FeatureKind::Mate(mate)) => {
-            mate_tools::moving_change(model, selection, feature, mate, part).map_err(String::from)
+            mate_tools::moving_change(model, selection, feature, mate, part)
+                .map_err(ChangeError::from)
         }
         (Slot::MateTarget(part), FeatureKind::Mate(mate)) => {
-            mate_tools::target_change(model, selection, feature, mate, part).map_err(String::from)
+            mate_tools::target_change(model, selection, feature, mate, part)
+                .map_err(ChangeError::from)
         }
         (Slot::ScaleCentre, FeatureKind::Scale(scale)) => {
-            scale_tools::centre_change(model, selection, feature, scale).map_err(String::from)
+            scale_tools::centre_change(model, selection, feature, scale).map_err(ChangeError::from)
         }
         (Slot::ThreadFace, FeatureKind::Thread(thread)) => {
-            thread_tools::face_change(model, selection, feature, thread).map_err(String::from)
+            thread_tools::face_change(model, selection, feature, thread).map_err(ChangeError::from)
         }
         (Slot::MeasuredItem(part), FeatureKind::Measurement(measurement)) => {
             measurement_tools::item_change(model, selection, feature, measurement, part)
-                .map_err(|error| error.to_string())
+                .map_err(ChangeError::from)
         }
-        _ => {
-            return Err(ChangeError::NotTaken {
-                name: owner.name.clone(),
-            });
-        }
-    };
-    Ok(changed?)
+        _ => Err(ChangeError::NotTaken {
+            name: owner.name.clone(),
+        }),
+    }
 }
 
 fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {
@@ -571,6 +604,6 @@ pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action>
         Err(_) if may_hold(model, picking, pickable) => {
             vec![Action::Editing(EditingCommand::HoldPicked(pickable))]
         }
-        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
+        Err(reason) => vec![Action::Inform(Notice::warning(reason.to_string()))],
     }
 }

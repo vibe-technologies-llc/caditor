@@ -12,6 +12,14 @@ use crate::{
     trimming::{self, capitalized},
 };
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum MirrorRefusal {
+    #[error(transparent)]
+    SketchGone(#[from] trimming::SketchGone),
+    #[error("{}: {source}.", Tool::Mirror.label())]
+    Mirror { source: MirrorError },
+}
+
 pub const PROMPT: &str = "Click the line or axis to mirror the selection about";
 pub const SELECT_FIRST: &str =
     "Select what to mirror: click it or drag a box around it, then press Enter";
@@ -172,11 +180,11 @@ impl Mirroring {
 
     fn mirror(&mut self, model: &Model, feature: FeatureId, about: EntityId) -> Outcome {
         let selected = self.selected.clone();
-        let outcome = trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
+        let outcome = trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
             sketch
                 .mirror(&selected, about)
                 .map(|_| ())
-                .map_err(|error| trimming::refusal(Tool::Mirror, &error.to_string()))
+                .map_err(|source| MirrorRefusal::Mirror { source })
         });
         if outcome.is_ok() {
             self.image = None;

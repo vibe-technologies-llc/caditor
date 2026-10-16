@@ -165,6 +165,14 @@ const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum PasteRefusal {
+    #[error(transparent)]
+    SketchGone(#[from] trimming::SketchGone),
+    #[error("The geometry could not be pasted: {source}.")]
+    Paste { source: ClipError },
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum CopyError {
     #[error("Nothing was copied: {0}.")]
     Clip(ClipError),
@@ -3334,7 +3342,7 @@ impl ViewportState {
     ) {
         match dimensioning::dimension(model, feature, staged, self.sketch_cursor) {
             Ok(added) => self.dimension_added(feature, added, actions),
-            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
         }
     }
 
@@ -3909,7 +3917,7 @@ impl ViewportState {
                         "Saved the view as {name}. Rename it, or see them all, in Saved views."
                     ))));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
             }
         }
         if commands.available(Command::SavedViews) {
@@ -3923,7 +3931,7 @@ impl ViewportState {
                         "The Isometric view now shows the model like this.",
                     )));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
             }
         }
         let redefined = match document.saved_views().home {
@@ -3933,7 +3941,7 @@ impl ViewportState {
         if commands.invoke(Command::ResetHomeView, &redefined) {
             match saved_views::reset_home(document) {
                 Ok(transaction) => actions.push(Action::Apply(transaction)),
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
             }
         }
     }
@@ -4102,7 +4110,7 @@ impl ViewportState {
                          all in Selection sets.{left_out}"
                     ))));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
             }
         }
         if commands.available(Command::SelectionSets) {
@@ -4285,12 +4293,13 @@ impl ViewportState {
         let offset = self.paste_offset(&pasted, feature);
         let what = clipboard::described(&pasted.clip);
         let mut placed = Vec::new();
-        let transaction = trimming::reshaped(model, feature, format!("Paste {what}"), |working| {
-            placed = working
-                .paste(&pasted.clip, offset)
-                .map_err(|error| format!("The geometry could not be pasted: {error}."))?;
-            Ok(())
-        });
+        let transaction =
+            trimming::reshape::<PasteRefusal>(model, feature, format!("Paste {what}"), |working| {
+                placed = working
+                    .paste(&pasted.clip, offset)
+                    .map_err(|source| PasteRefusal::Paste { source })?;
+                Ok(())
+            });
         match transaction {
             Ok(transaction) => {
                 actions.push(Action::Apply(transaction));
@@ -4299,7 +4308,7 @@ impl ViewportState {
                     actions.push(Action::Inform(Notice::warning(note)));
                 }
             }
-            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
         }
     }
 
@@ -4925,7 +4934,9 @@ impl ViewportState {
             } else if let Some((feature, staged)) = self.picked_dimension(model) {
                 match dimensioning::dimension(model, feature, &staged, None) {
                     Ok(added) => self.dimension_added(feature, added, actions),
-                    Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+                    Err(reason) => {
+                        actions.push(Action::Inform(Notice::warning(reason.to_string())))
+                    }
                 }
             } else if let Some(Pickable::SketchConstraint {
                 feature,

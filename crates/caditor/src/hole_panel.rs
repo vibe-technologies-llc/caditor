@@ -39,12 +39,6 @@ pub enum HolePanelError {
     Check(#[from] CheckError),
 }
 
-impl From<HolePanelError> for String {
-    fn from(error: HolePanelError) -> Self {
-        error.to_string()
-    }
-}
-
 const NOT_A_BODY: &str = "A body that is no longer there";
 pub const CUSTOM_SIZE: &str = "Custom";
 pub const SIZED_BY_CIRCLES: &str = "Circles";

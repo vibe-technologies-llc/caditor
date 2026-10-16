@@ -49,12 +49,6 @@ impl Reason for ThreadToolError {
     }
 }
 
-impl From<ThreadToolError> for String {
-    fn from(error: ThreadToolError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThreadSource {
     pub body: FeatureId,

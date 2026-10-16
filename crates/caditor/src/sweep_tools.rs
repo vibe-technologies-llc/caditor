@@ -66,12 +66,6 @@ pub enum SweepError {
     Check(#[from] CheckError),
 }
 
-impl From<SweepError> for String {
-    fn from(error: SweepError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for SweepError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

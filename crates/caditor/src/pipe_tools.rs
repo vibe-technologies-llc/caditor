@@ -34,12 +34,6 @@ pub enum PipeError {
     Check(#[from] CheckError),
 }
 
-impl From<PipeError> for String {
-    fn from(error: PipeError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for PipeError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

@@ -128,12 +128,6 @@ pub enum ConfigurationError {
     Expression(#[from] ExpressionError),
 }
 
-impl From<ConfigurationError> for String {
-    fn from(error: ConfigurationError) -> Self {
-        error.to_string()
-    }
-}
-
 fn checked(
     document: &Document,
     built: Result<Transaction, EditError>,

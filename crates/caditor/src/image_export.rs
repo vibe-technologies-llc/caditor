@@ -401,12 +401,6 @@ pub enum SizeBlocked {
 #[error("Enter a whole number of pixels from 1 to {MAX_IMAGE_SIDE}")]
 pub struct SideOutOfRange;
 
-impl From<SideOutOfRange> for String {
-    fn from(error: SideOutOfRange) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn scaled(size: SurfaceSize, scale: ImageScale) -> Result<SurfaceSize, SizeBlocked> {
     let side = |length: u32| {
         length
@@ -610,7 +604,7 @@ fn size_choice(
                             &stored.to_string(),
                             widgets::FIELD_WIDTH,
                             false,
-                            |text| parse_side(text).map_err(String::from),
+                            parse_side,
                         );
                         ui.label(widgets::muted("px", ui));
                         if let Some(side) = field.committed {

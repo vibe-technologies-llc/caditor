@@ -95,12 +95,6 @@ pub enum HolePlacementError {
     Check(#[from] CheckError),
 }
 
-impl From<HolePlacementError> for String {
-    fn from(error: HolePlacementError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placement {
     pub holes: Vec<PlacedHole>,

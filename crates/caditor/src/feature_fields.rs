@@ -107,12 +107,6 @@ pub enum RuleError {
     RibDraftOutside { below: f64 },
 }
 
-impl From<RuleError> for String {
-    fn from(error: RuleError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Rule {
     pub fn check(self, value: f64) -> Result<(), RuleError> {
         let fractional = (value - value.round()).abs() > WHOLE_TOLERANCE;
@@ -201,12 +195,6 @@ pub enum QuantityError {
     Unevaluable(EvalError),
     #[error(transparent)]
     Rule(#[from] RuleError),
-}
-
-impl From<QuantityError> for String {
-    fn from(error: QuantityError) -> Self {
-        error.to_string()
-    }
 }
 
 pub fn parse_quantity(
@@ -455,7 +443,7 @@ pub fn combo_text(ui: &mut Ui, name: Option<&str>, missing: &str) -> WidgetText 
     }
 }
 
-pub struct Choice<T = Action, E = String> {
+pub struct Choice<T, E> {
     pub label: String,
     pub selected: bool,
     pub change: Result<T, E>,
@@ -597,7 +585,7 @@ pub fn body_operation_rows<E: Display>(
     actions
 }
 
-pub struct Segment<'a, E = String> {
+pub struct Segment<'a, E> {
     pub label: &'a str,
     pub hover: &'a str,
     pub change: Option<Result<Transaction, E>>,
@@ -637,7 +625,7 @@ pub enum Shown {
     NoneChosen,
 }
 
-pub struct Picker<'a, E = String> {
+pub struct Picker<'a, E> {
     pub feature: FeatureId,
     pub slot: Slot,
     pub selected: Result<Transaction, E>,
@@ -766,7 +754,7 @@ pub fn list_in_view(ui: &mut Ui, opened: bool, prompt: &str, hover: &str) -> Opt
 
 pub const ALREADY_CHOSEN: &str = "It is already the one chosen";
 
-pub struct AxisRow<'a, E = String> {
+pub struct AxisRow<'a, E> {
     pub caption: &'a str,
     pub shown: Option<String>,
     pub picker: Picker<'a, E>,
@@ -804,12 +792,6 @@ pub fn axis_row<E, L: Display>(
 pub enum ChoiceRefusal {
     #[error("{}", ALREADY_CHOSEN)]
     AlreadyChosen,
-}
-
-impl From<ChoiceRefusal> for String {
-    fn from(refusal: ChoiceRefusal) -> Self {
-        refusal.to_string()
-    }
 }
 
 pub fn model_axis_choices<E: From<ChoiceRefusal>>(

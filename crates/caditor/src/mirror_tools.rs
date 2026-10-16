@@ -61,12 +61,6 @@ impl Reason for MirrorToolError {
     }
 }
 
-impl From<MirrorToolError> for String {
-    fn from(error: MirrorToolError) -> Self {
-        error.to_string()
-    }
-}
-
 const NO_BODY: &str = "Select a face or edge of the body to mirror";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 

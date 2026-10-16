@@ -22,7 +22,7 @@ use crate::{
         sketch_cuts::{self, Breaking, Constructing, Respacing, Splitting},
         sketch_moves,
         sketch_projections::{self, Intersecting, Projecting},
-        tools::{Answer, ToolError},
+        tools::{Answer, ToolError, ValueRefusal},
         writing::{self, MOST_ITEMS, SketchingError, point},
     },
     mirroring, offsetting, patterning,
@@ -66,8 +66,10 @@ pub enum SketchEditError {
         "{sketch} has no solved shape to move from: it failed or is waiting; get_sketch says why"
     )]
     NotSolved { sketch: String },
-    #[error("{reason}")]
-    Unmovable { reason: String },
+    #[error(transparent)]
+    Unmoved(crate::sketch_drag::MoveError),
+    #[error(transparent)]
+    Untransformed(crate::sketch_drag::TransformError),
     #[error("the sketch cannot be solved with that change: {0}")]
     Unsolved(SketchError),
     #[error(
@@ -382,10 +384,10 @@ pub(super) fn amount(
     dimension: Dimension,
 ) -> Result<Dimensioned, ToolError> {
     let parameters = session.parameters();
-    let refused = |reason: String| ToolError::Value {
+    let refused = |reason: ValueRefusal| ToolError::Value {
         field: field_name,
         text: text.to_owned(),
-        reason,
+        reason: Box::new(reason),
     };
     let expected = Expected {
         dimension: Some(dimension),
@@ -410,7 +412,7 @@ pub(super) fn amount(
     };
     let value = expression
         .evaluate_as(dimension, &|id| parameters.value(id))
-        .map_err(|error| refused(field::sentence(&error.to_string())))?;
+        .map_err(|error| refused(ValueRefusal::Unevaluable(error)))?;
     Ok(Dimensioned { expression, value })
 }
 

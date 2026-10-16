@@ -224,8 +224,8 @@ pub enum SketchingError {
     Nothing,
     #[error("{entity} in {sketch} is not a point, so it cannot be fixed")]
     NotAPoint { sketch: String, entity: EntityName },
-    #[error("{reason}")]
-    Conflicting { reason: String },
+    #[error(transparent)]
+    Conflicting(crate::constraint_trial::Refusal),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -299,7 +299,7 @@ fn value(
     .map_err(|reason| ToolError::Value {
         field: field_name,
         text: text.to_owned(),
-        reason: reason.into(),
+        reason: Box::new(reason.into()),
     })
 }
 
@@ -389,7 +389,7 @@ pub fn set_parameter(
     .map_err(|reason| ToolError::Value {
         field: "expression",
         text: asked.expression.clone(),
-        reason: reason.into(),
+        reason: Box::new(reason.into()),
     })?;
     let transaction = match existing {
         Some(parameter) => Transaction::single(
@@ -403,7 +403,7 @@ pub fn set_parameter(
             check_name(name).map_err(|error| ToolError::Value {
                 field: "name",
                 text: name.to_owned(),
-                reason: error.to_string(),
+                reason: Box::new(error.into()),
             })?;
             let mut transaction = document.transaction(format!("Add {name}"));
             transaction.add_parameter(name, expression);
@@ -876,7 +876,7 @@ pub fn constrain(
     let started = Instant::now();
     let given_up = || work.is_cancelled() || started.elapsed() >= PATIENCE;
     if let Some(reason) = constraint_trial::conflict(document, &trial, &given_up) {
-        return Err(SketchingError::Conflicting { reason }.into());
+        return Err(SketchingError::Conflicting(reason).into());
     }
     let mut details = Map::new();
     details.insert(

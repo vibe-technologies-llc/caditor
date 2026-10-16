@@ -42,12 +42,6 @@ pub enum CoilError {
     Check(#[from] CheckError),
 }
 
-impl From<CoilError> for String {
-    fn from(error: CoilError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for CoilError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

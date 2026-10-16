@@ -97,12 +97,6 @@ pub enum ValueError {
     Unevaluable(EvalError),
 }
 
-impl From<ValueError> for String {
-    fn from(error: ValueError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum EntryError {
     #[error(transparent)]

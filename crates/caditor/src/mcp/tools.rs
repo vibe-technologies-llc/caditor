@@ -171,6 +171,18 @@ impl Answer {
 }
 
 #[derive(Debug, thiserror::Error)]
+pub enum ValueRefusal {
+    #[error(transparent)]
+    Expression(#[from] crate::field::ExpressionError),
+    #[error(transparent)]
+    Dimension(#[from] crate::field::DimensionEditError),
+    #[error("{}", crate::field::sentence(&.0.to_string()))]
+    Unevaluable(caditor_expression::EvalError),
+    #[error(transparent)]
+    Name(#[from] caditor_expression::NameError),
+}
+
+#[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error("the arguments do not fit {tool}: {source}")]
     Arguments {
@@ -184,7 +196,7 @@ pub enum ToolError {
     Value {
         field: &'static str,
         text: String,
-        reason: String,
+        reason: Box<ValueRefusal>,
     },
     #[error(transparent)]
     Change(#[from] ChangeError),

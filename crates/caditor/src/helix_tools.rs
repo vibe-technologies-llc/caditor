@@ -36,12 +36,6 @@ pub enum HelixError {
     Check(#[from] CheckError),
 }
 
-impl From<HelixError> for String {
-    fn from(error: HelixError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn create(
     document: &Document,
     start: &CoilStart,

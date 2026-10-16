@@ -55,12 +55,6 @@ pub enum PrimitiveError {
     Checked(#[from] CheckError),
 }
 
-impl From<PrimitiveError> for String {
-    fn from(error: PrimitiveError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for PrimitiveError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

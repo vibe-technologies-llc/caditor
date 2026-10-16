@@ -24,17 +24,32 @@ pub struct ConstraintTrial {
     pub added: Vec<ConstraintId>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Refusal {
+    #[error(
+        "“{label}” was not added, because “{running}” was still being checked against the sketch."
+    )]
+    Busy { label: String, running: String },
+    #[error("{}", conflict_sentence(.subject, *.added, .named, *.more))]
+    Conflict {
+        subject: String,
+        added: usize,
+        named: Vec<String>,
+        more: usize,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Verdict {
     Apply(Transaction),
-    Refuse(String),
+    Refuse(Refusal),
     Outdated { label: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Outcome {
     Holds,
-    Conflicts(String),
+    Conflicts(Refusal),
     Unknown,
 }
 
@@ -67,11 +82,10 @@ impl Trials {
         wake: Waker,
     ) -> Option<Verdict> {
         if let Some(running) = &self.running {
-            return Some(Verdict::Refuse(format!(
-                "“{}” was not added, because “{}” was still being checked against the sketch.",
-                trial.transaction.label(),
-                running.label
-            )));
+            return Some(Verdict::Refuse(Refusal::Busy {
+                label: trial.transaction.label().to_owned(),
+                running: running.label.clone(),
+            }));
         }
         let ConstraintTrial {
             feature,
@@ -196,7 +210,7 @@ pub fn conflict(
     document: &Document,
     trial: &ConstraintTrial,
     cancelled: &dyn Fn() -> bool,
-) -> Option<String> {
+) -> Option<Refusal> {
     match outcome(document.clone(), trial, cancelled) {
         Outcome::Conflicts(reason) => Some(reason),
         Outcome::Holds | Outcome::Unknown => None,
@@ -227,7 +241,7 @@ fn outcome(
     }
 }
 
-fn refusal(sketch: &Sketch, added: &[ConstraintId], conflicting: &[ConstraintId]) -> String {
+fn refusal(sketch: &Sketch, added: &[ConstraintId], conflicting: &[ConstraintId]) -> Refusal {
     let subject = match added {
         [only] => sketch.describe_constraint(*only),
         added => format!("The {} new constraints", added.len()),
@@ -237,22 +251,31 @@ fn refusal(sketch: &Sketch, added: &[ConstraintId], conflicting: &[ConstraintId]
         .copied()
         .filter(|constraint| !added.contains(constraint))
         .collect();
-    let named: Vec<String> = others
+    let named = others
         .iter()
         .take(NAMED_CONFLICTS)
         .map(|constraint| sketch.describe_constraint(*constraint))
         .collect();
     let more = others.len().saturating_sub(NAMED_CONFLICTS);
+    Refusal::Conflict {
+        subject,
+        added: added.len(),
+        named,
+        more,
+    }
+}
+
+fn conflict_sentence(subject: &str, added: usize, named: &[String], more: usize) -> String {
     let (verb, pronoun, conflicts) = match added {
-        [_] => ("was", "it", "conflicts"),
+        1 => ("was", "it", "conflicts"),
         _ => ("were", "they", "conflict"),
     };
-    let with = match (named.as_slice(), more) {
+    let with = match (named, more) {
         ([], _) => {
             return format!(
                 "{subject} {verb} not added: the sketch could not hold {} with its other \
                  constraints.",
-                if added.len() == 1 { "it" } else { "them" }
+                if added == 1 { "it" } else { "them" }
             );
         }
         ([only], _) => only.clone(),

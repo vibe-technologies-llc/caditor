@@ -74,12 +74,6 @@ pub enum MoveError {
     Check(#[from] CheckError),
 }
 
-impl From<MoveError> for String {
-    fn from(error: MoveError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn selected_body(
     model: &Model,
     selection: &Selection,

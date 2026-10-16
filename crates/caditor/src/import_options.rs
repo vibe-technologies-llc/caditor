@@ -145,12 +145,6 @@ enum ImportBlocked {
     NoLayers,
 }
 
-impl From<ImportBlocked> for String {
-    fn from(error: ImportBlocked) -> Self {
-        error.to_string()
-    }
-}
-
 fn parse_scale(text: &str) -> Result<f64, ImportBlocked> {
     text.parse::<f64>()
         .ok()
@@ -191,7 +185,7 @@ pub fn dialog(
                 &options.scale.to_string(),
                 widgets::FIELD_WIDTH,
                 false,
-                |text| parse_scale(text).map_err(String::from),
+                parse_scale,
             );
             if let Some(scale) = field.committed {
                 command = Some(ImportOptionsCommand::Scale(scale));

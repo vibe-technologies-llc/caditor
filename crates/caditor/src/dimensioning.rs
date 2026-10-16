@@ -439,12 +439,6 @@ pub enum DimensionToolError {
     Unproposed(#[from] ConstraintOfferError),
 }
 
-impl From<DimensionToolError> for String {
-    fn from(error: DimensionToolError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn dimension(
     model: &Model,
     feature: FeatureId,

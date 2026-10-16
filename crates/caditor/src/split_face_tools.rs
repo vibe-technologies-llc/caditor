@@ -60,12 +60,6 @@ pub enum SplitFaceError {
     Checked(#[from] CheckError),
 }
 
-impl From<SplitFaceError> for String {
-    fn from(error: SplitFaceError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for SplitFaceError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

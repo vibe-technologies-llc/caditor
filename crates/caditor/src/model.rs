@@ -1336,7 +1336,7 @@ impl Model {
                 self.perform(Action::Apply(transaction));
                 self.queued.follow(before, self.revision());
             }
-            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason)),
+            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason.to_string())),
             Some(Verdict::Outdated { label }) => self.set_notice(Notice::warning(format!(
                 "“{label}” was not applied, because the model changed while it was being \
                  checked; add it again."

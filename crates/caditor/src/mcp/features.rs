@@ -478,7 +478,7 @@ pub(super) fn amount(
     .map_err(|reason| ToolError::Value {
         field: field_name,
         text,
-        reason: reason.into(),
+        reason: Box::new(reason.into()),
     })
 }
 

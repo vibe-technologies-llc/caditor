@@ -115,12 +115,6 @@ pub enum TargetError {
     Placement(crate::sketch_placement::AttachmentError),
 }
 
-impl From<TargetError> for String {
-    fn from(error: TargetError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SolidChangeError {
     #[error("The feature no longer exists")]
@@ -169,11 +163,6 @@ pub enum SolidChangeError {
     Checked(#[from] CheckError),
 }
 
-impl From<SolidChangeError> for String {
-    fn from(error: SolidChangeError) -> Self {
-        error.to_string()
-    }
-}
 pub const FAR_PAST_THE_BODY: &str = "This distance reaches far past the body. Through all cuts through \
      the whole body whatever its size, and keeps doing so when the body grows.";
 pub const CUT_THROUGH_ALL: &str = "Cut through all instead";

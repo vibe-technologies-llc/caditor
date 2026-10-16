@@ -98,12 +98,6 @@ pub enum BlendError {
     Checked(#[from] CheckError),
 }
 
-impl From<BlendError> for String {
-    fn from(error: BlendError) -> Self {
-        error.to_string()
-    }
-}
-
 impl Reason for BlendError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())

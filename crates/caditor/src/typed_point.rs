@@ -1,4 +1,4 @@
-use std::{convert, fmt::Display};
+use std::fmt::Display;
 
 use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_geometry::{Point2, Vector2};
@@ -496,18 +496,6 @@ pub enum TypedPointError {
     LengthLockNotPositive,
     #[error("Keep the length within {} m", .limit / 1_000.0)]
     LengthTooLong { limit: f64 },
-}
-
-impl convert::From<TypedValueError> for String {
-    fn from(error: TypedValueError) -> Self {
-        error.to_string()
-    }
-}
-
-impl convert::From<TypedPointError> for String {
-    fn from(error: TypedPointError) -> Self {
-        error.to_string()
-    }
 }
 
 fn typed_value(

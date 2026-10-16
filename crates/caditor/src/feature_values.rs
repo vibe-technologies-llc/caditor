@@ -685,12 +685,6 @@ pub enum ChangeError {
     Rejected(#[from] CheckError),
 }
 
-impl From<ChangeError> for String {
-    fn from(error: ChangeError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn change(
     model: &Model,
     feature: FeatureId,

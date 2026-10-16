@@ -28,7 +28,10 @@ pub enum PlaceError {
     #[error("{body} has no edge {edge} now; list_edges names its edges as they are")]
     NoEdge { body: String, edge: String },
     #[error("{what} cannot be used as a plane: {reason}")]
-    NotAPlane { what: String, reason: String },
+    NotAPlane {
+        what: String,
+        reason: crate::sketch_placement::AttachmentError,
+    },
     #[error(
         "{what} has no axis: give a straight or round edge, a cylinder, cone or other round \
          face, a sketch line, a datum axis or X, Y or Z"
@@ -296,7 +299,7 @@ pub fn on_face(
     )
     .map_err(|reason| PlaceError::NotAPlane {
         what: format!("face {} of {}", on.face, body_label(document, body)),
-        reason: reason.to_string(),
+        reason,
     })?;
     Ok(FacePlace {
         reference: PlaneReference::Face(attachment),

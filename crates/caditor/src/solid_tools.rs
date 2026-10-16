@@ -94,12 +94,6 @@ pub enum RegionError {
     Checked(#[from] CheckError),
 }
 
-impl From<RegionError> for String {
-    fn from(error: RegionError) -> Self {
-        error.to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sweep {
     Extrude,
