@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use caditor_kernel::{FaceId, ShellError, Solid, Walls, shell_copies};
 
 use crate::{
-    pattern::{Instance, SeedWords},
+    pattern::Instance,
     recompute::{CancelToken, Failure, FeatureError, FixTarget},
-    repeat_blend::{CopiedNames, CopyWords, Followed},
+    repeat_blend::{CopiedNames, Followed, Repeat, RepeatCause, ShellWhy},
     shell::{NamedFace, ShellRecipe},
     solid::NameIndex,
 };
@@ -112,65 +112,39 @@ impl CopiedNames {
     }
 }
 
-pub(crate) fn failure(error: &CopyShellError, words: &CopyWords<'_>) -> Failure {
-    let CopyWords {
+pub(crate) fn failure(error: &CopyShellError, repeat: &Repeat<'_>, shell: &str) -> Failure {
+    let Repeat {
         feature,
-        repeated: shell,
-        seed,
+        repeater,
         copy,
-        copies,
-        clear,
-    } = words;
-    let SeedWords {
-        feature: kind,
-        repeated,
-        ..
-    } = seed;
-    let leave_out = format!("or leave {shell} out of the {kind}");
-    let (reason, remedy) = match error {
+    } = *repeat;
+    let named = shell.to_owned();
+    let cause = match error {
         CopyShellError::Cancelled => return Failure::Cancelled,
-        CopyShellError::OriginalOpening => (
-            format!(
-                "{shell} could not be {repeated}: a face it opens is no longer part of the body \
-                 once {copies} are added."
-            ),
-            format!("{clear} the faces {shell} opens are not covered by {copies}, {leave_out}."),
-        ),
-        CopyShellError::Missing { copy: at } => (
-            format!(
-                "{shell} could not be {repeated} on {}: a face it opens on the original has no \
-                 match there, as the copy meets the body differently.",
-                copy(*at)
-            ),
-            format!(
-                "{clear} {} stands clear of other features, {leave_out}.",
-                copy(*at)
-            ),
-        ),
+        CopyShellError::OriginalOpening => RepeatCause::ShellOpeningLost {
+            repeater,
+            shell: named,
+        },
+        CopyShellError::Missing { copy: at } => RepeatCause::ShellMissing {
+            repeater,
+            shell: named,
+            copy: copy(*at),
+        },
         CopyShellError::Shell(error) => {
             let why = match error {
-                ShellError::TooThick => {
-                    format!("the walls are too thick for the body with {copies}")
-                }
-                ShellError::Overhang { .. } => {
-                    "a face leans over an opening, so its wall would be cut thin".to_owned()
-                }
+                ShellError::TooThick => ShellWhy::TooThick,
+                ShellError::Overhang { .. } => ShellWhy::Overhang,
                 error => {
-                    log::warn!("{shell} could not hollow {copies}: {error}");
-                    format!("the walls could not be built with {copies}")
+                    log::warn!("{shell} could not hollow {}: {error}", repeater.copies());
+                    ShellWhy::Unbuilt
                 }
             };
-            (
-                format!("{shell} could not hollow {copies}: {why}."),
-                format!("{clear} there is room for the walls around {copies}, {leave_out}."),
-            )
+            RepeatCause::ShellFailed {
+                repeater,
+                shell: named,
+                why,
+            }
         }
     };
-    Failure::Error(Box::new(FeatureError {
-        reason,
-        remedy,
-        fix: Some(FixTarget::Feature(*feature)),
-        constraints: Vec::new(),
-        place: None,
-    }))
+    Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(feature)))
 }

@@ -171,12 +171,16 @@ fn a_cross_section_the_sketch_plane_no_longer_cuts_fails_its_sketch_in_words() {
     let error = failure(&evaluate(&block.document, &mut block.engine), sketch);
 
     assert!(
-        error.reason.contains("the cut through Base"),
+        error.reason().contains("the cut through Base"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.reason.contains("no longer cuts"), "{}", error.reason);
-    assert!(error.remedy.contains("intersect"), "{}", error.remedy);
+    assert!(
+        error.reason().contains("no longer cuts"),
+        "{}",
+        error.reason()
+    );
+    assert!(error.remedy().contains("intersect"), "{}", error.remedy());
 }
 
 #[test]
@@ -302,5 +306,5 @@ fn a_principal_plane_crosses_a_tilted_sketch_in_a_line_that_follows_the_tilt() {
     set(&mut document, tilt, "0 deg");
     let level = evaluate(&document, &mut engine);
 
-    assert!(failure(&level, sketch).reason.contains("the XY plane"));
+    assert!(failure(&level, sketch).reason().contains("the XY plane"));
 }

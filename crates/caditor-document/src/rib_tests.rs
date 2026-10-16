@@ -249,8 +249,12 @@ fn a_rib_filling_the_open_side_fails_saying_it_runs_past_the_body() {
 
     let error = failure(&evaluate(&model.document), model.rib);
 
-    assert!(error.reason.contains("not closed off"), "{}", error.reason);
-    assert!(error.remedy.contains("Reverse"), "{}", error.remedy);
+    assert!(
+        error.reason().contains("not closed off"),
+        "{}",
+        error.reason()
+    );
+    assert!(error.remedy().contains("Reverse"), "{}", error.remedy());
     assert_eq!(error.fix, Some(FixTarget::Feature(model.rib)));
 }
 
@@ -264,8 +268,16 @@ fn a_web_running_out_of_the_box_meets_no_face_of_the_body() {
     let upward = failure(&evaluate(&upward.document), upward.rib);
     let beside = failure(&evaluate(&beside.document), beside.rib);
 
-    assert!(upward.reason.contains("meets no face"), "{}", upward.reason);
-    assert!(beside.reason.contains("meets no face"), "{}", beside.reason);
+    assert!(
+        upward.reason().contains("meets no face"),
+        "{}",
+        upward.reason()
+    );
+    assert!(
+        beside.reason().contains("meets no face"),
+        "{}",
+        beside.reason()
+    );
 }
 
 fn extruded(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
@@ -308,9 +320,10 @@ fn a_web_whose_line_runs_out_past_the_body_fails_naming_that_end() {
     let error = failure(&evaluate(&document), rib);
 
     assert!(
-        error.reason.contains("The end of Rib 1 at Line") && error.reason.contains("runs on past"),
+        error.reason().contains("The end of Rib 1 at Line")
+            && error.reason().contains("runs on past"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -329,9 +342,9 @@ fn a_closed_outline_fails_with_the_fix_on_the_sketch() {
     let error = failure(&evaluate(&document), rib);
 
     assert!(
-        error.reason.contains("close on themselves"),
+        error.reason().contains("close on themselves"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(sketch)));
 }
@@ -347,10 +360,10 @@ fn a_thickness_of_zero_fails_in_words() {
 
     assert!(
         error
-            .reason
+            .reason()
             .contains("thickness of the rib must be more than zero"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -493,9 +506,9 @@ fn curves_coming_back_to_a_point_they_pass_through_fail_with_the_fix_on_the_sket
     let error = failure(&evaluate(&model.document), model.rib);
 
     assert!(
-        error.reason.contains("come back to a point"),
+        error.reason().contains("come back to a point"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(matches!(error.fix, Some(FixTarget::Feature(sketch)) if sketch != model.rib));
 }
@@ -538,7 +551,7 @@ fn a_draft_below_zero_or_too_steep_fails_in_words() {
 
         let error = failure(&evaluate(&model.document), model.rib);
 
-        assert!(error.reason.contains(words), "{}", error.reason);
+        assert!(error.reason().contains(words), "{}", error.reason());
         assert_eq!(error.fix, Some(FixTarget::Feature(model.rib)));
     }
 }
@@ -597,11 +610,12 @@ fn a_web_s_arc_whose_circle_never_meets_the_body_fails_naming_it() {
     let error = failure(&evaluate(&model.document), model.rib);
 
     assert!(
-        error.reason.contains("The end of Rib 1 at Arc") && error.reason.contains("runs on past"),
+        error.reason().contains("The end of Rib 1 at Arc")
+            && error.reason().contains("runs on past"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.remedy.contains("straight"), "{}", error.remedy);
+    assert!(error.remedy().contains("straight"), "{}", error.remedy());
 }
 
 #[test]
@@ -736,9 +750,9 @@ fn a_web_along_a_spline_with_a_draft_fails_saying_only_lines_and_arcs_take_one()
     let error = failure(&evaluate(&model.document), model.rib);
 
     assert!(
-        error.reason.contains("only lines and arcs"),
+        error.reason().contains("only lines and arcs"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.remedy.contains("draft"), "{}", error.remedy);
+    assert!(error.remedy().contains("draft"), "{}", error.remedy());
 }

@@ -129,15 +129,15 @@ fn a_bend_radius_rounds_the_sharp_corner_where_a_line_meets_an_arc() {
         PI * centreline
     );
     assert!(
-        sharp_error.reason.contains("sharp corner between")
-            && sharp_error.reason.contains("without a bend"),
+        sharp_error.reason().contains("sharp corner between")
+            && sharp_error.reason().contains("without a bend"),
         "{}",
-        sharp_error.reason
+        sharp_error.reason()
     );
     assert!(
-        sharp_error.remedy.contains("Give the pipe a bend radius"),
+        sharp_error.remedy().contains("Give the pipe a bend radius"),
         "{}",
-        sharp_error.remedy
+        sharp_error.remedy()
     );
     assert_eq!(sharp_error.fix, Some(FixTarget::Feature(sharp.pipe)));
 }
@@ -167,9 +167,9 @@ fn a_wall_too_thick_fails_saying_how_thin_it_must_be() {
     let error = failure(&evaluate(&model.document), model.pipe);
 
     assert!(
-        error.reason.contains("half its diameter"),
+        error.reason().contains("half its diameter"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.pipe)));
 }
@@ -189,19 +189,19 @@ fn a_bend_too_tight_or_too_long_fails_naming_the_curves() {
     let long = failure(&evaluate(&long.document), long.pipe);
 
     assert!(
-        tight.reason.contains("tighter than Pipe 1") && tight.reason.contains("of Path"),
+        tight.reason().contains("tighter than Pipe 1") && tight.reason().contains("of Path"),
         "{}",
-        tight.reason
+        tight.reason()
     );
     assert!(
-        tight.remedy.contains("bend radius larger"),
+        tight.remedy().contains("bend radius larger"),
         "{}",
-        tight.remedy
+        tight.remedy()
     );
     assert!(
-        long.reason.contains("Rounding the corner between") && long.reason.contains("of Path"),
+        long.reason().contains("Rounding the corner between") && long.reason().contains("of Path"),
         "{}",
-        long.reason
+        long.reason()
     );
 }
 
@@ -215,7 +215,7 @@ fn a_size_that_is_not_a_length_above_zero_fails_in_words() {
     let error = failure(&evaluate(&model.document), model.pipe);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The diameter of the pipe must be more than zero."
     );
 }

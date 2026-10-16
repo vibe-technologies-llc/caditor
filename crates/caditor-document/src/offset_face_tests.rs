@@ -186,21 +186,24 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
     set(&mut model, id, "0 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
-    assert_eq!(error.reason, "The distance must be more than 0.000001 mm.");
+    assert_eq!(
+        error.reason(),
+        "The distance must be more than 0.000001 mm."
+    );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.offset)));
 
     set(&mut model, id, "30 deg");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Edit the distance so it gives a length, such as 2 mm."
     );
 
     set(&mut model, id, "-5 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
-    assert_eq!(error.remedy, "Enter a smaller distance.");
+    assert_eq!(error.remedy(), "Enter a smaller distance.");
     assert!(evaluation.body(model.base).is_some());
 
     set(&mut model, id, "1 mm");
@@ -212,7 +215,7 @@ fn offset_face_errors_name_the_problem_and_the_fix() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.offset);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "A face to move is no longer part of the body of Base."
     );
 

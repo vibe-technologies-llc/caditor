@@ -148,9 +148,9 @@ fn a_suppressed_feature_is_skipped_and_its_dependents_fail_naming_it_until_unsup
     assert_eq!(state(&suppressed, model.lug), &FeatureState::Suppressed);
     assert!(suppressed.feature(model.lug).unwrap().result.is_none());
     let error = failure(&suppressed, model.boss);
-    assert_eq!(error.reason, "It uses Lug sketch, which is suppressed.");
+    assert_eq!(error.reason(), "It uses Lug sketch, which is suppressed.");
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Unsuppress Lug sketch, or suppress this feature too."
     );
     assert_eq!(error.fix, Some(FixTarget::Unsuppress(model.lug)));
@@ -202,7 +202,7 @@ fn a_suppressed_body_is_gone_rather_than_shown_stale() {
     assert!(!evaluation.is_stale(model.base));
     assert_eq!(evaluation.bodies().count(), 0);
     assert_eq!(
-        failure(&evaluation, model.pocket).reason,
+        failure(&evaluation, model.pocket).reason(),
         "It uses Base, which is suppressed."
     );
     assert_eq!(evaluation.failed_count(), 2);
@@ -332,13 +332,13 @@ fn deleting_a_feature_can_take_its_dependents_along_or_leave_them_failing_until_
 
     assert_eq!(dependents, [model.base, model.pocket, model.boss]);
     let base = failure(&kept, model.base);
-    assert_eq!(base.reason, "It uses a feature that no longer exists.");
+    assert_eq!(base.reason(), "It uses a feature that no longer exists.");
     assert_eq!(
-        base.remedy,
+        base.remedy(),
         "Undo the deletion, or delete this feature too."
     );
     assert_eq!(
-        failure(&kept, model.pocket).reason,
+        failure(&kept, model.pocket).reason(),
         "It uses Base, which has an error."
     );
     assert_eq!(state(&kept, model.note), &FeatureState::UpToDate);
@@ -530,7 +530,7 @@ fn a_feature_using_one_that_is_gone_can_be_inserted_and_its_id_is_never_handed_o
 
     assert_eq!(added, FeatureId::from_raw(41));
     assert_eq!(
-        failure(&evaluation, FeatureId::from_raw(3)).reason,
+        failure(&evaluation, FeatureId::from_raw(3)).reason(),
         "It uses a feature that no longer exists."
     );
     assert_eq!(above_its_sketch, Err(EditError::MissingFeature));
@@ -613,11 +613,11 @@ fn a_dependent_says_why_it_fails_when_what_it_uses_goes_from_failing_to_suppress
     let suppressed = evaluate(&document, &mut engine);
 
     assert_eq!(
-        failure(&failing, model.pocket).reason,
+        failure(&failing, model.pocket).reason(),
         "It uses Base, which has an error."
     );
     assert_eq!(
-        failure(&suppressed, model.pocket).reason,
+        failure(&suppressed, model.pocket).reason(),
         "It uses Base, which is suppressed."
     );
 }

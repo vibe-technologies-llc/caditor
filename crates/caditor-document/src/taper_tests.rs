@@ -147,21 +147,21 @@ fn an_extrusion_whose_taper_closes_the_profile_fails_naming_it() {
 
     let error = failure(&evaluation, spike);
     assert!(
-        error.reason.contains("The taper of Spike"),
+        error.reason().contains("The taper of Spike"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
-        error.remedy.contains("taper angle smaller"),
+        error.remedy().contains("taper angle smaller"),
         "{}",
-        error.remedy
+        error.remedy()
     );
 
     let (steep, spike) = model(square(10.0), |outline| {
         shaped(outline, 1.0, Some(degrees(-89.5)), None)
     });
     let error = failure(&evaluate(&steep, &mut Recompute::default()), spike);
-    assert!(error.reason.contains("89"), "{}", error.reason);
+    assert!(error.reason().contains("89"), "{}", error.reason());
 }
 
 #[test]
@@ -211,6 +211,10 @@ fn a_thin_wall_too_thick_for_its_extrusion_curves_fails_in_words() {
 
     let error = failure(&evaluate(&document, &mut Recompute::default()), tube);
 
-    assert!(error.reason.contains("too thick"), "{}", error.reason);
-    assert!(error.remedy.contains("thinner wall"), "{}", error.remedy);
+    assert!(error.reason().contains("too thick"), "{}", error.reason());
+    assert!(
+        error.remedy().contains("thinner wall"),
+        "{}",
+        error.remedy()
+    );
 }

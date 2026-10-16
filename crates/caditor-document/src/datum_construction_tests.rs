@@ -272,17 +272,17 @@ fn a_tangent_plane_fails_alone_when_the_side_is_on_the_axis_or_the_face_is_flat(
 
     assert!(
         failure(&evaluation, centred)
-            .reason
+            .reason()
             .contains("lies on its axis"),
         "{}",
-        failure(&evaluation, centred).reason
+        failure(&evaluation, centred).reason()
     );
     assert!(
         failure(&evaluation, flat)
-            .reason
+            .reason()
             .contains("no longer a cylindrical or conical face"),
         "{}",
-        failure(&evaluation, flat).reason
+        failure(&evaluation, flat).reason()
     );
 }
 
@@ -403,9 +403,9 @@ fn a_point_along_an_edge_counts_back_from_the_end_and_refuses_a_distance_past_it
     assert!((first.x + second.x - 10.0).abs() < CLOSE);
     assert!((first.x - second.x).abs() - 4.0 < CLOSE);
     assert!(
-        error.reason.contains("only 10.000 mm long"),
+        error.reason().contains("only 10.000 mm long"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -462,17 +462,17 @@ fn a_plane_passes_through_two_lines_that_cross_or_run_parallel() {
     assert!(level.signed_distance(Point3::new(5.0, 4.0, 0.0)).abs() < CLOSE);
     assert!(
         failure(&evaluation, skew)
-            .reason
+            .reason()
             .contains("do not lie in one plane"),
         "{}",
-        failure(&evaluation, skew).reason
+        failure(&evaluation, skew).reason()
     );
     assert!(
         failure(&evaluation, same)
-            .reason
+            .reason()
             .contains("are the same line"),
         "{}",
-        failure(&evaluation, same).reason
+        failure(&evaluation, same).reason()
     );
 }
 
@@ -538,10 +538,14 @@ fn a_point_sits_where_two_edges_cross_and_a_miss_is_explained() {
             .distance(Point3::new(10.0, 0.0, 0.0))
             < CLOSE
     );
-    assert!(failure(&evaluation, apart).reason.contains("run parallel"));
+    assert!(
+        failure(&evaluation, apart)
+            .reason()
+            .contains("run parallel")
+    );
     assert!(
         failure(&evaluation, passing)
-            .reason
+            .reason()
             .contains("pass each other without meeting")
     );
 }
@@ -604,12 +608,12 @@ fn a_point_sits_where_an_edge_meets_a_plane() {
     );
     assert!(
         failure(&evaluation, parallel)
-            .reason
+            .reason()
             .contains("runs parallel")
     );
     assert!(
         failure(&evaluation, lying)
-            .reason
+            .reason()
             .contains("crosses it everywhere")
     );
 }
@@ -656,7 +660,7 @@ fn a_point_sits_where_three_planes_meet_and_refuses_planes_sharing_a_line() {
     );
     assert!(
         failure(&evaluation, sharing)
-            .reason
+            .reason()
             .contains("do not meet in a single point")
     );
 }
@@ -700,7 +704,7 @@ fn a_point_sits_at_the_centre_of_a_torus_and_a_flat_face_gives_none() {
     );
     assert!(
         failure(&evaluation, flat)
-            .reason
+            .reason()
             .contains("no longer a sphere or a torus")
     );
 }
@@ -822,7 +826,7 @@ fn a_plane_touches_a_sphere_or_torus_and_an_axis_stands_square_to_it_nearest_a_p
     assert!(near(axis.origin(), Point3::new(50.0, 0.0, 5.0), 1e-6));
     assert!((axis.direction() - Vector3::Z).length() < 1e-6);
     assert_eq!(
-        failure(&evaluation, even).reason,
+        failure(&evaluation, even).reason(),
         "The chosen point lies at the centre of Ball surface, so every side of it is equally \
          near."
     );
@@ -855,10 +859,10 @@ fn a_tangent_plane_at_a_point_refuses_a_flat_face() {
 
     assert!(
         failure(&evaluation, flat)
-            .reason
+            .reason()
             .ends_with("is flat, so it has no single point to touch."),
         "{}",
-        failure(&evaluation, flat).reason
+        failure(&evaluation, flat).reason()
     );
 }
 

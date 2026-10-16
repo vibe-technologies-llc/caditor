@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
+use caditor_expression::{Dimension, Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanOperation, FaceId, FaceOrigin, LINEAR_RESOLUTION, LinearExtent,
@@ -14,13 +14,14 @@ use crate::{
     datum::{PlaneReference, Resolver, capitalized, describe_plane},
     describe::{describe_origin, lowercase_first},
     document::{Feature, FeatureId, list_names},
+    failure::{Cause, Expected, Upstream},
     hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{ReachedEnd, ReachedSide, SolidResult},
-    thread::{self, Bore, ThreadForm, ThreadWords, cut_thread, hole_thread},
-    thread_standard::{ThreadClass, ThreadDesignation, ThreadHand, ThreadSide},
+    thread::{self, Bore, ThreadCause, ThreadForm, cut_thread, hole_thread},
+    thread_standard::{ThreadClass, ThreadDesignation, ThreadFamily, ThreadHand, ThreadSide},
     tolerance,
-    trouble::boolean_trouble,
+    trouble::{Adjust, Trouble, boolean_trouble},
 };
 
 pub const MAX_HOLES: usize = 100;
@@ -506,24 +507,12 @@ impl Context<'_> {
         self.inputs.document.body_label(id).unwrap_or_default()
     }
 
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: HoleCause) -> Failure {
+        self.error_at(cause, self.feature.id())
     }
 
-    fn fix(&self, reason: String, remedy: String, target: FeatureId) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(target)),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error_at(&self, cause: HoleCause, target: FeatureId) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(target)))
     }
 
     fn value(
@@ -532,50 +521,35 @@ impl Context<'_> {
         dimension: Dimension,
         what: &str,
     ) -> Result<f64, Failure> {
+        let expected = if dimension == Dimension::ANGLE {
+            Expected::Angle(90.0)
+        } else {
+            Expected::Length(6.0)
+        };
         expression
             .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the {what}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } if dimension == Dimension::ANGLE => (
-                        format!("Edit the {what} so it gives an angle, such as 90 deg."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives a length, such as 6 mm."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        format!("Edit the {what} or the parameters it uses."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The {what} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    what,
+                    expected,
+                    error,
+                ))
             })
     }
 
     fn length(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, Dimension::LENGTH, what)?;
         if value <= 0.0 {
-            return Err(self.error(
-                format!("The {what} must be more than zero."),
-                format!("Enter a {what} above zero."),
-            ));
+            return Err(self.error(HoleCause::NotPositive {
+                what: what.to_owned(),
+            }));
         }
         if value > MAX_SIZE {
-            return Err(self.error(
-                format!("The {what} cannot be more than {} m.", MAX_SIZE / 1_000.0),
-                format!("Enter a {what} of at most {} m.", MAX_SIZE / 1_000.0),
-            ));
+            return Err(Failure::from(FeatureError::too_big(
+                FixTarget::Feature(self.feature.id()),
+                what,
+            )));
         }
         Ok(value)
     }
@@ -589,17 +563,10 @@ impl Context<'_> {
             .classes(ThreadSide::Internal)
             .contains(&designation.class)
         {
-            return Err(self.error(
-                format!(
-                    "The class {} is not one {} offers for a tapped hole.",
-                    designation.class.id(),
-                    family.label()
-                ),
-                format!(
-                    "Choose a class for an internal thread, such as {}.",
-                    family.default_class(ThreadSide::Internal).id()
-                ),
-            ));
+            return Err(self.error(HoleCause::ClassNotOffered {
+                class: designation.class,
+                family,
+            }));
         }
         definition
             .thread
@@ -643,18 +610,14 @@ impl Context<'_> {
                 continue;
             };
             let number = |part: u64| Hole::thread_entity(wall, part);
-            let words = ThreadWords {
-                size: designation.size,
-                side: bore.side,
-                face: &lowercase_first(&face),
-            };
             let (cut, made) = cut_thread(&tapped, &spec, raw, Some(&number)).map_err(|error| {
-                match words.words(&error) {
-                    None => Failure::Cancelled,
-                    Some(worded) => self
-                        .error(worded.reason, worded.remedy)
-                        .placed(worded.place),
-                }
+                ThreadCause::cutting(
+                    self.feature.id(),
+                    designation.size,
+                    bore.side,
+                    &lowercase_first(&face),
+                    error,
+                )
             })?;
             tapped = cut;
             tools.extend(made);
@@ -671,13 +634,7 @@ impl Context<'_> {
         hole: &str,
     ) -> Result<StyleValues, Failure> {
         if steps.is_empty() || steps.len() > MAX_HOLE_STEPS {
-            return Err(self.error(
-                format!(
-                    "A stepped hole has {} steps, but it needs from 1 to {MAX_HOLE_STEPS}.",
-                    steps.len()
-                ),
-                "Add or remove steps.".to_owned(),
-            ));
+            return Err(self.error(HoleCause::StepCount { count: steps.len() }));
         }
         let mut values: Vec<StepValues> = Vec::with_capacity(steps.len());
         for (index, step) in steps.iter().enumerate() {
@@ -688,16 +645,13 @@ impl Context<'_> {
             if let Some(above) = values.last()
                 && wide >= above.diameter
             {
-                return Err(self.error(
-                    format!("Step {number} is not narrower than step {index} above it.",),
-                    "Enter step diameters that get smaller going into the hole.".to_owned(),
-                ));
+                return Err(self.error(HoleCause::StepNotNarrower { number }));
             }
             if wide <= diameter {
-                return Err(self.error(
-                    format!("Step {number} is not wider than {hole}."),
-                    format!("Enter a step {number} diameter above the hole diameter."),
-                ));
+                return Err(self.error(HoleCause::StepNotWider {
+                    number,
+                    hole: hole.to_owned(),
+                }));
             }
             let floor = values.last().map_or(0.0, |above| above.floor) + deep;
             values.push(StepValues {
@@ -707,10 +661,7 @@ impl Context<'_> {
         }
         let reach = values.last().map_or(0.0, |deepest| deepest.floor);
         if depth.is_some_and(|depth| reach >= depth) {
-            return Err(self.error(
-                "The steps together are as deep as the whole hole.".to_owned(),
-                "Make the hole deeper or the steps shallower.".to_owned(),
-            ));
+            return Err(self.error(HoleCause::StepsAsDeep));
         }
         Ok(StyleValues::Stepped(values))
     }
@@ -735,16 +686,10 @@ impl Context<'_> {
                 let wide = self.length(wide, "counterbore diameter")? * head_scale;
                 let shallow = self.length(shallow, "counterbore depth")? * head_scale;
                 if wide <= diameter {
-                    return Err(self.error(
-                        format!("The counterbore is not wider than {hole}."),
-                        "Enter a counterbore diameter above the hole diameter.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::CounterboreNotWider { hole }));
                 }
                 if depth.is_some_and(|depth| shallow >= depth) {
-                    return Err(self.error(
-                        "The counterbore is as deep as the whole hole.".to_owned(),
-                        "Enter a counterbore depth below the hole depth.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::CounterboreAsDeep));
                 }
                 StyleValues::Stepped(vec![StepValues {
                     diameter: wide,
@@ -759,27 +704,15 @@ impl Context<'_> {
                 let wide = self.length(wide, "countersink diameter")? * head_scale;
                 let angle = self.value(angle, Dimension::ANGLE, "countersink angle")?;
                 if wide <= diameter {
-                    return Err(self.error(
-                        format!("The countersink is not wider than {hole}."),
-                        "Enter a countersink diameter above the hole diameter.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::CountersinkNotWider { hole }));
                 }
                 if angle <= 0.0 || angle > MAX_CONE_ANGLE {
-                    return Err(self.error(
-                        format!(
-                            "The countersink angle must be above 0° and at most {MAX_CONE_ANGLE}°."
-                        ),
-                        "Enter a countersink angle such as 90 deg.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::CountersinkAngle));
                 }
                 let half_angle = (angle / 2.0).to_radians();
                 let cone = (wide - diameter) / 2.0 / half_angle.tan();
                 if depth.is_some_and(|depth| cone >= depth) {
-                    return Err(self.error(
-                        "The countersink is as deep as the whole hole.".to_owned(),
-                        "Make the hole deeper, the countersink narrower or its angle wider."
-                            .to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::CountersinkAsDeep));
                 }
                 StyleValues::Countersink {
                     diameter: wide,
@@ -792,12 +725,7 @@ impl Context<'_> {
             HoleBottom::DrillPoint(angle) => {
                 let angle = self.value(angle, Dimension::ANGLE, "drill point angle")?;
                 if angle <= 0.0 || angle > MAX_CONE_ANGLE {
-                    return Err(self.error(
-                        format!(
-                            "The drill point angle must be above 0° and at most {MAX_CONE_ANGLE}°."
-                        ),
-                        "Enter a drill point angle such as 118 deg.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::DrillPointAngle));
                 }
                 depth.map(|_| (angle / 2.0).to_radians())
             }
@@ -806,17 +734,10 @@ impl Context<'_> {
             HoleShape::Round => None,
             HoleShape::Slot { length, angle } => {
                 if matches!(style, StyleValues::Countersink { .. }) {
-                    return Err(self.error(
-                        "A slot can be plain, counterbored or stepped, but not countersunk."
-                            .to_owned(),
-                        "Choose a plain, counterbored or stepped slot, or a round hole.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::SlotCountersunk));
                 }
                 if point_half_angle.is_some() {
-                    return Err(self.error(
-                        "A slot ends flat, so it cannot have a drill point.".to_owned(),
-                        "Turn the drill point off, or choose a round hole.".to_owned(),
-                    ));
+                    return Err(self.error(HoleCause::SlotDrillPoint));
                 }
                 Some(SlotValues {
                     length: self.length(length, "slot length")?,
@@ -897,12 +818,7 @@ fn tool(
     outline: &[(Point2, u64)],
     feature: u64,
 ) -> Result<Solid, Failure> {
-    let unusable = || {
-        context.error(
-            "The hole cannot be shaped at this point.".to_owned(),
-            "Move the point or change the hole's sizes.".to_owned(),
-        )
-    };
+    let unusable = || context.error(HoleCause::Unshapable);
     let across = frame.x_axis();
     let plane = Plane::from_frame(centre, across.cross(up), across).ok_or_else(unusable)?;
     let curves: Vec<ProfileCurve> = outline
@@ -938,12 +854,7 @@ fn slot_tool(
     cut: SlotCut,
     base: u64,
 ) -> Result<Solid, Failure> {
-    let unusable = || {
-        context.error(
-            "The slot cannot be shaped at this point.".to_owned(),
-            "Move the point or change the slot's sizes.".to_owned(),
-        )
-    };
+    let unusable = || context.error(HoleCause::SlotUnshapable);
     let (sin, cos) = slot.angle.sin_cos();
     let along = frame.x_axis() * cos + frame.y_axis() * sin;
     let plane = Plane::from_frame(centre, up, along).ok_or_else(unusable)?;
@@ -1078,13 +989,7 @@ impl Context<'_> {
         };
         let value = self.value(offset, Dimension::LENGTH, END_OFFSET)?;
         if value.abs() > MAX_SIZE {
-            return Err(self.error(
-                format!(
-                    "The {END_OFFSET} cannot be more than {} m.",
-                    MAX_SIZE / 1_000.0
-                ),
-                format!("Enter an {END_OFFSET} of at most {} m.", MAX_SIZE / 1_000.0),
-            ));
+            return Err(self.error(HoleCause::EndOffsetTooBig));
         }
         Ok(value)
     }
@@ -1103,24 +1008,10 @@ impl Context<'_> {
             .body(attachment.body)
             .ok_or_else(|| self.inputs.missing_body(attachment.body))?;
         attachment.resolve(solid).map_err(|error| {
-            let reason = match error {
-                AttachmentError::Missing => format!(
-                    "The face this hole is drilled up to is no longer part of the body of {body}."
-                ),
-                AttachmentError::Ambiguous => format!(
-                    "The face of {body} this hole is drilled up to was split into parts that no \
-                     longer lie in one plane."
-                ),
-                AttachmentError::NotFlat => {
-                    format!("The face of {body} this hole is drilled up to is no longer flat.")
-                }
-            };
-            self.error(
-                reason,
-                "Select a flat face or plane and use it for the end of the hole, or drill it \
-                 blind or through all."
-                    .to_owned(),
-            )
+            self.error(HoleCause::EndFace {
+                error,
+                body: body.clone(),
+            })
         })
     }
 
@@ -1134,46 +1025,31 @@ impl Context<'_> {
         let at = drilled.at;
         let facing = plane.normal().dot(drilled.down);
         if tolerance::perpendicular(plane.normal(), drilled.down) {
-            return Err(self.error(
-                format!(
-                    "{} runs along the hole at {at}, so the hole never reaches it.",
-                    capitalized(name)
-                ),
-                "Choose a face or plane that faces the hole, or drill it blind.".to_owned(),
-            ));
+            return Err(self.error(HoleCause::EndAlong {
+                end: name.to_owned(),
+                at: at.to_owned(),
+            }));
         }
         let reached = -plane.signed_distance(drilled.centre) / facing;
         if reached <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!(
-                    "{} does not lie ahead of the hole at {at}.",
-                    capitalized(name)
-                ),
-                "Turn the hole around, or choose a face or plane beyond the sketch.".to_owned(),
-            ));
+            return Err(self.error(HoleCause::EndBehind {
+                end: name.to_owned(),
+                at: at.to_owned(),
+            }));
         }
         let depth = reached + offset / facing.abs();
         if depth <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!(
-                    "Stopping {} short of {name} would end the hole at {at} before it starts.",
-                    Quantity::length(-offset)
-                ),
-                format!(
-                    "Enter a smaller {END_OFFSET}, or choose a face or plane farther from the \
-                     sketch."
-                ),
-            ));
+            return Err(self.error(HoleCause::EndOffsetTooShort {
+                offset,
+                end: name.to_owned(),
+                at: at.to_owned(),
+            }));
         }
         if depth > MAX_SIZE {
-            return Err(self.error(
-                format!(
-                    "The hole at {at} would reach farther than {} m before it meets {name}.",
-                    MAX_SIZE / 1_000.0
-                ),
-                "Choose a face or plane that faces the hole more squarely, or drill it blind."
-                    .to_owned(),
-            ));
+            return Err(self.error(HoleCause::EndTooFar {
+                end: name.to_owned(),
+                at: at.to_owned(),
+            }));
         }
         Ok(depth)
     }
@@ -1187,12 +1063,7 @@ impl Context<'_> {
         drilled: &Drilled<'_>,
     ) -> Result<(f64, Plane), Failure> {
         let at = drilled.at;
-        let unusable = || {
-            self.error(
-                format!("The next face the hole at {at} meets could not be found."),
-                "Use Up to face to choose where it stops, or drill it blind.".to_owned(),
-            )
-        };
+        let unusable = || self.error(HoleCause::NextNotFound { at: at.to_owned() });
         let (along, footprint) = footprint(values, drilled.frame).ok_or_else(unusable)?;
         let plane = Plane::from_frame(drilled.centre, drilled.down, along).ok_or_else(unusable)?;
         let describe = |face| {
@@ -1204,45 +1075,29 @@ impl Context<'_> {
         let found = next_face(body, &plane, &footprint, false).map_err(|error| match error {
             ReachError::Cancelled(_) => Failure::Cancelled,
             ReachError::NoRegions | ReachError::Undecided => unusable(),
-            ReachError::Nothing => self.error(
-                format!("The hole at {at} meets nothing of the body of {body_name}."),
-                "Turn the hole around, or move the point onto the body.".to_owned(),
-            ),
-            ReachError::Partly => self.error(
-                format!(
-                    "Part of the hole at {at} passes beside the body of {body_name}, so there is \
-                     no one next face to stop at."
-                ),
-                "Use Up to face to choose where it stops, or move the point.".to_owned(),
-            ),
-            ReachError::SeveralFaces(faces) => {
-                let names: Vec<String> = faces.iter().map(|face| describe(*face)).collect();
-                self.error(
-                    format!(
-                        "The hole at {at} meets several faces of {body_name} first: {}.",
-                        list_names(&names)
-                    ),
-                    "Use Up to face to choose which one it stops at.".to_owned(),
-                )
-            }
-            ReachError::Curved(face) => self.error(
-                format!(
-                    "The next face the hole at {at} meets, {}, is curved, and a hole can only \
-                     end on a flat face or plane.",
-                    describe(face)
-                ),
-                "Use Up to face with a flat face or plane, or drill it blind.".to_owned(),
-            ),
+            ReachError::Nothing => self.error(HoleCause::NextNothing {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }),
+            ReachError::Partly => self.error(HoleCause::NextPartly {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }),
+            ReachError::SeveralFaces(faces) => self.error(HoleCause::NextSeveral {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+                faces: faces.iter().map(|face| describe(*face)).collect(),
+            }),
+            ReachError::Curved(face) => self.error(HoleCause::NextCurved {
+                at: at.to_owned(),
+                face: describe(face),
+            }),
         })?;
         if found.entering {
-            return Err(self.error(
-                format!(
-                    "The hole at {at} first meets the body of {body_name} where it enters it, so \
-                     drilling up to that face removes nothing."
-                ),
-                "Place the sketch on or inside the body, or use Through all or Up to face."
-                    .to_owned(),
-            ));
+            return Err(self.error(HoleCause::NextEntering {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }));
         }
         let depth = self.depth_to(&found.plane, &describe(found.face), offset, drilled)?;
         Ok((depth, found.plane))
@@ -1260,10 +1115,10 @@ impl Context<'_> {
             StyleValues::Stepped(steps) => (
                 steps.last().map_or(0.0, |deepest| deepest.floor),
                 match definition.style {
-                    HoleStyle::Stepped(_) => "steps reach",
+                    HoleStyle::Stepped(_) => Head::Steps,
                     HoleStyle::Plain
                     | HoleStyle::Counterbore { .. }
-                    | HoleStyle::Countersink { .. } => "counterbore reaches",
+                    | HoleStyle::Countersink { .. } => Head::Counterbore,
                 },
             ),
             StyleValues::Countersink {
@@ -1271,17 +1126,16 @@ impl Context<'_> {
                 half_angle,
             } => (
                 (diameter - values.diameter) / 2.0 / half_angle.tan(),
-                "countersink reaches",
+                Head::Countersink,
             ),
         };
         if head < depth {
             return Ok(());
         }
-        Err(self.error(
-            format!("At {at}, the {what} as deep as the whole hole."),
-            "Make the head of the hole shallower, or choose an end farther from the sketch."
-                .to_owned(),
-        ))
+        Err(self.error(HoleCause::HeadAsDeep {
+            head: what,
+            at: at.to_owned(),
+        }))
     }
 }
 
@@ -1347,29 +1201,26 @@ pub(crate) fn evaluate(
     let Some(FeatureResult::Sketch(sketch)) =
         inputs.features.get(&definition.sketch).map(AsRef::as_ref)
     else {
-        return Err(context.fix(
-            format!("It needs the shape of {sketch_name}, which is not available."),
-            format!("Fix {sketch_name} first."),
-            definition.sketch,
+        return Err(Failure::from(
+            FeatureError::new(Upstream::NoShape { name: sketch_name })
+                .fixing(FixTarget::Feature(definition.sketch)),
         ));
     };
     let centres = centres(&sketch.geometry);
     if centres.is_empty() {
-        return Err(context.fix(
-            format!("{sketch_name} has no points or circles to drill at."),
-            "Place points or circles in the sketch where the holes go, or choose another sketch."
-                .to_owned(),
+        return Err(context.error_at(
+            HoleCause::NoCentres {
+                sketch: sketch_name,
+            },
             definition.sketch,
         ));
     }
     if centres.len() > MAX_HOLES {
-        return Err(context.fix(
-            format!(
-                "{sketch_name} has {} points and circles, more than the {MAX_HOLES} holes a \
-                 feature can drill.",
-                centres.len()
-            ),
-            "Use fewer points, or split them between several holes.".to_owned(),
+        return Err(context.error_at(
+            HoleCause::TooManyCentres {
+                sketch: sketch_name,
+                count: centres.len(),
+            },
             definition.sketch,
         ));
     }
@@ -1415,13 +1266,10 @@ pub(crate) fn evaluate(
             (Reach::Blind, Some(depth)) => depth,
             (Reach::Blind | Reach::ThroughAll, _) => {
                 reach(&body, centre, -up).ok_or_else(|| {
-                    context.error(
-                        format!(
-                            "No part of the body of {body_name} lies beyond {at} in the drilling \
-                             direction, so there is nothing to go through."
-                        ),
-                        "Turn the hole around, or move the point onto the body.".to_owned(),
-                    )
+                    context.error(HoleCause::NothingBeyond {
+                        body: body_name.clone(),
+                        at: at.clone(),
+                    })
                 })?
             }
             (Reach::UpToNext { offset }, _) => {
@@ -1453,41 +1301,34 @@ pub(crate) fn evaluate(
                 use caditor_kernel::BooleanError;
                 match error {
                     BooleanError::Cancelled(_) => Failure::Cancelled,
-                    BooleanError::Empty => context.error(
-                        format!(
-                            "The hole at {} would remove all of {body_name}.",
-                            sketch.geometry.entity_label(point)
-                        ),
-                        "Make the hole smaller or move the point.".to_owned(),
-                    ),
+                    BooleanError::Empty => context.error(HoleCause::RemovesAll {
+                        at: sketch.geometry.entity_label(point),
+                        body: body_name.clone(),
+                    }),
                     other => {
                         log::warn!("{} could not drill: {other}", feature.name);
                         let trouble = boolean_trouble(
                             inputs.document,
                             [&body, &drill],
                             &other,
-                            "Move the point or change the sizes",
+                            Adjust::MoveThePointOrChangeTheSizes,
                         );
+                        let place = trouble.place;
                         context
-                            .error(
-                                trouble.reason(format!(
-                                    "The hole at {} could not be cut into {body_name}.",
-                                    sketch.geometry.entity_label(point)
-                                )),
-                                trouble.remedy,
-                            )
-                            .placed(trouble.place)
+                            .error(HoleCause::NotCut {
+                                at: sketch.geometry.entity_label(point),
+                                body: body_name.clone(),
+                                trouble,
+                            })
+                            .placed(place)
                     }
                 }
             })?;
             if !leaves_a_face_of(&cut, &drill) {
-                return Err(context.error(
-                    format!(
-                        "The hole at {} does not reach {body_name}.",
-                        sketch.geometry.entity_label(point)
-                    ),
-                    "Move the point onto the body, or turn the hole around.".to_owned(),
-                ));
+                return Err(context.error(HoleCause::Unreached {
+                    at: sketch.geometry.entity_label(point),
+                    body: body_name.clone(),
+                }));
             }
             body = cut;
             tools.push(drill);
@@ -1505,4 +1346,347 @@ pub(crate) fn evaluate(
             .reaching(reached)
             .cutting(tools),
     ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Head {
+    Steps,
+    Counterbore,
+    Countersink,
+}
+
+impl Head {
+    fn words(self) -> &'static str {
+        match self {
+            Self::Steps => "steps reach",
+            Self::Counterbore => "counterbore reaches",
+            Self::Countersink => "countersink reaches",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum HoleCause {
+    NotPositive {
+        what: String,
+    },
+    EndOffsetTooBig,
+    ClassNotOffered {
+        class: ThreadClass,
+        family: ThreadFamily,
+    },
+    StepCount {
+        count: usize,
+    },
+    StepNotNarrower {
+        number: usize,
+    },
+    StepNotWider {
+        number: usize,
+        hole: String,
+    },
+    StepsAsDeep,
+    CounterboreNotWider {
+        hole: String,
+    },
+    CounterboreAsDeep,
+    CountersinkNotWider {
+        hole: String,
+    },
+    CountersinkAngle,
+    CountersinkAsDeep,
+    DrillPointAngle,
+    SlotCountersunk,
+    SlotDrillPoint,
+    Unshapable,
+    SlotUnshapable,
+    EndFace {
+        error: AttachmentError,
+        body: String,
+    },
+    EndAlong {
+        end: String,
+        at: String,
+    },
+    EndBehind {
+        end: String,
+        at: String,
+    },
+    EndOffsetTooShort {
+        offset: f64,
+        end: String,
+        at: String,
+    },
+    EndTooFar {
+        end: String,
+        at: String,
+    },
+    NextNotFound {
+        at: String,
+    },
+    NextNothing {
+        at: String,
+        body: String,
+    },
+    NextPartly {
+        at: String,
+        body: String,
+    },
+    NextSeveral {
+        at: String,
+        body: String,
+        faces: Vec<String>,
+    },
+    NextCurved {
+        at: String,
+        face: String,
+    },
+    NextEntering {
+        at: String,
+        body: String,
+    },
+    HeadAsDeep {
+        head: Head,
+        at: String,
+    },
+    NoCentres {
+        sketch: String,
+    },
+    TooManyCentres {
+        sketch: String,
+        count: usize,
+    },
+    NothingBeyond {
+        body: String,
+        at: String,
+    },
+    RemovesAll {
+        at: String,
+        body: String,
+    },
+    NotCut {
+        at: String,
+        body: String,
+        trouble: Trouble,
+    },
+    Unreached {
+        at: String,
+        body: String,
+    },
+}
+
+impl HoleCause {
+    pub(crate) fn reason(&self) -> String {
+        let most = MAX_SIZE / 1_000.0;
+        match self {
+            Self::NotPositive { what } => format!("The {what} must be more than zero."),
+            Self::EndOffsetTooBig => format!("The {END_OFFSET} cannot be more than {most} m."),
+            Self::ClassNotOffered { class, family } => format!(
+                "The class {} is not one {} offers for a tapped hole.",
+                class.id(),
+                family.label()
+            ),
+            Self::StepCount { count } => format!(
+                "A stepped hole has {count} steps, but it needs from 1 to {MAX_HOLE_STEPS}."
+            ),
+            Self::StepNotNarrower { number } => format!(
+                "Step {number} is not narrower than step {} above it.",
+                number - 1
+            ),
+            Self::StepNotWider { number, hole } => {
+                format!("Step {number} is not wider than {hole}.")
+            }
+            Self::StepsAsDeep => "The steps together are as deep as the whole hole.".to_owned(),
+            Self::CounterboreNotWider { hole } => {
+                format!("The counterbore is not wider than {hole}.")
+            }
+            Self::CounterboreAsDeep => "The counterbore is as deep as the whole hole.".to_owned(),
+            Self::CountersinkNotWider { hole } => {
+                format!("The countersink is not wider than {hole}.")
+            }
+            Self::CountersinkAngle => {
+                format!("The countersink angle must be above 0° and at most {MAX_CONE_ANGLE}°.")
+            }
+            Self::CountersinkAsDeep => "The countersink is as deep as the whole hole.".to_owned(),
+            Self::DrillPointAngle => {
+                format!("The drill point angle must be above 0° and at most {MAX_CONE_ANGLE}°.")
+            }
+            Self::SlotCountersunk => {
+                "A slot can be plain, counterbored or stepped, but not countersunk.".to_owned()
+            }
+            Self::SlotDrillPoint => "A slot ends flat, so it cannot have a drill point.".to_owned(),
+            Self::Unshapable => "The hole cannot be shaped at this point.".to_owned(),
+            Self::SlotUnshapable => "The slot cannot be shaped at this point.".to_owned(),
+            Self::EndFace { error, body } => match error {
+                AttachmentError::Missing => format!(
+                    "The face this hole is drilled up to is no longer part of the body of {body}."
+                ),
+                AttachmentError::Ambiguous => format!(
+                    "The face of {body} this hole is drilled up to was split into parts that no \
+                     longer lie in one plane."
+                ),
+                AttachmentError::NotFlat => {
+                    format!("The face of {body} this hole is drilled up to is no longer flat.")
+                }
+            },
+            Self::EndAlong { end, at } => format!(
+                "{} runs along the hole at {at}, so the hole never reaches it.",
+                capitalized(end)
+            ),
+            Self::EndBehind { end, at } => {
+                format!(
+                    "{} does not lie ahead of the hole at {at}.",
+                    capitalized(end)
+                )
+            }
+            Self::EndOffsetTooShort { offset, end, at } => format!(
+                "Stopping {} short of {end} would end the hole at {at} before it starts.",
+                Quantity::length(-offset)
+            ),
+            Self::EndTooFar { end, at } => {
+                format!("The hole at {at} would reach farther than {most} m before it meets {end}.")
+            }
+            Self::NextNotFound { at } => {
+                format!("The next face the hole at {at} meets could not be found.")
+            }
+            Self::NextNothing { at, body } => {
+                format!("The hole at {at} meets nothing of the body of {body}.")
+            }
+            Self::NextPartly { at, body } => format!(
+                "Part of the hole at {at} passes beside the body of {body}, so there is no one \
+                 next face to stop at."
+            ),
+            Self::NextSeveral { at, body, faces } => format!(
+                "The hole at {at} meets several faces of {body} first: {}.",
+                list_names(faces)
+            ),
+            Self::NextCurved { at, face } => format!(
+                "The next face the hole at {at} meets, {face}, is curved, and a hole can only \
+                 end on a flat face or plane."
+            ),
+            Self::NextEntering { at, body } => format!(
+                "The hole at {at} first meets the body of {body} where it enters it, so drilling \
+                 up to that face removes nothing."
+            ),
+            Self::HeadAsDeep { head, at } => {
+                format!("At {at}, the {} as deep as the whole hole.", head.words())
+            }
+            Self::NoCentres { sketch } => {
+                format!("{sketch} has no points or circles to drill at.")
+            }
+            Self::TooManyCentres { sketch, count } => format!(
+                "{sketch} has {count} points and circles, more than the {MAX_HOLES} holes a \
+                 feature can drill."
+            ),
+            Self::NothingBeyond { body, at } => format!(
+                "No part of the body of {body} lies beyond {at} in the drilling direction, so \
+                 there is nothing to go through."
+            ),
+            Self::RemovesAll { at, body } => {
+                format!("The hole at {at} would remove all of {body}.")
+            }
+            Self::NotCut { at, body, trouble } => {
+                trouble.reason(format!("The hole at {at} could not be cut into {body}."))
+            }
+            Self::Unreached { at, body } => format!("The hole at {at} does not reach {body}."),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        let most = MAX_SIZE / 1_000.0;
+        match self {
+            Self::NotPositive { what } => format!("Enter a {what} above zero."),
+            Self::EndOffsetTooBig => format!("Enter an {END_OFFSET} of at most {most} m."),
+            Self::ClassNotOffered { family, .. } => format!(
+                "Choose a class for an internal thread, such as {}.",
+                family.default_class(ThreadSide::Internal).id()
+            ),
+            Self::StepCount { .. } => "Add or remove steps.".to_owned(),
+            Self::StepNotNarrower { .. } => {
+                "Enter step diameters that get smaller going into the hole.".to_owned()
+            }
+            Self::StepNotWider { number, .. } => {
+                format!("Enter a step {number} diameter above the hole diameter.")
+            }
+            Self::StepsAsDeep => "Make the hole deeper or the steps shallower.".to_owned(),
+            Self::CounterboreNotWider { .. } => {
+                "Enter a counterbore diameter above the hole diameter.".to_owned()
+            }
+            Self::CounterboreAsDeep => "Enter a counterbore depth below the hole depth.".to_owned(),
+            Self::CountersinkNotWider { .. } => {
+                "Enter a countersink diameter above the hole diameter.".to_owned()
+            }
+            Self::CountersinkAngle => "Enter a countersink angle such as 90 deg.".to_owned(),
+            Self::CountersinkAsDeep => {
+                "Make the hole deeper, the countersink narrower or its angle wider.".to_owned()
+            }
+            Self::DrillPointAngle => "Enter a drill point angle such as 118 deg.".to_owned(),
+            Self::SlotCountersunk => {
+                "Choose a plain, counterbored or stepped slot, or a round hole.".to_owned()
+            }
+            Self::SlotDrillPoint => "Turn the drill point off, or choose a round hole.".to_owned(),
+            Self::Unshapable => "Move the point or change the hole's sizes.".to_owned(),
+            Self::SlotUnshapable => "Move the point or change the slot's sizes.".to_owned(),
+            Self::EndFace { .. } => {
+                "Select a flat face or plane and use it for the end of the hole, or drill it \
+                 blind or through all."
+                    .to_owned()
+            }
+            Self::EndAlong { .. } => {
+                "Choose a face or plane that faces the hole, or drill it blind.".to_owned()
+            }
+            Self::EndBehind { .. } => {
+                "Turn the hole around, or choose a face or plane beyond the sketch.".to_owned()
+            }
+            Self::EndOffsetTooShort { .. } => format!(
+                "Enter a smaller {END_OFFSET}, or choose a face or plane farther from the sketch."
+            ),
+            Self::EndTooFar { .. } => {
+                "Choose a face or plane that faces the hole more squarely, or drill it blind."
+                    .to_owned()
+            }
+            Self::NextNotFound { .. } => {
+                "Use Up to face to choose where it stops, or drill it blind.".to_owned()
+            }
+            Self::NextNothing { .. } | Self::NothingBeyond { .. } => {
+                "Turn the hole around, or move the point onto the body.".to_owned()
+            }
+            Self::NextPartly { .. } => {
+                "Use Up to face to choose where it stops, or move the point.".to_owned()
+            }
+            Self::NextSeveral { .. } => {
+                "Use Up to face to choose which one it stops at.".to_owned()
+            }
+            Self::NextCurved { .. } => {
+                "Use Up to face with a flat face or plane, or drill it blind.".to_owned()
+            }
+            Self::NextEntering { .. } => {
+                "Place the sketch on or inside the body, or use Through all or Up to face."
+                    .to_owned()
+            }
+            Self::HeadAsDeep { .. } => {
+                "Make the head of the hole shallower, or choose an end farther from the sketch."
+                    .to_owned()
+            }
+            Self::NoCentres { .. } => {
+                "Place points or circles in the sketch where the holes go, or choose another \
+                 sketch."
+                    .to_owned()
+            }
+            Self::TooManyCentres { .. } => {
+                "Use fewer points, or split them between several holes.".to_owned()
+            }
+            Self::RemovesAll { .. } => "Make the hole smaller or move the point.".to_owned(),
+            Self::NotCut { trouble, .. } => trouble.remedy(),
+            Self::Unreached { .. } => {
+                "Move the point onto the body, or turn the hole around.".to_owned()
+            }
+        }
+    }
+}
+
+impl From<HoleCause> for Cause {
+    fn from(cause: HoleCause) -> Self {
+        Self::Hole(cause)
+    }
 }

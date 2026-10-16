@@ -62,7 +62,7 @@ fn placed(document: &Document, feature: FeatureId) -> PlacedImage {
 fn failure(document: &Document, feature: FeatureId) -> String {
     let evaluation = evaluate(document);
     match &evaluation.feature(feature).unwrap().state {
-        FeatureState::Failed(error) => error.reason.clone(),
+        FeatureState::Failed(error) => error.reason().clone(),
         state => panic!("the image did not fail: {state:?}"),
     }
 }

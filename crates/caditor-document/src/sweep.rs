@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, Expression, Unit, format_decimals};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{
     EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, Solid,
@@ -11,13 +11,14 @@ use caditor_sketch::EntityId;
 use crate::{
     describe::describe_edge,
     document::{Feature, FeatureId, list_names},
+    failure::Cause,
     origins,
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput},
     solid::{BodyOperation, Context, RegionChoice, profile_curve, sweep_failure},
+    sweep_cause::{Follower, Segments, SweepCause},
 };
 
 pub const SWEEP_SHAPE: &str = "sweep";
-const TWIST_DECIMALS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum SweepPath {
@@ -202,14 +203,8 @@ fn no_path() -> Failure {
     Failure::Waiting(MissingInput::Path)
 }
 
-pub(crate) fn failed(reason: String, remedy: String, fix: FixTarget) -> Failure {
-    Failure::Error(Box::new(FeatureError {
-        reason,
-        remedy,
-        fix: Some(fix),
-        constraints: Vec::new(),
-        place: None,
-    }))
+pub(crate) fn failed(cause: impl Into<Cause>, fix: FixTarget) -> Failure {
+    Failure::from(FeatureError::new(cause).fixing(fix))
 }
 
 fn curve_path(
@@ -222,8 +217,9 @@ fn curve_path(
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
         return Err(failed(
-            format!("It needs the path drawn in {sketch_name}, which is not available."),
-            format!("Fix {sketch_name} first, or choose another path."),
+            SweepCause::PathUnavailable {
+                sketch: sketch_name,
+            },
             FixTarget::Feature(sketch_id),
         ));
     };
@@ -234,12 +230,10 @@ fn curve_path(
     for curve in curves {
         let missing = || {
             failed(
-                format!(
-                    "A curve of the path is no longer a curve of {sketch_name}, so {} cannot \
-                     follow it.",
-                    feature.name
-                ),
-                "Choose the path again.".to_owned(),
+                SweepCause::CurveGone {
+                    sketch: sketch_name.clone(),
+                    feature: feature.name.clone(),
+                },
                 FixTarget::Feature(feature.id()),
             )
         };
@@ -274,23 +268,21 @@ fn edge_path(
     let mut labels = Vec::with_capacity(edges.len());
     for reference in edges {
         let id = reference.resolve_in(&naming).map_err(|error| {
-            let reason = match error {
-                ReferenceError::Ambiguous { .. } => format!(
-                    "An edge of the path now matches several edges of {body_name}, so {} cannot \
-                     tell which to follow.",
-                    feature.name
-                ),
-                ReferenceError::Missing => format!(
-                    "An edge of the path is no longer part of {body_name}, so {} cannot follow it.",
-                    feature.name
-                ),
-            };
-            failed(reason, "Choose the path again.".to_owned(), own)
+            let body = body_name.clone();
+            let feature = feature.name.clone();
+            failed(
+                match error {
+                    ReferenceError::Ambiguous { .. } => SweepCause::EdgeAmbiguous { body, feature },
+                    ReferenceError::Missing => SweepCause::EdgeGone { body, feature },
+                },
+                own,
+            )
         })?;
         let edge = solid.edge(id).ok_or_else(|| {
             failed(
-                format!("An edge of the path is no longer part of {body_name}."),
-                "Choose the path again.".to_owned(),
+                SweepCause::EdgeMissing {
+                    body: body_name.clone(),
+                },
                 own,
             )
         })?;
@@ -314,8 +306,7 @@ fn helix_path(inputs: &Inputs<'_>, helix: FeatureId) -> Result<Path, Failure> {
     let helix_name = feature_name(inputs, helix);
     let Some(FeatureResult::Helix(result)) = inputs.features.get(&helix).map(AsRef::as_ref) else {
         return Err(failed(
-            format!("It needs {helix_name} as its path, which is not available."),
-            format!("Fix {helix_name} first, or choose another path."),
+            SweepCause::HelixUnavailable { helix: helix_name },
             FixTarget::Feature(helix),
         ));
     };
@@ -372,17 +363,10 @@ fn shape_of(
         inputs.parameters,
     )?;
     if scale <= 0.0 {
-        return Err(context.error(
-            format!(
-                "The end scale of {} must be more than zero, and {} is not.",
-                context.feature.name,
-                format_decimals(scale, TWIST_DECIMALS)
-            ),
-            "Enter an end scale above zero, such as 0.5 to end at half the size or 1 to keep \
-             it."
-            .to_owned(),
-            context.own(),
-        ));
+        return Err(context.error(SweepCause::EndScale {
+            feature: context.feature.name.clone(),
+            scale,
+        }));
     }
     Ok(SweepShape {
         twist: twist.to_radians(),
@@ -409,83 +393,65 @@ pub(crate) fn swept(
 }
 
 pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepError) -> Failure {
-    let name = &feature.name;
-    let owner = &path.owner;
+    path_cause(feature, path, error, Follower::Feature)
+}
+
+fn path_cause(
+    feature: &Feature,
+    path: &Path,
+    error: &PathSweepError,
+    follower: Follower,
+) -> Failure {
+    let name = feature.name.clone();
+    let owner = path.owner.clone();
     let own = FixTarget::Feature(feature.id());
-    let in_path = |reason: String, remedy: &str| failed(reason, remedy.to_owned(), path.fix);
+    let at = |segments: &[usize]| Segments {
+        labels: path.labels(segments),
+        owner: owner.clone(),
+    };
+    let in_path = |cause: SweepCause| failed(cause, path.fix);
     match error {
         PathSweepError::Cancelled(_) => Failure::Cancelled,
         PathSweepError::NoPath => no_path(),
-        PathSweepError::SegmentTooShort { segment } => in_path(
-            format!(
-                "{}{owner} is too short to follow.",
-                capital(&path.label(*segment))
-            ),
-            "Lengthen it, or leave it out of the path.",
-        ),
-        PathSweepError::Branches { segments } => in_path(
-            format!(
-                "The path branches where {}{owner} meet.",
-                path.labels(segments)
-            ),
-            "Choose curves or edges that follow one another end to end, without forks.",
-        ),
-        PathSweepError::Apart { segments } => in_path(
-            format!(
-                "{}{owner} {} not join the rest of the path.",
-                capital(&path.labels(segments)),
-                if segments.len() == 1 { "does" } else { "do" }
-            ),
-            "Choose curves or edges that meet end to end, or close the gap between them.",
-        ),
-        PathSweepError::UnsupportedPath { segment } => in_path(
-            format!("{name} cannot follow {}{owner}.", path.label(*segment)),
-            "Choose lines, arcs, splines or edges as the path.",
-        ),
-        PathSweepError::TooLong => in_path(
-            "The path reaches farther than the largest model allows.".to_owned(),
-            "Choose a shorter path.",
-        ),
-        PathSweepError::TooIntricate { segment } => in_path(
-            format!(
-                "{}{owner} bends too intricately to follow.",
-                capital(&path.label(*segment))
-            ),
-            "Simplify that curve.",
-        ),
-        PathSweepError::Corner { segments } => in_path(
-            format!(
-                "The path turns a sharp corner between {}{owner}, which {name} cannot follow.",
-                path.labels(segments)
-            ),
-            "Round the corner with a fillet in the path, or meet it with straight lines on both \
-             sides.",
-        ),
-        PathSweepError::CornerTooSharp { segments } => in_path(
-            format!(
-                "The corner between {}{owner} turns back too sharply for {name} to follow.",
-                path.labels(segments)
-            ),
-            "Open the corner up, or lengthen the lines at it.",
-        ),
-        PathSweepError::ProfileTooLarge { segment } => in_path(
-            format!(
-                "{name} is too large for the bend of {}{owner}: it would reach past the centre \
-                 the path bends around.",
-                path.label(*segment)
-            ),
-            "Make it smaller or the bend gentler.",
-        ),
-        PathSweepError::ClosedPathTwists { .. } => in_path(
-            "Following the closed path brings the section back turned, so it would not close."
-                .to_owned(),
-            "Use a closed path lying in one plane, or an open path.",
-        ),
-        PathSweepError::CrossesItself => failed(
-            format!("{name} runs into itself along its path."),
-            "Make it smaller, or move the parts of the path farther apart.".to_owned(),
-            own,
-        ),
+        PathSweepError::SegmentTooShort { segment } => in_path(SweepCause::ShortSegment {
+            label: path.label(*segment),
+            owner,
+            follower,
+        }),
+        PathSweepError::Branches { segments } => in_path(SweepCause::Branches { at: at(segments) }),
+        PathSweepError::Apart { segments } => in_path(SweepCause::Apart {
+            at: at(segments),
+            single: segments.len() == 1,
+        }),
+        PathSweepError::UnsupportedPath { segment } => in_path(SweepCause::Unsupported {
+            name,
+            label: path.label(*segment),
+            owner,
+        }),
+        PathSweepError::TooLong => in_path(SweepCause::TooLong),
+        PathSweepError::TooIntricate { segment } => in_path(SweepCause::Intricate {
+            label: path.label(*segment),
+            owner,
+            follower,
+        }),
+        PathSweepError::Corner { segments } => in_path(SweepCause::Corner {
+            at: at(segments),
+            name,
+            follower,
+        }),
+        PathSweepError::CornerTooSharp { segments } => in_path(SweepCause::CornerTooSharp {
+            at: at(segments),
+            name,
+            follower,
+        }),
+        PathSweepError::ProfileTooLarge { segment } => in_path(SweepCause::ProfileTooLarge {
+            name,
+            label: path.label(*segment),
+            owner,
+            sketch: None,
+        }),
+        PathSweepError::ClosedPathTwists { .. } => in_path(SweepCause::ClosedTwists),
+        PathSweepError::CrossesItself => failed(SweepCause::CrossesItself { name, follower }, own),
         PathSweepError::Sweep(_)
         | PathSweepError::StartsAlongProfile
         | PathSweepError::TurnsAlongProfile { .. }
@@ -494,11 +460,7 @@ pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepErro
         | PathSweepError::UnusableShape
         | PathSweepError::ShapedCorner { .. } => {
             log::warn!("{name} could not follow its path: {error}");
-            failed(
-                format!("{name} cannot be built along this path."),
-                "Choose another path or change its sizes.".to_owned(),
-                own,
-            )
+            failed(SweepCause::Unbuilt { name }, own)
         }
     }
 }
@@ -509,130 +471,77 @@ fn failure(
     error: &PathSweepError,
     shape: SweepShape,
 ) -> Failure {
-    let name = &context.feature.name;
-    let owner = &path.owner;
-    let in_path = |reason: String, remedy: &str| context.error(reason, remedy.to_owned(), path.fix);
+    let name = context.feature.name.clone();
+    let owner = path.owner.clone();
+    let at = |segments: &[usize]| Segments {
+        labels: path.labels(segments),
+        owner: owner.clone(),
+    };
+    let in_path = |cause: SweepCause| failed(cause, path.fix);
     match error {
         PathSweepError::Sweep(error) => sweep_failure(context, SWEEP_SHAPE, error),
-        PathSweepError::SegmentTooShort { segment } => in_path(
-            format!(
-                "{}{owner} is too short to sweep along.",
-                capital(&path.label(*segment))
-            ),
-            "Lengthen it, or leave it out of the path.",
-        ),
-        PathSweepError::StartsAlongProfile => context.error(
-            format!(
-                "The path leaves the profile of {} along the profile's own plane, so the sweep \
-                 would be flat.",
-                context.sketch_name
-            ),
-            "Draw the path so it starts across the profile's plane, in a sketch on a plane \
-             crossing the profile's."
-                .to_owned(),
+        PathSweepError::SegmentTooShort { segment } => in_path(SweepCause::ShortSegment {
+            label: path.label(*segment),
+            owner,
+            follower: Follower::Sweep,
+        }),
+        PathSweepError::StartsAlongProfile => failed(
+            SweepCause::StartsAlongProfile {
+                sketch: context.sketch_name.clone(),
+            },
             path.fix,
         ),
-        PathSweepError::TurnsAlongProfile { segment } => context.error(
-            format!(
-                "Kept parallel to its sketch, the profile would slide along itself where {}{owner} \
-                 turns along the profile's plane.",
-                path.label(*segment)
-            ),
-            "Keep the profile square to the path, or choose a path that keeps rising out of the \
-             profile's plane."
-                .to_owned(),
-            context.own(),
-        ),
-        PathSweepError::Corner { segments } => in_path(
-            format!(
-                "The path turns a sharp corner between {}{owner}, which a profile kept square to \
-                 the path cannot follow.",
-                path.labels(segments)
-            ),
-            "Round the corner with a fillet in the path, keep the profile parallel, or meet it \
-             with straight lines on both sides so it is mitred.",
-        ),
-        PathSweepError::CornerTooSharp { segments } => in_path(
-            format!(
-                "The corner between {}{owner} is too sharp for the profile: its mitre would cut \
-                 past the end of a line.",
-                path.labels(segments)
-            ),
-            "Lengthen the lines at the corner, open the corner up, or make the profile smaller.",
-        ),
-        PathSweepError::ProfileTooLarge { segment } => context.error(
-            format!(
-                "The profile of {} is too large for the bend of {}{owner}: it would reach past the \
-                 centre the path bends around.",
-                context.sketch_name,
-                path.label(*segment)
-            ),
-            "Make the profile smaller or the bend gentler.".to_owned(),
-            context.in_sketch(),
-        ),
-        PathSweepError::ClosedPathMissesProfile => in_path(
-            format!(
-                "The closed path never crosses the plane of {}, so the profile is not on it.",
-                context.sketch_name
-            ),
-            "Move the profile onto the path, or the path through the profile.",
-        ),
+        PathSweepError::TurnsAlongProfile { segment } => {
+            context.error(SweepCause::TurnsAlongProfile {
+                label: path.label(*segment),
+                owner,
+            })
+        }
+        PathSweepError::Corner { segments } => in_path(SweepCause::Corner {
+            at: at(segments),
+            name,
+            follower: Follower::Sweep,
+        }),
+        PathSweepError::CornerTooSharp { segments } => in_path(SweepCause::CornerTooSharp {
+            at: at(segments),
+            name,
+            follower: Follower::Sweep,
+        }),
+        PathSweepError::ProfileTooLarge { segment } => {
+            context.error_in_sketch(SweepCause::ProfileTooLarge {
+                name,
+                label: path.label(*segment),
+                owner,
+                sketch: Some(context.sketch_name.clone()),
+            })
+        }
+        PathSweepError::ClosedPathMissesProfile => in_path(SweepCause::ClosedMissesProfile {
+            sketch: context.sketch_name.clone(),
+        }),
         PathSweepError::ClosedPathTwists {
             turned: Some(turned),
-        } => {
-            let needed = (shape.twist - turned).to_degrees();
-            context.error(
-                format!(
-                    "Following the closed path brings the profile back turned by {}°, so {name} \
-                     would not close.",
-                    format_decimals(turned.to_degrees(), TWIST_DECIMALS)
-                ),
-                format!(
-                    "Set the twist to {}°, or that plus or minus whole turns, so the profile comes \
-                     back where it started.",
-                    format_decimals(needed, TWIST_DECIMALS)
-                ),
-                context.own(),
-            )
-        }
-        PathSweepError::ClosedPathTwists { turned: None } => in_path(
-            "Following the closed path brings the profile back tilted, so the sweep would not \
-             close."
-                .to_owned(),
-            "Draw the profile square to the path where they meet, use a closed path lying in one \
-             plane, or an open path.",
-        ),
-        PathSweepError::ClosedPathScales => context.error(
-            format!("{name} follows a closed path, so its end is its start and cannot be scaled."),
-            "Set the end scale to 1, or choose an open path.".to_owned(),
-            context.own(),
-        ),
-        PathSweepError::UnusableShape => context.error(
-            format!("The twist or end scale of {name} is out of range."),
-            "Enter an end scale nearer 1.".to_owned(),
-            context.own(),
-        ),
-        PathSweepError::ShapedCorner { segments } => in_path(
-            format!(
-                "The path turns a sharp corner between {}{owner}, which a twisted or scaled sweep \
-                 cannot mitre.",
-                path.labels(segments)
-            ),
-            "Round the corner with a fillet in the path, or set the twist to 0° and the end \
-             scale to 1.",
-        ),
-        PathSweepError::TooIntricate { segment } => in_path(
-            format!(
-                "{}{owner} bends too intricately to sweep along.",
-                capital(&path.label(*segment))
-            ),
-            "Simplify that curve.",
-        ),
-        PathSweepError::CrossesItself => context.error(
-            format!("{name} runs into itself along its path."),
-            "Make the profile smaller, or move the parts of the path farther apart.".to_owned(),
-            context.own(),
-        ),
+        } => context.error(SweepCause::ClosedTwistsBy {
+            name,
+            turned: turned.to_degrees(),
+            needed: (shape.twist - turned).to_degrees(),
+        }),
+        PathSweepError::ClosedPathTwists { turned: None } => in_path(SweepCause::ClosedTilted),
+        PathSweepError::ClosedPathScales => context.error(SweepCause::ClosedScales { name }),
+        PathSweepError::UnusableShape => context.error(SweepCause::UnusableShape { name }),
+        PathSweepError::ShapedCorner { segments } => in_path(SweepCause::Corner {
+            at: at(segments),
+            name,
+            follower: Follower::Shaped,
+        }),
+        PathSweepError::TooIntricate { segment } => in_path(SweepCause::Intricate {
+            label: path.label(*segment),
+            owner,
+            follower: Follower::Sweep,
+        }),
+        PathSweepError::CrossesItself => context.error(SweepCause::CrossesItself {
+            name,
+            follower: Follower::Sweep,
+        }),
         PathSweepError::Cancelled(_)
         | PathSweepError::NoPath
         | PathSweepError::Branches { .. }

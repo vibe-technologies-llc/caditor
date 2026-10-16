@@ -22,6 +22,7 @@ use crate::{
     describe::describe_origin,
     document::{Document, Feature, FeatureId, FeatureKind},
     edit::{Edit, Transaction},
+    measurement_cause::{MeasureCause, Unreadable},
     origins, paste,
     pieces::Resolution,
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FeatureState, Inputs},
@@ -596,30 +597,13 @@ impl<'a> Measuring<'a> {
                         Located::Pieces { solid, edges }
                     }
                     Followed::Resolved(Resolution::Missing) => {
-                        return Err(self.resolver.own_error(
-                            format!("The edge it measures is no longer part of {name}."),
-                            "Measure again with an edge that is there now, or delete this \
-                             measurement.",
-                        ));
+                        return Err(self.resolver.error(MeasureCause::EdgeGone { name }));
                     }
                     Followed::Resolved(Resolution::Tied(_)) => {
-                        return Err(self.resolver.own_error(
-                            format!(
-                                "The edge of {name} it measures is now several edges, so it is \
-                                 unclear which one to follow."
-                            ),
-                            "Measure again with the edge you mean.",
-                        ));
+                        return Err(self.resolver.error(MeasureCause::EdgeSeveral { name }));
                     }
                     Followed::PartlyLost(_) => {
-                        return Err(self.resolver.own_error(
-                            format!(
-                                "The edge of {name} it measures was split into pieces by a \
-                                 sketch edit, and only some of the pieces still lie along it."
-                            ),
-                            "Measure again with the edge or piece you mean, or undo the sketch \
-                             edit that split it.",
-                        ));
+                        return Err(self.resolver.error(MeasureCause::EdgeSplit { name }));
                     }
                 }
             }
@@ -630,20 +614,14 @@ impl<'a> Measuring<'a> {
                 match face.resolve(solid) {
                     Ok(found) => Located::Face { solid, face: found },
                     Err(ReferenceError::Missing) => {
-                        return Err(self.resolver.own_error(
-                            format!("{described} is no longer part of {name}."),
-                            "Measure again with a face that is there now, or delete this \
-                             measurement.",
-                        ));
+                        return Err(self
+                            .resolver
+                            .error(MeasureCause::FaceGone { described, name }));
                     }
                     Err(ReferenceError::Ambiguous(_)) => {
-                        return Err(self.resolver.own_error(
-                            format!(
-                                "{described} is now several faces of {name}, so it is unclear \
-                                 which one to follow."
-                            ),
-                            "Measure again with the face you mean.",
-                        ));
+                        return Err(self
+                            .resolver
+                            .error(MeasureCause::FaceSeveral { described, name }));
                     }
                 }
             }
@@ -656,20 +634,14 @@ impl<'a> Measuring<'a> {
                     .get(sketch)
                     .and_then(|result| result.sketch())
                     .ok_or_else(|| {
-                        self.resolver.error(
-                            format!("It measures geometry of {name}, which has an error."),
-                            format!("Fix {name} first."),
-                            *sketch,
-                        )
+                        self.resolver
+                            .error_at(MeasureCause::SketchFailed { name: name.clone() }, *sketch)
                     })?;
                 let geometry = &result.geometry;
                 let plane = geometry.plane();
                 let gone = || {
-                    self.resolver.own_error(
-                        format!("The sketch geometry of {name} it measures no longer exists."),
-                        "Measure again with geometry that is there now, or delete this \
-                         measurement.",
-                    )
+                    self.resolver
+                        .error(MeasureCause::GeometryGone { name: name.clone() })
                 };
                 if let Some(point) = geometry.point(*entity) {
                     Located::Point(plane.to_world(point))
@@ -696,10 +668,9 @@ impl<'a> Measuring<'a> {
                     Ok(mass) => Located::Body(mass),
                     Err(MeasureError::Cancelled(_)) => return Err(Failure::Cancelled),
                     Err(_) => {
-                        return Err(self.unmeasurable(format!(
-                            "The mass properties of {} could not be worked out.",
-                            body_name(document, *body)
-                        )));
+                        return Err(self.unmeasurable(Unreadable::MassWorked {
+                            body: body_name(document, *body),
+                        }));
                     }
                 }
             }
@@ -713,20 +684,16 @@ impl<'a> Measuring<'a> {
             .ok_or_else(|| self.resolver.inputs.missing_body(body))
     }
 
-    fn unmeasurable(&self, reason: String) -> Failure {
-        self.resolver.own_error(
-            reason,
-            "Measure something that has this value, or delete this measurement.",
-        )
+    fn unmeasurable(&self, unreadable: Unreadable) -> Failure {
+        self.resolver.error(MeasureCause::Unreadable(unreadable))
     }
 
     fn mass_of(&self, item: &MeasuredItem, volume: f64) -> Result<f64, Failure> {
         let document = self.document();
         let MeasuredItem::Body(body) = item else {
-            return Err(self.unmeasurable(format!(
-                "{} is not a body, so it has no mass.",
-                capitalised(&item.describe(document))
-            )));
+            return Err(self.unmeasurable(Unreadable::MassNotBody {
+                item: capitalised(&item.describe(document)),
+            }));
         };
         let name = body_name(document, *body);
         let appearance = document
@@ -734,16 +701,12 @@ impl<'a> Measuring<'a> {
             .ok_or_else(|| self.resolver.inputs.missing_body(*body))?;
         match appearance.mass_grams(volume, self.resolver.inputs.parameters) {
             Some(Ok(grams)) => Ok(grams),
-            None => Err(self.resolver.error(
-                format!("{name} has no density, so its mass cannot be read."),
-                format!("Give {name} a density in its colour and material."),
-                *body,
-            )),
-            Some(Err(error)) => Err(self.resolver.error(
-                format!("The mass of {name} cannot be read: {error}."),
-                format!("Correct the density of {name} in its colour and material."),
-                *body,
-            )),
+            None => Err(self
+                .resolver
+                .error_at(MeasureCause::NoDensity { name }, *body)),
+            Some(Err(error)) => Err(self
+                .resolver
+                .error_at(MeasureCause::BadDensity { name, error }, *body)),
         }
     }
 }
@@ -786,10 +749,7 @@ pub(crate) fn evaluate(
             match quantity {
                 Between::Distance => {
                     let separation = separation.ok_or_else(|| {
-                        measuring.unmeasurable(format!(
-                            "The distance between {} could not be worked out.",
-                            words()
-                        ))
+                        measuring.unmeasurable(Unreadable::Distance { between: words() })
                     })?;
                     MeasurementResult {
                         value: Quantity::length(separation.distance),
@@ -802,10 +762,9 @@ pub(crate) fn evaluate(
                     let found =
                         nearest.and_then(|nearest| angle(nearest.from, nearest.to).ok().flatten());
                     let found = found.ok_or_else(|| {
-                        measuring.unmeasurable(format!(
-                            "{} have no angle between them.",
-                            capitalised(&words())
-                        ))
+                        measuring.unmeasurable(Unreadable::NoAngle {
+                            between: capitalised(&words()),
+                        })
                     })?;
                     MeasurementResult {
                         value: Quantity::angle(found.radians.to_degrees()),
@@ -828,10 +787,9 @@ pub(crate) fn evaluate(
                 _ => None,
             }
             .ok_or_else(|| {
-                measuring.unmeasurable(format!(
-                    "{} gives no direction, so nothing is measured along it.",
-                    capitalised(&axis.describe(document))
-                ))
+                measuring.unmeasurable(Unreadable::NoDirectionAlong {
+                    axis: capitalised(&axis.describe(document)),
+                })
             })?;
             if cancel.is_cancelled() {
                 return Err(Failure::Cancelled);
@@ -839,11 +797,10 @@ pub(crate) fn evaluate(
             let separation = nearest(&from, &to)
                 .and_then(|nearest| nearest.separation)
                 .ok_or_else(|| {
-                    measuring.unmeasurable(format!(
-                        "The offset between {} and {} could not be worked out.",
-                        first.describe(document),
-                        second.describe(document)
-                    ))
+                    measuring.unmeasurable(Unreadable::Offset {
+                        first: first.describe(document),
+                        second: second.describe(document),
+                    })
                 })?;
             MeasurementResult {
                 value: Quantity::length(separation.offset().dot(direction).abs()),
@@ -858,10 +815,9 @@ pub(crate) fn evaluate(
                 Located::Point(point) => (*point, Accuracy::Exact),
                 Located::Body(mass) => (mass.properties.centroid, mass.accuracy),
                 _ => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not a point or a body, so it has no position.",
-                        capitalised(&item.describe(document))
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NoPosition {
+                        item: capitalised(&item.describe(document)),
+                    }));
                 }
             };
             let (origin, direction) = match measuring.locate(axis)? {
@@ -872,10 +828,9 @@ pub(crate) fn evaluate(
                 _ => None,
             }
             .ok_or_else(|| {
-                measuring.unmeasurable(format!(
-                    "{} gives no direction, so no position is read along it.",
-                    capitalised(&axis.describe(document))
-                ))
+                measuring.unmeasurable(Unreadable::NoDirectionPosition {
+                    axis: capitalised(&axis.describe(document)),
+                })
             })?;
             let coordinate = (point - origin).dot(direction);
             let foot = origin + direction * coordinate;
@@ -893,9 +848,9 @@ pub(crate) fn evaluate(
             let (value, accuracy) = match (quantity, &located) {
                 (Of::Length, Located::Edge { solid, edge }) => {
                     let measured = edge_measure(solid, *edge).map_err(|_| {
-                        measuring.unmeasurable(format!(
-                            "The length of {described} could not be worked out."
-                        ))
+                        measuring.unmeasurable(Unreadable::Length {
+                            described: described.clone(),
+                        })
                     })?;
                     (Quantity::length(measured.length), measured.length_accuracy)
                 }
@@ -905,9 +860,9 @@ pub(crate) fn evaluate(
                 }
                 (Of::Length, Located::Pieces { solid, edges }) => {
                     let measured = measure_pieces(solid, edges).map_err(|_| {
-                        measuring.unmeasurable(format!(
-                            "The length of {described} could not be worked out."
-                        ))
+                        measuring.unmeasurable(Unreadable::Length {
+                            described: described.clone(),
+                        })
                     })?;
                     let length = measured.iter().map(|piece| piece.length).sum();
                     let accuracy = measured.iter().fold(Accuracy::Exact, |accuracy, piece| {
@@ -921,10 +876,9 @@ pub(crate) fn evaluate(
                             (Quantity::length(radius), Accuracy::Exact)
                         }
                         _ => {
-                            return Err(measuring.unmeasurable(format!(
-                                "{} is no longer round, so it has no radius.",
-                                capitalised(&described)
-                            )));
+                            return Err(measuring.unmeasurable(Unreadable::NoLongerRound {
+                                described: capitalised(&described),
+                            }));
                         }
                     }
                 }
@@ -934,10 +888,9 @@ pub(crate) fn evaluate(
                             (Quantity::length(radius), Accuracy::Exact)
                         }
                         _ => {
-                            return Err(measuring.unmeasurable(format!(
-                                "{} is no longer round, so it has no radius.",
-                                capitalised(&described)
-                            )));
+                            return Err(measuring.unmeasurable(Unreadable::NoLongerRound {
+                                described: capitalised(&described),
+                            }));
                         }
                     }
                 }
@@ -950,10 +903,9 @@ pub(crate) fn evaluate(
                             (Quantity::length(radius), Accuracy::Exact)
                         }
                         _ => {
-                            return Err(measuring.unmeasurable(format!(
-                                "{} is no longer round, so it has no radius.",
-                                capitalised(&described)
-                            )));
+                            return Err(measuring.unmeasurable(Unreadable::NoLongerRound {
+                                described: capitalised(&described),
+                            }));
                         }
                     }
                 }
@@ -962,17 +914,16 @@ pub(crate) fn evaluate(
                         (Quantity::length(radius), Accuracy::Exact)
                     }
                     _ => {
-                        return Err(measuring.unmeasurable(format!(
-                            "{} is no longer a cylinder or a sphere, so it has no radius.",
-                            capitalised(&described)
-                        )));
+                        return Err(measuring.unmeasurable(Unreadable::NoLongerCylinder {
+                            described: capitalised(&described),
+                        }));
                     }
                 },
                 (Of::Area, Located::Face { solid, face }) => {
                     let area = face_area(solid, *face).ok().flatten().ok_or_else(|| {
-                        measuring.unmeasurable(format!(
-                            "The area of {described} could not be worked out."
-                        ))
+                        measuring.unmeasurable(Unreadable::Area {
+                            described: described.clone(),
+                        })
                     })?;
                     (Quantity::new(area, AREA), Accuracy::Exact)
                 }
@@ -981,7 +932,11 @@ pub(crate) fn evaluate(
                         Ok(EdgeForm::Circle { sweep, .. }) => {
                             (Quantity::angle(sweep.to_degrees()), Accuracy::Exact)
                         }
-                        _ => return Err(measuring.unmeasurable(no_sweep(&described))),
+                        _ => {
+                            return Err(measuring.unmeasurable(Unreadable::NoSweep {
+                                described: capitalised(&described),
+                            }));
+                        }
                     }
                 }
                 (Of::Sweep, Located::Pieces { solid, edges }) => {
@@ -1000,7 +955,11 @@ pub(crate) fn evaluate(
                             Quantity::angle(sweeps.iter().sum::<f64>().to_degrees()),
                             Accuracy::Exact,
                         ),
-                        None => return Err(measuring.unmeasurable(no_sweep(&described))),
+                        None => {
+                            return Err(measuring.unmeasurable(Unreadable::NoSweep {
+                                described: capitalised(&described),
+                            }));
+                        }
                     }
                 }
                 (Of::Sweep, Located::Curve { curve, interval }) => {
@@ -1008,14 +967,18 @@ pub(crate) fn evaluate(
                         EdgeForm::Circle { sweep, .. } => {
                             (Quantity::angle(sweep.to_degrees()), Accuracy::Exact)
                         }
-                        _ => return Err(measuring.unmeasurable(no_sweep(&described))),
+                        _ => {
+                            return Err(measuring.unmeasurable(Unreadable::NoSweep {
+                                described: capitalised(&described),
+                            }));
+                        }
                     }
                 }
                 (Of::Perimeter, Located::Face { solid, face }) => {
                     let (length, accuracy) = face_perimeter(solid, *face).ok_or_else(|| {
-                        measuring.unmeasurable(format!(
-                            "The perimeter of {described} could not be worked out."
-                        ))
+                        measuring.unmeasurable(Unreadable::Perimeter {
+                            described: described.clone(),
+                        })
                     })?;
                     (Quantity::length(length), accuracy)
                 }
@@ -1031,41 +994,35 @@ pub(crate) fn evaluate(
                     mass.accuracy,
                 ),
                 (Of::Volume | Of::Mass, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not a body, so it has no {}.",
-                        capitalised(&described),
-                        quantity.label().to_lowercase()
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotBody {
+                        described: capitalised(&described),
+                        quantity: *quantity,
+                    }));
                 }
                 (Of::Sweep, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not an arc, so it has no sweep.",
-                        capitalised(&described)
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotArc {
+                        described: capitalised(&described),
+                    }));
                 }
                 (Of::Perimeter, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not a face, so it has no perimeter.",
-                        capitalised(&described)
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotFace {
+                        described: capitalised(&described),
+                    }));
                 }
                 (Of::Length, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not an edge or a curve, so it has no length.",
-                        capitalised(&described)
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotEdgeOrCurve {
+                        described: capitalised(&described),
+                    }));
                 }
                 (Of::Radius, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not round, so it has no radius.",
-                        capitalised(&described)
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotRound {
+                        described: capitalised(&described),
+                    }));
                 }
                 (Of::Area, _) => {
-                    return Err(measuring.unmeasurable(format!(
-                        "{} is not a face or a body, so it has no area.",
-                        capitalised(&described)
-                    )));
+                    return Err(measuring.unmeasurable(Unreadable::NotFaceOrBody {
+                        described: capitalised(&described),
+                    }));
                 }
             };
             MeasurementResult {
@@ -1080,13 +1037,6 @@ pub(crate) fn evaluate(
 }
 
 const AREA: Dimension = Dimension::new(2, 0);
-
-fn no_sweep(described: &str) -> String {
-    format!(
-        "{} is no longer an arc, so it has no sweep.",
-        capitalised(described)
-    )
-}
 
 pub fn face_perimeter(solid: &Solid, face: FaceId) -> Option<(f64, Accuracy)> {
     let outer = solid

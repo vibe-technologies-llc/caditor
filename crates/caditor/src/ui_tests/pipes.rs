@@ -107,7 +107,7 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
         .feature(pipe)
         .map(|status| status.state.clone())
     {
-        Some(FeatureState::Failed(error)) => error.reason,
+        Some(FeatureState::Failed(error)) => error.reason(),
         other => panic!("a wall as thick as the pipe fails, found {other:?}"),
     };
     assert!(reason.contains("half its width"), "{reason}");

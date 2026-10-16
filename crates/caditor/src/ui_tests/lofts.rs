@@ -215,7 +215,7 @@ fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_pa
     assert!(closed.closed);
     assert_eq!(closed.square_end, None);
     let reason = match &harness.model.evaluation().feature(loft).unwrap().state {
-        FeatureState::Failed(error) => error.reason.clone(),
+        FeatureState::Failed(error) => error.reason(),
         other => panic!("a ring of two profiles fails, found {other:?}"),
     };
     assert!(reason.contains("at least three"), "{reason}");

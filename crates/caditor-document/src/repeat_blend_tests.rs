@@ -326,12 +326,12 @@ fn a_fillet_repeated_without_the_feature_it_rounds_is_refused_in_words() {
 
     let error = failure(&evaluation, pattern);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Rim blends no edge of the features this pattern repeats, so its fillet has nothing to \
          follow on the copies."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Also pattern the feature whose edges Rim blends, or leave Rim out of the pattern."
     );
     assert_eq!(

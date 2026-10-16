@@ -189,7 +189,7 @@ fn a_tool_missing_the_faces_fails_the_split_alone_in_words() {
 
     let error = failure(&evaluation, model.split);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The curve of Far line does not cross any of the chosen faces."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.split)));
@@ -336,7 +336,7 @@ fn a_direction_along_the_sketch_plane_fails_the_split_in_words() {
     let error = failure(&evaluation, model.split);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The X axis runs along the plane of Part line, so its curves cannot be carried along it."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.split)));
@@ -549,7 +549,7 @@ fn a_wrapped_sketch_across_the_axis_fails_the_split_in_words() {
     let error = failure(&evaluation, rod.split);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Label does not lie on a plane along the axis of the chosen faces, so its curves cannot \
          be wrapped round them."
     );
@@ -571,12 +571,12 @@ fn a_wrapped_split_of_a_flat_face_fails_in_words() {
     let error = failure(&evaluation, rod.split);
 
     assert!(
-        error.reason.ends_with(
+        error.reason().ends_with(
             "is neither cylindrical nor conical, so the curves of Label cannot be wrapped onto \
                  it."
         ),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -601,7 +601,7 @@ fn a_wrapped_curve_round_the_axis_or_a_long_outline_fails_in_words() {
         .map(|sketch| {
             let mut rod = rod(sketch, walls);
             let evaluation = evaluate(&rod.document, &mut rod.engine);
-            failure(&evaluation, rod.split).reason
+            failure(&evaluation, rod.split).reason()
         })
         .collect();
 

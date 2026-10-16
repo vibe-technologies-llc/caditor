@@ -493,7 +493,9 @@ fn failures(document: &Document, evaluation: &Evaluation) -> Vec<String> {
             match &status.state {
                 FeatureState::Failed(error) => Some(format!(
                     "{} failed: {} {}",
-                    feature.name, error.reason, error.remedy
+                    feature.name,
+                    error.reason(),
+                    error.remedy()
                 )),
                 FeatureState::Waiting(missing) => Some(format!(
                     "{} is not finished: {}. {}",

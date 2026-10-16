@@ -194,14 +194,14 @@ fn shell_errors_name_the_problem_and_the_fix() {
     set(&mut model, id, "0 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
-    assert_eq!(error.reason, "The thickness must be more than zero.");
+    assert_eq!(error.reason(), "The thickness must be more than zero.");
     assert_eq!(error.fix, Some(FixTarget::Feature(model.shell)));
 
     set(&mut model, id, "30 deg");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Edit the thickness so it gives a length, such as 2 mm."
     );
 
@@ -209,11 +209,11 @@ fn shell_errors_name_the_problem_and_the_fix() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The wall along the edge between Base side from Line 11 and Base start face shrinks to \
          nothing at this thickness."
     );
-    assert_eq!(error.remedy, "Enter a smaller thickness.");
+    assert_eq!(error.remedy(), "Enter a smaller thickness.");
     assert!(evaluation.body(model.base).is_some());
 
     set(&mut model, id, "1 mm");
@@ -226,7 +226,7 @@ fn shell_errors_name_the_problem_and_the_fix() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "A face to open is no longer part of the body of Base."
     );
 }
@@ -333,12 +333,12 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The walls of the body of Hall cannot meet at the corner where Hall side from Line 8, \
          Hall side from Line 11, Wing side from Line 8 and Wing side from Line 11 meet."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Change the thickness, or open one of the faces at that corner."
     );
 }
@@ -405,11 +405,11 @@ fn a_face_s_own_thickness_fails_in_words_naming_the_face() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The thickness of Base start face must be more than zero."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Enter a thickness of Base start face above zero."
     );
 
@@ -423,11 +423,11 @@ fn a_face_s_own_thickness_fails_in_words_naming_the_face() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Base end face is open, so it has no wall to give its own thickness."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Remove its own thickness, or close the face again."
     );
 
@@ -441,7 +441,7 @@ fn a_face_s_own_thickness_fails_in_words_naming_the_face() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.shell);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Face given its own thickness is no longer part of the body of Base."
     );
 }

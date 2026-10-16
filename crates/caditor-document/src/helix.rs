@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
-use caditor_kernel::{HelixError, HelixSpec, HelixTurn, MAX_COIL_TAPER_DEGREES, helix};
+use caditor_kernel::{HelixError, HelixSpec, HelixTurn, helix};
 
 use crate::{
-    coil::{self, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
+    coil::{self, CoilCause, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
     datum::AxisReference,
     document::{Feature, FeatureId},
     primitive::Context,
@@ -124,40 +124,20 @@ impl Helix {
 }
 
 fn failure(context: &Context<'_>, feature: &Feature, error: &HelixError) -> Failure {
-    let name = &feature.name;
+    let name = feature.name.clone();
     match error {
-        HelixError::ReachesAxis => context.error(
-            format!("The taper draws {name} in until it reaches its axis."),
-            "Make the taper smaller, the helix shorter or its diameter larger.".to_owned(),
-        ),
-        HelixError::TooFewTurns { .. } | HelixError::TooManyTurns { .. } => context.error(
-            format!(
-                "{name} must make from {} to {} turns.",
-                caditor_kernel::LEAST_COIL_TURNS,
-                caditor_kernel::MAX_COIL_TURNS
-            ),
-            "Change its turns, height or pitch.".to_owned(),
-        ),
-        HelixError::TaperTooSteep => context.error(
-            format!("The taper of {name} is {MAX_COIL_TAPER_DEGREES}° or steeper."),
-            format!(
-                "Enter a taper angle between -{MAX_COIL_TAPER_DEGREES}° and \
-                 {MAX_COIL_TAPER_DEGREES}°."
-            ),
-        ),
-        HelixError::TooLarge => context.error(
-            format!("{name} reaches too far from the origin."),
-            "Make it smaller or place its axis nearer the origin.".to_owned(),
-        ),
+        HelixError::ReachesAxis => context.error(CoilCause::HelixTaperDrawsIn { name }),
+        HelixError::TooFewTurns { .. } | HelixError::TooManyTurns { .. } => {
+            context.error(CoilCause::TurnsRangeOf { name })
+        }
+        HelixError::TaperTooSteep => context.error(CoilCause::TaperSteep { subject: name }),
+        HelixError::TooLarge => context.error(CoilCause::TooFar { name }),
         HelixError::NonFinite
         | HelixError::NoRadius
         | HelixError::NoPitch
         | HelixError::Geometry(_) => {
             log::warn!("{name} could not be built: {error}");
-            context.error(
-                format!("{name} cannot be built with these sizes."),
-                "Change its diameter, pitch or taper.".to_owned(),
-            )
+            context.error(CoilCause::Unbuildable { name, helix: true })
         }
     }
 }
@@ -175,10 +155,9 @@ pub(crate) fn evaluate(
     let start = context.value_as(&definition.start, "start angle", Dimension::ANGLE)?;
     let axis = context.resolver().axis(&definition.axis)?;
     let frame = definition.frame(axis).ok_or_else(|| {
-        context.error(
-            format!("The axis of {} has no direction.", feature.name),
-            "Choose another axis.".to_owned(),
-        )
+        context.error(CoilCause::NoDirection {
+            name: feature.name.clone(),
+        })
     })?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);

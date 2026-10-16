@@ -46,41 +46,57 @@ impl From<HalfSpaceError> for SurfaceToolError {
     }
 }
 
-pub(crate) struct SurfaceWords {
-    pub reason: String,
-    pub remedy: String,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SurfaceCause {
+    Gone { face: String, holder: String },
+    Divided { face: String },
+    Freeform { face: String, holder: String },
+}
+
+impl SurfaceCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::Gone { face, holder } => {
+                format!("{face}, which it splits along, is no longer part of {holder}.")
+            }
+            Self::Divided { face } => format!(
+                "{face}, which it splits along, was split into parts that no longer lie on one \
+                 surface."
+            ),
+            Self::Freeform { face, .. } => {
+                format!("{face} is a freeform surface, which cannot be carried on past its edges.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::Gone { .. } => "Choose another face to split along.".to_owned(),
+            Self::Divided { .. } => {
+                "Choose one of its parts, or another face to split along.".to_owned()
+            }
+            Self::Freeform { holder, .. } => format!(
+                "Choose a flat, cylindrical, conical, spherical or toroidal face, or split along \
+                 the whole body of {holder}."
+            ),
+        }
+    }
 }
 
 impl SurfaceToolError {
-    pub(crate) fn words(
+    pub(crate) fn cause(
         &self,
         document: &Document,
         attachment: &FaceAttachment,
-    ) -> Option<SurfaceWords> {
+    ) -> Option<SurfaceCause> {
         let face = describe_origin(document, attachment.face.origin());
         let holder = feature_name(document, attachment.body);
-        let (reason, remedy) = match self {
-            Self::Missing => (
-                format!("{face}, which it splits along, is no longer part of {holder}."),
-                "Choose another face to split along.".to_owned(),
-            ),
-            Self::NotOneSurface => (
-                format!(
-                    "{face}, which it splits along, was split into parts that no longer lie on \
-                     one surface."
-                ),
-                "Choose one of its parts, or another face to split along.".to_owned(),
-            ),
-            Self::Freeform => (
-                format!("{face} is a freeform surface, which cannot be carried on past its edges."),
-                format!(
-                    "Choose a flat, cylindrical, conical, spherical or toroidal face, or split \
-                     along the whole body of {holder}."
-                ),
-            ),
-            Self::NoExtent | Self::Misses | Self::Profile(_) | Self::Sweep(_) => return None,
-        };
-        Some(SurfaceWords { reason, remedy })
+        match self {
+            Self::Missing => Some(SurfaceCause::Gone { face, holder }),
+            Self::NotOneSurface => Some(SurfaceCause::Divided { face }),
+            Self::Freeform => Some(SurfaceCause::Freeform { face, holder }),
+            Self::NoExtent | Self::Misses | Self::Profile(_) | Self::Sweep(_) => None,
+        }
     }
 }
 

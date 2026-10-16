@@ -136,9 +136,9 @@ fn a_distance_given_as_an_angle_fails_the_move_alone_saying_which() {
         panic!("the move should fail");
     };
     assert!(
-        error.reason.contains("distance along Y"),
+        error.reason().contains("distance along Y"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(evaluation.failed_count(), 1);
     assert!(evaluation.body(pair.peg).is_some());

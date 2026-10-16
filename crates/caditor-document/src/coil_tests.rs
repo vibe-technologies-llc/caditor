@@ -232,17 +232,21 @@ fn turns_that_would_touch_or_a_section_reaching_the_axis_fail_in_words() {
     let few = failure(&evaluate(&few), few_coil);
 
     assert!(
-        touching.reason.contains("would touch"),
+        touching.reason().contains("would touch"),
         "{}",
-        touching.reason
+        touching.reason()
     );
     assert!(
-        touching.remedy.contains("pitch larger"),
+        touching.remedy().contains("pitch larger"),
         "{}",
-        touching.remedy
+        touching.remedy()
     );
-    assert_eq!(narrow.reason, "The section of Coil 1 reaches its axis.");
-    assert!(few.reason.contains("makes 0.03 turns"), "{}", few.reason);
+    assert_eq!(narrow.reason(), "The section of Coil 1 reaches its axis.");
+    assert!(
+        few.reason().contains("makes 0.03 turns"),
+        "{}",
+        few.reason()
+    );
     assert_eq!(touching.fix, Some(FixTarget::Feature(touching_coil)));
 }
 

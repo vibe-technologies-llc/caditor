@@ -999,7 +999,7 @@ mod tests {
         else {
             panic!("the panicking feature should fail");
         };
-        assert!(error.reason.contains("internal error"));
+        assert!(error.reason().contains("internal error"));
 
         worker.submit(document, 2).unwrap();
         assert_eq!(worker.wait().revision, 2);

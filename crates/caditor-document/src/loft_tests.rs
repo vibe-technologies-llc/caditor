@@ -239,9 +239,9 @@ fn a_profile_of_two_shapes_needs_one_chosen() {
     let chosen_evaluation = evaluate(&model.document);
 
     assert!(
-        error.reason.contains("2 separate closed shapes"),
+        error.reason().contains("2 separate closed shapes"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(chosen_evaluation.failed_count(), 0);
     let found = volume(&chosen_evaluation, model.loft);
@@ -264,10 +264,10 @@ fn profiles_in_one_place_fail_naming_them() {
 
     assert!(
         error
-            .reason
+            .reason()
             .contains("Profile 1 and Profile 2 lie in the same place"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -339,9 +339,9 @@ fn a_loft_closing_back_to_its_first_profile_makes_a_ring() {
     let expected = 4.0 * std::f64::consts::TAU * 10.0;
     assert!((volume(&evaluation, ring.loft) - expected).abs() < 5e-3 * expected);
     assert!(
-        refused.reason.contains("at least three"),
+        refused.reason().contains("at least three"),
         "{}",
-        refused.reason
+        refused.reason()
     );
 }
 
@@ -389,10 +389,14 @@ fn square_ends_follow_their_weight_parameter_and_refuse_a_weight_of_zero() {
             .uses_parameter(weight)
     );
     assert!(
-        weightless.reason.contains("weight"),
+        weightless.reason().contains("weight"),
         "{}",
-        weightless.reason
+        weightless.reason()
     );
-    assert!(straight.remedy.contains("Smooth"), "{}", straight.remedy);
+    assert!(
+        straight.remedy().contains("Smooth"),
+        "{}",
+        straight.remedy()
+    );
     assert!(!model.sketches.is_empty());
 }

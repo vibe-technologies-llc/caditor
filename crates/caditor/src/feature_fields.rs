@@ -860,8 +860,8 @@ fn draft_failure_row(ui: &mut Ui, model: &Model, feature: FeatureId) {
     };
     ui.label("");
     widgets::callout(ui, Tone::Error, |ui| {
-        ui.add(Label::new(format!("{DRAFT_FAILS} {}", error.reason)).wrap());
-        ui.add(Label::new(widgets::muted(&error.remedy, ui)).wrap());
+        ui.add(Label::new(format!("{DRAFT_FAILS} {}", error.reason())).wrap());
+        ui.add(Label::new(widgets::muted(error.remedy(), ui)).wrap());
     });
     ui.end_row();
 }

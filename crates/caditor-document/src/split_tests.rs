@@ -94,7 +94,7 @@ fn a_plane_that_misses_the_body_fails_the_split_alone_in_words() {
     assert_eq!(failed, model.split);
     assert!(
         error
-            .reason
+            .reason()
             .contains("does not pass through the body of Plate")
     );
     assert!(near(x_range(&evaluation, model.plate), (-10.0, 10.0)));
@@ -259,7 +259,7 @@ fn a_sketch_of_two_separate_curves_fails_the_split_in_words_with_the_fix_on_the_
     assert_eq!(failed, model.split);
     assert!(
         error
-            .reason
+            .reason()
             .contains("The curves of Curve do not form one chain")
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(curve)));
@@ -273,7 +273,7 @@ fn a_closed_sketch_cannot_split_the_body() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (_, error) = evaluation.failures().next().unwrap();
-    assert!(error.reason.contains("close on themselves"));
+    assert!(error.reason().contains("close on themselves"));
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn a_curve_beside_the_body_fails_the_split_alone() {
 
     let (failed, error) = evaluation.failures().next().unwrap();
     assert_eq!(failed, model.split);
-    assert!(error.reason.contains("does not cross the body of Plate"));
+    assert!(error.reason().contains("does not cross the body of Plate"));
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn a_body_cannot_be_split_along_itself() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     let (_, error) = evaluation.failures().next().unwrap();
-    assert!(error.reason.contains("cannot be split along itself"));
+    assert!(error.reason().contains("cannot be split along itself"));
 }
 
 fn round_tool(shape: PrimitiveShape, anchor: PrimitiveAnchor, reversed: bool) -> Primitive {
@@ -518,9 +518,9 @@ fn a_surface_that_misses_the_body_fails_the_split_alone_in_words() {
     let (failed, error) = evaluation.failures().next().unwrap();
     assert_eq!(failed, split);
     assert!(
-        error.reason.starts_with("The surface of Round wall"),
+        error.reason().starts_with("The surface of Round wall"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(evaluation.body(plate).is_some());
 }

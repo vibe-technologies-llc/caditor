@@ -208,7 +208,7 @@ fn delete_face_errors_name_the_problem_and_the_fix() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.deletion);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The faces around Base end face cannot close the gap it leaves."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.deletion)));
@@ -221,7 +221,7 @@ fn delete_face_errors_name_the_problem_and_the_fix() {
     });
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.deletion).reason,
+        failure(&evaluation, model.deletion).reason(),
         "A face to delete is no longer part of the body of Base."
     );
 

@@ -3,16 +3,17 @@ use std::{
     sync::Arc,
 };
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
-    FaceId, FaceName, FaceOrigin, FaceReference, ShellError, Solid, Surface, VertexId, Walls,
-    shell_walls,
+    EdgeId, FaceId, FaceName, FaceOrigin, FaceReference, ShellError, Solid, Surface, VertexId,
+    Walls, shell_walls,
 };
 
 use crate::{
     datum::capitalized,
     describe::{describe_edge, describe_origin, edge_faces},
     document::{Feature, FeatureId},
+    failure::{Cause, Chosen, Expected, Near, Unmatched},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -229,50 +230,28 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: ShellCause) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 
     fn length(&self, expression: &Expression, face: Option<&str>) -> Result<f64, Failure> {
-        let of_face = face.map(|face| format!(" of {face}")).unwrap_or_default();
         let value = expression
             .evaluate_as(Dimension::LENGTH, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the thickness{of_face}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the thickness{of_face} so it gives a length, such as 2 mm."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        format!("Edit the thickness{of_face} or the parameters it uses."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The thickness{of_face} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                let of_face = face.map(|face| format!(" of {face}")).unwrap_or_default();
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    format!("thickness{of_face}"),
+                    Expected::Length(2.0),
+                    error,
+                ))
             })?;
         if value > 0.0 {
             Ok(value)
         } else {
-            Err(self.error(
-                format!("The thickness{of_face} must be more than zero."),
-                format!("Enter a thickness{of_face} above zero."),
-            ))
+            Err(self.error(ShellCause::NotPositive {
+                face: face.map(str::to_owned),
+            }))
         }
     }
 
@@ -282,8 +261,6 @@ impl Context<'_> {
         for (entry, resolution) in self.definition.faces.iter().zip(resolutions) {
             let described = describe_origin(self.inputs.document, entry.face.origin());
             let value = self.length(&entry.thickness, Some(&described))?;
-            let remedy =
-                || "Choose the face again, or remove its own thickness from the shell.".to_owned();
             match resolution {
                 Resolution::One(face) => {
                     faces.insert(face, value);
@@ -292,25 +269,16 @@ impl Context<'_> {
                     faces.extend(pieces.into_iter().map(|face| (face, value)));
                 }
                 Resolution::Tied(_) => {
-                    return Err(self.error(
-                        format!(
-                            "{} given its own thickness now matches several separate faces of \
-                             the body of {}.",
-                            capitalized(&described),
-                            self.body_name
-                        ),
-                        remedy(),
-                    ));
+                    return Err(self.error(ShellCause::WallTied {
+                        face: described,
+                        body: self.body_name.clone(),
+                    }));
                 }
                 Resolution::Missing => {
-                    return Err(self.error(
-                        format!(
-                            "{} given its own thickness is no longer part of the body of {}.",
-                            capitalized(&described),
-                            self.body_name
-                        ),
-                        remedy(),
-                    ));
+                    return Err(self.error(ShellCause::WallGone {
+                        face: described,
+                        body: self.body_name.clone(),
+                    }));
                 }
             }
         }
@@ -328,20 +296,25 @@ impl Context<'_> {
         )
     }
 
+    fn describe_faces(&self, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
+        let mut names: Vec<String> = Vec::with_capacity(faces.len());
+        for face in faces {
+            let name = self.describe_face(solid, *face);
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
+
     fn describe_corner(&self, solid: &Solid, vertex: VertexId) -> String {
         let faces: BTreeSet<FaceId> = solid
             .edges()
             .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
             .flat_map(|(id, _)| edge_faces(solid, id))
             .collect();
-        let mut names: Vec<String> = Vec::with_capacity(faces.len());
-        for face in faces {
-            let name = self.describe_face(solid, face);
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        match names.as_slice() {
+        let faces: Vec<FaceId> = faces.into_iter().collect();
+        match self.describe_faces(solid, &faces).as_slice() {
             [] => "one of its corners".to_owned(),
             [only] => format!("the corner of {only}"),
             [rest @ .., last] => format!("the corner where {} and {last} meet", rest.join(", ")),
@@ -349,168 +322,242 @@ impl Context<'_> {
     }
 
     fn failure(&self, solid: &Solid, open: &[FaceId], error: &ShellError) -> Failure {
+        let body = self.body_name.clone();
+        let face = |face: &FaceId| self.describe_face(solid, *face);
+        let edge = |edge: &EdgeId| describe_edge(self.inputs.document, solid, *edge);
         match error {
             ShellError::Cancelled(_) => Failure::Cancelled,
-            ShellError::InvalidThickness => self.error(
-                "The thickness must be more than 0.000001 mm.".to_owned(),
-                "Enter a larger thickness.".to_owned(),
-            ),
-            ShellError::MissingFace(_) => self.error(
-                format!(
-                    "A face to open is no longer part of the body of {}.",
-                    self.body_name
-                ),
-                "Choose the faces again, or undo the change that removed it.".to_owned(),
-            ),
-            ShellError::InvalidFaceThickness(face) => self.error(
-                format!(
-                    "The thickness of {} must be more than 0.000001 mm.",
-                    self.describe_face(solid, *face)
-                ),
-                "Enter a larger thickness for that face.".to_owned(),
-            ),
-            ShellError::OpenedFaceThickness(face) => self.error(
-                format!(
-                    "{} is open, so it has no wall to give its own thickness.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Remove its own thickness, or close the face again.".to_owned(),
-            ),
-            ShellError::UnsupportedFace(face) if open.contains(face) => self.error(
-                format!(
-                    "{} is swept from a spline or curve, and only flat faces and cylinder, cone, \
-                     sphere or torus faces can be opened.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Leave this face out.".to_owned(),
-            ),
-            ShellError::CurvedOpening(face) => self.error(
-                format!(
-                    "{} is curved, so it can open only on the outside of the body and where \
-                     sharp edges part it from the faces left closed.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Open the faces it meets smoothly as well, or open a flat face instead.".to_owned(),
-            ),
-            ShellError::UnsupportedFace(face) => self.error(
-                format!(
-                    "The walls cannot follow {}: faces swept from splines cannot be offset yet.",
-                    self.describe_face(solid, *face)
-                ),
-                "Shell the body before adding those faces, or open that face.".to_owned(),
-            ),
-            ShellError::UnsupportedEdge(edge) => self.error(
-                format!(
-                    "The walls cannot follow {}.",
-                    describe_edge(self.inputs.document, solid, *edge)
-                ),
-                "Try a different thickness, or shell the body before the feature that made \
-                 this edge."
-                    .to_owned(),
-            ),
-            ShellError::TooCurved(face) => self.error(
-                format!(
-                    "{} curves more tightly than the thickness, so its wall would vanish.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Enter a thickness below the smallest radius of that face.".to_owned(),
-            ),
-            ShellError::Corner(vertex) => self.error(
-                format!(
-                    "The walls of the body of {} cannot meet at {}.",
-                    self.body_name,
-                    self.describe_corner(solid, *vertex)
-                ),
-                "Change the thickness, or open one of the faces at that corner.".to_owned(),
-            ),
-            ShellError::EdgeCollapses(edge) => self.error(
-                format!(
-                    "The wall along {} shrinks to nothing at this thickness.",
-                    describe_edge(self.inputs.document, solid, *edge)
-                ),
-                "Enter a smaller thickness.".to_owned(),
-            ),
-            ShellError::ClosesBesideClosing { face, beyond } => self.error(
-                format!(
-                    "{} and {} beside it both close up at this thickness, so their walls have \
-                     nowhere to meet.",
-                    capitalized(&self.describe_face(solid, *face)),
-                    self.describe_face(solid, *beyond)
-                ),
-                "Enter a smaller thickness.".to_owned(),
-            ),
-            ShellError::Opening(face) => self.error(
-                format!(
-                    "The opening in {} could not be cut at this thickness.",
-                    self.describe_face(solid, *face)
-                ),
-                "Enter a smaller thickness, or leave this face closed.".to_owned(),
-            ),
-            ShellError::Overhang { open, wall } => self.error(
-                format!(
-                    "{} leans over the opening in {}, so cutting the opening at this thickness \
-                     would leave its wall thinner than the rest.",
-                    capitalized(&self.describe_face(solid, *wall)),
-                    self.describe_face(solid, *open)
-                ),
-                "Enter a smaller thickness.".to_owned(),
-            ),
-            ShellError::Walls { faces, edge } => {
-                let mut names: Vec<String> = Vec::with_capacity(faces.len());
-                for face in faces {
-                    let name = self.describe_face(solid, *face);
-                    if !names.contains(&name) {
-                        names.push(name);
-                    }
-                }
-                let near = match (names.is_empty(), edge) {
-                    (false, _) => format!(" near {}", crate::document::list_names(&names)),
-                    (true, Some(edge)) => format!(
-                        " near {}",
-                        describe_edge(self.inputs.document, solid, *edge)
-                    ),
-                    (true, None) => String::new(),
-                };
-                self.error(
-                    format!(
-                        "The walls of the body of {} would cross each other{near} at this \
-                         thickness.",
-                        self.body_name
-                    ),
-                    "Enter a smaller thickness.".to_owned(),
-                )
+            ShellError::InvalidThickness => self.error(ShellCause::ThicknessTooSmall),
+            ShellError::MissingFace(_) => self.error(ShellCause::FaceGone { body }),
+            ShellError::InvalidFaceThickness(of) => {
+                self.error(ShellCause::FaceThicknessTooSmall { face: face(of) })
             }
-            ShellError::TooThick => self.error(
-                format!(
-                    "The thickness is too large for the body of {}.",
-                    self.body_name
-                ),
-                "Enter a smaller thickness.".to_owned(),
-            ),
+            ShellError::OpenedFaceThickness(of) => {
+                self.error(ShellCause::OpenedFaceThickness { face: face(of) })
+            }
+            ShellError::UnsupportedFace(of) if open.contains(of) => {
+                self.error(ShellCause::UnsupportedOpening { face: face(of) })
+            }
+            ShellError::CurvedOpening(of) => {
+                self.error(ShellCause::CurvedOpening { face: face(of) })
+            }
+            ShellError::UnsupportedFace(of) => {
+                self.error(ShellCause::UnsupportedWall { face: face(of) })
+            }
+            ShellError::UnsupportedEdge(of) => {
+                self.error(ShellCause::UnsupportedEdge { edge: edge(of) })
+            }
+            ShellError::TooCurved(of) => self.error(ShellCause::TooCurved { face: face(of) }),
+            ShellError::Corner(vertex) => self.error(ShellCause::Corner {
+                body,
+                corner: self.describe_corner(solid, *vertex),
+            }),
+            ShellError::EdgeCollapses(of) => {
+                self.error(ShellCause::EdgeCollapses { edge: edge(of) })
+            }
+            ShellError::ClosesBesideClosing { face: of, beyond } => {
+                self.error(ShellCause::ClosesBesideClosing {
+                    face: face(of),
+                    beyond: face(beyond),
+                })
+            }
+            ShellError::Opening(of) => self.error(ShellCause::Opening { face: face(of) }),
+            ShellError::Overhang { open, wall } => self.error(ShellCause::Overhang {
+                open: face(open),
+                wall: face(wall),
+            }),
+            ShellError::Walls { faces, edge: near } => self.error(ShellCause::Crossing {
+                body,
+                near: Near {
+                    faces: self.describe_faces(solid, faces),
+                    edge: near.as_ref().map(edge),
+                },
+            }),
+            ShellError::TooThick => self.error(ShellCause::TooThick { body }),
             ShellError::Voids(_) => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
-                self.error(
-                    format!(
-                        "The body of {} could not be divided into its outside and its hollows, \
-                         so it cannot be shelled.",
-                        self.body_name
-                    ),
-                    "Change the feature that made the body slightly, or shell it before that \
-                     feature."
-                        .to_owned(),
-                )
+                self.error(ShellCause::Undivided { body })
             }
             ShellError::Boolean(_) => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
-                self.error(
-                    format!(
-                        "The shell could not be built on the body of {}.",
-                        self.body_name
-                    ),
-                    "Change the thickness slightly, or open different faces.".to_owned(),
-                )
+                self.error(ShellCause::Unbuilt { body })
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ShellCause {
+    NotPositive { face: Option<String> },
+    WallTied { face: String, body: String },
+    WallGone { face: String, body: String },
+    ThicknessTooSmall,
+    FaceGone { body: String },
+    FaceThicknessTooSmall { face: String },
+    OpenedFaceThickness { face: String },
+    UnsupportedOpening { face: String },
+    CurvedOpening { face: String },
+    UnsupportedWall { face: String },
+    UnsupportedEdge { edge: String },
+    TooCurved { face: String },
+    Corner { body: String, corner: String },
+    EdgeCollapses { edge: String },
+    ClosesBesideClosing { face: String, beyond: String },
+    Opening { face: String },
+    Overhang { open: String, wall: String },
+    Crossing { body: String, near: Near },
+    TooThick { body: String },
+    Undivided { body: String },
+    Unbuilt { body: String },
+}
+
+impl ShellCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::NotPositive { face } => {
+                format!(
+                    "The thickness{} must be more than zero.",
+                    Self::of_face(face)
+                )
+            }
+            Self::WallTied { face, body } => format!(
+                "{} given its own thickness now matches several separate faces of the body of \
+                 {body}.",
+                capitalized(face)
+            ),
+            Self::WallGone { face, body } => format!(
+                "{} given its own thickness is no longer part of the body of {body}.",
+                capitalized(face)
+            ),
+            Self::ThicknessTooSmall => "The thickness must be more than 0.000001 mm.".to_owned(),
+            Self::FaceGone { body } => {
+                format!("A face to open is no longer part of the body of {body}.")
+            }
+            Self::FaceThicknessTooSmall { face } => {
+                format!("The thickness of {face} must be more than 0.000001 mm.")
+            }
+            Self::OpenedFaceThickness { face } => format!(
+                "{} is open, so it has no wall to give its own thickness.",
+                capitalized(face)
+            ),
+            Self::UnsupportedOpening { face } => format!(
+                "{} is swept from a spline or curve, and only flat faces and cylinder, cone, \
+                 sphere or torus faces can be opened.",
+                capitalized(face)
+            ),
+            Self::CurvedOpening { face } => format!(
+                "{} is curved, so it can open only on the outside of the body and where sharp \
+                 edges part it from the faces left closed.",
+                capitalized(face)
+            ),
+            Self::UnsupportedWall { face } => format!(
+                "The walls cannot follow {face}: faces swept from splines cannot be offset yet."
+            ),
+            Self::UnsupportedEdge { edge } => format!("The walls cannot follow {edge}."),
+            Self::TooCurved { face } => format!(
+                "{} curves more tightly than the thickness, so its wall would vanish.",
+                capitalized(face)
+            ),
+            Self::Corner { body, corner } => {
+                format!("The walls of the body of {body} cannot meet at {corner}.")
+            }
+            Self::EdgeCollapses { edge } => {
+                format!("The wall along {edge} shrinks to nothing at this thickness.")
+            }
+            Self::ClosesBesideClosing { face, beyond } => format!(
+                "{} and {beyond} beside it both close up at this thickness, so their walls have \
+                 nowhere to meet.",
+                capitalized(face)
+            ),
+            Self::Opening { face } => {
+                format!("The opening in {face} could not be cut at this thickness.")
+            }
+            Self::Overhang { open, wall } => format!(
+                "{} leans over the opening in {open}, so cutting the opening at this thickness \
+                 would leave its wall thinner than the rest.",
+                capitalized(wall)
+            ),
+            Self::Crossing { body, near } => format!(
+                "The walls of the body of {body} would cross each other{near} at this thickness."
+            ),
+            Self::TooThick { body } => {
+                format!("The thickness is too large for the body of {body}.")
+            }
+            Self::Undivided { body } => format!(
+                "The body of {body} could not be divided into its outside and its hollows, so it \
+                 cannot be shelled."
+            ),
+            Self::Unbuilt { body } => {
+                format!("The shell could not be built on the body of {body}.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::NotPositive { face } => {
+                format!("Enter a thickness{} above zero.", Self::of_face(face))
+            }
+            Self::WallTied { .. } | Self::WallGone { .. } => {
+                "Choose the face again, or remove its own thickness from the shell.".to_owned()
+            }
+            Self::ThicknessTooSmall => "Enter a larger thickness.".to_owned(),
+            Self::FaceGone { .. } => {
+                "Choose the faces again, or undo the change that removed it.".to_owned()
+            }
+            Self::FaceThicknessTooSmall { .. } => {
+                "Enter a larger thickness for that face.".to_owned()
+            }
+            Self::OpenedFaceThickness { .. } => {
+                "Remove its own thickness, or close the face again.".to_owned()
+            }
+            Self::UnsupportedOpening { .. } => "Leave this face out.".to_owned(),
+            Self::CurvedOpening { .. } => {
+                "Open the faces it meets smoothly as well, or open a flat face instead.".to_owned()
+            }
+            Self::UnsupportedWall { .. } => {
+                "Shell the body before adding those faces, or open that face.".to_owned()
+            }
+            Self::UnsupportedEdge { .. } => {
+                "Try a different thickness, or shell the body before the feature that made this \
+                 edge."
+                    .to_owned()
+            }
+            Self::TooCurved { .. } => {
+                "Enter a thickness below the smallest radius of that face.".to_owned()
+            }
+            Self::Corner { .. } => {
+                "Change the thickness, or open one of the faces at that corner.".to_owned()
+            }
+            Self::EdgeCollapses { .. }
+            | Self::ClosesBesideClosing { .. }
+            | Self::Overhang { .. }
+            | Self::Crossing { .. }
+            | Self::TooThick { .. } => "Enter a smaller thickness.".to_owned(),
+            Self::Opening { .. } => {
+                "Enter a smaller thickness, or leave this face closed.".to_owned()
+            }
+            Self::Undivided { .. } => {
+                "Change the feature that made the body slightly, or shell it before that \
+                 feature."
+                    .to_owned()
+            }
+            Self::Unbuilt { .. } => {
+                "Change the thickness slightly, or open different faces.".to_owned()
+            }
+        }
+    }
+
+    fn of_face(face: &Option<String>) -> String {
+        face.as_ref()
+            .map(|face| format!(" of {face}"))
+            .unwrap_or_default()
+    }
+}
+
+impl From<ShellCause> for Cause {
+    fn from(cause: ShellCause) -> Self {
+        Self::Shell(cause)
     }
 }
 
@@ -538,25 +585,13 @@ pub(crate) fn evaluate(
         return Err(inputs.missing_body(definition.body));
     };
     let open = definition.resolve(solid).map_err(|unresolved| {
-        let body = &context.body_name;
-        let reason = match unresolved {
-            Unresolved::Missing(1) => {
-                format!("A face to open is no longer part of the body of {body}.")
-            }
-            Unresolved::Missing(missing) => {
-                format!("{missing} faces to open are no longer part of the body of {body}.")
-            }
-            Unresolved::Unrelated(1) => {
-                format!("A face to open now matches several separate faces of the body of {body}.")
-            }
-            Unresolved::Unrelated(unrelated) => format!(
-                "{unrelated} faces to open now match several separate faces of the body of \
-                 {body}."
-            ),
-        };
-        context.error(
-            reason,
-            "Choose the faces again, or undo the change that removed them.".to_owned(),
+        Failure::from(
+            FeatureError::new(Unmatched {
+                chosen: Chosen::FacesToOpen,
+                unresolved,
+                body: context.body_name.clone(),
+            })
+            .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
     let walls = context.walls(solid, thickness)?;

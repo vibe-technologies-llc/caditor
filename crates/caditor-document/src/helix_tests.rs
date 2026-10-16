@@ -157,7 +157,7 @@ fn turns_too_close_for_the_profile_fail_the_sweep_naming_it() {
     let evaluation = evaluate(&model.document);
     let error = failure(&evaluation, model.sweep);
 
-    assert_eq!(error.reason, "Sweep 1 runs into itself along its path.");
+    assert_eq!(error.reason(), "Sweep 1 runs into itself along its path.");
     assert_eq!(evaluation.failed_count(), 1);
 }
 
@@ -172,7 +172,7 @@ fn a_taper_drawing_the_helix_into_its_axis_fails_it_in_words() {
     let error = failure(&evaluation, model.helix);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The taper draws Helix 1 in until it reaches its axis."
     );
     assert!(matches!(
@@ -254,5 +254,5 @@ fn a_start_angle_that_is_not_an_angle_fails_the_helix_in_words() {
     let evaluation = evaluate(&model.document);
     let error = failure(&evaluation, model.helix);
 
-    assert!(error.reason.contains("start angle"), "{}", error.reason);
+    assert!(error.reason().contains("start angle"), "{}", error.reason());
 }

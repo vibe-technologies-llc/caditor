@@ -6,9 +6,10 @@ use caditor_kernel::{
 };
 
 use crate::{
-    blend::{BlendRecipe, BlendedEdge},
+    blend::{BlendKind, BlendRecipe, BlendedEdge},
     document::FeatureId,
-    pattern::{Instance, SeedWords},
+    failure::Cause,
+    pattern::Instance,
     recompute::{CancelToken, Failure, FeatureError, FixTarget},
 };
 
@@ -207,129 +208,400 @@ impl CopiedNames {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Repeater {
+    Pattern,
+    Mirror,
+}
+
+impl Repeater {
+    pub(crate) fn feature(self) -> &'static str {
+        match self {
+            Self::Pattern => "pattern",
+            Self::Mirror => "mirror",
+        }
+    }
+
+    pub(crate) fn repeats(self) -> &'static str {
+        match self {
+            Self::Pattern => "repeats",
+            Self::Mirror => "mirrors",
+        }
+    }
+
+    pub(crate) fn places(self) -> &'static str {
+        match self {
+            Self::Pattern => "repeats it on",
+            Self::Mirror => "reflects it on",
+        }
+    }
+
+    pub(crate) fn repeated(self) -> &'static str {
+        match self {
+            Self::Pattern => "repeated",
+            Self::Mirror => "mirrored",
+        }
+    }
+
+    pub(crate) fn verb(self) -> &'static str {
+        self.feature()
+    }
+
+    pub(crate) fn copies(self) -> &'static str {
+        match self {
+            Self::Pattern => "the copies",
+            Self::Mirror => "the mirror image",
+        }
+    }
+
+    pub(crate) fn clear(self) -> &'static str {
+        match self {
+            Self::Pattern => "Change the spacing or the angle so",
+            Self::Mirror => "Move the plane so",
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
-pub(crate) struct CopyWords<'a> {
+pub(crate) struct Repeat<'a> {
     pub feature: FeatureId,
-    pub repeated: &'a str,
-    pub seed: &'a SeedWords,
+    pub repeater: Repeater,
     pub copy: &'a dyn Fn(Instance) -> String,
-    pub copies: &'a str,
-    pub clear: &'a str,
 }
 
-impl<'a> CopyWords<'a> {
-    pub(crate) fn naming<'b>(&self, repeated: &'b str) -> CopyWords<'b>
-    where
-        'a: 'b,
-    {
-        CopyWords { repeated, ..*self }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BlendWhy {
+    TooLarge,
+    Differs,
+    Unbuilt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShellWhy {
+    TooThick,
+    Overhang,
+    Unbuilt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum RepeatCause {
+    SeedUnavailable {
+        repeater: Repeater,
+        name: String,
+    },
+    SeedOtherBody {
+        repeater: Repeater,
+        name: String,
+    },
+    SeedShellLate {
+        repeater: Repeater,
+        name: String,
+        after: String,
+    },
+    SeedNeither {
+        repeater: Repeater,
+        name: String,
+    },
+    BlendNoEdge {
+        repeater: Repeater,
+        blend: String,
+        kind: BlendKind,
+    },
+    BlendMissing {
+        repeater: Repeater,
+        blend: String,
+        copy: String,
+        edges: usize,
+    },
+    BlendAmbiguous {
+        repeater: Repeater,
+        blend: String,
+        copy: String,
+    },
+    BlendFailed {
+        repeater: Repeater,
+        blend: String,
+        copy: String,
+        kind: BlendKind,
+        why: BlendWhy,
+    },
+    ShellOpeningLost {
+        repeater: Repeater,
+        shell: String,
+    },
+    ShellMissing {
+        repeater: Repeater,
+        shell: String,
+        copy: String,
+    },
+    ShellFailed {
+        repeater: Repeater,
+        shell: String,
+        why: ShellWhy,
+    },
+}
+
+impl RepeatCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::SeedUnavailable { repeater, name } => format!(
+                "It {} {name}, whose shape is not available.",
+                repeater.repeats()
+            ),
+            Self::SeedOtherBody { repeater, name } => format!(
+                "{name} changes another body than the one this {} {}.",
+                repeater.feature(),
+                repeater.places()
+            ),
+            Self::SeedShellLate {
+                repeater,
+                name,
+                after,
+            } => format!(
+                "{after} changes the body after {name}, so this {} cannot hollow its copies \
+                 with {name}.",
+                repeater.feature()
+            ),
+            Self::SeedNeither { repeater, name } => format!(
+                "{name} neither adds to nor removes from a body, so it cannot be {}.",
+                repeater.repeated()
+            ),
+            Self::BlendNoEdge {
+                repeater,
+                blend,
+                kind,
+            } => format!(
+                "{blend} blends no edge of the features this {} {}, so its {} has nothing to \
+                 follow on the copies.",
+                repeater.feature(),
+                repeater.repeats(),
+                kind.noun()
+            ),
+            Self::BlendMissing {
+                repeater,
+                blend,
+                copy,
+                edges,
+            } => {
+                let several = if *edges == 1 {
+                    "an edge".to_owned()
+                } else {
+                    format!("{edges} edges")
+                };
+                format!(
+                    "{blend} could not be {} on {copy}: {several} it blends on the original \
+                     have no match there, as the copy meets the body differently.",
+                    repeater.repeated()
+                )
+            }
+            Self::BlendAmbiguous {
+                repeater,
+                blend,
+                copy,
+            } => format!(
+                "{blend} could not be {} on {copy}: an edge it blends matches several edges \
+                 there.",
+                repeater.repeated()
+            ),
+            Self::BlendFailed {
+                repeater,
+                blend,
+                copy,
+                kind,
+                why,
+            } => {
+                let why = match why {
+                    BlendWhy::TooLarge => {
+                        format!("the {} is too large for the faces there", kind.size_name())
+                    }
+                    BlendWhy::Differs => {
+                        "the faces around its edges there differ from the original's".to_owned()
+                    }
+                    BlendWhy::Unbuilt => format!("the {} could not be built there", kind.noun()),
+                };
+                format!(
+                    "{blend} could not be {} on {copy}: {why}.",
+                    repeater.repeated()
+                )
+            }
+            Self::ShellOpeningLost { repeater, shell } => format!(
+                "{shell} could not be {}: a face it opens is no longer part of the body once \
+                 {} are added.",
+                repeater.repeated(),
+                repeater.copies()
+            ),
+            Self::ShellMissing {
+                repeater,
+                shell,
+                copy,
+            } => format!(
+                "{shell} could not be {} on {copy}: a face it opens on the original has no \
+                 match there, as the copy meets the body differently.",
+                repeater.repeated()
+            ),
+            Self::ShellFailed {
+                repeater,
+                shell,
+                why,
+            } => {
+                let copies = repeater.copies();
+                let why = match why {
+                    ShellWhy::TooThick => {
+                        format!("the walls are too thick for the body with {copies}")
+                    }
+                    ShellWhy::Overhang => {
+                        "a face leans over an opening, so its wall would be cut thin".to_owned()
+                    }
+                    ShellWhy::Unbuilt => format!("the walls could not be built with {copies}"),
+                };
+                format!("{shell} could not hollow {copies}: {why}.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::SeedUnavailable { repeater, name } => format!(
+                "Fix {name} first, or leave it out of the {}.",
+                repeater.feature()
+            ),
+            Self::SeedOtherBody { repeater, .. } => format!(
+                "Leave it out of the {}, or {} the body it changes.",
+                repeater.feature(),
+                repeater.verb()
+            ),
+            Self::SeedShellLate { repeater, name, .. } => format!(
+                "Move this {} right below {name}, or leave {name} out of it.",
+                repeater.feature()
+            ),
+            Self::SeedNeither { repeater, .. } => format!(
+                "Leave it out of the {}, or {} the whole body.",
+                repeater.feature(),
+                repeater.verb()
+            ),
+            Self::BlendNoEdge {
+                repeater, blend, ..
+            } => format!(
+                "Also {} the feature whose edges {blend} blends, {}.",
+                repeater.verb(),
+                Self::leave_out(*repeater, blend)
+            ),
+            Self::BlendMissing {
+                repeater,
+                blend,
+                copy,
+                ..
+            }
+            | Self::BlendAmbiguous {
+                repeater,
+                blend,
+                copy,
+            }
+            | Self::BlendFailed {
+                repeater,
+                blend,
+                copy,
+                ..
+            } => format!(
+                "{} {copy} stands clear of other features, {}.",
+                repeater.clear(),
+                Self::leave_out(*repeater, blend)
+            ),
+            Self::ShellOpeningLost { repeater, shell } => format!(
+                "{} the faces {shell} opens are not covered by {}, {}.",
+                repeater.clear(),
+                repeater.copies(),
+                Self::leave_out(*repeater, shell)
+            ),
+            Self::ShellMissing {
+                repeater,
+                shell,
+                copy,
+            } => format!(
+                "{} {copy} stands clear of other features, {}.",
+                repeater.clear(),
+                Self::leave_out(*repeater, shell)
+            ),
+            Self::ShellFailed {
+                repeater, shell, ..
+            } => format!(
+                "{} there is room for the walls around {}, {}.",
+                repeater.clear(),
+                repeater.copies(),
+                Self::leave_out(*repeater, shell)
+            ),
+        }
+    }
+
+    fn leave_out(repeater: Repeater, feature: &str) -> String {
+        format!("or leave {feature} out of the {}", repeater.feature())
     }
 }
 
-fn noun(shape: BlendShape) -> &'static str {
-    match shape {
-        BlendShape::Fillet { .. } => "fillet",
-        BlendShape::Chamfer { .. }
-        | BlendShape::TwoDistanceChamfer { .. }
-        | BlendShape::AngledChamfer { .. } => "chamfer",
+impl From<RepeatCause> for Cause {
+    fn from(cause: RepeatCause) -> Self {
+        Self::Repeat(cause)
     }
 }
 
-fn size_name(shape: BlendShape) -> &'static str {
+fn kind(shape: BlendShape) -> BlendKind {
     match shape {
-        BlendShape::Fillet { .. } => "radius",
+        BlendShape::Fillet { .. } => BlendKind::Fillet,
         BlendShape::Chamfer { .. }
         | BlendShape::TwoDistanceChamfer { .. }
-        | BlendShape::AngledChamfer { .. } => "distance",
+        | BlendShape::AngledChamfer { .. } => BlendKind::Chamfer,
     }
 }
 
 pub(crate) fn failure(
     error: &CopyBlendError,
     recipe: &BlendRecipe,
-    words: &CopyWords<'_>,
+    repeat: &Repeat<'_>,
+    blend: &str,
 ) -> Failure {
-    let CopyWords {
+    let Repeat {
         feature,
-        repeated: blend,
-        seed,
+        repeater,
         copy,
-        clear,
-        ..
-    } = words;
-    let SeedWords {
-        feature: kind,
-        repeats,
-        repeated,
-        verb,
-        ..
-    } = seed;
-    let noun = noun(recipe.shape);
-    let leave_out = format!("or leave {blend} out of the {kind}");
-    let (reason, remedy) = match error {
+    } = *repeat;
+    let named = blend.to_owned();
+    let kind = kind(recipe.shape);
+    let cause = match error {
         CopyBlendError::Cancelled => return Failure::Cancelled,
-        CopyBlendError::NoRepeatedEdge => (
-            format!(
-                "{blend} blends no edge of the features this {kind} {repeats}, so its {noun} \
-                 has nothing to follow on the copies."
-            ),
-            format!("Also {verb} the feature whose edges {blend} blends, {leave_out}."),
-        ),
-        CopyBlendError::Missing { copy: at, edges } => {
-            let several = if *edges == 1 {
-                "an edge".to_owned()
-            } else {
-                format!("{edges} edges")
-            };
-            (
-                format!(
-                    "{blend} could not be {repeated} on {}: {several} it blends on the original \
-                     have no match there, as the copy meets the body differently.",
-                    copy(*at)
-                ),
-                format!(
-                    "{clear} {} stands clear of other features, {leave_out}.",
-                    copy(*at)
-                ),
-            )
-        }
-        CopyBlendError::Ambiguous { copy: at } => (
-            format!(
-                "{blend} could not be {repeated} on {}: an edge it blends matches several \
-                 edges there.",
-                copy(*at)
-            ),
-            format!(
-                "{clear} {} stands clear of other features, {leave_out}.",
-                copy(*at)
-            ),
-        ),
+        CopyBlendError::NoRepeatedEdge => RepeatCause::BlendNoEdge {
+            repeater,
+            blend: named,
+            kind,
+        },
+        CopyBlendError::Missing { copy: at, edges } => RepeatCause::BlendMissing {
+            repeater,
+            blend: named,
+            copy: copy(*at),
+            edges: *edges,
+        },
+        CopyBlendError::Ambiguous { copy: at } => RepeatCause::BlendAmbiguous {
+            repeater,
+            blend: named,
+            copy: copy(*at),
+        },
         CopyBlendError::Blend { copy: at, error } => {
             let place = copy(*at);
             let why = match error {
-                BlendError::TooLarge(_) => format!(
-                    "the {} is too large for the faces there",
-                    size_name(recipe.shape)
-                ),
-                BlendError::Unsupported(_) | BlendError::UnsupportedEnd { .. } => {
-                    "the faces around its edges there differ from the original's".to_owned()
-                }
+                BlendError::TooLarge(_) => BlendWhy::TooLarge,
+                BlendError::Unsupported(_) | BlendError::UnsupportedEnd { .. } => BlendWhy::Differs,
                 error => {
                     log::warn!("{blend} could not be repeated on {place}: {error}");
-                    format!("the {noun} could not be built there")
+                    BlendWhy::Unbuilt
                 }
             };
-            (
-                format!("{blend} could not be {repeated} on {place}: {why}."),
-                format!("{clear} {place} stands clear of other features, {leave_out}."),
-            )
+            RepeatCause::BlendFailed {
+                repeater,
+                blend: named,
+                copy: place,
+                kind,
+                why,
+            }
         }
     };
-    Failure::Error(Box::new(FeatureError {
-        reason,
-        remedy,
-        fix: Some(FixTarget::Feature(*feature)),
-        constraints: Vec::new(),
-        place: None,
-    }))
+    Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(feature)))
 }

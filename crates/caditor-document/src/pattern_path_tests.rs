@@ -203,7 +203,7 @@ fn a_set_distance_along_a_chain_of_lines_stops_at_its_end() {
     let error = failure(&evaluation, model.pattern);
     assert!(
         error
-            .reason
+            .reason()
             .contains("past the end of the curve, which is 40 mm long")
     );
     assert_eq!(evaluation.failed_count(), 1);
@@ -229,7 +229,7 @@ fn a_path_that_branches_fails_the_pattern_with_the_fix_on_the_sketch() {
     let model = model(branching, |path| along(path, "3", CopyOrientation::Kept));
     let evaluation = evaluate(&model.document);
     let error = failure(&evaluation, model.pattern);
-    assert!(error.reason.contains("do not join end to end"));
+    assert!(error.reason().contains("do not join end to end"));
     assert_eq!(error.fix, Some(FixTarget::Feature(model.path)));
     assert!(evaluation.body(model.base).is_some());
 }
@@ -304,7 +304,7 @@ fn a_point_pattern_needs_lone_points_and_refuses_a_feature_that_is_no_sketch() {
     });
     let evaluation = evaluate(&model.document);
     let error = failure(&evaluation, model.pattern);
-    assert!(error.reason.contains("has no lone points"));
+    assert!(error.reason().contains("has no lone points"));
     assert_eq!(error.fix, Some(FixTarget::Feature(model.path)));
 
     let base = model.base;

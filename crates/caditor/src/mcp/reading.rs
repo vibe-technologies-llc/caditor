@@ -163,8 +163,8 @@ pub fn state_of(document: &Document, evaluation: &Evaluation, feature: &Feature)
         Some(FeatureState::UpToDate) => StateWords::plain("up to date"),
         Some(FeatureState::Failed(error)) => StateWords {
             state: "failed",
-            reason: Some(error.reason.clone()),
-            remedy: Some(error.remedy.clone()),
+            reason: Some(error.reason()),
+            remedy: Some(error.remedy()),
         },
         Some(FeatureState::Waiting(missing)) => StateWords {
             state: "waiting",
@@ -554,8 +554,8 @@ pub fn sketch(
     if let Some(FeatureState::Failed(error)) =
         evaluation.feature(feature.id()).map(|status| &status.state)
     {
-        answer.insert("problem".to_owned(), json!(error.reason));
-        answer.insert("remedy".to_owned(), json!(error.remedy));
+        answer.insert("problem".to_owned(), json!(error.reason()));
+        answer.insert("remedy".to_owned(), json!(error.remedy()));
         let conflicts: Vec<String> = error
             .constraints
             .iter()

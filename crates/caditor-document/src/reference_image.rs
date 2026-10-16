@@ -7,6 +7,7 @@ use caditor_kernel::MAX_SIZE;
 use crate::{
     datum::{PlaneReference, Resolver, feature_name},
     document::{Feature, FeatureId},
+    failure::Cause,
     picture::Picture,
     recompute::{Failure, FeatureResult, Inputs},
 };
@@ -292,10 +293,7 @@ pub(crate) fn evaluate(
     );
     let turn = resolver.value(&definition.turn, "angle", Dimension::ANGLE)?;
     if !turn.is_finite() {
-        return Err(resolver.own_error(
-            "The angle of the image is not a number.".to_owned(),
-            "Type an angle, such as 30 deg.",
-        ));
+        return Err(resolver.error(ImageCause::AngleNotANumber));
     }
     let aspect = definition.picture.size().aspect();
     let width = image_width(&resolver, &definition.size, aspect)?;
@@ -314,10 +312,7 @@ fn image_width(resolver: &Resolver<'_>, size: &ImageSize, aspect: f64) -> Result
         ImageSize::Width(width) => {
             let width = resolver.value(width, "width", Dimension::LENGTH)?;
             if !is_above(width, 0.0) {
-                return Err(resolver.own_error(
-                    "The width of the image must be more than zero.".to_owned(),
-                    "Type a width above zero, such as 100 mm.",
-                ));
+                return Err(resolver.error(ImageCause::WidthNotPositive));
             }
             width
         }
@@ -328,30 +323,17 @@ fn image_width(resolver: &Resolver<'_>, size: &ImageSize, aspect: f64) -> Result
                 Dimension::LENGTH,
             )?;
             if !is_above(distance, 0.0) {
-                return Err(resolver.own_error(
-                    "The distance between the calibration points must be more than zero."
-                        .to_owned(),
-                    "Type the real distance between the two points, such as 50 mm.",
-                ));
+                return Err(resolver.error(ImageCause::CalibrationDistance));
             }
             let gap = calibration.spot_gap(aspect);
             if !is_above(gap, LEAST_SPOT_GAP) {
-                return Err(resolver.own_error(
-                    "The two calibration points are at the same place on the image.".to_owned(),
-                    "Calibrate again, picking two points far apart on the image.",
-                ));
+                return Err(resolver.error(ImageCause::CalibrationPoints));
             }
             distance / gap
         }
     };
     if width * aspect.max(1.0) > MAX_SIZE {
-        return Err(resolver.own_error(
-            format!(
-                "The image would be more than {} m across.",
-                MAX_SIZE / 1_000.0
-            ),
-            "Make the image smaller.".to_owned().as_str(),
-        ));
+        return Err(resolver.error(ImageCause::TooWide));
     }
     Ok(width)
 }
@@ -364,13 +346,9 @@ fn within_reach(resolver: &Resolver<'_>, value: f64, what: &str) -> Result<f64, 
     if value.is_finite() && value.abs() <= MAX_SIZE {
         return Ok(value);
     }
-    Err(resolver.own_error(
-        format!(
-            "The {what} of the image is more than {} m.",
-            MAX_SIZE / 1_000.0
-        ),
-        "Bring the image nearer the plane's origin.",
-    ))
+    Err(resolver.error(ImageCause::TooFar {
+        what: what.to_owned(),
+    }))
 }
 
 fn sketch_plane(resolver: &Resolver<'_>, sketch: FeatureId) -> Result<Plane, Failure> {
@@ -382,10 +360,63 @@ fn sketch_plane(resolver: &Resolver<'_>, sketch: FeatureId) -> Result<Plane, Fai
         .map(|result| result.geometry.plane())
         .ok_or_else(|| {
             let name = feature_name(inputs.document, sketch);
-            resolver.error(
-                format!("It lies on {name}, which has an error."),
-                format!("Fix {name} first."),
-                sketch,
-            )
+            resolver.error_at(ImageCause::SketchFailed { name }, sketch)
         })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ImageCause {
+    AngleNotANumber,
+    WidthNotPositive,
+    CalibrationDistance,
+    CalibrationPoints,
+    TooWide,
+    TooFar { what: String },
+    SketchFailed { name: String },
+}
+
+impl ImageCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::AngleNotANumber => "The angle of the image is not a number.".to_owned(),
+            Self::WidthNotPositive => "The width of the image must be more than zero.".to_owned(),
+            Self::CalibrationDistance => {
+                "The distance between the calibration points must be more than zero.".to_owned()
+            }
+            Self::CalibrationPoints => {
+                "The two calibration points are at the same place on the image.".to_owned()
+            }
+            Self::TooWide => format!(
+                "The image would be more than {} m across.",
+                MAX_SIZE / 1_000.0
+            ),
+            Self::TooFar { what } => format!(
+                "The {what} of the image is more than {} m.",
+                MAX_SIZE / 1_000.0
+            ),
+            Self::SketchFailed { name } => format!("It lies on {name}, which has an error."),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::AngleNotANumber => "Type an angle, such as 30 deg.".to_owned(),
+            Self::WidthNotPositive => "Type a width above zero, such as 100 mm.".to_owned(),
+            Self::CalibrationDistance => {
+                "Type the real distance between the two points, such as 50 mm.".to_owned()
+            }
+            Self::CalibrationPoints => {
+                "Calibrate again, picking two points far apart on the image.".to_owned()
+            }
+            Self::TooWide => "Make the image smaller.".to_owned(),
+            Self::TooFar { .. } => "Bring the image nearer the plane's origin.".to_owned(),
+            Self::SketchFailed { name } => format!("Fix {name} first."),
+        }
+    }
+}
+
+impl From<ImageCause> for Cause {
+    fn from(cause: ImageCause) -> Self {
+        Self::Image(cause)
+    }
 }

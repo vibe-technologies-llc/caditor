@@ -154,9 +154,9 @@ fn a_profile_too_large_for_the_bend_fails_naming_the_curve() {
     let error = failure(&evaluate(&model.document), model.sweep);
 
     assert!(
-        error.reason.contains("too large for the bend of") && error.reason.contains("of Path"),
+        error.reason().contains("too large for the bend of") && error.reason().contains("of Path"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -188,8 +188,12 @@ fn a_sharp_corner_onto_an_arc_fails_saying_how_to_round_it() {
 
     let error = failure(&evaluate(&document), sweep);
 
-    assert!(error.reason.contains("sharp corner"), "{}", error.reason);
-    assert!(error.remedy.contains("fillet"), "{}", error.remedy);
+    assert!(
+        error.reason().contains("sharp corner"),
+        "{}",
+        error.reason()
+    );
+    assert!(error.remedy().contains("fillet"), "{}", error.remedy());
     assert_eq!(error.fix, Some(FixTarget::Feature(path_sketch)));
 }
 
@@ -500,16 +504,20 @@ fn a_closed_path_brought_back_turned_names_the_twist_that_closes_it() {
     let error = failure(&evaluate(&model.document), model.sweep);
     let refused = failure(&evaluate(&scaled.document), scaled.sweep);
 
-    assert!(error.reason.contains("turned by 90°"), "{}", error.reason);
     assert!(
-        error.remedy.contains("Set the twist to 0°"),
+        error.reason().contains("turned by 90°"),
         "{}",
-        error.remedy
+        error.reason()
     );
     assert!(
-        refused.remedy.contains("end scale to 1"),
+        error.remedy().contains("Set the twist to 0°"),
         "{}",
-        refused.remedy
+        error.remedy()
+    );
+    assert!(
+        refused.remedy().contains("end scale to 1"),
+        "{}",
+        refused.remedy()
     );
 }
 
@@ -522,13 +530,13 @@ fn an_end_scale_of_zero_or_a_twist_given_as_a_length_fails_in_words() {
     let lengthened = failure(&evaluate(&long.document), long.sweep);
 
     assert!(
-        flattened.reason.contains("must be more than zero"),
+        flattened.reason().contains("must be more than zero"),
         "{}",
-        flattened.reason
+        flattened.reason()
     );
     assert!(
-        lengthened.remedy.contains("gives an angle"),
+        lengthened.remedy().contains("gives an angle"),
         "{}",
-        lengthened.remedy
+        lengthened.remedy()
     );
 }

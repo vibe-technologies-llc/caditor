@@ -11,6 +11,7 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 use crate::{
     body_appearance::BodyAppearance,
     document::{Document, Feature, FeatureId},
+    failure::Cause,
     recompute::{Failure, FeatureError, FixTarget},
 };
 
@@ -349,45 +350,78 @@ fn own_curve(index: usize, drawn: &[BTreeSet<u64>]) -> Option<u64> {
         .find(|entity| others().all(|other| !other.contains(entity)))
 }
 
+fn pieces_failure(feature: &Feature, cause: PiecesCause) -> Failure {
+    Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(feature.id())))
+}
+
 fn untold(feature: &Feature) -> Failure {
-    Failure::from(FeatureError {
-        reason: format!(
-            "Two separate pieces of {} are drawn by the same curves, so they cannot be told apart \
-             as bodies.",
-            feature.name
-        ),
-        remedy: "Draw each piece with a curve of its own, or keep the pieces one body.".to_owned(),
-        fix: Some(FixTarget::Feature(feature.id())),
-        constraints: Vec::new(),
-        place: None,
-    })
+    pieces_failure(
+        feature,
+        PiecesCause::Untold {
+            feature: feature.name.clone(),
+        },
+    )
 }
 
 fn too_large(feature: &Feature) -> Failure {
-    Failure::from(FeatureError {
-        reason: format!(
-            "The pieces of {} cannot each become a body in a model this large.",
-            feature.name
-        ),
-        remedy: "Keep the pieces one body.".to_owned(),
-        fix: Some(FixTarget::Feature(feature.id())),
-        constraints: Vec::new(),
-        place: None,
-    })
+    pieces_failure(
+        feature,
+        PiecesCause::TooLarge {
+            feature: feature.name.clone(),
+        },
+    )
 }
 
 fn apart_failure(feature: &Feature, error: &TessellationError) -> Failure {
     if matches!(error, TessellationError::Cancelled(_)) {
         return Failure::Cancelled;
     }
-    Failure::from(FeatureError {
-        reason: format!(
-            "The separate pieces of {} could not be taken apart.",
-            feature.name
-        ),
-        remedy: "Keep the pieces one body, or change the sketch slightly.".to_owned(),
-        fix: Some(FixTarget::Feature(feature.id())),
-        constraints: Vec::new(),
-        place: None,
-    })
+    pieces_failure(
+        feature,
+        PiecesCause::Apart {
+            feature: feature.name.clone(),
+        },
+    )
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PiecesCause {
+    Untold { feature: String },
+    TooLarge { feature: String },
+    Apart { feature: String },
+}
+
+impl PiecesCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::Untold { feature } => format!(
+                "Two separate pieces of {feature} are drawn by the same curves, so they cannot be \
+                 told apart as bodies."
+            ),
+            Self::TooLarge { feature } => {
+                format!("The pieces of {feature} cannot each become a body in a model this large.")
+            }
+            Self::Apart { feature } => {
+                format!("The separate pieces of {feature} could not be taken apart.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::Untold { .. } => {
+                "Draw each piece with a curve of its own, or keep the pieces one body.".to_owned()
+            }
+            Self::TooLarge { .. } => "Keep the pieces one body.".to_owned(),
+            Self::Apart { .. } => {
+                "Keep the pieces one body, or change the sketch slightly.".to_owned()
+            }
+        }
+    }
+}
+
+impl From<PiecesCause> for Cause {
+    fn from(cause: PiecesCause) -> Self {
+        Self::Pieces(cause)
+    }
 }
