@@ -8,7 +8,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
 use crate::{
     body_picks::Staged,
     model::Model,
-    sketch_tools::{self, Added, ConstraintTool},
+    sketch_tools::{self, Added, ConstraintOfferError, ConstraintTool},
 };
 
 pub const PICK_FIRST: &str = "Click a line, circle, arc or point to dimension it";
@@ -435,14 +435,8 @@ pub enum DimensionToolError {
     Waiting { prompt: String },
     #[error("{0}")]
     Unfitting(&'static str),
-    #[error("{0}")]
-    Unproposed(String),
-}
-
-impl From<String> for DimensionToolError {
-    fn from(error: String) -> Self {
-        Self::Unproposed(error)
-    }
+    #[error(transparent)]
+    Unproposed(#[from] ConstraintOfferError),
 }
 
 impl From<DimensionToolError> for String {

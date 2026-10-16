@@ -86,6 +86,38 @@ pub fn selected_face(selection: &Selection) -> Option<FaceChoice> {
 
 pub const NOT_FLAT: &str = "The selected face is curved; sketches lie on planes and flat faces";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AttachmentError {
+    #[error("{}", GONE)]
+    Gone,
+    #[error("{}", NOT_FLAT)]
+    NotFlat,
+    #[error("{}", NOT_RECOMPUTED)]
+    NotRecomputed,
+    #[error("{}", FACE_MADE_AFTER)]
+    MadeAfter,
+    #[error("{}", NOT_FLAT_HERE)]
+    NotFlatHere,
+}
+
+impl From<AttachmentError> for String {
+    fn from(error: AttachmentError) -> Self {
+        error.to_string()
+    }
+}
+
+impl AttachmentError {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Gone => GONE,
+            Self::NotFlat => NOT_FLAT,
+            Self::NotRecomputed => NOT_RECOMPUTED,
+            Self::MadeAfter => FACE_MADE_AFTER,
+            Self::NotFlatHere => NOT_FLAT_HERE,
+        }
+    }
+}
+
 pub fn is_flat(model: &Model, choice: FaceChoice) -> bool {
     bodies::shown(model.evaluation(), choice.body).is_some_and(|shown| {
         bodies::find_face(shown, choice.face)
@@ -106,10 +138,10 @@ pub enum StateError {
 }
 
 impl StateError {
-    pub fn face(self) -> &'static str {
+    pub fn face(self) -> AttachmentError {
         match self {
-            Self::NotRecomputed => NOT_RECOMPUTED,
-            Self::MadeAfter => "The selected face is made after this point in the tree",
+            Self::NotRecomputed => AttachmentError::NotRecomputed,
+            Self::MadeAfter => AttachmentError::MadeAfter,
         }
     }
 
@@ -130,6 +162,8 @@ impl StateError {
 
 const NOT_RECOMPUTED: &str = queued::MODEL_UP_TO_THERE;
 const GONE: &str = "The selected face is no longer part of the model";
+const FACE_MADE_AFTER: &str = "The selected face is made after this point in the tree";
+const NOT_FLAT_HERE: &str = "The selected face is not flat at this point in the tree";
 
 pub fn body_state_before(
     model: &Model,
@@ -182,7 +216,7 @@ pub fn attachment_at(
     model: &Model,
     choice: FaceChoice,
     index: usize,
-) -> Result<(FaceAttachment, Plane), &'static str> {
+) -> Result<(FaceAttachment, Plane), AttachmentError> {
     attachment_in(model.document(), model.evaluation(), choice, index)
 }
 
@@ -191,36 +225,35 @@ pub fn attachment_in(
     evaluation: &Evaluation,
     choice: FaceChoice,
     index: usize,
-) -> Result<(FaceAttachment, Plane), &'static str> {
-    let body = bodies::shown(evaluation, choice.body).ok_or(GONE)?;
-    let face = bodies::find_face(body, choice.face).ok_or(GONE)?;
+) -> Result<(FaceAttachment, Plane), AttachmentError> {
+    let body = bodies::shown(evaluation, choice.body).ok_or(AttachmentError::Gone)?;
+    let face = bodies::find_face(body, choice.face).ok_or(AttachmentError::Gone)?;
     let shown = &body.solid;
     if face_plane(shown, face).is_none() {
-        return Err(NOT_FLAT);
+        return Err(AttachmentError::NotFlat);
     }
-    let reference = FaceReference::capture(shown, face).ok_or(GONE)?;
+    let reference = FaceReference::capture(shown, face).ok_or(AttachmentError::Gone)?;
     let state =
         body_state_in(document, evaluation, choice.body, index).map_err(StateError::face)?;
     let there = reference
         .resolve(state)
-        .map_err(|_| StateError::MadeAfter.face())?;
-    FaceAttachment::capture(choice.body, state, there)
-        .ok_or("The selected face is not flat at this point in the tree")
+        .map_err(|_| AttachmentError::MadeAfter)?;
+    FaceAttachment::capture(choice.body, state, there).ok_or(AttachmentError::NotFlatHere)
 }
 
 pub fn surface_at(
     model: &Model,
     choice: FaceChoice,
     index: usize,
-) -> Result<FaceAttachment, &'static str> {
-    let body = bodies::shown(model.evaluation(), choice.body).ok_or(GONE)?;
-    let face = bodies::find_face(body, choice.face).ok_or(GONE)?;
-    let reference = FaceReference::capture(&body.solid, face).ok_or(GONE)?;
+) -> Result<FaceAttachment, AttachmentError> {
+    let body = bodies::shown(model.evaluation(), choice.body).ok_or(AttachmentError::Gone)?;
+    let face = bodies::find_face(body, choice.face).ok_or(AttachmentError::Gone)?;
+    let reference = FaceReference::capture(&body.solid, face).ok_or(AttachmentError::Gone)?;
     let state = body_state_before(model, choice.body, index).map_err(StateError::face)?;
     let there = reference
         .resolve(state)
-        .map_err(|_| StateError::MadeAfter.face())?;
-    let face = FaceReference::capture(state, there).ok_or(GONE)?;
+        .map_err(|_| AttachmentError::MadeAfter)?;
+    let face = FaceReference::capture(state, there).ok_or(AttachmentError::Gone)?;
     Ok(FaceAttachment {
         body: choice.body,
         face,
@@ -230,7 +263,7 @@ pub fn surface_at(
 pub fn new_sketch(
     model: &Model,
     choice: FaceChoice,
-) -> Result<(Transaction, FeatureId), &'static str> {
+) -> Result<(Transaction, FeatureId), AttachmentError> {
     let document = model.document();
     let (attachment, plane) = attachment_at(model, choice, document.bar_index())?;
     let name = editing::next_sketch_name(document);
@@ -246,11 +279,11 @@ pub fn place(
     model: &Model,
     sketch: FeatureId,
     choice: FaceChoice,
-) -> Result<Transaction, &'static str> {
+) -> Result<Transaction, PlaceError> {
     let document = model.document();
     let index = document
         .feature_index(sketch)
-        .ok_or("The sketch no longer exists")?;
+        .ok_or(PlaceError::SketchGone)?;
     let (attachment, plane) = attachment_at(model, choice, index)?;
     if document
         .feature(sketch)
@@ -258,7 +291,7 @@ pub fn place(
         .and_then(SketchAttachment::face)
         == Some(&attachment)
     {
-        return Err("The sketch already lies on the selected face");
+        return Err(PlaceError::AlreadyOnFace);
     }
     let name = feature_name(document, sketch);
     let transaction = Transaction::single(
@@ -271,7 +304,7 @@ pub fn place(
     );
     document
         .check(&transaction)
-        .map_err(|_| "The sketch cannot lie on the selected face")?;
+        .map_err(|_| PlaceError::CannotLieOnFace)?;
     Ok(transaction)
 }
 
@@ -313,12 +346,6 @@ pub enum NewSketchError {
     Rejected(#[from] EditError),
 }
 
-impl From<NewSketchError> for String {
-    fn from(error: NewSketchError) -> Self {
-        error.to_string()
-    }
-}
-
 pub fn new_sketch_on_datum(
     model: &Model,
     datum: DatumTarget,
@@ -345,7 +372,7 @@ pub fn place_on_datum(
     model: &Model,
     sketch: FeatureId,
     datum: DatumTarget,
-) -> Result<Transaction, &'static str> {
+) -> Result<Transaction, PlaceError> {
     let document = model.document();
     let attachment = datum.attachment();
     if document
@@ -353,11 +380,11 @@ pub fn place_on_datum(
         .and_then(|feature| feature.kind.attachment())
         == Some(&attachment)
     {
-        return Err("The sketch already lies on the selected plane");
+        return Err(PlaceError::AlreadyOnPlane);
     }
     let plane = datum
         .plane(model.evaluation())
-        .ok_or("The selected plane has no position yet")?;
+        .ok_or(PlaceError::PlaneUnplaced)?;
     let name = feature_name(document, sketch);
     let transaction = Transaction::single(
         format!("Place {name} on {}", datum.name(document)),
@@ -369,11 +396,37 @@ pub fn place_on_datum(
     );
     document
         .check(&transaction)
-        .map_err(|_| "The selected plane comes after this sketch in the tree")?;
+        .map_err(|_| PlaceError::PlaneAfterSketch)?;
     Ok(transaction)
 }
 
-const NOTHING_TO_PLACE_ON: &str = "Select a datum plane or a flat face to place the sketch on";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PlaceError {
+    #[error("The sketch no longer exists")]
+    SketchGone,
+    #[error("The sketch already lies on the selected face")]
+    AlreadyOnFace,
+    #[error("The sketch already lies on the selected plane")]
+    AlreadyOnPlane,
+    #[error("The sketch cannot lie on the selected face")]
+    CannotLieOnFace,
+    #[error("The selected plane has no position yet")]
+    PlaneUnplaced,
+    #[error("The selected plane comes after this sketch in the tree")]
+    PlaneAfterSketch,
+    #[error("Select a datum plane or a flat face to place the sketch on")]
+    NothingToPlaceOn,
+    #[error(transparent)]
+    Target(#[from] TargetError),
+    #[error(transparent)]
+    Attachment(#[from] AttachmentError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TargetError {
+    #[error("{}", SEVERAL_TO_SKETCH_ON)]
+    Several,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementTarget {
@@ -387,7 +440,7 @@ pub const SEVERAL_TO_SKETCH_ON: &str =
 pub fn placement_target(
     document: &Document,
     selection: &Selection,
-) -> Result<Option<PlacementTarget>, &'static str> {
+) -> Result<Option<PlacementTarget>, TargetError> {
     let targets: Vec<PlacementTarget> = selection
         .iter()
         .filter_map(|pickable| match DatumTarget::of(document, pickable) {
@@ -398,7 +451,7 @@ pub fn placement_target(
     match targets.as_slice() {
         [] => Ok(None),
         [target] => Ok(Some(*target)),
-        [_, _, ..] => Err(SEVERAL_TO_SKETCH_ON),
+        [_, _, ..] => Err(TargetError::Several),
     }
 }
 
@@ -410,7 +463,7 @@ pub enum SketchTarget {
     Choose,
 }
 
-pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarget, &'static str> {
+pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarget, TargetError> {
     let document = model.document();
     let targets: Vec<SketchTarget> = selection
         .iter()
@@ -426,7 +479,7 @@ pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarge
         [] => Ok(SketchTarget::Choose),
         [SketchTarget::Face(face)] if !is_flat(model, *face) => Ok(SketchTarget::Choose),
         [target] => Ok(*target),
-        [_, _, ..] => Err(SEVERAL_TO_SKETCH_ON),
+        [_, _, ..] => Err(TargetError::Several),
     }
 }
 
@@ -434,8 +487,8 @@ pub fn place_on_selection(
     model: &Model,
     selection: &Selection,
     sketch: FeatureId,
-) -> Result<Transaction, &'static str> {
-    match placement_target(model.document(), selection)?.ok_or(NOTHING_TO_PLACE_ON)? {
+) -> Result<Transaction, PlaceError> {
+    match placement_target(model.document(), selection)?.ok_or(PlaceError::NothingToPlaceOn)? {
         PlacementTarget::Plane(datum) => place_on_datum(model, sketch, datum),
         PlacementTarget::Face(face) => place(model, sketch, face),
     }

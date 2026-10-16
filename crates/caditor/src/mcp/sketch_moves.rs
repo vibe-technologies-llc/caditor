@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use caditor_expression::Dimension;
 use caditor_geometry::Vector2;
@@ -59,8 +59,11 @@ fn solved_shape<'s>(target: &Target<'s>) -> Result<&'s Sketch, ToolError> {
         })
 }
 
-fn unmovable(reason: String) -> ToolError {
-    SketchEditError::Unmovable { reason }.into()
+fn unmovable(reason: impl Display) -> ToolError {
+    SketchEditError::Unmovable {
+        reason: reason.to_string(),
+    }
+    .into()
 }
 
 pub(super) fn move_geometry(

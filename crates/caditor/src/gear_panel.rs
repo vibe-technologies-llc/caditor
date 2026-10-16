@@ -5,7 +5,7 @@ use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
-    gearing::{self, GearField, GearKind, GearSettings, Part},
+    gearing::{self, FieldProblem, GearField, GearKind, GearSettings, Part},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -91,7 +91,7 @@ pub fn show(
                 match &evaluation.part {
                     Ok(part) => circles(ui, part, context.model.units()),
                     Err(problem) => {
-                        widgets::callout(ui, Tone::Error, |ui| wrapped(ui, problem.as_str()));
+                        widgets::callout(ui, Tone::Error, |ui| wrapped(ui, problem.to_string()));
                     }
                 }
             });
@@ -108,7 +108,7 @@ pub fn show(
         actions.push(
             match gearing::draw(context.model, context.feature, part, centre) {
                 Ok(transaction) => Action::Apply(transaction),
-                Err(reason) => Action::Inform(Notice::warning(reason)),
+                Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
             },
         );
     }
@@ -128,7 +128,12 @@ fn kinds(ui: &mut Ui, settings: &mut GearSettings) {
     }
 }
 
-fn fields(ui: &mut Ui, settings: &mut GearSettings, problems: &[(GearField, String)], unit: Units) {
+fn fields(
+    ui: &mut Ui,
+    settings: &mut GearSettings,
+    problems: &[(GearField, FieldProblem)],
+    unit: Units,
+) {
     let kind = settings.kind();
     widgets::properties(ui, "spur-gear-values", |ui| {
         if kind == GearKind::Sprocket {
@@ -152,7 +157,7 @@ fn fields(ui: &mut Ui, settings: &mut GearSettings, problems: &[(GearField, Stri
                 response.on_hover_text(field.about());
             });
             if let Some((_, problem)) = problems.iter().find(|(wrong, _)| *wrong == field) {
-                widgets::error_row(ui, problem);
+                widgets::error_row(ui, &problem.to_string());
             }
         }
     });

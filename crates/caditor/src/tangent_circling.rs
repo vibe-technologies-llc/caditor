@@ -3,6 +3,7 @@ use caditor_geometry::Point2;
 use caditor_sketch::{
     Dimensioned, Entity, EntityId, Faceting, Sketch, TangentCircle, TangentError,
 };
+use thiserror::Error;
 
 use crate::{
     drawing::Preview,
@@ -10,7 +11,7 @@ use crate::{
     model::Model,
     modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
     snap::{self, Pointer, Screen},
-    trimming::{self, capitalized},
+    trimming::{self, SketchGone, capitalized},
     units::Units,
 };
 
@@ -21,8 +22,23 @@ const PICK_KEYS: &str = "Esc: back to Select";
 const RADIUS_KEYS: &str = "Type the radius   Enter: draw it   Esc: let go of the last curve";
 const NOTHING_HIGHLIGHTED: &str =
     "Highlight a line, circle or arc first, with Highlight the next item in the view";
-const TWO_FIRST: &str = "choose the two curves the circle should touch first";
 const MOST_PICKS: usize = 3;
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum TangentCirclingError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}: {source}.", Tool::TangentCircle.label())]
+    Refused { source: TangentError },
+    #[error(
+        "{}: choose the two curves the circle should touch first.",
+        Tool::TangentCircle.label()
+    )]
+    TwoFirst,
+    #[error(transparent)]
+    Typed(crate::modifying::ValueError),
+}
+
 pub const FIELD: ValueField = ValueField {
     label: "Radius",
     placeholder: "radius",
@@ -35,7 +51,7 @@ pub struct TangentCircling {
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
     pointer: Option<Point2>,
-    radius: Option<Result<Dimensioned, String>>,
+    radius: Option<Result<Dimensioned, TangentCirclingError>>,
     circle: Option<(Vec<EntityId>, Result<TangentCircle, TangentError>)>,
 }
 
@@ -109,7 +125,7 @@ impl TangentCircling {
                     expression: value.expression,
                     value: value.millimetres,
                 })
-                .map_err(String::from)
+                .map_err(TangentCirclingError::Typed)
         });
     }
 
@@ -187,7 +203,9 @@ impl TangentCircling {
         }
         let mut curves = self.picked.clone();
         curves.push(curve);
-        self.draw(model, feature, curves, None).into()
+        self.draw(model, feature, curves, None)
+            .map_err(|error| error.to_string())
+            .into()
     }
 
     pub fn enter_text(
@@ -195,10 +213,10 @@ impl TangentCircling {
         model: &Model,
         feature: FeatureId,
         text: &str,
-    ) -> Result<Outcome, String> {
-        let value = Value::typed(model, text)?;
+    ) -> Result<Outcome, TangentCirclingError> {
+        let value = Value::typed(model, text).map_err(TangentCirclingError::Typed)?;
         if self.picked.len() != 2 {
-            return Err(trimming::refusal(Tool::TangentCircle, TWO_FIRST));
+            return Err(TangentCirclingError::TwoFirst);
         }
         let radius = Dimensioned {
             expression: value.expression,
@@ -215,13 +233,13 @@ impl TangentCircling {
         feature: FeatureId,
         curves: Vec<EntityId>,
         radius: Option<Dimensioned>,
-    ) -> Result<caditor_document::Transaction, String> {
+    ) -> Result<caditor_document::Transaction, TangentCirclingError> {
         let near = self.pointer;
-        let drawn = trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
+        let drawn = trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
             sketch
                 .tangent_circle(&curves, radius.as_ref(), near)
                 .map(|_| ())
-                .map_err(|error| trimming::refusal(Tool::TangentCircle, &error.to_string()))
+                .map_err(|source| TangentCirclingError::Refused { source })
         })?;
         self.picked.clear();
         self.highlight = None;

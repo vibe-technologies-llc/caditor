@@ -111,8 +111,8 @@ pub enum TargetError {
     FrameMadeLater,
     #[error("The selected datum is not a plane")]
     DatumNotAPlane,
-    #[error("{0}")]
-    Placement(String),
+    #[error(transparent)]
+    Placement(crate::sketch_placement::AttachmentError),
 }
 
 impl From<TargetError> for String {
@@ -1717,8 +1717,8 @@ fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<Targe
     match pickable {
         Pickable::Face { body, face } => {
             match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
-                Err(sketch_placement::NOT_FLAT) => Some(TargetError::Curved),
-                Err(reason) => Some(TargetError::Placement(reason.into())),
+                Err(sketch_placement::AttachmentError::NotFlat) => Some(TargetError::Curved),
+                Err(reason) => Some(TargetError::Placement(reason)),
                 Ok(_) => None,
             }
         }
@@ -1781,7 +1781,7 @@ fn selected_end(
     };
     sketch_placement::surface_at(model, choice, index)
         .map(ExtrudeEnd::up_to_surface)
-        .map_err(|error| TargetError::Placement(error.into()))
+        .map_err(TargetError::Placement)
 }
 
 fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {

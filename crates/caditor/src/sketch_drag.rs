@@ -1,13 +1,15 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     Constraint, Drag, Entity, EntityId, EntityState, Faceting, MAX_LENGTH, Sketch, SketchSolution,
 };
+use thiserror::Error;
 
 use crate::{
     body_snap::BodySnaps,
+    commands::Reason,
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
     snap::{self, HELD_POINT_PULL, Hold, POINT_TOLERANCE, Pointer, Screen, Target},
@@ -16,11 +18,63 @@ use crate::{
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const SMALLEST_SNAPPED_RADIUS: f64 = 1e-3;
-const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
-const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
-pub const NOT_SOLVED: &str =
-    "What is still free is known once the sketch has solved; fix its problems or wait for it";
 pub const NOTHING_FREE: &str = "Everything in the sketch is fully constrained";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SelectionError {
+    #[error("The sketch has no geometry to select")]
+    NothingToSelect,
+    #[error(
+        "What is still free is known once the sketch has solved; fix its problems or wait for it"
+    )]
+    NotSolved,
+    #[error("{}", NOTHING_FREE)]
+    NothingFree,
+}
+
+impl Reason for SelectionError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum MoveError {
+    #[error("Switch to the Select tool to move geometry")]
+    WhileDrawing,
+    #[error("Select sketch geometry to move it")]
+    NothingSelected,
+}
+
+impl Reason for MoveError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum TransformError {
+    #[error("Switch to the Select tool to {} geometry", .transform.verb().to_lowercase())]
+    WhileDrawing { transform: Transform },
+    #[error("Select sketch geometry to {} it", .transform.verb().to_lowercase())]
+    NothingSelected { transform: Transform },
+    #[error(
+        "{} a lone point by selecting the point to {} it about with it",
+        .transform.verb(),
+        .transform.pivot_verb()
+    )]
+    NeedsPivot { transform: Transform },
+    #[error("The factor must be a number above zero")]
+    FactorNotPositive,
+    #[error("Keep the geometry within {} m of the sketch's origin", MAX_LENGTH / 1_000.0)]
+    TooFar,
+}
+
+impl Reason for TransformError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum Handles {
@@ -412,15 +466,19 @@ impl Moving {
         feature: FeatureId,
         selected: &[EntityId],
         drawing: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, MoveError> {
         if drawing {
-            Err(MOVE_WHILE_DRAWING.to_owned())
+            Err(MoveError::WhileDrawing)
         } else {
             Self::of(sketch, feature, selected)
         }
     }
 
-    pub fn of(sketch: &Sketch, feature: FeatureId, selected: &[EntityId]) -> Result<Self, String> {
+    pub fn of(
+        sketch: &Sketch,
+        feature: FeatureId,
+        selected: &[EntityId],
+    ) -> Result<Self, MoveError> {
         let entities: Vec<EntityId> = selected
             .iter()
             .copied()
@@ -428,7 +486,7 @@ impl Moving {
             .collect();
         let points = points_of(sketch, &entities);
         let Some(&(_, anchor)) = points.first() else {
-            return Err("Select sketch geometry to move it".to_owned());
+            return Err(MoveError::NothingSelected);
         };
         Ok(Self {
             feature,
@@ -439,7 +497,7 @@ impl Moving {
         })
     }
 
-    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, String> {
+    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, MoveError> {
         Self::of(sketch, self.feature, &self.selected)
     }
 
@@ -469,22 +527,11 @@ impl Transform {
         }
     }
 
-    fn nothing_selected(self) -> String {
-        format!(
-            "Select sketch geometry to {} it",
-            self.verb().to_lowercase()
-        )
-    }
-
-    fn needs_pivot(self) -> String {
-        format!(
-            "{} a lone point by selecting the point to {} it about with it",
-            self.verb(),
-            match self {
-                Self::Rotate => "turn",
-                Self::Scale => "scale",
-            }
-        )
+    fn pivot_verb(self) -> &'static str {
+        match self {
+            Self::Rotate => "turn",
+            Self::Scale => "scale",
+        }
     }
 }
 
@@ -506,12 +553,9 @@ impl Transforming {
         selected: &[EntityId],
         drawing: bool,
         transform: Transform,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TransformError> {
         if drawing {
-            Err(format!(
-                "Switch to the Select tool to {} geometry",
-                transform.verb().to_lowercase()
-            ))
+            Err(TransformError::WhileDrawing { transform })
         } else {
             Self::of(sketch, feature, selected, transform)
         }
@@ -522,7 +566,7 @@ impl Transforming {
         feature: FeatureId,
         selected: &[EntityId],
         transform: Transform,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TransformError> {
         let present: Vec<EntityId> = selected
             .iter()
             .copied()
@@ -553,7 +597,7 @@ impl Transforming {
             .collect();
         let points = points_of(sketch, &moved);
         if points.is_empty() {
-            return Err(transform.nothing_selected());
+            return Err(TransformError::NothingSelected { transform });
         }
         let circles: Vec<(EntityId, f64)> = moved
             .iter()
@@ -575,7 +619,7 @@ impl Transforming {
         let pivot = match pivot_point.and_then(|point| sketch.point(point)) {
             Some(pivot) => pivot,
             None if points.len() == 1 && circles.is_empty() => {
-                return Err(transform.needs_pivot());
+                return Err(TransformError::NeedsPivot { transform });
             }
             None => extent_centre(sketch, &points, &circles),
         };
@@ -590,11 +634,11 @@ impl Transforming {
         })
     }
 
-    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, String> {
+    pub fn refreshed(&self, sketch: &Sketch) -> Result<Self, TransformError> {
         Self::of(sketch, self.feature, &self.selected, self.transform)
     }
 
-    pub fn rotated(&self, degrees: f64) -> Result<Vec<DragCommand>, String> {
+    pub fn rotated(&self, degrees: f64) -> Result<Vec<DragCommand>, TransformError> {
         let turn = Vector2::from_angle(degrees.to_radians());
         let drags = self
             .points
@@ -607,9 +651,9 @@ impl Transforming {
         self.commands(drags)
     }
 
-    pub fn scaled(&self, factor: f64) -> Result<Vec<DragCommand>, String> {
+    pub fn scaled(&self, factor: f64) -> Result<Vec<DragCommand>, TransformError> {
         if !(factor.is_finite() && factor > 0.0) {
-            return Err("The factor must be a number above zero".to_owned());
+            return Err(TransformError::FactorNotPositive);
         }
         let points = self.points.iter().map(|(point, at)| Drag::Point {
             point: *point,
@@ -622,16 +666,13 @@ impl Transforming {
         self.commands(points.chain(radii).collect())
     }
 
-    fn commands(&self, drags: Vec<Drag>) -> Result<Vec<DragCommand>, String> {
+    fn commands(&self, drags: Vec<Drag>) -> Result<Vec<DragCommand>, TransformError> {
         let beyond = drags.iter().any(|drag| match drag {
             Drag::Point { to, .. } => to.abs().max_element() > MAX_LENGTH,
             Drag::Radius { to, .. } => *to > MAX_LENGTH,
         });
         if beyond {
-            return Err(format!(
-                "Keep the geometry within {} m of the sketch's origin",
-                MAX_LENGTH / 1_000.0
-            ));
+            return Err(TransformError::TooFar);
         }
         Ok(vec![
             DragCommand::Move {
@@ -928,10 +969,10 @@ pub fn within(
     selectable(sketch, caught)
 }
 
-pub fn select_all(sketch: &Sketch) -> Result<Vec<EntityId>, &'static str> {
+pub fn select_all(sketch: &Sketch) -> Result<Vec<EntityId>, SelectionError> {
     let everything = everything(sketch);
     if everything.is_empty() {
-        Err(NOTHING_TO_SELECT)
+        Err(SelectionError::NothingToSelect)
     } else {
         Ok(everything)
     }
@@ -941,8 +982,8 @@ pub fn select_free(
     sketch: &Sketch,
     projected: &BTreeSet<EntityId>,
     solution: Option<&SketchSolution>,
-) -> Result<Vec<EntityId>, &'static str> {
-    let solution = solution.ok_or(NOT_SOLVED)?;
+) -> Result<Vec<EntityId>, SelectionError> {
+    let solution = solution.ok_or(SelectionError::NotSolved)?;
     let free = selectable(
         sketch,
         sketch
@@ -951,7 +992,7 @@ pub fn select_free(
             .filter(|id| is_free(*id, projected, solution)),
     );
     if free.is_empty() {
-        Err(NOTHING_FREE)
+        Err(SelectionError::NothingFree)
     } else {
         Ok(free)
     }
@@ -961,15 +1002,15 @@ pub fn can_select_free(
     sketch: &Sketch,
     projected: &BTreeSet<EntityId>,
     solution: Option<&SketchSolution>,
-) -> Result<(), &'static str> {
-    let solution = solution.ok_or(NOT_SOLVED)?;
+) -> Result<(), SelectionError> {
+    let solution = solution.ok_or(SelectionError::NotSolved)?;
     if sketch
         .entities()
         .any(|(id, _)| is_free(id, projected, solution))
     {
         Ok(())
     } else {
-        Err(NOTHING_FREE)
+        Err(SelectionError::NothingFree)
     }
 }
 
@@ -979,11 +1020,11 @@ fn is_free(id: EntityId, projected: &BTreeSet<EntityId>, solution: &SketchSoluti
         && solution.entity_state(id) != Some(EntityState::FullyConstrained)
 }
 
-pub fn can_select_all(sketch: &Sketch) -> Result<(), &'static str> {
+pub fn can_select_all(sketch: &Sketch) -> Result<(), SelectionError> {
     if sketch.entities().any(|(id, _)| !id.is_reference()) {
         Ok(())
     } else {
-        Err(NOTHING_TO_SELECT)
+        Err(SelectionError::NothingToSelect)
     }
 }
 
@@ -1050,7 +1091,10 @@ mod tests {
             can_select_free(&sketch, &nothing, None),
             select_free(&sketch, &nothing, None).map(|_| ())
         );
-        assert_eq!(can_select_free(&sketch, &nothing, None), Err(NOT_SOLVED));
+        assert_eq!(
+            can_select_free(&sketch, &nothing, None),
+            Err(SelectionError::NotSolved)
+        );
 
         sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
 

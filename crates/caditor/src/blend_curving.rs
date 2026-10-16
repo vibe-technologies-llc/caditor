@@ -2,6 +2,7 @@ use caditor_document::{FeatureId, Transaction};
 use caditor_sketch::{
     BlendCurve, BlendEnd, BlendError, Continuity, Entity, EntityId, Faceting, Sketch,
 };
+use thiserror::Error;
 
 use crate::{
     drawing::Preview,
@@ -9,7 +10,7 @@ use crate::{
     model::Model,
     modifying::{Hint, Outcome, Prompt},
     snap::{self, Pointer, Screen},
-    trimming::{self, capitalized},
+    trimming::{self, SketchGone, capitalized},
 };
 
 pub const TRANSACTION: &str = "Draw blend curve";
@@ -19,6 +20,14 @@ const PICK_KEYS: &str = "Esc: back to Select";
 const NOTHING_HIGHLIGHTED: &str =
     "Highlight the end of a line, arc or spline first, with Highlight the next item in the view";
 const NO_ENDS: &str = "The sketch has no line, arc or spline whose end could be blended";
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum BlendCurvingError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}: {source}.", Tool::BlendCurve.label())]
+    Refused { source: BlendError },
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct BlendCurving {
@@ -155,7 +164,10 @@ impl BlendCurving {
                 self.blend = None;
                 Outcome::Nothing
             }
-            Some(first) => self.draw(model, feature, first, end).into(),
+            Some(first) => self
+                .draw(model, feature, first, end)
+                .map_err(|error| error.to_string())
+                .into(),
             None => {
                 self.first = Some(end);
                 self.blend = None;
@@ -170,13 +182,13 @@ impl BlendCurving {
         feature: FeatureId,
         first: BlendEnd,
         second: BlendEnd,
-    ) -> Result<Transaction, String> {
+    ) -> Result<Transaction, BlendCurvingError> {
         let continuity = self.continuity;
-        let drawn = trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
+        let drawn = trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
             sketch
                 .blend(first, second, continuity)
                 .map(|_| ())
-                .map_err(|error| trimming::refusal(Tool::BlendCurve, &error.to_string()))
+                .map_err(|source| BlendCurvingError::Refused { source })
         })?;
         self.first = None;
         self.highlight = None;

@@ -46,8 +46,8 @@ pub enum LoftError {
     AlreadyThrough,
     #[error("It already ends at that point")]
     AlreadyEnds,
-    #[error("{0}")]
-    FacePlacement(&'static str),
+    #[error(transparent)]
+    FacePlacement(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
     Check(#[from] CheckError),
 }

@@ -468,9 +468,11 @@ pub fn change(
         }
         (Slot::PatternPath, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::sketch_change(model, selection, feature, pattern)
+                .map_err(|error| error.to_string())
         }
         (Slot::PatternBase, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::base_change(model, selection, feature, pattern)
+                .map_err(|error| error.to_string())
         }
         (Slot::DatumBase, FeatureKind::Datum(datum)) => {
             datum_panel::base_change(model, selection, feature, datum).map_err(String::from)

@@ -70,8 +70,8 @@ impl Reason for HoleStartError {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum HoleToolError {
-    #[error("{words}")]
-    Attachment { words: &'static str },
+    #[error(transparent)]
+    Attachment(crate::sketch_placement::AttachmentError),
     #[error("{}", sketch_placement::NOT_FLAT)]
     NotFlat,
     #[error("The hole no longer exists")]
@@ -325,7 +325,7 @@ pub fn create_on_face(
 ) -> Result<(Transaction, FeatureId, String), HoleToolError> {
     let document = model.document();
     let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())
-        .map_err(|words| HoleToolError::Attachment { words })?;
+        .map_err(HoleToolError::Attachment)?;
     let middle = face_middle(model, face, &plane).ok_or(HoleToolError::NotFlat)?;
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, TITLE);
@@ -558,8 +558,8 @@ fn placed(
     let index = document
         .feature_index(hole.sketch)
         .ok_or(HoleToolError::Gone)?;
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)
-        .map_err(|words| HoleToolError::Attachment { words })?;
+    let (attachment, plane) =
+        sketch_placement::attachment_at(model, face, index).map_err(HoleToolError::Attachment)?;
     let current = document
         .feature(hole.sketch)
         .and_then(|sketch| sketch.kind.attachment())

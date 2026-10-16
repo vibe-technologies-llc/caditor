@@ -461,10 +461,10 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
     match pickable {
         Pickable::Face { body, face } => Some(
             match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
-                Err(sketch_placement::NOT_FLAT) => {
+                Err(sketch_placement::AttachmentError::NotFlat) => {
                     "The selected face is neither flat nor round, so it gives no plane or axis"
                 }
-                Err(reason) => reason,
+                Err(reason) => reason.reason(),
                 Ok(_) => return None,
             },
         ),

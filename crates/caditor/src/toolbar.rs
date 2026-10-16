@@ -445,7 +445,10 @@ fn sketch_buttons(
         }
         return;
     }
-    let target = context.offers.sketch_target;
+    let target = context
+        .offers
+        .sketch_target
+        .map_err(|error| error.to_string());
     let (hover, command) = match target {
         Ok(SketchTarget::Principal(plane)) => (
             format!("Start a sketch on the selected {}", plane.name()),
@@ -468,7 +471,7 @@ fn sketch_buttons(
             EditingCommand::NewSketch(None),
         ),
     };
-    let help = match target {
+    let help = match &target {
         Ok(_) => Ok(commands.with_keys(Command::NewSketch, &hover)),
         Err(reason) => Err(Blocked::Refused(reason)),
     };

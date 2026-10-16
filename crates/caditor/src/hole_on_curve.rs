@@ -28,8 +28,8 @@ pub enum CurveHoleError {
     NoSpot,
     #[error("The hole no longer exists")]
     Gone,
-    #[error("{words}")]
-    Surface { words: &'static str },
+    #[error(transparent)]
+    Surface(crate::sketch_placement::AttachmentError),
     #[error("The hole cannot stand on that face")]
     CannotStandOnFace { source: EditError },
     #[error("The hole cannot stand there")]
@@ -127,7 +127,7 @@ pub fn create(
 ) -> Result<(Transaction, FeatureId, String), CurveHoleError> {
     let document = model.document();
     let attachment = sketch_placement::surface_at(model, face, document.bar_index())
-        .map_err(|words| CurveHoleError::Surface { words })?;
+        .map_err(CurveHoleError::Surface)?;
     let (at, normal) = spot(model, face, None).ok_or(CurveHoleError::NoSpot)?;
     let plane = Plane::new(at, normal).ok_or(CurveHoleError::NoSpot)?;
     let name = editing::next_feature_name(document, TITLE);
@@ -186,8 +186,8 @@ pub fn moved(
     let index = document
         .feature_index(mount.plane)
         .ok_or(CurveHoleError::Gone)?;
-    let attachment = sketch_placement::surface_at(model, face, index)
-        .map_err(|words| CurveHoleError::Surface { words })?;
+    let attachment =
+        sketch_placement::surface_at(model, face, index).map_err(CurveHoleError::Surface)?;
     let (at, _) = spot(model, face, ray).ok_or(CurveHoleError::NoSpot)?;
     let mut transaction = document.transaction(format!("Move {name}"));
     transaction.edit(Edit::SetFeatureKind {

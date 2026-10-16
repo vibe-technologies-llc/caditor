@@ -6,6 +6,7 @@ use caditor_sketch::{
     MAX_SPROCKET_TEETH, MAX_TEETH, MIN_SPROCKET_TEETH, MIN_TEETH, Sketch, Sprocket,
     SprocketOutline, SpurGear,
 };
+use thiserror::Error;
 
 use crate::{
     drawing::Preview,
@@ -15,7 +16,7 @@ use crate::{
     modifying::{Hint, Outcome, Prompt, length_text},
     patterning,
     snap::{self, Pointer, Screen},
-    trimming::{self, capitalized},
+    trimming::{self, SketchGone, capitalized},
     units::Units,
 };
 
@@ -296,12 +297,44 @@ pub fn chain_label(size: ChainSize, unit: Units) -> String {
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum FieldProblem {
+    #[error(transparent)]
+    Value(crate::patterning::PatternTextError),
+    #[error("{label}: Use a whole number from {least} to {most}")]
+    WholeNumber {
+        label: String,
+        least: u32,
+        most: u32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum PartProblem {
+    #[error("Mend the {} first", .field.label().to_lowercase())]
+    MendFirst { field: GearField },
+    #[error("{}", capitalized(&.0.to_string()))]
+    Unbuildable(GearError),
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum GearingError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}: {source}.", Tool::Gear.label())]
+    Refused { source: GearError },
+    #[error("{}: {source}.", Tool::Gear.label())]
+    Unusable { source: PartProblem },
+    #[error("{}: its values are not read yet.", Tool::Gear.label())]
+    NotRead,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GearSettings {
     kind: GearKind,
     chain: ChainSize,
     texts: [String; 8],
-    evaluated: Option<Result<Part, String>>,
+    evaluated: Option<Result<Part, PartProblem>>,
 }
 
 impl Default for GearSettings {
@@ -317,8 +350,8 @@ impl Default for GearSettings {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evaluation {
-    pub problems: Vec<(GearField, String)>,
-    pub part: Result<Part, String>,
+    pub problems: Vec<(GearField, FieldProblem)>,
+    pub part: Result<Part, PartProblem>,
 }
 
 impl GearSettings {
@@ -348,7 +381,7 @@ impl GearSettings {
         self.texts.get_mut(field.index())
     }
 
-    pub fn part(&self) -> Option<&Result<Part, String>> {
+    pub fn part(&self) -> Option<&Result<Part, PartProblem>> {
         self.evaluated.as_ref()
     }
 
@@ -368,7 +401,7 @@ impl GearSettings {
         }
         let value = |field: GearField| values.get(field.index()).copied().unwrap_or_default();
         let part = match problems.first() {
-            Some((field, _)) => Err(format!("Mend the {} first", field.label().to_lowercase())),
+            Some((field, _)) => Err(PartProblem::MendFirst { field: *field }),
             None => {
                 let gear = SpurGear {
                     module: value(GearField::Module),
@@ -393,7 +426,7 @@ impl GearSettings {
                 };
                 part.wheels(Point2::ZERO)
                     .map(|_| part)
-                    .map_err(|error| capitalized(&error.to_string()))
+                    .map_err(PartProblem::Unbuildable)
             }
         };
         self.evaluated = Some(part.clone());
@@ -401,12 +434,19 @@ impl GearSettings {
     }
 }
 
-fn value_of(model: &Model, kind: GearKind, field: GearField, text: &str) -> Result<f64, String> {
+fn value_of(
+    model: &Model,
+    kind: GearKind,
+    field: GearField,
+    text: &str,
+) -> Result<f64, FieldProblem> {
     if field.may_be_empty() && text.trim().is_empty() {
         return Ok(0.0);
     }
     let label = field.label().to_lowercase();
-    let value = patterning::quantity(model, text, field.expected(), &label)?.value;
+    let value = patterning::quantity(model, text, field.expected(), &label)
+        .map_err(FieldProblem::Value)?
+        .value;
     if !field.is_count() {
         return Ok(value);
     }
@@ -415,9 +455,7 @@ fn value_of(model: &Model, kind: GearKind, field: GearField, text: &str) -> Resu
     if (value - rounded).abs() > WHOLE_NUMBER_TOLERANCE
         || !(f64::from(least)..=f64::from(most)).contains(&rounded)
     {
-        return Err(format!(
-            "{label}: Use a whole number from {least} to {most}"
-        ));
+        return Err(FieldProblem::WholeNumber { label, least, most });
     }
     Ok(rounded)
 }
@@ -441,10 +479,10 @@ pub fn draw(
     feature: FeatureId,
     part: &Part,
     centre: GearCentre,
-) -> Result<Transaction, String> {
-    trimming::reshaped(model, feature, part.transaction().to_owned(), |sketch| {
+) -> Result<Transaction, GearingError> {
+    trimming::reshape(model, feature, part.transaction().to_owned(), |sketch| {
         part.drawn_into(sketch, centre)
-            .map_err(|error| trimming::refusal(Tool::Gear, &error.to_string()))
+            .map_err(|source| GearingError::Refused { source })
     })
 }
 
@@ -474,7 +512,7 @@ pub struct Gearing {
     selected: Option<EntityId>,
     hover: Option<Aim>,
     highlight: Option<EntityId>,
-    shown: Option<(Aim, Part, Result<Vec<Wheel>, String>)>,
+    shown: Option<(Aim, Part, Result<Vec<Wheel>, PartProblem>)>,
 }
 
 impl Gearing {
@@ -496,7 +534,7 @@ impl Gearing {
         sketch: &Sketch,
         screen: &impl Screen,
         pointer: Option<Pointer>,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
     ) {
         self.hover = pointer.map(|pointer| match point_under(sketch, screen, pointer) {
             Some(point) => Aim::Point(point, sketch.point(point).unwrap_or(pointer.sketch)),
@@ -518,7 +556,7 @@ impl Gearing {
             .or(self.hover)
     }
 
-    fn refresh(&mut self, sketch: &Sketch, part: Option<&Result<Part, String>>) {
+    fn refresh(&mut self, sketch: &Sketch, part: Option<&Result<Part, PartProblem>>) {
         let (Some(aim), Some(Ok(part))) = (self.aim(sketch), part) else {
             self.shown = None;
             return;
@@ -526,9 +564,7 @@ impl Gearing {
         let fresh =
             matches!(&self.shown, Some((shown, drawn, _)) if *shown == aim && drawn == part);
         if !fresh {
-            let wheels = part
-                .wheels(aim.at())
-                .map_err(|error| capitalized(&error.to_string()));
+            let wheels = part.wheels(aim.at()).map_err(PartProblem::Unbuildable);
             self.shown = Some((aim, *part, wheels));
         }
     }
@@ -574,10 +610,10 @@ impl Gearing {
         &self,
         sketch: &Sketch,
         unit: Units,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
     ) -> Option<String> {
         if let Some(Err(problem)) = part {
-            return Some(problem.clone());
+            return Some(problem.to_string());
         }
         let (aim, part, wheels) = self.shown.as_ref()?;
         Some(match wheels {
@@ -588,7 +624,7 @@ impl Gearing {
                 };
                 format!("{}{place}", part.description(unit, wheels))
             }
-            Err(problem) => problem.clone(),
+            Err(problem) => problem.to_string(),
         })
     }
 
@@ -603,7 +639,7 @@ impl Gearing {
         &mut self,
         model: &Model,
         feature: FeatureId,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
         match self.hover {
             Some(aim) => self.draw_at(model, feature, part, aim.centre()),
@@ -615,7 +651,7 @@ impl Gearing {
         &mut self,
         model: &Model,
         feature: FeatureId,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
         let centre = self.highlight.or(self.selected).unwrap_or(EntityId::ORIGIN);
         self.highlight = None;
@@ -626,7 +662,7 @@ impl Gearing {
         &mut self,
         model: &Model,
         feature: FeatureId,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
         match self.highlight.take() {
             Some(point) => self.draw_at(model, feature, part, GearCentre::Point(point)),
@@ -638,18 +674,20 @@ impl Gearing {
         &mut self,
         model: &Model,
         feature: FeatureId,
-        part: Option<&Result<Part, String>>,
+        part: Option<&Result<Part, PartProblem>>,
         centre: GearCentre,
     ) -> Outcome {
         let drawn = match part {
             Some(Ok(part)) => draw(model, feature, part, centre),
-            Some(Err(problem)) => Err(trimming::refusal(Tool::Gear, problem)),
-            None => Err(trimming::refusal(Tool::Gear, "its values are not read yet")),
+            Some(Err(source)) => Err(GearingError::Unusable {
+                source: source.clone(),
+            }),
+            None => Err(GearingError::NotRead),
         };
         if drawn.is_ok() {
             self.shown = None;
         }
-        drawn.into()
+        drawn.map_err(|error| error.to_string()).into()
     }
 
     pub fn steppable(&self) -> Result<(), &'static str> {

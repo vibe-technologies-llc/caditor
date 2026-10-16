@@ -39,8 +39,8 @@ pub enum SplitError {
     Gone { feature: FeatureId },
     #[error("{0}")]
     ChosenPlane(String),
-    #[error("{0}")]
-    SurfaceAttachment(String),
+    #[error(transparent)]
+    SurfaceAttachment(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
     ChosenBody(#[from] move_tools::BodyChoiceError),
     #[error(transparent)]
@@ -149,7 +149,7 @@ fn chosen_surface(
         return Ok(None);
     };
     let face = sketch_placement::surface_at(model, *choice, index)
-        .map_err(|error| SplitError::SurfaceAttachment(error.into()))?;
+        .map_err(SplitError::SurfaceAttachment)?;
     Ok(Some((SplitAlong::Surface(face), Some(*pickable))))
 }
 

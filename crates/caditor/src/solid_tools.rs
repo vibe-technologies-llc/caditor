@@ -66,8 +66,8 @@ pub enum FaceSweepError {
     NoAxis,
     #[error("The selected faces have no edges to sweep them by")]
     NoOutline,
-    #[error("{0}")]
-    Attachment(String),
+    #[error(transparent)]
+    Attachment(crate::sketch_placement::AttachmentError),
 }
 
 impl Reason for FaceSweepError {
@@ -416,7 +416,7 @@ pub fn create_on_faces(
     let document = model.document();
     let first = profile.first().ok_or(FaceSweepError::NoOutline)?;
     let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())
-        .map_err(|error| FaceSweepError::Attachment(error.into()))?;
+        .map_err(FaceSweepError::Attachment)?;
     let shown = bodies::shown(model.evaluation(), profile.body).ok_or(FaceSweepError::NoOutline)?;
     let ids = profile
         .faces

@@ -877,7 +877,11 @@ impl SketchEditing {
                 model.perform(Action::Apply(transaction));
                 self.enter(feature, model, since);
             }
-            Err(reason) => refuse_new_sketch(model, reason, EditingCommand::NewSketchOnFace(face)),
+            Err(reason) => refuse_new_sketch(
+                model,
+                &reason.to_string(),
+                EditingCommand::NewSketchOnFace(face),
+            ),
         }
     }
 

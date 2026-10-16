@@ -92,8 +92,8 @@ pub struct NoLabelToMove;
 enum DimensionFieldError {
     #[error(transparent)]
     Outside(#[from] DimensionEditError),
-    #[error("{refusal}")]
-    DimensionChange { refusal: String },
+    #[error(transparent)]
+    DimensionChange(crate::field::DimensionEditError),
 }
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
@@ -1706,9 +1706,7 @@ impl Annotations {
                                         text,
                                         surface.first_dimension_scales,
                                     )
-                                    .map_err(|refusal| {
-                                        DimensionFieldError::DimensionChange { refusal }
-                                    })
+                                    .map_err(DimensionFieldError::DimensionChange)
                                 }
                             },
                         );

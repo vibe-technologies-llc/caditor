@@ -109,12 +109,12 @@ pub enum EntryError {
     Value(#[from] ValueError),
     #[error(transparent)]
     Filleting(#[from] FilletingError),
-    #[error("{0}")]
-    Offsetting(String),
+    #[error(transparent)]
+    Offsetting(crate::offsetting::OffsettingError),
     #[error(transparent)]
     Patterning(#[from] PatterningError),
-    #[error("{0}")]
-    Tangent(String),
+    #[error(transparent)]
+    Tangent(crate::tangent_circling::TangentCirclingError),
 }
 
 impl Value {

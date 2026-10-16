@@ -166,8 +166,8 @@ pub enum TreeError {
     Reverse(#[from] ReverseError),
     #[error(transparent)]
     Rejected(#[from] EditError),
-    #[error("{0}")]
-    Placement(String),
+    #[error(transparent)]
+    Placement(crate::sketch_placement::PlaceError),
     #[error(transparent)]
     Solid(#[from] solid_panel::SolidChangeError),
     #[error(transparent)]
@@ -2365,7 +2365,7 @@ fn place_change(
         return Err(not_of_kind(feature, "a sketch"));
     }
     sketch_placement::place_on_selection(model, selection, feature.id())
-        .map_err(|reason| TreeError::Placement(reason.to_owned()))
+        .map_err(TreeError::Placement)
 }
 
 fn axis_change(
@@ -3197,7 +3197,8 @@ fn placement(
             }
         }
         Err(reason) => {
-            ui.add_enabled(false, button).on_disabled_hover_text(reason);
+            ui.add_enabled(false, button)
+                .on_disabled_hover_text(reason.to_string());
         }
     }
 }

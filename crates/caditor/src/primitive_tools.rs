@@ -49,8 +49,8 @@ pub enum PrimitiveError {
     SeveralPlanes,
     #[error("{0}")]
     ChosenPlane(String),
-    #[error("{0}")]
-    FaceAttachment(String),
+    #[error(transparent)]
+    FaceAttachment(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
     Checked(#[from] CheckError),
 }
@@ -197,7 +197,7 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, Pr
         pickable => {
             let choice = FaceChoice::of(pickable).ok_or(PrimitiveError::NotAPlace)?;
             let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)
-                .map_err(|error| PrimitiveError::FaceAttachment(error.into()))?;
+                .map_err(PrimitiveError::FaceAttachment)?;
             Ok(Place {
                 plane: PlaneReference::Face(attachment),
                 frame,

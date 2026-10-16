@@ -6,16 +6,18 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, Reference, Relations,
-    Sketch, SketchSolution, SplineKind,
+    BreakError, Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, Reference,
+    Relations, Sketch, SketchError, SketchSolution, SplineKind, SplitError,
 };
+use thiserror::Error;
 
 use crate::{
     body_picks::Projections,
     feature_tree::count,
-    field::{self, DimensionTarget, sentence},
+    field::{self, DimensionEditError, DimensionTarget, sentence},
     model::Model,
     selection::{Pickable, Selection},
+    trimming::{self, SketchGone},
     units::Units,
     variants::all_variants,
 };
@@ -46,6 +48,26 @@ pub enum ConstraintTool {
     Angle,
     Radius,
     Diameter,
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum ConstraintOfferError {
+    #[error("{}", .tool.selection_hint())]
+    WrongSelection { tool: ConstraintTool },
+    #[error("{}.", sentence(&.0.to_string()))]
+    Unfit(SketchError),
+    #[error(
+        "{constraint} would contradict {existing}, which is already in the sketch. Delete that \
+         first."
+    )]
+    Contradicts {
+        constraint: String,
+        existing: String,
+    },
+    #[error("{constraint} is already in the sketch.")]
+    AlreadyThere { constraint: String },
+    #[error("Every one of these is already in the sketch.")]
+    AllAlreadyThere,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +231,7 @@ impl ConstraintTool {
         selected: &[EntityId],
     ) -> Result<Vec<Constraint>, String> {
         self.candidates_among(definition, shown, selected, &definition.relations())
+            .map_err(|error| error.to_string())
     }
 
     pub fn candidates_among(
@@ -217,18 +240,18 @@ impl ConstraintTool {
         shown: &Sketch,
         selected: &[EntityId],
         relations: &Relations,
-    ) -> Result<Vec<Constraint>, String> {
+    ) -> Result<Vec<Constraint>, ConstraintOfferError> {
         let items: Option<Vec<Item>> = selected
             .iter()
             .map(|id| shape_of(definition, *id).map(|shape| (*id, shape)))
             .collect();
         let constraints = items
             .and_then(|items| self.propose(definition, shown, &items))
-            .ok_or_else(|| self.selection_hint().to_owned())?;
+            .ok_or(ConstraintOfferError::WrongSelection { tool: self })?;
         for constraint in &constraints {
             definition
                 .check_constraint(constraint)
-                .map_err(|error| format!("{}.", sentence(&error.to_string())))?;
+                .map_err(ConstraintOfferError::Unfit)?;
         }
         new_relations(definition, relations, constraints)
     }
@@ -405,25 +428,23 @@ fn new_relations(
     definition: &Sketch,
     relations: &Relations,
     constraints: Vec<Constraint>,
-) -> Result<Vec<Constraint>, String> {
+) -> Result<Vec<Constraint>, ConstraintOfferError> {
     for constraint in &constraints {
         if let Some(existing) = relations.contradicting(constraint) {
-            return Err(format!(
-                "{} would contradict {}, which is already in the sketch. Delete that first.",
-                definition.describe(constraint),
-                definition.describe_constraint(existing)
-            ));
+            return Err(ConstraintOfferError::Contradicts {
+                constraint: definition.describe(constraint),
+                existing: definition.describe_constraint(existing),
+            });
         }
     }
     let (restated, fresh): (Vec<Constraint>, Vec<Constraint>) = constraints
         .into_iter()
         .partition(|constraint| relations.restating(definition, constraint).is_some());
     match (fresh.is_empty(), restated.first()) {
-        (true, Some(first)) if restated.len() == 1 => Err(format!(
-            "{} is already in the sketch.",
-            definition.describe(first)
-        )),
-        (true, Some(_)) => Err("Every one of these is already in the sketch.".to_owned()),
+        (true, Some(first)) if restated.len() == 1 => Err(ConstraintOfferError::AlreadyThere {
+            constraint: definition.describe(first),
+        }),
+        (true, Some(_)) => Err(ConstraintOfferError::AllAlreadyThere),
         _ => Ok(fresh),
     }
 }
@@ -1241,7 +1262,7 @@ pub fn dimension_change(
     target: DimensionTarget,
     text: &str,
     first_dimension_scales: bool,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DimensionEditError> {
     let plain = field::dimension_transaction(
         model.document(),
         model.parameters(),
@@ -2211,19 +2232,44 @@ pub const RESPACE_TITLE: &str = "Respace fit-point splines";
 pub const NOTHING_TO_UNLINK: &str =
     "Select projected or intersected geometry to keep as ordinary curves";
 
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum SketchChangeError {
+    #[error(transparent)]
+    SketchGone(#[from] SketchGone),
+    #[error("{}", NOTHING_TO_SPLIT)]
+    NothingToSplit,
+    #[error("{}", sentence(&.0.to_string()))]
+    Unsplittable(SplitError),
+    #[error("{}", NOTHING_TO_BREAK)]
+    NothingToBreak,
+    #[error("{}", NOTHING_TO_RESPACE)]
+    NothingToRespace,
+    #[error("{}", NOTHING_TO_UNLINK)]
+    NothingToUnlink,
+    #[error("{}: {source}.", SPLIT_TITLE)]
+    Split { source: SplitError },
+    #[error("{}: {source}.", BREAK_TITLE)]
+    Break { source: BreakError },
+    #[error("{}: {source}.", RESPACE_TITLE)]
+    Respace { source: SketchError },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnlinkChange {
     pub linked: Vec<(EntityId, ProjectionSource)>,
 }
 
 impl UnlinkChange {
-    pub fn of(definition: &SketchFeature, selected: &[EntityId]) -> Result<Self, String> {
+    pub fn of(
+        definition: &SketchFeature,
+        selected: &[EntityId],
+    ) -> Result<Self, SketchChangeError> {
         let linked: Vec<(EntityId, ProjectionSource)> = selected
             .iter()
             .filter_map(|id| Some((*id, definition.projections.get(id)?.clone())))
             .collect();
         if linked.is_empty() {
-            Err(NOTHING_TO_UNLINK.to_owned())
+            Err(SketchChangeError::NothingToUnlink)
         } else {
             Ok(Self { linked })
         }
@@ -2293,7 +2339,7 @@ pub struct RespaceChange {
 }
 
 impl RespaceChange {
-    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, SketchChangeError> {
         let splines: Vec<EntityId> = selected
             .iter()
             .copied()
@@ -2310,18 +2356,22 @@ impl RespaceChange {
             })
             .collect();
         if splines.is_empty() {
-            Err(NOTHING_TO_RESPACE.to_owned())
+            Err(SketchChangeError::NothingToRespace)
         } else {
             Ok(Self { splines })
         }
     }
 
-    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
-        crate::trimming::reshaped(model, feature, RESPACE_TITLE.to_owned(), |sketch| {
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        trimming::reshape(model, feature, RESPACE_TITLE.to_owned(), |sketch| {
             for spline in &self.splines {
                 sketch
                     .respace_fit_spline(*spline)
-                    .map_err(|error| format!("{RESPACE_TITLE}: {error}."))?;
+                    .map_err(|source| SketchChangeError::Respace { source })?;
             }
             Ok(())
         })
@@ -2335,7 +2385,7 @@ pub struct SplitChange {
 }
 
 impl SplitChange {
-    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, SketchChangeError> {
         let (points, curves): (Vec<EntityId>, Vec<EntityId>) = selected
             .iter()
             .copied()
@@ -2372,23 +2422,27 @@ impl SplitChange {
                         curve,
                         point: *point,
                     },
-                    _ => return Err(NOTHING_TO_SPLIT.to_owned()),
+                    _ => return Err(SketchChangeError::NothingToSplit),
                 }
             }
-            _ => return Err(NOTHING_TO_SPLIT.to_owned()),
+            _ => return Err(SketchChangeError::NothingToSplit),
         };
         sketch
             .check_split(change.curve, change.point)
-            .map_err(|error| crate::trimming::capitalized(&error.to_string()))?;
+            .map_err(SketchChangeError::Unsplittable)?;
         Ok(change)
     }
 
-    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
-        crate::trimming::reshaped(model, feature, SPLIT_TITLE.to_owned(), |sketch| {
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        trimming::reshape(model, feature, SPLIT_TITLE.to_owned(), |sketch| {
             sketch
                 .split_at(self.curve, self.point)
                 .map(|_| ())
-                .map_err(|error| format!("{SPLIT_TITLE}: {error}."))
+                .map_err(|source| SketchChangeError::Split { source })
         })
     }
 }
@@ -2399,7 +2453,7 @@ pub struct BreakChange {
 }
 
 impl BreakChange {
-    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, SketchChangeError> {
         let curves: Vec<EntityId> = selected
             .iter()
             .copied()
@@ -2414,18 +2468,22 @@ impl BreakChange {
             })
             .collect();
         if curves.is_empty() {
-            Err(NOTHING_TO_BREAK.to_owned())
+            Err(SketchChangeError::NothingToBreak)
         } else {
             Ok(Self { curves })
         }
     }
 
-    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
-        crate::trimming::reshaped(model, feature, BREAK_TITLE.to_owned(), |sketch| {
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        trimming::reshape(model, feature, BREAK_TITLE.to_owned(), |sketch| {
             sketch
                 .break_curves(&self.curves)
                 .map(|_| ())
-                .map_err(|error| format!("{BREAK_TITLE}: {error}."))
+                .map_err(|source| SketchChangeError::Break { source })
         })
     }
 }

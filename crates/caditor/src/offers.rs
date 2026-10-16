@@ -22,7 +22,7 @@ use crate::{
     selection::{Pickable, Selection},
     shell_tools::{self, FaceSource, ShellError},
     sketch_pattern_tools,
-    sketch_placement::{self, SketchTarget},
+    sketch_placement::{self, SketchTarget, TargetError},
     solid_tools::{self, FaceProfile, FaceSweepError, Sweep},
     split_face_tools::{self, SplitFaceError, SplitFaceSource},
     split_tools::{self, SplitError, SplitSource},
@@ -51,7 +51,7 @@ pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Offers {
-    pub sketch_target: Result<SketchTarget, &'static str>,
+    pub sketch_target: Result<SketchTarget, TargetError>,
     pub model_axes: Vec<(Pickable, AxisReference)>,
     pub datum_plane: Result<Datum, &'static str>,
     pub datum_axis: Result<DatumAxis, &'static str>,
