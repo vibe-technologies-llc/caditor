@@ -208,10 +208,14 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+    #[error("the device was lost")]
+    struct DeviceLost;
+
     struct Bands {
         width: u32,
         height: u32,
-        bands: VecDeque<Result<Vec<u8>, &'static str>>,
+        bands: VecDeque<Result<Vec<u8>, DeviceLost>>,
         current: Vec<u8>,
     }
 
@@ -238,7 +242,7 @@ mod tests {
     }
 
     impl PixelRows for Bands {
-        type Error = &'static str;
+        type Error = DeviceLost;
 
         fn width(&self) -> u32 {
             self.width
@@ -370,15 +374,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("view.png");
         let mut bands = Bands::of(8, 6, &[2, 2]);
-        bands.bands.push_back(Err("the device was lost"));
+        bands.bands.push_back(Err(DeviceLost));
         fs::write(&path, b"old").unwrap();
 
         let failed = export_png(&path, &mut bands, &CancelToken::never());
 
-        assert!(matches!(
-            failed,
-            Err(PngExportError::Pixels("the device was lost"))
-        ));
+        assert!(matches!(failed, Err(PngExportError::Pixels(DeviceLost))));
         assert_eq!(fs::read(&path).unwrap(), b"old");
         assert_eq!(names(&dir), vec![std::ffi::OsString::from("view.png")]);
     }

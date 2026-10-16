@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 
 use crate::{
     body_picks,
+    commands::Reason,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
     drag_solver::{self, DragCommand, Finished, Join, Polled},
@@ -48,11 +49,25 @@ pub type WakerFactory = Box<dyn Fn() -> Waker>;
 pub type PanicFlush = Arc<Mutex<Option<Flusher>>>;
 
 pub const UNTITLED: &str = "Untitled";
-pub const NEVER_SAVED: &str = "The model has never been saved, so there is no saved version to go \
-                               back to";
-pub const NO_CHANGES_SINCE_SAVED: &str = "The model has no changes since it was last saved";
-pub const SAVED_VERSION_UNKNOWN: &str = "The saved version is not known since unsaved work was \
-                                         recovered; Version history lists the versions saved";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SavedVersionError {
+    #[error("The model has never been saved, so there is no saved version to go back to")]
+    NeverSaved,
+    #[error("The model has no changes since it was last saved")]
+    NoChangesSinceSaved,
+    #[error(
+        "The saved version is not known since unsaved work was recovered; Version history lists \
+         the versions saved"
+    )]
+    Unknown,
+}
+
+impl Reason for SavedVersionError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -836,14 +851,14 @@ impl Model {
         self.dirty
     }
 
-    pub fn saved_version(&self) -> Result<&Document, &'static str> {
+    pub fn saved_version(&self) -> Result<&Document, SavedVersionError> {
         if self.path.is_none() {
-            return Err(NEVER_SAVED);
+            return Err(SavedVersionError::NeverSaved);
         }
         if !self.dirty {
-            return Err(NO_CHANGES_SINCE_SAVED);
+            return Err(SavedVersionError::NoChangesSinceSaved);
         }
-        self.saved.as_ref().ok_or(SAVED_VERSION_UNKNOWN)
+        self.saved.as_ref().ok_or(SavedVersionError::Unknown)
     }
 
     pub fn is_empty_and_untitled(&self) -> bool {

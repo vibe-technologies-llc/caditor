@@ -121,7 +121,9 @@ fn selecting_similar_needs_a_face_or_an_edge() {
     run_from_palette(&mut harness, "Select faces or edges like the selected ones");
     harness.frame();
 
-    assert!(harness.shows_containing(body_selection::NO_SIMILAR_SELECTED));
+    assert!(
+        harness.shows_containing(&body_selection::SelectionRefusal::NoSimilarSelected.to_string())
+    );
 }
 
 #[test]

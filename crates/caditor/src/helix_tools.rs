@@ -28,8 +28,8 @@ pub enum HelixError {
     NoAxis,
     #[error("The helix already winds around that axis")]
     AlreadyAround,
-    #[error("{0}")]
-    AxisSelection(&'static str),
+    #[error(transparent)]
+    AxisSelection(datum_tools::OneChoiceError),
     #[error(transparent)]
     Choice(#[from] ChoiceRefusal),
     #[error(transparent)]

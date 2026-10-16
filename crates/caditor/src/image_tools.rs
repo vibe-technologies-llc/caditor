@@ -52,8 +52,8 @@ pub enum ImageError {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ImageTargetError {
-    #[error("{refusal}")]
-    ChosenPlane { refusal: &'static str },
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     ChosenSpot(#[from] primitive_tools::PrimitiveError),
 }
@@ -80,7 +80,7 @@ pub fn target(
     }
     let index = model.document().bar_index();
     let chosen = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|refusal| ImageTargetError::ChosenPlane { refusal })?;
+        .map_err(ImageTargetError::ChosenPlane)?;
     match chosen {
         Some(chosen) => {
             let (plane, at) = primitive_tools::chosen_spot(model, &chosen, index)?;

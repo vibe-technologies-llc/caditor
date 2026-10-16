@@ -47,8 +47,8 @@ pub enum MirrorToolError {
     Already,
     #[error("The feature no longer exists")]
     FeatureGone,
-    #[error("{words}")]
-    ChosenPlane { words: &'static str },
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     ChosenBody(#[from] move_tools::BodyChoiceError),
     #[error(transparent)]
@@ -107,7 +107,7 @@ pub fn faces_source(
     rest.extend(others);
     bodies::shown(model.evaluation(), body).ok_or(MirrorToolError::NoShape)?;
     let plane = datum_tools::chosen_plane(model, &rest, model.document().bar_index())
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?
+        .map_err(MirrorToolError::ChosenPlane)?
         .map(|chosen| chosen.plane);
     Ok(FaceMirrorSource { body, faces, plane })
 }
@@ -233,7 +233,7 @@ pub fn source(
 ) -> Result<MirrorSource, MirrorToolError> {
     let document = model.document();
     let chosen = datum_tools::chosen_plane(model, selection, document.bar_index())
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?;
+        .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
     let (body, mirrored) = match pattern_tools::repeatable(document, rows) {
         Some(features) => features,
@@ -307,7 +307,7 @@ pub fn plane_change(
         .feature_index(feature)
         .ok_or(MirrorToolError::FeatureGone)?;
     let plane = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?
+        .map_err(MirrorToolError::ChosenPlane)?
         .ok_or(MirrorToolError::NoPlane)?
         .plane;
     if plane == mirror.plane {

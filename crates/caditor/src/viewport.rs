@@ -4099,7 +4099,7 @@ impl ViewportState {
                     matches!(pickable, Pickable::Face { .. } | Pickable::Edge { .. })
                 }) {
                     true => Ok(()),
-                    false => Err(selection_sets::NOTHING_TO_KEEP),
+                    false => Err(body_selection::SelectionRefusal::NothingToKeep),
                 },
             );
         if commands.invoke(Command::SaveSelectionSet, &keepable) && keepable.is_ok() {
