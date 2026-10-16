@@ -1,5 +1,5 @@
-use caditor_document::{FeatureId, Transaction};
-use caditor_expression::{BinaryOperator, Dimension, Expression, Unit};
+use caditor_document::FeatureId;
+use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
     CircularPattern, Dimensioned, Entity, EntityId, Faceting, PatternError, PatternImage,
@@ -10,7 +10,7 @@ use crate::{
     drawing::Preview,
     editing::Tool,
     feature_tree::count,
-    field::{self, Expected},
+    field::{self, Expected, ExpressionError},
     model::Model,
     modifying::{Hint, Outcome, Prompt, ValueField},
     snap::{self, Pointer, Screen},
@@ -70,6 +70,43 @@ const ANGLE: Expected = Expected {
 };
 const OVER: &str = "over";
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum PatternTextError {
+    #[error("Type a count and a spacing such as 4 x 10, and a second pair such as 3 x 15 for rows")]
+    RectangularForms,
+    #[error("The {label} is missing")]
+    MissingValue { label: String },
+    #[error("{label}: {source}")]
+    Unreadable {
+        label: String,
+        source: ExpressionError,
+    },
+    #[error("{label}: {}", field::sentence(&.source.to_string()))]
+    Unevaluable { label: String, source: EvalError },
+    #[error("count: Use a whole number such as 4")]
+    NotWholeCount,
+}
+
+impl From<PatternTextError> for String {
+    fn from(error: PatternTextError) -> Self {
+        error.to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum PatterningError {
+    #[error(transparent)]
+    Text(#[from] PatternTextError),
+    #[error("{words}")]
+    Reshaped { words: String },
+}
+
+impl From<PatterningError> for String {
+    fn from(error: PatterningError) -> Self {
+        error.to_string()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternKind {
     Rectangular,
@@ -120,7 +157,7 @@ pub struct Patterning {
     chosen: Option<EntityId>,
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
-    spec: Option<Result<Spec, String>>,
+    spec: Option<Result<Spec, PatternTextError>>,
     image: Option<Result<PatternImage, PatternError>>,
 }
 
@@ -312,13 +349,13 @@ impl Patterning {
         model: &Model,
         feature: FeatureId,
         text: &str,
-    ) -> Result<Outcome, String> {
+    ) -> Result<Outcome, PatterningError> {
         let tool = self.kind.tool();
         let spec = parse(model, self.kind, text)?;
         let selected = self.selected.clone();
         let centre = self.centre();
         let reason = |error: PatternError| trimming::refusal(tool, &error.to_string());
-        let transaction: Result<Transaction, String> =
+        let transaction =
             trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
                 match (&spec, centre) {
                     (Spec::Rectangular(pattern), _) => sketch
@@ -331,8 +368,9 @@ impl Patterning {
                         .map_err(reason),
                     (Spec::Circular(_), None) => Err(trimming::refusal(tool, CENTRE_FIRST)),
                 }
-            });
-        transaction.map(Outcome::Apply)
+            })
+            .map_err(|words| PatterningError::Reshaped { words })?;
+        Ok(Outcome::Apply(transaction))
     }
 
     pub fn steps_targets(&self) -> bool {
@@ -443,19 +481,19 @@ fn point_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
         .map(|(_, id)| id)
 }
 
-fn parse(model: &Model, kind: PatternKind, text: &str) -> Result<Spec, String> {
+fn parse(model: &Model, kind: PatternKind, text: &str) -> Result<Spec, PatternTextError> {
     match kind {
         PatternKind::Rectangular => parse_rectangular(model, text).map(Spec::Rectangular),
         PatternKind::Circular => parse_circular(model, text).map(Spec::Circular),
     }
 }
 
-fn parse_rectangular(model: &Model, text: &str) -> Result<RectangularPattern, String> {
+fn parse_rectangular(model: &Model, text: &str) -> Result<RectangularPattern, PatternTextError> {
     let terms = typed_point::coordinates(text);
     let (first, second) = match terms.as_slice() {
         [first] => (first, None),
         [first, second] => (first, Some(second)),
-        _ => return Err(RECTANGULAR_FORMS.to_owned()),
+        _ => return Err(PatternTextError::RectangularForms),
     };
     let first = parse_row(model, first, None)?;
     let second = second
@@ -464,21 +502,18 @@ fn parse_rectangular(model: &Model, text: &str) -> Result<RectangularPattern, St
     Ok(RectangularPattern { first, second })
 }
 
-const RECTANGULAR_FORMS: &str =
-    "Type a count and a spacing such as 4 x 10, and a second pair such as 3 x 15 for rows";
-
 fn parse_row(
     model: &Model,
     term: &str,
     beside: Option<&Dimensioned>,
-) -> Result<PatternRow, String> {
+) -> Result<PatternRow, PatternTextError> {
     let (body, angle) = match typed_point::polar(term).as_slice() {
         [body] => (*body, None),
         [body, angle] => (*body, Some(*angle)),
-        _ => return Err(RECTANGULAR_FORMS.to_owned()),
+        _ => return Err(PatternTextError::RectangularForms),
     };
     let (count, spacing) =
-        split_top_level(body, is_times).ok_or_else(|| RECTANGULAR_FORMS.to_owned())?;
+        split_top_level(body, is_times).ok_or(PatternTextError::RectangularForms)?;
     let count = whole_count(model, count)?;
     let spacing = quantity(model, spacing, SPACING, "spacing")?;
     let angle = match (angle, beside) {
@@ -493,7 +528,7 @@ fn parse_row(
     })
 }
 
-fn parse_circular(model: &Model, text: &str) -> Result<CircularPattern, String> {
+fn parse_circular(model: &Model, text: &str) -> Result<CircularPattern, PatternTextError> {
     match split_top_level(text, is_over) {
         None => Ok(CircularPattern {
             count: whole_count(model, text)?,
@@ -506,17 +541,17 @@ fn parse_circular(model: &Model, text: &str) -> Result<CircularPattern, String> 
     }
 }
 
-fn whole_count(model: &Model, text: &str) -> Result<usize, String> {
+fn whole_count(model: &Model, text: &str) -> Result<usize, PatternTextError> {
     let counted = quantity(model, text, COUNT, "count")?;
     let rounded = counted.value.round();
     let whole = (counted.value - rounded).abs() <= WHOLE_NUMBER_TOLERANCE;
     if !whole || rounded < 0.0 || rounded > f64::from(u32::MAX) {
-        return Err("count: Use a whole number such as 4".to_owned());
+        return Err(PatternTextError::NotWholeCount);
     }
     Ok(rounded as usize)
 }
 
-pub(crate) fn degrees(model: &Model, text: &str) -> Result<Dimensioned, String> {
+pub(crate) fn degrees(model: &Model, text: &str) -> Result<Dimensioned, PatternTextError> {
     let angle = quantity(model, text, ANGLE, "angle")?;
     let plain = model
         .parameters()
@@ -559,10 +594,12 @@ pub(crate) fn quantity(
     text: &str,
     expected: Expected,
     label: &str,
-) -> Result<Dimensioned, String> {
+) -> Result<Dimensioned, PatternTextError> {
     let text = text.trim();
     if text.is_empty() {
-        return Err(format!("The {label} is missing"));
+        return Err(PatternTextError::MissingValue {
+            label: label.to_owned(),
+        });
     }
     let expression = field::parse_expression(
         model.document(),
@@ -571,11 +608,17 @@ pub(crate) fn quantity(
         expected,
         model.units(),
     )
-    .map_err(|error| format!("{label}: {error}"))?;
+    .map_err(|source| PatternTextError::Unreadable {
+        label: label.to_owned(),
+        source,
+    })?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);
     let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
-        .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))?;
+        .map_err(|source| PatternTextError::Unevaluable {
+            label: label.to_owned(),
+            source,
+        })?;
     Ok(Dimensioned { expression, value })
 }
 

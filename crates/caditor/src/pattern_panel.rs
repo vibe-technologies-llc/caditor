@@ -11,7 +11,7 @@ use crate::{
     feature_fields::{self, AxisRow, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
     icons,
     model::{Action, Model},
-    pattern_tools::{self, Reference, Shape},
+    pattern_tools::{self, PatternToolError, Reference, Shape},
     reference_picking::Slot,
     selection::Selection,
     sketch_pattern_tools, widgets,
@@ -189,7 +189,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, kind: PatternKind) -> Result<Transaction, String> {
+    fn change(&self, kind: PatternKind) -> Result<Transaction, PatternToolError> {
         pattern_tools::change(
             self.model,
             self.id(),
@@ -331,7 +331,7 @@ impl Panel<'_> {
         }
     }
 
-    fn apply(&mut self, change: Result<Transaction, String>) {
+    fn apply(&mut self, change: Result<Transaction, PatternToolError>) {
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -345,7 +345,6 @@ impl Panel<'_> {
                 hover: shape.description(),
                 change: (shape != current).then(|| {
                     pattern_tools::reshaped(self.model, self.id(), self.pattern, shape)
-                        .map_err(str::to_owned)
                         .and_then(|reshaped| self.change(reshaped.kind))
                 }),
             })
@@ -360,7 +359,7 @@ impl Panel<'_> {
         slot: Slot,
         reference: Reference,
         hover: &'static str,
-    ) -> Picker<'static> {
+    ) -> Picker<'static, PatternToolError> {
         Picker {
             feature: self.id(),
             slot,
@@ -383,7 +382,11 @@ impl Panel<'_> {
         }
     }
 
-    fn axis_choices(&self, reference: Reference, current: Option<&AxisReference>) -> Vec<Choice> {
+    fn axis_choices(
+        &self,
+        reference: Reference,
+        current: Option<&AxisReference>,
+    ) -> Vec<Choice<Action, PatternToolError>> {
         let none = match (&self.pattern.kind, reference) {
             (PatternKind::Linear { first, .. }, Reference::Second) => Some(Choice {
                 label: NO_SECOND_DIRECTION.to_owned(),
@@ -399,7 +402,6 @@ impl Panel<'_> {
         };
         let axes = feature_fields::model_axis_choices(self.model, self.id(), current, &|axis| {
             pattern_tools::with_axis(self.model, self.pattern, reference, axis)
-                .map_err(str::to_owned)
                 .and_then(|pattern| pattern_tools::change(self.model, self.id(), pattern))
         });
         none.into_iter().chain(axes).collect()
@@ -563,7 +565,7 @@ impl Panel<'_> {
                             .to_owned(),
                         selected: sketch == current,
                         change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
-                            .map_err(str::to_owned)
+                            .map_err(|words| PatternToolError::SketchPattern { words })
                             .and_then(|pattern| {
                                 pattern_tools::change(self.model, self.id(), pattern)
                             })

@@ -4,7 +4,8 @@ use egui::{Id, Ui};
 use crate::{
     datum_tools,
     feature_fields::{self, Picker},
-    icons, mirror_tools,
+    icons,
+    mirror_tools::{self, MirrorToolError},
     model::{Action, Model},
     offset_face_panel, pattern_tools, plane_selector,
     reference_picking::Slot,
@@ -48,7 +49,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, mirror: Mirror) -> Result<Action, String> {
+    fn change(&self, mirror: Mirror) -> Result<Action, MirrorToolError> {
         mirror_tools::change(self.model, self.id(), mirror).map(Action::Apply)
     }
 
@@ -227,7 +228,7 @@ impl Panel<'_> {
         }
     }
 
-    fn apply(&mut self, change: Result<Transaction, String>) {
+    fn apply(&mut self, change: Result<Transaction, MirrorToolError>) {
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }

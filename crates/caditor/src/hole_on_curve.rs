@@ -1,6 +1,6 @@
 use caditor_document::{
-    Datum, DatumPoint, Document, Edit, FaceTangent, FeatureId, FeatureKind, Hole, PlaneThrough,
-    PointReference, SketchAttachment, SketchFeature, Transaction,
+    Datum, DatumPoint, Document, Edit, EditError, FaceTangent, FeatureId, FeatureKind, Hole,
+    PlaneThrough, PointReference, SketchAttachment, SketchFeature, Transaction,
 };
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector3};
 use caditor_kernel::{FaceId, RayCrossing, Solid};
@@ -17,10 +17,24 @@ use crate::{
 };
 
 const FACE_SAMPLES: u32 = 16;
-const NOT_ON_A_CURVE: &str = "This hole stands on a flat face or a plane; edit its sketch to \
-                              place it on a curved face";
-const NO_SPOT: &str = "No spot on that face could be found for the hole";
-const GONE: &str = "The hole no longer exists";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum CurveHoleError {
+    #[error(
+        "This hole stands on a flat face or a plane; edit its sketch to place it on a curved face"
+    )]
+    NotOnACurve,
+    #[error("No spot on that face could be found for the hole")]
+    NoSpot,
+    #[error("The hole no longer exists")]
+    Gone,
+    #[error("{words}")]
+    Surface { words: &'static str },
+    #[error("The hole cannot stand on that face")]
+    CannotStandOnFace { source: EditError },
+    #[error("The hole cannot stand there")]
+    CannotStandThere { source: EditError },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mount {
@@ -110,11 +124,12 @@ fn offsets(model: &Model, at: Point3) -> [caditor_expression::Expression; 3] {
 pub fn create(
     model: &Model,
     face: FaceChoice,
-) -> Result<(Transaction, FeatureId, String), &'static str> {
+) -> Result<(Transaction, FeatureId, String), CurveHoleError> {
     let document = model.document();
-    let attachment = sketch_placement::surface_at(model, face, document.bar_index())?;
-    let (at, normal) = spot(model, face, None).ok_or(NO_SPOT)?;
-    let plane = Plane::new(at, normal).ok_or(NO_SPOT)?;
+    let attachment = sketch_placement::surface_at(model, face, document.bar_index())
+        .map_err(|words| CurveHoleError::Surface { words })?;
+    let (at, normal) = spot(model, face, None).ok_or(CurveHoleError::NoSpot)?;
+    let plane = Plane::new(at, normal).ok_or(CurveHoleError::NoSpot)?;
     let name = editing::next_feature_name(document, TITLE);
     let sketch_name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -164,13 +179,16 @@ pub fn moved(
     hole: &Hole,
     face: FaceChoice,
     ray: Option<Ray>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, CurveHoleError> {
     let document = model.document();
-    let name = &document.feature(feature).ok_or(GONE)?.name;
-    let mount = mount(document, hole).ok_or(NOT_ON_A_CURVE)?;
-    let index = document.feature_index(mount.plane).ok_or(GONE)?;
-    let attachment = sketch_placement::surface_at(model, face, index)?;
-    let (at, _) = spot(model, face, ray).ok_or(NO_SPOT)?;
+    let name = &document.feature(feature).ok_or(CurveHoleError::Gone)?.name;
+    let mount = mount(document, hole).ok_or(CurveHoleError::NotOnACurve)?;
+    let index = document
+        .feature_index(mount.plane)
+        .ok_or(CurveHoleError::Gone)?;
+    let attachment = sketch_placement::surface_at(model, face, index)
+        .map_err(|words| CurveHoleError::Surface { words })?;
+    let (at, _) = spot(model, face, ray).ok_or(CurveHoleError::NoSpot)?;
     let mut transaction = document.transaction(format!("Move {name}"));
     transaction.edit(Edit::SetFeatureKind {
         id: mount.point,
@@ -201,7 +219,7 @@ pub fn moved(
     let transaction = transaction.finish();
     document
         .check(&transaction)
-        .map_err(|_| "The hole cannot stand on that face".to_owned())?;
+        .map_err(|source| CurveHoleError::CannotStandOnFace { source })?;
     Ok(transaction)
 }
 
@@ -219,19 +237,26 @@ pub fn moved_to(
     feature: FeatureId,
     hole: &Hole,
     near: Point3,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, CurveHoleError> {
     let document = model.document();
-    let name = &document.feature(feature).ok_or(GONE)?.name;
-    let mount = mount(document, hole).ok_or(NOT_ON_A_CURVE)?;
+    let name = &document.feature(feature).ok_or(CurveHoleError::Gone)?.name;
+    let mount = mount(document, hole).ok_or(CurveHoleError::NotOnACurve)?;
     let Some(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent))) = document
         .feature(mount.plane)
         .and_then(|plane| plane.kind.datum())
     else {
-        return Err(NOT_ON_A_CURVE.to_owned());
+        return Err(CurveHoleError::NotOnACurve);
     };
-    let body = bodies::shown(model.evaluation(), tangent.body).ok_or(NO_SPOT)?;
-    let face = tangent.face.resolve(&body.solid).map_err(|_| NO_SPOT)?;
-    let surface = body.solid.face(face).ok_or(NO_SPOT)?.surface();
+    let body = bodies::shown(model.evaluation(), tangent.body).ok_or(CurveHoleError::NoSpot)?;
+    let face = tangent
+        .face
+        .resolve(&body.solid)
+        .map_err(|_| CurveHoleError::NoSpot)?;
+    let surface = body
+        .solid
+        .face(face)
+        .ok_or(CurveHoleError::NoSpot)?
+        .surface();
     let at = surface.point_at(surface.project(near, None));
     let transaction = Transaction::single(
         format!("Move {name}"),
@@ -245,6 +270,6 @@ pub fn moved_to(
     );
     document
         .check(&transaction)
-        .map_err(|_| "The hole cannot stand there".to_owned())?;
+        .map_err(|source| CurveHoleError::CannotStandThere { source })?;
     Ok(transaction)
 }

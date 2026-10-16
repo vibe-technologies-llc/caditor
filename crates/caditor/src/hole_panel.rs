@@ -11,7 +11,8 @@ use crate::{
     datum_tools,
     editing::EditingCommand,
     feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
-    field, hole_on_curve,
+    field::{self, CheckError},
+    hole_on_curve,
     hole_placement::{self, Anchor, EdgeDistance, PlacedHole},
     hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
     icons,
@@ -25,6 +26,25 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum HolePanelError {
+    #[error("The feature no longer exists")]
+    FeatureGone,
+    #[error("{words}")]
+    Target { words: String },
+    #[error("The hole already ends at the selected face or plane")]
+    AlreadyEndsThere,
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<HolePanelError> for String {
+    fn from(error: HolePanelError) -> Self {
+        error.to_string()
+    }
+}
+
 const NOT_A_BODY: &str = "A body that is no longer there";
 pub const CUSTOM_SIZE: &str = "Custom";
 pub const SIZED_BY_CIRCLES: &str = "Circles";
@@ -151,10 +171,10 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, hole: Hole) -> Result<Transaction, String> {
+    fn change(&self, hole: Hole) -> Result<Transaction, HolePanelError> {
         let document = self.model.document();
-        let transaction = hole_tools::edit(document, self.id(), hole)
-            .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        let transaction =
+            hole_tools::edit(document, self.id(), hole).ok_or(HolePanelError::FeatureGone)?;
         field::checked(document, transaction)
     }
 
@@ -163,7 +183,6 @@ impl Panel<'_> {
         let current = self.hole.standard;
         widgets::caption(ui, "Size");
         let selected = current.map_or(CUSTOM_SIZE, |standard| standard.size.name());
-        let name = self.feature.name.clone();
         let chosen = feature_fields::combo(ui, Id::new(("hole-size", self.id())), selected, || {
             let custom = Choice {
                 label: CUSTOM_SIZE.to_owned(),
@@ -173,9 +192,7 @@ impl Panel<'_> {
                         standard: None,
                         ..self.hole.clone()
                     })
-                    .map(|transaction| {
-                        feature_fields::applied(&name, Ok::<_, String>(transaction))
-                    }),
+                    .map(Action::Apply),
             };
             let sizes = MetricSize::ALL.into_iter().map(|size| {
                 let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
@@ -185,9 +202,7 @@ impl Panel<'_> {
                     selected: current.is_some_and(|current| current.size == size),
                     change: self
                         .change(hole_tools::with_standard(self.hole, standard, unit))
-                        .map(|transaction| {
-                            feature_fields::applied(&name, Ok::<_, String>(transaction))
-                        }),
+                        .map(Action::Apply),
                 }
             });
             std::iter::once(custom).chain(sizes).collect()
@@ -262,7 +277,6 @@ impl Panel<'_> {
         let family = designation.size.family();
         let current = designation.class;
         let default = family.default_class(ThreadSide::Internal);
-        let name = self.feature.name.clone();
         widgets::caption(ui, THREAD_CLASS);
         let chosen = feature_fields::combo(
             ui,
@@ -280,9 +294,7 @@ impl Panel<'_> {
                                 class: (*class != default).then_some(*class),
                                 ..self.hole.thread.clone()
                             })
-                            .map(|transaction| {
-                                feature_fields::applied(&name, Ok::<_, String>(transaction))
-                            }),
+                            .map(Action::Apply),
                     })
                     .collect()
             },
@@ -363,7 +375,7 @@ impl Panel<'_> {
         }
     }
 
-    fn with_thread(&self, thread: TappedThread) -> Result<Transaction, String> {
+    fn with_thread(&self, thread: TappedThread) -> Result<Transaction, HolePanelError> {
         self.change(Hole {
             thread,
             ..self.hole.clone()
@@ -755,12 +767,7 @@ impl Panel<'_> {
                                 body,
                                 ..self.hole.clone()
                             })
-                            .map(|transaction| {
-                                feature_fields::applied(
-                                    &self.feature.name,
-                                    Ok::<_, String>(transaction),
-                                )
-                            }),
+                            .map(Action::Apply),
                     })
                 })
                 .collect()
@@ -1046,7 +1053,7 @@ impl Panel<'_> {
             .map(|value| value.value)
     }
 
-    fn with_steps(&self, steps: Vec<HoleStep>) -> Result<Transaction, String> {
+    fn with_steps(&self, steps: Vec<HoleStep>) -> Result<Transaction, HolePanelError> {
         self.change(Hole {
             style: HoleStyle::Stepped(steps),
             standard: None,
@@ -1230,11 +1237,12 @@ pub fn target_change(
     selection: &Selection,
     feature: FeatureId,
     hole: &Hole,
-) -> Result<Transaction, String> {
-    let target = solid_panel::selected_target(model, selection, feature)?;
+) -> Result<Transaction, HolePanelError> {
+    let target = solid_panel::selected_target(model, selection, feature)
+        .map_err(|words| HolePanelError::Target { words })?;
     let depth = HoleDepth::up_to_face(target).with_offset(hole.depth.offset().cloned());
     if depth == hole.depth {
-        return Err("The hole already ends at the selected face or plane".to_owned());
+        return Err(HolePanelError::AlreadyEndsThere);
     }
     let transaction = hole_tools::edit(
         model.document(),
@@ -1244,7 +1252,7 @@ pub fn target_change(
             ..hole.clone()
         },
     )
-    .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    .ok_or(HolePanelError::FeatureGone)?;
     field::checked(model.document(), transaction)
 }
 

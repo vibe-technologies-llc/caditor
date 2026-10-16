@@ -2322,7 +2322,9 @@ fn mirror_change(
     feature: &Feature,
 ) -> Result<Transaction, String> {
     match feature.kind.mirror() {
-        Some(mirror) => mirror_tools::plane_change(model, selection, feature.id(), mirror),
+        Some(mirror) => {
+            mirror_tools::plane_change(model, selection, feature.id(), mirror).map_err(String::from)
+        }
         None => Err(format!("{} is not a mirror", feature.name)),
     }
 }
@@ -2333,7 +2335,9 @@ fn mirror_faces_change(
     feature: &Feature,
 ) -> Result<Transaction, String> {
     match feature.kind.mirror() {
-        Some(mirror) => mirror_tools::faces_change(model, selection, feature.id(), mirror),
+        Some(mirror) => {
+            mirror_tools::faces_change(model, selection, feature.id(), mirror).map_err(String::from)
+        }
         None => Err(format!("{} is not a mirror", feature.name)),
     }
 }
@@ -2387,6 +2391,7 @@ fn pattern_change(
         .pattern()
         .ok_or_else(|| format!("{} is not a pattern", feature.name))?;
     pattern_tools::selected_change(model, selection, feature.id(), pattern, reference)
+        .map_err(String::from)
 }
 
 #[derive(Debug, Clone, PartialEq)]

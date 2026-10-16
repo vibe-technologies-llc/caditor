@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
     LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
@@ -8,10 +10,11 @@ use caditor_geometry::Aabb;
 
 use crate::{
     bodies,
-    commands::Command,
+    commands::{Command, Reason},
     datum_tools,
     editing::{self, EditingCommand},
-    field,
+    feature_fields::ChoiceRefusal,
+    field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     move_tools,
@@ -35,16 +38,54 @@ pub const FULL_TURN: f64 = 360.0;
 const FALLBACK_SPACING: f64 = 10.0;
 const SPACING_ROOM: f64 = 1.2;
 const FEATURE_SPACING_ROOM: f64 = 2.0;
-const NO_BODY: &str = "Make a body first, then pattern it";
 const NO_BODY_SELECTED: &str =
     "Select a face, edge or vertex of the body to pattern, or the body in the tree";
-const SEVERAL_AXES: &str =
-    "Several axes, straight edges or round faces are selected; select only the one to follow";
-const NO_AXIS: &str = "Select an axis, straight edge or round face made before this pattern";
-const NOT_LINEAR: &str = "Only a linear pattern has a second direction";
-const NO_AXIS_TO_FOLLOW: &str = "Only a linear or circular pattern follows an axis";
-const GONE: &str = "The feature no longer exists";
-const ORIGINAL_STAYS: &str = "The original is never left out of its pattern";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum PatternToolError {
+    #[error("Make a body first, then pattern it")]
+    NoBody,
+    #[error(
+        "Several axes, straight edges or round faces are selected; select only the one to follow"
+    )]
+    SeveralAxes,
+    #[error("Select an axis, straight edge or round face made before this pattern")]
+    NoAxis,
+    #[error("Only a linear pattern has a second direction")]
+    NotLinear,
+    #[error("Only a linear or circular pattern follows an axis")]
+    NoAxisToFollow,
+    #[error("The feature no longer exists")]
+    FeatureGone,
+    #[error("The original is never left out of its pattern")]
+    OriginalStays,
+    #[error("It already runs along the selection")]
+    AlreadyAlong,
+    #[error("It already turns about the selection")]
+    AlreadyTurns,
+    #[error("{}", sketch_pattern_tools::NO_PATH)]
+    NoPath,
+    #[error("{words}")]
+    ChosenBody { words: &'static str },
+    #[error("{words}")]
+    SketchPattern { words: &'static str },
+    #[error(transparent)]
+    Choice(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl Reason for PatternToolError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+impl From<PatternToolError> for String {
+    fn from(error: PatternToolError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
@@ -183,15 +224,17 @@ pub fn source(
     selection: &Selection,
     tree: &[FeatureId],
     rows: &[FeatureId],
-) -> Result<PatternSource, &'static str> {
+) -> Result<PatternSource, PatternToolError> {
     let document = model.document();
     let (body, repeated) = match repeatable(document, rows) {
         Some(repeating) => repeating,
-        None if selection.is_empty() && tree.is_empty() => {
-            (last_body(model).ok_or(NO_BODY)?, Vec::new())
-        }
+        None if selection.is_empty() && tree.is_empty() => (
+            last_body(model).ok_or(PatternToolError::NoBody)?,
+            Vec::new(),
+        ),
         None => (
-            move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)?,
+            move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)
+                .map_err(|words| PatternToolError::ChosenBody { words })?,
             Vec::new(),
         ),
     };
@@ -209,7 +252,7 @@ fn chosen_axis(
     selection: &Selection,
     body: FeatureId,
     index: usize,
-) -> Result<Option<AxisReference>, &'static str> {
+) -> Result<Option<AxisReference>, PatternToolError> {
     let mut candidates: Vec<(Pickable, AxisReference)> = Vec::new();
     for pickable in selection.in_pick_order() {
         if let Some(axis) = datum_tools::axis_reference(model, pickable, index)
@@ -227,7 +270,7 @@ fn chosen_axis(
         ([], _) => Ok(None),
         ([(_, axis)], _) => Ok(Some(axis.clone())),
         (_, [axis]) => Ok(Some((*axis).clone())),
-        _ => Err(SEVERAL_AXES),
+        _ => Err(PatternToolError::SeveralAxes),
     }
 }
 
@@ -326,11 +369,11 @@ pub fn create(
     model: &Model,
     shape: Shape,
     source: &PatternSource,
-) -> Result<(Transaction, FeatureId), String> {
+) -> Result<(Transaction, FeatureId), PatternToolError> {
     let document = model.document();
     let kind = match (shape.follows_sketch(), source.sketch) {
         (true, Some(sketch)) => sketch_pattern_tools::kind(shape, sketch, model.length_unit()),
-        (true, None) => return Err(sketch_pattern_tools::NO_PATH.to_owned()),
+        (true, None) => return Err(PatternToolError::NoPath),
         (false, _) => kind_for(
             model,
             shape,
@@ -420,14 +463,25 @@ pub fn leave_out_words(document: &Document, open: FeatureId, copy: &ClickedCopy)
     )
 }
 
-pub fn leave_out(model: &Model, open: FeatureId, copy: ClickedCopy) -> Result<Transaction, String> {
-    let left_out = copy.pattern.toggled(copy.instance).ok_or(ORIGINAL_STAYS)?;
+pub fn leave_out(
+    model: &Model,
+    open: FeatureId,
+    copy: ClickedCopy,
+) -> Result<Transaction, PatternToolError> {
+    let left_out = copy
+        .pattern
+        .toggled(copy.instance)
+        .ok_or(PatternToolError::OriginalStays)?;
     change(model, open, left_out)
 }
 
-pub fn change(model: &Model, feature: FeatureId, pattern: Pattern) -> Result<Transaction, String> {
+pub fn change(
+    model: &Model,
+    feature: FeatureId,
+    pattern: Pattern,
+) -> Result<Transaction, PatternToolError> {
     let document = model.document();
-    let transaction = edit(document, feature, pattern).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, pattern).ok_or(PatternToolError::FeatureGone)?;
     field::checked(document, transaction)
 }
 
@@ -436,15 +490,19 @@ pub fn reshaped(
     feature: FeatureId,
     pattern: &Pattern,
     shape: Shape,
-) -> Result<Pattern, &'static str> {
+) -> Result<Pattern, PatternToolError> {
     let kind = match (&pattern.kind, shape) {
         (PatternKind::Linear { .. }, Shape::Linear)
         | (PatternKind::Circular(_), Shape::Circular)
         | (PatternKind::Curve(_), Shape::Curve)
         | (PatternKind::Points(_), Shape::Points) => return Ok(pattern.clone()),
         (_, Shape::Curve | Shape::Points) => {
-            let before = model.document().feature_index(feature).ok_or(GONE)?;
-            sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)?
+            let before = model
+                .document()
+                .feature_index(feature)
+                .ok_or(PatternToolError::FeatureGone)?;
+            sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)
+                .map_err(|words| PatternToolError::SketchPattern { words })?
         }
         (PatternKind::Curve(curve), Shape::Linear | Shape::Circular) => {
             let mut kind = kind_for(model, shape, (pattern.body, &pattern.repeated), None);
@@ -491,9 +549,13 @@ fn with_selected(
     feature: FeatureId,
     pattern: &Pattern,
     reference: Reference,
-) -> Result<Pattern, &'static str> {
-    let index = model.document().feature_index(feature).ok_or(GONE)?;
-    let axis = chosen_axis(model, selection, pattern.body, index)?.ok_or(NO_AXIS)?;
+) -> Result<Pattern, PatternToolError> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or(PatternToolError::FeatureGone)?;
+    let axis =
+        chosen_axis(model, selection, pattern.body, index)?.ok_or(PatternToolError::NoAxis)?;
     with_axis(model, pattern, reference, axis)
 }
 
@@ -502,12 +564,11 @@ pub fn with_axis(
     pattern: &Pattern,
     reference: Reference,
     axis: AxisReference,
-) -> Result<Pattern, &'static str> {
-    let already = "It already runs along the selection";
+) -> Result<Pattern, PatternToolError> {
     let kind = match (&pattern.kind, reference) {
         (PatternKind::Linear { first, second }, Reference::First) => {
             if first.axis == axis {
-                return Err(already);
+                return Err(PatternToolError::AlreadyAlong);
             }
             PatternKind::Linear {
                 first: LinearDirection {
@@ -519,7 +580,9 @@ pub fn with_axis(
         }
         (PatternKind::Linear { first, second }, Reference::Second) => {
             let second = match second {
-                Some(existing) if existing.axis == axis => return Err(already),
+                Some(existing) if existing.axis == axis => {
+                    return Err(PatternToolError::AlreadyAlong);
+                }
                 Some(existing) => LinearDirection {
                     axis,
                     ..existing.clone()
@@ -539,15 +602,17 @@ pub fn with_axis(
         }
         (PatternKind::Circular(circular), Reference::First) => {
             if circular.axis.as_ref() == Some(&axis) {
-                return Err("It already turns about the selection");
+                return Err(PatternToolError::AlreadyTurns);
             }
             PatternKind::Circular(CircularPattern {
                 axis: Some(axis),
                 ..circular.clone()
             })
         }
-        (PatternKind::Circular(_), Reference::Second) => return Err(NOT_LINEAR),
-        (PatternKind::Curve(_) | PatternKind::Points(_), _) => return Err(NO_AXIS_TO_FOLLOW),
+        (PatternKind::Circular(_), Reference::Second) => return Err(PatternToolError::NotLinear),
+        (PatternKind::Curve(_) | PatternKind::Points(_), _) => {
+            return Err(PatternToolError::NoAxisToFollow);
+        }
     };
     Ok(Pattern {
         kind,
@@ -580,9 +645,8 @@ pub fn selected_change(
     feature: FeatureId,
     pattern: &Pattern,
     reference: Reference,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PatternToolError> {
     with_selected(model, selection, feature, pattern, reference)
-        .map_err(str::to_owned)
         .and_then(|changed| change(model, feature, changed))
 }
 
@@ -591,7 +655,7 @@ pub fn repeating(
     feature: FeatureId,
     pattern: &Pattern,
     repeated: Vec<FeatureId>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PatternToolError> {
     change(
         model,
         feature,

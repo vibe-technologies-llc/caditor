@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, SketchAttachment, SketchFeature, TappedThread, ThreadForm,
-    Transaction, hole_centres,
+    Document, Edit, EditError, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape,
+    HoleSizing, HoleStandard, HoleStep, HoleStyle, SketchAttachment, SketchFeature, TappedThread,
+    ThreadForm, Transaction, hole_centres,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Ray};
@@ -11,9 +13,9 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 use crate::{
     bodies,
     body_selection::face_boundary,
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand, SketchEditing},
-    hole_on_curve,
+    hole_on_curve::{self, CurveHoleError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     queued,
@@ -39,21 +41,58 @@ pub const DEFAULT_DRILL_POINT_ANGLE: f64 = 118.0;
 pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
 pub const DEFAULT_STEP_DIAMETER: f64 = 8.0;
 pub const DEFAULT_STEP_DEPTH: f64 = 2.0;
-const NO_SKETCH: &str = "Select a flat face of a body, or draw a sketch on one and place points \
-                         where the holes go; a sketch already drilled or swept is not guessed";
 const FACE_SAMPLES: u32 = 16;
 const SEARCH_STEPS: u32 = 16;
 const REFINEMENTS: usize = 4;
 const TIE: f64 = 1e-3;
-const NO_POINTS: &str = "Place points or circles in the sketch where the holes go";
-const NO_BODY: &str = "Make a body to drill into first";
-const NOTHING_TO_DRILL: &str =
-    "Select one flat face of a body to drill it, or the points of a sketch";
-const GONE: &str = "The hole no longer exists";
-const NOT_ONE_POINT: &str = "The hole's sketch holds more than one free point; edit the sketch to \
-                             move its points";
-const NO_FACE: &str = "Select one flat face of a body to drill the hole there";
-const MISSED: &str = "The click missed the face's plane";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum HoleStartError {
+    #[error(
+        "Select a flat face of a body, or draw a sketch on one and place points where the holes go; a sketch already drilled or swept is not guessed"
+    )]
+    NoSketch,
+    #[error("Select one flat face of a body to drill it, or the points of a sketch")]
+    NothingToDrill,
+    #[error("Place points or circles in the sketch where the holes go")]
+    NoPoints,
+    #[error("Make a body to drill into first")]
+    NoBody,
+    #[error("{words}")]
+    SweepSource { words: &'static str },
+}
+
+impl Reason for HoleStartError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum HoleToolError {
+    #[error("{words}")]
+    Attachment { words: &'static str },
+    #[error("{}", sketch_placement::NOT_FLAT)]
+    NotFlat,
+    #[error("The hole no longer exists")]
+    Gone,
+    #[error("The hole's sketch holds more than one free point; edit the sketch to move its points")]
+    NotOnePoint,
+    #[error("Select one flat face of a body to drill the hole there")]
+    NoFace,
+    #[error("The click missed the face's plane")]
+    Missed,
+    #[error("The hole cannot stand on that face")]
+    CannotStand { source: EditError },
+    #[error(transparent)]
+    OnCurve(#[from] CurveHoleError),
+}
+
+impl From<HoleToolError> for String {
+    fn from(error: HoleToolError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HoleSource {
@@ -204,7 +243,7 @@ pub fn start(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
-) -> Result<HoleStart, &'static str> {
+) -> Result<HoleStart, HoleStartError> {
     let sketch_chosen = selection
         .iter()
         .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
@@ -221,7 +260,7 @@ pub fn source(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
-) -> Result<HoleSource, &'static str> {
+) -> Result<HoleSource, HoleStartError> {
     let document = model.document();
     let may_guess = selection.is_empty();
     let swept = solid_tools::sweep_source(
@@ -234,16 +273,17 @@ pub fn source(
         } else {
             solid_tools::Guess::Never
         },
-    )?
+    )
+    .map_err(|words| HoleStartError::SweepSource { words })?
     .ok_or(if may_guess {
-        NO_SKETCH
+        HoleStartError::NoSketch
     } else {
-        NOTHING_TO_DRILL
+        HoleStartError::NothingToDrill
     })?;
     let sketch = swept.sketch;
-    let definition = editing::edited_sketch(document, sketch).ok_or(NO_SKETCH)?;
+    let definition = editing::edited_sketch(document, sketch).ok_or(HoleStartError::NoSketch)?;
     if hole_centres(definition).is_empty() {
-        return Err(NO_POINTS);
+        return Err(HoleStartError::NoPoints);
     }
     let attached = document
         .feature(sketch)
@@ -257,7 +297,7 @@ pub fn source(
                 .last()
                 .copied()
         })
-        .ok_or(NO_BODY)?;
+        .ok_or(HoleStartError::NoBody)?;
     Ok(HoleSource { sketch, body })
 }
 
@@ -283,10 +323,11 @@ pub fn new_hole(sketch: FeatureId, body: FeatureId, starts: &Starts) -> FeatureK
 pub fn create_on_face(
     model: &Model,
     face: FaceChoice,
-) -> Result<(Transaction, FeatureId, String), &'static str> {
+) -> Result<(Transaction, FeatureId, String), HoleToolError> {
     let document = model.document();
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())?;
-    let middle = face_middle(model, face, &plane).ok_or(sketch_placement::NOT_FLAT)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())
+        .map_err(|words| HoleToolError::Attachment { words })?;
+    let middle = face_middle(model, face, &plane).ok_or(HoleToolError::NotFlat)?;
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, TITLE);
     let mut sketch = Sketch::new(plane);
@@ -452,7 +493,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::OpenSolid(feature)),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(reason) => vec![queued::refused(Command::Hole, TITLE, reason)],
+            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error.to_string())],
         },
         HoleStart::CurvedFace(face) => match hole_on_curve::create(model, face) {
             Ok((transaction, feature, told)) => vec![
@@ -461,7 +502,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::Pick(Picking::new(feature, Slot::HolePlace))),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(reason) => vec![queued::refused(Command::Hole, TITLE, reason)],
+            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error.to_string())],
         },
     }
 }
@@ -489,9 +530,9 @@ pub fn moved(
     feature: FeatureId,
     hole: &Hole,
     at: Point2,
-) -> Result<Transaction, String> {
-    let name = &document.feature(feature).ok_or(GONE)?.name;
-    let point = lone_point(document, hole).ok_or(NOT_ONE_POINT)?;
+) -> Result<Transaction, HoleToolError> {
+    let name = &document.feature(feature).ok_or(HoleToolError::Gone)?.name;
+    let point = lone_point(document, hole).ok_or(HoleToolError::NotOnePoint)?;
     Ok(Transaction::single(
         format!("Move {name}"),
         Edit::SetSketchEntity {
@@ -508,15 +549,18 @@ fn placed(
     hole: &Hole,
     face: FaceChoice,
     ray: Option<Ray>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, HoleToolError> {
     let document = model.document();
     if hole_on_curve::mount(document, hole).is_some() || !sketch_placement::is_flat(model, face) {
-        return hole_on_curve::moved(model, feature, hole, face, ray);
+        return Ok(hole_on_curve::moved(model, feature, hole, face, ray)?);
     }
-    let name = &document.feature(feature).ok_or(GONE)?.name;
-    let point = lone_point(document, hole).ok_or(NOT_ONE_POINT)?;
-    let index = document.feature_index(hole.sketch).ok_or(GONE)?;
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)?;
+    let name = &document.feature(feature).ok_or(HoleToolError::Gone)?.name;
+    let point = lone_point(document, hole).ok_or(HoleToolError::NotOnePoint)?;
+    let index = document
+        .feature_index(hole.sketch)
+        .ok_or(HoleToolError::Gone)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)
+        .map_err(|words| HoleToolError::Attachment { words })?;
     let current = document
         .feature(hole.sketch)
         .and_then(|sketch| sketch.kind.attachment())
@@ -528,8 +572,10 @@ fn placed(
         plane
     };
     let at = match ray {
-        Some(ray) => frame.to_local(ray.at(ray.intersect_plane(&frame).ok_or(MISSED)?)),
-        None => face_middle(model, face, &frame).ok_or(sketch_placement::NOT_FLAT)?,
+        Some(ray) => {
+            frame.to_local(ray.at(ray.intersect_plane(&frame).ok_or(HoleToolError::Missed)?))
+        }
+        None => face_middle(model, face, &frame).ok_or(HoleToolError::NotFlat)?,
     };
     let mut transaction = document.transaction(format!("Move {name}"));
     if !stays {
@@ -556,7 +602,7 @@ fn placed(
     let transaction = transaction.finish();
     document
         .check(&transaction)
-        .map_err(|_| "The hole cannot stand on that face".to_owned())?;
+        .map_err(|source| HoleToolError::CannotStand { source })?;
     Ok(transaction)
 }
 
@@ -565,8 +611,8 @@ pub fn place_change(
     selection: &Selection,
     feature: FeatureId,
     hole: &Hole,
-) -> Result<Transaction, String> {
-    let face = sketch_placement::selected_face(selection).ok_or(NO_FACE)?;
+) -> Result<Transaction, HoleToolError> {
+    let face = sketch_placement::selected_face(selection).ok_or(HoleToolError::NoFace)?;
     placed(model, feature, hole, face, None)
 }
 
@@ -584,14 +630,14 @@ pub fn place_click(
         return vec![Action::Editing(EditingCommand::StopPicking)];
     };
     let result = FaceChoice::of(pickable)
-        .ok_or_else(|| NO_FACE.to_owned())
+        .ok_or(HoleToolError::NoFace)
         .and_then(|face| placed(model, feature, hole, face, ray));
     match result {
         Ok(transaction) => vec![
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),
         ],
-        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
+        Err(error) => vec![Action::Inform(Notice::warning(error.to_string()))],
     }
 }
 
