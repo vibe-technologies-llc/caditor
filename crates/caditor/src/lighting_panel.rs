@@ -1,10 +1,13 @@
 use std::{ops::RangeInclusive, path::Path};
 
-use egui::{Color32, Slider, Ui};
+use caditor_document::Rgb;
+use egui::{Color32, Id, Label, Slider, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     backdrop::Status,
+    body_appearance::color32,
+    colour_selector,
     commands::Command,
     display_style::DisplayStyle,
     guide::Page,
@@ -13,6 +16,7 @@ use crate::{
     lighting::{self, LightFrame, Lighting},
     model::display_name,
     preferences::{self, PreferenceChange, PreferencesCommand},
+    scene_palette,
     widgets::{self, PanelTitle, Tone},
 };
 
@@ -44,6 +48,24 @@ pub const CHOOSE_PICTURE: &str = "Choose picture…";
 pub const USE_PLAIN_SKY: &str = "Use the plain sky";
 pub const PICTURE_TURNED: &str = "Picture turned";
 pub const PICTURE_BRIGHTNESS: &str = "Picture brightness";
+pub const FLOOR: &str = "Visible floor";
+pub const BACKDROP: &str = "Behind the model";
+pub const BACKDROP_ABOUT: &str = "The colour drawn behind the model in place of the sky or the \
+                                  sky picture, which still light the bodies. Sky draws them \
+                                  again.";
+pub const SKY_SWATCH: &str = "Backdrop: sky";
+pub const CUSTOM_BACKDROP: &str = "Custom backdrop colour";
+pub const BACKDROP_SELECTOR: &str = "lighting-backdrop-colour";
+const SKY_SWATCH_FILL: Color32 = Color32::from_rgb(0x6c, 0x9a, 0xe0);
+const BACKDROPS: [(&str, Rgb); 5] = [
+    ("White", Rgb::new(0xff, 0xff, 0xff)),
+    ("Light grey", Rgb::new(0xd9, 0xdc, 0xe1)),
+    ("Mid grey", Rgb::new(0x8a, 0x90, 0x9a)),
+    ("Charcoal", Rgb::new(0x2b, 0x2e, 0x34)),
+    ("Black", Rgb::new(0x00, 0x00, 0x00)),
+];
+const FLOOR_HOVER: &str = "A neutral floor at the model's lowest point that takes the sun's \
+                           shadow, fading into the backdrop";
 const SHADOWS_HOVER: &str = "Bodies shade what lies behind them from the sun";
 const PANEL: RightPanel = RightPanel { id: "lighting" };
 const HEADER: PanelTitle<'static> = PanelTitle {
@@ -208,6 +230,109 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
             );
         }
     });
+    widgets::property(ui, "", |ui| {
+        let mut floor = lighting.floor;
+        if widgets::checkbox(ui, &mut floor, FLOOR)
+            .on_hover_text(FLOOR_HOVER)
+            .changed()
+        {
+            preferences::change(
+                command,
+                PreferenceChange::Lighting(Lighting { floor, ..lighting }),
+            );
+        }
+    });
+}
+
+pub fn backdrop_swatch_name(name: &str) -> String {
+    format!("Backdrop: {name}")
+}
+
+pub fn backdrop_colour(
+    ui: &mut Ui,
+    lighting: Lighting,
+    body: Rgb,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let body = color32(body);
+    let current = lighting.backdrop_colour;
+    let selector = Id::unique(BACKDROP_SELECTOR);
+    let refusal = selector.with("refused");
+    let selecting = colour_selector::is_open(ui, selector);
+    ui.label(widgets::section_title(BACKDROP));
+    ui.label(widgets::muted(BACKDROP_ABOUT, ui));
+    ui.add_space(SPACE_S);
+    let mut chosen = None;
+    let toggled = ui
+        .horizontal_wrapped(|ui| {
+            if widgets::swatch(ui, SKY_SWATCH_FILL, SKY_SWATCH, current.is_none()).clicked()
+                && current.is_some()
+            {
+                chosen = Some(None);
+            }
+            for (name, colour) in BACKDROPS {
+                let seen = scene_palette::seen_backdrop(color32(colour), body);
+                let picked = current == Some(colour);
+                let response = ui
+                    .add_enabled_ui(seen.is_ok(), |ui| {
+                        widgets::swatch(ui, color32(colour), &backdrop_swatch_name(name), picked)
+                    })
+                    .inner;
+                let response = match &seen {
+                    Ok(_) => response,
+                    Err(unseen) => response.on_disabled_hover_text(unseen.sentence()),
+                };
+                if response.clicked() && !picked {
+                    chosen = Some(Some(colour));
+                }
+            }
+            if let Some(colour) =
+                current.filter(|colour| BACKDROPS.iter().all(|(_, known)| known != colour))
+            {
+                let name = backdrop_swatch_name(&colour_selector::describe(colour));
+                widgets::swatch(ui, color32(colour), &name, true);
+            }
+            widgets::icon_swatch(ui, icons::ADD, CUSTOM_BACKDROP, selecting).clicked()
+        })
+        .inner;
+    let shown = current.unwrap_or(Rgb::new(0xd9, 0xdc, 0xe1));
+    if toggled {
+        colour_selector::toggle(ui, selector, shown);
+    }
+    if let Some(colour) = colour_selector::show(ui, selector, shown) {
+        match scene_palette::seen_backdrop(color32(colour), body) {
+            Ok(_) => {
+                ui.data_mut(|data| data.remove::<String>(refusal));
+                chosen = Some(Some(colour));
+            }
+            Err(unseen) => {
+                ui.data_mut(|data| data.insert_temp(refusal, unseen.sentence()));
+            }
+        }
+    }
+    if !colour_selector::is_open(ui, selector) {
+        ui.data_mut(|data| data.remove::<String>(refusal));
+    }
+    if let Some(backdrop_colour) = chosen {
+        preferences::change(
+            command,
+            PreferenceChange::Lighting(Lighting {
+                backdrop_colour,
+                ..lighting
+            }),
+        );
+    }
+    if let Some(words) = ui.data(|data| data.get_temp::<String>(refusal)) {
+        widgets::callout(ui, Tone::Error, |ui| {
+            ui.add(Label::new(words).wrap());
+        });
+    } else if let Some(unseen) =
+        current.and_then(|colour| scene_palette::seen_backdrop(color32(colour), body).err())
+    {
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.add(Label::new(unseen.warning()).wrap());
+        });
+    }
 }
 
 fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut Asked) {
@@ -276,7 +401,7 @@ fn sky_picture(ui: &mut Ui, lighting: Lighting, sky: SkyPicture<'_>, asked: &mut
 
 pub fn show(
     ui: &mut Ui,
-    (lighting, sky): (Lighting, SkyPicture<'_>),
+    (lighting, sky, body): (Lighting, SkyPicture<'_>, Rgb),
     style: DisplayStyle,
     room: f32,
     tool: &mut LightingTool,
@@ -306,6 +431,8 @@ pub fn show(
             });
             ui.add_space(SPACE_M);
             sky_picture(ui, lighting, sky, &mut asked);
+            ui.add_space(SPACE_M);
+            backdrop_colour(ui, lighting, body, &mut asked.command);
             ui.add_space(SPACE_M);
             let reset = widgets::small_button(ui, icons::RESET_SECTION, RESET);
             if ui.add(reset).clicked() {

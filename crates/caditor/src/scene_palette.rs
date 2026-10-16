@@ -280,6 +280,56 @@ impl UnseenBody {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UnseenBackdrop {
+    pub colour: egui::Color32,
+    pub body: egui::Color32,
+    pub ratio: f32,
+}
+
+impl UnseenBackdrop {
+    pub fn reason(&self) -> String {
+        format!(
+            "the backdrop colour {} shows bodies in {} at only {:.2}:1, below the {}:1 a body \
+             needs to stand out from it",
+            hex(self.colour),
+            hex(self.body),
+            self.ratio,
+            BODY_SEEN
+        )
+    }
+
+    pub fn sentence(&self) -> String {
+        format!(
+            "{}. Choose a colour lighter or darker than the bodies.",
+            capitalised(&self.reason())
+        )
+    }
+
+    pub fn warning(&self) -> String {
+        format!(
+            "{}. Choose another backdrop, or change the colour of bodies.",
+            capitalised(&self.reason())
+        )
+    }
+}
+
+pub fn seen_backdrop(
+    colour: egui::Color32,
+    body: egui::Color32,
+) -> Result<egui::Color32, UnseenBackdrop> {
+    let ratio = appearance::contrast_ratio(colour, body);
+    if ratio >= BODY_SEEN {
+        Ok(colour)
+    } else {
+        Err(UnseenBackdrop {
+            colour,
+            body,
+            ratio,
+        })
+    }
+}
+
 fn capitalised(reason: &str) -> String {
     let mut letters = reason.chars();
     let capital: String = letters
@@ -1145,6 +1195,32 @@ mod tests {
         assert_eq!(Canvas::Dark.colour(), Color32::from_rgb(27, 28, 31));
         assert_eq!(Canvas::Light.colour(), Color32::from_rgb(226, 229, 234));
         assert_eq!(Canvas::from_key("sepia"), None);
+    }
+
+    #[test]
+    fn a_backdrop_that_hides_the_bodies_is_refused_in_words_naming_both_colours() {
+        let body = Color32::from_rgb(70, 130, 180);
+        let same = body;
+        let dark = Color32::from_rgb(0x2b, 0x2e, 0x34);
+
+        let unseen = seen_backdrop(same, body).unwrap_err();
+
+        assert_eq!(seen_backdrop(dark, body), Ok(dark));
+        assert!(unseen.ratio < BODY_SEEN);
+        assert_eq!(
+            unseen.sentence(),
+            format!(
+                "The backdrop colour #4682b4 shows bodies in #4682b4 at only {:.2}:1, below the \
+                 1.5:1 a body needs to stand out from it. Choose a colour lighter or darker than \
+                 the bodies.",
+                unseen.ratio
+            )
+        );
+        assert!(
+            unseen
+                .warning()
+                .ends_with("or change the colour of bodies.")
+        );
     }
 
     #[test]

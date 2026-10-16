@@ -18,6 +18,8 @@ struct View {
     ground: vec4<f32>,
     sky_view: vec4<f32>,
     environment: vec4<f32>,
+    backdrop_colour: vec4<f32>,
+    floor: vec4<f32>,
     shadow_matrix: mat4x4<f32>,
     relative_from_light: mat4x4<f32>,
     occlusion: vec4<f32>,
@@ -1337,6 +1339,9 @@ const BACKDROP_BOTTOM: vec3<f32> = vec3<f32>(0.62, 0.74, 0.9);
 const GROUND_SHADOW: f32 = 0.5;
 const GROUND_FADE_FROM: f32 = 1.2;
 const GROUND_FADE_TO: f32 = 3.5;
+const FLOOR_ALBEDO: vec3<f32> = vec3<f32>(0.6, 0.6, 0.6);
+const FLOOR_FADE_FROM: f32 = 6.0;
+const FLOOR_FADE_TO: f32 = 16.0;
 
 fn sky(direction: vec3<f32>) -> vec3<f32> {
     let up = direction.z;
@@ -1401,17 +1406,46 @@ fn vs_sky(@builtin(vertex_index) index: u32) -> Varyings {
     return out;
 }
 
+fn has_plain_backdrop() -> bool {
+    return view.backdrop_colour.w > 0.5;
+}
+
+fn shows_floor() -> bool {
+    return view.floor.x > 0.5;
+}
+
+fn ground_hit(local: vec2<f32>) -> vec4<f32> {
+    let below = view.ground.x;
+    if view.ground.y <= 0.0 || below >= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    var origin = vec3<f32>(0.0);
+    var ray = view.forward_near.xyz;
+    if is_orthographic() {
+        let projection = view.rotation_projection;
+        let across = length(vec3<f32>(projection[0].x, projection[1].x, projection[2].x));
+        let along = length(vec3<f32>(projection[0].y, projection[1].y, projection[2].y));
+        origin = view.camera_right.xyz * local.x / max(across, 1e-9) + view.camera_up.xyz * local.y / max(along, 1e-9);
+    } else {
+        ray = normalize(
+            view.forward_near.xyz
+                + view.camera_right.xyz * local.x * view.sky_view.x
+                + view.camera_up.xyz * local.y * view.sky_view.y,
+        );
+    }
+    if ray.z >= -1e-4 {
+        return vec4<f32>(0.0);
+    }
+    let reach = (below - origin.z) / ray.z;
+    if reach <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(origin + ray * reach, 1.0);
+}
+
 @fragment
 fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
     let pixel_tangent = max(abs(dpdx(in.local.x)) * view.sky_view.x, abs(dpdy(in.local.y)) * view.sky_view.y);
-    var ray = view.forward_near.xyz;
-    if !is_orthographic() {
-        ray = normalize(
-            view.forward_near.xyz
-                + view.camera_right.xyz * in.local.x * view.sky_view.x
-                + view.camera_up.xyz * in.local.y * view.sky_view.y,
-        );
-    }
     let height = smoothstep(-1.0, 1.0, in.local.y);
     var backdrop = mix(BACKDROP_BOTTOM, BACKDROP_TOP, height * height);
     if has_environment() {
@@ -1423,16 +1457,27 @@ fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
         let texel_angle = TAU / f32(textureDimensions(environment_map, 0).x);
         backdrop = environment_radiance(seen, max(log2(pixel_tangent / texel_angle), 0.0)) * view.exposure_shadow.x;
     }
-    var shade = 1.0;
-    let below = view.ground.x;
-    if view.ground.y > 0.0 && view.sun.z > 0.0 && ray.z < -1e-4 && below < 0.0 {
-        let hit = ray * (below / ray.z);
+    var colour = pbr_neutral(backdrop);
+    if has_plain_backdrop() {
+        colour = to_linear(view.backdrop_colour.rgb);
+    }
+    let hit = ground_hit(in.local);
+    if hit.w > 0.0 {
         let spread = length(hit.xy - view.ground.zw) / max(view.ground.y, 1e-6);
         let fade = smoothstep(GROUND_FADE_FROM, GROUND_FADE_TO, spread);
-        let shadowed = 1.0 - sunlit(hit, vec3<f32>(0.0, 0.0, 1.0));
-        shade = 1.0 - GROUND_SHADOW * shadowed * (1.0 - fade);
+        var shade = 1.0;
+        if view.sun.z > 0.0 {
+            let shadowed = 1.0 - sunlit(hit.xyz, vec3<f32>(0.0, 0.0, 1.0));
+            shade = 1.0 - GROUND_SHADOW * shadowed * (1.0 - fade);
+        }
+        if shows_floor() {
+            let floor_colour = pbr_neutral(FLOOR_ALBEDO * view.exposure_shadow.x) * shade;
+            colour = mix(colour, floor_colour, 1.0 - smoothstep(FLOOR_FADE_FROM, FLOOR_FADE_TO, spread));
+        } else if !has_plain_backdrop() {
+            colour = colour * shade;
+        }
     }
-    return vec4<f32>(to_srgb(pbr_neutral(backdrop) * shade), 1.0);
+    return vec4<f32>(to_srgb(colour), 1.0);
 }
 
 fn rendered(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>, finish: u32, received: Received) -> vec4<f32> {

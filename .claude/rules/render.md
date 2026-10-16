@@ -197,8 +197,8 @@ paths:
   `METAL_REFLECTANCE_GAIN` for a metal. Section caps, flat, reflective and pick shaders ignore the
   finish; translucent meshes, drawn with `fs_mesh`, take it.
 - `Scene::lighting` (`lighting.rs`, `Lighting`: a `LightDirection` in the view's or the model's
-  frame, colour, strength, environment, exposure in stops, shadows, bounce) switches faces carrying
-  a finish to `rendered` (uniform fields `sun`, `sun_colour`, `exposure_shadow`, `bounce`,
+  frame, colour, strength, environment, exposure in stops, shadows, bounce, occlusion, surroundings)
+  switches faces carrying a finish to `rendered` (uniform fields `sun`, `sun_colour`, `exposure_shadow`, `bounce`,
   `shadow_matrix`, `relative_from_light`, after the section planes; `uses_rendered_shading` reads
   the exposure scale, zero without lighting, so every pixel of a scene without lighting is as
   before). `rendered` is Cook-Torrance: GGX, height-correlated Smith visibility, Schlick Fresnel
@@ -225,6 +225,20 @@ paths:
   none with the sun under `LOWEST_SUN_FOR_GROUND_SHADOWS`). Per-pixel sky rays use `sky_view`
   (tangents of the half field of view) and the camera vectors, which the occlusion uniform carries
   whenever lighting is on.
+- `Lighting::surroundings` (`Surroundings`: an optional plain `backdrop` colour and a `floor` flag,
+  uniform fields `backdrop_colour` and `floor`) changes only what the sky pass draws, never how
+  bodies are lit: the picture or the procedural sky keeps lighting them whichever backdrop is
+  seen. A plain colour (sRGB, drawn exactly as given: no exposure, no tone mapping) replaces the
+  gradient or the picture behind the bodies and is flat, so the unseen ground's shadow does not
+  darken it. The visible floor is the shadow-catching ground (`Ground::under`) drawn: a neutral
+  grey (`FLOOR_ALBEDO`, times the exposure, tone mapped) at the bodies' lowest point, taking the
+  sun's shadow like the unseen ground does and fading into the backdrop from `FLOOR_FADE_FROM` to
+  `FLOOR_FADE_TO` radii, so it has no edge and no horizon seam. `ground_hit` finds where each
+  pixel's ray meets the ground plane: the perspective ray of the pixel, or, in an orthographic
+  view, the parallel ray from the pixel's place on the eye plane (the scales read from the
+  projection's rows), so the floor and its shadow sit where the bodies project them in both. A
+  floor needs bodies (no `Ground`, none drawn) and is not seen from below it. Both are inert
+  without `Scene::lighting`, like `Scene::backdrop`.
 - `Scene::backdrop` (`Backdrop`: an `Arc<Environment>`, a turn about Z in radians and a brightness
   in stops) replaces the procedural sky with a picture, only while `Scene::lighting` is set.
   `Environment::new` (`environment.rs`, off the render thread, CPU only) takes linear RGB of an

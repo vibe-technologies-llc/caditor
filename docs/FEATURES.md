@@ -214,11 +214,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
   wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
   through.
-- [low · medium] The rendered view's surroundings are a procedural sky or a Radiance `.hdr`
-  picture (`render.md`, the environment) over a shadow-catching ground; a user cannot read an
-  OpenEXR picture (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which
-  `cargo deny` refuses), choose a plain-colour backdrop or a visible ground, nor give a material texture, bump or
-  clear-coat maps, and the ground bounces no light or occlusion onto the bodies.
+- [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
+  (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
+  refuses), nor give a material texture, bump or clear-coat maps, and the visible floor
+  (`render.md`) bounces no light or occlusion onto the bodies.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),
