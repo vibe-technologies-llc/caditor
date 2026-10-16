@@ -122,7 +122,9 @@ fn inverting_with_nothing_of_a_kind_to_go_by_asks_for_one() {
     run_from_palette(&mut harness, "Invert the selection");
     harness.frame();
 
-    assert!(harness.shows_containing(body_selection::NO_KIND_TO_SELECT));
+    assert!(
+        harness.shows_containing(&body_selection::SelectionRefusal::NoKindToSelect.to_string())
+    );
 }
 
 #[test]
@@ -165,7 +167,9 @@ fn the_loop_of_an_edge_needs_a_face_it_bounds() {
     run_from_palette(&mut harness, "Select the loop of the selected edge");
     harness.frame();
 
-    assert!(harness.shows_containing(body_selection::NO_LOOP_PAIR_SELECTED));
+    assert!(
+        harness.shows_containing(&body_selection::SelectionRefusal::NoLoopPairSelected.to_string())
+    );
     assert_eq!(selected_of(&harness, is_edge), 1);
 }
 

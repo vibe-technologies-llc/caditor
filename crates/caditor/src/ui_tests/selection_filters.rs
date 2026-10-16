@@ -137,7 +137,10 @@ fn select_all_without_a_kind_to_take_says_what_to_choose() {
     harness.frame();
 
     assert!(harness.workspace.viewport.selection().is_empty());
-    assert!(harness.shows_containing(crate::body_selection::NO_KIND_TO_SELECT));
+    assert!(
+        harness
+            .shows_containing(&crate::body_selection::SelectionRefusal::NoKindToSelect.to_string())
+    );
 }
 
 #[test]
