@@ -152,9 +152,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plane and point references, measured items, mate targets and datums included. Inputs inside the
   copy are renamed through placeholders above `PLACEHOLDER_BASE`; one still named as a plain id
   afterwards is `PasteRefusal::Unfollowed`, and users of a left-out feature are `LeftOutInput`.
-- One still among the origin features (a face or edge reference names its feature in its digest),
-  or a body a corner (`VertexName`) is picked on, is a pick of copied geometry (`copied_picks` counts
-  such features). `paste_features` leaves the feature out as `CopiedGeometry`.
+- One still among the origin features (a face or edge reference names its feature in its digest,
+  a section projection's edge included), or a body a corner (`VertexName`) is picked on, is a pick
+  of copied geometry (`copied_picks` counts such features, and those of the next bullet).
+  `paste_features` leaves the feature out as `CopiedGeometry`.
   `paste_features_finding_picks` (`paste_picks.rs`; `PickSearch` carries the evaluator, a
   `CancelToken`, progress and whether threads are shown cosmetic, as the model's recompute shows
   them; the app runs it on a copy of the recompute worker's cache) finds each pick again on the
@@ -174,10 +175,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     and middle, within `SAME_PLACE`). Several left is `PickAmbiguous`, none `PickNotFound`; a copy
     that did not compute is `CopyUncomputed`. Each match is captured again on the copy and must
     resolve back to itself, so a pick is never moved to a wrong face.
+  - A sketch's section projection (`ProjectionSource::Section`, `paste_sections.rs`) is found on
+    the cut of the copy. The original's cut is `section_solid` of the body as the sketch saw it
+    through the sketch's own plane; the copy's is the cut of the copy body through the plane of a
+    trial of the pasted sketch (`Trial`: the pasted kind without its projections inserted at the
+    bar on a clone, evaluated on the same cache, so a plane following a copied face or a
+    parameter the target names otherwise is the copy's own). The trial's id is the id the copy
+    will get, and both cuts are labelled with it (the original's mapped to it like a copied
+    feature), because the cut faces' names, and so the edges' between them, hold the sketch's id.
+    The edge matches by `choose` over the cut's edges, is captured again by `section_reference`
+    (without the cut's own faces) and must resolve back to itself; a cut missing the copy is
+    `PickNotFound`.
+  - A corner picked on a body outside the copy (same model only) follows the copied faces around
+    it: a feature picking one is searched when an earlier copy depends on that body
+    (`corner_followers`), and `Mapper::vertex` moves the corner to the match on the copy body when
+    the faces around the original corner name a copied feature (`Index::vertex_features`). One
+    with no match, or around no copied face, keeps the original corner, since the copies may add
+    nothing there.
   - A feature whose picks are not all found is left out with the reason; one still naming a copied
-    feature among its origins afterwards (a section projection) is left out as `CopiedGeometry`.
-    A cancel ends the whole paste as `PasteError::Cancelled`. The result is the same one
-    transaction as `paste_features`.
+    feature among its origins afterwards is left out as `CopiedGeometry`. A cancel ends the whole
+    paste as `PasteError::Cancelled`. The result is the same one transaction as `paste_features`.
 - Inputs outside the copy are kept when pasting into the same model (`PasteOrigin::ThisDocument`)
   if they exist before the bar, else refused (`OutsideFeature`), the same id naming something else
   in another model.

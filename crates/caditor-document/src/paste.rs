@@ -247,6 +247,13 @@ impl Copying<'_> {
             .to_owned()
     }
 
+    pub(crate) fn original_of(&self, body: FeatureId) -> FeatureId {
+        self.renamed
+            .iter()
+            .find(|(_, copy)| **copy == body)
+            .map_or(body, |(original, _)| *original)
+    }
+
     pub(crate) fn first_deep_name(&self) -> String {
         self.deep
             .first()
@@ -282,6 +289,9 @@ impl PickFinder for Unsought {
         _kind: &mut FeatureKind,
         copying: &Copying<'_>,
     ) -> Result<(), PickFailure> {
+        if copying.deep.is_empty() {
+            return Ok(());
+        }
         Err(PickFailure::Refused(PasteRefusal::CopiedGeometry {
             name: copying.first_deep_name(),
         }))
@@ -294,6 +304,7 @@ struct Pasted {
     piece_looks: PieceLooks,
     inlined: usize,
     deep: Vec<FeatureId>,
+    followers: Vec<FeatureId>,
 }
 
 impl Document {
@@ -344,14 +355,15 @@ impl Document {
                 piece_looks,
                 inlined: carried,
                 deep,
-            } = match self.pasted_kind(feature, &copied, &renamed, parameters, origin) {
+                followers,
+            } = match self.pasted_kind(feature, features, &copied, &renamed, parameters, origin) {
                 Ok(found) => found,
                 Err(reason) => {
                     left_out.push(refused(reason));
                     continue;
                 }
             };
-            if !deep.is_empty() {
+            if !deep.is_empty() || !followers.is_empty() {
                 let so_far = Transaction::new(label.clone(), builder.edits.clone());
                 let copying = Copying {
                     names: &copied,
@@ -398,6 +410,7 @@ impl Document {
     fn pasted_kind(
         &self,
         feature: &Feature,
+        features: &[Feature],
         copied: &BTreeMap<FeatureId, &str>,
         renamed: &BTreeMap<FeatureId, FeatureId>,
         parameters: &CarriedParameters,
@@ -488,12 +501,20 @@ impl Document {
                 *density = carried.expression;
             }
         }
+        let followers = match origin {
+            PasteOrigin::ThisDocument => paste_picks::corner_followers(feature, features)
+                .into_iter()
+                .filter(|follower| renamed.contains_key(follower))
+                .collect(),
+            PasteOrigin::Elsewhere => Vec::new(),
+        };
         Ok(Pasted {
             kind,
             appearance,
             piece_looks,
             inlined,
             deep,
+            followers,
         })
     }
 }

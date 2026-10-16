@@ -18,6 +18,7 @@ use crate::{
         CarriedParameters, Copying, FeaturePaste, PasteError, PasteOrigin, PasteRefusal,
         PickFailure, PickFinder, carry_values,
     },
+    paste_sections::{Sections, Trial, follows_sections},
     recompute::{CancelToken, Evaluation, Evaluator, Recompute},
     solid::RegionChoice,
 };
@@ -50,8 +51,33 @@ pub fn copied_picks(features: &[Feature]) -> usize {
             let others = |id: &FeatureId| *id != feature.id() && copied.contains(id);
             feature.kind.origin_features().iter().any(others)
                 || vertex_bodies(&feature.kind).iter().any(others)
+                || !corner_followers(feature, features).is_empty()
         })
         .count()
+}
+
+pub(crate) fn corner_followers(feature: &Feature, features: &[Feature]) -> Vec<FeatureId> {
+    let copied: BTreeSet<FeatureId> = features.iter().map(Feature::id).collect();
+    let outside: BTreeSet<FeatureId> = vertex_bodies(&feature.kind)
+        .into_iter()
+        .map(FeatureId::maker)
+        .filter(|maker| !copied.contains(maker))
+        .collect();
+    if outside.is_empty() {
+        return Vec::new();
+    }
+    features
+        .iter()
+        .take_while(|earlier| earlier.id() != feature.id())
+        .filter(|earlier| {
+            earlier
+                .kind
+                .dependencies()
+                .iter()
+                .any(|used| outside.contains(&used.maker()))
+        })
+        .map(Feature::id)
+        .collect()
 }
 
 pub(crate) fn vertex_bodies(kind: &FeatureKind) -> BTreeSet<FeatureId> {
@@ -136,29 +162,30 @@ impl Finder<'_> {
         Ok(())
     }
 
-    fn source(&mut self, target: &Document) -> Result<&Source, PickFailure> {
-        if self.source.is_none() {
-            let source = if self.origin == PasteOrigin::ThisDocument
-                && originals_in_place(target, self.features)
-            {
-                Source::Target
-            } else {
-                match rebuilt(self.features, self.parameters) {
-                    Some(document) => {
-                        let evaluation = self.target.draft_copy().run_without_display(
-                            &self.search.as_shown(document),
-                            self.search.evaluator,
-                            self.search.cancel,
-                        );
-                        self.cancelled()?;
-                        Source::Rebuilt(Box::new(evaluation))
-                    }
-                    None => Source::Unreadable,
-                }
-            };
-            self.source = Some(source);
+    fn prepare_source(&mut self, target: &Document) -> Result<(), PickFailure> {
+        if self.source.is_some() {
+            return Ok(());
         }
-        self.source.as_ref().ok_or(PickFailure::Cancelled)
+        let source = if self.origin == PasteOrigin::ThisDocument
+            && originals_in_place(target, self.features)
+        {
+            Source::Target
+        } else {
+            match rebuilt(self.features, self.parameters) {
+                Some(document) => {
+                    let evaluation = self.target.draft_copy().run_without_display(
+                        &self.search.as_shown(document),
+                        self.search.evaluator,
+                        self.search.cancel,
+                    );
+                    self.cancelled()?;
+                    Source::Rebuilt(Box::new(evaluation))
+                }
+                None => Source::Unreadable,
+            }
+        };
+        self.source = Some(source);
+        Ok(())
     }
 }
 
@@ -184,10 +211,14 @@ impl PickFinder for Finder<'_> {
             self.target
                 .run_without_display(&shown, self.search.evaluator, self.search.cancel);
         self.cancelled()?;
-        let originals = match self.source(target)? {
-            Source::Target => &copies,
-            Source::Rebuilt(evaluation) => evaluation.as_ref(),
-            Source::Unreadable => {
+        self.prepare_source(target)?;
+        let originals = match &self.source {
+            Some(Source::Target) => &copies,
+            Some(Source::Rebuilt(evaluation)) => evaluation.as_ref(),
+            Some(Source::Unreadable) | None => {
+                if copying.deep.is_empty() {
+                    return Ok(());
+                }
                 return Err(PickFailure::Refused(PasteRefusal::PicksUnreadable {
                     name: copying.first_deep_name(),
                 }));
@@ -206,6 +237,29 @@ impl PickFinder for Finder<'_> {
         visit_projections(kind, &mut mapper);
         if let Some(reason) = mapper.failure {
             return Err(PickFailure::Refused(reason));
+        }
+        if let FeatureKind::Sketch(definition) = &*kind
+            && follows_sections(definition, copying)
+        {
+            let Some(trial) = Trial::of(&shown, feature, kind) else {
+                return Err(PickFailure::Refused(PasteRefusal::CopiedGeometry {
+                    name: copying.first_deep_name(),
+                }));
+            };
+            let evaluation = self.target.run_without_display(
+                &trial.document,
+                self.search.evaluator,
+                self.search.cancel,
+            );
+            self.cancelled()?;
+            let sections = Sections {
+                originals,
+                trial: &evaluation,
+                trial_sketch: trial.sketch,
+                original_sketch: feature.id(),
+                copying,
+            };
+            sections.follow(kind).map_err(PickFailure::Refused)?;
         }
         let fresh: BTreeSet<FeatureId> = copying.renamed.values().copied().collect();
         let unmapped = kind
@@ -271,16 +325,17 @@ pub(crate) struct Described<Id> {
     pub(crate) places: Vec<Point3>,
 }
 
-struct Index {
-    faces: Vec<Described<FaceId>>,
-    edges: Vec<Described<EdgeId>>,
+pub(crate) struct Index {
+    pub(crate) faces: Vec<Described<FaceId>>,
+    pub(crate) edges: Vec<Described<EdgeId>>,
     vertices: Vec<Described<VertexId>>,
     naming: EdgeNaming,
     vertex_names: BTreeMap<VertexId, VertexName>,
+    vertex_features: BTreeMap<VertexId, BTreeSet<u64>>,
 }
 
 impl Index {
-    fn of(solid: &Solid, rename: &dyn Fn(u64) -> u64) -> Self {
+    pub(crate) fn of(solid: &Solid, rename: &dyn Fn(u64) -> u64) -> Self {
         let origin_of = |face: FaceId| {
             solid
                 .face(face)
@@ -323,6 +378,17 @@ impl Index {
         let vertex_origins: BTreeMap<VertexId, Origins> = vertex_faces
             .iter()
             .map(|(vertex, faces)| (*vertex, origins_of(faces)))
+            .collect();
+        let vertex_features: BTreeMap<VertexId, BTreeSet<u64>> = vertex_faces
+            .iter()
+            .map(|(vertex, faces)| {
+                let features = faces
+                    .iter()
+                    .filter_map(|face| solid.face(*face)?.origin())
+                    .flat_map(|origin| origin.features())
+                    .collect();
+                (*vertex, features)
+            })
             .collect();
 
         let faces = solid
@@ -395,6 +461,7 @@ impl Index {
             vertices,
             naming: EdgeNaming::new(solid),
             vertex_names: vertex_names(solid),
+            vertex_features,
         }
     }
 }
@@ -463,6 +530,12 @@ struct Mapper<'a> {
     failure: Option<PasteRefusal>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Corner {
+    Anywhere,
+    AroundCopiedFaces,
+}
+
 struct Solids<'a> {
     original: &'a Solid,
     copy: &'a Solid,
@@ -471,11 +544,7 @@ struct Solids<'a> {
 
 impl<'a> Mapper<'a> {
     fn original_body(&self, body: FeatureId) -> FeatureId {
-        self.copying
-            .renamed
-            .iter()
-            .find(|(_, copy)| **copy == body)
-            .map_or(body, |(original, _)| *original)
+        self.copying.original_of(body)
     }
 
     fn names_copied(&self, features: &BTreeSet<FeatureId>) -> bool {
@@ -585,7 +654,8 @@ impl<'a> Mapper<'a> {
         body: FeatureId,
         vertex: VertexName,
         what: &str,
-    ) -> Result<VertexName, PasteRefusal> {
+        wanted: Corner,
+    ) -> Result<Option<VertexName>, PasteRefusal> {
         let name = self.copy_name(body, &BTreeSet::new());
         let solids = self.solids(body, name)?;
         let unreadable = || PasteRefusal::PicksUnreadable {
@@ -602,6 +672,19 @@ impl<'a> Mapper<'a> {
         let [original] = named(&originals.vertex_names, vertex)[..] else {
             return Err(unreadable());
         };
+        if wanted == Corner::AroundCopiedFaces {
+            let around = originals.vertex_features.get(&original);
+            let touches_copy = around.is_some_and(|features| {
+                features.iter().any(|feature| {
+                    self.copying
+                        .names
+                        .contains_key(&FeatureId::from_raw(*feature))
+                })
+            });
+            if !touches_copy {
+                return Ok(None);
+            }
+        }
         let copy = choose(original, &originals.vertices, &copies.vertices)
             .map_err(|unmatched| refusal(unmatched, what, &solids.name))?;
         let renamed = copies
@@ -612,7 +695,7 @@ impl<'a> Mapper<'a> {
         if named(&copies.vertex_names, renamed).len() != 1 {
             return Err(refusal(Unmatched::Ambiguous, what, &solids.name));
         }
-        Ok(renamed)
+        Ok(Some(renamed))
     }
 
     fn body_is_copied(&self, body: FeatureId) -> bool {
@@ -620,7 +703,7 @@ impl<'a> Mapper<'a> {
     }
 }
 
-fn refusal(unmatched: Unmatched, what: &str, name: &str) -> PasteRefusal {
+pub(crate) fn refusal(unmatched: Unmatched, what: &str, name: &str) -> PasteRefusal {
     let (what, name) = (what.to_owned(), name.to_owned());
     match unmatched {
         Unmatched::Missing => PasteRefusal::PickNotFound { what, name },
@@ -659,12 +742,18 @@ impl ReferenceVisitor for Mapper<'_> {
     fn regions(&mut self, _sketch: FeatureId, _choice: &mut RegionChoice) {}
 
     fn vertex(&mut self, body: FeatureId, vertex: &mut VertexName, what: &str) {
-        if self.failure.is_some() || !self.body_is_copied(body) {
+        if self.failure.is_some() {
             return;
         }
-        match self.map_vertex(body, *vertex, what) {
-            Ok(found) => *vertex = found,
-            Err(reason) => self.failure = Some(reason),
+        if self.body_is_copied(body) {
+            match self.map_vertex(body, *vertex, what, Corner::Anywhere) {
+                Ok(found) => *vertex = found.unwrap_or(*vertex),
+                Err(reason) => self.failure = Some(reason),
+            }
+            return;
+        }
+        if let Ok(Some(found)) = self.map_vertex(body, *vertex, what, Corner::AroundCopiedFaces) {
+            *vertex = found;
         }
     }
 }

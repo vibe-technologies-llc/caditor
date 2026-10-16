@@ -43,6 +43,7 @@ mod parameter_import;
 mod parameter_list;
 mod paste;
 mod paste_picks;
+mod paste_sections;
 mod pattern;
 mod pattern_path;
 mod picture;
