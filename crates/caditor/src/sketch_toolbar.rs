@@ -1081,7 +1081,11 @@ impl Bar<'_, '_> {
         let active = self.active.tool == tool;
         let button = ToolButton::new(icons::tool(tool), label).selected(active);
         let response = if self.compact {
-            explained(ui.add(button.compact()), label, &Ok(hover))
+            explained(
+                ui.add(button.compact()),
+                label,
+                &Ok::<_, std::convert::Infallible>(hover),
+            )
         } else {
             ui.add(button).on_hover_text(hover)
         };
@@ -1162,7 +1166,7 @@ impl Bar<'_, '_> {
             .selected(active);
         let mode = self.modes.of(tool);
         let description = mode.map_or(tool.description(), ShapeMode::description);
-        let help = Ok(self.commands.with_keys(command, description));
+        let help = Ok::<_, std::convert::Infallible>(self.commands.with_keys(command, description));
         let response = explained(ui.add(button), tool.label(), &help);
         for way in ShapeMode::of_tool(tool) {
             if self.commands.available(Command::ShapeMode(way)) {
@@ -1442,7 +1446,9 @@ impl Bar<'_, '_> {
         let button = ToolButton::new(icons::CONSTRUCTION, CONSTRUCTION_LABEL)
             .compact()
             .selected(self.active.construction);
-        let help = Ok(self.commands.with_keys(Command::Construction, description));
+        let help = Ok::<_, std::convert::Infallible>(
+            self.commands.with_keys(Command::Construction, description),
+        );
         let response = explained(ui.add(button), CONSTRUCTION_LABEL, &help);
         if response.clicked() || invoked {
             self.request.construction = true;

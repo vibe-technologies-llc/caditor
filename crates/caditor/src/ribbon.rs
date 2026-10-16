@@ -1,4 +1,8 @@
-use std::{fmt::Debug, hash::Hash, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+    sync::Arc,
+};
 
 use egui::{
     Frame, Galley, Id, Label, Margin, Popup, Rect, Response, RichText, Sense, Stroke, Style,
@@ -270,14 +274,18 @@ pub fn menu_sections<S: AsRef<[Command]>>(
     }
 }
 
-pub fn explained(response: Response, title: &str, help: &Result<String, String>) -> Response {
+pub fn explained<E: Display>(
+    response: Response,
+    title: &str,
+    help: &Result<String, E>,
+) -> Response {
     let tip = |ui: &mut Ui, text: &str| {
         ui.label(widgets::strong(title));
         ui.label(text);
     };
     match help {
         Ok(text) => response.on_hover_ui(|ui| tip(ui, text)),
-        Err(text) => response.on_disabled_hover_ui(|ui| tip(ui, text)),
+        Err(text) => response.on_disabled_hover_ui(|ui| tip(ui, &text.to_string())),
     }
 }
 

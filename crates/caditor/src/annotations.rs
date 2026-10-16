@@ -15,7 +15,7 @@ use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
     appearance, canvas, completion,
     feature_tree::count,
-    field::{self, DimensionTarget, Reference},
+    field::{self, DimensionEditError, DimensionTarget, Reference},
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_status, sketch_tools,
@@ -83,7 +83,18 @@ const CLUSTERED_ENDS_HELP: &str = "here, too close together to ring one by one a
                                    curve ends joined to nothing. Zoom in to tell them apart, and \
                                    join them to close the outline.";
 pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
-const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Select one dimension alone to move its label")]
+pub struct NoLabelToMove;
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum DimensionFieldError {
+    #[error(transparent)]
+    Outside(#[from] DimensionEditError),
+    #[error("{refusal}")]
+    DimensionChange { refusal: String },
+}
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
     Id::new(("canvas-dimension", feature, constraint))
@@ -180,7 +191,7 @@ pub fn label_to_move(
     entities: &[EntityId],
     constraints: &[ConstraintId],
     drawing: bool,
-) -> Result<ConstraintId, String> {
+) -> Result<ConstraintId, NoLabelToMove> {
     match (entities, constraints) {
         ([], [only])
             if !drawing
@@ -190,7 +201,7 @@ pub fn label_to_move(
         {
             Ok(*only)
         }
-        _ => Err(NO_LABEL_TO_MOVE.to_owned()),
+        _ => Err(NoLabelToMove),
     }
 }
 
@@ -1681,14 +1692,13 @@ impl Annotations {
                             open.focus_pending,
                             |text| {
                                 if surface.outside {
-                                    field::dimension_edit(
+                                    Ok(field::dimension_edit(
                                         document,
                                         model.parameters(),
                                         (target, Reference::Followed),
                                         text,
                                         model.units(),
-                                    )
-                                    .map_err(String::from)
+                                    )?)
                                 } else {
                                     sketch_tools::dimension_change(
                                         model,
@@ -1696,6 +1706,9 @@ impl Annotations {
                                         text,
                                         surface.first_dimension_scales,
                                     )
+                                    .map_err(|refusal| {
+                                        DimensionFieldError::DimensionChange { refusal }
+                                    })
                                 }
                             },
                         );

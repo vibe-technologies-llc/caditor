@@ -1,3 +1,5 @@
+use std::{convert::Infallible, fmt::Display};
+
 use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, RegionChoice, describe_axis};
 use egui::{Id, Response, Ui, Vec2};
 
@@ -50,6 +52,16 @@ const COMPACT_RIBBON: &str = "main-ribbon-compact";
 const COMPACT_KEY: &str = "main-ribbon-is-compact";
 pub const SWEEP_HOVER: &str =
     "Carry the closed regions of a sketch along a path of sketch curves or body edges";
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum Blocked<R: Display> {
+    #[error("{0}")]
+    Refused(R),
+    #[error("{0}.")]
+    Sentence(R),
+    #[error("{what}. {reason}{}", CLICK_AFTER_FIXING)]
+    ToFix { what: String, reason: R },
+}
 
 pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
@@ -367,7 +379,7 @@ fn tool_button<'a>(ui: &Ui, glyph: &'a str, label: &'a str) -> ToolButton<'a> {
 fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>) {
     let button =
         tool_button(ui, icons::command(Command::Measure), MEASURE_LABEL).selected(measuring);
-    let help = Ok(commands.with_keys(Command::Measure, MEASURE_HOVER));
+    let help = Ok::<_, Infallible>(commands.with_keys(Command::Measure, MEASURE_HOVER));
     if ribbon::explained(ui.add(button), MEASURE_LABEL, &help).clicked() {
         commands.trigger(Command::Measure);
     }
@@ -380,23 +392,24 @@ fn interference_button(ui: &mut Ui, checking: bool, commands: &mut CommandFrame<
         INTERFERENCE_LABEL,
     )
     .selected(checking);
-    let help = Ok(commands.with_keys(Command::Interference, INTERFERENCE_HOVER));
+    let help = Ok::<_, Infallible>(commands.with_keys(Command::Interference, INTERFERENCE_HOVER));
     if ribbon::explained(ui.add(button), INTERFERENCE_LABEL, &help).clicked() {
         commands.trigger(Command::Interference);
     }
 }
 
-fn tool(
+fn tool<R: Display>(
     ui: &mut Ui,
     commands: &mut CommandFrame<'_>,
     command: Command,
     label: &str,
-    help: &Result<String, String>,
+    help: &Result<String, Blocked<R>>,
 ) -> Response {
     let button = tool_button(ui, icons::command(command), label);
     match help {
         Err(blocked) if commands.awaits(command) => {
-            let response = ribbon::explained(ui.add(button), label, &Ok(queued_help(blocked)));
+            let queued = Ok::<_, Infallible>(queued_help(&blocked.to_string()));
+            let response = ribbon::explained(ui.add(button), label, &queued);
             if response.clicked() {
                 commands.queue(command);
             }
@@ -424,7 +437,7 @@ fn sketch_buttons(
     if editing.is_choosing_plane() {
         let button =
             tool_button(ui, icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
-        let help = Ok(format!(
+        let help = Ok::<_, Infallible>(format!(
             "{CHOOSE_PLANE_PROMPT}, or click here to stop choosing (Esc)"
         ));
         if ribbon::explained(ui.add(button), NEW_SKETCH_LABEL, &help).clicked() {
@@ -457,7 +470,7 @@ fn sketch_buttons(
     };
     let help = match target {
         Ok(_) => Ok(commands.with_keys(Command::NewSketch, &hover)),
-        Err(reason) => Err(reason.to_owned()),
+        Err(reason) => Err(Blocked::Refused(reason)),
     };
     let invoked = commands.invoke(Command::NewSketch, &target);
     let response = tool(ui, commands, Command::NewSketch, NEW_SKETCH_LABEL, &help);
@@ -529,7 +542,7 @@ fn solid_buttons(
             (Some(Ok(profile)), _) => {
                 Ok(commands.with_keys(command, &face_sweep_help(document, sweep, profile)))
             }
-            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(reason.to_owned()),
+            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(Blocked::Refused(reason)),
             (None, Ok(Some(source))) => {
                 let sketch = document
                     .feature(source.sketch)
@@ -554,7 +567,7 @@ fn solid_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            (None, Ok(None)) => Err(missing.to_owned()),
+            (None, Ok(None)) => Err(Blocked::Refused(missing)),
         };
         let response = tool(ui, commands, command, sweep.label(), &help);
         if !(response.clicked() || invoked) {
@@ -586,10 +599,10 @@ fn hole_button(
     let invoked = commands.invoke(Command::Hole, &source);
     let help = match &source {
         Ok(_) => Ok(commands.with_keys(Command::Hole, hole_tools::DESCRIPTION)),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            hole_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: hole_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Hole, hole_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -708,10 +721,10 @@ fn blend_buttons(
                     count(source.edges.len(), "edge", "edges")
                 ),
             )),
-            Err(reason) => Err(format!(
-                "{}. {reason}, then click here.",
-                blend_panel::describe_kind(kind)
-            )),
+            Err(reason) => Err(Blocked::ToFix {
+                what: blend_panel::describe_kind(kind).to_owned(),
+                reason,
+            }),
         };
         let response = tool(ui, commands, command, kind.title(), &help);
         if (response.clicked() || invoked)
@@ -746,7 +759,7 @@ fn datum_buttons(
              midway between two planes, through an axis and a point or two lines in one plane, \
              or square to the selected round or curved edge",
         )),
-        Err(reason) => Err(format!("{reason}.")),
+        Err(reason) => Err(Blocked::Sentence(*reason)),
     };
     let response = tool(ui, commands, Command::DatumPlane, PLANE_LABEL, &help);
     if (response.clicked() || invoked)
@@ -763,7 +776,10 @@ fn datum_buttons(
             "Add an axis along the selected edge, round face or axis, where the two selected \
              planes meet, through two points, or square to a plane through a point",
         )),
-        Err(reason) => Err(format!("Add an axis. {reason}, then click here.")),
+        Err(reason) => Err(Blocked::ToFix {
+            what: "Add an axis".to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::DatumAxis, AXIS_LABEL, &help);
     if (response.clicked() || invoked)
@@ -782,7 +798,10 @@ fn datum_buttons(
              offsets, a distance along the selected edge, or where two lines, a line and a \
              plane, or three planes meet",
         )),
-        Err(reason) => Err(format!("Add a point. {reason}, then click here.")),
+        Err(reason) => Err(Blocked::ToFix {
+            what: "Add a point".to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::DatumPoint, POINT_LABEL, &help);
     if (response.clicked() || invoked)
@@ -837,10 +856,10 @@ fn shell_button(
                 count(source.faces.len(), "face", "faces")
             ),
         )),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            shell_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: shell_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Shell, shell_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -866,7 +885,10 @@ fn sweep_button(
     let invoked = commands.invoke(Command::Sweep, source);
     let help = match source {
         Ok(_) => Ok(commands.with_keys(Command::Sweep, SWEEP_HOVER)),
-        Err(reason) => Err(format!("{SWEEP_HOVER}. {reason}, then click here.")),
+        Err(reason) => Err(Blocked::ToFix {
+            what: SWEEP_HOVER.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Sweep, sweep_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -958,10 +980,10 @@ fn move_button(
     let invoked = commands.invoke(Command::Move, body);
     let help = match body {
         Ok(_) => Ok(commands.with_keys(Command::Move, move_tools::DESCRIPTION)),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            move_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: move_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Move, move_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -992,10 +1014,10 @@ fn mirror_button(
             Ok(commands.with_keys(Command::Mirror, &hover))
         }
         Ok(_) => Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION)),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            mirror_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: mirror_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Mirror, mirror_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -1044,10 +1066,10 @@ fn scale_button(
     let invoked = commands.invoke(Command::Scale, body);
     let help = match body {
         Ok(_) => Ok(commands.with_keys(Command::Scale, scale_tools::DESCRIPTION)),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            scale_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: scale_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Scale, scale_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -1068,10 +1090,10 @@ fn combine_button(
     let invoked = commands.invoke(Command::Combine, pair);
     let help = match pair {
         Ok(_) => Ok(commands.with_keys(Command::Combine, combine_tools::DESCRIPTION)),
-        Err(reason) => Err(format!(
-            "{}. {reason}, then click here.",
-            combine_tools::DESCRIPTION
-        )),
+        Err(reason) => Err(Blocked::ToFix {
+            what: combine_tools::DESCRIPTION.to_owned(),
+            reason,
+        }),
     };
     let response = tool(ui, commands, Command::Combine, combine_tools::TITLE, &help);
     if (response.clicked() || invoked)
@@ -1121,10 +1143,10 @@ fn pattern_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            Err(reason) => Err(format!(
-                "{}. {reason}, then click here.",
-                shape.description()
-            )),
+            Err(reason) => Err(Blocked::ToFix {
+                what: shape.description().to_owned(),
+                reason,
+            }),
         };
         let response = tool(ui, commands, command, shape.title(), &help);
         if (response.clicked() || invoked)
@@ -1170,7 +1192,7 @@ fn history_buttons(
         let verb = command.title();
         let help = match label {
             Some(label) => Ok(commands.with_keys(command, &format!("{verb} {label}"))),
-            None => Err(idle.to_owned()),
+            None => Err(Blocked::Refused(idle)),
         };
         let response = tool(ui, commands, command, &verb, &help);
         if response.clicked() || invoked {

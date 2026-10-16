@@ -13,7 +13,8 @@ use crate::{
     bodies::BodyMeshes,
     commands::{Command, CommandFrame},
     display_style::DisplayStyle,
-    feature_fields, field,
+    feature_fields,
+    field::{self, ExpressionError},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -98,6 +99,14 @@ impl AnalysisContext<'_> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum LimitError {
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error(transparent)]
+    Limit(#[from] Problem),
+}
+
 fn limit_row(
     ui: &mut Ui,
     model: &Model,
@@ -115,7 +124,7 @@ fn limit_row(
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,
-        |text| -> Result<_, String> {
+        |text| -> Result<_, LimitError> {
             let parsed = field::parse_expression(
                 document,
                 parameters,
@@ -128,9 +137,9 @@ fn limit_row(
             )?;
             let value = parameters
                 .evaluate_expression(&parsed)
-                .map_err(|error| field::sentence(&error.to_string()))?
+                .map_err(ExpressionError::Unevaluable)?
                 .value;
-            check(value).map_err(|problem| problem.to_string())?;
+            check(value)?;
             Ok(parsed)
         },
     );

@@ -5,7 +5,8 @@ use egui::{Id, Label, Sides, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    datum_tools, feature_fields, field,
+    datum_tools, feature_fields,
+    field::{self, ExpressionError},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -28,7 +29,6 @@ pub const ADD: &str = "Add a plane";
 pub const CURRENT: &str = "Current";
 pub const THROUGH: &str = "Through";
 pub const PLANE: &str = "Plane";
-const CHOOSE_FACES_IN_VIEW: &str = "Select a flat face and use Use selected";
 pub const USE_SELECTED_HOVER: &str = "Put the plane on the selected plane, flat face or sketch";
 pub const OFFSET: &str = "Offset";
 pub const OFFSET_HOVER: &str = "How far the plane moves into the side it keeps";
@@ -55,6 +55,12 @@ const CUT_FACE_STYLES: [(CutFace, &str, &str); 2] = [
     (CutFace::Filled, "Filled", "Draw the cut faces filled"),
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum PlaneChoiceError {
+    #[error("Select a flat face and use Use selected")]
+    NotInView,
+}
+
 pub struct SectionContext<'a> {
     pub model: &'a Model,
     pub selection: &'a Selection,
@@ -79,7 +85,7 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,
-        |text| -> Result<_, String> {
+        |text| -> Result<_, ExpressionError> {
             let parsed = field::parse_expression(
                 document,
                 parameters,
@@ -92,7 +98,7 @@ fn value_row(ui: &mut Ui, model: &Model, value: &Value<'_>, expression: &mut Exp
             )?;
             parameters
                 .evaluate_expression(&parsed)
-                .map_err(|error| field::sentence(&error.to_string()))?;
+                .map_err(ExpressionError::Unevaluable)?;
             Ok(parsed)
         },
     );
@@ -133,7 +139,7 @@ fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut 
             datum_tools::plane_pickable(plane) == Some(cut.base)
         }),
         datum_tools::listed_planes_at_the_bar(document),
-        |plane| datum_tools::plane_pickable(plane).ok_or_else(|| CHOOSE_FACES_IN_VIEW.to_owned()),
+        |plane| datum_tools::plane_pickable(plane).ok_or(PlaneChoiceError::NotInView),
     );
     if let Some(base) = chosen {
         cut.base = base;
