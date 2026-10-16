@@ -729,7 +729,7 @@ fn sheet_fields(
             widgets::property(ui, caption, |ui| {
                 let field = field::commit_field(
                     ui,
-                    Id::new(("drawing-sheet", caption)),
+                    Id::unique(("drawing-sheet", caption)),
                     &modifying::length_text(model.units(), stored),
                     widgets::FIELD_WIDTH,
                     false,

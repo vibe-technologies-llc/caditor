@@ -59,7 +59,7 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
     run_from_palette(&mut harness, "copy body");
     harness.settle();
     let copy = harness.workspace.editing.solid().expect("the copy is open");
-    harness.type_into_field(Id::new(("move-field", "offset", 1usize, copy)), "60 mm");
+    harness.type_into_field(Id::unique(("move-field", "offset", 1usize, copy)), "60 mm");
     harness.settle();
 
     let feature = harness.document().feature(copy).unwrap();

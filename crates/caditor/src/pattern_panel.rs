@@ -437,7 +437,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("pattern-field", salt, self.id())),
+            id: Id::unique(("pattern-field", salt, self.id())),
             expression,
             dimension,
             rule,
@@ -549,7 +549,7 @@ impl Panel<'_> {
         let document = self.model.document();
         widgets::caption(ui, caption);
         let before = document.feature_index(self.id()).unwrap_or(0);
-        let id = Id::new(("pattern-sketch", self.id()));
+        let id = Id::unique(("pattern-sketch", self.id()));
         ui.vertical(|ui| {
             let shown = feature_fields::combo_text(
                 ui,

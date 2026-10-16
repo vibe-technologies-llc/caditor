@@ -834,7 +834,7 @@ impl Bar<'_, '_> {
     fn show(&mut self, ui: &mut Ui) {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
-        let finish_id = Id::new("sketch-bar-finish");
+        let finish_id = Id::unique("sketch-bar-finish");
         let finish = widgets::remembered_width(ui, finish_id);
         let labelled = self.arrange(ui, false, full, finish);
         self.compact = ribbon::labelled_too_tall(ui, labelled.bands());
@@ -888,7 +888,7 @@ impl Bar<'_, '_> {
         let contents =
             format!("Every {caption} command of the sketch, the ones without a button included");
         let menu = GroupMenu {
-            id: Id::new(("sketch-ribbon-group-menu", group)),
+            id: Id::unique(("sketch-ribbon-group-menu", group)),
             name: &name,
             contents: &contents,
         };
@@ -1050,7 +1050,7 @@ impl Bar<'_, '_> {
                     badge(ui, &tokens);
                 });
             }
-            let height_id = Id::new("sketch-bar-header-height");
+            let height_id = Id::unique("sketch-bar-header-height");
             let known = widgets::remembered_width(ui, height_id);
             let content = ui
                 .vertical(|ui| {
@@ -1160,7 +1160,7 @@ impl Bar<'_, '_> {
         let name = modes_label(tool);
         let contents = ways_listed(tool);
         let menu = CornerMenu {
-            id: Id::new(("sketch-bar-modes", tool)),
+            id: Id::unique(("sketch-bar-modes", tool)),
             name: &name,
             contents: &contents,
             on_selected: self.active.tool == tool,
@@ -1224,7 +1224,7 @@ impl Bar<'_, '_> {
         let tools = partners.tools();
         let contents = partners.contents();
         let menu = CornerMenu {
-            id: Id::new(("sketch-bar-partners", partners.host)),
+            id: Id::unique(("sketch-bar-partners", partners.host)),
             name: partners.name,
             contents: &contents,
             on_selected: tools.contains(&self.active.tool),
@@ -1315,7 +1315,7 @@ impl Bar<'_, '_> {
     }
 
     fn group_button(&mut self, ui: &mut Ui, group: &ToolGroup) -> Rect {
-        let remembered = Id::new(group.id);
+        let remembered = Id::unique(group.id);
         let first = group.tools.first().copied().unwrap_or(Tool::Arc);
         let current = if group.tools.contains(&self.active.tool) {
             ui.data_mut(|data| data.insert_temp(remembered, self.active.tool));
@@ -1338,7 +1338,7 @@ impl Bar<'_, '_> {
         let current_mode = self.modes.of(current);
         let contents = menu_contents(group.tools, Some(current));
         let menu = CornerMenu {
-            id: Id::new(group.id).with("ways"),
+            id: Id::unique(group.id).with("ways"),
             name: group.ways,
             contents: &contents,
             on_selected: group.tools.contains(&self.active.tool),

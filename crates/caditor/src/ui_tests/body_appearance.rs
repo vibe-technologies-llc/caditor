@@ -346,12 +346,12 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
     );
     assert_eq!(painted, 6);
 
-    harness.type_into_field(Id::new(("body-density", plate)), "-1");
+    harness.type_into_field(Id::unique(("body-density", plate)), "-1");
     harness.settle();
     let refused_label = harness.model.undo_label().map(str::to_owned);
     let refusal_shown = harness.shows("The density must be above zero, and -1 is not");
-    harness.type_into_field(Id::new(("body-density", plate)), "7.85");
-    harness.type_into_field(Id::new(("body-material-name", plate)), "Steel");
+    harness.type_into_field(Id::unique(("body-density", plate)), "7.85");
+    harness.type_into_field(Id::unique(("body-material-name", plate)), "Steel");
     harness.settle();
     harness.click(crate::toolbar::MEASURE_LABEL);
     harness.wait_until("the mass is shown", |harness| harness.shows("125.60 g"));
@@ -366,7 +366,7 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
     let appearance = &harness.document().feature(plate).unwrap().appearance;
     assert_eq!(appearance.material.as_deref(), Some("Steel"));
 
-    harness.type_into_field(Id::new(("body-colour", plate)), "#f80");
+    harness.type_into_field(Id::unique(("body-colour", plate)), "#f80");
     harness.settle();
     let typed = harness.document().feature(plate).unwrap().appearance.colour;
     assert_eq!(typed, Some(caditor_document::Rgb::new(255, 136, 0)));

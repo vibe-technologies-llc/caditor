@@ -1,7 +1,7 @@
 use caditor_geometry::Point2;
-use egui::{Id, Key, Modifiers, Pos2, Rect, accesskit::Role};
+use egui::{Key, Modifiers, Pos2, Rect, accesskit::Role};
 
-use super::{Harness, entities_of_kind, lowest_in, sketch_bar};
+use super::{Harness, entities_of_kind, lowest_in, sketch_bar, top_level_panel};
 use crate::{editing::Tool, sketch_toolbar, sweep_tools, toolbar};
 
 fn button_in(harness: &mut Harness, area: Rect, name: &str) -> Rect {
@@ -105,7 +105,7 @@ fn a_corner_menu_lists_the_tools_it_holds_on_hover() {
 }
 
 fn ribbon(harness: &Harness) -> Rect {
-    egui::containers::panel::PanelState::load(&harness.context, Id::new("toolbar"))
+    egui::containers::panel::PanelState::load(&harness.context, top_level_panel("toolbar"))
         .expect("the ribbon is shown")
         .outer_rect
 }

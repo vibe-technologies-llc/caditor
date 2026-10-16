@@ -49,7 +49,7 @@ impl Panel<'_> {
         let id = self.feature.id();
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("scale-field", salt, id)),
+            id: Id::unique(("scale-field", salt, id)),
             expression,
             dimension,
             rule,

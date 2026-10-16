@@ -181,7 +181,7 @@ pub fn dialog(
             export::heading(ui, "Scale");
             let field = field::commit_field(
                 ui,
-                Id::new("import-scale"),
+                Id::unique("import-scale"),
                 &options.scale.to_string(),
                 widgets::FIELD_WIDTH,
                 false,

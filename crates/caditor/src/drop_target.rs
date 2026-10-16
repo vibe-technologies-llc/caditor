@@ -123,7 +123,7 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
     let color = verdict.tone.color(&tokens);
     ctx.layer_painter(LayerId::new(
         Order::Foreground,
-        Id::new("drop-target-frame"),
+        Id::unique("drop-target-frame"),
     ))
     .rect_stroke(
         area.shrink(FRAME_INSET),
@@ -131,7 +131,7 @@ pub fn show(ctx: &Context, area: Rect, hovered: &[HoveredFile], situation: Situa
         Stroke::new(FRAME_WIDTH, color),
         StrokeKind::Inside,
     );
-    Area::new(Id::new("drop-target"))
+    Area::new(Id::unique("drop-target"))
         .order(Order::Foreground)
         .interactable(false)
         .pivot(Align2::CENTER_CENTER)

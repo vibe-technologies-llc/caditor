@@ -120,7 +120,7 @@ fn limit_row(
     let units = model.units();
     let field = field::value_field(
         ui,
-        Id::new(("analysis-limit", id)),
+        Id::unique(("analysis-limit", id)),
         &document.expression_text(expression),
         FIELD_WIDTH,
         false,

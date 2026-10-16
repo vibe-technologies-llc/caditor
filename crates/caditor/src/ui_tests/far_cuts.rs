@@ -26,7 +26,7 @@ fn open_cut_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
 fn a_cut_typed_far_past_the_body_still_cuts_through_it() {
     let mut harness = Harness::new();
     let (plate, cut) = open_cut_on_plate(&mut harness);
-    let field = Id::new(("solid-field", "distance", cut));
+    let field = Id::unique(("solid-field", "distance", cut));
 
     for distance in ["20 mm", "1000 mm", "100000 mm", "999999 mm"] {
         harness.type_into_field(field, distance);
@@ -47,7 +47,7 @@ fn a_cut_typed_far_past_the_body_still_cuts_through_it() {
 fn a_cut_being_typed_far_past_the_body_is_previewed_cutting_through_it() {
     let mut harness = Harness::new();
     let (plate, cut) = open_cut_on_plate(&mut harness);
-    let field = Id::new(("solid-field", "distance", cut));
+    let field = Id::unique(("solid-field", "distance", cut));
 
     for distance in ["20 mm", "100000 mm"] {
         harness.draft_into_field(field, distance);
@@ -65,7 +65,7 @@ fn a_cut_being_typed_far_past_the_body_is_previewed_cutting_through_it() {
 fn a_cut_typed_far_past_the_body_offers_through_all() {
     let mut harness = Harness::new();
     let (plate, cut) = open_cut_on_plate(&mut harness);
-    let field = Id::new(("solid-field", "distance", cut));
+    let field = Id::unique(("solid-field", "distance", cut));
 
     harness.type_into_field(field, "20 mm");
     harness.settle();

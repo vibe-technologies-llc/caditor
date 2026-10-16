@@ -152,7 +152,7 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     let document = model.document();
     let current = split_tools::describe(document, &split.along);
     widgets::caption(ui, "Split along");
-    let chosen = feature_fields::combo(ui, Id::new(("split-face-along", id)), current, || {
+    let chosen = feature_fields::combo(ui, Id::unique(("split-face-along", id)), current, || {
         split_face_tools::choices(model, id, split)
             .into_iter()
             .map(|along| Choice {
@@ -207,7 +207,7 @@ fn direction_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
         SplitCarry::Along(_) => ALONG,
         SplitCarry::Wrapped => WRAPPED,
     };
-    let chosen = feature_fields::combo(ui, Id::new(("split-face-direction", id)), shown, || {
+    let chosen = feature_fields::combo(ui, Id::unique(("split-face-direction", id)), shown, || {
         vec![
             Choice {
                 label: SQUARE.to_owned(),

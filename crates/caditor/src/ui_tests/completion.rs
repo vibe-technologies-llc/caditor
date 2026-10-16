@@ -36,7 +36,7 @@ fn open_extrusion(harness: &mut Harness) -> FeatureId {
 }
 
 fn distance_field(extrude: FeatureId) -> Id {
-    Id::new(("solid-field", "distance", extrude))
+    Id::unique(("solid-field", "distance", extrude))
 }
 
 fn end_distance(harness: &Harness, extrude: FeatureId) -> Expression {

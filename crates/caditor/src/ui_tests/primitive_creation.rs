@@ -39,7 +39,10 @@ fn a_box_starts_on_the_xy_plane_and_a_click_places_it_where_it_goes() {
     assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
     assert!(body_centre(&harness, feature).distance(Point3::new(6.0, -4.0, 5.0)) < 0.01);
 
-    harness.type_into_field(Id::new(("primitive-field", feature, ("size", 0))), "40 mm");
+    harness.type_into_field(
+        Id::unique(("primitive-field", feature, ("size", 0))),
+        "40 mm",
+    );
     harness.settle();
     assert!(volume_about(&harness, feature, 40.0 * 20.0 * 10.0));
     assert!(harness.shows("New body"));

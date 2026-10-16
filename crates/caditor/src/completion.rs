@@ -108,7 +108,7 @@ pub fn publish(ctx: &Context, model: &Model) {
     if ctx.memory(|memory| memory.focused()).is_none() {
         return;
     }
-    let key = Id::new(COMPLETIONS_KEY);
+    let key = Id::unique(COMPLETIONS_KEY);
     let revision = model.revision();
     let evaluation = model.evaluation_generation();
     let units = model.units();
@@ -136,7 +136,7 @@ pub fn publish(ctx: &Context, model: &Model) {
 
 pub fn available(ctx: &Context) -> Option<Completions> {
     ctx.data(|data| {
-        data.get_temp::<Built>(Id::new(COMPLETIONS_KEY))
+        data.get_temp::<Built>(Id::unique(COMPLETIONS_KEY))
             .map(|built| built.completions)
     })
 }
@@ -161,12 +161,12 @@ struct Offer {
 
 pub fn offer_insertion(ctx: &Context, text: String) {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data_mut(|data| data.insert_temp(Id::new(OFFER_KEY), Offer { text, pass }));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(OFFER_KEY), Offer { text, pass }));
 }
 
 pub fn offered(ctx: &Context) -> Option<String> {
     let pass = ctx.cumulative_pass_nr();
-    ctx.data(|data| data.get_temp::<Offer>(Id::new(OFFER_KEY)))
+    ctx.data(|data| data.get_temp::<Offer>(Id::unique(OFFER_KEY)))
         .filter(|offer| offer.pass + OFFER_LIFE > pass)
         .map(|offer| offer.text)
 }
@@ -175,17 +175,17 @@ pub fn offered(ctx: &Context) -> Option<String> {
 struct Taken;
 
 pub fn mark_taken(ctx: &Context) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(TAKEN_KEY), Taken));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(TAKEN_KEY), Taken));
 }
 
 pub fn take_click(ctx: &Context) -> bool {
-    ctx.data_mut(|data| data.remove_temp::<Taken>(Id::new(TAKEN_KEY)))
+    ctx.data_mut(|data| data.remove_temp::<Taken>(Id::unique(TAKEN_KEY)))
         .is_some()
 }
 
 pub fn forget_taken_click(ctx: &Context) {
     if ctx.input(|input| input.pointer.any_released()) {
-        ctx.data_mut(|data| data.remove::<Taken>(Id::new(TAKEN_KEY)));
+        ctx.data_mut(|data| data.remove::<Taken>(Id::unique(TAKEN_KEY)));
     }
 }
 

@@ -185,7 +185,7 @@ pub fn tucked_away(document: &Document, when_needed: bool, needs: &Needs<'_>) ->
 }
 
 fn listing_key() -> Id {
-    Id::new("principal-listing")
+    Id::unique("principal-listing")
 }
 
 pub fn listing_principal(ctx: &egui::Context) {

@@ -74,7 +74,7 @@ pub enum Outcome {
 }
 
 pub fn factor_field_id() -> Id {
-    Id::new((DIALOG_ID, "factor"))
+    Id::unique((DIALOG_ID, "factor"))
 }
 
 fn centres(document: &Document) -> Vec<FeatureId> {

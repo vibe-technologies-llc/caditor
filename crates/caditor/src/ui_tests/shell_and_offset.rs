@@ -52,11 +52,11 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert_eq!(harness.model.undo_label(), Some("Open a face of Shell 1"));
     assert!(removed_about(&harness, plate, 38.0 * 38.0 * 10.0));
 
-    harness.type_into_field(Id::new(("shell-thickness", shell)), "2 mm");
+    harness.type_into_field(Id::unique(("shell-thickness", shell)), "2 mm");
     harness.settle();
     assert!(removed_about(&harness, plate, 36.0 * 36.0 * 10.0));
 
-    harness.type_into_field(Id::new(("shell-thickness", shell)), "0 mm");
+    harness.type_into_field(Id::unique(("shell-thickness", shell)), "0 mm");
     assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(shell));
 
@@ -98,7 +98,7 @@ fn an_open_shell_draws_its_hollow_and_previews_a_typed_thickness() {
         .editing
         .solid()
         .expect("the shell is open");
-    let field = Id::new(("shell-thickness", shell));
+    let field = Id::unique(("shell-thickness", shell));
 
     let built = harness.built_with_meshes(2);
     let hollow = built.scene.meshes.first().expect("the shell is drawn");
@@ -194,11 +194,11 @@ fn offset_face_moves_the_selected_face_and_follows_a_typed_distance_and_clicked_
     assert!(harness.shows("Click faces to move them, and again to leave one out"));
     assert!(harness.shows("Distance"));
 
-    harness.type_into_field(Id::new(("offset-face-distance", offset)), "3 mm");
+    harness.type_into_field(Id::unique(("offset-face-distance", offset)), "3 mm");
     harness.settle();
     assert!(volume_about(&harness, plate, 40.0 * 40.0 * 13.0));
 
-    harness.type_into_field(Id::new(("offset-face-distance", offset)), "-2 mm");
+    harness.type_into_field(Id::unique(("offset-face-distance", offset)), "-2 mm");
     harness.settle();
     assert!(volume_about(&harness, plate, 40.0 * 40.0 * 8.0));
 

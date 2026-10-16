@@ -200,7 +200,7 @@ fn a_lighter_3d_view_and_a_grid_colour_are_chosen_in_preferences_and_an_unseen_g
     let mut harness = Harness::new();
     open_appearance(&mut harness);
     let studio = ViewChoice::Canvas(Canvas::Studio);
-    let hex = colour_selector::hex_id(egui::Id::new(preferences::GRID_SELECTOR));
+    let hex = colour_selector::hex_id(egui::Id::unique(preferences::GRID_SELECTOR));
 
     for view in ViewChoice::ALL {
         assert!(

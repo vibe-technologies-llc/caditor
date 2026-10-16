@@ -37,7 +37,7 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     assert_eq!(start(start_of(&harness)), None);
     assert!(lowest(&harness).abs() < 1e-9);
 
-    harness.type_into_field(Id::new(("solid-field", "start", extrude)), "6 mm");
+    harness.type_into_field(Id::unique(("solid-field", "start", extrude)), "6 mm");
     harness.settle();
     assert_eq!(
         start(start_of(&harness)).and_then(|start| start
@@ -47,7 +47,7 @@ fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     );
     assert!((lowest(&harness) - 6.0).abs() < 1e-9);
 
-    harness.type_into_field(Id::new(("solid-field", "start", extrude)), "0 mm");
+    harness.type_into_field(Id::unique(("solid-field", "start", extrude)), "0 mm");
     harness.settle();
     assert_eq!(start(start_of(&harness)), None);
     assert!(lowest(&harness).abs() < 1e-9);
@@ -358,7 +358,7 @@ fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel
     harness.settle();
 
     let offered = harness.shows(crate::solid_panel::END_OFFSET);
-    let field = Id::new(("solid-field", "distance-offset", cut));
+    let field = Id::unique(("solid-field", "distance-offset", cut));
     harness.type_into_field(field, "-4 mm");
     harness.settle();
     let short = extent_of(&harness, cut);
@@ -615,7 +615,7 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
 
     choose(&mut harness, "Full turn", "Two angles");
     let both_ways = harness.body_volume(revolve);
-    let field = Id::new(("solid-field", "forward-angle", revolve));
+    let field = Id::unique(("solid-field", "forward-angle", revolve));
     harness.type_into_field(field, "350 deg");
     let refused = harness.shows(crate::feature_fields::TURNS_TOGETHER);
     harness.key(Key::Escape, Modifiers::NONE);

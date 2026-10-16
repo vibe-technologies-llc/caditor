@@ -133,7 +133,7 @@ fn rib_from_the_palette_follows_the_selected_line_and_turns_into_a_web_from_its_
     assert!(harness.shows(rib_panel::REVERSE_DIRECTION));
     assert!(near(harness.body_volume(body), BOX_VOLUME + 2.0 * WEB_AREA));
 
-    harness.type_into_field(Id::new(("rib-field", rib, "thickness")), "4 mm");
+    harness.type_into_field(Id::unique(("rib-field", rib, "thickness")), "4 mm");
     harness.settle();
     assert!(near(harness.body_volume(body), BOX_VOLUME + 4.0 * WEB_AREA));
 
@@ -188,7 +188,7 @@ fn dragging_a_web_s_thickness_arrow_changes_its_thickness_in_one_undoable_change
     ));
     undone_and_redone(&mut harness, "the thickness drag", thickness);
 
-    harness.type_into_field(Id::new(("rib-field", rib, "thickness")), "6 mm");
+    harness.type_into_field(Id::unique(("rib-field", rib, "thickness")), "6 mm");
     harness.settle();
     assert_eq!(thickness(&harness), 6.0);
 }
@@ -217,7 +217,7 @@ fn a_rib_parallel_to_its_sketch_has_a_thickness_arrow_across_the_sketch() {
 fn a_web_s_draft_typed_in_its_panel_widens_it_toward_the_floor_and_undoes_in_one_step() {
     let mut harness = Harness::new();
     let (rib, body) = open_web(&mut harness);
-    let draft = Id::new(("rib-field", rib, "draft"));
+    let draft = Id::unique(("rib-field", rib, "draft"));
     let widening = 35.0 * 35.0 * 2.0_f64.to_radians().tan();
 
     let offered = harness.shows(rib_panel::DRAFT) && harness.shows(rib_panel::ENDS);

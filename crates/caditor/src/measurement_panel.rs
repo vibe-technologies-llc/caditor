@@ -42,7 +42,7 @@ impl Panel<'_> {
         let (model, id, measurement) = (self.model, self.feature.id(), self.measurement);
         let chosen = feature_fields::combo(
             ui,
-            Id::new(("measurement-quantity", id)),
+            Id::unique(("measurement-quantity", id)),
             current.label(),
             || {
                 Quantity::offered(&measurement.reading)
@@ -116,7 +116,7 @@ impl Panel<'_> {
             || item.describe(model.document()),
             |axis| axis_label(axis).to_owned(),
         );
-        feature_fields::combo(ui, Id::new(("measurement-axis", id)), shown, || {
+        feature_fields::combo(ui, Id::unique(("measurement-axis", id)), shown, || {
             PrincipalAxis::ALL
                 .into_iter()
                 .map(|axis| Choice {

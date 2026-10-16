@@ -186,11 +186,11 @@ pub enum Outcome {
 }
 
 pub fn name_field_id() -> Id {
-    Id::new((DIALOG_ID, "name"))
+    Id::unique((DIALOG_ID, "name"))
 }
 
 pub fn rename_field_id() -> Id {
-    Id::new((DIALOG_ID, "rename"))
+    Id::unique((DIALOG_ID, "rename"))
 }
 
 pub fn dialog(ctx: &egui::Context, document: &Document, draft: &mut ViewsDraft) -> Option<Outcome> {

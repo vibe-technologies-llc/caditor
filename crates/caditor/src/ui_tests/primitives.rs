@@ -29,7 +29,7 @@ fn a_box_length_being_typed_is_drawn_before_it_is_entered() {
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     let made = harness.workspace.editing.solid().expect("the box is open");
-    let length = Id::new(("primitive-field", made, ("size", 0)));
+    let length = Id::unique(("primitive-field", made, ("size", 0)));
 
     harness.draft_into_field(length, "45 mm");
     harness.wait_until("the typed length is drawn", |harness| {
@@ -74,7 +74,7 @@ fn a_prism_and_a_cone_are_made_from_the_palette_and_sized_in_their_panel() {
     );
     assert!(near(harness.body_volume(prism), hexagon));
 
-    let sides = Id::new(("primitive-field", prism, ("size", 0)));
+    let sides = Id::unique(("primitive-field", prism, ("size", 0)));
     harness.type_into_field(sides, "8");
     harness.settle();
     let octagon = 2.0 * 2.0_f64.sqrt() * 100.0 * 10.0;

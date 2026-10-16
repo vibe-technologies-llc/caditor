@@ -28,15 +28,15 @@ fn open_grid(harness: &mut Harness, (reversed_first, reversed_second): (bool, bo
         .editing
         .solid()
         .expect("the pattern is open");
-    harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "3");
+    harness.type_into_field(Id::unique(("pattern-field", "count", pattern)), "3");
     harness.settle();
     harness.select([crate::selection::Pickable::Axis(Axis::Y)]);
     run_from_palette(harness, "pattern also along selected");
     harness.settle();
-    harness.type_into_field(Id::new(("pattern-field", "second-count", pattern)), "3");
+    harness.type_into_field(Id::unique(("pattern-field", "second-count", pattern)), "3");
     harness.settle();
     harness.type_into_field(
-        Id::new(("pattern-field", "second-spacing", pattern)),
+        Id::unique(("pattern-field", "second-spacing", pattern)),
         "48 mm",
     );
     harness.settle();

@@ -73,7 +73,7 @@ fn a_shell_grows_its_walls_outside_and_gives_a_clicked_face_its_own_thickness() 
     );
     assert!(harness.workspace.editing.picking().is_some());
 
-    harness.type_into_field(Id::new(("shell-own-thickness", shell, 0_usize)), "3 mm");
+    harness.type_into_field(Id::unique(("shell-own-thickness", shell, 0_usize)), "3 mm");
     harness.settle();
     assert!(about(
         harness.body_volume(plate),

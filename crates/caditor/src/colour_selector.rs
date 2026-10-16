@@ -1,7 +1,7 @@
 use caditor_document::Rgb;
 use egui::{
-    Color32, CornerRadius, EventFilter, Id, Key, Painter, Rect, Response, Sense, Shape, Stroke,
-    StrokeKind, Ui, WidgetInfo, WidgetType,
+    Color32, CornerRadius, EventFilter, Id, Key, Painter, Rect, Response, Role, Sense, Shape,
+    Stroke, StrokeKind, Ui, WidgetInfo,
     epaint::{Mesh, Vec2},
     pos2, vec2,
 };
@@ -308,7 +308,7 @@ fn square(ui: &mut Ui, id: Id, width: f32, state: &mut State) -> Response {
     );
     response.widget_info(|| WidgetInfo {
         current_text_value: Some(name.clone()),
-        ..WidgetInfo::labeled(WidgetType::Other, true, SQUARE_NAME)
+        ..WidgetInfo::labeled(Role::Unknown, true, SQUARE_NAME)
     });
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
@@ -409,7 +409,7 @@ fn preview(ui: &mut Ui, caption: &str, colour: Rgb) {
     let side = PREVIEW_SIDE.max(ui.spacing().interact_size.y);
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::hover());
     let label = format!("{caption} colour, {}", describe(colour));
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Image, true, &label));
+    response.widget_info(|| WidgetInfo::labeled(Role::Image, true, &label));
     if ui.is_rect_visible(rect) {
         let radius = CornerRadius::same(WIDGET_RADIUS);
         let painter = ui.painter();

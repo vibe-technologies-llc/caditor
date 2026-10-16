@@ -177,30 +177,31 @@ impl Panel<'_> {
         let current = self.hole.standard;
         widgets::caption(ui, "Size");
         let selected = current.map_or(CUSTOM_SIZE, |standard| standard.size.name());
-        let chosen = feature_fields::combo(ui, Id::new(("hole-size", self.id())), selected, || {
-            let custom = Choice {
-                label: CUSTOM_SIZE.to_owned(),
-                selected: current.is_none(),
-                change: self
-                    .change(Hole {
-                        standard: None,
-                        ..self.hole.clone()
-                    })
-                    .map(Action::Apply),
-            };
-            let sizes = MetricSize::ALL.into_iter().map(|size| {
-                let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
-                let standard = HoleStandard::offered(size, fit);
-                Choice {
-                    label: size.name().to_owned(),
-                    selected: current.is_some_and(|current| current.size == size),
+        let chosen =
+            feature_fields::combo(ui, Id::unique(("hole-size", self.id())), selected, || {
+                let custom = Choice {
+                    label: CUSTOM_SIZE.to_owned(),
+                    selected: current.is_none(),
                     change: self
-                        .change(hole_tools::with_standard(self.hole, standard, unit))
+                        .change(Hole {
+                            standard: None,
+                            ..self.hole.clone()
+                        })
                         .map(Action::Apply),
-                }
+                };
+                let sizes = MetricSize::ALL.into_iter().map(|size| {
+                    let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
+                    let standard = HoleStandard::offered(size, fit);
+                    Choice {
+                        label: size.name().to_owned(),
+                        selected: current.is_some_and(|current| current.size == size),
+                        change: self
+                            .change(hole_tools::with_standard(self.hole, standard, unit))
+                            .map(Action::Apply),
+                    }
+                });
+                std::iter::once(custom).chain(sizes).collect()
             });
-            std::iter::once(custom).chain(sizes).collect()
-        });
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -274,7 +275,7 @@ impl Panel<'_> {
         widgets::caption(ui, THREAD_CLASS);
         let chosen = feature_fields::combo(
             ui,
-            Id::new(("hole-thread-class", self.id())),
+            Id::unique(("hole-thread-class", self.id())),
             current.label(),
             || {
                 family
@@ -569,40 +570,41 @@ impl Panel<'_> {
         let kept = depth.offset().cloned();
         let current = depth_label(depth);
         widgets::caption(ui, "Depth");
-        let chosen = feature_fields::combo(ui, Id::new(("hole-depth", self.id())), current, || {
-            let options = [
-                (BLIND, Ok(HoleDepth::Blind(hole_tools::default_depth(unit)))),
-                (THROUGH_ALL, Ok(HoleDepth::ThroughAll)),
-                (
-                    UP_TO_NEXT,
-                    Ok(HoleDepth::up_to_next().with_offset(kept.clone())),
-                ),
-                (
-                    UP_TO_FACE,
-                    solid_panel::selected_target(self.model, self.selection, self.id())
-                        .map(|target| HoleDepth::up_to_face(target).with_offset(kept.clone())),
-                ),
-            ];
-            options
-                .into_iter()
-                .map(|(label, depth)| Choice {
-                    label: label.to_owned(),
-                    selected: label == current,
-                    change: match depth {
-                        Ok(depth) => self
-                            .change(Hole {
-                                depth,
-                                ..self.hole.clone()
-                            })
-                            .map(Action::Apply),
-                        Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
-                            self.id(),
-                            Slot::HoleTarget,
-                        )))),
-                    },
-                })
-                .collect()
-        });
+        let chosen =
+            feature_fields::combo(ui, Id::unique(("hole-depth", self.id())), current, || {
+                let options = [
+                    (BLIND, Ok(HoleDepth::Blind(hole_tools::default_depth(unit)))),
+                    (THROUGH_ALL, Ok(HoleDepth::ThroughAll)),
+                    (
+                        UP_TO_NEXT,
+                        Ok(HoleDepth::up_to_next().with_offset(kept.clone())),
+                    ),
+                    (
+                        UP_TO_FACE,
+                        solid_panel::selected_target(self.model, self.selection, self.id())
+                            .map(|target| HoleDepth::up_to_face(target).with_offset(kept.clone())),
+                    ),
+                ];
+                options
+                    .into_iter()
+                    .map(|(label, depth)| Choice {
+                        label: label.to_owned(),
+                        selected: label == current,
+                        change: match depth {
+                            Ok(depth) => self
+                                .change(Hole {
+                                    depth,
+                                    ..self.hole.clone()
+                                })
+                                .map(Action::Apply),
+                            Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                                self.id(),
+                                Slot::HoleTarget,
+                            )))),
+                        },
+                    })
+                    .collect()
+            });
         self.actions.extend(chosen);
         ui.end_row();
     }
@@ -634,7 +636,7 @@ impl Panel<'_> {
                 model,
                 plane_selector::Row {
                     caption: "Up to",
-                    id: Id::new(("hole-target", id)),
+                    id: Id::unique(("hole-target", id)),
                     planes: datum_tools::listed_planes(model.document(), id),
                     current: target,
                     picker,
@@ -725,7 +727,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("hole-field", field.key, self.id())),
+            id: Id::unique(("hole-field", field.key, self.id())),
             expression: shown,
             dimension: field.dimension,
             rule: field.rule,
@@ -748,7 +750,7 @@ impl Panel<'_> {
         let current = self.hole.body;
         let current_name = document.body_label(current);
         let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
-        let chosen = feature_fields::combo(ui, Id::new(("hole-body", id)), selected, || {
+        let chosen = feature_fields::combo(ui, Id::unique(("hole-body", id)), selected, || {
             document
                 .bodies_before_in(id, self.model.evaluation())
                 .into_iter()
@@ -956,7 +958,7 @@ impl Panel<'_> {
             };
             let quantity = Quantity {
                 feature: id,
-                id: Id::new(("hole-position", id, placed.point, index)),
+                id: Id::unique(("hole-position", id, placed.point, index)),
                 expression: &expression,
                 dimension: Dimension::LENGTH,
                 rule: Rule::Any,
@@ -991,7 +993,7 @@ impl Panel<'_> {
         let constraint = distance.held.constraint;
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("hole-edge-distance", id, constraint)),
+            id: Id::unique(("hole-edge-distance", id, constraint)),
             expression: &distance.value,
             dimension: Dimension::LENGTH,
             rule: Rule::ZeroOrMore,
@@ -1081,7 +1083,7 @@ impl Panel<'_> {
             for (diameter, caption, shown) in rows {
                 let quantity = Quantity {
                     feature: self.id(),
-                    id: Id::new(("hole-step", index, diameter, self.id())),
+                    id: Id::unique(("hole-step", index, diameter, self.id())),
                     expression: shown,
                     dimension: Dimension::LENGTH,
                     rule: Rule::AboveZero,

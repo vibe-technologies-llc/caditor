@@ -142,7 +142,7 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     assert!((harness.body_volume(extrude) - (16000.0 - 2000.0)).abs() < 1.0);
 
     harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
-    harness.type_into_field(Id::new(("solid-field", "distance", extrude)), "25 mm");
+    harness.type_into_field(Id::unique(("solid-field", "distance", extrude)), "25 mm");
     harness.settle();
     assert_eq!(plane_height(&harness, sketch), 25.0);
     assert!((harness.body_volume(extrude) - (40000.0 - 2000.0)).abs() < 1.0);

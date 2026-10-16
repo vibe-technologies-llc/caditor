@@ -57,7 +57,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>) {
             widgets::caption(ui, PLANE);
             let chosen = plane_selector::combo(
                 ui,
-                Id::new("new-sketch-plane"),
+                Id::unique("new-sketch-plane"),
                 document,
                 datum_tools::listed_planes_at_the_bar(document),
                 None,

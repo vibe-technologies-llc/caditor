@@ -691,7 +691,7 @@ fn a_double_click_or_enter_on_a_feature_row_opens_it() {
     harness.settle();
     harness
         .context
-        .memory_mut(|memory| memory.request_focus(Id::new(("feature-row", base))));
+        .memory_mut(|memory| memory.request_focus(Id::unique(("feature-row", base))));
     harness.frame();
     harness.key(Key::Enter, Modifiers::NONE);
     harness.settle();

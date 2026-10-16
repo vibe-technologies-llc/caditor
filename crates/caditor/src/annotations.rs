@@ -97,7 +97,7 @@ enum DimensionFieldError {
 }
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
-    Id::new(("canvas-dimension", feature, constraint))
+    Id::unique(("canvas-dimension", feature, constraint))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1044,7 +1044,7 @@ impl MarkKey {
 }
 
 fn annotation_id(feature: FeatureId, key: MarkKey) -> Id {
-    Id::new(("sketch-annotation", feature, key))
+    Id::unique(("sketch-annotation", feature, key))
 }
 
 struct PointerReach {

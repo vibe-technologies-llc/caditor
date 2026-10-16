@@ -50,7 +50,7 @@ fn distance_row(
 ) {
     let quantity = Quantity {
         feature,
-        id: Id::new(("offset-face-distance", feature)),
+        id: Id::unique(("offset-face-distance", feature)),
         expression: &offset.distance,
         dimension: Dimension::LENGTH,
         rule: Rule::Any,

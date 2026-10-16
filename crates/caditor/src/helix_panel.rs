@@ -97,7 +97,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("helix-field", self.id(), key)),
+            id: Id::unique(("helix-field", self.id(), key)),
             expression,
             dimension,
             rule,

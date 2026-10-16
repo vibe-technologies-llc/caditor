@@ -100,7 +100,7 @@ pub fn show(
             );
             let name = tree_row::sense(
                 ui,
-                Id::new("bodies-group-row"),
+                Id::unique("bodies-group-row"),
                 toggle.rect.right(),
                 &title,
                 false,
@@ -190,7 +190,7 @@ fn is_plain(ui: &Ui, state: &PanelState, body: FeatureId) -> bool {
 }
 
 fn row_id(body: FeatureId) -> Id {
-    Id::new(("body-row", body))
+    Id::unique(("body-row", body))
 }
 
 fn item(

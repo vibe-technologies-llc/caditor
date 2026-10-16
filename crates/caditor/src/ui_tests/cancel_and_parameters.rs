@@ -33,7 +33,7 @@ fn distance_text(harness: &Harness, extrude: FeatureId) -> String {
 }
 
 fn distance_field(extrude: FeatureId) -> Id {
-    Id::new(("solid-field", "distance", extrude))
+    Id::unique(("solid-field", "distance", extrude))
 }
 
 fn notice(harness: &Harness) -> String {
@@ -84,7 +84,7 @@ fn cancelling_a_new_fillet_takes_it_away_and_redo_brings_it_back() {
         .editing
         .solid()
         .expect("the fillet is open");
-    harness.type_into_field(Id::new(("blend-size", fillet)), "3 mm");
+    harness.type_into_field(Id::unique(("blend-size", fillet)), "3 mm");
     harness.settle();
     let edited = harness.model.undo_label().map(str::to_owned);
     harness.click_button("Cancel the new Fillet 1");
@@ -263,7 +263,7 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
     harness.focus(Focus::ParameterName(span));
     let filter_shown = harness.shows(parameter_table::FILTER_HINT);
 
-    harness.type_into_field(Id::new("parameter-filter"), "SPAN");
+    harness.type_into_field(Id::unique("parameter-filter"), "SPAN");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -275,7 +275,7 @@ fn the_parameter_filter_keeps_rows_matching_a_name_or_expression() {
     assert!(!harness.shows("rise"));
     assert!(!harness.shows("width"));
 
-    harness.type_into_field(Id::new("parameter-filter"), "nothing like it");
+    harness.type_into_field(Id::unique("parameter-filter"), "nothing like it");
     harness.frame();
     assert!(harness.shows(parameter_table::CLEAR_FILTER_LABEL));
     harness.click(parameter_table::CLEAR_FILTER_LABEL);
@@ -475,7 +475,10 @@ fn a_model_parameter_s_owner_line_never_widens_the_panel() {
     harness.click("Move body");
     harness.settle();
     let movement = harness.workspace.editing.solid().expect("the move is open");
-    harness.type_into_field(Id::new(("move-field", "offset", 0, movement)), "dx = 5 mm");
+    harness.type_into_field(
+        Id::unique(("move-field", "offset", 0, movement)),
+        "dx = 5 mm",
+    );
     harness.settle();
     harness.frame();
     let before = harness.workspace.viewport.rect();

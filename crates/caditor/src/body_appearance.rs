@@ -388,7 +388,7 @@ pub fn other_faces_note(count: usize) -> Option<String> {
 }
 
 pub fn selector_id(body: FeatureId, faces: bool) -> Id {
-    Id::new(("custom-colour", body, faces))
+    Id::unique(("custom-colour", body, faces))
 }
 
 pub fn recent_swatch_name(colour: Rgb) -> String {
@@ -672,7 +672,7 @@ impl Panel<'_> {
         let stored = working.or(current).map(Rgb::hex).unwrap_or_default();
         let field = field::commit_field(
             ui,
-            Id::new(("body-colour", self.body)),
+            Id::unique(("body-colour", self.body)),
             &stored,
             FIELD_WIDTH,
             false,
@@ -707,7 +707,7 @@ impl Panel<'_> {
         let model = self.model;
         let body = self.body;
         let appearance = self.appearance;
-        let chosen = feature_fields::combo(ui, Id::new(("body-opacity", body)), shown, || {
+        let chosen = feature_fields::combo(ui, Id::unique(("body-opacity", body)), shown, || {
             OPACITIES
                 .iter()
                 .map(|(opacity, label, _)| Choice {
@@ -769,7 +769,7 @@ impl Panel<'_> {
         let model = self.model;
         let body = self.body;
         let appearance = self.appearance;
-        let chosen = feature_fields::combo(ui, Id::new(("body-material", body)), shown, || {
+        let chosen = feature_fields::combo(ui, Id::unique(("body-material", body)), shown, || {
             std::iter::once((NO_MATERIAL, None))
                 .chain(
                     MATERIALS
@@ -802,7 +802,7 @@ impl Panel<'_> {
         widgets::caption(ui, MATERIAL_NAME_CAPTION);
         let field = field::commit_field(
             ui,
-            Id::new(("body-material-name", self.body)),
+            Id::unique(("body-material-name", self.body)),
             current.unwrap_or_default(),
             FIELD_WIDTH,
             false,
@@ -844,7 +844,7 @@ impl Panel<'_> {
             .horizontal(|ui| {
                 let field = field::value_field(
                     ui,
-                    Id::new(("body-density", self.body)),
+                    Id::unique(("body-density", self.body)),
                     &stored,
                     FIELD_WIDTH,
                     false,
@@ -935,11 +935,11 @@ fn unnamed_words(document: &Document, body: FeatureId) -> String {
 }
 
 pub fn name_field_id(body: FeatureId) -> Id {
-    Id::new(("body-name", body))
+    Id::unique(("body-name", body))
 }
 
 pub fn finish_id(body: FeatureId) -> Id {
-    Id::new(("body-finish", body))
+    Id::unique(("body-finish", body))
 }
 
 #[cfg(test)]

@@ -58,7 +58,7 @@ pub fn text(reminder: Reminder<'_>) -> String {
 
 pub fn show(ctx: &egui::Context, viewport: Rect, reminder: Reminder<'_>) -> Option<Choice> {
     let anchor = viewport.center_bottom() - vec2(0.0, BOTTOM_CLEARANCE);
-    Area::new(Id::new("defender-reminder"))
+    Area::new(Id::unique("defender-reminder"))
         .order(Order::Foreground)
         .pivot(Align2::CENTER_BOTTOM)
         .fixed_pos(anchor)

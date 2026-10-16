@@ -67,7 +67,7 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     );
     assert!(built.everything.max().z >= 10.0);
 
-    let field = Id::new(("solid-field", "distance", extrude));
+    let field = Id::unique(("solid-field", "distance", extrude));
     harness.type_into_field(field, "25 mm");
     assert_eq!(distance_of(&harness, extrude), "25 mm");
     harness.settle();
@@ -139,9 +139,9 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
     };
     assert!(matches!(extruded.extent, ExtrudeExtent::TwoSides { .. }));
     let before = harness.solid(extrude).clone();
-    harness.type_into_field(Id::new(("solid-field", "forward", extrude)), "0 mm");
+    harness.type_into_field(Id::unique(("solid-field", "forward", extrude)), "0 mm");
     let refused_forward = harness.shows(crate::feature_fields::ABOVE_ZERO);
-    harness.type_into_field(Id::new(("solid-field", "backward", extrude)), "-3 mm");
+    harness.type_into_field(Id::unique(("solid-field", "backward", extrude)), "-3 mm");
     let refused_backward = harness.shows(crate::feature_fields::ABOVE_ZERO);
 
     assert!(refused_forward);

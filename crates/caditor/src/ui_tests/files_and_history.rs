@@ -1,12 +1,12 @@
 use std::{borrow::Cow, fs, path::Path, time::Duration};
 
 use caditor_document::{Edit, Transaction};
-use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
+use egui::{Event, Key, Modifiers, PanelState, PointerButton, Pos2};
 use tempfile::TempDir;
 
 use super::{
     FILE_TIMEOUT, Harness, Plane, Point2, Sketch, canonical, click_window_button, extruded_plate,
-    rectangle, run_from_palette, sample_document,
+    rectangle, run_from_palette, sample_document, top_level_panel,
 };
 use crate::{
     app::Workspace,
@@ -418,7 +418,7 @@ fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved()
 }
 
 fn measure_width(harness: &Harness) -> Option<f32> {
-    PanelState::load(&harness.context, Id::new("measure")).map(|state| state.size().x)
+    PanelState::load(&harness.context, top_level_panel("measure")).map(|state| state.size().x)
 }
 
 fn drag_screen(harness: &mut Harness, from: Pos2, to: Pos2) {
@@ -453,7 +453,7 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
     harness.frame();
     harness.frame();
     let width = measure_width(&harness).unwrap();
-    let edge = PanelState::load(&harness.context, Id::new("measure"))
+    let edge = PanelState::load(&harness.context, top_level_panel("measure"))
         .unwrap()
         .outer_rect
         .left_center()
@@ -485,7 +485,7 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
     later.frame();
     later.frame();
 
-    let guide = PanelState::load(&later.context, Id::new("guide"))
+    let guide = PanelState::load(&later.context, top_level_panel("guide"))
         .unwrap()
         .size()
         .x;

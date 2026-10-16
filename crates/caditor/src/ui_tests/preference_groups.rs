@@ -163,7 +163,7 @@ fn view_details_thicken_the_edges_hide_outlines_and_the_view_cube_and_are_rememb
     assert!(harness.shows("Fit all"));
 
     open_tab(&mut harness, PreferencesTab::Appearance);
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "outlines");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "outlines");
     harness.click(EdgeWeight::Thick.label());
     harness.frame();
     let thick_width = harness.built().scene.silhouettes[0].width;
@@ -197,7 +197,7 @@ fn hover_help_waits_as_long_as_preferences_say_and_is_remembered() {
     let standard = harness.context.global_style().interaction.tooltip_delay;
 
     open_tab(&mut harness, PreferencesTab::Appearance);
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "hover help");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "hover help");
     harness.click(TooltipDelay::AtOnce.label());
     harness.frame();
 
@@ -325,7 +325,7 @@ fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_re
     open_tab(&mut harness, PreferencesTab::General);
     harness.click(Startup::LastModel.label());
     harness.click(RecentListed::Three.label());
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "double-click");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "double-click");
     harness.click(DoubleClick::Rename.label());
     close_preferences(&mut harness);
     assert_eq!(harness.files.recent().len(), 3);
@@ -364,28 +364,31 @@ fn the_search_field_filters_the_settings_by_name_across_every_tab() {
     open_tab(&mut harness, PreferencesTab::General);
     assert!(harness.shows("Centimetres"));
 
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "field of view");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "field of view");
 
     assert!(harness.shows("Field of view"));
     assert!(harness.shows(PreferencesTab::Navigation.label()));
     assert!(!harness.shows("Centimetres"));
     assert!(!harness.shows("Orbit speed"));
 
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "grid");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "grid");
     assert!(harness.shows(Section::Colours.title()));
     assert!(harness.shows("Snap to the grid"));
     assert!(!harness.shows("Field of view"));
 
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "no such setting");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "no such setting");
     assert!(harness.shows_containing("No setting matches"));
     harness.click(preferences::CLEAR_SEARCH);
     assert!(harness.workspace.preferences_search.is_empty());
     assert!(harness.shows("Centimetres"));
 
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "zoom");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "zoom");
     harness.key(Key::Tab, Modifiers::NONE);
     harness.frame();
-    assert_ne!(harness.focused(), Some(Id::new(preferences::SEARCH_FIELD)));
+    assert_ne!(
+        harness.focused(),
+        Some(Id::unique(preferences::SEARCH_FIELD))
+    );
     harness.click(PreferencesTab::Graphics.label());
     assert!(harness.workspace.preferences_search.is_empty());
     assert!(harness.shows("Anti-aliasing"));
@@ -431,7 +434,7 @@ fn the_new_bodies_preference_makes_a_new_extrusion_a_body_each_and_is_remembered
         Workspace::with_preferences(preferences),
     );
     open_tab(&mut harness, PreferencesTab::General);
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "separate pieces");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "separate pieces");
     let offered = harness.shows(preferences::NEW_BODIES_CAPTION);
     harness.click(NewBodies::BodyEach.label());
     close_preferences(&mut harness);

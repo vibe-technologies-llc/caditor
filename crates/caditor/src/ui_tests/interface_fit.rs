@@ -1,9 +1,9 @@
-use egui::{Id, Key, Modifiers, Pos2, Rect, accesskit::Role};
+use egui::{Key, Modifiers, Pos2, Rect, accesskit::Role};
 use tempfile::TempDir;
 
 use super::{
     Harness, SCREEN, assert_readable, drag_screen, edit_base_sketch, entities_of_kind, lowest_in,
-    open_menus, sketch_bar, sketch_bar_problems,
+    open_menus, sketch_bar, sketch_bar_problems, top_level_panel,
 };
 use crate::{
     commands::Command,
@@ -222,7 +222,7 @@ fn the_bars_and_the_parameter_grid_wrap_or_shrink_rather_than_overlap_at_200_per
     harness.perform(Action::Inform(Notice::error(notice)));
     harness.frame();
     harness.frame();
-    let panel_id = Id::new("model");
+    let panel_id = top_level_panel("model");
     let panel = egui::containers::panel::PanelState::load(&harness.context, panel_id)
         .unwrap()
         .outer_rect;

@@ -615,7 +615,7 @@ fn an_extrusion_arrow_dropped_on_a_corner_of_another_body_stops_level_with_it() 
     harness.click_tool("Extrude");
     harness.settle();
     let extrude = open_feature(&harness);
-    harness.type_into_field(Id::new(("solid-field", "distance", extrude)), "25");
+    harness.type_into_field(Id::unique(("solid-field", "distance", extrude)), "25");
     harness.settle();
     run_from_palette(&mut harness, "Fit view");
     harness.workspace.viewport.advance(CAMERA_SETTLE);

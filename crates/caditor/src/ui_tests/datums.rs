@@ -38,7 +38,7 @@ fn a_datum_plane_carries_a_sketch_that_follows_its_offset() {
     assert!(harness.shows("The XY plane"));
     assert!(harness.shows("Choose in the panel the plane or flat face the plane starts from"));
 
-    harness.type_into_field(Id::new(("datum-field", "offset", plane)), "25 mm");
+    harness.type_into_field(Id::unique(("datum-field", "offset", plane)), "25 mm");
     harness.settle();
     assert_eq!(datum_plane(&harness, plane).origin().z, 25.0);
     assert!(
@@ -263,7 +263,7 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
     harness.settle();
     let turned = datum_plane_of(&harness, plane).rotation.is_some();
     harness.hold_still();
-    harness.type_into_field(Id::new(("datum-field", "angle", plane)), "90 deg");
+    harness.type_into_field(Id::unique(("datum-field", "angle", plane)), "90 deg");
     harness.settle();
     let quarter = datum_plane(&harness, plane).normal();
     harness.click_button("Stop turning the plane");

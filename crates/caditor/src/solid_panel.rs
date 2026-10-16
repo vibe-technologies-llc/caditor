@@ -309,7 +309,7 @@ impl Panel<'_> {
             model,
             plane_selector::Row {
                 caption: row.caption,
-                id: Id::new(("plane-row", row.caption, feature)),
+                id: Id::unique(("plane-row", row.caption, feature)),
                 planes: datum_tools::listed_planes(model.document(), feature),
                 current: row.current,
                 picker: row.picker,
@@ -329,8 +329,9 @@ impl Panel<'_> {
         selected: impl Into<egui::WidgetText>,
         options: impl FnOnce(&Self) -> Vec<Choice<Action, SolidChangeError>>,
     ) {
-        let chosen =
-            feature_fields::combo(ui, Id::new((salt, self.id())), selected, || options(self));
+        let chosen = feature_fields::combo(ui, Id::unique((salt, self.id())), selected, || {
+            options(self)
+        });
         self.actions.extend(chosen);
     }
 
@@ -347,7 +348,7 @@ impl Panel<'_> {
         let id = self.id();
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("solid-field", salt, id)),
+            id: Id::unique(("solid-field", salt, id)),
             expression,
             dimension,
             rule,

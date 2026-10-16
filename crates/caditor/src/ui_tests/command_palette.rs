@@ -78,7 +78,7 @@ fn a_shortcut_recorded_in_the_editor_runs_its_command_and_is_remembered() {
     harness.key(Key::Comma, Modifiers::COMMAND);
     harness.show_new_windows();
     harness.frame();
-    harness.draft_into_field(egui::Id::new(preferences::SEARCH_FIELD), "shortcuts");
+    harness.draft_into_field(egui::Id::unique(preferences::SEARCH_FIELD), "shortcuts");
     harness.click("Keyboard shortcuts…");
     assert!(harness.shows("Keyboard shortcuts"));
     harness.type_text("undo");

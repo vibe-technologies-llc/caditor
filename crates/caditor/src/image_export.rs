@@ -600,7 +600,7 @@ fn size_choice(
                     ui.horizontal(|ui| {
                         let field = field::commit_field(
                             ui,
-                            Id::new(("image-side", caption)),
+                            Id::unique(("image-side", caption)),
                             &stored.to_string(),
                             widgets::FIELD_WIDTH,
                             false,

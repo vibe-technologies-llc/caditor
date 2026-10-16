@@ -51,7 +51,7 @@ fn a_new_fillet_starts_from_the_radius_typed_for_the_last_one() {
     let first = open_fillet(&mut harness, plate, 0.0);
     assert_eq!(size_of(&harness, first), 1.0);
 
-    harness.type_into_field(Id::new(("blend-size", first)), "3 mm");
+    harness.type_into_field(Id::unique(("blend-size", first)), "3 mm");
     harness.settle();
     finish(&mut harness);
 
@@ -191,7 +191,7 @@ fn a_new_offset_face_starts_from_the_signed_distance_typed_last_even_after_a_res
     let first = open_offset(&mut harness, top);
     assert_eq!(offset_distance(&harness, first), 1.0);
 
-    harness.type_into_field(Id::new(("offset-face-distance", first)), "-2 mm");
+    harness.type_into_field(Id::unique(("offset-face-distance", first)), "-2 mm");
     harness.settle();
     finish(&mut harness);
 

@@ -207,7 +207,7 @@ fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance
     assert!((low.z - 10.0).abs() < 1e-6 && (high.z - 15.0).abs() < 1e-6);
     assert!((low.x - 30.0).abs() < 1e-6);
 
-    harness.type_into_field(Id::new(("mate-field", "distance", mate)), "2 mm");
+    harness.type_into_field(Id::unique(("mate-field", "distance", mate)), "2 mm");
     harness.settle();
     assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
     let (low, _) = plate_bounds(&harness, peg);
@@ -247,7 +247,7 @@ fn a_body_is_mated_at_an_angle_and_by_a_corner_from_the_palette() {
     let (low, high) = plate_bounds(&harness, peg);
     assert!((high.z - low.z - 5.0).abs() > 1.0, "{low:?} {high:?}");
 
-    harness.type_into_field(Id::new(("mate-field", "angle", mate)), "0 deg");
+    harness.type_into_field(Id::unique(("mate-field", "angle", mate)), "0 deg");
     harness.settle();
     assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
     let (low, high) = plate_bounds(&harness, peg);
@@ -377,16 +377,22 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
     assert!(harness.shows("Centre X"));
     assert!(volume_about(&harness, plate, 16000.0));
 
-    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "2");
+    harness.type_into_field(Id::unique(("scale-field", ("factor", 0usize), scale)), "2");
     harness.settle();
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 
-    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "0.5");
+    harness.type_into_field(
+        Id::unique(("scale-field", ("factor", 0usize), scale)),
+        "0.5",
+    );
     harness.settle();
     assert_eq!(harness.model.undo_label(), Some("Edit Scale body 1"));
     assert!(volume_about(&harness, plate, 16000.0 / 8.0));
 
-    harness.type_into_field(Id::new(("scale-field", ("center", 0usize), scale)), "40 mm");
+    harness.type_into_field(
+        Id::unique(("scale-field", ("center", 0usize), scale)),
+        "40 mm",
+    );
     harness.settle();
     let (low, high) = plate_bounds(&harness, plate);
     assert!(
@@ -394,7 +400,7 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
         "{low:?} {high:?}"
     );
 
-    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "-1");
+    harness.type_into_field(Id::unique(("scale-field", ("factor", 0usize), scale)), "-1");
     assert!(harness.shows_containing("above zero"));
     assert_eq!(harness.workspace.editing.solid(), Some(scale));
 

@@ -587,7 +587,7 @@ fn placeholder(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 }
 
 fn texture(ui: &Ui, image: &Arc<ColorImage>, ticket: u64) -> TextureHandle {
-    let id = Id::new("version-preview-picture");
+    let id = Id::unique("version-preview-picture");
     if let Some((shown, texture)) = ui.data(|data| data.get_temp::<(u64, TextureHandle)>(id))
         && shown == ticket
     {

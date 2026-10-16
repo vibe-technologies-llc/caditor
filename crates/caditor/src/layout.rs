@@ -216,10 +216,10 @@ pub struct RightPanel {
 impl RightPanel {
     pub fn show<R>(&self, ui: &mut Ui, room: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
         let ctx = ui.ctx().clone();
-        let id = Id::new(self.id);
+        let id = ui.scope_id().with(self.id);
         let widths = panel_widths(room, MIN_RIGHT_WIDTH);
         follow_resizing(&ctx, id, widths);
-        egui::Panel::right(id)
+        egui::Panel::right(self.id)
             .resizable(true)
             .default_size(shared_right_width(&ctx).unwrap_or(RIGHT_WIDTH))
             .size_range(widths)
@@ -243,7 +243,7 @@ pub fn within_width<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 }
 
 pub fn share_right_width(ctx: &egui::Context, width: Option<f32>) {
-    let key = Id::new(SHARED_RIGHT_WIDTH);
+    let key = Id::unique(SHARED_RIGHT_WIDTH);
     ctx.data_mut(|data| match width {
         Some(width) => {
             data.insert_temp(key, width);
@@ -253,7 +253,7 @@ pub fn share_right_width(ctx: &egui::Context, width: Option<f32>) {
 }
 
 pub fn shared_right_width(ctx: &egui::Context) -> Option<f32> {
-    ctx.data(|data| data.get_temp::<f32>(Id::new(SHARED_RIGHT_WIDTH)))
+    ctx.data(|data| data.get_temp::<f32>(Id::unique(SHARED_RIGHT_WIDTH)))
 }
 
 fn follow_resizing(ctx: &egui::Context, id: Id, widths: Rangef) {
@@ -434,7 +434,7 @@ mod tests {
             });
             output.textures_delta.clear();
         }
-        let panel = PanelState::load(&ctx, Id::new(PANEL.id))
+        let panel = PanelState::load(&ctx, egui::ViewportId::ROOT.root_ui_id().with(PANEL.id))
             .expect("the panel was shown")
             .outer_rect;
         let central = central.expect("the central panel was shown");

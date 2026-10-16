@@ -133,7 +133,7 @@ fn open_holes_with_second_at(harness: &mut Harness, expression: &str) -> (Featur
     harness.perform(Action::Apply(transaction.finish()));
     let (placed, _) = placed_holes(harness, hole).remove(1);
     harness.type_into_field(
-        Id::new(("hole-position", hole, placed.point, 0)),
+        Id::unique(("hole-position", hole, placed.point, 0)),
         expression,
     );
     harness.settle();
@@ -284,7 +284,7 @@ fn an_edge_arrow_keeps_a_named_distance_and_leaves_a_driven_one_alone() {
         panic!("the hole is measured from one edge");
     };
     let arrow = Handle::Hole(HoleGrip::Distance(from_front));
-    let field = Id::new(("hole-edge-distance", hole, from_front));
+    let field = Id::unique(("hole-edge-distance", hole, from_front));
 
     harness.type_into_field(field, "gap = 12 mm");
     harness.settle();

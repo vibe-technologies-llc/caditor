@@ -2,8 +2,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use egui::{
     Align, Area, Context, CornerRadius, CursorIcon, Id, LayerId, Layout, Order, PointerButton,
-    Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, WidgetInfo,
-    WidgetType, pos2, vec2, viewport::ResizeDirection,
+    Rect, Response, Role, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand,
+    WidgetInfo, pos2, vec2, viewport::ResizeDirection,
 };
 
 use crate::{
@@ -89,7 +89,7 @@ pub fn physical_bounds(rect: Rect, pixels_per_point: f32) -> [i32; 4] {
 
 #[cfg(windows)]
 pub fn take_maximize_button(ctx: &Context) -> Option<Rect> {
-    let key = Id::new(MAXIMIZE_BUTTON_KEY);
+    let key = Id::unique(MAXIMIZE_BUTTON_KEY);
     ctx.data_mut(|data| {
         let rect = data.get_temp::<Rect>(key);
         data.remove::<Rect>(key);
@@ -167,19 +167,19 @@ pub fn apply_title_bar(ctx: &Context, applied: &mut Option<TitleBar>, wanted: Ti
 }
 
 pub fn drag_region(ui: &Ui, chrome: Chrome) -> Option<Response> {
-    let rect = ui.data(|data| data.get_temp::<Rect>(Id::new(BAR_RECT_KEY)))?;
+    let rect = ui.data(|data| data.get_temp::<Rect>(Id::unique(BAR_RECT_KEY)))?;
     chrome.built_in().then(|| {
-        ui.interact(rect, Id::new("title-bar-drag"), Sense::click_and_drag())
+        ui.interact(rect, Id::unique("title-bar-drag"), Sense::click_and_drag())
             .on_hover_cursor(CursorIcon::Default)
     })
 }
 
 pub fn remember_bar(ctx: &Context, rect: Rect) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(BAR_RECT_KEY), rect));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(BAR_RECT_KEY), rect));
 }
 
 pub fn remember_controls_row(ctx: &Context, rect: Option<Rect>) {
-    let key = Id::new(CONTROLS_ROW_KEY);
+    let key = Id::unique(CONTROLS_ROW_KEY);
     ctx.data_mut(|data| match rect {
         Some(rect) => {
             data.insert_temp(key, rect);
@@ -189,7 +189,7 @@ pub fn remember_controls_row(ctx: &Context, rect: Option<Rect>) {
 }
 
 pub fn controls_bottom(ctx: &Context) -> f32 {
-    ctx.data(|data| data.get_temp::<Rect>(Id::new(CONTROLS_ROW_KEY)))
+    ctx.data(|data| data.get_temp::<Rect>(Id::unique(CONTROLS_ROW_KEY)))
         .map_or(0.0, |row| row.max.y)
 }
 
@@ -335,10 +335,10 @@ fn control(ui: &mut Ui, glyph: &str, name: &str, hover: &str, kind: Kind) -> Res
     } else {
         response
     };
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
     let non_client = if kind == Kind::Maximize {
         ui.ctx()
-            .data_mut(|data| data.insert_temp(Id::new(MAXIMIZE_BUTTON_KEY), rect));
+            .data_mut(|data| data.insert_temp(Id::unique(MAXIMIZE_BUTTON_KEY), rect));
         non_client_pointer()
     } else {
         NonClientPointer::Away
@@ -387,13 +387,13 @@ pub fn over_dialogs(
     commands: &CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let Some(bar) = ctx.data(|data| data.get_temp::<Rect>(Id::new(BAR_RECT_KEY))) else {
+    let Some(bar) = ctx.data(|data| data.get_temp::<Rect>(Id::unique(BAR_RECT_KEY))) else {
         return;
     };
     if !chrome.built_in() {
         return;
     }
-    let id = Id::new("title-bar-over-dialogs");
+    let id = Id::unique("title-bar-over-dialogs");
     Area::new(id)
         .order(Order::Foreground)
         .fixed_pos(bar.min)
@@ -404,7 +404,7 @@ pub fn over_dialogs(
             let response = ui.interact(bar, id.with("drag"), Sense::click_and_drag());
             drags_window(&response, chrome, commands, actions);
             let row = ctx
-                .data(|data| data.get_temp::<Rect>(Id::new(CONTROLS_ROW_KEY)))
+                .data(|data| data.get_temp::<Rect>(Id::unique(CONTROLS_ROW_KEY)))
                 .unwrap_or_else(|| bar.shrink2(vec2(ui.spacing().item_spacing.x, 0.0)));
             ui.scope_builder(
                 UiBuilder::new()
@@ -421,7 +421,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
         return;
     }
     let screen = ctx.content_rect();
-    let outline = LayerId::new(Order::Foreground, Id::new("window-outline"));
+    let outline = LayerId::new(Order::Foreground, Id::unique("window-outline"));
     let border = ctx
         .global_style()
         .visuals
@@ -438,7 +438,7 @@ pub fn frame(ctx: &Context, chrome: Chrome) {
     ctx.move_to_top(outline);
     for edge in Edge::ALL {
         let rect = edge.rect(screen);
-        let id = Id::new(("window-edge", edge));
+        let id = Id::unique(("window-edge", edge));
         Area::new(id)
             .order(Order::Foreground)
             .fixed_pos(rect.min)

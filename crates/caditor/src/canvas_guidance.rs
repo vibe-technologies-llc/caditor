@@ -1,7 +1,7 @@
 use caditor_geometry::Point3;
 use egui::{
-    Align, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, Ui, Vec2, WidgetInfo,
-    WidgetType, accesskit::Live, pos2, vec2,
+    Align, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Role, Sense, Stroke, Ui, Vec2,
+    WidgetInfo, accesskit::Live, pos2, vec2,
 };
 
 use crate::{
@@ -289,10 +289,10 @@ pub fn show_prompt(
 }
 
 fn more_keys_chip(ui: &Ui, chip: Rect, more_keys: &mut bool) -> ChipLook {
-    let response = ui.interact(chip, ui.id().with(MORE_KEYS_ID), Sense::click());
+    let response = ui.interact(chip, ui.scope_id().with(MORE_KEYS_ID), Sense::click());
     let expanded = *more_keys;
     let name = if expanded { FEWER_KEYS } else { MORE_KEYS };
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, name));
     ui.ctx()
         .accesskit_node_builder(response.id, |node| node.set_expanded(expanded));
     if response.hovered() {

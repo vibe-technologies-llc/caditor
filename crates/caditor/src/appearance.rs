@@ -629,11 +629,11 @@ impl Skins {
 }
 
 pub fn publish(ctx: &egui::Context, skins: Skins) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(SKINS_KEY), skins));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(SKINS_KEY), skins));
 }
 
 pub fn skin_for(ctx: &egui::Context, visuals: &Visuals) -> Skin {
-    ctx.data(|data| data.get_temp::<Skins>(Id::new(SKINS_KEY)))
+    ctx.data(|data| data.get_temp::<Skins>(Id::unique(SKINS_KEY)))
         .map_or_else(
             || {
                 let high_contrast = Tokens::of(visuals.dark_mode, true).panel == visuals.panel_fill;

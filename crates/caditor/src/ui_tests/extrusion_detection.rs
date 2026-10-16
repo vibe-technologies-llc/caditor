@@ -56,7 +56,7 @@ fn a_pocket_the_default_distance_clears_the_body_with_runs_through_all() {
     harness.perform(crate::model::Action::Editing(
         crate::editing::EditingCommand::OpenSolid(plate),
     ));
-    harness.type_into_field(Id::new(("solid-field", "distance", plate)), "4 mm");
+    harness.type_into_field(Id::unique(("solid-field", "distance", plate)), "4 mm");
     harness.settle();
     harness.key(Key::Escape, egui::Modifiers::NONE);
     harness.frame();

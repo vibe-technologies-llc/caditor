@@ -27,7 +27,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
     assert!(harness.shows("Taper"));
     assert!(volume_about(&harness, plate, 16_000.0));
 
-    harness.type_into_field(Id::new(("solid-field", "taper", plate)), "5 deg");
+    harness.type_into_field(Id::unique(("solid-field", "taper", plate)), "5 deg");
     harness.settle();
     let taper = open_extrude(&harness, plate).taper;
     assert_eq!(
@@ -41,7 +41,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
         frustum(10.0, 1_600.0, top * top)
     ));
 
-    harness.type_into_field(Id::new(("solid-field", "taper", plate)), "0 deg");
+    harness.type_into_field(Id::unique(("solid-field", "taper", plate)), "0 deg");
     harness.settle();
     assert_eq!(open_extrude(&harness, plate).taper, None);
 
@@ -54,7 +54,7 @@ fn an_extrude_panel_takes_a_taper_and_a_thin_wall() {
     assert!(harness.shows("The wall follows every curve of the sketch"));
     assert!(volume_about(&harness, plate, 1_600.0));
 
-    harness.type_into_field(Id::new(("solid-field", "wall-thickness", plate)), "2 mm");
+    harness.type_into_field(Id::unique(("solid-field", "wall-thickness", plate)), "2 mm");
     harness.settle();
     assert!(volume_about(&harness, plate, 3_200.0));
 

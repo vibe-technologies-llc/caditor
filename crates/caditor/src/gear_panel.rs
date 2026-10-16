@@ -28,11 +28,11 @@ pub const CIRCLES: &str = "Its circles, drawn as construction geometry";
 const PANEL: RightPanel = RightPanel { id: "spur-gear" };
 
 pub fn field_id(field: GearField) -> Id {
-    Id::new(("spur-gear-field", field.label()))
+    Id::unique(("spur-gear-field", field.label()))
 }
 
 pub fn chain_id() -> Id {
-    Id::new("spur-gear-chain")
+    Id::unique("spur-gear-chain")
 }
 
 pub fn draw_label(sketch: Option<&Sketch>, centre: Option<EntityId>) -> String {

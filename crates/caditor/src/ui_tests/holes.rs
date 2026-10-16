@@ -59,7 +59,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     assert!(harness.shows("Diameter"));
     assert!(harness.shows("Depth"));
 
-    harness.type_into_field(Id::new(("hole-field", "diameter", hole)), "10 mm");
+    harness.type_into_field(Id::unique(("hole-field", "diameter", hole)), "10 mm");
     harness.settle();
     assert!(removed_about(
         &harness,
@@ -67,7 +67,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         std::f64::consts::PI * 25.0 * 10.0
     ));
 
-    harness.type_into_field(Id::new(("hole-field", "depth", hole)), "0 mm");
+    harness.type_into_field(Id::unique(("hole-field", "depth", hole)), "0 mm");
     assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(hole));
 
@@ -79,7 +79,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     assert!(harness.shows("Countersink angle"));
     assert_eq!(harness.model.evaluation().failed_count(), 1);
     harness.type_into_field(
-        Id::new(("hole-field", "countersink-diameter", hole)),
+        Id::unique(("hole-field", "countersink-diameter", hole)),
         "14 mm",
     );
     open_combo(&mut harness, "Depth");
@@ -89,7 +89,7 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     let label = harness.model.undo_label().map(str::to_owned);
     harness.type_into_field(
-        Id::new(("hole-field", "countersink-angle", hole)),
+        Id::unique(("hole-field", "countersink-angle", hole)),
         "180 deg",
     );
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
@@ -130,7 +130,7 @@ fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_off
     harness.settle();
     let to_next = open_hole(&harness, hole).depth;
     let through = removed_about(&harness, plate, bore * 10.0);
-    harness.type_into_field(Id::new(("hole-field", "end-offset", hole)), "-4 mm");
+    harness.type_into_field(Id::unique(("hole-field", "end-offset", hole)), "-4 mm");
     harness.settle();
     let short = removed_about(&harness, plate, bore * 6.0);
 
@@ -183,7 +183,7 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     harness.click("Hole");
     harness.settle();
     let hole = harness.workspace.editing.solid().expect("the hole is open");
-    harness.type_into_field(Id::new(("hole-field", "depth", hole)), "2 mm");
+    harness.type_into_field(Id::unique(("hole-field", "depth", hole)), "2 mm");
     harness.settle();
     let flat = std::f64::consts::PI * 3.0 * 3.0 * 2.0;
     let cone = std::f64::consts::PI * 3.0 * 3.0 * (3.0 / 59.0_f64.to_radians().tan()) / 3.0;
@@ -206,7 +206,10 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     assert!(harness.shows(crate::hole_panel::DRILL_POINT_ANGLE));
     assert!(removed_about(&harness, plate, flat + cone));
 
-    harness.type_into_field(Id::new(("hole-field", "drill-point-angle", hole)), "90 deg");
+    harness.type_into_field(
+        Id::unique(("hole-field", "drill-point-angle", hole)),
+        "90 deg",
+    );
     harness.settle();
     assert_eq!(
         open_hole(&harness, hole).bottom,
@@ -215,7 +218,7 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 
     harness.type_into_field(
-        Id::new(("hole-field", "drill-point-angle", hole)),
+        Id::unique(("hole-field", "drill-point-angle", hole)),
         "180 deg",
     );
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
@@ -261,7 +264,7 @@ fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
     harness.settle();
     let three = steps(&harness);
     let failed_deeper = harness.model.evaluation().failed_count();
-    harness.type_into_field(Id::new(("hole-step", 2usize, false, hole)), "1 mm");
+    harness.type_into_field(Id::unique(("hole-step", 2usize, false, hole)), "1 mm");
     harness.settle();
     let after_sizing = harness.model.evaluation().failed_count();
     harness.click(crate::hole_panel::REMOVE_STEP);
@@ -381,7 +384,7 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
         .entities()
         .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
         .expect("the hole's sketch holds its point");
-    harness.type_into_field(Id::new(("hole-position", hole, point, 0_usize)), "8 mm");
+    harness.type_into_field(Id::unique(("hole-position", hole, point, 0_usize)), "8 mm");
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
@@ -443,7 +446,7 @@ fn a_hole_s_position_typed_as_an_expression_follows_its_parameters() {
         .entities()
         .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
         .expect("the hole's sketch holds its point");
-    let field = |axis: usize| Id::new(("hole-position", hole, point, axis));
+    let field = |axis: usize| Id::unique(("hole-position", hole, point, axis));
     let solved = |harness: &Harness| placed_holes(harness, hole)[0].1;
 
     harness.type_into_field(field(0), "spot");
@@ -504,7 +507,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
     assert!(harness.shows(crate::hole_panel::MEASURED_FROM));
     assert!(!harness.shows(crate::feature_fields::POSITION_CAPTIONS[0]));
 
-    harness.type_into_field(Id::new(("hole-edge-distance", hole, from_front)), "8 mm");
+    harness.type_into_field(Id::unique(("hole-edge-distance", hole, from_front)), "8 mm");
     harness.settle();
     harness.select([Pickable::Edge {
         body: plate,
@@ -516,7 +519,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
         crate::hole_placement::Anchor::Edges(edges) => edges[1].held.constraint,
         anchor => panic!("the hole is measured from two edges, not {anchor:?}"),
     };
-    harness.type_into_field(Id::new(("hole-edge-distance", hole, from_left)), "12 mm");
+    harness.type_into_field(Id::unique(("hole-edge-distance", hole, from_left)), "12 mm");
     harness.settle();
 
     assert!(
@@ -610,7 +613,7 @@ fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_
             .map(|(_, edge)| edge.name())
             .expect("the first hole's mouth is an edge")
     };
-    harness.type_into_field(Id::new(("hole-field", "diameter", second)), "10 mm");
+    harness.type_into_field(Id::unique(("hole-field", "diameter", second)), "10 mm");
     harness.settle();
 
     assert!(
@@ -1136,7 +1139,7 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
     );
     assert!(harness.shows_containing("Thread M8 × 0.75"));
 
-    harness.type_into_field(Id::new(("hole-field", "diameter", hole)), "2.6 mm");
+    harness.type_into_field(Id::unique(("hole-field", "diameter", hole)), "2.6 mm");
     harness.settle();
 
     assert_eq!(open_hole(&harness, hole).standard, None);

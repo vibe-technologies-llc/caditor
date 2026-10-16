@@ -431,7 +431,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("datum-field", salt, self.id())),
+            id: Id::unique(("datum-field", salt, self.id())),
             expression,
             dimension,
             rule: Rule::Any,
@@ -460,7 +460,7 @@ impl Panel<'_> {
         );
         let row = plane_selector::Row {
             caption: "Starts from",
-            id: Id::new(("datum-base", self.id())),
+            id: Id::unique(("datum-base", self.id())),
             planes: datum_tools::listed_planes(document, self.id()),
             current: Some(&plane.base),
             picker,
@@ -874,7 +874,7 @@ impl Panel<'_> {
     fn frame_plane_row(&mut self, ui: &mut Ui, frame: &DatumFrame, picker: Picker<'_, DatumError>) {
         let row = plane_selector::Row {
             caption: FramePart::Plane.caption(),
-            id: Id::new(("frame-plane", self.id())),
+            id: Id::unique(("frame-plane", self.id())),
             planes: datum_tools::listed_planes(self.model.document(), self.id()),
             current: Some(&frame.plane),
             picker,

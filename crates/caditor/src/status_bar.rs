@@ -134,7 +134,7 @@ pub fn show(
     if commands.invoke(Command::DismissNotice, &dismissible) {
         actions.push(Action::DismissNotice);
     }
-    let trailing_id = Id::new("status-trailing");
+    let trailing_id = Id::unique("status-trailing");
     let hovers = Hovers::of(commands);
     let frame = ribbon::bar_frame(ui.style());
     let shown = egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
@@ -180,7 +180,11 @@ pub fn show(
             ui.horizontal(|ui| notice(ui, model, &hovers, actions, true));
         }
     });
-    widgets::remember_height(ui, Id::new("status-height"), shown.response.rect.height());
+    widgets::remember_height(
+        ui,
+        Id::unique("status-height"),
+        shown.response.rect.height(),
+    );
 }
 
 fn trailing(
@@ -532,7 +536,7 @@ fn notice_width(ui: &Ui, model: &Model) -> Option<f32> {
     );
     let icons = 3.0 * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
     let undo = notice.undo.map_or(0.0, |_| {
-        widgets::remembered_width(ui, Id::new(UNDO_SWITCH_ID)) + ui.spacing().item_spacing.x
+        widgets::remembered_width(ui, Id::unique(UNDO_SWITCH_ID)) + ui.spacing().item_spacing.x
     });
     Some(text.size().x + icons + undo + divider_room(ui))
 }
@@ -544,7 +548,7 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
     let tone = notice.kind.tone();
     widgets::icon_label(ui, tone.icon(), tone.color(&appearance::tokens(ui)));
     let text = notice_text(ui, notice);
-    let buttons_id = Id::new("status-notice-buttons");
+    let buttons_id = Id::unique("status-notice-buttons");
     let buttons = widgets::remembered_width(ui, buttons_id)
         .max(2.0 * ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
     let buttons_width = buttons + ui.spacing().item_spacing.x;
@@ -558,7 +562,7 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
         let undo = ui
             .add(widgets::button(UNDO_SWITCH))
             .on_hover_text(UNDO_SWITCH_HOVER);
-        widgets::remember_width(ui, Id::new(UNDO_SWITCH_ID), undo.rect.width());
+        widgets::remember_width(ui, Id::unique(UNDO_SWITCH_ID), undo.rect.width());
         if undo.clicked() {
             actions.push(Action::Editing(EditingCommand::SwitchBack(back)));
         }

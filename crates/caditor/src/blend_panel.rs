@@ -127,7 +127,7 @@ fn form_value_row(
     };
     let quantity = Quantity {
         feature,
-        id: Id::new(("blend-form", feature)),
+        id: Id::unique(("blend-form", feature)),
         expression,
         dimension,
         rule,
@@ -178,7 +178,7 @@ fn size_row(
 ) {
     let quantity = Quantity {
         feature,
-        id: Id::new(("blend-size", feature)),
+        id: Id::unique(("blend-size", feature)),
         expression: &blend.size,
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,

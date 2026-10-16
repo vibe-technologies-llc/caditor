@@ -202,7 +202,7 @@ impl Panel<'_> {
         let movement = self.movement;
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("move-field", "angle", 0, id)),
+            id: Id::unique(("move-field", "angle", 0, id)),
             expression: &turn.angle,
             dimension: Dimension::ANGLE,
             rule: Rule::Any,
@@ -225,7 +225,7 @@ impl Panel<'_> {
         let movement = self.movement;
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("move-field", "offset", axis.index(), id)),
+            id: Id::unique(("move-field", "offset", axis.index(), id)),
             expression: axis.of(&movement.offset),
             dimension: Dimension::LENGTH,
             rule: Rule::Any,
@@ -249,7 +249,7 @@ impl Panel<'_> {
         let movement = self.movement;
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("move-field", "turn", axis.index(), id)),
+            id: Id::unique(("move-field", "turn", axis.index(), id)),
             expression: axis.of(&movement.turn),
             dimension: Dimension::ANGLE,
             rule: Rule::Any,

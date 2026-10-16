@@ -117,7 +117,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("pipe-field", self.id(), key)),
+            id: Id::unique(("pipe-field", self.id(), key)),
             expression,
             dimension: Dimension::LENGTH,
             rule,

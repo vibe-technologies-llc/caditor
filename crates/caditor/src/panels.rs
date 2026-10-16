@@ -57,18 +57,18 @@ pub enum Focus {
 impl Focus {
     pub fn field_id(self) -> Id {
         match self {
-            Self::ParameterName(id) => Id::new(("parameter-name", id)),
-            Self::ParameterValue(id) => Id::new(("parameter-expression", id)),
+            Self::ParameterName(id) => Id::unique(("parameter-name", id)),
+            Self::ParameterValue(id) => Id::unique(("parameter-expression", id)),
             Self::Dimension {
                 feature,
                 constraint,
-            } => Id::new(("dimension", feature, constraint)),
-            Self::Feature(id) => Id::new(("feature", id)),
+            } => Id::unique(("dimension", feature, constraint)),
+            Self::Feature(id) => Id::unique(("feature", id)),
             Self::Constraint {
                 feature,
                 constraint,
-            } => Id::new(("constraint", feature, constraint)),
-            Self::TreeFilter => Id::new("feature-tree-filter"),
+            } => Id::unique(("constraint", feature, constraint)),
+            Self::TreeFilter => Id::unique("feature-tree-filter"),
         }
     }
 }

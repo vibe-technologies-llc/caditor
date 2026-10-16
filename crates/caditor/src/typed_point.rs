@@ -322,7 +322,7 @@ impl TypedPoint {
         placeholder: &str,
     ) -> Option<Typed> {
         let text = self.text.as_mut()?;
-        let id = Id::new("typed-point");
+        let id = Id::unique("typed-point");
         if self.focus_pending {
             let mut state = TextEditState::load(ctx, id).unwrap_or_default();
             let end = CCursor::new(text.chars().count());

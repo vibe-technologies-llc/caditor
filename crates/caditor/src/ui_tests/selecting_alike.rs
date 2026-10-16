@@ -130,6 +130,7 @@ fn two_selected_items_show_the_distance_between_them_in_the_status_bar_without_m
     let (plate, _) = extruded_plate(&mut harness);
     let corner = vertex_at(&harness, plate, Point3::ZERO);
     let far = vertex_at(&harness, plate, Point3::new(40.0, 0.0, 0.0));
+    harness.let_animations_finish();
 
     harness.select([corner]);
     harness.frame();

@@ -216,7 +216,7 @@ fn a_two_distance_chamfer_shows_an_arrow_on_each_face_where_its_distance_ends() 
     let (_, chamfer) = open_chamfer(&mut harness);
     harness.click("Two");
     harness.settle();
-    harness.type_into_field(Id::new(("blend-form", chamfer)), "3 mm");
+    harness.type_into_field(Id::unique(("blend-form", chamfer)), "3 mm");
     harness.settle();
     settled_view(&mut harness);
     let result = |harness: &Harness| result_of(harness, chamfer).clone();
@@ -324,7 +324,7 @@ fn a_two_distance_chamfer_on_a_concave_edge_shows_an_arrow_on_each_face_where_it
     let chamfer = blend_with_edge(&mut harness, "Chamfer", body, edge);
     harness.click("Two");
     harness.settle();
-    harness.type_into_field(Id::new(("blend-form", chamfer)), "3 mm");
+    harness.type_into_field(Id::unique(("blend-form", chamfer)), "3 mm");
     harness.settle();
     settled_view(&mut harness);
     let first = foot_of(&harness, Measured::BlendSize);
@@ -380,7 +380,7 @@ fn a_two_distance_chamfer_stands_its_foot_on_a_round_face_where_the_cut_meets_it
     let chamfer = chamfer_on_the_round_edge(&mut harness);
     harness.click("Two");
     harness.settle();
-    harness.type_into_field(Id::new(("blend-form", chamfer)), "6 mm");
+    harness.type_into_field(Id::unique(("blend-form", chamfer)), "6 mm");
     harness.settle();
     settled_view(&mut harness);
     let round = on_the_round_face(&harness);

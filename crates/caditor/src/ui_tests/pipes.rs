@@ -80,7 +80,7 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
     assert!(harness.shows("Diameter"));
     assert!(harness.shows(pipe_panel::BEND_RADIUS));
 
-    harness.type_into_field(Id::new(("pipe-field", pipe, "bend")), "0 mm");
+    harness.type_into_field(Id::unique(("pipe-field", pipe, "bend")), "0 mm");
     harness.settle();
     assert!(near(
         harness.body_volume(pipe),
@@ -99,7 +99,7 @@ fn pipe_runs_along_the_selected_lines_bending_their_corner_and_sizes_from_its_pa
         (100.0 - 64.0) * (FIRST + SECOND)
     ));
 
-    harness.type_into_field(Id::new(("pipe-field", pipe, "wall")), "5 mm");
+    harness.type_into_field(Id::unique(("pipe-field", pipe, "wall")), "5 mm");
     harness.settle();
     let reason = match harness
         .model

@@ -193,10 +193,10 @@ fn every_panel_refuses_a_value_with_the_shared_wording() {
         .expect("the pattern is open");
     harness.hold_still();
 
-    harness.type_into_field(Id::new(("pattern-field", "spacing", pattern)), "0 mm");
+    harness.type_into_field(Id::unique(("pattern-field", "spacing", pattern)), "0 mm");
     let spacing = harness.shows(ABOVE_ZERO_OR_REVERSE);
     choose(&mut harness, "Linear", "Circular");
-    harness.type_into_field(Id::new(("pattern-field", "angle", pattern)), "400 deg");
+    harness.type_into_field(Id::unique(("pattern-field", "angle", pattern)), "400 deg");
     let angle = harness.shows(TURN);
 
     assert!(spacing);
@@ -285,7 +285,7 @@ fn datums_are_placed_through_selected_corners() {
         .editing
         .solid()
         .expect("the point is open");
-    harness.type_into_field(Id::new(("datum-field", "offset-z", point)), "-5 mm");
+    harness.type_into_field(Id::unique(("datum-field", "offset-z", point)), "-5 mm");
     harness.settle();
 
     let plane_result = result_of(&harness, plane).plane().unwrap();
@@ -589,7 +589,7 @@ fn a_point_along_a_selected_edge_takes_a_typed_distance() {
         .solid()
         .expect("the point is open");
     let along = matches!(datum_of(&harness, point), Datum::PointBy(PointBy::Along(_)));
-    harness.type_into_field(Id::new(("datum-field", "distance", point)), "15 mm");
+    harness.type_into_field(Id::unique(("datum-field", "distance", point)), "15 mm");
     harness.settle();
 
     let found = result_of(&harness, point).point().unwrap();
@@ -998,7 +998,7 @@ fn a_tapped_holes_thread_takes_its_hand_and_depth_from_the_hole_panel() {
 
     super::choose(&mut harness, "Right", "Left");
     super::choose(&mut harness, WHOLE_BORE, TO_A_DEPTH);
-    harness.type_into_field(Id::new(("hole-field", "thread-depth", hole)), "4 mm");
+    harness.type_into_field(Id::unique(("hole-field", "thread-depth", hole)), "4 mm");
     harness.settle();
 
     let thread = super::open_hole(&harness, hole).thread;

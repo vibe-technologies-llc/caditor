@@ -29,7 +29,7 @@ fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
         .editing
         .solid()
         .expect("the fillet is open");
-    let field = Id::new(("blend-size", fillet));
+    let field = Id::unique(("blend-size", fillet));
 
     harness.draft_into_field(field, "3 mm");
     harness.wait_until("the typed radius is previewed", |harness| {
@@ -152,11 +152,11 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
     assert_eq!(harness.model.undo_label(), Some("Add an edge to Fillet 1"));
     assert!(removed_about(&harness, plate, 80.0 * spandrel(1.0)));
 
-    harness.type_into_field(Id::new(("blend-size", fillet)), "2 mm");
+    harness.type_into_field(Id::unique(("blend-size", fillet)), "2 mm");
     harness.settle();
     assert!(removed_about(&harness, plate, 80.0 * spandrel(2.0)));
 
-    harness.type_into_field(Id::new(("blend-size", fillet)), "0 mm");
+    harness.type_into_field(Id::unique(("blend-size", fillet)), "0 mm");
     assert!(harness.shows(crate::feature_fields::ABOVE_ZERO));
     assert_eq!(harness.workspace.editing.solid(), Some(fillet));
 
@@ -216,7 +216,7 @@ fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_pal
         .editing
         .solid()
         .expect("the chamfer is open");
-    let value = Id::new(("blend-form", chamfer));
+    let value = Id::unique(("blend-form", chamfer));
     let form =
         |harness: &Harness| crate::blend_tools::FormChoice::of(&blend_of(harness, chamfer).form);
     let tangent = 30f64.to_radians().tan();

@@ -139,7 +139,7 @@ pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
 }
 
 fn search_id() -> Id {
-    Id::new("guide-search")
+    Id::unique("guide-search")
 }
 
 fn search_field(ui: &mut Ui, state: &mut Guide) {

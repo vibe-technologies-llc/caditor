@@ -93,7 +93,7 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
     );
     assert_eq!(picking_slot(&harness), None);
 
-    harness.type_into_field(Id::new(("coil-field", coil, "turns")), "3");
+    harness.type_into_field(Id::unique(("coil-field", coil, "turns")), "3");
     harness.settle();
     assert!(near(harness.body_volume(coil), wire_volume(3.0)));
 
@@ -109,7 +109,7 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
         "{switched:?}"
     );
 
-    harness.type_into_field(Id::new(("coil-field", coil, "height")), "20 mm");
+    harness.type_into_field(Id::unique(("coil-field", coil, "height")), "20 mm");
     harness.settle();
     assert!(near(harness.body_volume(coil), wire_volume(4.0)));
 
@@ -124,7 +124,7 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
     choose(&mut harness, "Counter-clockwise", "Clockwise");
     assert_eq!(coil_of(&harness, coil).turning, CoilTurning::Clockwise);
 
-    harness.type_into_field(Id::new(("coil-field", coil, "pitch")), "1 mm");
+    harness.type_into_field(Id::unique(("coil-field", coil, "pitch")), "1 mm");
     harness.settle();
     let reason = match harness
         .model
@@ -174,7 +174,7 @@ fn dragging_a_coil_s_diameter_arrow_changes_its_diameter_and_a_typed_value_still
     );
     undone_and_redone(&mut harness, "the diameter drag", diameter);
 
-    harness.type_into_field(Id::new(("coil-field", coil, "diameter")), "30 mm");
+    harness.type_into_field(Id::unique(("coil-field", coil, "diameter")), "30 mm");
     harness.settle();
     assert_eq!(diameter(&harness), 30.0);
     assert!(near(

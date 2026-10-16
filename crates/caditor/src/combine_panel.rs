@@ -135,7 +135,7 @@ fn body_row(
     let taken = role.taken(combine);
     let current_name = document.body_label(current);
     let selected = feature_fields::combo_text(ui, current_name.as_deref(), NOT_A_BODY);
-    let chosen = feature_fields::combo(ui, Id::new((role.salt(), id)), selected, || {
+    let chosen = feature_fields::combo(ui, Id::unique((role.salt(), id)), selected, || {
         document
             .bodies_before_in(id, model.evaluation())
             .into_iter()
@@ -228,7 +228,7 @@ fn more_tool_rows(
     }
     let chosen = feature_fields::combo(
         ui,
-        Id::new(("combine-more-tool", id)),
+        Id::unique(("combine-more-tool", id)),
         ADD_TOOL_BODY,
         || {
             candidates

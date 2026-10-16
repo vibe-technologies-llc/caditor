@@ -124,7 +124,7 @@ fn the_view_cube_takes_any_size_and_corner_with_the_overlays_clear_of_it_and_is_
 
     place_cube(&mut harness, CubePlacement::default());
     open_tab(&mut harness, PreferencesTab::Appearance);
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "view cube");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "view cube");
     harness.click(CubeSize::Large.label());
     harness.click(Corner::BottomLeft.label());
     close_preferences(&mut harness);
@@ -148,7 +148,7 @@ fn versions_after_saves(retention: Retention) -> (usize, Retention) {
     let path = dir.path().join("plate.caditor");
     let mut harness = Harness::with_directories(Some(dir.path()));
     open_tab(&mut harness, PreferencesTab::General);
-    harness.draft_into_field(Id::new(preferences::SEARCH_FIELD), "old versions");
+    harness.draft_into_field(Id::unique(preferences::SEARCH_FIELD), "old versions");
     harness.click(retention.label());
     close_preferences(&mut harness);
 
@@ -231,7 +231,7 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
     assert_eq!(appearance.colour, None);
     assert_eq!(OwnedLook::of(appearance), None);
 
-    let hex = colour_selector::hex_id(Id::new(preferences::BODY_SELECTOR));
+    let hex = colour_selector::hex_id(Id::unique(preferences::BODY_SELECTOR));
     harness.click_button(preferences::CUSTOM_BODY);
     harness.frame();
     harness.type_into_field(hex, "#1c1d20");

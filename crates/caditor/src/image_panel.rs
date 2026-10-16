@@ -133,7 +133,7 @@ impl Panel<'_> {
         };
         let row = plane_selector::Row {
             caption: "Placed on",
-            id: Id::new(("image-plane", self.id())),
+            id: Id::unique(("image-plane", self.id())),
             planes: datum_tools::listed_planes(self.model.document(), self.id()),
             current: self.image.plane.reference(),
             picker,
@@ -160,7 +160,7 @@ impl Panel<'_> {
     ) {
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("image-field", self.id(), key)),
+            id: Id::unique(("image-field", self.id(), key)),
             expression,
             dimension,
             rule,

@@ -258,7 +258,7 @@ impl Panel<'_> {
         let id = self.id();
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("loft-field", id, side.key())),
+            id: Id::unique(("loft-field", id, side.key())),
             expression: &expression,
             dimension: Dimension::NONE,
             rule: Rule::AboveZero,

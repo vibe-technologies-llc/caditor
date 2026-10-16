@@ -1029,7 +1029,7 @@ fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.frame();
     if let Some(movement) = harness.workspace.editing.solid() {
         harness.draft_into_field(
-            egui::Id::new(("move-field", "offset", 0usize, movement)),
+            egui::Id::unique(("move-field", "offset", 0usize, movement)),
             "25 mm",
         );
     }
@@ -1233,7 +1233,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         if let Some(fillet) = model.workspace.editing.solid() {
             model.settle();
             shoot(model, gpu, out, "panel-choosing-list", look);
-            model.type_into_field(egui::Id::new(("blend-size", fillet)), "4 mm");
+            model.type_into_field(egui::Id::unique(("blend-size", fillet)), "4 mm");
         }
         shoot_open(model, gpu, out, "panel-fillet", look);
     }
@@ -1276,7 +1276,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         if let Some(movement) = model.workspace.editing.solid() {
             model.settle();
             model.type_into_field(
-                egui::Id::new(("move-field", "offset", 0usize, movement)),
+                egui::Id::unique(("move-field", "offset", 0usize, movement)),
                 "30 mm",
             );
         }

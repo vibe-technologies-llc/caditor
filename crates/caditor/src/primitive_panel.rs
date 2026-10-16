@@ -102,7 +102,7 @@ impl Panel<'_> {
         };
         let row = plane_selector::Row {
             caption: "Placed on",
-            id: Id::new(("primitive-plane", self.id())),
+            id: Id::unique(("primitive-plane", self.id())),
             planes: datum_tools::listed_planes(self.model.document(), self.id()),
             current: Some(&self.primitive.plane),
             picker,
@@ -142,7 +142,7 @@ impl Panel<'_> {
         };
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("primitive-field", self.id(), key)),
+            id: Id::unique(("primitive-field", self.id(), key)),
             expression,
             dimension,
             rule,

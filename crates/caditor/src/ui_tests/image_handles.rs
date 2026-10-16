@@ -252,7 +252,7 @@ fn a_value_that_follows_a_parameter_cannot_be_dragged_and_the_hover_says_what_dr
     transaction.add_parameter("w", Expression::parse("80 mm", &|_| None).unwrap());
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
-    harness.type_into_field(Id::new(("image-field", image, "width")), "w");
+    harness.type_into_field(Id::unique(("image-field", image, "width")), "w");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();

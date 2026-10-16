@@ -1,6 +1,6 @@
 use egui::{
-    Color32, CornerRadius, Direction, Frame, Id, Layout, Margin, Rect, Response, Sense, Sides,
-    Stroke, StrokeKind, Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, vec2,
+    Color32, CornerRadius, Direction, Frame, Id, Layout, Margin, Rect, Response, Role, Sense,
+    Sides, Stroke, StrokeKind, Ui, UiBuilder, Vec2, WidgetInfo, vec2,
 };
 
 use crate::{
@@ -148,8 +148,7 @@ pub fn sense(ui: &mut Ui, id: Id, from: f32, name: &str, selected: bool) -> Resp
     let area = ui.max_rect().with_min_x(from);
     let response = ui.interact(area, id, Sense::click_and_drag());
     let enabled = ui.is_enabled();
-    response
-        .widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, enabled, selected, name));
+    response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, selected, name));
     response
 }
 

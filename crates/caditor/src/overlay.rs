@@ -134,7 +134,9 @@ impl Overlay {
             window,
             &mut requested,
         );
-        let pasting = requested.contains(&egui_winit::ActionRequested::Paste);
+        let pasting = requested
+            .iter()
+            .any(|action| matches!(action, egui_winit::ActionRequested::Paste));
         if pasting && let Some(text) = self.state.clipboard_text() {
             self.state.egui_input_mut().events.push(Event::Paste(text));
         }

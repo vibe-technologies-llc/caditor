@@ -149,7 +149,10 @@ fn an_imported_body_is_placed_from_its_details_and_keeps_its_place_when_reloaded
     harness.let_animations_finish();
     let described = harness.shows(crate::import_panel::DESCRIPTION);
     let captioned = harness.shows("Move along X") && harness.shows("Turn about Z");
-    harness.type_into_field(Id::new(("import-field", ("offset", 0usize), body)), "15 mm");
+    harness.type_into_field(
+        Id::unique(("import-field", ("offset", 0usize), body)),
+        "15 mm",
+    );
     harness.settle();
     let (low, _) = plate_bounds(&harness, body);
 
@@ -161,7 +164,10 @@ fn an_imported_body_is_placed_from_its_details_and_keeps_its_place_when_reloaded
     );
     assert!((low.x - 15.0).abs() < 1e-6, "{low:?}");
 
-    harness.type_into_field(Id::new(("import-field", ("turn", 2usize), body)), "90 deg");
+    harness.type_into_field(
+        Id::unique(("import-field", ("turn", 2usize), body)),
+        "90 deg",
+    );
     harness.settle();
     let (low, high) = plate_bounds(&harness, body);
 
@@ -171,7 +177,10 @@ fn an_imported_body_is_placed_from_its_details_and_keeps_its_place_when_reloaded
         "{high:?}"
     );
 
-    harness.type_into_field(Id::new(("import-field", ("offset", 1usize), body)), "5 deg");
+    harness.type_into_field(
+        Id::unique(("import-field", ("offset", 1usize), body)),
+        "5 deg",
+    );
 
     assert!(harness.shows_containing("length"));
 

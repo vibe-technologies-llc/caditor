@@ -122,7 +122,7 @@ impl Panel<'_> {
         let (model, id, mate) = (self.model, self.id(), self.mate);
         let row = plane_selector::Row {
             caption,
-            id: Id::new(("mate-plane", caption, id)),
+            id: Id::unique(("mate-plane", caption, id)),
             planes: datum_tools::listed_planes(model.document(), id),
             current: Some(plane),
             picker: self.picker(ui.ctx(), End::Target(MatePart::Main)),
@@ -151,7 +151,7 @@ impl Panel<'_> {
         let (model, id, mate) = (self.model, self.id(), self.mate);
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("mate-field", "distance", id)),
+            id: Id::unique(("mate-field", "distance", id)),
             expression: distance,
             dimension: Dimension::LENGTH,
             rule: Rule::Any,
@@ -171,7 +171,7 @@ impl Panel<'_> {
         let (model, id, mate) = (self.model, self.id(), self.mate);
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("mate-field", "angle", id)),
+            id: Id::unique(("mate-field", "angle", id)),
             expression: angle,
             dimension: Dimension::ANGLE,
             rule: Rule::MateAngle,

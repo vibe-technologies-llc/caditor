@@ -290,7 +290,7 @@ fn typing_a_twist_and_an_end_scale_shapes_the_sweep_in_one_undoable_change_each(
             .value
     };
 
-    harness.type_into_field(egui::Id::new(("solid-field", "twist", sweep)), "90");
+    harness.type_into_field(egui::Id::unique(("solid-field", "twist", sweep)), "90");
     harness.settle();
 
     assert!(harness.shows(solid_panel::TWIST));
@@ -299,7 +299,7 @@ fn typing_a_twist_and_an_end_scale_shapes_the_sweep_in_one_undoable_change_each(
     assert_eq!(value(&harness, &sweep_of(&harness, sweep).twist), 90.0);
     assert!(near(&harness, sweep, prism));
 
-    harness.type_into_field(egui::Id::new(("solid-field", "scale", sweep)), "0.5");
+    harness.type_into_field(egui::Id::unique(("solid-field", "scale", sweep)), "0.5");
     harness.settle();
 
     assert_eq!(value(&harness, &sweep_of(&harness, sweep).scale), 0.5);

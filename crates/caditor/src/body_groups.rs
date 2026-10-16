@@ -434,7 +434,7 @@ pub fn header(
                     ui.label(widgets::muted(group.members.len().to_string(), ui));
                     Name::Shown(tree_row::sense(
                         ui,
-                        Id::new(("body-group-row", &group.folder)),
+                        Id::unique(("body-group-row", &group.folder)),
                         chevron.rect.right(),
                         name,
                         selected,
@@ -518,7 +518,7 @@ fn rename_field(
     let width = ui.available_width();
     field::commit_field(
         ui,
-        Id::new(("rename-body-group", folder)),
+        Id::unique(("rename-body-group", folder)),
         folder.last().map_or("", String::as_str),
         width,
         focus_pending,

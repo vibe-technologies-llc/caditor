@@ -17,7 +17,7 @@ const PLATE_VOLUME: f64 = 16_000.0;
 const FOOTPRINT: f64 = 200.0;
 
 fn distance_field(extrude: FeatureId) -> Id {
-    Id::new(("solid-field", "distance", extrude))
+    Id::unique(("solid-field", "distance", extrude))
 }
 
 fn extrusion(harness: &Harness, feature: FeatureId) -> &Extrude {
@@ -272,7 +272,7 @@ fn zero_and_a_negative_side_of_a_symmetric_or_two_sided_extrusion_are_still_refu
         },
     )));
     harness.settle();
-    harness.type_into_field(Id::new(("solid-field", "forward", extrude)), "-5 mm");
+    harness.type_into_field(Id::unique(("solid-field", "forward", extrude)), "-5 mm");
 
     assert!(harness.shows(ABOVE_ZERO));
     assert_eq!(extrusion(&harness, extrude), &two_sided);

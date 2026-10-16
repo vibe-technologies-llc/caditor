@@ -493,8 +493,9 @@ paths:
   `ViewportState::set_uploading` before the interface runs), the status bar's file
   activity ends with a `widgets::progress` of `upload_badge::TEXT` (`StatusContext::uploading`),
   the only place it is shown, with a Cancel (`Action::StopUploading`). The spinner shows only in
-  frames the uploads already ask for, so the last upload frame is followed by one with neither and
-  no repaint request. Cancelled, the bodies not on the graphics card yet stay hidden and the same
+  frames the uploads already ask for, so the last upload frame is followed by one with neither,
+  which asks only for the frame egui takes to style a widget it did not draw the pass before
+  (`Context::widget_style`), and then no repaint request. Cancelled, the bodies not on the graphics card yet stay hidden and the same
   place shows an info pill `upload_badge::STOPPED` (`StatusContext::upload_stopped`, from
   `Renderer::is_upload_stopped`) with Continue loading (`Action::ResumeUploading`), both also
   commands (below); `ViewportState::request_upload` holds the `UploadRequest` that `app.rs` hands

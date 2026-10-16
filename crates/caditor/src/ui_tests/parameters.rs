@@ -268,7 +268,7 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
     let at_top = offer(&harness, Command::MoveParameterUp).availability;
     run_from_palette(&mut harness, "parameter's note");
     harness.frame();
-    let focused = harness.focused() == Some(Id::new("parameter-note-field"));
+    let focused = harness.focused() == Some(Id::unique("parameter-note-field"));
     harness.type_text("Half the width, for the side");
     harness.click(crate::parameter_table::SAVE_NOTE_LABEL);
     harness.context.enable_accesskit();
@@ -305,7 +305,7 @@ fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name(
         constraint,
     };
     let (extrude, _) = extruded_plate(&mut harness);
-    let distance = Id::new(("solid-field", "distance", extrude));
+    let distance = Id::unique(("solid-field", "distance", extrude));
     let held = |harness: &Harness| match &harness.solid(extrude) {
         SolidFeature::Extrude(caditor_document::Extrude {
             extent:
@@ -386,7 +386,7 @@ fn a_named_value_follows_its_field_into_another_mode_and_goes_when_a_mode_drops_
 
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);
-    let field = |salt: &str| Id::new(("solid-field", salt, extrude));
+    let field = |salt: &str| Id::unique(("solid-field", salt, extrude));
     let owner = |harness: &Harness, name: &str| {
         harness
             .document()

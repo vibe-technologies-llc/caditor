@@ -134,7 +134,7 @@ fn a_picture_is_inserted_calibrated_shown_locked_traced_saved_and_undone() {
         "50 mm"
     );
 
-    harness.type_into_field(Id::new(("image-field", image, "distance")), "30 mm");
+    harness.type_into_field(Id::unique(("image-field", image, "distance")), "30 mm");
     harness.settle();
     let placed = image_tools::placed(harness.model.evaluation(), image).unwrap();
     let calibrated = image_of(&harness, image);

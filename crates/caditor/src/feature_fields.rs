@@ -418,7 +418,7 @@ pub fn frame_row<E: Display>(
     };
     let current = row.current.map_or_else(|| WORLD.to_owned(), name);
     widgets::caption(ui, row.caption);
-    let chosen = combo(ui, Id::new((row.salt, row.feature)), current, || {
+    let chosen = combo(ui, Id::unique((row.salt, row.feature)), current, || {
         std::iter::once(None)
             .chain(frames.into_iter().map(Some))
             .map(|frame| Choice {
@@ -542,7 +542,7 @@ pub fn body_operation_rows<E: Display>(
     ];
     let chosen = combo(
         ui,
-        Id::new((operation_id, feature)),
+        Id::unique((operation_id, feature)),
         operation_name(operation),
         || {
             candidates
@@ -566,7 +566,7 @@ pub fn body_operation_rows<E: Display>(
     let chosen = ui
         .horizontal(|ui| {
             let text = combo_text(ui, name.as_deref(), MISSING_BODY);
-            combo(ui, Id::new((body_id, feature)), text, || {
+            combo(ui, Id::unique((body_id, feature)), text, || {
                 bodies
                     .iter()
                     .filter_map(|body| {
@@ -645,7 +645,7 @@ pub fn offered_change<E: Clone + Send + Sync + 'static>(
     reference: (FeatureId, Slot),
     compute: impl FnOnce() -> Result<Transaction, E>,
 ) -> Result<Transaction, E> {
-    let id = Id::new(("offered-change", reference.0, reference.1));
+    let id = Id::unique(("offered-change", reference.0, reference.1));
     let basis = (
         selection.generation(),
         model.revision(),
@@ -768,7 +768,7 @@ pub fn axis_row<E, L: Display>(
     actions: &mut Vec<Action>,
 ) {
     widgets::caption(ui, row.caption);
-    let id = Id::new(("axis-row", row.caption, row.picker.feature));
+    let id = Id::unique(("axis-row", row.caption, row.picker.feature));
     ui.vertical(|ui| {
         match (listed, row.shown) {
             (Some(listed), shown) => {

@@ -647,10 +647,10 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
         view.height * 2
     )));
     harness.click("Custom");
-    harness.type_into_field(Id::new(("image-side", "Width")), "5000");
-    harness.type_into_field(Id::new(("image-side", "Height")), "none");
+    harness.type_into_field(Id::unique(("image-side", "Width")), "5000");
+    harness.type_into_field(Id::unique(("image-side", "Height")), "none");
     assert!(harness.shows("Enter a whole number of pixels from 1 to 8192"));
-    harness.type_into_field(Id::new(("image-side", "Height")), "900");
+    harness.type_into_field(Id::unique(("image-side", "Height")), "900");
     harness.click("4×");
     assert!(harness.shows(
         "At 4× the image would be 20000 × 3600 pixels, more than the 8192 pixels a side caditor \

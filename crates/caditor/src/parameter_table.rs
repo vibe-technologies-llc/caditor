@@ -174,7 +174,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
 }
 
 fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
-    let id = Id::new(FILTER_FIELD);
+    let id = Id::unique(FILTER_FIELD);
     let focused = ui.memory(|memory| memory.has_focus(id));
     if count < FILTER_FROM_PARAMETERS && state.parameter_filter.is_empty() && !focused {
         return String::new();
@@ -1017,7 +1017,7 @@ pub fn note_dialog(
             widgets::text_field(ui, |ui| {
                 ui.add(
                     TextEdit::multiline(&mut draft.text)
-                        .id(Id::new(NOTE_FIELD))
+                        .id(Id::unique(NOTE_FIELD))
                         .char_limit(MAX_PARAMETER_NOTE_CHARS)
                         .desired_rows(NOTE_ROWS)
                         .desired_width(f32::INFINITY),
@@ -1170,7 +1170,7 @@ fn delete_button(
     used: bool,
 ) {
     let hover = format!("Delete {}", parameter.name);
-    let focus_key = Id::new(("parameter-delete-focused", parameter.id()));
+    let focus_key = Id::unique(("parameter-delete-focused", parameter.id()));
     let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
     let response = tree_row::slot(ui, |ui| {
         if !row_hovered && !focused {

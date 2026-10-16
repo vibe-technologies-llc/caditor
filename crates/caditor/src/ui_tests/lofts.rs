@@ -200,7 +200,7 @@ fn a_loft_starts_from_a_flat_face_and_takes_a_square_end_and_closing_from_the_pa
         loft_of(&harness, loft).square_end,
         Some(caditor_expression::Expression::number(1.0))
     );
-    harness.type_into_field(egui::Id::new(("loft-field", loft, "end")), "2");
+    harness.type_into_field(egui::Id::unique(("loft-field", loft, "end")), "2");
     harness.settle();
     assert_eq!(
         loft_of(&harness, loft).square_end,

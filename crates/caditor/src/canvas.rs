@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use caditor_document::Rgb;
 use egui::{
-    Align, Align2, Color32, CursorIcon, FontId, Galley, Id, Painter, Pos2, Rect, Response, Sense,
-    Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, accesskit::Live, vec2,
+    Align, Align2, Color32, CursorIcon, FontId, Galley, Id, Painter, Pos2, Rect, Response, Role,
+    Sense, Stroke, StrokeKind, Ui, Vec2, WidgetInfo, accesskit::Live, vec2,
 };
 
 use crate::{
@@ -191,37 +191,38 @@ pub fn icon() -> FontId {
 }
 
 pub fn set_contrast(ctx: &egui::Context, contrast: Contrast) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(CONTRAST_KEY), contrast));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(CONTRAST_KEY), contrast));
 }
 
 fn contrast(ctx: &egui::Context) -> Contrast {
-    ctx.data(|data| data.get_temp(Id::new(CONTRAST_KEY)))
+    ctx.data(|data| data.get_temp(Id::unique(CONTRAST_KEY)))
         .unwrap_or_default()
 }
 
 pub fn set_canvas(ctx: &egui::Context, canvas: Canvas) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(CANVAS_KEY), canvas));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(CANVAS_KEY), canvas));
 }
 
 pub fn canvas(ctx: &egui::Context) -> Canvas {
-    ctx.data(|data| data.get_temp(Id::new(CANVAS_KEY)))
+    ctx.data(|data| data.get_temp(Id::unique(CANVAS_KEY)))
         .unwrap_or_default()
 }
 
 pub fn set_grid(ctx: &egui::Context, grid: Option<Color32>) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(GRID_KEY), grid));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(GRID_KEY), grid));
 }
 
 pub fn grid(ctx: &egui::Context) -> Option<Color32> {
-    ctx.data(|data| data.get_temp(Id::new(GRID_KEY))).flatten()
+    ctx.data(|data| data.get_temp(Id::unique(GRID_KEY)))
+        .flatten()
 }
 
 pub fn set_body(ctx: &egui::Context, body: Rgb) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(BODY_KEY), body));
+    ctx.data_mut(|data| data.insert_temp(Id::unique(BODY_KEY), body));
 }
 
 pub fn body_colour(ctx: &egui::Context) -> Rgb {
-    ctx.data(|data| data.get_temp(Id::new(BODY_KEY)))
+    ctx.data(|data| data.get_temp(Id::unique(BODY_KEY)))
         .unwrap_or(DEFAULT_COLOUR)
 }
 
@@ -235,8 +236,12 @@ pub fn paint_backdrop(painter: &Painter, rect: Rect) {
 }
 
 pub fn announce(ui: &Ui, rect: Rect, name: &str, text: &str, live: Option<Live>) {
-    let response = ui.interact(rect, ui.id().with(("canvas text", name)), Sense::hover());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, text));
+    let response = ui.interact(
+        rect,
+        ui.scope_id().with(("canvas text", name)),
+        Sense::hover(),
+    );
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, true, text));
     if let Some(live) = live {
         ui.ctx()
             .accesskit_node_builder(response.id, |node| node.set_live(live));
@@ -900,7 +905,7 @@ fn control(
     name: &str,
 ) -> Response {
     let response = ui.interact(rect, id, Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
     let chrome = chrome(ui.ctx());
     let fill = if response.is_pointer_button_down_on() {
         chrome.control_pressed

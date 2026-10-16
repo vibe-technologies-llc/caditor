@@ -5,7 +5,7 @@ use caditor_expression::{Dimension, Quantity};
 use caditor_geometry::Point3;
 use caditor_render::View;
 use egui::{
-    Align2, Color32, Id, Key, Order, Pos2, Rect, Sense, Stroke, Ui, WidgetInfo, WidgetType, vec2,
+    Align2, Color32, Id, Key, Order, Pos2, Rect, Role, Sense, Stroke, Ui, WidgetInfo, vec2,
 };
 
 use crate::{
@@ -143,7 +143,7 @@ pub struct ModelDimensions {
 }
 
 pub fn value_field_id(feature: FeatureId, slot: ValueSlot) -> Id {
-    Id::new(("model-value-field", feature, slot))
+    Id::unique(("model-value-field", feature, slot))
 }
 
 pub fn value_pickable(value: &FeatureValue) -> Pickable {
@@ -504,10 +504,10 @@ impl ModelDimensions {
             };
             let pickable = value_pickable(&shown.value);
             if outside.interactive {
-                let id = Id::new(("model-value", shown.value.feature, shown.value.slot));
+                let id = Id::unique(("model-value", shown.value.feature, shown.value.slot));
                 let response = ui.interact(target.rect, id, Sense::click());
                 let spoken = format!("{} {}: {}", shown.name, shown.value.caption, shown.text);
-                response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &spoken));
+                response.widget_info(|| WidgetInfo::labeled(Role::Button, true, &spoken));
                 if response.hovered() {
                     self.hovered = Some(pickable);
                 }

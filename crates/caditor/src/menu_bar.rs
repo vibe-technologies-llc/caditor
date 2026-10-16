@@ -174,7 +174,7 @@ pub fn show(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let trailing_id = Id::new("menu-bar-trailing");
+    let trailing_id = Id::unique("menu-bar-trailing");
     let panel = egui::Panel::top("menu-bar")
         .frame(ribbon::bar_frame(ui.style()))
         .show_separator_line(true)
@@ -286,7 +286,7 @@ fn title(
     actions: &mut Vec<Action>,
 ) {
     let rest = ui.available_rect_before_wrap();
-    let width_id = Id::new("model-title-width");
+    let width_id = Id::unique("model-title-width");
     let wanted = widgets::remembered_width(ui, width_id).min(rest.width());
     let centred = ui.ctx().content_rect().center().x - wanted / 2.0;
     let left = centred.min(rest.right() - wanted).max(rest.left());
@@ -347,7 +347,11 @@ fn model_title(
             ui.add_space(TITLE_PADDING);
         })
         .response;
-    let response = ui.interact(group.rect, Id::new("model-title"), Sense::click_and_drag());
+    let response = ui.interact(
+        group.rect,
+        Id::unique("model-title"),
+        Sense::click_and_drag(),
+    );
     let response = widgets::named(response, &format!("{name}, {MODEL_DETAILS}"));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
     let fill = if response.is_pointer_button_down_on() {
@@ -1147,7 +1151,7 @@ pub fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui))
 
 fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     let tokens = appearance::tokens(ui);
-    let content_id = Id::new("search-commands-content");
+    let content_id = Id::unique("search-commands-content");
     let content = widgets::remembered_width(ui, content_id);
     let size = vec2(SEARCH_WIDTH.max(content + 2.0 * SPACE_M), CONTROL_HEIGHT);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -1184,7 +1188,10 @@ fn search(ui: &mut Ui, commands: &mut CommandFrame<'_>) -> Response {
     );
     let mut needed = leading.min_rect().width();
     if let Some(keys) = commands.keys(Command::Palette) {
-        let (width_id, height_id) = (Id::new("search-keys-width"), Id::new("search-keys-height"));
+        let (width_id, height_id) = (
+            Id::unique("search-keys-width"),
+            Id::unique("search-keys-height"),
+        );
         let size = vec2(
             widgets::remembered_width(ui, width_id),
             widgets::remembered_width(ui, height_id),

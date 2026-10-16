@@ -20,7 +20,10 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
     harness.settle();
     let movement = harness.workspace.editing.solid().expect("the move is open");
 
-    harness.draft_into_field(Id::new(("move-field", "offset", 0usize, movement)), "12 mm");
+    harness.draft_into_field(
+        Id::unique(("move-field", "offset", 0usize, movement)),
+        "12 mm",
+    );
 
     let (body, placement) = harness
         .model
@@ -275,7 +278,10 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     let on_plane = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
     let along_x = Handle::Place(crate::move_manipulator::PlaceGrip::AlongX);
 
-    harness.type_into_field(Id::new(("primitive-field", feature, ("at", 1))), "y = 4 mm");
+    harness.type_into_field(
+        Id::unique(("primitive-field", feature, ("at", 1))),
+        "y = 4 mm",
+    );
     harness.settle();
     let from = harness
         .workspace
@@ -622,7 +628,10 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     assert!(harness.shows("Move along X"));
     assert!(harness.shows("Turn about Z"));
 
-    harness.type_into_field(Id::new(("move-field", "offset", 0usize, movement)), "5 mm");
+    harness.type_into_field(
+        Id::unique(("move-field", "offset", 0usize, movement)),
+        "5 mm",
+    );
     harness.settle();
     let bounds = harness
         .model
@@ -643,7 +652,10 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
     assert!(moved.faces.iter().all(|face| face.pick.is_some()));
     assert!(ghost.faces.iter().all(|face| face.pick.is_none()));
 
-    harness.type_into_field(Id::new(("move-field", "turn", 2usize, movement)), "90 deg");
+    harness.type_into_field(
+        Id::unique(("move-field", "turn", 2usize, movement)),
+        "90 deg",
+    );
     harness.settle();
     let bounds = harness
         .model
@@ -654,7 +666,10 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap();
     assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
 
-    harness.type_into_field(Id::new(("move-field", "offset", 1usize, movement)), "5 deg");
+    harness.type_into_field(
+        Id::unique(("move-field", "offset", 1usize, movement)),
+        "5 deg",
+    );
     assert!(harness.shows_containing("length"));
     assert_eq!(harness.workspace.editing.solid(), Some(movement));
 
@@ -811,7 +826,7 @@ fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_ther
     harness.settle();
     let revolve = open_solid(&harness);
     choose(&mut harness, "Full turn", "Two angles");
-    harness.type_into_field(Id::new(("solid-field", "start", revolve)), "5 mm");
+    harness.type_into_field(Id::unique(("solid-field", "start", revolve)), "5 mm");
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();

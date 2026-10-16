@@ -82,7 +82,7 @@ pub fn show(
         widgets::caption(ui, "Body");
         let current = document.body_label(remove.body);
         let selected = feature_fields::combo_text(ui, current.as_deref(), NOT_A_BODY);
-        let chosen = feature_fields::combo(ui, Id::new(("remove-body", id)), selected, || {
+        let chosen = feature_fields::combo(ui, Id::unique(("remove-body", id)), selected, || {
             document
                 .bodies_before_in(id, model.evaluation())
                 .into_iter()

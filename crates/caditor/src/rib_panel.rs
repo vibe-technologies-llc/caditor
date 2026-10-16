@@ -91,7 +91,7 @@ impl Panel<'_> {
         let chosen = ui
             .horizontal(|ui| {
                 let text = feature_fields::combo_text(ui, name, MISSING_SKETCH);
-                feature_fields::combo(ui, Id::new(("rib-sketch", self.id())), text, || {
+                feature_fields::combo(ui, Id::unique(("rib-sketch", self.id())), text, || {
                     document
                         .features()
                         .take(before)
@@ -129,7 +129,7 @@ impl Panel<'_> {
         let chosen = ui
             .horizontal(|ui| {
                 let text = feature_fields::combo_text(ui, name.as_deref(), MISSING_BODY);
-                feature_fields::combo(ui, Id::new(("rib-body", self.id())), text, || {
+                feature_fields::combo(ui, Id::unique(("rib-body", self.id())), text, || {
                     bodies
                         .iter()
                         .filter_map(|body| {
@@ -177,7 +177,7 @@ impl Panel<'_> {
         let rib = self.rib.clone();
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("rib-field", self.id(), "thickness")),
+            id: Id::unique(("rib-field", self.id(), "thickness")),
             expression: &self.rib.thickness,
             dimension: Dimension::LENGTH,
             rule: Rule::AboveZero,
@@ -197,7 +197,7 @@ impl Panel<'_> {
         let rib = self.rib.clone();
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("rib-field", self.id(), "draft")),
+            id: Id::unique(("rib-field", self.id(), "draft")),
             expression: &self.rib.draft,
             dimension: Dimension::ANGLE,
             rule: Rule::RibDraft,

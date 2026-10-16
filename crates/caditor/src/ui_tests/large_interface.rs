@@ -471,6 +471,7 @@ fn a_parameter_name_longer_than_its_column_ends_in_an_ellipsis_and_shows_whole_o
             break;
         }
         harness.events.push(Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, Wheel::Down.delta()),
             phase: egui::TouchPhase::Move,

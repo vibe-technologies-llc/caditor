@@ -47,7 +47,7 @@ pub enum Outcome {
 }
 
 pub fn field_id(property: ModelProperty) -> Id {
-    Id::new((DIALOG_ID, property))
+    Id::unique((DIALOG_ID, property))
 }
 
 pub fn transaction(document: &Document, properties: ModelProperties) -> Option<Transaction> {

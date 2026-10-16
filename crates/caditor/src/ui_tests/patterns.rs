@@ -35,7 +35,7 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
     assert!(harness.shows("Direction"));
     assert!(harness.shows("Spacing"));
 
-    harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "4");
+    harness.type_into_field(Id::unique(("pattern-field", "count", pattern)), "4");
     harness.settle();
     assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
     assert!(volume_about(&harness, plate, 4.0 * 16000.0));
@@ -61,7 +61,7 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
     harness.settle();
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 
-    harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "2.5");
+    harness.type_into_field(Id::unique(("pattern-field", "count", pattern)), "2.5");
     assert!(harness.shows("Enter a whole number of at least 1"));
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 }

@@ -107,7 +107,7 @@ pub fn header(
                     ui.label(widgets::muted(run.len().to_string(), ui));
                     Name::Shown(tree_row::sense(
                         ui,
-                        Id::new(("feature-group-row", first)),
+                        Id::unique(("feature-group-row", first)),
                         toggle.rect.right(),
                         name,
                         selected,
@@ -181,7 +181,7 @@ fn rename_field(
     let width = ui.available_width();
     field::commit_field(
         ui,
-        Id::new(("rename-group", renaming.feature)),
+        Id::unique(("rename-group", renaming.feature)),
         name,
         width,
         renaming.focus_pending,

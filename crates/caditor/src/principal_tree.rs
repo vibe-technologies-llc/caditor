@@ -42,7 +42,7 @@ pub fn show(
             );
             let name = tree_row::sense(
                 ui,
-                Id::new("principal-group-row"),
+                Id::unique("principal-group-row"),
                 toggle.rect.right(),
                 GROUP_TITLE,
                 false,
@@ -106,7 +106,7 @@ fn item(
             );
             tree_row::sense(
                 ui,
-                Id::new(("principal-row", geometry)),
+                Id::unique(("principal-row", geometry)),
                 ui.min_rect().left(),
                 geometry.name(),
                 look.selected,

@@ -499,7 +499,9 @@ impl Harness {
         self.text_clips.clear();
         self.text_colors.clear();
         for clipped in shapes {
-            let ClippedShape { shape, clip_rect } = clipped;
+            let ClippedShape {
+                shape, clip_rect, ..
+            } = clipped;
             collect_texts(shape, &mut self.texts, &mut self.text_colors);
             self.text_clips.resize(self.texts.len(), clip_rect);
         }
@@ -1107,6 +1109,7 @@ impl Harness {
                 return;
             }
             self.events.push(Event::MouseWheel {
+                source: egui::MouseWheelSource::Unknown,
                 unit: egui::MouseWheelUnit::Point,
                 delta: egui::vec2(0.0, wheel.delta()),
                 phase: egui::TouchPhase::Move,
@@ -1118,7 +1121,7 @@ impl Harness {
     }
 
     fn panel_rect(&self, id: &str) -> Rect {
-        egui::containers::panel::PanelState::load(&self.context, Id::new(id))
+        egui::containers::panel::PanelState::load(&self.context, top_level_panel(id))
             .unwrap_or_else(|| panic!("the {id} panel is not shown"))
             .outer_rect
     }
@@ -1559,8 +1562,12 @@ fn close(found: &[f64], expected: &[f64]) -> bool {
             .all(|(found, expected)| (found - expected).abs() < DRAWN)
 }
 
+fn top_level_panel(name: &str) -> Id {
+    egui::ViewportId::ROOT.root_ui_id().with(name)
+}
+
 fn sketch_bar(harness: &Harness) -> Rect {
-    egui::containers::panel::PanelState::load(&harness.context, Id::new("sketch-toolbar"))
+    egui::containers::panel::PanelState::load(&harness.context, top_level_panel("sketch-toolbar"))
         .expect("the sketch bar is shown")
         .outer_rect
 }
@@ -2443,6 +2450,7 @@ fn laptop_harness() -> Harness {
 
 fn scroll_in_view(harness: &mut Harness, delta: egui::Vec2) {
     harness.events.push(Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta,
         phase: egui::TouchPhase::Move,

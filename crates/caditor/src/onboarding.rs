@@ -247,7 +247,7 @@ pub fn show_hint(
     input_mode: InputMode,
 ) -> Option<HintChoice> {
     let anchor = viewport.center_bottom() - vec2(0.0, HINT_BOTTOM_CLEARANCE);
-    Area::new(Id::new("onboarding-hint"))
+    Area::new(Id::unique("onboarding-hint"))
         .order(Order::Foreground)
         .pivot(Align2::CENTER_BOTTOM)
         .fixed_pos(anchor)
@@ -471,7 +471,7 @@ fn sample_card(ui: &mut Ui, sample: Sample) -> bool {
     let response = ui
         .interact(
             card.response.rect,
-            Id::new(("sample-card", sample)),
+            Id::unique(("sample-card", sample)),
             Sense::click(),
         )
         .on_hover_cursor(egui::CursorIcon::PointingHand);

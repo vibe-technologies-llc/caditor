@@ -202,7 +202,7 @@ fn an_extrusion_arrow_dropped_on_a_cylinder_stops_where_its_line_meets_it() {
     harness.click_tool("Extrude");
     harness.settle();
     let cylinder = open_solid(&harness);
-    harness.type_into_field(Id::new(("solid-field", "distance", cylinder)), "30");
+    harness.type_into_field(Id::unique(("solid-field", "distance", cylinder)), "30");
     harness.settle();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
@@ -215,7 +215,7 @@ fn an_extrusion_arrow_dropped_on_a_cylinder_stops_where_its_line_meets_it() {
     harness.click_tool("Extrude");
     harness.settle();
     let extrude = open_solid(&harness);
-    harness.type_into_field(Id::new(("solid-field", "distance", extrude)), "10");
+    harness.type_into_field(Id::unique(("solid-field", "distance", extrude)), "10");
     harness.settle();
     fit_and_settle(&mut harness);
     let only = Handle::Reach(Reach::Only);

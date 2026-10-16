@@ -41,11 +41,11 @@ pub enum TypingError {
 const DRAGGED: &str = "handle-dragged-feature";
 
 pub fn publish_dragged(ctx: &egui::Context, feature: Option<FeatureId>) {
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new(DRAGGED), feature));
+    ctx.data_mut(|data| data.insert_temp(egui::Id::unique(DRAGGED), feature));
 }
 
 pub fn dragged(ctx: &egui::Context) -> Option<FeatureId> {
-    ctx.data(|data| data.get_temp::<Option<FeatureId>>(egui::Id::new(DRAGGED)))
+    ctx.data(|data| data.get_temp::<Option<FeatureId>>(egui::Id::unique(DRAGGED)))
         .flatten()
 }
 

@@ -880,7 +880,7 @@ fn snippet(parsed: &Parsed, word: &str) -> String {
 }
 
 fn asked_key() -> Id {
-    Id::new("guide-asked-page")
+    Id::unique("guide-asked-page")
 }
 
 pub fn ask(ctx: &egui::Context, page: Page) {

@@ -61,7 +61,7 @@ pub fn dialog(
     preferences: &Preferences,
     view: &PreferencesView<'_>,
 ) -> Option<PreferencesCommand> {
-    let confirm = Id::new(CONFIRM_KEY);
+    let confirm = Id::unique(CONFIRM_KEY);
     let response = widgets::dialog(ctx, "preferences", "Preferences", DialogWidth::Wide, |ui| {
         let mut command = None;
         let tabs = PreferencesTab::ALL.map(|tab| Tab {
@@ -163,7 +163,7 @@ fn search_field(ui: &mut Ui, search: &str) -> Option<PreferencesCommand> {
             widgets::text_field(ui, |ui| {
                 ui.add(
                     TextEdit::singleline(&mut text)
-                        .id(Id::new(SEARCH_FIELD))
+                        .id(Id::unique(SEARCH_FIELD))
                         .hint_text(SEARCH_HINT)
                         .desired_width(f32::INFINITY),
                 )
@@ -182,7 +182,7 @@ fn body(
     tab: PreferencesTab,
     command: &mut Option<PreferencesCommand>,
 ) {
-    let tallest_id = Id::new(TALLEST_KEY);
+    let tallest_id = Id::unique(TALLEST_KEY);
     let tallest = ui
         .data(|data| data.get_temp::<f32>(tallest_id))
         .unwrap_or_default();
@@ -290,12 +290,12 @@ fn section_card(ui: &mut Ui, shown: &Shown<'_>, section: Section, content: impl 
         widgets::card(ui, content);
     });
     if acted {
-        ui.data_mut(|data| data.insert_temp(Id::new(RESET_KEY), section));
+        ui.data_mut(|data| data.insert_temp(Id::unique(RESET_KEY), section));
     }
 }
 
 fn take_reset(ui: &Ui) -> Option<Section> {
-    let id = Id::new(RESET_KEY);
+    let id = Id::unique(RESET_KEY);
     let section = ui.data(|data| data.get_temp::<Section>(id));
     if section.is_some() {
         ui.data_mut(|data| data.remove::<Section>(id));
@@ -722,7 +722,7 @@ pub const CUSTOM_GRID: &str = "Custom grid colour";
 pub const GRID_SELECTOR: &str = "preferences-grid-colour";
 
 pub fn theme_card_id(theme: &Theme) -> Id {
-    Id::new(("theme-card", theme.key()))
+    Id::unique(("theme-card", theme.key()))
 }
 
 pub fn accent_name(accent: Accent) -> String {
@@ -924,7 +924,7 @@ fn grid_swatches(
     .grid;
     let automatic = scene_palette::shown_grid(automatic, contrast, canvas);
     let custom = current.grid.custom();
-    let selector = Id::new(GRID_SELECTOR);
+    let selector = Id::unique(GRID_SELECTOR);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
     let toggled = ui
@@ -985,7 +985,7 @@ fn body_swatches(
     let canvas = current.view.canvas(chosen_look(current, themes).canvas);
     let contrast = Contrast::of(current.high_contrast);
     let custom = current.body.custom();
-    let selector = Id::new(BODY_SELECTOR);
+    let selector = Id::unique(BODY_SELECTOR);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
     let toggled = ui

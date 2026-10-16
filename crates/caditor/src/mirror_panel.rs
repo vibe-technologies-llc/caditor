@@ -58,7 +58,7 @@ impl Panel<'_> {
         widgets::caption(ui, "Mirror across");
         let chosen = plane_selector::combo(
             ui,
-            Id::new(("mirror-plane", self.id())),
+            Id::unique(("mirror-plane", self.id())),
             document,
             datum_tools::listed_planes(document, self.id()),
             Some(&self.mirror.plane),

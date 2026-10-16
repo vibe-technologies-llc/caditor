@@ -51,10 +51,7 @@ deny = [
     { crate = "zstd-sys", reason = "C library; caditor-zstd wraps the Rust port" }
 ]
 skip = [
-    {
-        crate = "accesskit_consumer@0.35.0",
-        reason = "accesskit_winit pins its Windows adapter to an older consumer than its Unix one"
-    },
+    { crate = "accesskit@0.24.1", reason = "egui-phosphor 0.14 is still on egui 0.36" },
     {
         crate = "calloop-wayland-source@0.3.0",
         reason = "winit 0.30 stays on smithay-client-toolkit 0.19"
@@ -63,7 +60,19 @@ skip = [
         crate = "calloop@0.13.0",
         reason = "winit 0.30 stays on smithay-client-toolkit 0.19 while egui's clipboard moved to 0.20"
     },
+    { crate = "ecolor@0.36.2", reason = "egui-phosphor 0.14 is still on egui 0.36" },
+    { crate = "egui@0.36.2", reason = "egui-phosphor 0.14 is still on egui 0.36" },
+    { crate = "emath@0.36.2", reason = "egui-phosphor 0.14 is still on egui 0.36" },
+    { crate = "epaint@0.36.2", reason = "egui-phosphor 0.14 is still on egui 0.36" },
+    {
+        crate = "foldhash@0.1.5",
+        reason = "petgraph under arboard's Wayland clipboard (wl-clipboard-rs) has not moved to 0.2"
+    },
     { crate = "getrandom@0.3.4", reason = "ahash 0.8 has not moved to getrandom 0.4" },
+    {
+        crate = "hashbrown@0.15.5",
+        reason = "petgraph under arboard's Wayland clipboard (wl-clipboard-rs) has not moved to 0.17"
+    },
     {
         crate = "hashbrown@0.16.1",
         reason = "accesskit and gpu-allocator have not moved to hashbrown 0.17"
@@ -92,7 +101,8 @@ skip = [
         crate = "windows-sys@0.59.0",
         reason = "rustix 0.38 under winit's calloop 0.13, reached through its Windows target table"
     },
-    { crate = "windows-sys@0.60.2", reason = "arboard, egui's clipboard, on Windows" },
+    { crate = "vello_common@0.1.0", reason = "egui-phosphor 0.14 is still on egui 0.36" },
+    { crate = "vello_cpu@0.1.0", reason = "egui-phosphor 0.14 is still on egui 0.36" },
     {
         crate = "windows-targets@0.52.6",
         reason = "windows-sys 0.52 and 0.59 under winit and rustix 0.38"

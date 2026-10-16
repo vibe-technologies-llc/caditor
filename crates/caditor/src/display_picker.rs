@@ -43,7 +43,7 @@ pub fn show(ui: &Ui, rect: Rect, style: DisplayStyle) -> Response {
     canvas::menu_button(
         ui,
         rect,
-        Id::new("display-style-picker"),
+        Id::unique("display-style-picker"),
         (glyph(style), style.short_title()),
         &name_of(style),
     )

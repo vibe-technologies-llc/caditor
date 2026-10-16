@@ -14,8 +14,8 @@ use caditor_render::{
 };
 use caditor_sketch::{ClipError, ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use egui::{
-    Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
-    Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
+    Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Role, Sense, Shape,
+    Stroke, Ui, UiBuilder, Vec2, WidgetInfo, accesskit::Live, pos2, vec2,
 };
 
 use crate::{
@@ -1393,8 +1393,12 @@ impl ViewportState {
             let rect = ui.max_rect();
             self.rect = Some(rect);
             self.pixels_per_point = ui.ctx().pixels_per_point();
-            let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
-            response.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, VIEWPORT_NAME));
+            let response = ui.interact(
+                rect,
+                ui.scope_id().with("viewport"),
+                Sense::click_and_drag(),
+            );
+            response.widget_info(|| WidgetInfo::labeled(Role::Unknown, true, VIEWPORT_NAME));
             let described = self.description.of(model, editing.feature()).to_owned();
             let accessible = ui
                 .ctx()
@@ -5562,8 +5566,9 @@ impl ViewportState {
             let wanted = Align2::LEFT_BOTTOM.anchor_size(bottom_left, label.size());
             canvas_guidance::first_clear(&[wanted], &taken, rect).map(|wanted| {
                 let area = label.paint(painter, wanted.min);
-                let response = ui.interact(area, ui.id().with("grid spacing"), Sense::hover());
-                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
+                let response =
+                    ui.interact(area, ui.scope_id().with("grid spacing"), Sense::hover());
+                response.widget_info(|| WidgetInfo::labeled(Role::Label, true, &text));
                 area
             })
         });
@@ -8600,7 +8605,7 @@ fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) {
     let nowhere = Rect::from_min_size(corner, Vec2::ZERO);
     let node = |ui: &mut Ui, id: Id, name: &str| {
         let response = ui.interact(nowhere, id, Sense::hover());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
+        response.widget_info(|| WidgetInfo::labeled(Role::Label, true, name));
         response.id
     };
     let within = |parent: Id| {

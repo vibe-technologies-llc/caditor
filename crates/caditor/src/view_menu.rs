@@ -315,7 +315,7 @@ impl ViewMenu {
             Showing::Shown => entries,
         };
         self.showing = Showing::Shown;
-        let id = Id::new(MENU_ID).with(self.serial);
+        let id = Id::unique(MENU_ID).with(self.serial);
         let place = self.place;
         let held = &self.held;
         let opening = widgets::menu_opening_down(ctx, self.anchor, self.size);

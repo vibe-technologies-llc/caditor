@@ -165,7 +165,7 @@ impl Picking {
 }
 
 fn key() -> Id {
-    Id::new("reference-picking")
+    Id::unique("reference-picking")
 }
 
 pub fn publish(ctx: &Context, picking: Option<Picking>) {

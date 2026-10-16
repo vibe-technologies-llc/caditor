@@ -268,7 +268,7 @@ fn holding_a_key_repeats_only_commands_that_should_repeat() {
 fn command_shortcuts_work_while_a_button_has_focus() {
     let mut harness = Harness::new();
     harness.edit_width("45 mm");
-    let button = egui::Id::new("focused button");
+    let button = egui::Id::unique("focused button");
     harness
         .context
         .memory_mut(|memory| memory.request_focus(button));

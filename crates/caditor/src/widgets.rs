@@ -2,11 +2,11 @@ use std::{f64::consts::TAU, ops::RangeInclusive, sync::Arc, time::Duration};
 
 use egui::{
     Align, Align2, AsIdSalt, AtomExt, Button, Checkbox, Color32, ComboBox, CornerRadius,
-    CursorIcon, FocusDirection, Frame, Galley, Grid, Id, InnerResponse, Key, Label, Layout, Margin,
-    Modal, Modifiers, Order, Painter, Popup, RadioButton, Rect, Response, RichText, ScrollArea,
-    Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget,
-    WidgetInfo, WidgetText, WidgetType,
-    accesskit::{HasPopup, Live, Role},
+    CursorIcon, FocusDirection, Frame, Galley, Grid, Id, IdSalt, InnerResponse, Key, Label, Layout,
+    Margin, Modal, Modifiers, Order, Painter, Popup, RadioButton, Rect, Response, RichText, Role,
+    ScrollArea, Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, Vec2,
+    Widget, WidgetInfo, WidgetText,
+    accesskit::{HasPopup, Live},
     collapsing_header::CollapsingState,
     emath::lerp,
     pos2,
@@ -184,7 +184,7 @@ impl Progress {
 pub fn spinner(ui: &mut Ui) -> Response {
     let size = ui.style().spacing.interact_size.y;
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
-    response.widget_info(|| WidgetInfo::new(WidgetType::ProgressIndicator));
+    response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
     if ui.is_rect_visible(rect) {
         ui.ctx().request_repaint_after(SPINNER_FRAME);
         let color = ui.visuals().strong_text_color();
@@ -215,7 +215,7 @@ pub fn icon_label(ui: &mut Ui, glyph: &str, color: Color32) -> Response {
 
 pub fn described_icon(ui: &mut Ui, glyph: &str, color: Color32, description: &str) -> Response {
     let response = ui.add(Label::new(icon(glyph).color(color)).selectable(false));
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, description));
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, true, description));
     response.on_hover_text(description)
 }
 
@@ -241,8 +241,8 @@ pub fn decorative(ui: &Ui, response: &Response) {
 fn name_button(response: Response, name: &str, selected: Option<bool>) -> Response {
     let enabled = response.enabled();
     response.widget_info(|| match selected {
-        Some(selected) => WidgetInfo::selected(WidgetType::Button, enabled, selected, name),
-        None => WidgetInfo::labeled(WidgetType::Button, enabled, name),
+        Some(selected) => WidgetInfo::selected(Role::Button, enabled, selected, name),
+        None => WidgetInfo::labeled(Role::Button, enabled, name),
     });
     response
 }
@@ -1071,7 +1071,7 @@ pub fn panel_header<R>(
     actions: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     let tokens = appearance::tokens(ui);
-    let width_id = ui.id().with((PANEL_HEADER_WIDTH, title));
+    let width_id = ui.scope_id().with((PANEL_HEADER_WIDTH, title));
     let spacing = ui.spacing().item_spacing.x;
     let heading = |ui: &mut Ui| {
         icon_label(ui, glyph, tokens.text_muted);
@@ -1151,7 +1151,7 @@ pub fn side_panel_parts<H, R>(
 }
 
 pub fn panel_footer<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Panel::bottom(Id::new(id).with(PANEL_FOOTER))
+    egui::Panel::bottom(Id::unique(id).with(PANEL_FOOTER))
         .show_separator_line(false)
         .show(ui, add)
         .inner
@@ -1167,7 +1167,7 @@ pub fn panel_scroll<R>(ui: &mut Ui, id_salt: impl AsIdSalt, add: impl FnOnce(&mu
 }
 
 fn primary_action_key() -> Id {
-    Id::new("dialog-primary-action")
+    Id::unique("dialog-primary-action")
 }
 
 fn focus_primary_action(ctx: &egui::Context) {
@@ -1199,7 +1199,7 @@ pub fn truncated_link(ui: &mut Ui, text: &str) -> Response {
 fn link_from(ui: &mut Ui, text: &str, label: Label) -> Response {
     let tokens = appearance::tokens(ui);
     let response = ui.add(label.selectable(false).sense(Sense::click()));
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Link, true, text));
+    response.widget_info(|| WidgetInfo::labeled(Role::Link, true, text));
     if response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         let stroke = Stroke::new(UNDERLINE_WIDTH * 2.0, tokens.accent_text);
@@ -1344,7 +1344,7 @@ fn glyph_pill_sized(
     match role {
         PillRole::Shown => response,
         PillRole::Named(name) => {
-            response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
+            response.widget_info(|| WidgetInfo::labeled(Role::Label, true, name));
             response
         }
         PillRole::Button(name) => {
@@ -1485,7 +1485,7 @@ pub fn column_caption(ui: &mut Ui, text: &str) {
 pub fn caption(ui: &mut Ui, text: &str) {
     let tokens = appearance::tokens(ui);
     let room = ui
-        .data(|data| data.get_temp::<f32>(Id::new(CAPTION_ROOM_KEY)))
+        .data(|data| data.get_temp::<f32>(Id::unique(CAPTION_ROOM_KEY)))
         .unwrap_or(f32::INFINITY);
     let galley = WidgetText::from(RichText::new(text).color(tokens.text_muted)).into_galley(
         ui,
@@ -1502,7 +1502,7 @@ pub fn tie_to_caption(ui: &Ui, field: &Response) {
     let caption = ui
         .stack()
         .iter()
-        .find_map(|level| ui.data(|data| data.get_temp::<Id>(level.id.with(CAPTION_KEY))));
+        .find_map(|level| ui.data(|data| data.get_temp::<Id>(level.unique_id.with(CAPTION_KEY))));
     if let Some(caption) = caption {
         field.clone().labelled_by(caption);
     }
@@ -1517,7 +1517,7 @@ pub fn properties<R>(
     id: impl std::hash::Hash + std::fmt::Debug,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
-    let room_key = Id::new(CAPTION_ROOM_KEY);
+    let room_key = Id::unique(CAPTION_ROOM_KEY);
     let value_room = ui.available_width() - FIELD_WIDTH - PROPERTY_SPACING[0];
     let caption_room = value_room.max(CAPTION_WIDTH);
     let least_caption = if value_room < CAPTION_WIDTH {
@@ -1529,7 +1529,7 @@ pub fn properties<R>(
     ui.data_mut(|data| data.insert_temp(room_key, caption_room));
     let outside = ui.style().wrap_mode;
     ui.style_mut().wrap_mode = Some(TextWrapMode::Wrap);
-    let inner = Grid::new(Id::new(("properties", id)))
+    let inner = Grid::new(Id::unique(("properties", id)))
         .num_columns(2)
         .spacing(PROPERTY_SPACING)
         .min_col_width(least_caption)
@@ -1586,7 +1586,7 @@ pub fn reveal_section(ctx: &egui::Context, id: &str) {
 }
 
 pub fn set_section_open(ctx: &egui::Context, id: &str, open: bool) {
-    let mut state = CollapsingState::load_with_default_open(ctx, Id::new(("section", id)), true);
+    let mut state = CollapsingState::load_with_default_open(ctx, Id::unique(("section", id)), true);
     if state.is_open() != open {
         state.set_open(open);
         state.store(ctx);
@@ -1594,7 +1594,7 @@ pub fn set_section_open(ctx: &egui::Context, id: &str, open: bool) {
 }
 
 pub fn is_section_open(ctx: &egui::Context, id: &str) -> bool {
-    CollapsingState::load_with_default_open(ctx, Id::new(("section", id)), true).is_open()
+    CollapsingState::load_with_default_open(ctx, Id::unique(("section", id)), true).is_open()
 }
 
 pub fn section(
@@ -1638,7 +1638,7 @@ fn section_with(
 ) -> bool {
     let tokens = appearance::tokens(ui);
     let mut state =
-        CollapsingState::load_with_default_open(ui.ctx(), Id::new(("section", id)), true);
+        CollapsingState::load_with_default_open(ui.ctx(), Id::unique(("section", id)), true);
     let row = |ui: &mut Ui| {
         ui.horizontal(|ui| {
             let chevron = if state.is_open() {
@@ -1806,7 +1806,7 @@ enum CornerMark {
 fn corner_menu(ui: &mut Ui, rect: Rect, menu: &CornerMenu<'_>, mark: CornerMark) -> Response {
     let tokens = appearance::tokens(ui);
     let response = ui.interact(rect, menu.id, Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), menu.name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), menu.name));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
     if ui.is_rect_visible(rect) {
         let fill = if response.is_pointer_button_down_on() {
@@ -1894,7 +1894,7 @@ fn title_caret(ui: &Ui) -> Arc<Galley> {
 
 fn group_menu_trigger(ui: &Ui, response: &Response, rect: Rect, name: &str) -> bool {
     let tokens = appearance::tokens(ui);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(response));
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_has_popup(HasPopup::Menu);
@@ -2000,12 +2000,7 @@ impl Widget for ToolButton<'_> {
         };
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         response.widget_info(|| {
-            WidgetInfo::selected(
-                WidgetType::Button,
-                ui.is_enabled(),
-                self.selected,
-                self.label,
-            )
+            WidgetInfo::selected(Role::Button, ui.is_enabled(), self.selected, self.label)
         });
         if ui.is_rect_visible(rect) {
             let visuals = ui.style().interact_selectable(&response, self.selected);
@@ -2092,12 +2087,7 @@ impl Widget for TabButton<'_> {
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
         let response = ui.interact(rect, self.id, Sense::click());
         response.widget_info(|| {
-            WidgetInfo::selected(
-                WidgetType::Button,
-                ui.is_enabled(),
-                self.selected,
-                self.tab.label,
-            )
+            WidgetInfo::selected(Role::Button, ui.is_enabled(), self.selected, self.tab.label)
         });
         ui.ctx()
             .accesskit_node_builder(response.id, |node| node.set_role(Role::Tab));
@@ -2151,7 +2141,7 @@ impl Widget for TabButton<'_> {
 }
 
 pub fn tab_id(tabs: &str, index: usize) -> Id {
-    Id::new(("tabs", tabs)).with(("tab", index))
+    Id::unique(("tabs", tabs)).with(("tab", index))
 }
 
 fn switch_keys_step(ui: &mut Ui) -> Option<isize> {
@@ -2316,7 +2306,7 @@ pub fn search_dialog<T>(
     width: DialogWidth,
     add: impl FnOnce(&mut Ui) -> T,
 ) -> DialogResponse<T> {
-    let id = Id::new(id);
+    let id = Id::unique(id);
     let top = TOP_DIALOG_OFFSET.max(window_frame::controls_bottom(ctx) + DIALOG_EDGE);
     let response = Modal::new(id)
         .area(Modal::default_area(id).anchor(Align2::CENTER_TOP, vec2(0.0, top)))
@@ -2339,7 +2329,7 @@ fn titled_dialog<T>(
     heading: impl FnOnce(&mut Ui),
     add: impl FnOnce(&mut Ui) -> T,
 ) -> egui::ModalResponse<T> {
-    let id = Id::new(id);
+    let id = Id::unique(id);
     ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
     let below_controls = vec2(0.0, window_frame::controls_bottom(ctx) / 2.0);
     Modal::new(id)
@@ -2364,7 +2354,7 @@ fn arrange_dialog<T>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> T) -> T {
         room: (tallest_dialog(ui.ctx()) - heading).max(MIN_LIST_HEIGHT),
         body_end: None,
     };
-    let key = Id::new(OPEN_DIALOG_KEY);
+    let key = Id::unique(OPEN_DIALOG_KEY);
     ui.data_mut(|data| data.insert_temp(key, open));
     let inner = add(ui);
     let body_end = ui
@@ -2431,7 +2421,7 @@ pub fn dialog_body<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 impl DialogBody {
     pub fn id_salt(self, id_salt: impl AsIdSalt) -> Self {
         Self {
-            id_salt: Some(Id::new(id_salt)),
+            id_salt: Some(Id::unique(id_salt)),
             ..self
         }
     }
@@ -2448,7 +2438,7 @@ impl DialogBody {
     }
 
     pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-        let key = Id::new(OPEN_DIALOG_KEY);
+        let key = Id::unique(OPEN_DIALOG_KEY);
         let open = ui.data(|data| data.get_temp::<OpenDialog>(key));
         let room = open.map_or_else(
             || ui.ctx().content_rect().height() * LIST_SCREEN_SHARE,
@@ -2459,9 +2449,10 @@ impl DialogBody {
             .map_or(room, |most| room.min(most))
             .max(MIN_LIST_HEIGHT);
         let least = self.min_height.min(room);
-        let id_salt = self
-            .id_salt
-            .unwrap_or_else(|| open.map_or(ui.id(), |open| open.id).with(OPEN_DIALOG_KEY));
+        let id_salt = self.id_salt.unwrap_or_else(|| {
+            open.map_or(ui.scope_id(), |open| open.id)
+                .with(OPEN_DIALOG_KEY)
+        });
         let inner = ScrollArea::vertical()
             .id_salt(id_salt)
             .max_height(room)
@@ -2571,14 +2562,14 @@ pub fn checkbox(ui: &mut Ui, checked: &mut bool, label: impl Into<String>) -> Re
 pub fn unlabelled_checkbox(ui: &mut Ui, checked: &mut bool, name: &str) -> Response {
     let response = with_box_look(ui, |ui| ui.add(Checkbox::new(checked, "")));
     let (enabled, selected) = (response.enabled(), *checked);
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, selected, name));
+    response.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, selected, name));
     response
 }
 
 pub fn unlabelled_radio(ui: &mut Ui, selected: bool, name: &str) -> Response {
     let response = with_box_look(ui, |ui| ui.add(RadioButton::new(selected, "")));
     let enabled = response.enabled();
-    response.widget_info(|| WidgetInfo::selected(WidgetType::RadioButton, enabled, selected, name));
+    response.widget_info(|| WidgetInfo::selected(Role::RadioButton, enabled, selected, name));
     response
 }
 
@@ -2648,8 +2639,8 @@ pub struct MenuEntry<'a> {
 pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem {
     let muted = appearance::tokens(ui).text_muted;
     let side = ui.spacing().interact_size.y;
-    let slot = Id::new(("removable-menu-item", entry.hover));
-    let focus_key = slot.with("focused");
+    let slot = IdSalt::new(("removable-menu-item", entry.hover));
+    let focus_key = Id::unique(("removable-menu-item", entry.hover, "focused"));
     let title = if entry.muted {
         RichText::new(entry.title).color(muted)
     } else {

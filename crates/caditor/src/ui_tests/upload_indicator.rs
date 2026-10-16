@@ -20,6 +20,10 @@ fn uploading(harness: &mut Harness, on: bool) {
     harness.frame();
 }
 
+fn style_the_widgets_shown_anew(harness: &mut Harness) {
+    harness.frame();
+}
+
 #[test]
 fn the_graphics_card_indicator_shows_while_meshes_upload_and_not_otherwise() {
     let mut harness = Harness::new();
@@ -58,6 +62,7 @@ fn the_graphics_card_indicator_asks_for_no_repaint_once_the_uploads_end() {
     let during = harness.repaint_after;
 
     uploading(&mut harness, false);
+    style_the_widgets_shown_anew(&mut harness);
     let after = harness.repaint_after;
 
     assert_eq!(idle, Duration::MAX);

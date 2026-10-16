@@ -113,7 +113,7 @@ pub fn texture_name(size: u32) -> String {
 }
 
 fn texture(ui: &Ui, render: Render) -> Option<TextureHandle> {
-    let id = Id::new(("caditor-logo", render.size));
+    let id = Id::unique(("caditor-logo", render.size));
     if let Some(cached) = ui.data(|data| data.get_temp::<Option<TextureHandle>>(id)) {
         return cached;
     }

@@ -242,7 +242,7 @@ pub fn show(
         } else {
             (RIBBON, labelled)
         };
-        ui.data_mut(|data| data.insert_temp(Id::new(COMPACT_KEY), compact));
+        ui.data_mut(|data| data.insert_temp(Id::unique(COMPACT_KEY), compact));
         let captions = !compact && rows.len() == 1;
         for (index, row) in rows.into_iter().enumerate() {
             if index > 0 {
@@ -254,7 +254,7 @@ pub fn show(
                     let name = group.menu_name();
                     let contents = group.menu_contents();
                     let menu = GroupMenu {
-                        id: Id::new(("ribbon-group-menu", group)),
+                        id: Id::unique(("ribbon-group-menu", group)),
                         name: &name,
                         contents: &contents,
                     };
@@ -371,7 +371,7 @@ fn group_buttons(
 fn tool_button<'a>(ui: &Ui, glyph: &'a str, label: &'a str) -> ToolButton<'a> {
     let button = ToolButton::new(glyph, label);
     let compact = ui
-        .data(|data| data.get_temp::<bool>(Id::new(COMPACT_KEY)))
+        .data(|data| data.get_temp::<bool>(Id::unique(COMPACT_KEY)))
         .unwrap_or(false);
     if compact { button.compact() } else { button }
 }

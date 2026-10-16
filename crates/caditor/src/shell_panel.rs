@@ -48,7 +48,7 @@ fn thickness_row(
 ) {
     let quantity = Quantity {
         feature,
-        id: Id::new(("shell-thickness", feature)),
+        id: Id::unique(("shell-thickness", feature)),
         expression: &shell.thickness,
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,
@@ -259,7 +259,7 @@ fn own_thickness_rows(
         let owned_as = format!("Thickness of {caption}");
         let quantity = Quantity {
             feature: id,
-            id: Id::new(("shell-own-thickness", id, index)),
+            id: Id::unique(("shell-own-thickness", id, index)),
             expression: &entry.thickness,
             dimension: Dimension::LENGTH,
             rule: Rule::AboveZero,

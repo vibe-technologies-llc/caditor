@@ -39,7 +39,7 @@ fn open_extrusion(harness: &mut Harness) -> FeatureId {
 }
 
 fn distance_field(extrude: FeatureId) -> Id {
-    Id::new(("solid-field", "distance", extrude))
+    Id::unique(("solid-field", "distance", extrude))
 }
 
 fn extrude_of(harness: &Harness, feature: FeatureId) -> Extrude {
@@ -126,7 +126,7 @@ fn a_datum_plane_offset_being_typed_is_drawn_before_it_is_entered() {
             })
         };
 
-    harness.draft_into_field(Id::new(("datum-field", "offset", plane)), "25 mm");
+    harness.draft_into_field(Id::unique(("datum-field", "offset", plane)), "25 mm");
     harness.wait_until("the typed offset is computed", |harness| {
         harness.model.draft_evaluation().is_some()
     });
@@ -146,7 +146,7 @@ fn a_hole_diameter_being_typed_previews_its_drills() {
     harness.settle();
     let hole = harness.workspace.editing.solid().expect("the hole is open");
 
-    harness.draft_into_field(Id::new(("hole-field", "diameter", hole)), "9 mm");
+    harness.draft_into_field(Id::unique(("hole-field", "diameter", hole)), "9 mm");
     harness.wait_until("the typed diameter is drilled", |harness| {
         harness
             .model
@@ -235,7 +235,10 @@ fn dragging_a_move_arrow_of_a_named_distance_keeps_the_name() {
     harness.click("Move body");
     harness.settle();
     let movement = harness.workspace.editing.solid().expect("the move is open");
-    harness.type_into_field(Id::new(("move-field", "offset", 0, movement)), "dx = 5 mm");
+    harness.type_into_field(
+        Id::unique(("move-field", "offset", 0, movement)),
+        "dx = 5 mm",
+    );
     harness.settle();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
@@ -477,7 +480,7 @@ fn a_scale_centre_is_taken_from_a_selected_corner_or_the_body_centre() {
         .editing
         .solid()
         .expect("the scale is open");
-    harness.type_into_field(Id::new(("scale-field", ("factor", 0), scale)), "2");
+    harness.type_into_field(Id::unique(("scale-field", ("factor", 0), scale)), "2");
     harness.settle();
     let corner = harness
         .built()

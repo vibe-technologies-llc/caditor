@@ -173,7 +173,7 @@ impl Panel<'_> {
             });
         let chosen = feature_fields::combo(
             ui,
-            Id::new(("thread-standard", self.id())),
+            Id::unique(("thread-standard", self.id())),
             current.label(),
             || {
                 ThreadFamily::ALL
@@ -201,7 +201,7 @@ impl Panel<'_> {
         let current = self.thread.size;
         let chosen = feature_fields::combo(
             ui,
-            Id::new(("thread-size", self.id())),
+            Id::unique(("thread-size", self.id())),
             current.label(),
             || {
                 current
@@ -241,7 +241,7 @@ impl Panel<'_> {
         let current = self.thread.class;
         let chosen = feature_fields::combo(
             ui,
-            Id::new(("thread-class", self.id())),
+            Id::unique(("thread-class", self.id())),
             current.label(),
             || {
                 offered
@@ -324,7 +324,7 @@ impl Panel<'_> {
         };
         let quantity = Quantity {
             feature: self.id(),
-            id: Id::new(("thread-depth", self.id())),
+            id: Id::unique(("thread-depth", self.id())),
             expression: &depth,
             dimension: Dimension::LENGTH,
             rule: Rule::AboveZero,

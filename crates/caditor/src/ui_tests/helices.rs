@@ -67,7 +67,7 @@ fn helix_winds_round_z_from_the_palette_and_a_triangle_swept_along_it_makes_a_th
     assert!(harness.shows(coil_panel::SIZED_BY));
     assert!(!harness.document().feature(helix).unwrap().makes_body());
 
-    harness.type_into_field(Id::new(("helix-field", helix, "turns")), "2");
+    harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "2");
     harness.settle();
     assert_eq!(
         helix_of(&harness, helix).length.turns(),
@@ -135,7 +135,7 @@ fn typing_a_start_angle_starts_the_helix_further_round_its_axis_in_one_undoable_
     let helix = open_vertical_helix(&mut harness);
     let before = start_of(&harness, helix);
 
-    harness.type_into_field(Id::new(("helix-field", helix, "start")), "90");
+    harness.type_into_field(Id::unique(("helix-field", helix, "start")), "90");
     harness.settle();
     let after = start_of(&harness, helix);
 

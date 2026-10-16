@@ -47,7 +47,7 @@ pub fn listed(names: &[&str]) -> String {
 }
 
 pub fn width_id(ribbon: &'static str, group: impl Hash + Debug) -> Id {
-    Id::new((ribbon, "group-width", group))
+    Id::unique((ribbon, "group-width", group))
 }
 
 pub fn remembered_widths<G: Copy + Hash + Debug>(

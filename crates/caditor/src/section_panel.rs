@@ -133,7 +133,7 @@ fn base_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut 
     let document = context.model.document();
     let chosen = plane_selector::combo_showing(
         ui,
-        Id::new(("section-plane-base", index)),
+        Id::unique(("section-plane-base", index)),
         document,
         (cut.base_name(context.model).into(), |plane| {
             datum_tools::plane_pickable(plane) == Some(cut.base)
@@ -184,7 +184,7 @@ fn cut_rows(ui: &mut Ui, context: &SectionContext<'_>, index: usize, cut: &mut C
         let value = Value {
             caption,
             hover,
-            id: Id::new(("section", index, slot)),
+            id: Id::unique(("section", index, slot)),
             dimension,
         };
         changed |= value_row(ui, model, &value, expression);

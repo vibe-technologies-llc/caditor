@@ -58,11 +58,11 @@ pub enum Outcome {
 }
 
 pub fn rename_field_id() -> Id {
-    Id::new((DIALOG_ID, "rename"))
+    Id::unique((DIALOG_ID, "rename"))
 }
 
 pub fn cell_id(row: ConfigurationId, value: ConfiguredValue) -> Id {
-    Id::new((DIALOG_ID, "cell", row, value))
+    Id::unique((DIALOG_ID, "cell", row, value))
 }
 
 pub fn value_name(document: &Document, value: ConfiguredValue) -> String {

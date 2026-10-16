@@ -14,8 +14,8 @@ use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
 use egui::{
     Align, Align2, Area, Color32, CursorIcon, FontId, Frame, Id, Key, Label, Modifiers, Order,
-    Popup, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, TextEdit, TextStyle, Ui,
-    WidgetInfo, WidgetType, collapsing_header::CollapsingState, pos2, vec2,
+    Popup, Pos2, Rect, Response, RichText, Role, Sense, Sides, Stroke, TextEdit, TextStyle, Ui,
+    WidgetInfo, collapsing_header::CollapsingState, pos2, vec2,
 };
 
 use crate::{
@@ -512,7 +512,7 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         vec2(ui.available_width(), BAR_ROW_HEIGHT),
         Sense::click_and_drag(),
     );
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, ROLLBACK_BAR_NAME));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, true, ROLLBACK_BAR_NAME));
     let response = response
         .on_hover_text(ROLLBACK_BAR_HINT)
         .on_hover_cursor(CursorIcon::Grab);
@@ -661,7 +661,7 @@ fn drag_label(document: &Document, row: TreeRow) -> String {
 }
 
 fn drop_refusal(ctx: &egui::Context, pointer: Pos2, reason: &str) {
-    Area::new(Id::new("feature-tree-drop-refusal"))
+    Area::new(Id::unique("feature-tree-drop-refusal"))
         .order(Order::Tooltip)
         .fixed_pos(pointer + DROP_REASON_OFFSET)
         .interactable(false)
@@ -713,7 +713,7 @@ fn is_plain(ui: &Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> bool {
     });
     let collapsed = CollapsingState::load(ui.ctx(), ui.make_persistent_id(("feature-header", id)))
         .is_none_or(|collapsing| collapsing.openness(ui.ctx()) == 0.0);
-    let row_focused = ui.memory(|memory| memory.has_focus(Id::new(("feature-row", id))));
+    let row_focused = ui.memory(|memory| memory.has_focus(Id::unique(("feature-row", id))));
     !row.edited
         && !has_callout
         && collapsed
@@ -786,7 +786,7 @@ fn feature_row(
                     );
                     Name::Shown(tree_row::sense(
                         ui,
-                        Id::new(("feature-row", id)),
+                        Id::unique(("feature-row", id)),
                         toggle.rect.right(),
                         &feature.name,
                         row.selected,
@@ -1525,7 +1525,7 @@ fn rename_field(
     let width = ui.available_width();
     field::commit_field(
         ui,
-        Id::new(("rename-feature", id)),
+        Id::unique(("rename-feature", id)),
         &feature.name,
         width,
         renaming.focus_pending,

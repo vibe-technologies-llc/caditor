@@ -1,7 +1,7 @@
 use caditor_geometry::{Rotation3, Vector3};
 use egui::{
-    Align2, CursorIcon, EventFilter, Key, PointerButton, Pos2, Rect, Sense, Shape, Stroke, Ui,
-    Vec2, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, CursorIcon, EventFilter, Key, PointerButton, Pos2, Rect, Role, Sense, Shape, Stroke,
+    Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use crate::{
@@ -312,7 +312,7 @@ pub fn show(
     texts: &CubeTexts<'_>,
 ) -> Option<CubeAction> {
     let rect = placement.cube_rect(viewport);
-    let id = ui.id().with("view cube");
+    let id = ui.scope_id().with("view cube");
     let response = ui.interact(rect, id, Sense::click_and_drag());
     let orbiting = response.dragged_by(PointerButton::Primary);
     let projector = Projector {
@@ -330,7 +330,7 @@ pub fn show(
     let current = nearest_target(orientation * Vector3::Z);
     let target = hovered.unwrap_or(current);
     let name = format!("{NAME}: {}", view_name(target));
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), &name));
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &name));
     let focused = response.has_focus();
     if focused {
         ui.memory_mut(|memory| {
@@ -417,7 +417,7 @@ pub fn show(
     let fit = canvas::button(
         ui,
         placement.fit_rect(viewport),
-        ui.id().with("fit view"),
+        ui.scope_id().with("fit view"),
         icons::command(Command::FitView),
         texts.fit_label,
     )
@@ -425,7 +425,7 @@ pub fn show(
     let home = canvas::icon_button(
         ui,
         placement.home_rect(viewport),
-        ui.id().with("home view"),
+        ui.scope_id().with("home view"),
         icons::HOME_VIEW,
         HOME_NAME,
     )

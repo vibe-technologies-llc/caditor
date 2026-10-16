@@ -362,6 +362,7 @@ fn after_loading(harness: &mut Harness) {
     timed_frames(harness, "loaded, zooming", |harness, frame| {
         let delta = if frame % 2 == 0 { 60.0 } else { -60.0 };
         harness.events.push(Event::MouseWheel {
+            source: egui::MouseWheelSource::Unknown,
             unit: egui::MouseWheelUnit::Point,
             delta: egui::vec2(0.0, delta),
             phase: egui::TouchPhase::Move,
@@ -496,6 +497,7 @@ fn scroll(harness: &mut Harness, over: Pos2, frame: u32) {
     };
     harness.events.push(Event::PointerMoved(over));
     harness.events.push(Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, delta),
         phase: egui::TouchPhase::Move,

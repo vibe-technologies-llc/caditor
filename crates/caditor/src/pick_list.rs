@@ -99,7 +99,7 @@ impl PickList {
         let mut pointed = None;
         let mut focused = None;
         let mut chosen = None;
-        let shown = Area::new(Id::new(LIST_ID))
+        let shown = Area::new(Id::unique(LIST_ID))
             .order(Order::Foreground)
             .fixed_pos(self.anchor)
             .constrain(true)

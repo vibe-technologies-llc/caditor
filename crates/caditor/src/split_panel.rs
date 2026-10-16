@@ -40,7 +40,7 @@ impl Panel<'_> {
         let current = split_tools::describe(document, &self.split.along);
         widgets::caption(ui, "Split along");
         let chosen =
-            feature_fields::combo(ui, Id::new(("split-plane", self.id())), current, || {
+            feature_fields::combo(ui, Id::unique(("split-plane", self.id())), current, || {
                 split_tools::choices(self.model, self.id(), self.split)
                     .into_iter()
                     .map(|along| Choice {

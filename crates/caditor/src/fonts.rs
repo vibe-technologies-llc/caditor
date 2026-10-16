@@ -55,7 +55,12 @@ pub fn installed(ctx: &egui::Context) -> bool {
 
 pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    fonts.font_data.insert(
+        ICONS.to_owned(),
+        Arc::new(FontData::from_static(
+            egui_phosphor::Variant::Regular.font_bytes(),
+        )),
+    );
     for script in scripts {
         fonts
             .font_data
@@ -67,7 +72,6 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
         .get(&FontFamily::Proportional)
         .into_iter()
         .flatten()
-        .filter(|key| *key != ICONS)
         .cloned()
         .chain(script_keys.clone())
         .collect();
@@ -104,7 +108,6 @@ pub fn definitions_with(scripts: &[FallbackFont]) -> FontDefinitions {
     .chain(fallbacks.iter().cloned())
     .collect();
     fonts.families.insert(icons(), icon_keys);
-    fonts.families.remove(&FontFamily::Name(ICONS.into()));
     fonts
 }
 
