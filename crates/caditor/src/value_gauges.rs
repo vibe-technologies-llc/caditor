@@ -21,6 +21,7 @@ use caditor_sketch::Entity;
 use crate::{
     blend_panel, bodies, coil_panel,
     curve_track::{CurveTrack, TrackPoint},
+    datum_tools,
     feature_fields::Rule,
     handle_snap, hole_panel, hole_tools,
     model::Model,
@@ -1376,7 +1377,14 @@ impl Builder<'_> {
     fn plane_offset(&self, plane: &DatumPlane) -> Option<Gauge> {
         let value = self.length(&plane.offset)?;
         let shown = self.shown_plane()?;
-        let base = shown.origin() - shown.normal() * value;
+        let middle = datum_tools::plane_middle(
+            self.model.document(),
+            self.shown_evaluation(),
+            self.feature,
+            &shown,
+        )
+        .unwrap_or_else(|| shown.origin());
+        let base = middle - shown.normal() * value;
         Some(Gauge::line(
             Measured::PlaneOffset,
             (base, shown.normal()),

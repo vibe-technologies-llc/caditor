@@ -1,17 +1,19 @@
 use caditor_document::{Edit, FeatureId, FeatureKind, Transaction};
 use caditor_expression::{Expression, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Aabb, Plane, Point2, Point3};
 use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    Harness, datum_of, datum_plane_of, extruded_plate, offer, open_solid, plane_height, rectangle,
-    run_from_palette, top_edge_along_x,
+    CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, offer, open_solid,
+    plane_height, rectangle, run_from_palette, top_edge_along_x,
 };
 use crate::{
     commands::Command,
     model::Action,
+    move_manipulator::Handle,
     selection::{Pickable, PrincipalPlane},
+    value_gauges::Measured,
 };
 
 fn datum_plane(harness: &Harness, feature: FeatureId) -> Plane {
@@ -299,4 +301,42 @@ fn a_datum_takes_its_base_and_turn_from_the_selection_in_its_panel() {
         caditor_document::Datum::Axis(caditor_document::DatumAxis::Along(_))
     ));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_plane_started_from_a_face_is_drawn_over_the_middle_of_that_face() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Plane");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let plane = open_solid(&harness);
+    let placed = datum_plane(&harness, plane);
+    let drawn = harness
+        .built()
+        .scene
+        .batches
+        .iter()
+        .flat_map(|batch| batch.fills.iter())
+        .flat_map(|fill| fill.triangles.iter().flatten().copied())
+        .filter(|corner| placed.signed_distance(*corner).abs() < 1e-6)
+        .collect::<Vec<_>>();
+    let square = Aabb::from_points(drawn).expect("the plane is drawn");
+    let foot = harness
+        .workspace
+        .viewport
+        .handle_foot(Handle::Value(Measured::PlaneOffset))
+        .expect("the offset arrow is shown");
+
+    assert!(
+        (square.center() - Point3::new(20.0, 20.0, placed.origin().z)).length() < 1e-6,
+        "{square:?}"
+    );
+    assert!(
+        (foot - Point3::new(20.0, 20.0, placed.origin().z)).length() < 1e-6,
+        "{foot}"
+    );
 }

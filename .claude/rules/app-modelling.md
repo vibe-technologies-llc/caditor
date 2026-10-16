@@ -1300,6 +1300,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   switched to and its distance (`keeping_plane_mode`, `keeping_point_mode`). Choosing in the view holds
   up to two clicks (`Picking::pending`) until the selection makes one, the prompt saying what is still
   wanted.
+- A datum plane is drawn as a square centred where the world origin projects onto it, except one
+  started from a face (`Datum::Plane` on `PlaneReference::Face`), which is centred over the middle
+  of that face's box (`datum_tools::plane_middle`, every piece of a split face), and its Offset
+  arrow stands there too. Display only: the plane's own origin, which sketches on it use, stays.
 - A datum cannot switch between plane and axis, nor an extrusion and a revolve, since `SetFeatureKind`
   refuses a kind change (`document.md`). Outside sketch editing datums are picked as `Pickable::Datum`
   and tinted when failed; double-clicking one opens it.

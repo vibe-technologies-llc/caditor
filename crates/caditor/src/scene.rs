@@ -403,12 +403,14 @@ impl BuiltScene {
                 let sketched = sketches
                     .bounds(evaluation, owner, sketch_points_bounds)
                     .filter(|_| !owner.hidden);
-                let datum =
-                    Aabb::from_points(datum_points(evaluation, *feature, self.reference_size))
-                        .filter(|_| {
-                            (owner.kind.datum().is_some() || owner.kind.helix().is_some())
-                                && !owner.hidden
-                        });
+                let datum = Aabb::from_points(datum_points(
+                    (document, evaluation),
+                    *feature,
+                    self.reference_size,
+                ))
+                .filter(|_| {
+                    (owner.kind.datum().is_some() || owner.kind.helix().is_some()) && !owner.hidden
+                });
                 [drawn, sketched, datum]
                     .into_iter()
                     .flatten()
@@ -1030,7 +1032,7 @@ pub fn build_keeping(
                     .take_while(|earlier| earlier.id() != feature.id());
                 for datum in earlier {
                     if !datum.hidden && datum.kind.datum().is_some_and(Datum::is_plane) {
-                        builder.datum(evaluation, datum.id(), false, reference_size);
+                        builder.datum((document, evaluation), datum.id(), false, reference_size);
                     }
                 }
             } else if context.projecting {
@@ -1075,7 +1077,7 @@ pub fn build_keeping(
                     if curve {
                         builder.helix(shown, feature.id(), opened);
                     } else {
-                        builder.datum(shown, feature.id(), opened, reference_size);
+                        builder.datum((document, shown), feature.id(), opened, reference_size);
                     }
                 }
             }
@@ -1745,7 +1747,13 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn datum(&mut self, evaluation: &Evaluation, feature: FeatureId, opened: bool, size: f64) {
+    fn datum(
+        &mut self,
+        (document, evaluation): (&Document, &Evaluation),
+        feature: FeatureId,
+        opened: bool,
+        size: f64,
+    ) {
         let pickable = Pickable::Datum(feature);
         let failed = matches!(
             evaluation.feature(feature).map(|status| &status.state),
@@ -1778,7 +1786,8 @@ impl<'a> Builder<'a> {
         };
         match datum_tools::result(evaluation, feature) {
             Some(DatumResult::Plane(plane)) => {
-                let corners = datum_plane_corners(plane, size);
+                let middle = datum_tools::plane_middle(document, evaluation, feature, &plane);
+                let corners = datum_plane_corners(plane, middle, size);
                 let next = corners.iter().cycle().skip(1);
                 let outline: Vec<Line> = corners
                     .iter()
@@ -2880,7 +2889,7 @@ impl<'a> Builder<'a> {
                 .datum()
                 .is_some_and(|kind| kind.is_axis() || kind.is_point());
             if !datum.hidden && projectable {
-                self.datum(evaluation, datum.id(), false, size);
+                self.datum((document, evaluation), datum.id(), false, size);
             }
         }
     }
@@ -3531,7 +3540,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .and_then(|mesh| mesh.vertex_position(vertex))
             .into_iter()
             .collect(),
-        Pickable::Datum(feature) => datum_points(evaluation, feature, reference_size),
+        Pickable::Datum(feature) => datum_points((document, evaluation), feature, reference_size),
         Pickable::FrameAxis { feature, axis } => displayed_frame(evaluation, feature)
             .and_then(|frame| axis.in_frame(&frame))
             .map(|ray| vec![ray.origin(), ray.at(reference_size * FRAME_AXIS_SCALE)])
@@ -3645,15 +3654,23 @@ fn axis_ends(ray: Ray, near: Point3, size: f64) -> [Point3; 2] {
     [ray.at(middle - size), ray.at(middle + size)]
 }
 
-fn datum_plane_corners(plane: Plane, size: f64) -> [Point3; 4] {
-    let centre = Point3::ZERO - plane.normal() * plane.signed_distance(Point3::ZERO);
+fn datum_plane_corners(plane: Plane, middle: Option<Point3>, size: f64) -> [Point3; 4] {
+    let centre = middle
+        .unwrap_or_else(|| Point3::ZERO - plane.normal() * plane.signed_distance(Point3::ZERO));
     let centred = Plane::from_frame(centre, plane.normal(), plane.x_axis()).unwrap_or(plane);
     plane_corners(centred, size * DATUM_PLANE_SCALE)
 }
 
-fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<Point3> {
+fn datum_points(
+    (document, evaluation): (&Document, &Evaluation),
+    feature: FeatureId,
+    size: f64,
+) -> Vec<Point3> {
     match datum_tools::result(evaluation, feature) {
-        Some(DatumResult::Plane(plane)) => datum_plane_corners(plane, size).to_vec(),
+        Some(DatumResult::Plane(plane)) => {
+            let middle = datum_tools::plane_middle(document, evaluation, feature, &plane);
+            datum_plane_corners(plane, middle, size).to_vec()
+        }
         Some(DatumResult::Axis(ray)) => axis_ends(ray, Point3::ZERO, size).to_vec(),
         Some(DatumResult::Point(point)) => vec![point],
         Some(DatumResult::Frame(frame)) => {

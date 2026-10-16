@@ -6,11 +6,11 @@ use caditor_document::{
     FeatureResult, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference,
     PrincipalAxis, PrincipalPlane, Transaction,
 };
-use caditor_geometry::Vector3;
-use caditor_kernel::{EdgeReference, FaceReference, Surface, vertex_names};
+use caditor_geometry::{Aabb, Plane, Point3, Vector3};
+use caditor_kernel::{EdgeReference, FaceReference, ReferenceError, Surface, vertex_names};
 
 use crate::{
-    bodies,
+    bodies, body_selection,
     commands::Reason,
     editing::{self, EditingCommand},
     measure,
@@ -291,6 +291,37 @@ pub fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<DatumResult
         .as_deref()
         .and_then(FeatureResult::datum)
         .copied()
+}
+
+pub fn plane_middle(
+    document: &Document,
+    evaluation: &Evaluation,
+    feature: FeatureId,
+    plane: &Plane,
+) -> Option<Point3> {
+    let FeatureKind::Datum(Datum::Plane(DatumPlane {
+        base: PlaneReference::Face(attachment),
+        ..
+    })) = &document.feature(feature)?.kind
+    else {
+        return None;
+    };
+    let solid = evaluation
+        .body_seen_by(feature, attachment.body)
+        .or_else(|| evaluation.body(attachment.body))?;
+    let faces = match attachment.face.resolve(solid) {
+        Ok(face) => vec![face],
+        Err(ReferenceError::Ambiguous(pieces)) => pieces,
+        Err(ReferenceError::Missing) => return None,
+    };
+    let middle = faces
+        .into_iter()
+        .flat_map(|face| body_selection::face_boundary(solid, face))
+        .filter_map(|edge| solid.edge(edge))
+        .map(|edge| edge.curve().bounding_box(edge.interval()))
+        .reduce(Aabb::union)?
+        .center();
+    Some(middle - plane.normal() * plane.signed_distance(middle))
 }
 
 pub fn frames_before(document: &Document, before: usize) -> Vec<FeatureId> {
