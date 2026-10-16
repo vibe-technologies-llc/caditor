@@ -15,7 +15,8 @@ use crate::{
     reference_picking::{Picking, Slot},
     reference_rows::{ReferenceRows, RowCache},
     selection::Selection,
-    shell_tools, widgets,
+    shell_tools::{self, ShellError},
+    widgets,
 };
 
 pub const DESCRIPTION: &str = "Hollows the body, opening the chosen faces";
@@ -31,10 +32,10 @@ pub fn own_thickness_caption(index: usize) -> String {
     format!("Thickness of face {}", index + 1)
 }
 
-fn change(model: &Model, feature: FeatureId, shell: Shell) -> Result<Transaction, String> {
+fn change(model: &Model, feature: FeatureId, shell: Shell) -> Result<Transaction, ShellError> {
     let document = model.document();
-    let transaction = shell_tools::edit(document, feature, shell)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let transaction =
+        shell_tools::edit(document, feature, shell).ok_or(ShellError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -202,7 +203,9 @@ fn side_row(
     }
     let document = model.document();
     let change = shell_tools::side_change(document, feature.id(), side)
-        .ok_or_else(|| "The feature no longer exists".to_owned())
+        .ok_or(ShellError::Gone {
+            feature: feature.id(),
+        })
         .and_then(|transaction| field::checked(document, transaction));
     actions.push(feature_fields::applied(&feature.name, change));
 }

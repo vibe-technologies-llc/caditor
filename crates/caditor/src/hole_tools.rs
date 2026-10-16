@@ -21,7 +21,7 @@ use crate::{
     scene,
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
-    solid_tools,
+    solid_tools::{self, SweepSourceError},
     units::LengthUnit,
     visibility,
 };
@@ -234,7 +234,11 @@ pub fn source(
         } else {
             solid_tools::Guess::Never
         },
-    )?
+    )
+    .map_err(|error| match error {
+        SweepSourceError::SeveralSketches => solid_tools::SEVERAL_SKETCHES,
+        SweepSourceError::SeveralBodies => solid_tools::SEVERAL_BODIES,
+    })?
     .ok_or(if may_guess {
         NO_SKETCH
     } else {

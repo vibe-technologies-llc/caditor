@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     BodyOperation, Document, Edit, FeatureId, FeatureKind, PlaneReference, Primitive,
     PrimitiveAnchor, PrimitiveKind, PrimitiveShape, PrincipalPlane, Transaction, displayed_frame,
@@ -5,10 +7,11 @@ use caditor_document::{
 use caditor_geometry::{Plane, Point2, Ray};
 
 use crate::{
-    commands::Command,
+    commands::{Command, Reason},
     datum_tools::{self, ChosenPlane},
     editing::{self, EditingCommand},
-    field, hole_tools,
+    field::{self, CheckError},
+    hole_tools,
     model::{Action, Model, Notice},
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
@@ -25,11 +28,44 @@ pub const DEFAULT_WEDGE: [f64; 4] = [20.0, 20.0, 10.0, 0.0];
 pub const DEFAULT_PRISM_SIDES: u32 = 6;
 pub const DEFAULT_PRISM: [f64; 2] = [20.0, 10.0];
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Xy);
-const GONE: &str = "The feature no longer exists";
-const NOT_A_PLACE: &str = "Click a plane or flat face to place it on";
-const NO_PLANE: &str = "Select a plane or flat face made before this feature";
-const PLANE_UNAVAILABLE: &str = "The chosen plane has no result yet; fix it or recompute";
-const MISSED: &str = "The click does not meet that plane; look at it from another side";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum PrimitiveError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Click a plane or flat face to place it on")]
+    NotAPlace,
+    #[error("Select a plane or flat face made before this feature")]
+    NoPlane,
+    #[error("The chosen plane has no result yet; fix it or recompute")]
+    PlaneUnavailable,
+    #[error("The click does not meet that plane; look at it from another side")]
+    Missed,
+    #[error("{}", datum_tools::DATUM_NOT_A_PLANE)]
+    DatumNotAPlane,
+    #[error("{}", datum_tools::DATUM_MADE_LATER)]
+    DatumMadeLater,
+    #[error("{}", datum_tools::SEVERAL_PLANES)]
+    SeveralPlanes,
+    #[error("{0}")]
+    ChosenPlane(String),
+    #[error("{0}")]
+    FaceAttachment(String),
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<PrimitiveError> for String {
+    fn from(error: PrimitiveError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for PrimitiveError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrimitiveSource {
@@ -48,8 +84,9 @@ pub fn command(kind: PrimitiveKind) -> Command {
     }
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<PrimitiveSource, &'static str> {
-    let chosen = datum_tools::chosen_plane(model, selection, model.document().bar_index())?;
+pub fn source(model: &Model, selection: &Selection) -> Result<PrimitiveSource, PrimitiveError> {
+    let chosen = datum_tools::chosen_plane(model, selection, model.document().bar_index())
+        .map_err(|error| PrimitiveError::ChosenPlane(error.into()))?;
     Ok(PrimitiveSource { chosen })
 }
 
@@ -126,7 +163,7 @@ struct Place {
     face: Option<FaceChoice>,
 }
 
-fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'static str> {
+fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, PrimitiveError> {
     match pickable {
         Pickable::Plane(plane) => Ok(Place {
             plane: PlaneReference::Principal(plane),
@@ -135,10 +172,10 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
         }),
         Pickable::Datum(datum) => {
             let plane = datum_tools::plane_reference(model, pickable, index)
-                .ok_or(datum_tools::DATUM_NOT_A_PLANE)?;
+                .ok_or(PrimitiveError::DatumNotAPlane)?;
             let frame = datum_tools::result(model.evaluation(), datum)
                 .and_then(|result| result.plane())
-                .ok_or(PLANE_UNAVAILABLE)?;
+                .ok_or(PrimitiveError::PlaneUnavailable)?;
             Ok(Place {
                 plane,
                 frame,
@@ -147,10 +184,10 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
         }
         Pickable::FramePlane { feature, plane } => {
             let reference = datum_tools::plane_reference(model, pickable, index)
-                .ok_or(datum_tools::DATUM_MADE_LATER)?;
+                .ok_or(PrimitiveError::DatumMadeLater)?;
             let frame = displayed_frame(model.evaluation(), feature)
                 .and_then(|placed| plane.in_frame(&placed))
-                .ok_or(PLANE_UNAVAILABLE)?;
+                .ok_or(PrimitiveError::PlaneUnavailable)?;
             Ok(Place {
                 plane: reference,
                 frame,
@@ -158,8 +195,9 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
             })
         }
         pickable => {
-            let choice = FaceChoice::of(pickable).ok_or(NOT_A_PLACE)?;
-            let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)?;
+            let choice = FaceChoice::of(pickable).ok_or(PrimitiveError::NotAPlace)?;
+            let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)
+                .map_err(|error| PrimitiveError::FaceAttachment(error.into()))?;
             Ok(Place {
                 plane: PlaneReference::Face(attachment),
                 frame,
@@ -169,7 +207,11 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
     }
 }
 
-fn chosen_place(model: &Model, chosen: &ChosenPlane, index: usize) -> Result<Place, &'static str> {
+fn chosen_place(
+    model: &Model,
+    chosen: &ChosenPlane,
+    index: usize,
+) -> Result<Place, PrimitiveError> {
     match (&chosen.plane, chosen.face) {
         (PlaneReference::Principal(plane), _) => place_of(model, Pickable::Plane(*plane), index),
         (PlaneReference::Datum(datum), _) => place_of(model, Pickable::Datum(*datum), index),
@@ -182,13 +224,15 @@ fn chosen_place(model: &Model, chosen: &ChosenPlane, index: usize) -> Result<Pla
             index,
         ),
         (PlaneReference::Face(_), Some(face)) => place_of(model, face, index),
-        (PlaneReference::Face(_), None) => Err(NO_PLANE),
+        (PlaneReference::Face(_), None) => Err(PrimitiveError::NoPlane),
     }
 }
 
-fn spot(model: &Model, place: &Place, ray: Option<Ray>) -> Result<Point2, &'static str> {
+fn spot(model: &Model, place: &Place, ray: Option<Ray>) -> Result<Point2, PrimitiveError> {
     if let Some(ray) = ray {
-        let distance = ray.intersect_plane(&place.frame).ok_or(MISSED)?;
+        let distance = ray
+            .intersect_plane(&place.frame)
+            .ok_or(PrimitiveError::Missed)?;
         return Ok(place.frame.to_local(ray.at(distance)));
     }
     Ok(place
@@ -201,7 +245,7 @@ pub fn chosen_spot(
     model: &Model,
     chosen: &ChosenPlane,
     index: usize,
-) -> Result<(PlaneReference, Point2), &'static str> {
+) -> Result<(PlaneReference, Point2), PrimitiveError> {
     let place = chosen_place(model, chosen, index)?;
     let spot = spot(model, &place, None)?;
     Ok((place.plane, spot))
@@ -212,7 +256,7 @@ pub fn clicked_spot(
     pickable: Pickable,
     index: usize,
     ray: Option<Ray>,
-) -> Result<(PlaneReference, Point2), &'static str> {
+) -> Result<(PlaneReference, Point2), PrimitiveError> {
     let place = place_of(model, pickable, index)?;
     let spot = spot(model, &place, ray)?;
     Ok((place.plane, spot))
@@ -226,7 +270,7 @@ pub fn create(
     model: &Model,
     kind: PrimitiveKind,
     source: &PrimitiveSource,
-) -> Result<(Transaction, FeatureId, bool), &'static str> {
+) -> Result<(Transaction, FeatureId, bool), PrimitiveError> {
     let document = model.document();
     let unit = model.length_unit();
     let place = source
@@ -298,9 +342,9 @@ pub fn change(
     model: &Model,
     feature: FeatureId,
     primitive: Primitive,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PrimitiveError> {
     let document = model.document();
-    let transaction = edit(document, feature, primitive).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, primitive).ok_or(PrimitiveError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -337,11 +381,11 @@ fn placed(
     primitive: &Primitive,
     pickable: Pickable,
     ray: Option<Ray>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PrimitiveError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
+        .ok_or(PrimitiveError::Gone { feature })?;
     let place = place_of(model, pickable, index)?;
     let spot = spot(model, &place, ray)?;
     change(
@@ -360,8 +404,8 @@ pub fn placed_on(
     feature: FeatureId,
     primitive: &Primitive,
     plane: &PlaneReference,
-) -> Result<Transaction, String> {
-    let pickable = datum_tools::plane_pickable(plane).ok_or_else(|| NO_PLANE.to_owned())?;
+) -> Result<Transaction, PrimitiveError> {
+    let pickable = datum_tools::plane_pickable(plane).ok_or(PrimitiveError::NoPlane)?;
     placed(model, feature, primitive, pickable, None)
 }
 
@@ -370,7 +414,7 @@ pub fn place_change(
     selection: &Selection,
     feature: FeatureId,
     primitive: &Primitive,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PrimitiveError> {
     let mut chosen = selection.iter().filter(|pickable| {
         matches!(
             pickable,
@@ -382,8 +426,8 @@ pub fn place_change(
     });
     match (chosen.next(), chosen.next()) {
         (Some(pickable), None) => placed(model, feature, primitive, pickable, None),
-        (Some(_), Some(_)) => Err(datum_tools::SEVERAL_PLANES.to_owned()),
-        (None, _) => Err(NO_PLANE.to_owned()),
+        (Some(_), Some(_)) => Err(PrimitiveError::SeveralPlanes),
+        (None, _) => Err(PrimitiveError::NoPlane),
     }
 }
 
@@ -413,6 +457,6 @@ pub fn place_click(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),
         ],
-        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
+        Err(reason) => vec![Action::Inform(Notice::warning(reason.to_string()))],
     }
 }

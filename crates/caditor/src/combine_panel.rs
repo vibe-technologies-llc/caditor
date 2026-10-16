@@ -4,7 +4,8 @@ use egui::{Id, Ui};
 use crate::{
     combine_tools,
     feature_fields::{self, Choice, Segment},
-    field, icons,
+    field::{self, CheckError},
+    icons,
     model::{Action, Model},
     widgets,
 };
@@ -17,10 +18,22 @@ const NOT_A_BODY: &str = "A body that is no longer there";
 pub const SWAP: &str = "Swap target and tool";
 const SWAP_HOVER: &str = "Make the tool body the target and the target the tool, in one change";
 
-fn change(model: &Model, feature: FeatureId, combine: Combine) -> Result<Transaction, String> {
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum CombineChangeError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+fn change(
+    model: &Model,
+    feature: FeatureId,
+    combine: Combine,
+) -> Result<Transaction, CombineChangeError> {
     let document = model.document();
     let transaction = combine_tools::edit(document, feature, combine)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(CombineChangeError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -132,7 +145,10 @@ fn body_row(
                     label: document.body_label(body)?,
                     selected: body == current,
                     change: change(model, id, role.with(combine, body)).map(|transaction| {
-                        feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
+                        feature_fields::applied(
+                            &feature.name,
+                            Ok::<_, CombineChangeError>(transaction),
+                        )
                     }),
                 })
             })
@@ -224,7 +240,10 @@ fn more_tool_rows(
                         label: document.body_label(*body)?,
                         selected: false,
                         change: change(model, id, extended).map(|transaction| {
-                            feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
+                            feature_fields::applied(
+                                &feature.name,
+                                Ok::<_, CombineChangeError>(transaction),
+                            )
                         }),
                     })
                 })

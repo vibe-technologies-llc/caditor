@@ -1,13 +1,15 @@
+use std::fmt::Display;
+
 use caditor_document::{FeatureId, Transaction};
-use caditor_expression::{Dimension, Expression, Quantity};
+use caditor_expression::{Dimension, EvalError, Expression, Quantity};
 use caditor_sketch::{EntityId, Faceting, Sketch};
 
 use crate::{
     blend_curving::BlendCurving,
     drawing::Preview,
     editing::{ActiveSketch, Tool},
-    field::{self, Expected},
-    filleting::{CornerCut, Filleting},
+    field::{self, Expected, ExpressionError},
+    filleting::{CornerCut, Filleting, FilletingError},
     gearing::{GearSettings, Gearing},
     mirroring::Mirroring,
     model::Model,
@@ -52,11 +54,11 @@ pub enum Outcome {
     Refused(String),
 }
 
-impl From<Result<Transaction, String>> for Outcome {
-    fn from(result: Result<Transaction, String>) -> Self {
+impl<E: Display> From<Result<Transaction, E>> for Outcome {
+    fn from(result: Result<Transaction, E>) -> Self {
         match result {
             Ok(transaction) => Self::Apply(transaction),
-            Err(reason) => Self::Refused(reason),
+            Err(reason) => Self::Refused(reason.to_string()),
         }
     }
 }
@@ -87,8 +89,36 @@ pub struct Value {
     pub millimetres: f64,
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ValueError {
+    #[error(transparent)]
+    Expression(#[from] ExpressionError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Unevaluable(EvalError),
+}
+
+impl From<ValueError> for String {
+    fn from(error: ValueError) -> Self {
+        error.to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum EntryError {
+    #[error(transparent)]
+    Value(#[from] ValueError),
+    #[error(transparent)]
+    Filleting(#[from] FilletingError),
+    #[error("{0}")]
+    Offsetting(String),
+    #[error("{0}")]
+    Patterning(String),
+    #[error("{0}")]
+    Tangent(String),
+}
+
 impl Value {
-    pub fn typed(model: &Model, text: &str) -> Result<Self, String> {
+    pub fn typed(model: &Model, text: &str) -> Result<Self, ValueError> {
         let expression = field::parse_expression(
             model.document(),
             model.parameters(),
@@ -104,10 +134,10 @@ impl Value {
         (value.millimetres > 0.0).then_some(value)
     }
 
-    fn of(model: &Model, expression: Expression) -> Result<Self, String> {
+    fn of(model: &Model, expression: Expression) -> Result<Self, ValueError> {
         let millimetres = expression
             .evaluate_as(Dimension::LENGTH, &|id| model.parameters().value(id))
-            .map_err(|error| field::sentence(&error.to_string()))?;
+            .map_err(ValueError::Unevaluable)?;
         Ok(Self {
             expression,
             millimetres,
@@ -421,18 +451,22 @@ impl Modifying {
         }
     }
 
-    pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, String> {
+    pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, EntryError> {
         match &mut self.state {
             State::Pattern(patterning) => match self.context {
-                Some((feature, _)) => patterning.enter_text(model, feature, text),
+                Some((feature, _)) => patterning
+                    .enter_text(model, feature, text)
+                    .map_err(EntryError::Patterning),
                 None => Ok(Outcome::Nothing),
             },
             State::Fillet(filleting) => match self.context {
-                Some((feature, _)) => filleting.enter_text(model, feature, text),
+                Some((feature, _)) => Ok(filleting.enter_text(model, feature, text)?),
                 None => Ok(Outcome::Nothing),
             },
             State::Tangent(tangent) => match self.context {
-                Some((feature, _)) => tangent.enter_text(model, feature, text),
+                Some((feature, _)) => tangent
+                    .enter_text(model, feature, text)
+                    .map_err(EntryError::Tangent),
                 None => Ok(Outcome::Nothing),
             },
             State::Offset(_)
@@ -440,7 +474,8 @@ impl Modifying {
             | State::Blend(_)
             | State::Gear(_)
             | State::Idle => {
-                Value::typed(model, text).and_then(|value| self.enter_value(model, value))
+                let value = Value::typed(model, text)?;
+                self.enter_value(model, value)
             }
         }
     }
@@ -474,12 +509,14 @@ impl Modifying {
         }
     }
 
-    pub fn enter_value(&mut self, model: &Model, value: Value) -> Result<Outcome, String> {
+    pub fn enter_value(&mut self, model: &Model, value: Value) -> Result<Outcome, EntryError> {
         let Some((feature, _)) = self.context else {
             return Ok(Outcome::Nothing);
         };
         match &mut self.state {
-            State::Offset(offsetting) => offsetting.enter_value(model, feature, value),
+            State::Offset(offsetting) => offsetting
+                .enter_value(model, feature, value)
+                .map_err(EntryError::Offsetting),
             State::Fillet(_)
             | State::Mirror(_)
             | State::Pattern(_)

@@ -1539,7 +1539,8 @@ fn context_menu(
     if let Some(open) = row.taking_regions
         && feature.kind.sketch().is_some()
     {
-        let taking = solid_tools::take_sketch_regions(model, open, feature.id());
+        let taking =
+            solid_tools::take_sketch_regions(model, open, feature.id()).map_err(String::from);
         let title = format!("Take all regions of {} for {}", feature.name, open.name);
         if menu_entry(
             ui,
@@ -2283,6 +2284,7 @@ fn axis_change(
     match feature.kind.solid() {
         Some(SolidFeature::Revolve(revolve)) => {
             solid_panel::selected_axis_change(model, selection, feature.id(), revolve)
+                .map_err(String::from)
         }
         Some(SolidFeature::Extrude(_) | SolidFeature::Sweep(_)) | None => {
             Err(format!("{} is not a revolve", feature.name))
@@ -2298,6 +2300,7 @@ fn up_to_change(
     match feature.kind.solid() {
         Some(SolidFeature::Extrude(extrude)) => {
             solid_panel::up_to_selected_change(model, selection, feature.id(), extrude)
+                .map_err(String::from)
         }
         Some(SolidFeature::Revolve(_) | SolidFeature::Sweep(_)) | None => {
             Err(format!("{} is not an extrusion", feature.name))
@@ -2311,7 +2314,9 @@ fn start_at_change(
     feature: &Feature,
 ) -> Result<Transaction, String> {
     match feature.kind.solid() {
-        Some(solid) => solid_panel::start_change(model, selection, feature.id(), solid),
+        Some(solid) => {
+            solid_panel::start_change(model, selection, feature.id(), solid).map_err(String::from)
+        }
         None => Err(format!("{} is not an extrusion or a revolve", feature.name)),
     }
 }
@@ -2344,9 +2349,12 @@ fn split_change(
     feature: &Feature,
 ) -> Result<Transaction, String> {
     match (&feature.kind, feature.kind.split()) {
-        (_, Some(split)) => split_tools::along_change(model, selection, feature.id(), split),
+        (_, Some(split)) => {
+            split_tools::along_change(model, selection, feature.id(), split).map_err(String::from)
+        }
         (FeatureKind::SplitFace(split), None) => {
             split_face_tools::along_change(model, selection, feature.id(), split)
+                .map_err(String::from)
         }
         (_, None) => Err(format!("{} is not a split", feature.name)),
     }
@@ -2647,10 +2655,10 @@ fn feature_commands(
             up_to_change(model, selection, feature)
         }),
         (Command::ClearChosenRegions, &|feature| {
-            solid_tools::clear_regions(model, feature)
+            solid_tools::clear_regions(model, feature).map_err(String::from)
         }),
         (Command::SelectAllRegions, &|feature| {
-            solid_tools::select_all_regions(model, feature)
+            solid_tools::select_all_regions(model, feature).map_err(String::from)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)
@@ -2684,19 +2692,21 @@ fn feature_commands(
             move_change(model, selection, feature)
         }),
         (Command::ChamferEqual, &|feature| {
-            blend_tools::form_change(document, feature, FormChoice::Equal)
+            blend_tools::form_change(document, feature, FormChoice::Equal).map_err(String::from)
         }),
         (Command::ChamferTwoDistances, &|feature| {
             blend_tools::form_change(document, feature, FormChoice::TwoDistances)
+                .map_err(String::from)
         }),
         (Command::ChamferDistanceAngle, &|feature| {
             blend_tools::form_change(document, feature, FormChoice::DistanceAngle)
+                .map_err(String::from)
         }),
         (Command::FlipChamfer, &|feature| {
-            blend_tools::flip_change(document, feature)
+            blend_tools::flip_change(document, feature).map_err(String::from)
         }),
         (Command::WrapSplitCurves, &|feature| {
-            split_face_tools::wrap_command(model, feature)
+            split_face_tools::wrap_command(model, feature).map_err(String::from)
         }),
         (Command::ReverseDirection, &|feature| {
             reversing::reverse_change(document, feature)

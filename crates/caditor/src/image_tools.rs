@@ -37,7 +37,7 @@ pub fn target(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
-) -> Result<ImageTarget, &'static str> {
+) -> Result<ImageTarget, String> {
     if let Some(sketch) = editing.feature() {
         return Ok(ImageTarget::Sketch(sketch));
     }

@@ -6,7 +6,7 @@ use crate::{
     editing::EditingCommand,
     feature_fields::{self, ListChoosing},
     feature_tree::count,
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     offset_face_panel::face_row,
     reference_rows::{ReferenceRows, RowCache},
@@ -18,10 +18,22 @@ pub const DESCRIPTION: &str =
     "Removes the chosen faces and closes the gap by extending the faces around them";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
-fn change(model: &Model, feature: FeatureId, deletion: DeleteFace) -> Result<Transaction, String> {
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum DeleteFaceChangeError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+fn change(
+    model: &Model,
+    feature: FeatureId,
+    deletion: DeleteFace,
+) -> Result<Transaction, DeleteFaceChangeError> {
     let document = model.document();
     let transaction = delete_face_tools::edit(document, feature, deletion)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(DeleteFaceChangeError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

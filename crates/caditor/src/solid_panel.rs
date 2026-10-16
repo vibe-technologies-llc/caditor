@@ -15,11 +15,12 @@ use crate::{
     datum_tools,
     editing::EditingCommand,
     feature_fields::{
-        self, AxisRow, Choice, ListChoosing, MISSING_BODY, MISSING_SKETCH, Picker, Quantity,
-        REVERSE_DIRECTION, Rule, Segment, Shown,
+        self, AxisRow, Choice, ChoiceRefusal, ListChoosing, MISSING_BODY, MISSING_SKETCH, Picker,
+        Quantity, REVERSE_DIRECTION, Rule, Segment, Shown,
     },
     feature_tree::count,
-    field, hole_panel, icons,
+    field::{self, CheckError},
+    hole_panel, icons,
     last_values::Starts,
     model::{Action, Model},
     move_manipulator::Reach,
@@ -28,14 +29,14 @@ use crate::{
     reversing, scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
-    solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE},
+    solid_tools::{self, DEFAULT_BACKWARD_ANGLE, DEFAULT_PARTIAL_ANGLE, RegionError},
     sweep_tools, widgets,
 };
 
 struct PlaneRow<'a> {
     caption: &'a str,
     current: Option<&'a PlaneReference>,
-    picker: Picker<'a>,
+    picker: Picker<'a, SolidChangeError>,
     remove: Option<&'a str>,
 }
 
@@ -76,8 +77,6 @@ pub const TAPER: &str = "Taper";
 pub const TURN_UP_TO: &str = "Up to face";
 pub const SQUARE: &str = "Square to the sketch";
 pub const ALONG: &str = "Along an edge or axis";
-const NO_DIRECTION_SELECTED: &str =
-    "Select a straight edge, an axis or a sketch line made before this feature";
 pub const THIN_WALL: &str = "Thin wall";
 pub const WALL_THICKNESS: &str = "Thickness";
 const FILL_SOLID: &str = "Fill the closed regions of the sketch";
@@ -95,14 +94,86 @@ const SELECT_ALL_REGIONS_HOVER: &str =
     "Take every closed region of the sketch, and any closed region drawn in it later";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
-const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
-     with body first";
-const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature changes; choose Add, Remove or Intersect with a \
-     body first";
-const NO_TARGET_SELECTED: &str =
-    "Select a flat face or a plane made before this feature, then use it";
-const CURVED_TARGET: &str = "The selected face is curved; only a flat face or plane can be an end";
-const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TargetError {
+    #[error("The feature no longer exists")]
+    FeatureGone { feature: FeatureId },
+    #[error("Select a flat face or a plane made before this feature, then use it")]
+    NoneSelected,
+    #[error("Select only one face or plane")]
+    SeveralSelected,
+    #[error("The selected face is curved; only a flat face or plane can be an end")]
+    Curved,
+    #[error("The selected plane comes after this feature in the tree")]
+    PlaneMadeLater,
+    #[error("The selected coordinate system comes after this feature in the tree")]
+    FrameMadeLater,
+    #[error("The selected datum is not a plane")]
+    DatumNotAPlane,
+    #[error("{0}")]
+    Placement(String),
+}
+
+impl From<TargetError> for String {
+    fn from(error: TargetError) -> Self {
+        error.to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SolidChangeError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(
+        "Through all cuts into a body or intersects with it; choose Remove from body or \
+         Intersect with body first"
+    )]
+    ThroughAllNeedsACut,
+    #[error(
+        "Up to next stops at the body this feature changes; choose Add, Remove or Intersect \
+         with a body first"
+    )]
+    UpToNextNeedsABody,
+    #[error("The extrusion no longer has that end; choose the face again")]
+    SidesChanged,
+    #[error("This end already runs up to the selected face or plane")]
+    EndAlreadyUpToTarget,
+    #[error("The extrusion already runs up to the selected face or plane")]
+    ExtrusionAlreadyUpToTarget,
+    #[error("Select a straight edge, an axis or a sketch line made before this feature")]
+    NoDirectionSelected,
+    #[error("The extrusion already runs along the selected edge or axis")]
+    ExtrusionAlreadyAlongAxis,
+    #[error("The revolution already turns up to the selected face or plane")]
+    RevolutionAlreadyUpToTarget,
+    #[error("A sweep starts where its profile is drawn")]
+    SweepStartsAtProfile,
+    #[error("This feature already starts from the selected face or plane")]
+    AlreadyStartsFromTarget,
+    #[error("The revolve already turns about the selected axis")]
+    RevolveAlreadyAboutAxis,
+    #[error("Select an axis, a straight edge or a round face made before this feature")]
+    NoAxisSelected,
+    #[error("{axis} does not lie in the plane of {sketch}")]
+    AxisOffSketchPlane { axis: String, sketch: String },
+    #[error("{0}")]
+    SelectedAxis(String),
+    #[error(transparent)]
+    Target(#[from] TargetError),
+    #[error(transparent)]
+    Regions(#[from] RegionError),
+    #[error(transparent)]
+    Refused(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<SolidChangeError> for String {
+    fn from(error: SolidChangeError) -> Self {
+        error.to_string()
+    }
+}
 pub const FAR_PAST_THE_BODY: &str = "This distance reaches far past the body. Through all cuts through \
      the whole body whatever its size, and keeps doing so when the body grows.";
 pub const CUT_THROUGH_ALL: &str = "Cut through all instead";
@@ -221,7 +292,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, solid: SolidFeature) -> Result<Transaction, String> {
+    fn change(&self, solid: SolidFeature) -> Result<Transaction, SolidChangeError> {
         change(self.model, self.id(), solid)
     }
 
@@ -267,7 +338,7 @@ impl Panel<'_> {
         ui: &mut Ui,
         salt: &str,
         selected: impl Into<egui::WidgetText>,
-        options: impl FnOnce(&Self) -> Vec<Choice>,
+        options: impl FnOnce(&Self) -> Vec<Choice<Action, SolidChangeError>>,
     ) {
         let chosen =
             feature_fields::combo(ui, Id::new((salt, self.id())), selected, || options(self));
@@ -388,7 +459,10 @@ impl Panel<'_> {
                         .on_hover_text(SELECT_ALL_REGIONS_HOVER)
                         .clicked()
                     {
-                        change = Some(solid_tools::select_all_regions(self.model, self.feature));
+                        change = Some(
+                            solid_tools::select_all_regions(self.model, self.feature)
+                                .map_err(SolidChangeError::from),
+                        );
                     }
                 }
                 if chosen_count > 0 {
@@ -398,7 +472,10 @@ impl Panel<'_> {
                         CLEAR_REGIONS,
                     );
                     if ui.add(clear).on_hover_text(CLEAR_REGIONS_HOVER).clicked() {
-                        change = Some(solid_tools::clear_regions(self.model, self.feature));
+                        change = Some(
+                            solid_tools::clear_regions(self.model, self.feature)
+                                .map_err(SolidChangeError::from),
+                        );
                     }
                 }
             });
@@ -432,7 +509,7 @@ impl Panel<'_> {
         end: &ExtrudeEnd,
         side: Side,
         rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
-    ) -> Vec<Choice> {
+    ) -> Vec<Choice<Action, SolidChangeError>> {
         let current = EndKind::of(end);
         EndKind::ALL
             .into_iter()
@@ -448,16 +525,17 @@ impl Panel<'_> {
                             Ok(ExtrudeEnd::ThroughAll)
                         }
                         BodyOperation::NewBody | BodyOperation::Add(_) => {
-                            Err(THROUGH_ALL_NEEDS_A_CUT.to_owned())
+                            Err(SolidChangeError::ThroughAllNeedsACut)
                         }
                     },
                     EndKind::UpToNext => extrude
                         .operation
                         .target()
                         .map(|_| ExtrudeEnd::up_to_next().with_offset(end.offset().cloned()))
-                        .ok_or_else(|| UP_TO_NEXT_NEEDS_A_BODY.to_owned()),
+                        .ok_or(SolidChangeError::UpToNextNeedsABody),
                     EndKind::UpToFace => {
                         selected_end(self.model, self.selection, self.id(), end.offset().cloned())
+                            .map_err(SolidChangeError::from)
                     }
                 };
                 let change = match candidate {
@@ -945,7 +1023,7 @@ impl Panel<'_> {
                 | RevolveExtent::Symmetric { .. }
                 | RevolveExtent::UpTo { .. } => panel.two_angles(&angle),
             };
-            let mut choices: Vec<Choice> = [
+            let mut choices: Vec<Choice<Action, SolidChangeError>> = [
                 RevolveExtent::Full,
                 RevolveExtent::OneSide {
                     angle: angle.clone(),
@@ -1116,7 +1194,7 @@ impl Panel<'_> {
                             label: sketch.entity_label(line),
                             selected,
                             change: if selected {
-                                Err(feature_fields::ALREADY_CHOSEN.to_owned())
+                                Err(ChoiceRefusal::AlreadyChosen.into())
                             } else {
                                 turned_about(axis).map(Action::Apply)
                             },
@@ -1385,7 +1463,8 @@ impl Panel<'_> {
                     label: pieces.words().to_owned(),
                     selected: pieces == current,
                     change: solid_tools::pieces_change(panel.model, panel.feature, pieces)
-                        .map(Action::Apply),
+                        .map(Action::Apply)
+                        .map_err(SolidChangeError::from),
                 })
                 .collect()
         });
@@ -1634,22 +1713,20 @@ fn reshaped(
     }
 }
 
-fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<&'static str> {
+fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<TargetError> {
     match pickable {
         Pickable::Face { body, face } => {
             match sketch_placement::attachment_at(model, FaceChoice { body, face }, index) {
-                Err(sketch_placement::NOT_FLAT) => Some(CURVED_TARGET),
-                Err(reason) => Some(reason),
+                Err(sketch_placement::NOT_FLAT) => Some(TargetError::Curved),
+                Err(reason) => Some(TargetError::Placement(reason.into())),
                 Ok(_) => None,
             }
         }
         Pickable::Datum(datum) if datum_tools::is_plane(model.document(), datum) => {
-            Some("The selected plane comes after this feature in the tree")
+            Some(TargetError::PlaneMadeLater)
         }
-        Pickable::FramePlane { .. } => {
-            Some("The selected coordinate system comes after this feature in the tree")
-        }
-        Pickable::Datum(_) => Some("The selected datum is not a plane"),
+        Pickable::FramePlane { .. } => Some(TargetError::FrameMadeLater),
+        Pickable::Datum(_) => Some(TargetError::DatumNotAPlane),
         _ => None,
     }
 }
@@ -1658,11 +1735,11 @@ pub fn selected_target(
     model: &Model,
     selection: &Selection,
     feature: FeatureId,
-) -> Result<PlaneReference, String> {
+) -> Result<PlaneReference, TargetError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(TargetError::FeatureGone { feature })?;
     let mut targets = Vec::new();
     let mut refused = None;
     for pickable in selection.iter() {
@@ -1675,8 +1752,8 @@ pub fn selected_target(
     }
     match targets.as_slice() {
         [target] => Ok(target.clone()),
-        [] => Err(refused.unwrap_or(NO_TARGET_SELECTED).to_owned()),
-        _ => Err("Select only one face or plane".to_owned()),
+        [] => Err(refused.unwrap_or(TargetError::NoneSelected)),
+        _ => Err(TargetError::SeveralSelected),
     }
 }
 
@@ -1685,7 +1762,7 @@ fn selected_end(
     selection: &Selection,
     feature: FeatureId,
     offset: Option<Expression>,
-) -> Result<ExtrudeEnd, String> {
+) -> Result<ExtrudeEnd, TargetError> {
     let flat = match selected_target(model, selection, feature) {
         Ok(target) => return Ok(ExtrudeEnd::up_to_face(target).with_offset(offset)),
         Err(reason) => reason,
@@ -1697,14 +1774,14 @@ fn selected_end(
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(TargetError::FeatureGone { feature })?;
     let choice = FaceChoice {
         body: *body,
         face: *face,
     };
     sketch_placement::surface_at(model, choice, index)
         .map(ExtrudeEnd::up_to_surface)
-        .map_err(str::to_owned)
+        .map_err(|error| TargetError::Placement(error.into()))
 }
 
 fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {
@@ -1744,14 +1821,14 @@ pub fn target_change(
     feature: FeatureId,
     extrude: &Extrude,
     side: Side,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     let kept = end_on(&extrude.extent, side)
         .and_then(ExtrudeEnd::offset)
         .cloned();
     let end = selected_end(model, selection, feature, kept)?;
-    let extent = with_end_on(&extrude.extent, side, end).ok_or_else(|| SIDES_CHANGED.to_owned())?;
+    let extent = with_end_on(&extrude.extent, side, end).ok_or(SolidChangeError::SidesChanged)?;
     if extent == extrude.extent {
-        return Err("This end already runs up to the selected face or plane".to_owned());
+        return Err(SolidChangeError::EndAlreadyUpToTarget);
     }
     change(model, feature, with_extent_of(extrude, extent))
 }
@@ -1761,7 +1838,7 @@ pub fn up_to_selected_change(
     selection: &Selection,
     feature: FeatureId,
     extrude: &Extrude,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     let kept = extrude
         .extent
         .ends()
@@ -1784,7 +1861,7 @@ pub fn up_to_selected_change(
         },
     };
     if extent == extrude.extent {
-        return Err("The extrusion already runs up to the selected face or plane".to_owned());
+        return Err(SolidChangeError::ExtrusionAlreadyUpToTarget);
     }
     change(model, feature, with_extent_of(extrude, extent))
 }
@@ -1794,12 +1871,13 @@ pub fn direction_change(
     selection: &Selection,
     feature: FeatureId,
     extrude: &Extrude,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     let index = model.document().feature_index(feature).unwrap_or(0);
-    let axis = datum_tools::only_axis(model, selection, index)?
-        .ok_or_else(|| NO_DIRECTION_SELECTED.to_owned())?;
+    let axis = datum_tools::only_axis(model, selection, index)
+        .map_err(|error| SolidChangeError::SelectedAxis(error.into()))?
+        .ok_or(SolidChangeError::NoDirectionSelected)?;
     if extrude.direction.as_deref() == Some(&axis) {
-        return Err("The extrusion already runs along the selected edge or axis".to_owned());
+        return Err(SolidChangeError::ExtrusionAlreadyAlongAxis);
     }
     change(
         model,
@@ -1816,12 +1894,12 @@ pub fn revolve_target_change(
     selection: &Selection,
     feature: FeatureId,
     revolve: &Revolve,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     let target = selected_target(model, selection, feature)?;
     let reversed = matches!(revolve.extent, RevolveExtent::UpTo { reversed: true, .. });
     let extent = RevolveExtent::up_to(target, reversed);
     if extent == revolve.extent {
-        return Err("The revolution already turns up to the selected face or plane".to_owned());
+        return Err(SolidChangeError::RevolutionAlreadyUpToTarget);
     }
     change(
         model,
@@ -1838,13 +1916,13 @@ pub fn start_change(
     selection: &Selection,
     feature: FeatureId,
     solid: &SolidFeature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     if let SolidFeature::Sweep(_) = solid {
-        return Err("A sweep starts where its profile is drawn".to_owned());
+        return Err(SolidChangeError::SweepStartsAtProfile);
     }
     let target = selected_target(model, selection, feature)?;
     if solid.start().and_then(SolidStart::target) == Some(&target) {
-        return Err("This feature already starts from the selected face or plane".to_owned());
+        return Err(SolidChangeError::AlreadyStartsFromTarget);
     }
     change(
         model,
@@ -1858,18 +1936,18 @@ pub fn selected_axis_change(
     selection: &Selection,
     feature: FeatureId,
     revolve: &Revolve,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SolidChangeError> {
     let index = model.document().feature_index(feature).unwrap_or(0);
-    let chosen = datum_tools::only_axis(model, selection, index)?.map(|axis| match axis {
-        AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
-            RevolveAxis::Sketch(entity)
-        }
-        axis => RevolveAxis::Model(axis),
-    });
+    let chosen = datum_tools::only_axis(model, selection, index)
+        .map_err(|error| SolidChangeError::SelectedAxis(error.into()))?
+        .map(|axis| match axis {
+            AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
+                RevolveAxis::Sketch(entity)
+            }
+            axis => RevolveAxis::Model(axis),
+        });
     match chosen {
-        Some(axis) if revolve.axis == axis => {
-            Err("The revolve already turns about the selected axis".to_owned())
-        }
+        Some(axis) if revolve.axis == axis => Err(SolidChangeError::RevolveAlreadyAboutAxis),
         Some(axis) => change(
             model,
             feature,
@@ -1878,9 +1956,7 @@ pub fn selected_axis_change(
                 ..revolve.clone()
             }),
         ),
-        None => Err(
-            "Select an axis, a straight edge or a round face made before this feature".to_owned(),
-        ),
+        None => Err(SolidChangeError::NoAxisSelected),
     }
 }
 
@@ -1888,16 +1964,14 @@ fn off_sketch_plane(
     model: &Model,
     (feature, sketch): (FeatureId, FeatureId),
     axis: &AxisReference,
-) -> Option<String> {
+) -> Option<SolidChangeError> {
     let (document, evaluation) = (model.document(), model.evaluation());
     let plane = scene::sketch_plane(document, evaluation, sketch)?;
     let ray = displayed_axis(evaluation, feature, axis)?;
     let sketch_name = feature_fields::feature_name(document, sketch).unwrap_or("the sketch");
-    (!along_plane(ray, &plane)).then(|| {
-        format!(
-            "{} does not lie in the plane of {sketch_name}",
-            capitalized(&describe_axis(document, axis))
-        )
+    (!along_plane(ray, &plane)).then(|| SolidChangeError::AxisOffSketchPlane {
+        axis: capitalized(&describe_axis(document, axis)),
+        sketch: sketch_name.to_owned(),
     })
 }
 
@@ -1949,10 +2023,14 @@ fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<A
     })
 }
 
-fn change(model: &Model, feature: FeatureId, solid: SolidFeature) -> Result<Transaction, String> {
+fn change(
+    model: &Model,
+    feature: FeatureId,
+    solid: SolidFeature,
+) -> Result<Transaction, SolidChangeError> {
     let document = model.document();
-    let transaction = solid_tools::edit(document, feature, solid)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let transaction =
+        solid_tools::edit(document, feature, solid).ok_or(SolidChangeError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

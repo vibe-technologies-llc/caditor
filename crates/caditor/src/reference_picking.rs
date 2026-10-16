@@ -397,12 +397,14 @@ pub fn change(
     let changed = match (slot, &owner.kind) {
         (Slot::RevolveAxis, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::selected_axis_change(model, selection, feature, revolve)
+                .map_err(String::from)
         }
         (Slot::ExtrudeTarget(side), FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::target_change(model, selection, feature, extrude, side)
+                .map_err(String::from)
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
-            solid_panel::start_change(model, selection, feature, solid)
+            solid_panel::start_change(model, selection, feature, solid).map_err(String::from)
         }
         (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
             sweep_tools::path_change(model, selection, feature, sweep)
@@ -417,10 +419,11 @@ pub fn change(
             loft_tools::end_change(model, selection, feature, loft)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
-            solid_panel::direction_change(model, selection, feature, extrude)
+            solid_panel::direction_change(model, selection, feature, extrude).map_err(String::from)
         }
         (Slot::RevolveTarget, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::revolve_target_change(model, selection, feature, revolve)
+                .map_err(String::from)
         }
         (Slot::HoleTarget, FeatureKind::Hole(hole)) => {
             hole_panel::target_change(model, selection, feature, hole)
@@ -438,19 +441,20 @@ pub fn change(
             hole_placement::add_change(model, selection, feature, hole)
         }
         (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
-            shell_tools::own_thickness_change(model, selection, feature)
+            shell_tools::own_thickness_change(model, selection, feature).map_err(String::from)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
-            split_tools::along_change(model, selection, feature, split)
+            split_tools::along_change(model, selection, feature, split).map_err(String::from)
         }
         (Slot::SplitPlane, FeatureKind::SplitFace(split)) => {
-            split_face_tools::along_change(model, selection, feature, split)
+            split_face_tools::along_change(model, selection, feature, split).map_err(String::from)
         }
         (Slot::SplitDirection, FeatureKind::SplitFace(split)) => {
             split_face_tools::direction_change(model, selection, feature, split)
+                .map_err(String::from)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)
@@ -490,6 +494,7 @@ pub fn change(
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
+                .map_err(String::from)
         }
         (Slot::ImagePlace, FeatureKind::ReferenceImage(image)) => {
             image_tools::place_change(model, selection, feature, image)
@@ -501,7 +506,7 @@ pub fn change(
             mate_tools::target_change(model, selection, feature, mate, part)
         }
         (Slot::ScaleCentre, FeatureKind::Scale(scale)) => {
-            scale_tools::centre_change(model, selection, feature, scale)
+            scale_tools::centre_change(model, selection, feature, scale).map_err(String::from)
         }
         (Slot::ThreadFace, FeatureKind::Thread(thread)) => {
             thread_tools::face_change(model, selection, feature, thread)

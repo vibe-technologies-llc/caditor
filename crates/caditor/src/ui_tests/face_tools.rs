@@ -152,7 +152,7 @@ fn a_fillet_takes_faces_of_one_body_and_says_what_it_leaves_out() {
     assert_eq!(source.left_out, vec![corner]);
     assert_eq!(
         blend_tools::selected_edges(&harness.model, &Selection::default(), &[]),
-        Err(blend_tools::NOTHING_TO_BLEND)
+        Err(blend_tools::BlendError::NothingToBlend)
     );
 }
 
@@ -222,11 +222,11 @@ fn a_face_alone_is_not_revolved_and_faces_of_two_planes_are_not_swept() {
 
     assert_eq!(
         offer(&[top], Sweep::Revolve),
-        Some(Err(solid_tools::NO_AXIS_FOR_FACE))
+        Some(Err(solid_tools::FaceSweepError::NoAxis))
     );
     assert_eq!(
         offer(&[top, side[0]], Sweep::Extrude),
-        Some(Err(solid_tools::NOT_IN_ONE_PLANE))
+        Some(Err(solid_tools::FaceSweepError::NotInOnePlane))
     );
     assert_eq!(offer(&[top], Sweep::Extrude), Some(Ok(1)));
 }
