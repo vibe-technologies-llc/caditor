@@ -3012,8 +3012,8 @@ fn failure(
     error: &FeatureError,
 ) {
     widgets::callout(ui, Tone::Error, |ui| {
-        ui.label(&error.reason);
-        ui.label(widgets::muted(&error.remedy, ui));
+        ui.label(error.reason());
+        ui.label(widgets::muted(error.remedy(), ui));
         if let Some(place) = error.place {
             let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE_LABEL);
             if ui.add(button).clicked() {

@@ -9,6 +9,7 @@ use crate::{
     datum::{AxisReference, PlaneReference, PointReference, Resolver, feature_name},
     describe::describe_origin,
     document::{Feature, FeatureId},
+    failure::Cause,
     mate_placement::{self, Convexity, FlushAndConcentric, Round, Unplaced},
     movement::Context,
     origins,
@@ -461,44 +462,21 @@ impl Placing<'_> {
         };
         let body_name = &self.body_name;
         attachment.resolve(self.solid).map_err(|error| {
-            let described = describe_origin(self.context.inputs.document, face.origin());
-            let reason = match error {
-                AttachmentError::Missing => {
-                    format!("{described}, which it mates, is no longer part of {body_name}.")
-                }
-                AttachmentError::Ambiguous => format!(
-                    "{described}, which it mates, was split into parts that no longer lie in one \
-                     plane."
-                ),
-                AttachmentError::NotFlat => {
-                    format!("{described}, which it mates, is no longer flat.")
-                }
-            };
-            self.context.error(
-                reason,
-                format!("Choose another flat face of {body_name} to mate."),
-            )
+            self.context.error(MateCause::MovingPlane {
+                error,
+                described: describe_origin(self.context.inputs.document, face.origin()),
+                body: body_name.clone(),
+            })
         })
     }
 
     fn moving_round(&self, face: &FaceReference) -> Result<Round, Failure> {
-        let body_name = &self.body_name;
         round_face(self.solid, face).map_err(|error| {
-            let described = describe_origin(self.context.inputs.document, face.origin());
-            let reason = match error {
-                RoundFaceError::Missing => {
-                    format!("{described}, which it mates, is no longer part of {body_name}.")
-                }
-                RoundFaceError::NotRound => {
-                    format!("{described}, which it mates, is no longer a whole cylinder or sphere.")
-                }
-            };
-            self.context.error(
-                reason,
-                format!(
-                    "Choose a cylindrical or spherical face of {body_name} to rest on the plane."
-                ),
-            )
+            self.context.error(MateCause::MovingRound {
+                error,
+                described: describe_origin(self.context.inputs.document, face.origin()),
+                body: self.body_name.clone(),
+            })
         })
     }
 
@@ -506,23 +484,12 @@ impl Placing<'_> {
         let solid = self.resolver.body(target.body)?;
         let document = self.context.inputs.document;
         round_with_sense(solid, &target.face).map_err(|error| {
-            let described = describe_origin(document, target.face.origin());
-            let holder = feature_name(document, target.body);
-            let reason = match error {
-                RoundFaceError::Missing => {
-                    format!("{described}, which it rests on, is no longer part of {holder}.")
-                }
-                RoundFaceError::NotRound => format!(
-                    "{described}, which it rests on, is no longer a whole cylinder or sphere."
-                ),
-            };
-            self.context.error(
-                reason,
-                format!(
-                    "Choose a cylindrical or spherical face of another body to rest {} on.",
-                    self.body_name
-                ),
-            )
+            self.context.error(MateCause::TargetRound {
+                error,
+                described: describe_origin(document, target.face.origin()),
+                holder: feature_name(document, target.body),
+                body: self.body_name.clone(),
+            })
         })
     }
 
@@ -534,10 +501,7 @@ impl Placing<'_> {
     fn angle(&self, angle: &Expression) -> Result<f64, Failure> {
         let degrees = self.context.value(angle, Dimension::ANGLE, "angle")?;
         if !(0.0..=MAX_MATE_ANGLE_DEGREES).contains(&degrees) {
-            return Err(self.context.error(
-                format!("The angle of the mate is {degrees} deg, outside 0 to 180 deg."),
-                "Edit the angle to lie between 0 and 180 deg.".to_owned(),
-            ));
+            return Err(self.context.error(MateCause::AngleRange { degrees }));
         }
         Ok(degrees.to_radians())
     }
@@ -615,22 +579,132 @@ impl Placing<'_> {
     }
 
     fn unplaced(&self, unplaced: Unplaced) -> Failure {
-        let body_name = &self.body_name;
-        match unplaced {
-            Unplaced::TooFar => self.context.error(
-                format!("The mate would take the body of {body_name} too far from the origin."),
-                "Choose faces or axes nearer the body, or a smaller distance.".to_owned(),
-            ),
-            Unplaced::AxisAlongPlane => self.context.error(
-                format!(
-                    "The axis it mates onto runs along the plane it mates onto, so sliding \
-                     {body_name} along the axis never brings the face onto the plane."
+        let body = self.body_name.clone();
+        self.context.error(match unplaced {
+            Unplaced::TooFar => MateCause::TooFar { body },
+            Unplaced::AxisAlongPlane => MateCause::AxisAlongPlane { body },
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MateCause {
+    MovingPlane {
+        error: AttachmentError,
+        described: String,
+        body: String,
+    },
+    MovingRound {
+        error: RoundFaceError,
+        described: String,
+        body: String,
+    },
+    TargetRound {
+        error: RoundFaceError,
+        described: String,
+        holder: String,
+        body: String,
+    },
+    AngleRange {
+        degrees: f64,
+    },
+    TooFar {
+        body: String,
+    },
+    AxisAlongPlane {
+        body: String,
+    },
+    NoSize {
+        body: String,
+    },
+}
+
+impl MateCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::MovingPlane {
+                error,
+                described,
+                body,
+            } => match error {
+                AttachmentError::Missing => {
+                    format!("{described}, which it mates, is no longer part of {body}.")
+                }
+                AttachmentError::Ambiguous => format!(
+                    "{described}, which it mates, was split into parts that no longer lie in one \
+                     plane."
                 ),
+                AttachmentError::NotFlat => {
+                    format!("{described}, which it mates, is no longer flat.")
+                }
+            },
+            Self::MovingRound {
+                error,
+                described,
+                body,
+            } => match error {
+                RoundFaceError::Missing => {
+                    format!("{described}, which it mates, is no longer part of {body}.")
+                }
+                RoundFaceError::NotRound => {
+                    format!("{described}, which it mates, is no longer a whole cylinder or sphere.")
+                }
+            },
+            Self::TargetRound {
+                error,
+                described,
+                holder,
+                ..
+            } => match error {
+                RoundFaceError::Missing => {
+                    format!("{described}, which it rests on, is no longer part of {holder}.")
+                }
+                RoundFaceError::NotRound => format!(
+                    "{described}, which it rests on, is no longer a whole cylinder or sphere."
+                ),
+            },
+            Self::AngleRange { degrees } => {
+                format!("The angle of the mate is {degrees} deg, outside 0 to 180 deg.")
+            }
+            Self::TooFar { body } => {
+                format!("The mate would take the body of {body} too far from the origin.")
+            }
+            Self::AxisAlongPlane { body } => format!(
+                "The axis it mates onto runs along the plane it mates onto, so sliding {body} \
+                 along the axis never brings the face onto the plane."
+            ),
+            Self::NoSize { body } => format!("The body of {body} has no size to place."),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::MovingPlane { body, .. } => {
+                format!("Choose another flat face of {body} to mate.")
+            }
+            Self::MovingRound { body, .. } => {
+                format!("Choose a cylindrical or spherical face of {body} to rest on the plane.")
+            }
+            Self::TargetRound { body, .. } => {
+                format!("Choose a cylindrical or spherical face of another body to rest {body} on.")
+            }
+            Self::AngleRange { .. } => "Edit the angle to lie between 0 and 180 deg.".to_owned(),
+            Self::TooFar { .. } => {
+                "Choose faces or axes nearer the body, or a smaller distance.".to_owned()
+            }
+            Self::AxisAlongPlane { .. } => {
                 "Choose a face and plane square to the axes, such as a shoulder and the face \
                  around a hole."
-                    .to_owned(),
-            ),
+                    .to_owned()
+            }
+            Self::NoSize { body } => format!("Fix the features that make {body} first."),
         }
+    }
+}
+
+impl From<MateCause> for Cause {
+    fn from(cause: MateCause) -> Self {
+        Self::Mate(cause)
     }
 }
 
@@ -649,10 +723,9 @@ pub(crate) fn evaluate(
         .bounding_box()
         .map(|bounds| bounds.center())
         .ok_or_else(|| {
-            context.error(
-                format!("The body of {body_name} has no size to place."),
-                format!("Fix the features that make {body_name} first."),
-            )
+            context.error(MateCause::NoSize {
+                body: body_name.clone(),
+            })
         })?;
     let placing = Placing {
         context: Context { feature, inputs },

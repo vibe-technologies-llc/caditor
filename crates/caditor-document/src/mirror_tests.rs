@@ -363,11 +363,11 @@ fn a_mirrored_feature_that_made_the_body_fails_the_mirror_naming_it() {
 
     let error = failure(&evaluation, featured.mirror);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Plate neither adds to nor removes from a body, so it cannot be mirrored."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Leave it out of the mirror, or mirror the whole body."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(featured.plate)));
@@ -519,13 +519,13 @@ fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
 
     let error = failure(&evaluation, featured.mirror);
     assert!(
-        error.reason.contains("so they do not bound a region"),
+        error.reason().contains("so they do not bound a region"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
         error
-            .remedy
+            .remedy()
             .starts_with("Choose every face around the pocket or boss")
     );
     assert_eq!(evaluation.failed_count(), 1);

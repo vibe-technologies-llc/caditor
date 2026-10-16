@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2, Vector3};
 use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
@@ -21,7 +21,7 @@ use caditor_kernel::{
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
-    attachment::{AttachmentError, FaceAttachment, face_plane},
+    attachment::{FaceAttachment, face_plane},
     blend::BlendRecipe,
     body_pieces,
     datum::{
@@ -29,15 +29,17 @@ use crate::{
         displayed_plane,
     },
     describe::describe_origin,
-    document::{Feature, FeatureId, list_names},
+    document::{Feature, FeatureId},
+    failure::{Cause, Expected, Upstream},
     recompute::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
         MissingInput, SketchResult,
     },
     shell::ShellRecipe,
+    solid_cause::{CurveProblem, Gap, SolidCause, SquareEnd, TargetFor},
     sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
-    trouble::{self, boolean_trouble},
+    trouble::{self, Adjust, boolean_trouble},
     values::ParameterValues,
 };
 
@@ -1091,14 +1093,12 @@ impl<'a> Context<'a> {
         }
     }
 
-    pub(crate) fn error(&self, reason: String, remedy: String, fix: FixTarget) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(fix),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    pub(crate) fn error(&self, cause: impl Into<Cause>) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(self.own()))
+    }
+
+    pub(crate) fn error_in_sketch(&self, cause: impl Into<Cause>) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(self.in_sketch()))
     }
 
     pub(crate) fn own(&self) -> FixTarget {
@@ -1158,13 +1158,10 @@ pub(crate) fn evaluate(
     let sketch_name = inputs.document.body_label(sketch_id).unwrap_or_default();
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
-        return Err(Failure::Error(Box::new(FeatureError {
-            reason: format!("It needs the shape of {sketch_name}, which is not available."),
-            remedy: format!("Fix {sketch_name} first."),
-            fix: Some(FixTarget::Feature(sketch_id)),
-            constraints: Vec::new(),
-            place: None,
-        })));
+        return Err(Failure::from(
+            FeatureError::new(Upstream::NoShape { name: sketch_name })
+                .fixing(FixTarget::Feature(sketch_id)),
+        ));
     };
     let context = Context {
         feature,
@@ -1216,16 +1213,9 @@ pub(crate) fn evaluate(
             };
             match along {
                 Some(_) if taper != 0.0 => {
-                    return Err(context.error(
-                        format!(
-                            "A tapered extrusion runs square to its sketch, and {} follows a \
-                             direction.",
-                            feature.name
-                        ),
-                        "Set the taper to 0°, or run the extrusion square to the sketch."
-                            .to_owned(),
-                        context.own(),
-                    ));
+                    return Err(context.error(SolidCause::TaperWithDirection {
+                        feature: feature.name.clone(),
+                    }));
                 }
                 Some(direction) => extrude_along(&plane, &regions, extent, direction, raw),
                 None => extrude_tapered(&plane, &regions, extent, taper, raw),
@@ -1241,13 +1231,7 @@ pub(crate) fn evaluate(
             let kept;
             let turned: &[Region] = match (definition.side, &definition.wall) {
                 (Some(_), Some(_)) => {
-                    return Err(context.error(
-                        "A thin wall follows the whole of its curves, so it cannot keep one side \
-                         of the revolution axis."
-                            .to_owned(),
-                        "Turn the whole profile, or turn off the thin wall.".to_owned(),
-                        context.own(),
-                    ));
+                    return Err(context.error(SolidCause::WallWithSide));
                 }
                 (Some(side), None) => {
                     kept = one_side(&context, sketch, &regions, axis, side)?;
@@ -1325,11 +1309,7 @@ pub(crate) fn evaluate(
         (Some(tool), others) => cut_others(&context, inputs, tool, others, cancel)?,
         (None, []) => Vec::new(),
         (None, [_, ..]) => {
-            return Err(context.error(
-                "Only a removal cuts several bodies at once.".to_owned(),
-                "Choose Remove from body, or leave out the other bodies.".to_owned(),
-                context.own(),
-            ));
+            return Err(context.error(SolidCause::OnlyRemovalCutsSeveral));
         }
     };
     if operation == BodyOperation::NewBody && feature.separates_pieces() {
@@ -1387,8 +1367,7 @@ fn resolve_target(
     context: &Context<'_>,
     inputs: &Inputs<'_>,
     target: &PlaneReference,
-    subject: &str,
-    remedy: &str,
+    purpose: TargetFor,
 ) -> Result<Plane, Failure> {
     let PlaneReference::Face(attachment) = target else {
         return Resolver {
@@ -1402,48 +1381,31 @@ fn resolve_target(
         .body(attachment.body)
         .ok_or_else(|| inputs.missing_body(attachment.body))?;
     attachment.resolve(solid).map_err(|error| {
-        let reason = match error {
-            AttachmentError::Missing => {
-                format!("The face {subject} is no longer part of the body of {body}.")
-            }
-            AttachmentError::Ambiguous => format!(
-                "The face of {body} {subject} was split into parts that no longer lie in one \
-                 plane."
-            ),
-            AttachmentError::NotFlat => {
-                format!("The face of {body} {subject} is no longer flat.")
-            }
-        };
-        context.error(reason, remedy.to_owned(), context.own())
+        context.error(SolidCause::Target {
+            error,
+            body,
+            target: purpose,
+        })
     })
 }
 
 fn start_plane(
     context: &Context<'_>,
     inputs: &Inputs<'_>,
-    shape: &str,
+    shape: &'static str,
     plane: Plane,
     start: &SolidStart,
 ) -> Result<Plane, Failure> {
     match start {
         SolidStart::Distance(offset) => offset_plane(context, plane, offset, inputs.parameters),
         SolidStart::Plane(target) => {
-            let subject = format!("this {shape} starts from");
-            let remedy = "Select a flat face or plane and use it as the start, or enter a \
-                          distance.";
-            let found = resolve_target(context, inputs, target, &subject, remedy)?;
+            let found = resolve_target(context, inputs, target, TargetFor::Start { shape })?;
             if !tolerance::parallel(found.normal(), plane.normal()) {
-                return Err(context.error(
-                    format!(
-                        "{} is not parallel to the plane of {}, so the {shape} cannot start \
-                         from it.",
-                        capitalized(&describe_plane(inputs.document, target)),
-                        context.sketch_name
-                    ),
-                    "Choose a face or plane parallel to the sketch, or enter a distance."
-                        .to_owned(),
-                    context.own(),
-                ));
+                return Err(context.error(SolidCause::StartNotParallel {
+                    plane: capitalized(&describe_plane(inputs.document, target)),
+                    sketch: context.sketch_name.clone(),
+                    shape,
+                }));
             }
             let distance = plane.signed_distance(found.origin());
             within_reach(context, distance.abs(), "start offset")?;
@@ -1453,14 +1415,10 @@ fn start_plane(
                 plane.x_axis(),
             )
             .ok_or_else(|| {
-                context.error(
-                    format!(
-                        "The {shape} cannot start from the plane of {}.",
-                        context.sketch_name
-                    ),
-                    "Choose another face or plane.".to_owned(),
-                    context.own(),
-                )
+                context.error(SolidCause::StartUnplaceable {
+                    shape,
+                    sketch: context.sketch_name.clone(),
+                })
             })
         }
     }
@@ -1492,14 +1450,9 @@ fn offset_plane(
         plane.x_axis(),
     )
     .ok_or_else(|| {
-        context.error(
-            format!(
-                "The {WHAT} cannot be applied to the plane of {}.",
-                context.sketch_name
-            ),
-            "Enter another start offset.".to_owned(),
-            context.own(),
-        )
+        context.error(SolidCause::OffsetUnapplicable {
+            sketch: context.sketch_name.clone(),
+        })
     })
 }
 
@@ -1557,89 +1510,48 @@ fn taper_angle(
 }
 
 fn steep_taper(context: &Context<'_>) -> Failure {
-    context.error(
-        format!(
-            "The taper of {} is {MAX_TAPER_DEGREES}° or steeper.",
-            context.feature.name
-        ),
-        format!("Enter a taper angle between -{MAX_TAPER_DEGREES}° and {MAX_TAPER_DEGREES}°."),
-        context.own(),
-    )
+    context.error(SolidCause::SteepTaper {
+        feature: context.feature.name.clone(),
+    })
 }
 
 fn wall_failure(context: &Context<'_>, error: &WallError) -> Failure {
-    let sketch = &context.sketch_name;
-    let feature = &context.feature.name;
+    let sketch = context.sketch_name.clone();
+    let feature = context.feature.name.clone();
     let curves = context.curves(&error.entities());
     match error {
         WallError::Cancelled(_) => Failure::Cancelled,
         WallError::Curve(error) => profile_failure(context, error),
-        WallError::NoCurves => context.error(
-            format!("{sketch} has no curves for the thin wall to follow."),
-            format!("Draw the lines and arcs of the wall in {sketch}."),
-            context.in_sketch(),
-        ),
-        WallError::NonFinite | WallError::NotPositive => context.error(
-            "The wall thickness must be more than zero.".to_owned(),
-            "Enter a wall thickness above zero.".to_owned(),
-            context.own(),
-        ),
-        WallError::BeyondMaximum => context.error(
-            format!(
-                "The wall thickness cannot be more than {} m.",
-                MAX_SIZE / 1_000.0
-            ),
-            "Enter a thinner wall.".to_owned(),
-            context.own(),
-        ),
-        WallError::Branches { .. } => context.error(
-            format!(
-                "In {sketch}, {curves} meet at one point, so the thin wall cannot tell which way \
-                 to follow."
-            ),
-            format!(
-                "Leave only two curves meeting at each point in {sketch}, or make the others \
-                 construction geometry."
-            ),
-            context.in_sketch(),
-        ),
-        WallError::Folds { .. } => context.error(
-            format!("In {sketch}, {curves} turn straight back on each other."),
-            format!("Open up that corner in {sketch}."),
-            context.in_sketch(),
-        ),
-        WallError::TooThick { .. } => context.error(
-            format!("The wall of {feature} is too thick for {curves} of {sketch}."),
-            "Enter a thinner wall, or place it on the other side of the curves.".to_owned(),
-            context.own(),
-        ),
-        WallError::Apart { .. } => context.error(
-            format!("The sides of the wall of {feature} do not meet where {curves} meet."),
-            format!("Enter a thinner wall, or change that corner in {sketch}."),
-            context.own(),
-        ),
-        WallError::CrossesItself => context.error(
-            format!("The wall of {feature} runs into itself."),
-            format!(
-                "Enter a thinner wall, place it on the other side, or move the curves of \
-                 {sketch} apart."
-            ),
-            context.own(),
-        ),
+        WallError::NoCurves => context.error_in_sketch(SolidCause::WallNoCurves { sketch }),
+        WallError::NonFinite | WallError::NotPositive => context.error(SolidCause::WallNotPositive),
+        WallError::BeyondMaximum => context.error(SolidCause::WallTooBig),
+        WallError::Branches { .. } => {
+            context.error_in_sketch(SolidCause::WallBranches { sketch, curves })
+        }
+        WallError::Folds { .. } => {
+            context.error_in_sketch(SolidCause::WallFolds { sketch, curves })
+        }
+        WallError::TooThick { .. } => context.error(SolidCause::WallTooThick {
+            feature,
+            sketch,
+            curves,
+        }),
+        WallError::Apart { .. } => context.error(SolidCause::WallApart {
+            feature,
+            sketch,
+            curves,
+        }),
+        WallError::CrossesItself => context.error(SolidCause::WallCrosses { feature, sketch }),
         WallError::Geometry(_) => {
             log::warn!("{feature} could not be built: {error}");
-            context.error(
-                format!("The thin wall of {sketch} could not be built."),
-                format!("Undo the last change, or simplify the curves of {sketch}."),
-                context.own(),
-            )
+            context.error(SolidCause::WallUnbuilt { sketch })
         }
     }
 }
 
 const MAX_NAMED_GAPS: usize = 2;
 
-fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> Option<String> {
+fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> (Vec<Gap>, usize) {
     let mut gaps: Vec<(u64, u64, f64)> = open_ends
         .iter()
         .filter_map(|end| {
@@ -1653,64 +1565,41 @@ fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> Option<String> {
         .collect();
     gaps.sort_by(|a, b| a.2.total_cmp(&b.2).then(a.0.cmp(&b.0)).then(a.1.cmp(&b.1)));
     gaps.dedup_by(|a, b| (a.0, a.1) == (b.0, b.1));
-    let named: Vec<String> = gaps
+    let named = gaps
         .iter()
         .take(MAX_NAMED_GAPS)
-        .map(|(first, second, gap)| {
-            format!(
-                "an end of {} is {} from an end of {}",
-                context.curves(&[*first]),
-                Quantity::length(*gap),
-                context.curves(&[*second])
-            )
+        .map(|(first, second, gap)| Gap {
+            first: context.curves(&[*first]),
+            second: context.curves(&[*second]),
+            distance: *gap,
         })
         .collect();
-    named.first()?;
-    let unnamed = gaps.len().saturating_sub(MAX_NAMED_GAPS);
-    let mut text = named.join(" and ");
-    if unnamed > 0 {
-        let noun = if unnamed == 1 { "gap" } else { "gaps" };
-        text.push_str(&format!(", plus {unnamed} more {noun}"));
-    }
-    Some(text)
+    (named, gaps.len().saturating_sub(MAX_NAMED_GAPS))
 }
 
 pub(crate) fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Failure {
-    let sketch = &context.sketch_name;
+    let sketch = context.sketch_name.clone();
     match error {
         ProfileError::Cancelled(_) => Failure::Cancelled,
         ProfileError::NoClosedProfile { open_ends } => {
-            let reason = match open_gaps(context, open_ends) {
-                Some(gaps) => format!("{sketch} has no closed shape to sweep: {gaps}."),
-                None => format!("{sketch} has no closed shape to sweep."),
-            };
-            context.error(
-                reason,
-                format!(
-                    "Close the outline in {sketch}, for example by joining the ends of its lines."
-                ),
-                context.in_sketch(),
-            )
+            let (gaps, unnamed) = open_gaps(context, open_ends);
+            context.error_in_sketch(SolidCause::NoClosedShape {
+                sketch,
+                gaps,
+                unnamed,
+            })
         }
         ProfileError::EmptySelection => context.no_regions(),
-        ProfileError::MissingRegion(_) => context.error(
-            format!("A chosen region of {sketch} no longer exists, because the sketch changed."),
-            "Choose the regions again.".to_owned(),
-            context.own(),
-        ),
-        ProfileError::AmbiguousRegion { candidates, .. } => context.error(
-            format!(
-                "A chosen region of {sketch} was divided, and {} of the new regions match it equally.",
-                candidates.len()
-            ),
-            "Choose the regions again.".to_owned(),
-            context.own(),
-        ),
-        ProfileError::Unresolved { entities } if entities.is_empty() => context.error(
-            format!("The curves of {sketch} could not be divided into closed regions."),
-            format!("Simplify where curves meet or cross in {sketch}."),
-            context.in_sketch(),
-        ),
+        ProfileError::MissingRegion(_) => context.error(SolidCause::RegionGone { sketch }),
+        ProfileError::AmbiguousRegion { candidates, .. } => {
+            context.error(SolidCause::RegionAmbiguous {
+                sketch,
+                candidates: candidates.len(),
+            })
+        }
+        ProfileError::Unresolved { entities } if entities.is_empty() => {
+            context.error_in_sketch(SolidCause::CurvesUndivided { sketch })
+        }
         ProfileError::DuplicateEntity { .. }
         | ProfileError::Degenerate { .. }
         | ProfileError::InvalidCurve { .. }
@@ -1719,170 +1608,93 @@ pub(crate) fn profile_failure(context: &Context<'_>, error: &ProfileError) -> Fa
         | ProfileError::TooIntricate { .. }
         | ProfileError::Unresolved { .. } => {
             let entities = error.entities();
-            let curves = context.curves(&entities);
             let problem = match error {
-                ProfileError::Degenerate { .. } => "has no length",
+                ProfileError::Degenerate { .. } => CurveProblem::NoLength,
                 ProfileError::InvalidCurve {
                     error: GeometryError::BeyondMaximum(_),
                     ..
-                } => "reaches farther than caditor models",
-                ProfileError::SelfOverlap { .. } => "runs back over itself",
-                ProfileError::Overlap { .. } => "run along each other",
-                ProfileError::TooIntricate { .. } => "cross too often to be divided into regions",
-                ProfileError::Unresolved { .. } => "could not be divided into closed regions",
-                _ => "cannot be used",
+                } => CurveProblem::BeyondModel,
+                ProfileError::SelfOverlap { .. } => CurveProblem::DoublesBack,
+                ProfileError::Overlap { .. } => CurveProblem::Alongside,
+                ProfileError::TooIntricate { .. } => CurveProblem::TooCrossed,
+                ProfileError::Unresolved { .. } => CurveProblem::Undivided,
+                _ => CurveProblem::Unusable,
             };
-            let which = if entities.len() > 1 {
-                "one of them"
-            } else {
-                "it"
-            };
-            context.error(
-                format!("In {sketch}, {curves} {problem}."),
-                format!("Change or delete {which} in {sketch}."),
-                context.in_sketch(),
-            )
+            context.error_in_sketch(SolidCause::CurvesProblem {
+                sketch,
+                curves: context.curves(&entities),
+                problem,
+                several: entities.len() > 1,
+            })
         }
     }
 }
 
 pub(crate) fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Failure {
-    let sketch = &context.sketch_name;
+    let sketch = context.sketch_name.clone();
+    let shape = shape.to_owned();
     match error {
         SweepError::Cancelled(_) => Failure::Cancelled,
         SweepError::NoRegions => context.no_regions(),
-        SweepError::NonFinite | SweepError::ZeroLength => context.error(
-            format!("The {shape} has no length."),
-            "Enter a distance other than zero.".to_owned(),
-            context.own(),
-        ),
-        SweepError::TooLong => context.error(
-            format!("The {shape} reaches farther than {} m.", MAX_SIZE / 1_000.0),
-            "Enter a shorter distance.".to_owned(),
-            context.own(),
-        ),
-        SweepError::ZeroAngle => context.error(
-            "The revolution has no angle.".to_owned(),
-            "Enter an angle other than zero.".to_owned(),
-            context.own(),
-        ),
-        SweepError::BeyondFullTurn => context.error(
-            "The revolution turns more than once.".to_owned(),
-            "Enter an angle of at most 360°.".to_owned(),
-            context.own(),
-        ),
-        SweepError::DirectionAlongSketch => context.error(
-            format!("The direction of the {shape} runs along the plane of {sketch}."),
-            "Choose an edge, axis or line that leaves the sketch plane.".to_owned(),
-            context.own(),
-        ),
-        SweepError::EndAlongDirection => context.error(
-            "An end of the extrusion runs along its direction, so the extrusion never reaches it."
-                .to_owned(),
-            "Choose a face or plane that faces the sketch, or enter a distance.".to_owned(),
-            context.own(),
-        ),
-        SweepError::EndsCross => context.error(
-            format!("The two ends of the extrusion meet or cross within the profile of {sketch}."),
-            "Choose ends that stay apart across the whole profile.".to_owned(),
-            context.own(),
-        ),
-        SweepError::DegenerateAxis => context.error(
-            "The revolution axis has no direction.".to_owned(),
-            "Choose a line as the axis.".to_owned(),
-            context.own(),
-        ),
+        SweepError::NonFinite | SweepError::ZeroLength => {
+            context.error(SolidCause::NoLength { shape })
+        }
+        SweepError::TooLong => context.error(SolidCause::TooLong { shape }),
+        SweepError::ZeroAngle => context.error(SolidCause::NoAngle),
+        SweepError::BeyondFullTurn => context.error(SolidCause::TurnsTwice),
+        SweepError::DirectionAlongSketch => {
+            context.error(SolidCause::DirectionAlongSketch { shape, sketch })
+        }
+        SweepError::EndAlongDirection => context.error(SolidCause::EndAlongDirection),
+        SweepError::EndsCross => context.error(SolidCause::EndsCross { sketch }),
+        SweepError::DegenerateAxis => context.error(SolidCause::AxisWithoutDirection),
         SweepError::BothSidesOfAxis { left, right } => {
             let apart = if right.len() <= left.len() {
                 right
             } else {
                 left
             };
-            let verb = if apart.len() == 1 { "lies" } else { "lie" };
-            let curves = context.curves(apart);
-            context.error(
-                format!(
-                    "In {sketch}, {curves} {verb} on the other side of the revolution axis from the \
-                     rest of the profile."
-                ),
-                "Keep one side of the axis, choose only the regions on one side, or choose \
-                 another axis."
-                    .to_owned(),
-                context.own(),
-            )
+            context.error(SolidCause::BothSides {
+                sketch,
+                curves: context.curves(apart),
+                several: apart.len() != 1,
+            })
         }
-        SweepError::CrossesAxis { .. } => {
-            let curves = context.curves(&error.entities());
-            context.error(
-                format!("In {sketch}, {curves} would cut through the revolution axis."),
-                format!(
-                    "Keep one side of the axis, keep the profile on one side of it in {sketch}, \
-                     or choose another axis."
-                ),
-                context.own(),
-            )
-        }
-        SweepError::OnAxis => context.error(
-            format!("The profile of {sketch} lies on the revolution axis."),
-            "Choose another axis.".to_owned(),
-            context.own(),
-        ),
+        SweepError::CrossesAxis { .. } => context.error(SolidCause::CrossesAxis {
+            sketch,
+            curves: context.curves(&error.entities()),
+        }),
+        SweepError::OnAxis => context.error(SolidCause::OnAxis { sketch }),
         SweepError::Invalid { entities, .. } if !entities.is_empty() => {
             log::warn!("{} could not be built: {error}", context.feature.name);
-            let curves = context.curves(entities);
-            let which = if entities.len() > 1 {
-                "one of them"
-            } else {
-                "it"
-            };
-            context.error(
-                format!(
-                    "The {shape} of the region of {sketch} bounded by {curves} could not be built."
-                ),
-                format!("Change {which} in {sketch}, or leave that region out."),
-                context.in_sketch(),
-            )
+            context.error_in_sketch(SolidCause::RegionUnbuilt {
+                shape,
+                sketch,
+                curves: context.curves(entities),
+                several: entities.len() > 1,
+            })
         }
         SweepError::TaperTooSteep => steep_taper(context),
-        SweepError::TaperedUnsupportedCurve { entities } => context.error(
-            format!(
-                "In {sketch}, {} cannot be tapered; a taper follows only lines, arcs and circles.",
-                context.curves(entities)
-            ),
-            format!("Draw it with lines and arcs in {sketch}, or set the taper to 0°."),
-            context.in_sketch(),
-        ),
-        SweepError::TaperedTiltedEnd => context.error(
-            format!(
-                "A tapered {shape} must end on faces or planes parallel to {sketch}, and an end \
-                 of {} is slanted.",
-                context.feature.name
-            ),
-            "Enter a distance, choose a parallel face or plane, or set the taper to 0°.".to_owned(),
-            context.own(),
-        ),
-        SweepError::TaperCloses { entities } => {
-            let at = if entities.is_empty() {
-                String::new()
-            } else {
-                format!(" at {}", context.curves(entities))
-            };
-            context.error(
-                format!(
-                    "The taper of {} closes the profile of {sketch}{at} before the {shape} ends.",
-                    context.feature.name
-                ),
-                format!("Make the taper angle smaller or the {shape} shorter."),
-                context.own(),
-            )
+        SweepError::TaperedUnsupportedCurve { entities } => {
+            context.error_in_sketch(SolidCause::TaperUnsupported {
+                sketch,
+                curves: context.curves(entities),
+            })
         }
+        SweepError::TaperedTiltedEnd => context.error(SolidCause::TaperTilted {
+            shape,
+            sketch,
+            feature: context.feature.name.clone(),
+        }),
+        SweepError::TaperCloses { entities } => context.error(SolidCause::TaperCloses {
+            feature: context.feature.name.clone(),
+            sketch,
+            at: (!entities.is_empty()).then(|| context.curves(entities)),
+            shape,
+        }),
         SweepError::Unassembled | SweepError::Geometry(_) | SweepError::Invalid { .. } => {
             log::warn!("{} could not be built: {error}", context.feature.name);
-            context.error(
-                format!("The {shape} of {sketch} could not be built."),
-                format!("Undo the last change, or simplify the regions of {sketch}."),
-                context.own(),
-            )
+            context.error(SolidCause::Unbuilt { shape, sketch })
         }
     }
 }
@@ -1898,43 +1710,32 @@ fn boolean_failure(
     let body_name = inputs.document.body_label(body).unwrap_or_default();
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
-        BooleanError::Empty => {
-            let reason = match operation {
-                BodyOperation::Intersect(_) => {
-                    format!(
-                        "The shape does not overlap the body of {body_name}, so nothing would be left."
-                    )
-                }
-                _ => format!("This removes all of the body of {body_name}."),
-            };
-            context.error(
-                reason,
-                "Change the distance or the sketch so that part of the body stays.".to_owned(),
-                context.own(),
-            )
-        }
-        BooleanError::NonManifold(_) => context.error(
-            format!(
-                "The body of {body_name} would be left with parts that meet only along an edge."
-            ),
-            "Move or resize the shape so it overlaps more or stays clear.".to_owned(),
-            context.own(),
-        ),
+        BooleanError::Empty => context.error(SolidCause::Vanishes {
+            body: body_name,
+            intersecting: matches!(operation, BodyOperation::Intersect(_)),
+        }),
+        BooleanError::NonManifold(_) => context.error(SolidCause::Edgewise { body: body_name }),
         BooleanError::Intersection { .. }
         | BooleanError::Split(_)
         | BooleanError::Ambiguous(_)
         | BooleanError::Open(_)
         | BooleanError::Invalid(_) => {
             log::warn!("{} could not be combined: {error}", context.feature.name);
-            let trouble =
-                boolean_trouble(inputs.document, operands, error, "Move or resize the shape");
-            context.error(
-                trouble.reason(format!(
-                    "The shape could not be combined with the body of {body_name}."
-                )),
-                trouble.remedy,
-                context.own(),
-            )
+            let trouble = boolean_trouble(
+                inputs.document,
+                operands,
+                error,
+                Adjust::MoveOrResize {
+                    shape: "shape".to_owned(),
+                },
+            );
+            let place = trouble.place;
+            context
+                .error(SolidCause::Uncombined {
+                    body: body_name,
+                    trouble,
+                })
+                .placed(place)
         }
     };
     failure.placed(trouble::place(error))
@@ -1947,36 +1748,22 @@ fn evaluate_value(
     what: &str,
     parameters: &ParameterValues,
 ) -> Result<f64, Failure> {
+    let expected = if dimension == Dimension::ANGLE {
+        Expected::Angle(90.0)
+    } else if dimension == Dimension::NONE {
+        Expected::Number(0.5)
+    } else {
+        Expected::Length(10.0)
+    };
     expression
         .evaluate_as(dimension, &|id| parameters.value(id))
         .map_err(|error| {
-            let (remedy, fix) = match &error {
-                EvalError::ParameterFailed { id, name } => (
-                    format!("Fix {name} under Parameters, or edit the {what}."),
-                    FixTarget::Parameter(*id),
-                ),
-                EvalError::WrongKind { .. } if dimension == Dimension::ANGLE => (
-                    format!("Edit the {what} so it gives an angle, such as 90 deg."),
-                    context.own(),
-                ),
-                EvalError::WrongKind { .. } if dimension == Dimension::NONE => (
-                    format!("Edit the {what} so it gives a plain number, such as 0.5."),
-                    context.own(),
-                ),
-                EvalError::WrongKind { .. } => (
-                    format!("Edit the {what} so it gives a length, such as 10 mm."),
-                    context.own(),
-                ),
-                _ => (
-                    format!("Edit the {what} or the parameters it uses."),
-                    context.own(),
-                ),
-            };
-            context.error(
-                format!("The {what} cannot be evaluated: {error}."),
-                remedy,
-                fix,
-            )
+            Failure::from(FeatureError::unevaluable(
+                context.feature.id(),
+                what,
+                expected,
+                error,
+            ))
         })
 }
 
@@ -1984,11 +1771,9 @@ fn positive(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Failur
     if value > 0.0 {
         Ok(value)
     } else {
-        Err(context.error(
-            format!("The {what} must be more than zero."),
-            format!("Enter a {what} above zero, or flip the direction instead."),
-            context.own(),
-        ))
+        Err(context.error(SolidCause::NotPositive {
+            what: what.to_owned(),
+        }))
     }
 }
 
@@ -1996,16 +1781,11 @@ fn within_reach(context: &Context<'_>, value: f64, what: &str) -> Result<f64, Fa
     if value <= MAX_SIZE {
         return Ok(value);
     }
-    let most = MAX_SIZE / 1_000.0;
-    Err(context.error(
-        format!("The {what} cannot be more than {most} m."),
-        format!("Enter a {what} of at most {most} m."),
-        context.own(),
-    ))
+    Err(Failure::from(FeatureError::too_big(context.own(), what)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Side {
+pub(crate) enum Side {
     Only { reversed: bool },
     Forward,
     Backward,
@@ -2048,7 +1828,7 @@ impl Side {
         }
     }
 
-    fn ahead(self) -> &'static str {
+    pub(crate) fn ahead(self) -> &'static str {
         match self {
             Self::Only { .. } => "ahead of the sketch",
             Self::Forward => "on the forward side of the sketch",
@@ -2056,7 +1836,7 @@ impl Side {
         }
     }
 
-    fn other_way(self) -> &'static str {
+    pub(crate) fn other_way(self) -> &'static str {
         match self {
             Self::Only { .. } => "Turn Reversed on or off to go the other way",
             Self::Forward | Self::Backward => "Choose another end for that side",
@@ -2089,8 +1869,8 @@ struct StopAt {
 }
 
 impl Ends<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        self.context.error(reason, remedy, self.context.own())
+    fn error(&self, cause: SolidCause) -> Failure {
+        self.context.error(cause)
     }
 
     fn extent(&self, extent: &ExtrudeExtent) -> Result<(LinearExtent, Option<StopAt>), Failure> {
@@ -2113,22 +1893,14 @@ impl Ends<'_> {
             ),
         };
         let built = built.map_err(|error| match error {
-            SweepError::ZeroLength => self.error(
-                "The extrusion has no length.".to_owned(),
-                "Enter distances that do not cancel each other out.".to_owned(),
-            ),
+            SweepError::ZeroLength => self.error(SolidCause::ExtrusionEmpty),
             other => sweep_failure(self.context, "extrusion", &other),
         })?;
         let stop = self.stop.get();
         if stop.is_some() && !matches!(extent, ExtrudeExtent::OneSide { .. }) {
-            return Err(self.error(
-                format!(
-                    "The profile of {} first meets curved or several faces, and an extrusion to \
-                     two sides can only stop at one flat face.",
-                    self.context.sketch_name
-                ),
-                "Choose One side, or use Up to face or a distance on that side.".to_owned(),
-            ));
+            return Err(self.error(SolidCause::TwoSidedStop {
+                sketch: self.context.sketch_name.clone(),
+            }));
         }
         Ok((built, stop))
     }
@@ -2152,7 +1924,7 @@ impl Ends<'_> {
             )),
             ExtrudeEnd::ThroughAll => self.through_all(side),
             ExtrudeEnd::UpToNext { offset } => {
-                self.square_only("Up to next")?;
+                self.square_only(SquareEnd::UpToNext)?;
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_next(side, offset)
             }
@@ -2161,7 +1933,7 @@ impl Ends<'_> {
                 self.up_to_face(target, side, offset)
             }
             ExtrudeEnd::UpToSurface { face } => {
-                self.square_only("An end up to a curved face")?;
+                self.square_only(SquareEnd::UpToCurved)?;
                 self.up_to_surface(face, side)
             }
         }
@@ -2171,20 +1943,10 @@ impl Ends<'_> {
         let solid = self.body(face.body)?;
         let body_name = feature_name(self.inputs, face.body);
         let found = face.face.resolve(solid).map_err(|error| {
-            let reason = match error {
-                ReferenceError::Missing => format!(
-                    "The face this extrusion runs up to is no longer part of the body of \
-                     {body_name}."
-                ),
-                ReferenceError::Ambiguous(_) => format!(
-                    "The face of {body_name} this extrusion runs up to was split, and several \
-                     parts match it equally."
-                ),
-            };
-            self.error(
-                reason,
-                "Select a face and use it for this end, or choose another end.".to_owned(),
-            )
+            self.error(SolidCause::SurfaceFace {
+                body: body_name.clone(),
+                split: matches!(error, ReferenceError::Ambiguous(_)),
+            })
         })?;
         let name = describe_origin(self.inputs.document, face.face.origin());
         if let Some(plane) = face_plane(solid, found) {
@@ -2236,10 +1998,10 @@ impl Ends<'_> {
             target.x_axis(),
         )
         .ok_or_else(|| {
-            self.error(
-                format!("The end cannot be moved from {name} by its offset."),
-                format!("Enter another {}.", side.offset()),
-            )
+            self.error(SolidCause::EndNotMoved {
+                name: name.to_owned(),
+                offset: side.offset(),
+            })
         })?;
         let found = self
             .heights(&moved)
@@ -2250,17 +2012,11 @@ impl Ends<'_> {
             found.least
         };
         if least <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!(
-                    "Stopping {} short of {name} would end the extrusion before it starts in \
-                     places.",
-                    Quantity::length(-offset)
-                ),
-                format!(
-                    "Enter a smaller {}, or choose a face or plane farther from the sketch.",
-                    side.offset()
-                ),
-            ));
+            return Err(self.error(SolidCause::EndOffsetShort {
+                offset,
+                name: name.to_owned(),
+                label: side.offset(),
+            }));
         }
         Ok(LinearBound::Plane(moved))
     }
@@ -2275,14 +2031,7 @@ impl Ends<'_> {
         let body = match self.operation {
             BodyOperation::Remove(body) | BodyOperation::Intersect(body) => body,
             BodyOperation::NewBody | BodyOperation::Add(_) => {
-                return Err(self.error(
-                    "Through all only cuts into a body or intersects with it, so it cannot add \
-                     material."
-                        .to_owned(),
-                    "Choose Remove from body or Intersect with body, or use Up to next or a \
-                     distance."
-                        .to_owned(),
-                ));
+                return Err(self.error(SolidCause::ThroughAllAdds));
             }
         };
         let mut bounds = self.body(body)?.bounding_box();
@@ -2300,14 +2049,10 @@ impl Ends<'_> {
                 .fold(f64::NEG_INFINITY, f64::max)
         });
         if farthest <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!(
-                    "No part of the body of {} lies {}, so there is nothing to go through.",
-                    feature_name(self.inputs, body),
-                    side.ahead()
-                ),
-                format!("{}, or enter a distance.", side.other_way()),
-            ));
+            return Err(self.error(SolidCause::NothingToGoThrough {
+                body: feature_name(self.inputs, body),
+                side,
+            }));
         }
         let margin =
             bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
@@ -2318,12 +2063,7 @@ impl Ends<'_> {
 
     fn up_to_next(&self, side: Side, offset: f64) -> Result<LinearBound, Failure> {
         let Some(body) = self.operation.target() else {
-            return Err(self.error(
-                "Up to next stops at the body this extrusion changes, and it makes a new body \
-                 instead."
-                    .to_owned(),
-                "Choose Add, Remove or Intersect with a body, or enter a distance.".to_owned(),
-            ));
+            return Err(self.error(SolidCause::NextNeedsBody));
         };
         let solid = self.body(body)?;
         let found = match next_face(solid, &self.plane, self.regions, side.reversed()) {
@@ -2336,31 +2076,23 @@ impl Ends<'_> {
                     Failure::Error(found) => found,
                     other @ (Failure::Waiting(_) | Failure::Cancelled) => return Err(other),
                 };
-                return Err(self.error(
-                    format!("{} So the end cannot be offset from it.", found.reason),
-                    "Clear the end offset, or use Up to face with a flat face or plane.".to_owned(),
-                ));
+                return Err(self.error(SolidCause::NextUnoffsettable {
+                    reached: found.cause,
+                }));
             }
             Err(error) => return Err(self.next_failure(solid, body, side, &error)),
         };
         let body_name = feature_name(self.inputs, body);
         let sketch = &self.context.sketch_name;
         match (self.operation, found.entering) {
-            (BodyOperation::Add(_), false) => Err(self.error(
-                format!(
-                    "The profile of {sketch} starts inside the body of {body_name}, so extruding \
-                     it up to the next face adds nothing."
-                ),
-                "Choose Remove from body, or place the sketch outside the body.".to_owned(),
-            )),
-            (BodyOperation::Remove(_), true) => Err(self.error(
-                format!(
-                    "The profile of {sketch} first meets the body of {body_name} where it enters \
-                     it, so extruding up to that face removes nothing."
-                ),
-                "Place the sketch on or inside the body, or use Through all or Up to face."
-                    .to_owned(),
-            )),
+            (BodyOperation::Add(_), false) => Err(self.error(SolidCause::AddInside {
+                sketch: sketch.clone(),
+                body: body_name,
+            })),
+            (BodyOperation::Remove(_), true) => Err(self.error(SolidCause::RemoveEntering {
+                sketch: sketch.clone(),
+                body: body_name,
+            })),
             _ => {
                 let face = describe_origin(
                     self.inputs.document,
@@ -2405,7 +2137,7 @@ impl Ends<'_> {
         error: &ReachError,
     ) -> Failure {
         let body = feature_name(self.inputs, body);
-        let sketch = &self.context.sketch_name;
+        let sketch = self.context.sketch_name.clone();
         let describe = |face: FaceId| {
             describe_origin(
                 self.inputs.document,
@@ -2415,47 +2147,17 @@ impl Ends<'_> {
         match error {
             ReachError::Cancelled(_) => Failure::Cancelled,
             ReachError::NoRegions => self.context.no_regions(),
-            ReachError::Nothing => self.error(
-                format!(
-                    "The profile of {sketch} meets nothing of the body of {body} {}.",
-                    side.ahead()
-                ),
-                format!("{}, or enter a distance.", side.other_way()),
-            ),
-            ReachError::Partly => self.error(
-                format!(
-                    "Part of the profile of {sketch} passes beside the body of {body}, so there is \
-                     no one next face to stop at."
-                ),
-                "Use Up to face to choose where it stops, or keep the profile within the \
-                 outline of the body."
-                    .to_owned(),
-            ),
-            ReachError::SeveralFaces(faces) => {
-                let names: Vec<String> = faces.iter().map(|face| describe(*face)).collect();
-                self.error(
-                    format!(
-                        "The profile of {sketch} meets several faces of {body} first: {}.",
-                        list_names(&names)
-                    ),
-                    "Use Up to face to choose which one it stops at.".to_owned(),
-                )
-            }
-            ReachError::Curved(face) => self.error(
-                format!(
-                    "The next face, {}, is curved, and an extrusion can only end on a flat face \
-                     or plane.",
-                    describe(*face)
-                ),
-                "Use Up to face with a flat face or plane, or enter a distance.".to_owned(),
-            ),
-            ReachError::Undecided => self.error(
-                format!(
-                    "The next face of the body of {body} {} could not be found.",
-                    side.ahead()
-                ),
-                "Use Up to face to choose where it stops, or enter a distance.".to_owned(),
-            ),
+            ReachError::Nothing => self.error(SolidCause::ReachNothing { sketch, body, side }),
+            ReachError::Partly => self.error(SolidCause::ReachPartly { sketch, body }),
+            ReachError::SeveralFaces(faces) => self.error(SolidCause::ReachSeveral {
+                sketch,
+                body,
+                faces: faces.iter().map(|face| describe(*face)).collect(),
+            }),
+            ReachError::Curved(face) => self.error(SolidCause::ReachCurved {
+                face: describe(*face),
+            }),
+            ReachError::Undecided => self.error(SolidCause::ReachUndecided { body, side }),
         }
     }
 
@@ -2471,13 +2173,7 @@ impl Ends<'_> {
     }
 
     fn resolve(&self, target: &PlaneReference) -> Result<Plane, Failure> {
-        resolve_target(
-            self.context,
-            self.inputs,
-            target,
-            "this extrusion runs up to",
-            "Select a flat face or plane and use it for this end, or choose another end.",
-        )
+        resolve_target(self.context, self.inputs, target, TargetFor::ExtrusionEnd)
     }
 
     fn heights(&self, target: &Plane) -> Result<Heights, SweepError> {
@@ -2492,26 +2188,18 @@ impl Ends<'_> {
             .map_or(1.0, |direction| direction.dot(self.plane.normal()))
     }
 
-    fn square_only(&self, end: &str) -> Result<(), Failure> {
+    fn square_only(&self, end: SquareEnd) -> Result<(), Failure> {
         if self.along.is_none() {
             return Ok(());
         }
-        Err(self.error(
-            format!("{end} runs square to the sketch, so it cannot follow a direction."),
-            "Run the extrusion square to the sketch, or use Up to face or a distance.".to_owned(),
-        ))
+        Err(self.error(SolidCause::SquareOnly { end }))
     }
 
     fn check_ahead(&self, target: Plane, side: Side, name: &str) -> Result<(), Failure> {
         let found = self.heights(&target).map_err(|error| match error {
-            SweepError::EndAlongDirection => self.error(
-                format!(
-                    "{} runs along the direction of the extrusion, so the extrusion never \
-                     reaches it.",
-                    capitalized(name)
-                ),
-                "Choose a face or plane that faces the sketch, or enter a distance.".to_owned(),
-            ),
+            SweepError::EndAlongDirection => self.error(SolidCause::EndAlong {
+                name: name.to_owned(),
+            }),
             other => sweep_failure(self.context, "extrusion", &other),
         })?;
         let (least, most) = if side.reversed() {
@@ -2520,24 +2208,16 @@ impl Ends<'_> {
             (found.least, found.most)
         };
         if most <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!("{} does not lie {}.", capitalized(name), side.ahead()),
-                format!(
-                    "{}, or choose a face or plane beyond the sketch.",
-                    side.other_way()
-                ),
-            ));
+            return Err(self.error(SolidCause::EndNotAhead {
+                name: name.to_owned(),
+                side,
+            }));
         }
         if least <= LINEAR_RESOLUTION {
-            return Err(self.error(
-                format!(
-                    "{} cuts across the profile of {}, so the extrusion would end before it \
-                     starts in places.",
-                    capitalized(name),
-                    self.context.sketch_name
-                ),
-                "Choose a face or plane that lies wholly beyond the profile.".to_owned(),
-            ));
+            return Err(self.error(SolidCause::EndCuts {
+                name: name.to_owned(),
+                sketch: self.context.sketch_name.clone(),
+            }));
         }
         Ok(())
     }
@@ -2552,8 +2232,8 @@ struct Stopping<'a> {
 }
 
 impl Stopping<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        self.context.error(reason, remedy, self.context.own())
+    fn error(&self, cause: SolidCause) -> Failure {
+        self.context.error(cause)
     }
 
     fn trim(&self, tool: Solid, stop: StopAt) -> Result<Solid, Failure> {
@@ -2562,7 +2242,7 @@ impl Stopping<'_> {
             .body(stop.body)
             .ok_or_else(|| self.inputs.missing_body(stop.body))?;
         let body_name = feature_name(self.inputs, stop.body);
-        let sketch = &self.context.sketch_name;
+        let sketch = self.context.sketch_name.clone();
         let stopped = stop_at_body(
             &tool,
             body,
@@ -2574,41 +2254,25 @@ impl Stopping<'_> {
         .map_err(|error| match error {
             StopError::Cancelled(_) => Failure::Cancelled,
             StopError::NoRegions => self.context.no_regions(),
-            StopError::Straddles => self.error(
-                format!(
-                    "The profile of {sketch} starts partly inside the body of {body_name} and \
-                         partly outside it, so there is no one next face to stop at."
-                ),
-                "Use Up to face or a distance, or move the sketch.".to_owned(),
-            ),
-            StopError::Enclosed => self.error(
-                format!(
-                    "The body of {body_name} lies wholly within the extrusion, so it has no \
-                         next face to stop at."
-                ),
-                "Use Up to face or enter a distance.".to_owned(),
-            ),
-            StopError::PassesBeside => self.error(
-                format!(
-                    "Part of the profile of {sketch} passes beside the body of {body_name}, \
-                         so there is no one next face to stop at."
-                ),
-                "Use Up to face to choose where it stops, or keep the profile within the \
-                     outline of the body."
-                    .to_owned(),
-            ),
+            StopError::Straddles => self.error(SolidCause::StopStraddles {
+                sketch: sketch.clone(),
+                body: body_name.clone(),
+            }),
+            StopError::Enclosed => self.error(SolidCause::StopEnclosed {
+                body: body_name.clone(),
+            }),
+            StopError::PassesBeside => self.error(SolidCause::ReachPartly {
+                sketch: sketch.clone(),
+                body: body_name.clone(),
+            }),
             StopError::Nothing | StopError::Tessellation(_) => {
                 log::warn!(
                     "{} could not stop at the next faces: {error}",
                     self.context.feature.name
                 );
-                self.error(
-                    format!(
-                        "The extrusion could not be stopped where it meets the body of \
-                             {body_name}."
-                    ),
-                    "Use Up to face or enter a distance.".to_owned(),
-                )
+                self.error(SolidCause::StopUnbuilt {
+                    body: body_name.clone(),
+                })
             }
             StopError::Boolean(error) => boolean_failure(
                 self.context,
@@ -2619,25 +2283,20 @@ impl Stopping<'_> {
                 &error,
             ),
         })?;
-        let refusal = match (self.operation, stopped.entering) {
-            (BodyOperation::Add(target), false) if target == stop.body => Some((
-                format!(
-                    "The profile of {sketch} starts inside the body of {body_name}, so extruding \
-                     it up to the next face adds nothing."
-                ),
-                "Choose Remove from body, or place the sketch outside the body.",
-            )),
-            (BodyOperation::Remove(target), true) if target == stop.body => Some((
-                format!(
-                    "The profile of {sketch} first meets the body of {body_name} where it enters \
-                     it, so extruding up to that face removes nothing."
-                ),
-                "Place the sketch on or inside the body, or use Through all or Up to face.",
-            )),
-            _ => None,
-        };
-        if let Some((reason, remedy)) = refusal {
-            return Err(self.error(reason, remedy.to_owned()));
+        match (self.operation, stopped.entering) {
+            (BodyOperation::Add(target), false) if target == stop.body => {
+                return Err(self.error(SolidCause::AddInside {
+                    sketch,
+                    body: body_name,
+                }));
+            }
+            (BodyOperation::Remove(target), true) if target == stop.body => {
+                return Err(self.error(SolidCause::RemoveEntering {
+                    sketch,
+                    body: body_name,
+                }));
+            }
+            _ => {}
         }
         match stop.face {
             Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid),
@@ -2673,14 +2332,12 @@ impl Stopping<'_> {
             .get(&chosen)
             .map(|origin| describe_origin(self.inputs.document, *origin))
             .unwrap_or_default();
-        Err(self.error(
-            format!(
-                "The profile of {} meets {} of {body_name} before it reaches {face}.",
-                self.context.sketch_name,
-                list_names(&others)
-            ),
-            "Choose the face the profile meets first, or use Up to next.".to_owned(),
-        ))
+        Err(self.error(SolidCause::StopBeforeFace {
+            sketch: self.context.sketch_name.clone(),
+            others,
+            body: body_name.to_owned(),
+            face,
+        }))
     }
 }
 
@@ -2695,19 +2352,12 @@ struct Turn<'a> {
 }
 
 impl Turn<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        self.context.error(reason, remedy, self.context.own())
+    fn error(&self, cause: SolidCause) -> Failure {
+        self.context.error(cause)
     }
 
     fn up_to(&self, target: &PlaneReference, reversed: bool) -> Result<AngularExtent, Failure> {
-        let found = resolve_target(
-            self.context,
-            self.inputs,
-            target,
-            "this revolution turns up to",
-            "Select a flat face or plane through the axis and use it for the end, or enter an \
-             angle.",
-        )?;
+        let found = resolve_target(self.context, self.inputs, target, TargetFor::RevolutionEnd)?;
         let name = capitalized(&describe_plane(self.inputs.document, target));
         let origin = self.plane.to_world(self.axis.origin());
         let direction = self
@@ -2717,21 +2367,13 @@ impl Turn<'_> {
         let through_axis =
             Ray::new(origin, direction).is_some_and(|axis| tolerance::along_plane(axis, &found));
         if !through_axis {
-            return Err(self.error(
-                format!(
-                    "{name} does not hold the revolution axis, so the revolution cannot end on it."
-                ),
-                "Choose a face or plane through the axis, or enter an angle.".to_owned(),
-            ));
+            return Err(self.error(SolidCause::NotThroughAxis { name }));
         }
         let unturnable = || {
-            self.error(
-                format!(
-                    "{name} holds the profile of {}, so the revolution would not turn.",
-                    self.context.sketch_name
-                ),
-                "Choose another face or plane through the axis, or enter an angle.".to_owned(),
-            )
+            self.error(SolidCause::WouldNotTurn {
+                name: name.clone(),
+                sketch: self.context.sketch_name.clone(),
+            })
         };
         let centre = self
             .regions
@@ -2782,11 +2424,7 @@ fn angular_extent(
             let forward = angle(forward, "forward angle")?;
             let backward = angle(backward, "backward angle")?;
             return AngularExtent::new(-backward, forward).map_err(|error| match error {
-                SweepError::BeyondFullTurn => context.error(
-                    "The two angles add up to more than 360°.".to_owned(),
-                    "Enter angles that add up to at most 360°.".to_owned(),
-                    context.own(),
-                ),
+                SweepError::BeyondFullTurn => context.error(SolidCause::AnglesOverflow),
                 other => sweep_failure(context, "revolution", &other),
             });
         }
@@ -2805,17 +2443,10 @@ fn extrusion_direction(
     let normal = plane.normal();
     let direction = axis.direction().normalize();
     if tolerance::perpendicular(direction, normal) {
-        return Err(context.error(
-            format!(
-                "{} runs along the plane of {}, so the extrusion cannot follow it.",
-                capitalized(&describe_axis(inputs.document, reference)),
-                context.sketch_name
-            ),
-            "Choose an edge, axis or line that leaves the sketch plane, or run the extrusion \
-             square to the sketch."
-                .to_owned(),
-            context.own(),
-        ));
+        return Err(context.error(SolidCause::DirectionAlong {
+            axis: capitalized(&describe_axis(inputs.document, reference)),
+            sketch: context.sketch_name.clone(),
+        }));
     }
     Ok(if direction.dot(normal) < 0.0 {
         -direction
@@ -2837,15 +2468,10 @@ fn model_axis(
     let direction = plane.to_local(axis.origin() + axis.direction()) - origin;
     match Axis2::new(origin, direction) {
         Ok(found) if in_plane => Ok(found),
-        _ => Err(context.error(
-            format!(
-                "{} does not lie in the plane of {}, so the sketch cannot turn about it.",
-                capitalized(&describe_axis(inputs.document, reference)),
-                context.sketch_name
-            ),
-            "Choose an axis that lies in the sketch plane, or a line of the sketch.".to_owned(),
-            context.own(),
-        )),
+        _ => Err(context.error(SolidCause::AxisOffPlane {
+            axis: capitalized(&describe_axis(inputs.document, reference)),
+            sketch: context.sketch_name.clone(),
+        })),
     }
 }
 
@@ -2859,15 +2485,10 @@ fn one_side(
     side: AxisSide,
 ) -> Result<Vec<Region>, Failure> {
     let nothing_left = || {
-        context.error(
-            format!(
-                "No part of the profile of {} lies on the {} side of the revolution axis.",
-                context.sketch_name,
-                side.name()
-            ),
-            "Keep the other side, or choose regions on this side of the axis.".to_owned(),
-            context.own(),
-        )
+        context.error(SolidCause::NoSideLeft {
+            sketch: context.sketch_name.clone(),
+            side,
+        })
     };
     let bounds = chosen
         .iter()
@@ -2926,14 +2547,9 @@ fn revolution_axis(context: &Context<'_>, axis: EntityId) -> Result<Axis2, Failu
             .and_then(|(start, end)| Axis2::through(start, end).ok()),
     };
     found.ok_or_else(|| {
-        context.error(
-            format!(
-                "The revolution axis, {}, is not a line of {}.",
-                sketch.entity_label(axis),
-                context.sketch_name
-            ),
-            "Choose a line or one of the sketch axes as the revolution axis.".to_owned(),
-            context.own(),
-        )
+        context.error(SolidCause::NotALine {
+            axis: sketch.entity_label(axis),
+            sketch: context.sketch_name.clone(),
+        })
     })
 }

@@ -25,7 +25,8 @@ use crate::{
     coil, combine,
     datum::{self, DatumResult},
     delete_face,
-    document::{Document, Feature, FeatureId, FeatureKind, list_names},
+    document::{Document, Feature, FeatureId, FeatureKind},
+    failure::{Cause, Expected, SketchCause, Upstream},
     healing::{self, Healing},
     helix::{self, HelixResult},
     history::ResultHistory,
@@ -83,11 +84,39 @@ pub enum FixTarget {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FeatureError {
-    pub reason: String,
-    pub remedy: String,
+    pub(crate) cause: Box<Cause>,
     pub fix: Option<FixTarget>,
     pub constraints: Vec<ConstraintId>,
     pub place: Option<Point3>,
+}
+
+impl FeatureError {
+    pub(crate) fn new(cause: impl Into<Cause>) -> Self {
+        Self {
+            cause: Box::new(cause.into()),
+            fix: None,
+            constraints: Vec::new(),
+            place: None,
+        }
+    }
+
+    pub(crate) fn fixing(mut self, fix: FixTarget) -> Self {
+        self.fix = Some(fix);
+        self
+    }
+
+    pub(crate) fn constraining(mut self, constraints: Vec<ConstraintId>) -> Self {
+        self.constraints = constraints;
+        self
+    }
+
+    pub fn reason(&self) -> String {
+        self.cause.reason()
+    }
+
+    pub fn remedy(&self) -> String {
+        self.cause.remedy()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -404,45 +433,27 @@ impl<'a> Inputs<'a> {
                 && feature.kind.consumed_bodies().contains(&body)
         });
         let error = match consumer {
-            Some(consumer) if consumer.kind.combine().is_none() => FeatureError {
-                reason: format!(
-                    "{} removed the body made by {body_name}, so it no longer stands.",
-                    consumer.name
-                ),
-                remedy: format!(
-                    "Move this feature above {}, or suppress or delete {}.",
-                    consumer.name, consumer.name
-                ),
-                fix: Some(FixTarget::Feature(consumer.id())),
-                constraints: Vec::new(),
-                place: None,
-            },
+            Some(consumer) if consumer.kind.combine().is_none() => {
+                FeatureError::new(Upstream::BodyRemoved {
+                    consumer: consumer.name.clone(),
+                    body: body_name,
+                })
+                .fixing(FixTarget::Feature(consumer.id()))
+            }
             Some(consumer) => {
                 let kept = consumer
                     .kind
                     .combine()
                     .map_or_else(String::new, |combine| name(combine.body));
-                FeatureError {
-                    reason: format!(
-                        "{} combined the body made by {body_name} into the body of {kept}, so it no longer stands on its own.",
-                        consumer.name
-                    ),
-                    remedy: format!(
-                        "Use the body of {kept} instead, or move this feature above {}.",
-                        consumer.name
-                    ),
-                    fix: Some(FixTarget::Feature(consumer.id())),
-                    constraints: Vec::new(),
-                    place: None,
-                }
+                FeatureError::new(Upstream::BodyCombined {
+                    consumer: consumer.name.clone(),
+                    body: body_name,
+                    kept,
+                })
+                .fixing(FixTarget::Feature(consumer.id()))
             }
-            None => FeatureError {
-                reason: format!("The body made by {body_name} has no shape."),
-                remedy: format!("Fix {body_name} first."),
-                fix: Some(FixTarget::Feature(body.maker())),
-                constraints: Vec::new(),
-                place: None,
-            },
+            None => FeatureError::new(Upstream::BodyShapeless { body: body_name })
+                .fixing(FixTarget::Feature(body.maker())),
         };
         Failure::Error(Box::new(error))
     }
@@ -456,20 +467,13 @@ impl<'a> Inputs<'a> {
             .piece_curve(body)
             .unwrap_or_else(|| "a curve since deleted".to_owned());
         if !maker.separates_pieces() {
-            return Some(FeatureError {
-                reason: format!(
-                    "{} no longer makes a body of each separate piece, so the piece drawn by \
-                     {curve} is not a body of its own.",
-                    maker.name
-                ),
-                remedy: format!(
-                    "Set Separate pieces of {} back to a body each, or choose another body.",
-                    maker.name
-                ),
-                fix: Some(FixTarget::Feature(maker.id())),
-                constraints: Vec::new(),
-                place: None,
-            });
+            return Some(
+                FeatureError::new(Upstream::PiecesJoined {
+                    maker: maker.name.clone(),
+                    curve,
+                })
+                .fixing(FixTarget::Feature(maker.id())),
+            );
         }
         let stands = body_part(made, body).is_some();
         let sketch = maker
@@ -477,22 +481,16 @@ impl<'a> Inputs<'a> {
             .solid()
             .map(SolidFeature::sketch)
             .and_then(|sketch| self.document.feature(sketch));
-        (!stands).then(|| FeatureError {
-            reason: format!(
-                "The piece of {} drawn by {curve} is no longer there, so there is no body to \
-                 work on.",
-                maker.name
-            ),
-            remedy: match sketch {
-                Some(sketch) => format!(
-                    "Draw the piece again in {}, or choose another body.",
-                    sketch.name
-                ),
-                None => "Choose another body.".to_owned(),
-            },
-            fix: sketch.map(|sketch| FixTarget::Feature(sketch.id())),
-            constraints: Vec::new(),
-            place: None,
+        (!stands).then(|| {
+            let error = FeatureError::new(Upstream::PieceGone {
+                maker: maker.name.clone(),
+                curve,
+                sketch: sketch.map(|sketch| sketch.name.clone()),
+            });
+            match sketch {
+                Some(sketch) => error.fixing(FixTarget::Feature(sketch.id())),
+                None => error,
+            }
         })
     }
 }
@@ -1775,36 +1773,18 @@ fn missing_upstream(
 ) -> Option<FeatureError> {
     let (missing, _) = upstream.iter().find(|(_, result)| result.is_none())?;
     let Some(used) = document.feature(*missing) else {
-        let remedy = if feature.kind.attachment().is_some() {
-            "Detach the sketch to keep it where it is, or undo the deletion."
-        } else {
-            "Undo the deletion, or delete this feature too."
-        };
-        return Some(FeatureError {
-            reason: "It uses a feature that no longer exists.".to_owned(),
-            remedy: remedy.to_owned(),
-            fix: None,
-            constraints: Vec::new(),
-            place: None,
-        });
+        return Some(FeatureError::new(Upstream::Deleted {
+            sketch_attached: feature.kind.attachment().is_some(),
+        }));
     };
     let name = used.name.clone();
     if used.suppressed {
-        return Some(FeatureError {
-            reason: format!("It uses {name}, which is suppressed."),
-            remedy: format!("Unsuppress {name}, or suppress this feature too."),
-            fix: Some(FixTarget::Unsuppress(*missing)),
-            constraints: Vec::new(),
-            place: None,
-        });
+        return Some(
+            FeatureError::new(Upstream::Suppressed { name })
+                .fixing(FixTarget::Unsuppress(*missing)),
+        );
     }
-    Some(FeatureError {
-        reason: format!("It uses {name}, which has an error."),
-        remedy: format!("Fix {name} first."),
-        fix: Some(FixTarget::Feature(*missing)),
-        constraints: Vec::new(),
-        place: None,
-    })
+    Some(FeatureError::new(Upstream::Failed { name }).fixing(FixTarget::Feature(*missing)))
 }
 
 const _: () = assert!(
@@ -1840,22 +1820,12 @@ fn evaluate_contained(
 }
 
 fn panicked(feature: &Feature, payload: &(dyn Any + Send)) -> Failure {
-    {
-        log::error!(
-            "recomputing {} panicked: {}",
-            feature.name,
-            panic_message(payload)
-        );
-        Failure::Error(Box::new(FeatureError {
-            reason: "caditor ran into an internal error while recomputing this feature.".to_owned(),
-            remedy:
-                "Your model is unchanged. Undo the last change, and please report this problem."
-                    .to_owned(),
-            fix: None,
-            constraints: Vec::new(),
-            place: None,
-        }))
-    }
+    log::error!(
+        "recomputing {} panicked: {}",
+        feature.name,
+        panic_message(payload)
+    );
+    Failure::from(FeatureError::new(Cause::Panicked))
 }
 
 fn panic_message(payload: &(dyn Any + Send)) -> &str {
@@ -1977,26 +1947,16 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
         }
         SketchError::Conflict { constraints } => conflict_error(feature, sketch, constraints),
         SketchError::Several(parts) => several_errors(feature, sketch, parts),
-        SketchError::NoLength { label, .. } => FeatureError {
-            reason: format!("{label} has no length, so the sketch cannot be solved."),
-            remedy: format!(
-                "Delete {label}, or move its ends apart and remove any constraint that holds them \
-                 together."
-            ),
-            fix: Some(FixTarget::Feature(feature)),
-            constraints: Vec::new(),
-            place: None,
-        },
+        SketchError::NoLength { label, .. } => FeatureError::new(SketchCause::NoLength {
+            label: label.clone(),
+        })
+        .fixing(FixTarget::Feature(feature)),
         SketchError::Unsolvable { entities, newest } => {
             unsolvable_error(feature, sketch, entities, *newest)
         }
-        _ => FeatureError {
-            reason: format!("The sketch could not be evaluated: {error}."),
-            remedy: "Undo the last change.".to_owned(),
-            fix: None,
-            constraints: Vec::new(),
-            place: None,
-        },
+        _ => FeatureError::new(SketchCause::Unevaluable {
+            error: error.clone(),
+        }),
     }
 }
 
@@ -2005,30 +1965,18 @@ fn several_errors(feature: FeatureId, sketch: &Sketch, parts: &[SketchError]) ->
         .iter()
         .map(|part| sketch_error(feature, sketch, part))
         .collect();
-    let numbered = |pick: fn(&FeatureError) -> &str| {
-        errors
-            .iter()
-            .enumerate()
-            .map(|(index, error)| format!("({}) {}", index + 1, pick(error)))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
     let mut constraints: Vec<ConstraintId> = Vec::new();
     for constraint in errors.iter().flat_map(|error| &error.constraints) {
         if !constraints.contains(constraint) {
             constraints.push(*constraint);
         }
     }
-    FeatureError {
-        reason: format!(
-            "The sketch has {} separate problems. {}",
-            errors.len(),
-            numbered(|error| &error.reason)
-        ),
-        remedy: format!("Fix each of them. {}", numbered(|error| &error.remedy)),
-        fix: errors.iter().find_map(|error| error.fix),
-        constraints,
-        place: None,
+    let fix = errors.iter().find_map(|error| error.fix);
+    let causes = errors.into_iter().map(|error| *error.cause).collect();
+    let error = FeatureError::new(SketchCause::Several(causes)).constraining(constraints);
+    match fix {
+        Some(fix) => error.fixing(fix),
+        None => error,
     }
 }
 
@@ -2040,49 +1988,23 @@ pub(crate) fn unsolvable_error(
     entities: &[EntityId],
     newest: Option<ConstraintId>,
 ) -> FeatureError {
-    let mut names: Vec<String> = entities
+    let named = entities
         .iter()
         .take(UNSOLVED_NAMED)
         .map(|entity| sketch.entity_label(*entity))
         .collect();
     let unnamed = entities.len().saturating_sub(UNSOLVED_NAMED);
-    if unnamed > 0 {
-        names.push(format!("{unnamed} more"));
-    }
-    let (subject, possessive, them) = match entities.len() {
-        0 => ("The sketch".to_owned(), "its", "it"),
-        1 => (list_names(&names), "its", "it"),
-        _ => (list_names(&names), "their", "them"),
-    };
-    let reason = format!("{subject} could not be solved from {possessive} current shape.");
+    let error = FeatureError::new(SketchCause::Unsolvable {
+        named,
+        unnamed,
+        newest: newest.map(|constraint| sketch.describe_constraint(constraint)),
+    });
     match newest {
-        Some(constraint) => FeatureError {
-            reason,
-            remedy: format!(
-                "Delete or change {}, the newest constraint on {them}, or undo the last change.",
-                sketch.describe_constraint(constraint)
-            ),
-            fix: Some(FixTarget::Constraint {
-                feature,
-                constraint,
-            }),
-            constraints: Vec::new(),
-            place: None,
-        },
-        None if entities.is_empty() => FeatureError {
-            reason,
-            remedy: "Undo the last change.".to_owned(),
-            fix: Some(FixTarget::Feature(feature)),
-            constraints: Vec::new(),
-            place: None,
-        },
-        None => FeatureError {
-            reason,
-            remedy: format!("Delete and redraw {them}, or undo the last change."),
-            fix: Some(FixTarget::Feature(feature)),
-            constraints: Vec::new(),
-            place: None,
-        },
+        Some(constraint) => error.fixing(FixTarget::Constraint {
+            feature,
+            constraint,
+        }),
+        None => error.fixing(FixTarget::Feature(feature)),
     }
 }
 
@@ -2094,31 +2016,18 @@ fn conflict_error(
     let Some((newest, older)) = constraints.split_last() else {
         return unsolvable_error(feature, sketch, &[], None);
     };
-    let newest_label = sketch.describe_constraint(*newest);
-    let reason = if older.is_empty() {
-        format!("{newest_label} cannot be satisfied.")
-    } else {
-        let older: Vec<String> = older
+    FeatureError::new(SketchCause::Conflict {
+        newest: sketch.describe_constraint(*newest),
+        older: older
             .iter()
             .map(|constraint| sketch.describe_constraint(*constraint))
-            .collect();
-        format!("{newest_label} conflicts with {}.", list_names(&older))
-    };
-    let remedy = if older.is_empty() {
-        "Delete or change this constraint, or undo the last change."
-    } else {
-        "Delete or change one of these constraints, or undo the last change."
-    };
-    FeatureError {
-        reason,
-        remedy: remedy.to_owned(),
-        fix: Some(FixTarget::Constraint {
-            feature,
-            constraint: *newest,
-        }),
-        constraints: constraints.to_vec(),
-        place: None,
-    }
+            .collect(),
+    })
+    .fixing(FixTarget::Constraint {
+        feature,
+        constraint: *newest,
+    })
+    .constraining(constraints.to_vec())
 }
 
 fn dimension_error(
@@ -2131,58 +2040,24 @@ fn dimension_error(
         feature,
         constraint,
     };
-    let example = match sketch
+    let expected = match sketch
         .constraint(constraint)
         .and_then(|definition| definition.dimension_kind())
     {
-        Some(kind) if kind == Dimension::ANGLE => "an angle, such as 30 deg",
-        Some(kind) if kind == Dimension::NONE => "a plain number, such as 0.4",
-        _ => "a length, such as 10 mm",
+        Some(kind) if kind == Dimension::ANGLE => Expected::Angle(30.0),
+        Some(kind) if kind == Dimension::NONE => Expected::Number(0.4),
+        _ => Expected::Length(10.0),
     };
-    let (remedy, fix) = match reason {
-        DimensionError::Evaluation(EvalError::ParameterFailed { id, name }) => (
-            format!("Fix {name} under Parameters, or edit this dimension."),
-            FixTarget::Parameter(*id),
-        ),
-        DimensionError::Evaluation(EvalError::WrongKind { .. }) => (
-            format!("Edit the dimension so it gives {example}."),
-            dimension,
-        ),
-        DimensionError::Negative => (
-            "Edit the dimension so it gives zero or more.".to_owned(),
-            dimension,
-        ),
-        DimensionError::NotPositive
-        | DimensionError::DiameterNotPositive
-        | DimensionError::ArcLengthNotPositive => (
-            "Edit the dimension so it gives more than zero.".to_owned(),
-            dimension,
-        ),
-        DimensionError::SweepOutsideTurn => (
-            "Edit the dimension so it gives an angle between 0 and 360 deg.".to_owned(),
-            dimension,
-        ),
-        DimensionError::RhoOutOfRange => (
-            "Edit the dimension so it gives a rho between 0.01 and 0.99.".to_owned(),
-            dimension,
-        ),
-        DimensionError::TooLong => (
-            "Edit the dimension so it gives a length the model can hold.".to_owned(),
-            dimension,
-        ),
-        DimensionError::Evaluation(_) | DimensionError::NotFinite => (
-            "Edit the dimension or the parameters it uses.".to_owned(),
-            dimension,
-        ),
+    let fix = match reason {
+        DimensionError::Evaluation(EvalError::ParameterFailed { id, .. }) => {
+            FixTarget::Parameter(*id)
+        }
+        _ => dimension,
     };
-    FeatureError {
-        reason: format!(
-            "{} cannot be evaluated: {reason}.",
-            sketch.describe_constraint(constraint)
-        ),
-        remedy,
-        fix: Some(fix),
-        constraints: Vec::new(),
-        place: None,
-    }
+    FeatureError::new(SketchCause::Dimension {
+        label: sketch.describe_constraint(constraint),
+        error: reason.clone(),
+        expected,
+    })
+    .fixing(fix)
 }

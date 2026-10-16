@@ -6,7 +6,7 @@ use caditor_sketch::Sketch;
 use crate::{
     combine_tests::{evaluate, pair},
     describe::describe_origin,
-    thread::{ThreadWords, part_name},
+    thread::{ThreadCause, part_name},
     thread_tests::{
         class, failure, metric, plain_thread, result, round_face, set_hole, shaft, tapped, threaded,
     },
@@ -193,18 +193,18 @@ fn a_modelled_thread_of_too_many_turns_fails_alone_in_words() {
 
     assert!(
         error
-            .reason
+            .reason()
             .starts_with("The modelled M8x0.75 thread on Shaft side from Circle 1"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
         error
-            .reason
+            .reason()
             .contains("more than the 2000 a modelled thread can")
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Thread a shorter length, or make the thread cosmetic."
     );
     assert_eq!(
@@ -215,35 +215,45 @@ fn a_modelled_thread_of_too_many_turns_fails_alone_in_words() {
 
 #[test]
 fn kernel_thread_errors_are_put_in_words_naming_the_face() {
-    let words = ThreadWords {
-        size: metric("M8"),
+    let size = metric("M8");
+    let face = "shaft side from circle 1";
+    let cause = |error| ThreadCause::Modelled {
+        size,
         side: ThreadSide::External,
-        face: "shaft side from circle 1",
+        face: face.to_owned(),
+        error,
     };
 
-    let short = words
-        .words(&ThreadError::TooShort {
-            length: 0.5,
-            needed: 2.25,
-        })
-        .unwrap();
-    let narrow = words.words(&ThreadError::RootOutsideFace).unwrap();
+    let short = cause(ThreadError::TooShort {
+        length: 0.5,
+        needed: 2.25,
+    });
+    let narrow = cause(ThreadError::RootOutsideFace);
 
     assert_eq!(
-        short.reason,
+        short.reason(),
         "The modelled M8 thread on shaft side from circle 1 is 0.5 mm long, shorter than the \
          2.25 mm its form needs."
     );
     assert_eq!(
-        short.remedy,
+        short.remedy(),
         "Thread a longer length or choose a finer pitch, or make the thread cosmetic."
     );
     assert_eq!(
-        narrow.reason,
+        narrow.reason(),
         "The shaft at shaft side from circle 1 is too narrow for the root of a modelled M8 \
          thread, so there is nothing to cut."
     );
-    assert!(words.words(&ThreadError::Cancelled(Interrupted)).is_none());
+    assert!(matches!(
+        ThreadCause::cutting(
+            FeatureId::from_raw(1),
+            size,
+            ThreadSide::External,
+            face,
+            ThreadError::Cancelled(Interrupted)
+        ),
+        Failure::Cancelled
+    ));
 }
 
 #[test]

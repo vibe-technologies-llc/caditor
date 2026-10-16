@@ -156,9 +156,9 @@ fn a_through_hole_goes_all_the_way_and_a_reversed_one_drills_the_other_way() {
 
     let error = failure(&away, hole);
     assert!(
-        error.reason.contains("nothing to go through"),
+        error.reason().contains("nothing to go through"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -280,10 +280,10 @@ fn bad_sizes_fail_the_hole_alone_saying_which() {
 
         let error = failure(&evaluation, hole);
         assert!(
-            error.reason.contains(expected),
+            error.reason().contains(expected),
             "{}: {}",
             expected,
-            error.reason
+            error.reason()
         );
         assert_eq!(evaluation.failed_count(), 1);
         assert!(evaluation.body(pair.peg).is_some());
@@ -354,12 +354,12 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
 
     assert!(
         failure(&evaluation, missing)
-            .reason
+            .reason()
             .contains("does not reach")
     );
     assert!(
         failure(&evaluation, blank)
-            .reason
+            .reason()
             .contains("no points or circles to drill at")
     );
 }
@@ -643,7 +643,7 @@ fn a_countersunk_slot_is_refused_in_words() {
     let error = failure(&evaluate(&pair.document, &mut engine), hole);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "A slot can be plain, counterbored or stepped, but not countersunk."
     );
 }
@@ -809,7 +809,7 @@ fn a_counterbore_narrower_than_a_circle_names_the_circle() {
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
 
     assert_eq!(
-        failure(&evaluation, hole).reason,
+        failure(&evaluation, hole).reason(),
         "The counterbore is not wider than Circle 3."
     );
 }
@@ -922,7 +922,7 @@ fn holes_scaled_by_circles_grow_their_counterbore_with_each_circle() {
     let expected = 2.0 * typed + wide;
     let found = PLATE - volume(&scaled_evaluation, scaled.plate);
     assert_eq!(
-        failure(&kept_evaluation, kept_hole).reason,
+        failure(&kept_evaluation, kept_hole).reason(),
         "The counterbore is not wider than Circle 3."
     );
     assert_eq!(scaled_evaluation.failed_count(), 0);
@@ -1097,7 +1097,7 @@ fn steps_that_widen_reach_the_bottom_or_no_wider_than_the_hole_are_refused() {
 
         let error = failure(&evaluate(&pair.document, &mut engine), hole);
 
-        assert_eq!(error.reason, reason);
+        assert_eq!(error.reason(), reason);
     }
 }
 
@@ -1188,9 +1188,9 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
         ending(&mut pair, hole, bottom);
         let error = failure(&evaluate(&pair.document, &mut engine), hole);
         assert!(
-            error.reason.contains("drill point angle"),
+            error.reason().contains("drill point angle"),
             "{angle}: {}",
-            error.reason
+            error.reason()
         );
     }
 
@@ -1216,7 +1216,11 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
     pair.document.apply(transaction.finish()).unwrap();
 
     let error = failure(&evaluate(&pair.document, &mut engine), hole);
-    assert!(error.reason.contains("slot ends flat"), "{}", error.reason);
+    assert!(
+        error.reason().contains("slot ends flat"),
+        "{}",
+        error.reason()
+    );
 }
 
 fn level(pair: &mut Pair, height: &str) -> FeatureId {
@@ -1360,15 +1364,15 @@ fn a_hole_up_to_a_plane_behind_it_or_shallower_than_its_counterbore_fails_in_wor
     );
 
     assert_eq!(
-        refused.reason,
+        refused.reason(),
         "Level does not lie ahead of the hole at Point 0."
     );
     assert_eq!(
-        refused.remedy,
+        refused.remedy(),
         "Turn the hole around, or choose a face or plane beyond the sketch."
     );
     assert_eq!(
-        too_shallow.reason,
+        too_shallow.reason(),
         "At Point 0, the counterbore reaches as deep as the whole hole."
     );
 }

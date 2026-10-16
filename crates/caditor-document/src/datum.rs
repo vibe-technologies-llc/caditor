@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::{Plane, Point3, Ray, RigidTransform, Vector3};
 use caditor_kernel::{
     Curve, EdgeId, EdgeReference, FaceId, FaceReference, LINEAR_RESOLUTION, ReferenceError, Solid,
@@ -9,10 +9,12 @@ use caditor_kernel::{
 use caditor_sketch::EntityId;
 
 use crate::{
-    attachment::{AttachmentError, FaceAttachment},
+    attachment::FaceAttachment,
+    datum_cause::{DatumCause, Kind, Pair, Unplaced},
     datum_construction,
     describe::describe_origin,
     document::{Document, Feature, FeatureId},
+    failure::{Cause, Expected, Upstream},
     origins,
     recompute::{Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     tolerance,
@@ -1167,46 +1169,38 @@ pub(crate) struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
-    pub(crate) fn error(&self, reason: String, remedy: String, fix: FeatureId) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(fix)),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    pub(crate) fn error(&self, cause: impl Into<Cause>) -> Failure {
+        self.error_at(cause, self.feature.id())
     }
 
-    pub(crate) fn own_error(&self, reason: String, remedy: &str) -> Failure {
-        self.error(reason, remedy.to_owned(), self.feature.id())
+    pub(crate) fn error_at(&self, cause: impl Into<Cause>, fix: FeatureId) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(fix)))
+    }
+
+    fn not(&self, feature: FeatureId, kind: Kind) -> Failure {
+        self.error(DatumCause::Not {
+            name: feature_name(self.inputs.document, feature),
+            kind,
+        })
+    }
+
+    fn failed(&self, name: String, fix: FeatureId) -> Failure {
+        self.error_at(Upstream::Failed { name }, fix)
     }
 
     fn datum(&self, feature: FeatureId) -> Result<DatumResult, Failure> {
         let name = feature_name(self.inputs.document, feature);
         match self.inputs.features.get(&feature).map(AsRef::as_ref) {
             Some(FeatureResult::Datum(result)) => Ok(*result),
-            Some(_) => Err(self.own_error(
-                format!("{name} is not a plane or an axis."),
-                "Choose a plane or an axis instead.",
-            )),
-            None => Err(self.error(
-                format!("It uses {name}, which has an error."),
-                format!("Fix {name} first."),
-                feature,
-            )),
+            Some(_) => Err(self.not(feature, Kind::PlaneOrAxis)),
+            None => Err(self.failed(name, feature)),
         }
     }
 
     pub(crate) fn frame(&self, feature: FeatureId) -> Result<Plane, Failure> {
-        self.datum(feature)?.frame().ok_or_else(|| {
-            self.own_error(
-                format!(
-                    "{} is not a coordinate system.",
-                    feature_name(self.inputs.document, feature)
-                ),
-                "Choose a coordinate system instead.",
-            )
-        })
+        self.datum(feature)?
+            .frame()
+            .ok_or_else(|| self.not(feature, Kind::Frame))
     }
 
     pub(crate) fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
@@ -1218,44 +1212,24 @@ impl Resolver<'_> {
     pub fn plane(&self, reference: &PlaneReference) -> Result<Plane, Failure> {
         match reference {
             PlaneReference::Principal(plane) => Ok(plane.plane()),
-            PlaneReference::Datum(feature) => self.datum(*feature)?.plane().ok_or_else(|| {
-                self.own_error(
-                    format!(
-                        "{} is not a plane.",
-                        feature_name(self.inputs.document, *feature)
-                    ),
-                    "Choose a plane instead.",
-                )
-            }),
+            PlaneReference::Datum(feature) => self
+                .datum(*feature)?
+                .plane()
+                .ok_or_else(|| self.not(*feature, Kind::Plane)),
             PlaneReference::Face(attachment) => {
                 let solid = self.body(attachment.body)?;
                 let body = feature_name(self.inputs.document, attachment.body);
-                attachment.resolve(solid).map_err(|error| {
-                    let reason = match error {
-                        AttachmentError::Missing => {
-                            format!("The face it is based on is no longer part of {body}.")
-                        }
-                        AttachmentError::Ambiguous => format!(
-                            "The face of {body} it is based on was split into parts that no \
-                             longer lie in one plane."
-                        ),
-                        AttachmentError::NotFlat => {
-                            format!("The face of {body} it is based on is no longer flat.")
-                        }
-                    };
-                    self.own_error(reason, "Choose another plane or flat face for it.")
-                })
+                attachment
+                    .resolve(solid)
+                    .map_err(|error| self.error(DatumCause::BasisFace { error, body }))
             }
             PlaneReference::Frame { frame, plane } => {
                 plane.in_frame(&self.frame(*frame)?).ok_or_else(|| {
-                    self.own_error(
-                        format!(
-                            "The {} of {} could not be placed.",
-                            plane.name(),
-                            feature_name(self.inputs.document, *frame)
-                        ),
-                        "Choose another plane.",
-                    )
+                    self.error(DatumCause::FramePartUnplaced {
+                        part: plane.name().to_owned(),
+                        frame: feature_name(self.inputs.document, *frame),
+                        plane: true,
+                    })
                 })
             }
         }
@@ -1264,18 +1238,13 @@ impl Resolver<'_> {
     pub fn axis(&self, reference: &AxisReference) -> Result<Ray, Failure> {
         let document = self.inputs.document;
         match reference {
-            AxisReference::Principal(axis) => axis.ray().ok_or_else(|| {
-                self.own_error(
-                    "The axis has no direction.".to_owned(),
-                    "Choose another axis.",
-                )
-            }),
-            AxisReference::Datum(feature) => self.datum(*feature)?.axis().ok_or_else(|| {
-                self.own_error(
-                    format!("{} is not an axis.", feature_name(document, *feature)),
-                    "Choose an axis instead.",
-                )
-            }),
+            AxisReference::Principal(axis) => axis
+                .ray()
+                .ok_or_else(|| self.error(DatumCause::AxisNoDirection)),
+            AxisReference::Datum(feature) => self
+                .datum(*feature)?
+                .axis()
+                .ok_or_else(|| self.not(*feature, Kind::Axis)),
             AxisReference::Edge { body, edge } => {
                 let solid = self.body(*body)?;
                 let name = feature_name(document, *body);
@@ -1283,18 +1252,11 @@ impl Resolver<'_> {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
                     Err(ReferenceError::Missing) => {
-                        return Err(self.own_error(
-                            format!("The edge it uses is no longer part of {name}."),
-                            "Choose another edge or axis for it.",
-                        ));
+                        return Err(self.error(DatumCause::EdgeGone { name }));
                     }
                 };
-                one_line(pieces.iter().map(|piece| edge_ray(solid, *piece))).ok_or_else(|| {
-                    self.own_error(
-                        format!("The edge of {name} it uses is no longer straight."),
-                        "Choose a straight edge or another axis for it.",
-                    )
-                })
+                one_line(pieces.iter().map(|piece| edge_ray(solid, *piece)))
+                    .ok_or_else(|| self.error(DatumCause::EdgeBent { name }))
             }
             AxisReference::Face { body, face } => {
                 let solid = self.body(*body)?;
@@ -1303,21 +1265,14 @@ impl Resolver<'_> {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
                     Err(ReferenceError::Missing) => {
-                        return Err(self.own_error(
-                            format!(
-                                "{described} is no longer part of {}.",
-                                feature_name(document, *body)
-                            ),
-                            "Choose another face or axis for it.",
-                        ));
+                        return Err(self.error(DatumCause::AxisFaceGone {
+                            described,
+                            body: feature_name(document, *body),
+                        }));
                     }
                 };
-                one_line(pieces.iter().map(|piece| face_axis(solid, *piece))).ok_or_else(|| {
-                    self.own_error(
-                        format!("{described} is no longer round about an axis."),
-                        "Choose a cylindrical or conical face, or another axis.",
-                    )
-                })
+                one_line(pieces.iter().map(|piece| face_axis(solid, *piece)))
+                    .ok_or_else(|| self.error(DatumCause::FaceNotRound { described }))
             }
             AxisReference::Sketch { sketch, entity } => {
                 let name = feature_name(document, *sketch);
@@ -1327,31 +1282,18 @@ impl Resolver<'_> {
                     .get(sketch)
                     .and_then(|result| result.sketch())
                     .ok_or_else(|| {
-                        self.error(
-                            format!("It uses a line of {name}, which has an error."),
-                            format!("Fix {name} first."),
-                            *sketch,
-                        )
+                        self.error_at(DatumCause::SketchLineFailed { name: name.clone() }, *sketch)
                     })?;
-                sketch_line(&result.geometry, *entity).ok_or_else(|| {
-                    self.own_error(
-                        format!(
-                            "The line of {name} it uses no longer exists or is no longer a line."
-                        ),
-                        "Choose another line or axis for it.",
-                    )
-                })
+                sketch_line(&result.geometry, *entity)
+                    .ok_or_else(|| self.error(DatumCause::LineGone { name }))
             }
             AxisReference::Frame { frame, axis } => {
                 axis.in_frame(&self.frame(*frame)?).ok_or_else(|| {
-                    self.own_error(
-                        format!(
-                            "The {} of {} could not be placed.",
-                            axis.name(),
-                            feature_name(document, *frame)
-                        ),
-                        "Choose another axis.",
-                    )
+                    self.error(DatumCause::FramePartUnplaced {
+                        part: axis.name().to_owned(),
+                        frame: feature_name(document, *frame),
+                        plane: false,
+                    })
                 })
             }
         }
@@ -1362,12 +1304,10 @@ impl Resolver<'_> {
         match reference {
             PointReference::Origin => Ok(Point3::ZERO),
             PointReference::Frame(frame) => Ok(self.frame(*frame)?.origin()),
-            PointReference::Datum(feature) => self.datum(*feature)?.point().ok_or_else(|| {
-                self.own_error(
-                    format!("{} is not a point.", feature_name(document, *feature)),
-                    "Choose a point instead.",
-                )
-            }),
+            PointReference::Datum(feature) => self
+                .datum(*feature)?
+                .point()
+                .ok_or_else(|| self.not(*feature, Kind::Point)),
             PointReference::Vertex { body, vertex } => {
                 let solid = self.body(*body)?;
                 let name = feature_name(document, *body);
@@ -1375,23 +1315,13 @@ impl Resolver<'_> {
                     Ok(found) => solid
                         .vertex(found)
                         .map(|found| found.point())
-                        .ok_or_else(|| {
-                            self.own_error(
-                                format!("The corner it uses is no longer part of {name}."),
-                                "Choose another point for it.",
-                            )
-                        }),
-                    Err(ReferenceError::Missing) => Err(self.own_error(
-                        format!("The corner it uses is no longer part of {name}."),
-                        "Choose another point for it.",
-                    )),
-                    Err(ReferenceError::Ambiguous(_)) => Err(self.own_error(
-                        format!(
-                            "The corner of {name} it uses is now several corners, so it is \
-                             unclear which one to follow."
-                        ),
-                        "Choose the point again.",
-                    )),
+                        .ok_or_else(|| self.error(DatumCause::CornerGone { name })),
+                    Err(ReferenceError::Missing) => {
+                        Err(self.error(DatumCause::CornerGone { name }))
+                    }
+                    Err(ReferenceError::Ambiguous(_)) => {
+                        Err(self.error(DatumCause::CornerSeveral { name }))
+                    }
                 }
             }
             PointReference::Centre { body, edge } => {
@@ -1401,10 +1331,7 @@ impl Resolver<'_> {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
                     Err(ReferenceError::Missing) => {
-                        return Err(self.own_error(
-                            format!("The round edge it uses is no longer part of {name}."),
-                            "Choose another point for it.",
-                        ));
+                        return Err(self.error(DatumCause::RoundEdgeGone { name }));
                     }
                 };
                 let centres: Option<Vec<Point3>> = pieces
@@ -1419,10 +1346,7 @@ impl Resolver<'_> {
                     {
                         Ok(*first)
                     }
-                    _ => Err(self.own_error(
-                        format!("The edge of {name} it uses is no longer round."),
-                        "Choose a circular edge or another point for it.",
-                    )),
+                    _ => Err(self.error(DatumCause::EdgeNotRound { name })),
                 }
             }
             PointReference::SurfaceCentre { body, face } => {
@@ -1432,13 +1356,10 @@ impl Resolver<'_> {
                     Ok(found) => vec![found],
                     Err(ReferenceError::Ambiguous(pieces)) => pieces,
                     Err(ReferenceError::Missing) => {
-                        return Err(self.own_error(
-                            format!(
-                                "{described} is no longer part of {}.",
-                                feature_name(document, *body)
-                            ),
-                            "Choose another face or point for it.",
-                        ));
+                        return Err(self.error(DatumCause::PointFaceGone {
+                            described,
+                            body: feature_name(document, *body),
+                        }));
                     }
                 };
                 let centres: Option<Vec<Point3>> = pieces
@@ -1453,10 +1374,7 @@ impl Resolver<'_> {
                     {
                         Ok(*first)
                     }
-                    _ => Err(self.own_error(
-                        format!("{described} is no longer a sphere or a torus."),
-                        "Choose a spherical or toroidal face, or another point for it.",
-                    )),
+                    _ => Err(self.error(DatumCause::FaceNotSphere { described })),
                 }
             }
             PointReference::Sketch { sketch, entity } => {
@@ -1467,18 +1385,15 @@ impl Resolver<'_> {
                     .get(sketch)
                     .and_then(|result| result.sketch())
                     .ok_or_else(|| {
-                        self.error(
-                            format!("It uses a point of {name}, which has an error."),
-                            format!("Fix {name} first."),
+                        self.error_at(
+                            DatumCause::SketchPointFailed { name: name.clone() },
                             *sketch,
                         )
                     })?;
-                let point = result.geometry.point(*entity).ok_or_else(|| {
-                    self.own_error(
-                        format!("The point of {name} it uses no longer exists."),
-                        "Choose another point for it.",
-                    )
-                })?;
+                let point = result
+                    .geometry
+                    .point(*entity)
+                    .ok_or_else(|| self.error(DatumCause::PointGone { name }))?;
                 Ok(result.geometry.plane().to_world(point))
             }
         }
@@ -1490,35 +1405,20 @@ impl Resolver<'_> {
         what: &str,
         dimension: Dimension,
     ) -> Result<f64, Failure> {
-        let example = match dimension {
-            Dimension::ANGLE => "an angle, such as 30 deg",
-            Dimension::NONE => "a plain number, such as 4",
-            _ => "a length, such as 10 mm",
+        let expected = match dimension {
+            Dimension::ANGLE => Expected::Angle(30.0),
+            Dimension::NONE => Expected::Number(4.0),
+            _ => Expected::Length(10.0),
         };
         expression
             .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the {what}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives {example}."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        format!("Edit the {what} or the parameters it uses."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The {what} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    what,
+                    expected,
+                    error,
+                ))
             })
     }
 }
@@ -1549,19 +1449,10 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
             let normal = along.cross(third - first);
             let spread = along.length().max((third - first).length());
             if normal.length() <= LINEAR_RESOLUTION * spread.max(1.0) {
-                return Err(resolver.own_error(
-                    "Its three points lie on one line, or two of them coincide, so no single \
-                     plane passes through them."
-                        .to_owned(),
-                    "Choose three points that do not lie on one line.",
-                ));
+                return Err(resolver.error(DatumCause::PointsCollinear));
             }
-            Plane::with_x_axis(first, normal, along).ok_or_else(|| {
-                resolver.own_error(
-                    "The plane could not be placed through its points.".to_owned(),
-                    "Choose three points farther apart.",
-                )
-            })
+            Plane::with_x_axis(first, normal, along)
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneThroughPoints)))
         }
         PlaneThrough::Midway(first, second) => {
             let (one, other) = (resolver.plane(first)?, resolver.plane(second)?);
@@ -1577,61 +1468,39 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
                     one.normal(),
                     one.x_axis(),
                 )
-                .ok_or_else(|| {
-                    resolver.own_error(
-                        "The plane could not be placed between the two planes.".to_owned(),
-                        "Choose two other planes.",
-                    )
-                });
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneBetween)));
             }
             let line = intersection(one, other).ok_or_else(|| {
-                resolver.own_error(
-                    format!(
-                        "{} and {} could not be halved.",
-                        capitalized(&describe_plane(document, first)),
-                        describe_plane(document, second)
-                    ),
-                    "Choose two other planes.",
-                )
+                resolver.error(DatumCause::NotHalved {
+                    pair: Pair {
+                        first: capitalized(&describe_plane(document, first)),
+                        second: describe_plane(document, second),
+                    },
+                })
             })?;
             let normal = one.normal() + facing;
-            Plane::with_x_axis(line.origin(), normal, line.direction()).ok_or_else(|| {
-                resolver.own_error(
-                    "The plane could not be placed between the two planes.".to_owned(),
-                    "Choose two other planes.",
-                )
-            })
+            Plane::with_x_axis(line.origin(), normal, line.direction())
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneBetween)))
         }
         PlaneThrough::AxisAndPoint(axis, point) => {
             let line = resolver.axis(axis)?;
             let at = resolver.point(point)?;
             let normal = line.direction().cross(at - line.origin());
             if normal.length() <= LINEAR_RESOLUTION {
-                return Err(resolver.own_error(
-                    format!(
-                        "{} lies on {}, so no single plane is fixed by them.",
-                        capitalized(&describe_point(document, point)),
-                        describe_axis(document, axis)
-                    ),
-                    "Choose a point off the axis.",
-                ));
+                return Err(resolver.error(DatumCause::PointOnAxis {
+                    point: capitalized(&describe_point(document, point)),
+                    axis: describe_axis(document, axis),
+                }));
             }
             Plane::with_x_axis(line.origin(), normal, line.direction()).ok_or_else(|| {
-                resolver.own_error(
-                    "The plane could not be placed through the axis and the point.".to_owned(),
-                    "Choose another axis or point.",
-                )
+                resolver.error(DatumCause::Unplaced(Unplaced::PlaneThroughAxisAndPoint))
             })
         }
         PlaneThrough::NormalTo(axis, point) => {
             let line = resolver.axis(axis)?;
             let at = resolver.point(point)?;
-            Plane::new(at, line.direction()).ok_or_else(|| {
-                resolver.own_error(
-                    "The plane could not be placed square to the axis.".to_owned(),
-                    "Choose another axis.",
-                )
-            })
+            Plane::new(at, line.direction())
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneSquareToAxis)))
         }
         PlaneThrough::Tangent(tangent) => datum_construction::tangent_plane(resolver, tangent),
         PlaneThrough::TangentAt(tangent) => datum_construction::tangent_plane_at(resolver, tangent),
@@ -1651,45 +1520,32 @@ fn axis_through(resolver: &Resolver<'_>, axis: &DatumAxis) -> Result<Ray, Failur
         DatumAxis::Intersection(first, second) => {
             let planes = (resolver.plane(first)?, resolver.plane(second)?);
             intersection(planes.0, planes.1).ok_or_else(|| {
-                resolver.own_error(
-                    format!(
-                        "{} and {} are parallel, so they do not meet in a line.",
-                        capitalized(&describe_plane(document, first)),
-                        describe_plane(document, second)
-                    ),
-                    "Choose two planes or flat faces that cross.",
-                )
+                resolver.error(DatumCause::PlanesParallel {
+                    pair: Pair {
+                        first: capitalized(&describe_plane(document, first)),
+                        second: describe_plane(document, second),
+                    },
+                })
             })
         }
         DatumAxis::Points(first, second) => {
             let (from, to) = (resolver.point(first)?, resolver.point(second)?);
             if from.distance(to) <= LINEAR_RESOLUTION {
-                return Err(resolver.own_error(
-                    format!(
-                        "{} and {} are at the same place, so no single axis passes through \
-                         them.",
-                        capitalized(&describe_point(document, first)),
-                        describe_point(document, second)
-                    ),
-                    "Choose two points apart.",
-                ));
+                return Err(resolver.error(DatumCause::PointsCoincide {
+                    pair: Pair {
+                        first: capitalized(&describe_point(document, first)),
+                        second: describe_point(document, second),
+                    },
+                }));
             }
-            Ray::new(from, to - from).ok_or_else(|| {
-                resolver.own_error(
-                    "The axis could not be placed through its points.".to_owned(),
-                    "Choose two other points.",
-                )
-            })
+            Ray::new(from, to - from)
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::AxisThroughPoints)))
         }
         DatumAxis::SquareToFace(tangent) => datum_construction::square_to_face(resolver, tangent),
         DatumAxis::NormalTo(plane, point) => {
             let square = resolver.plane(plane)?;
-            Ray::new(resolver.point(point)?, square.normal()).ok_or_else(|| {
-                resolver.own_error(
-                    "The axis could not be placed square to the plane.".to_owned(),
-                    "Choose another plane.",
-                )
-            })
+            Ray::new(resolver.point(point)?, square.normal())
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::AxisSquareToPlane)))
         }
     }
 }
@@ -1710,10 +1566,7 @@ fn datum_point(resolver: &Resolver<'_>, point: &DatumPoint) -> Result<Point3, Fa
     }
     let at = base + offset;
     if !at.is_finite() {
-        return Err(resolver.own_error(
-            "The point could not be placed.".to_owned(),
-            "Change its offsets.",
-        ));
+        return Err(resolver.error(DatumCause::Unplaced(Unplaced::PointOffsets)));
     }
     Ok(at)
 }
@@ -1734,16 +1587,10 @@ pub(crate) fn evaluate(
             if let Some(rotation) = &definition.rotation {
                 let axis = resolver.axis(&rotation.axis)?;
                 if !tolerance::perpendicular(axis.direction(), plane.normal()) {
-                    return Err(resolver.own_error(
-                        format!(
-                            "{} does not run along {}, so turning the plane about it cannot \
-                             work.",
-                            capitalized(&describe_axis(document, &rotation.axis)),
-                            describe_plane(document, &definition.base)
-                        ),
-                        "Choose an axis that lies in the plane or runs parallel to it, such as \
-                         an edge of the face.",
-                    ));
+                    return Err(resolver.error(DatumCause::AxisNotAlong {
+                        axis: capitalized(&describe_axis(document, &rotation.axis)),
+                        plane: describe_plane(document, &definition.base),
+                    }));
                 }
                 let angle = resolver.value(&rotation.angle, "angle", Dimension::ANGLE)?;
                 let transform = RigidTransform::rotation_about(
@@ -1751,12 +1598,7 @@ pub(crate) fn evaluate(
                     axis.direction(),
                     angle.to_radians(),
                 )
-                .ok_or_else(|| {
-                    resolver.own_error(
-                        "The rotation axis has no direction.".to_owned(),
-                        "Choose another axis.",
-                    )
-                })?;
+                .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::RotationAxis)))?;
                 let through_axis = Plane::from_frame(
                     plane.origin() + plane.normal() * plane.signed_distance(axis.origin()),
                     plane.normal(),
@@ -1771,12 +1613,7 @@ pub(crate) fn evaluate(
                 plane.normal(),
                 plane.x_axis(),
             )
-            .ok_or_else(|| {
-                resolver.own_error(
-                    "The plane could not be placed.".to_owned(),
-                    "Change the offset or the angle.",
-                )
-            })?;
+            .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneMoved)))?;
             DatumResult::Plane(moved)
         }
         Datum::Axis(axis) => DatumResult::Axis(axis_through(&resolver, axis)?),

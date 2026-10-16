@@ -10,6 +10,7 @@ use caditor_kernel::{
 use crate::{
     datum::AxisReference,
     document::{Feature, FeatureId},
+    failure::Cause,
     primitive::{Context, combined},
     recompute::{CancelToken, Failure, FeatureResult, Inputs},
     solid::BodyOperation,
@@ -308,10 +309,10 @@ fn number(context: &Context<'_>, expression: &Expression, what: &str) -> Result<
     let value = context.value_as(expression, what, Dimension::NONE)?;
     if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) {
         let shape = context.shape();
-        return Err(context.error(
-            format!("The {shape} must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns."),
-            format!("Enter a number of {what} from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."),
-        ));
+        return Err(context.error(CoilCause::TurnsRange {
+            shape: shape.to_owned(),
+            what: what.to_owned(),
+        }));
     }
     Ok(value)
 }
@@ -342,13 +343,12 @@ pub(crate) fn span(context: &Context<'_>, length: &CoilLength) -> Result<CoilSpa
             let turns = height / pitch;
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
                 let shape = context.shape();
-                return Err(context.error(
-                    format!(
-                        "A height of {height} mm at a pitch of {pitch} mm makes {turns:.2} turns; \
-                         a {shape} makes from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."
-                    ),
-                    "Change the height or the pitch.".to_owned(),
-                ));
+                return Err(context.error(CoilCause::HeightPitchTurns {
+                    shape: shape.to_owned(),
+                    height,
+                    pitch,
+                    turns,
+                }));
             }
             Ok(CoilSpan {
                 height,
@@ -363,13 +363,9 @@ pub(crate) fn taper(context: &Context<'_>, expression: &Expression) -> Result<f6
     let degrees = context.value_as(expression, "taper angle", Dimension::ANGLE)?;
     if degrees.abs() >= MAX_COIL_TAPER_DEGREES {
         let shape = context.shape();
-        return Err(context.error(
-            format!("The taper of the {shape} is {MAX_COIL_TAPER_DEGREES}° or steeper."),
-            format!(
-                "Enter a taper angle between -{MAX_COIL_TAPER_DEGREES}° and \
-                 {MAX_COIL_TAPER_DEGREES}°."
-            ),
-        ));
+        return Err(context.error(CoilCause::TaperSteep {
+            subject: format!("the {shape}"),
+        }));
     }
     Ok(degrees.to_radians())
 }
@@ -380,42 +376,23 @@ fn failure(
     spec: &CoilSpec,
     error: &CoilError,
 ) -> Failure {
-    let name = &feature.name;
+    let name = feature.name.clone();
     match error {
         CoilError::Cancelled(_) => Failure::Cancelled,
-        CoilError::TurnsOverlap { pitch, least } => context.error(
-            format!(
-                "The turns of {name} would touch: at a pitch of {pitch:.3} mm its section needs \
-                 more than {least:.3} mm between turns."
-            ),
-            "Make the pitch larger (a greater height or fewer turns), or the section smaller."
-                .to_owned(),
-        ),
-        CoilError::ReachesAxis if spec.taper < 0.0 => context.error(
-            format!("The taper draws {name} in until its section reaches the axis."),
-            "Make the taper smaller, the coil shorter or its diameter larger.".to_owned(),
-        ),
-        CoilError::ReachesAxis => context.error(
-            format!("The section of {name} reaches its axis."),
-            "Make the diameter larger or the section smaller, or place the section outside the \
-             diameter."
-                .to_owned(),
-        ),
-        CoilError::TooFewTurns { .. } | CoilError::TooManyTurns { .. } => context.error(
-            format!("{name} must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns."),
-            "Change its turns, height or pitch.".to_owned(),
-        ),
-        CoilError::TaperTooSteep => context.error(
-            format!("The taper of {name} is {MAX_COIL_TAPER_DEGREES}° or steeper."),
-            format!(
-                "Enter a taper angle between -{MAX_COIL_TAPER_DEGREES}° and \
-                 {MAX_COIL_TAPER_DEGREES}°."
-            ),
-        ),
-        CoilError::TooLarge => context.error(
-            format!("{name} reaches too far from the origin."),
-            "Make it smaller or place its axis nearer the origin.".to_owned(),
-        ),
+        CoilError::TurnsOverlap { pitch, least } => context.error(CoilCause::TurnsOverlap {
+            name,
+            pitch: *pitch,
+            least: *least,
+        }),
+        CoilError::ReachesAxis if spec.taper < 0.0 => {
+            context.error(CoilCause::TaperDrawsIn { name })
+        }
+        CoilError::ReachesAxis => context.error(CoilCause::SectionReachesAxis { name }),
+        CoilError::TooFewTurns { .. } | CoilError::TooManyTurns { .. } => {
+            context.error(CoilCause::TurnsRangeOf { name })
+        }
+        CoilError::TaperTooSteep => context.error(CoilCause::TaperSteep { subject: name }),
+        CoilError::TooLarge => context.error(CoilCause::TooFar { name }),
         CoilError::NonFinite
         | CoilError::NoRadius
         | CoilError::NoSection
@@ -424,11 +401,136 @@ fn failure(
         | CoilError::Unassembled
         | CoilError::Invalid(_) => {
             log::warn!("{name} could not be built: {error}");
-            context.error(
-                format!("{name} cannot be built with these sizes."),
-                "Change its diameter, section, pitch or taper.".to_owned(),
-            )
+            context.error(CoilCause::Unbuildable { name, helix: false })
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CoilCause {
+    TurnsRange {
+        shape: String,
+        what: String,
+    },
+    HeightPitchTurns {
+        shape: String,
+        height: f64,
+        pitch: f64,
+        turns: f64,
+    },
+    TaperSteep {
+        subject: String,
+    },
+    TurnsOverlap {
+        name: String,
+        pitch: f64,
+        least: f64,
+    },
+    TaperDrawsIn {
+        name: String,
+    },
+    HelixTaperDrawsIn {
+        name: String,
+    },
+    SectionReachesAxis {
+        name: String,
+    },
+    TurnsRangeOf {
+        name: String,
+    },
+    TooFar {
+        name: String,
+    },
+    Unbuildable {
+        name: String,
+        helix: bool,
+    },
+    NoDirection {
+        name: String,
+    },
+}
+
+impl CoilCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::TurnsRange { shape, .. } => {
+                format!("The {shape} must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns.")
+            }
+            Self::HeightPitchTurns {
+                shape,
+                height,
+                pitch,
+                turns,
+            } => format!(
+                "A height of {height} mm at a pitch of {pitch} mm makes {turns:.2} turns; a \
+                 {shape} makes from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}."
+            ),
+            Self::TaperSteep { subject } => {
+                format!("The taper of {subject} is {MAX_COIL_TAPER_DEGREES}° or steeper.")
+            }
+            Self::TurnsOverlap { name, pitch, least } => format!(
+                "The turns of {name} would touch: at a pitch of {pitch:.3} mm its section needs \
+                 more than {least:.3} mm between turns."
+            ),
+            Self::TaperDrawsIn { name } => {
+                format!("The taper draws {name} in until its section reaches the axis.")
+            }
+            Self::HelixTaperDrawsIn { name } => {
+                format!("The taper draws {name} in until it reaches its axis.")
+            }
+            Self::SectionReachesAxis { name } => format!("The section of {name} reaches its axis."),
+            Self::TurnsRangeOf { name } => {
+                format!("{name} must make from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS} turns.")
+            }
+            Self::TooFar { name } => format!("{name} reaches too far from the origin."),
+            Self::Unbuildable { name, .. } => format!("{name} cannot be built with these sizes."),
+            Self::NoDirection { name } => format!("The axis of {name} has no direction."),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::TurnsRange { what, .. } => {
+                format!("Enter a number of {what} from {LEAST_COIL_TURNS} to {MAX_COIL_TURNS}.")
+            }
+            Self::HeightPitchTurns { .. } => "Change the height or the pitch.".to_owned(),
+            Self::TaperSteep { .. } => format!(
+                "Enter a taper angle between -{MAX_COIL_TAPER_DEGREES}° and \
+                 {MAX_COIL_TAPER_DEGREES}°."
+            ),
+            Self::TurnsOverlap { .. } => {
+                "Make the pitch larger (a greater height or fewer turns), or the section smaller."
+                    .to_owned()
+            }
+            Self::TaperDrawsIn { .. } => {
+                "Make the taper smaller, the coil shorter or its diameter larger.".to_owned()
+            }
+            Self::HelixTaperDrawsIn { .. } => {
+                "Make the taper smaller, the helix shorter or its diameter larger.".to_owned()
+            }
+            Self::SectionReachesAxis { .. } => {
+                "Make the diameter larger or the section smaller, or place the section outside \
+                 the diameter."
+                    .to_owned()
+            }
+            Self::TurnsRangeOf { .. } => "Change its turns, height or pitch.".to_owned(),
+            Self::TooFar { .. } => {
+                "Make it smaller or place its axis nearer the origin.".to_owned()
+            }
+            Self::Unbuildable { helix: true, .. } => {
+                "Change its diameter, pitch or taper.".to_owned()
+            }
+            Self::Unbuildable { helix: false, .. } => {
+                "Change its diameter, section, pitch or taper.".to_owned()
+            }
+            Self::NoDirection { .. } => "Choose another axis.".to_owned(),
+        }
+    }
+}
+
+impl From<CoilCause> for Cause {
+    fn from(cause: CoilCause) -> Self {
+        Self::Coil(cause)
     }
 }
 
@@ -445,10 +547,9 @@ pub(crate) fn evaluate(
     let taper = taper(&context, &definition.taper)?;
     let axis = context.resolver().axis(&definition.axis)?;
     let frame = definition.frame(axis).ok_or_else(|| {
-        context.error(
-            format!("The axis of {} has no direction.", feature.name),
-            "Choose another axis.".to_owned(),
-        )
+        context.error(CoilCause::NoDirection {
+            name: feature.name.clone(),
+        })
     })?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);

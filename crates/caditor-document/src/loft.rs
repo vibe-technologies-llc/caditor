@@ -9,6 +9,7 @@ use caditor_kernel::{
 use crate::{
     datum::{PointReference, Resolver},
     document::{Feature, FeatureId, list_names},
+    failure::Cause,
     primitive::{Context, combined},
     recompute::{CancelToken, Failure, FeatureResult, FixTarget, Inputs, MissingInput},
     solid::{self, BodyOperation, profile_failure},
@@ -178,22 +179,20 @@ fn profile_of(
     let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
     else {
         return Err(failed(
-            format!("It needs the profile drawn in {name}, which is not available."),
-            format!("Fix {name} first, or leave it out of {}.", feature.name),
+            LoftCause::ProfileUnavailable {
+                sketch: name,
+                feature: feature.name.clone(),
+            },
             FixTarget::Feature(sketch_id),
         ));
     };
     let context = solid::Context::of_sketch(feature, name.clone(), sketch_id, &sketch.geometry);
     let no_shape = || {
         failed(
-            format!(
-                "{name} has no closed shape for {} to pass through.",
-                feature.name
-            ),
-            format!(
-                "Close an outline in {name}, or leave it out of {}.",
-                feature.name
-            ),
+            LoftCause::NoShape {
+                sketch: name.clone(),
+                feature: feature.name.clone(),
+            },
             FixTarget::Feature(sketch_id),
         )
     };
@@ -218,15 +217,11 @@ fn profile_of(
             region: regions.remove(0),
         }),
         count => Err(failed(
-            format!(
-                "{name} holds {count} separate closed shapes, and {} takes one shape from each \
-                 profile.",
-                feature.name
-            ),
-            format!(
-                "Choose one region of {name}: select it in the view and use Use selected under \
-                 Profiles, or keep one shape in the sketch."
-            ),
+            LoftCause::SeveralShapes {
+                sketch: name,
+                count,
+                feature: feature.name.clone(),
+            },
             FixTarget::Feature(feature.id()),
         )),
     }
@@ -254,120 +249,63 @@ fn failure(
     definition: &Loft,
     error: &LoftError,
 ) -> Failure {
-    let name = &feature.name;
+    let name = feature.name.clone();
     let own = FixTarget::Feature(feature.id());
     match error {
         LoftError::Cancelled(_) => Failure::Cancelled,
         LoftError::TooFewProfiles => Failure::Waiting(MissingInput::Profiles),
         LoftError::TooManyProfiles => failed(
-            format!(
-                "{name} passes through {} profiles, more than the {MAX_LOFT_PROFILES} a loft can \
-                 take.",
-                definition.profiles.len()
-            ),
-            "Leave some profiles out of the loft.".to_owned(),
+            LoftCause::TooManyProfiles {
+                feature: name,
+                count: definition.profiles.len(),
+            },
             own,
         ),
         LoftError::Holes { profile } => failed(
-            format!(
-                "The shape of {} has a hole, and {name} passes only through outlines without \
-                 holes.",
-                row_name(inputs, definition, *profile)
-            ),
-            "Choose a region without holes, or cut the hole after the loft.".to_owned(),
+            LoftCause::Holes {
+                row: row_name(inputs, definition, *profile),
+                feature: name,
+            },
             row_fix(feature, definition, *profile),
         ),
         LoftError::AlongProfile { profile } => failed(
-            format!(
-                "{} lies along the way {name} runs, so the loft cannot pass through it.",
-                row_name(inputs, definition, *profile)
-            ),
-            "Place the profiles one after another, each across the way the loft runs, for \
-             example on parallel planes."
-                .to_owned(),
+            LoftCause::AlongProfile {
+                row: row_name(inputs, definition, *profile),
+                feature: name,
+            },
             row_fix(feature, definition, *profile),
         ),
-        LoftError::Coincident { profiles } => {
-            let named: Vec<String> = profiles
-                .iter()
-                .map(|row| row_name(inputs, definition, *row))
-                .collect();
-            failed(
-                format!(
-                    "{} lie in the same place, so {name} has no length between them.",
-                    list_names(&named)
-                ),
-                "Move one of them away from the other, or leave one out of the loft.".to_owned(),
-                own,
-            )
-        }
-        LoftError::TooLarge => failed(
-            format!("{name} reaches farther than caditor models."),
-            "Make the profiles smaller or bring them closer to the origin.".to_owned(),
+        LoftError::Coincident { profiles } => failed(
+            LoftCause::Coincident {
+                rows: profiles
+                    .iter()
+                    .map(|row| row_name(inputs, definition, *row))
+                    .collect(),
+                feature: name,
+            },
             own,
         ),
-        LoftError::TooIntricate => failed(
-            format!("The profiles of {name} have too many curves to loft through."),
-            "Draw the profiles with fewer curves.".to_owned(),
-            own,
-        ),
-        LoftError::CrossesItself => failed(
-            format!("The sides of {name} run into each other between its profiles."),
-            "Turn the profiles so their corners line up, space them further apart, or switch \
-             between Smooth and Ruled."
-                .to_owned(),
-            own,
-        ),
-        LoftError::ClosedWithApex => failed(
-            format!("{name} closes back to its first profile, so it cannot also end at a point."),
-            "Leave out the end point, or stop closing the loft.".to_owned(),
-            own,
-        ),
-        LoftError::TooFewToClose => failed(
-            format!(
-                "{name} closes back to its first profile, which takes at least three profiles."
-            ),
-            "Add another profile, or stop closing the loft.".to_owned(),
-            own,
-        ),
-        LoftError::SquareAtApex => failed(
-            format!("{name} ends at a point, which it cannot reach square to a profile."),
-            "Set End to Free, or end at the last profile.".to_owned(),
-            own,
-        ),
-        LoftError::SquareOnRuled => failed(
-            format!(
-                "A ruled loft runs straight between its profiles, so {name} cannot leave its ends \
-                 square."
-            ),
-            "Switch Sides to Smooth, or set Start and End to Free.".to_owned(),
-            own,
-        ),
-        LoftError::SquareOnClosed => failed(
-            format!("{name} closes back to its first profile, so it has no ends to leave square."),
-            "Set Start and End to Free.".to_owned(),
-            own,
-        ),
+        LoftError::TooLarge => failed(LoftCause::TooLarge { feature: name }, own),
+        LoftError::TooIntricate => failed(LoftCause::TooIntricate { feature: name }, own),
+        LoftError::CrossesItself => failed(LoftCause::CrossesItself { feature: name }, own),
+        LoftError::ClosedWithApex => failed(LoftCause::ClosedWithApex { feature: name }, own),
+        LoftError::TooFewToClose => failed(LoftCause::TooFewToClose { feature: name }, own),
+        LoftError::SquareAtApex => failed(LoftCause::SquareAtApex { feature: name }, own),
+        LoftError::SquareOnRuled => failed(LoftCause::SquareOnRuled { feature: name }, own),
+        LoftError::SquareOnClosed => failed(LoftCause::SquareOnClosed { feature: name }, own),
         LoftError::UnusableWeight => weightless(feature),
         LoftError::Geometry(_) | LoftError::Build(_) => {
             log::warn!("{name} could not be built: {error}");
-            failed(
-                format!("{name} cannot be built through these profiles."),
-                "Change a profile slightly, or switch between Smooth and Ruled.".to_owned(),
-                own,
-            )
+            failed(LoftCause::Unbuilt { feature: name }, own)
         }
     }
 }
 
 fn weightless(feature: &Feature) -> Failure {
     failed(
-        format!(
-            "The weight of a square end of {} must be more than zero.",
-            feature.name
-        ),
-        "Enter a weight above zero, such as 1 for a gentle turn or 2 to keep square longer."
-            .to_owned(),
+        LoftCause::Weightless {
+            feature: feature.name.clone(),
+        },
         FixTarget::Feature(feature.id()),
     )
 }
@@ -439,4 +377,194 @@ pub(crate) fn evaluate(
         return Err(Failure::Cancelled);
     }
     combined(&context, made, definition.operation)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LoftCause {
+    ProfileUnavailable {
+        sketch: String,
+        feature: String,
+    },
+    NoShape {
+        sketch: String,
+        feature: String,
+    },
+    SeveralShapes {
+        sketch: String,
+        count: usize,
+        feature: String,
+    },
+    TooManyProfiles {
+        feature: String,
+        count: usize,
+    },
+    Holes {
+        row: String,
+        feature: String,
+    },
+    AlongProfile {
+        row: String,
+        feature: String,
+    },
+    Coincident {
+        rows: Vec<String>,
+        feature: String,
+    },
+    TooLarge {
+        feature: String,
+    },
+    TooIntricate {
+        feature: String,
+    },
+    CrossesItself {
+        feature: String,
+    },
+    ClosedWithApex {
+        feature: String,
+    },
+    TooFewToClose {
+        feature: String,
+    },
+    SquareAtApex {
+        feature: String,
+    },
+    SquareOnRuled {
+        feature: String,
+    },
+    SquareOnClosed {
+        feature: String,
+    },
+    Weightless {
+        feature: String,
+    },
+    Unbuilt {
+        feature: String,
+    },
+}
+
+impl LoftCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::ProfileUnavailable { sketch, .. } => {
+                format!("It needs the profile drawn in {sketch}, which is not available.")
+            }
+            Self::NoShape { sketch, feature } => {
+                format!("{sketch} has no closed shape for {feature} to pass through.")
+            }
+            Self::SeveralShapes {
+                sketch,
+                count,
+                feature,
+            } => format!(
+                "{sketch} holds {count} separate closed shapes, and {feature} takes one shape \
+                 from each profile."
+            ),
+            Self::TooManyProfiles { feature, count } => format!(
+                "{feature} passes through {count} profiles, more than the {MAX_LOFT_PROFILES} a \
+                 loft can take."
+            ),
+            Self::Holes { row, feature } => format!(
+                "The shape of {row} has a hole, and {feature} passes only through outlines \
+                 without holes."
+            ),
+            Self::AlongProfile { row, feature } => format!(
+                "{row} lies along the way {feature} runs, so the loft cannot pass through it."
+            ),
+            Self::Coincident { rows, feature } => format!(
+                "{} lie in the same place, so {feature} has no length between them.",
+                list_names(rows)
+            ),
+            Self::TooLarge { feature } => format!("{feature} reaches farther than caditor models."),
+            Self::TooIntricate { feature } => {
+                format!("The profiles of {feature} have too many curves to loft through.")
+            }
+            Self::CrossesItself { feature } => {
+                format!("The sides of {feature} run into each other between its profiles.")
+            }
+            Self::ClosedWithApex { feature } => format!(
+                "{feature} closes back to its first profile, so it cannot also end at a point."
+            ),
+            Self::TooFewToClose { feature } => format!(
+                "{feature} closes back to its first profile, which takes at least three \
+                 profiles."
+            ),
+            Self::SquareAtApex { feature } => {
+                format!("{feature} ends at a point, which it cannot reach square to a profile.")
+            }
+            Self::SquareOnRuled { feature } => format!(
+                "A ruled loft runs straight between its profiles, so {feature} cannot leave its \
+                 ends square."
+            ),
+            Self::SquareOnClosed { feature } => format!(
+                "{feature} closes back to its first profile, so it has no ends to leave square."
+            ),
+            Self::Weightless { feature } => {
+                format!("The weight of a square end of {feature} must be more than zero.")
+            }
+            Self::Unbuilt { feature } => {
+                format!("{feature} cannot be built through these profiles.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::ProfileUnavailable { sketch, feature } => {
+                format!("Fix {sketch} first, or leave it out of {feature}.")
+            }
+            Self::NoShape { sketch, feature } => {
+                format!("Close an outline in {sketch}, or leave it out of {feature}.")
+            }
+            Self::SeveralShapes { sketch, .. } => format!(
+                "Choose one region of {sketch}: select it in the view and use Use selected under \
+                 Profiles, or keep one shape in the sketch."
+            ),
+            Self::TooManyProfiles { .. } => "Leave some profiles out of the loft.".to_owned(),
+            Self::Holes { .. } => {
+                "Choose a region without holes, or cut the hole after the loft.".to_owned()
+            }
+            Self::AlongProfile { .. } => {
+                "Place the profiles one after another, each across the way the loft runs, for \
+                 example on parallel planes."
+                    .to_owned()
+            }
+            Self::Coincident { .. } => {
+                "Move one of them away from the other, or leave one out of the loft.".to_owned()
+            }
+            Self::TooLarge { .. } => {
+                "Make the profiles smaller or bring them closer to the origin.".to_owned()
+            }
+            Self::TooIntricate { .. } => "Draw the profiles with fewer curves.".to_owned(),
+            Self::CrossesItself { .. } => {
+                "Turn the profiles so their corners line up, space them further apart, or switch \
+                 between Smooth and Ruled."
+                    .to_owned()
+            }
+            Self::ClosedWithApex { .. } => {
+                "Leave out the end point, or stop closing the loft.".to_owned()
+            }
+            Self::TooFewToClose { .. } => {
+                "Add another profile, or stop closing the loft.".to_owned()
+            }
+            Self::SquareAtApex { .. } => "Set End to Free, or end at the last profile.".to_owned(),
+            Self::SquareOnRuled { .. } => {
+                "Switch Sides to Smooth, or set Start and End to Free.".to_owned()
+            }
+            Self::SquareOnClosed { .. } => "Set Start and End to Free.".to_owned(),
+            Self::Weightless { .. } => {
+                "Enter a weight above zero, such as 1 for a gentle turn or 2 to keep square \
+                 longer."
+                    .to_owned()
+            }
+            Self::Unbuilt { .. } => {
+                "Change a profile slightly, or switch between Smooth and Ruled.".to_owned()
+            }
+        }
+    }
+}
+
+impl From<LoftCause> for Cause {
+    fn from(cause: LoftCause) -> Self {
+        Self::Loft(cause)
+    }
 }

@@ -56,7 +56,7 @@ fn failure_reason(harness: &Harness, feature: FeatureId) -> Option<String> {
         .feature(feature)
         .map(|status| status.state.clone())
     {
-        Some(FeatureState::Failed(error)) => Some(error.reason),
+        Some(FeatureState::Failed(error)) => Some(error.reason()),
         _ => None,
     }
 }

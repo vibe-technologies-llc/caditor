@@ -275,14 +275,14 @@ fn deleting_the_second_rectangle_fails_its_fillet_in_plain_words() {
 
     assert_eq!(evaluation.bodies().count(), 2);
     assert!(
-        error.reason
+        error.reason()
             == "The piece of Blocks drawn by a curve since deleted is no longer there, so there \
                 is no body to work on.",
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Draw the piece again in Shapes, or choose another body."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.sketch)));

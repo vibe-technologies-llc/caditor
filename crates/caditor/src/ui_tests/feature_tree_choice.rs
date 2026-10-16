@@ -104,7 +104,7 @@ fn a_failure_the_feature_fixes_itself_offers_to_edit_it_until_it_is_open() {
         .feature(extrude)
         .map(|status| status.state.clone())
     {
-        Some(caditor_document::FeatureState::Failed(error)) => error.reason,
+        Some(caditor_document::FeatureState::Failed(error)) => error.reason(),
         other => panic!("the extrusion fails, found {other:?}"),
     };
     assert!(harness.shows(&reason), "{reason}");

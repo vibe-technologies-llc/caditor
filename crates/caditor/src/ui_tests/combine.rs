@@ -180,7 +180,7 @@ fn a_combine_failing_where_faces_nearly_touch_is_marked_and_shown_in_the_view() 
     };
     let place = error.place.expect("the failure has a place");
     let before = harness.workspace.viewport.viewpoint().target;
-    assert!(harness.shows(&error.reason), "{}", error.reason);
+    assert!(harness.shows(&error.reason()), "{}", error.reason());
     assert!(harness.shows("Combine 1 failed here"));
     assert!(before.distance(place) > 1.0);
 

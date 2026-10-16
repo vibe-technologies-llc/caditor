@@ -163,7 +163,7 @@ fn a_parallel_recompute_equals_the_sequential_one() {
     let FeatureState::Failed(consumed) = &together.feature(model.peg_cut).unwrap().state else {
         panic!("a feature cutting a body a combine consumed should fail");
     };
-    assert!(consumed.reason.starts_with("Join combined"));
+    assert!(consumed.reason().starts_with("Join combined"));
     assert_eq!(consumed.fix, Some(FixTarget::Feature(model.combine)));
     assert_eq!(
         together.feature(model.after_bad).unwrap().state,

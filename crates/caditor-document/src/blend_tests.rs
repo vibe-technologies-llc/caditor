@@ -297,15 +297,15 @@ fn blend_errors_name_the_edge_and_the_fix() {
     set(&mut model, id, "0 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.fillet);
-    assert_eq!(error.reason, "The radius must be more than zero.");
+    assert_eq!(error.reason(), "The radius must be more than zero.");
     assert_eq!(error.fix, Some(FixTarget::Feature(model.fillet)));
 
     let id = model.radius;
     set(&mut model, id, "0.0000005 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.fillet);
-    assert_eq!(error.reason, "The radius must be more than 0.000001 mm.");
-    assert_eq!(error.remedy, "Enter a larger radius.");
+    assert_eq!(error.reason(), "The radius must be more than 0.000001 mm.");
+    assert_eq!(error.remedy(), "Enter a larger radius.");
 
     let id = model.radius;
     set(&mut model, id, "5 mm");
@@ -313,13 +313,13 @@ fn blend_errors_name_the_edge_and_the_fix() {
     let error = failure(&evaluation, model.fillet);
     assert!(
         error
-            .reason
+            .reason()
             .starts_with("The radius is too large for the faces next to the edge between Base"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Enter a smaller radius, or leave this edge out."
     );
     assert!(evaluation.body(model.base).is_some());
@@ -350,7 +350,7 @@ fn blend_errors_name_the_edge_and_the_fix() {
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.fillet);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "A chosen edge is no longer part of the body of Base."
     );
 }
@@ -591,7 +591,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
         }),
     );
     document.apply(transaction.finish()).unwrap();
-    let before = failure(&evaluate(&document, &mut engine), fillet).reason;
+    let before = failure(&evaluate(&document, &mut engine), fillet).reason();
     document
         .apply(Transaction::single(
             "Rename",
@@ -601,7 +601,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
             },
         ))
         .unwrap();
-    let after = failure(&evaluate(&document, &mut engine), fillet).reason;
+    let after = failure(&evaluate(&document, &mut engine), fillet).reason();
 
     assert!(before.contains("Cut"), "{before}");
     assert!(
@@ -846,7 +846,7 @@ fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
 
     let flat = reshape(&mut model, two("0 mm"), false);
     assert_eq!(
-        failure(&flat, model.fillet).reason,
+        failure(&flat, model.fillet).reason(),
         "The second distance must be more than zero."
     );
     let past = reshape(
@@ -857,7 +857,7 @@ fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
         false,
     );
     assert_eq!(
-        failure(&past, model.fillet).reason,
+        failure(&past, model.fillet).reason(),
         "The angle must be less than 180 degrees."
     );
     let square = reshape(
@@ -870,12 +870,12 @@ fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
     let error = failure(&square, model.fillet);
     assert!(
         error
-            .reason
+            .reason()
             .starts_with("At this angle the cut never meets the other face next to"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.remedy.contains("flip the chamfer"));
+    assert!(error.remedy().contains("flip the chamfer"));
 }
 
 struct Kept {
@@ -1272,14 +1272,16 @@ fn a_split_off_piece_moved_off_the_line_fails_the_fillet_in_words() {
     let error = failure(&evaluation, model.fillet);
 
     assert!(
-        error.reason.contains("split into pieces by a sketch edit"),
+        error
+            .reason()
+            .contains("split into pieces by a sketch edit"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
-        error.remedy.contains("Choose the pieces"),
+        error.remedy().contains("Choose the pieces"),
         "{}",
-        error.remedy
+        error.remedy()
     );
 }
 
@@ -1434,7 +1436,7 @@ fn a_lost_face_fails_the_blend_in_words_about_the_face() {
     let evaluation = evaluate(&grouped.document, &mut grouped.engine);
 
     assert_eq!(
-        failure(&evaluation, grouped.fillet).reason,
+        failure(&evaluation, grouped.fillet).reason(),
         "A chosen face is no longer part of the body of Base."
     );
 }
@@ -1715,13 +1717,13 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
 
     assert!(
         error
-            .reason
+            .reason()
             .ends_with("Rim fillet already blended the corner there."),
         "{}",
-        error.reason
+        error.reason()
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Move Fillet 2 above Rim fillet in the tree, so the corner is blended after this edge, or \
          leave this edge out."
     );

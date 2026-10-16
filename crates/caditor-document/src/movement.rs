@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Unit};
+use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray, RigidTransform, Vector3};
 use caditor_kernel::Solid;
 
 use crate::{
     datum::{AxisReference, Resolver},
     document::{Feature, FeatureId},
+    failure::{Cause, Expected},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     values::ParameterValues,
@@ -341,14 +342,8 @@ pub(crate) struct Context<'a> {
 }
 
 impl Context<'_> {
-    pub(crate) fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    pub(crate) fn error(&self, cause: impl Into<Cause>) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 
     pub(crate) fn value(
@@ -357,34 +352,20 @@ impl Context<'_> {
         dimension: Dimension,
         what: &str,
     ) -> Result<f64, Failure> {
+        let expected = if dimension == Dimension::ANGLE {
+            Expected::Angle(90.0)
+        } else {
+            Expected::Length(10.0)
+        };
         expression
             .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the {what}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } if dimension == Dimension::ANGLE => (
-                        format!("Edit the {what} so it gives an angle, such as 90 deg."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives a length, such as 10 mm."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        format!("Edit the {what} or the parameters it uses."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The {what} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    what,
+                    expected,
+                    error,
+                ))
             })
     }
 }
@@ -414,12 +395,7 @@ pub(crate) fn placement_transform(
     placement: &BodyPlacement,
 ) -> Result<RigidTransform, Failure> {
     let context = Context { feature, inputs };
-    let unusable = || {
-        context.error(
-            "The placement is too large or too small to place the body.".to_owned(),
-            "Enter smaller distances and turns.".to_owned(),
-        )
-    };
+    let unusable = || context.error(MoveCause::PlacementUnusable);
     let local = placed(
         Placing::at_origin(&placement.offset, &placement.turn),
         |expression, dimension, what| context.value(expression, dimension, what),
@@ -468,10 +444,7 @@ fn placed<E>(
 }
 
 fn unusable(context: &Context<'_>) -> Failure {
-    context.error(
-        "The move is too large or too small to place the body.".to_owned(),
-        "Enter smaller distances and turns.".to_owned(),
-    )
+    context.error(MoveCause::MoveUnusable)
 }
 
 pub(crate) fn evaluate(
@@ -500,20 +473,18 @@ pub(crate) fn evaluate(
     let pivot = definition
         .pivot(solid, axis, frame.as_ref())
         .ok_or_else(|| {
-            context.error(
-                format!("The body of {body_name} has no size to find its centre from."),
-                "Turn it about the origin instead.".to_owned(),
-            )
+            context.error(MoveCause::NoSize {
+                body: body_name.clone(),
+            })
         })?;
     let placement = transform(&context, definition, pivot, frame.as_ref())?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
     let moved = solid.transformed(&placement).map_err(|_| {
-        context.error(
-            format!("The move would take the body of {body_name} too far from the origin."),
-            "Enter smaller distances.".to_owned(),
-        )
+        context.error(MoveCause::TooFar {
+            body: body_name.clone(),
+        })
     })?;
     let placed = if definition.copy {
         feature.id()
@@ -521,4 +492,47 @@ pub(crate) fn evaluate(
         definition.body
     };
     Ok(FeatureResult::Solid(SolidResult::new(placed, moved)))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MoveCause {
+    PlacementUnusable,
+    MoveUnusable,
+    NoSize { body: String },
+    TooFar { body: String },
+}
+
+impl MoveCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::PlacementUnusable => {
+                "The placement is too large or too small to place the body.".to_owned()
+            }
+            Self::MoveUnusable => {
+                "The move is too large or too small to place the body.".to_owned()
+            }
+            Self::NoSize { body } => {
+                format!("The body of {body} has no size to find its centre from.")
+            }
+            Self::TooFar { body } => {
+                format!("The move would take the body of {body} too far from the origin.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::PlacementUnusable | Self::MoveUnusable => {
+                "Enter smaller distances and turns.".to_owned()
+            }
+            Self::NoSize { .. } => "Turn it about the origin instead.".to_owned(),
+            Self::TooFar { .. } => "Enter smaller distances.".to_owned(),
+        }
+    }
+}
+
+impl From<MoveCause> for Cause {
+    fn from(cause: MoveCause) -> Self {
+        Self::Move(cause)
+    }
 }

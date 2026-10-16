@@ -335,7 +335,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
         set(&mut model, id, text);
         let evaluation = evaluate(&model.document, &mut model.engine);
         let error = failure(&evaluation, model.pattern);
-        assert_eq!(error.reason, reason);
+        assert_eq!(error.reason(), reason);
         assert_eq!(error.fix, Some(FixTarget::Feature(model.pattern)));
         assert_volume(&evaluation, model.base, 320.0);
     }
@@ -343,7 +343,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     set(&mut model, id, "3 mm");
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).remedy,
+        failure(&evaluation, model.pattern).remedy(),
         "Edit the count so it gives a plain number, such as 4."
     );
 
@@ -359,7 +359,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The pattern would make 110 instances of the body of Base, and at most 100 are allowed."
     );
 
@@ -374,7 +374,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The spacing must be more than zero."
     );
 
@@ -388,7 +388,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The two directions are parallel, so the copies would fall on one line."
     );
 
@@ -402,7 +402,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The copies would reach farther than a kilometre, the largest size caditor models."
     );
 
@@ -418,7 +418,7 @@ fn pattern_errors_name_the_problem_and_the_fix() {
     .unwrap();
     let evaluation = evaluate(&model.document, &mut model.engine);
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The angle must be more than 0° and at most 360°."
     );
 }
@@ -551,7 +551,7 @@ fn a_zero_total_length_is_refused_in_its_own_words() {
     let evaluation = evaluate(&model.document, &mut model.engine);
 
     assert_eq!(
-        failure(&evaluation, model.pattern).reason,
+        failure(&evaluation, model.pattern).reason(),
         "The total length must be more than zero."
     );
 }
@@ -752,7 +752,7 @@ fn a_feature_that_made_the_body_is_not_repeated_but_named() {
 
     let error = failure(&evaluation, seeded.pattern);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Plate neither adds to nor removes from a body, so it cannot be repeated."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(seeded.plate)));

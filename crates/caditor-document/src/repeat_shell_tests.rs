@@ -156,11 +156,11 @@ fn a_shell_followed_by_another_change_to_its_body_is_refused_in_words() {
 
     let error = failure(&evaluation, pattern);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Peg changes the body after Shell 1, so this pattern cannot hollow its copies with Shell 1."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Move this pattern right below Shell 1, or leave Shell 1 out of it."
     );
     assert_eq!(

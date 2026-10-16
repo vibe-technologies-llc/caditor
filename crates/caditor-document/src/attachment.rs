@@ -7,6 +7,7 @@ use caditor_sketch::{EntityId, Sketch};
 use crate::{
     datum::{DatumResult, PrincipalPlane},
     document::{Feature, FeatureId},
+    failure::Cause,
     origins,
     projection::ProjectionSource,
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -230,13 +231,10 @@ pub(crate) fn attached_plane(
             let name = inputs.document.body_label(*datum).unwrap_or_default();
             match inputs.features.get(datum).map(AsRef::as_ref) {
                 Some(FeatureResult::Datum(DatumResult::Plane(plane))) => Ok(*plane),
-                _ => Err(Failure::Error(Box::new(FeatureError {
-                    reason: format!("The plane this sketch lies on, {name}, is not available."),
-                    remedy: format!("Fix {name} first, or place the sketch on another plane."),
-                    fix: Some(FixTarget::Feature(*datum)),
-                    constraints: Vec::new(),
-                    place: None,
-                }))),
+                _ => Err(attach_failure(
+                    AttachCause::PlaneUnavailable { name },
+                    *datum,
+                )),
             }
         }
         SketchAttachment::Frame { frame, plane } => {
@@ -244,30 +242,26 @@ pub(crate) fn attached_plane(
             match inputs.features.get(frame).map(AsRef::as_ref) {
                 Some(FeatureResult::Datum(DatumResult::Frame(placed))) => {
                     plane.in_frame(placed).ok_or_else(|| {
-                        Failure::Error(Box::new(FeatureError {
-                            reason: format!(
-                                "The {} of {name} that this sketch lies on could not be placed.",
-                                plane.name()
-                            ),
-                            remedy: "Place the sketch on another plane.".to_owned(),
-                            fix: Some(FixTarget::Feature(feature.id())),
-                            constraints: Vec::new(),
-                            place: None,
-                        }))
+                        attach_failure(
+                            AttachCause::FramePlaneUnplaced {
+                                plane: plane.name().to_owned(),
+                                name,
+                            },
+                            feature.id(),
+                        )
                     })
                 }
-                _ => Err(Failure::Error(Box::new(FeatureError {
-                    reason: format!(
-                        "The coordinate system this sketch lies on, {name}, is not available."
-                    ),
-                    remedy: format!("Fix {name} first, or place the sketch on another plane."),
-                    fix: Some(FixTarget::Feature(*frame)),
-                    constraints: Vec::new(),
-                    place: None,
-                }))),
+                _ => Err(attach_failure(
+                    AttachCause::FrameUnavailable { name },
+                    *frame,
+                )),
             }
         }
     }
+}
+
+fn attach_failure(cause: AttachCause, fix: FeatureId) -> Failure {
+    Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(fix)))
 }
 
 fn face_attached_plane(
@@ -283,26 +277,78 @@ fn face_attached_plane(
         return Err(inputs.missing_body(attachment.body));
     };
     attachment.resolve(solid).map_err(|error| {
-        let reason = match error {
-            AttachmentError::Missing => {
-                format!("The face this sketch lies on is no longer part of {body_name}.")
-            }
-            AttachmentError::Ambiguous => format!(
-                "The face of {body_name} that this sketch lies on was split into parts that no \
-                 longer lie in one plane."
-            ),
-            AttachmentError::NotFlat => {
-                format!("The face of {body_name} that this sketch lies on is no longer flat.")
-            }
-        };
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy: "Select a flat face and place the sketch on it from its row in the tree, or \
-                     detach the sketch."
-                .to_owned(),
-            fix: Some(FixTarget::Feature(feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+        attach_failure(
+            AttachCause::Face {
+                error,
+                body: body_name.clone(),
+            },
+            feature.id(),
+        )
     })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum AttachCause {
+    PlaneUnavailable {
+        name: String,
+    },
+    FramePlaneUnplaced {
+        plane: String,
+        name: String,
+    },
+    FrameUnavailable {
+        name: String,
+    },
+    Face {
+        error: AttachmentError,
+        body: String,
+    },
+}
+
+impl AttachCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::PlaneUnavailable { name } => {
+                format!("The plane this sketch lies on, {name}, is not available.")
+            }
+            Self::FramePlaneUnplaced { plane, name } => {
+                format!("The {plane} of {name} that this sketch lies on could not be placed.")
+            }
+            Self::FrameUnavailable { name } => {
+                format!("The coordinate system this sketch lies on, {name}, is not available.")
+            }
+            Self::Face { error, body } => match error {
+                AttachmentError::Missing => {
+                    format!("The face this sketch lies on is no longer part of {body}.")
+                }
+                AttachmentError::Ambiguous => format!(
+                    "The face of {body} that this sketch lies on was split into parts that no \
+                     longer lie in one plane."
+                ),
+                AttachmentError::NotFlat => {
+                    format!("The face of {body} that this sketch lies on is no longer flat.")
+                }
+            },
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::PlaneUnavailable { name } | Self::FrameUnavailable { name } => {
+                format!("Fix {name} first, or place the sketch on another plane.")
+            }
+            Self::FramePlaneUnplaced { .. } => "Place the sketch on another plane.".to_owned(),
+            Self::Face { .. } => {
+                "Select a flat face and place the sketch on it from its row in the tree, or \
+                 detach the sketch."
+                    .to_owned()
+            }
+        }
+    }
+}
+
+impl From<AttachCause> for Cause {
+    fn from(cause: AttachCause) -> Self {
+        Self::Attach(cause)
+    }
 }

@@ -132,7 +132,7 @@ fn a_coil_s_panel_sizes_it_by_any_two_lengths_and_switches_its_section_and_turni
         .feature(coil)
         .map(|status| status.state.clone())
     {
-        Some(FeatureState::Failed(error)) => error.reason,
+        Some(FeatureState::Failed(error)) => error.reason(),
         other => panic!("turns closer than the section fail, found {other:?}"),
     };
     assert!(reason.contains("would touch"), "{reason}");

@@ -190,7 +190,11 @@ fn a_plane_passes_through_three_corners_and_refuses_three_in_a_line() {
 
     assert!((plane.normal().cross(Vector3::Z)).length() < CLOSE);
     assert!(plane.signed_distance(Point3::new(3.0, 3.0, 4.0)).abs() < CLOSE);
-    assert!(error.reason.contains("lie on one line"), "{}", error.reason);
+    assert!(
+        error.reason().contains("lie on one line"),
+        "{}",
+        error.reason()
+    );
 }
 
 #[test]
@@ -301,9 +305,9 @@ fn planes_and_axes_are_placed_from_axes_planes_and_sketch_points() {
     assert!(crossing.normal().cross(Vector3::X).length() < CLOSE);
     assert!(crossing.signed_distance(second_at).abs() < CLOSE);
     assert!(
-        error.reason.contains("lies on the Z axis"),
+        error.reason().contains("lies on the Z axis"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 
@@ -423,9 +427,9 @@ fn an_axis_runs_along_a_line_of_a_sketch_and_follows_it() {
     assert!(ray.origin().distance(start) < CLOSE);
     assert!(ray.direction().cross(end - start).length() < CLOSE);
     assert!(
-        error.reason.contains("is no longer a line"),
+        error.reason().contains("is no longer a line"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
         document

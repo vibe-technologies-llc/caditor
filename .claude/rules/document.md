@@ -546,7 +546,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   helix in `features()` (`SweepPath::features`), its edges' origins among `origin_features`, and
   healing visits its edges. A curve of the path cannot be removed (`EntityInUse`, as a revolve's
   axis line); a path sketch or helix deleted, or a helix that is not built, fails the sweep.
-- Failures are sentences per `PathSweepError` (`sweep::failure`), naming path curves by label and
+- Failures are worded per `PathSweepError` (`SweepCause`, `sweep_cause.rs`), naming path curves by label and
   sketch ("Line 3 of Path") or edges by their faces (no path waits instead,
   `MissingInput::Path`): a branching or separate path; a sharp corner (remedy: a fillet in the path's sketch, Parallel, or straight lines so it is mitred); a
   mitre too sharp; a profile too large for a bend (fix on the profile's sketch); a path leaving
@@ -582,7 +582,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   the two path curves, fixed on the pipe; a corner too sharp to turn; a sharp corner touching an
   arc, spline or edge curve with no bend radius, fixed on the pipe by giving it one; the rest per
   `PathSweepError` in
-  `sweep::path_failure` (shared wording for any path follower: branches, gaps, a curve too short, a
+  `sweep::path_failure` (a `SweepCause` shared by any path follower: branches, gaps, a curve too short, a
   sharp corner where an arc meets another curve, a bend of the path too tight, running into itself).
 - Faces are worded "<pipe> outside" and "<pipe> inside" (`pipe::side_name`: entities past the
   section's `PipeShape::curves` are the inner outline), caps as a sweep's.
@@ -695,7 +695,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (naming the curve), a perimeter face `RunsPast`; so a rib never floats or pokes out. A body wholly
   behind the sketch is `Behind`, seeds all inside the body `Inside`. The kept lumps of every chain
   are joined to the body one by one (crossing webs overlap there) and kept as the result's `joins`.
-- Failures are worded per `RibError` (`rib::Words`): sketch problems fixed on the sketch, the rest
+- Failures are worded per `RibError` (`RibCause`): sketch problems fixed on the sketch, the rest
   on the rib with what to do (reverse it, draw the curve so it runs into a wall, carry its ends on
   straight when carried round its arcs, make the draft smaller when the drafted bend closes,
   `SweepError::TaperCloses`); a join failure goes through `trouble.rs`.
@@ -875,7 +875,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   ISO 68-1 profile, crest and root at D (d) and D1 = d1 = D - 1.0825 P for both sides, flats P/8 and
   P/4, whatever the class; ISO 228 Whitworth truncated flat at 2/3 H (flats P/6); trapezoidal 15°
   flanks between the table's major and minor diameters with crest flats of the basic profile
-  (0.366 P). Kernel refusals become sentences naming the size and the face (`ThreadWords`), each
+  (0.366 P). Kernel refusals become sentences naming the size and the face (`ThreadCause::Modelled`), each
   ending "or make the thread cosmetic"; a failing boolean gives its point. Thread faces are worded
   "<feature> thread root/flank/crest/groove/end" (`thread::part_name`).
 - `Document::threads_as_cosmetic` is a copy with every modelled thread and tapped hole cosmetic (the
@@ -987,7 +987,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `repeatable_on`) it reflects their tools instead: each placed as copy `MIRROR_IMAGE` (kernel
   `pattern_copies`) and cut from or joined to the body as it stands, a fillet or chamfer blended on
   the image as a pattern repeats it (Repeated blends, Pattern below), originals staying;
-  `keep_original` is then ignored. The lookup (`pattern::seed`, `SeedWords`) is shared with the
+  `keep_original` is then ignored. The lookup (`pattern::seed`, the `Repeater` that words it) is shared with the
   pattern, the mirrored features are in `features()`, and the cut images are the mirror's `cuts`.
 - With `faces` (`Mirror::mirroring_faces`, `FaceReference`s resolved on the body at the mirror,
   pieces accepted, lost or tied fails) and no mirrored features (`mirrors_faces`) it reflects the

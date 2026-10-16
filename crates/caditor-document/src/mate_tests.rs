@@ -307,10 +307,10 @@ fn a_face_no_longer_on_the_moving_body_fails_the_mate_alone_in_words() {
     assert_eq!(failed, mate);
     assert!(
         error
-            .reason
+            .reason()
             .contains("which it mates, is no longer part of Peg"),
         "{}",
-        error.reason
+        error.reason()
     );
     let (low, _) = bounds(&evaluation, model.peg);
     assert!(near(low, Point3::new(20.0, 0.0, 0.0)));
@@ -352,7 +352,7 @@ fn flush_and_concentric(model: &Model, target: AxisReference) -> MatePair {
 }
 
 fn first_failure(evaluation: &Evaluation) -> String {
-    evaluation.failures().next().unwrap().1.reason.clone()
+    evaluation.failures().next().unwrap().1.reason().clone()
 }
 
 fn replace_pair(model: &mut Model, mate: FeatureId, pair: MatePair) {

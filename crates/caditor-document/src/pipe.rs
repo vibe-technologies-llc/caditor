@@ -14,6 +14,7 @@ use crate::{
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FixTarget, Inputs},
     solid::BodyOperation,
     sweep::{Path, SweepPath, failed, path_failure, path_of},
+    sweep_cause::{Follower, Segments, SweepCause},
 };
 
 pub const PIPE_SHAPE: &str = "pipe";
@@ -42,7 +43,7 @@ pub fn side_name(shape: PipeShape, entity: u64) -> &'static str {
     }
 }
 
-fn wall_limit_words(shape: PipeShape) -> &'static str {
+pub(crate) fn wall_limit_words(shape: PipeShape) -> &'static str {
     match shape {
         PipeShape::Round => "half its diameter",
         PipeShape::Square => "half its width",
@@ -154,53 +155,38 @@ pub fn stand(
 }
 
 fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) -> Failure {
-    let name = &feature.name;
-    let owner = &path.owner;
+    let name = feature.name.clone();
     let own = FixTarget::Feature(feature.id());
+    let at = |segments: &[usize]| Segments {
+        labels: path.labels(segments),
+        owner: path.owner.clone(),
+    };
     match error {
-        PipeError::WallTooThick => failed(
-            format!(
-                "The wall of {name} is too thick: it must be thinner than {}.",
-                wall_limit_words(shape)
-            ),
-            "Make the wall thinner or the pipe larger.".to_owned(),
-            own,
-        ),
-        PipeError::BendTooLong { segments } => failed(
-            format!(
-                "Rounding the corner between {}{owner} to the bend radius needs more than the \
-                 length of the curves there.",
-                path.labels(segments)
-            ),
-            "Make the bend radius smaller, or lengthen the curves at the corner.".to_owned(),
-            own,
-        ),
+        PipeError::WallTooThick => failed(SweepCause::WallTooThick { name, shape }, own),
+        PipeError::BendTooLong { segments } => {
+            failed(SweepCause::BendTooLong { at: at(segments) }, own)
+        }
         PipeError::BendTooTight { segments } => failed(
-            format!(
-                "The bend between {}{owner} is tighter than {name}: its section would reach past \
-                 the centre the bend turns around.",
-                path.labels(segments)
-            ),
-            "Make the bend radius larger or the pipe smaller.".to_owned(),
+            SweepCause::BendTooTight {
+                at: at(segments),
+                name,
+            },
             own,
         ),
         PipeError::Path(PathSweepError::CornerTooSharp { segments }) => failed(
-            format!(
-                "The corner between {}{owner} is too sharp for {name} to turn.",
-                path.labels(segments)
-            ),
-            "Open the corner up, lengthen the lines at it, or give the pipe a bend radius."
-                .to_owned(),
+            SweepCause::CornerTooSharp {
+                at: at(segments),
+                name,
+                follower: Follower::Pipe,
+            },
             own,
         ),
         PipeError::Path(PathSweepError::Corner { segments }) => failed(
-            format!(
-                "The path turns a sharp corner between {}{owner}, which {name} cannot follow \
-                 without a bend.",
-                path.labels(segments)
-            ),
-            "Give the pipe a bend radius, or round the corner with a fillet in the path's sketch."
-                .to_owned(),
+            SweepCause::Corner {
+                at: at(segments),
+                name,
+                follower: Follower::Pipe,
+            },
             own,
         ),
         PipeError::Path(error) => path_failure(feature, path, error),
@@ -209,11 +195,7 @@ fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) 
         | PipeError::InvalidBend
         | PipeError::Section(_) => {
             log::warn!("{name} could not be built: {error}");
-            failed(
-                format!("{name} cannot be built with these sizes."),
-                "Change its size, wall thickness or bend radius.".to_owned(),
-                own,
-            )
+            failed(SweepCause::PipeUnbuilt { name }, own)
         }
     }
 }

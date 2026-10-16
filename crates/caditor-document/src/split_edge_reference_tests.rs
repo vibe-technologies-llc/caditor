@@ -321,11 +321,17 @@ fn a_measured_edge_whose_piece_left_its_line_fails_in_words() {
     let error = failure(&evaluation, length);
 
     assert!(
-        error.reason.contains("split into pieces by a sketch edit"),
+        error
+            .reason()
+            .contains("split into pieces by a sketch edit"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.remedy.contains("Measure again"), "{}", error.remedy);
+    assert!(
+        error.remedy().contains("Measure again"),
+        "{}",
+        error.remedy()
+    );
     leaves_its_references(&evaluation, length, &document);
 }
 
@@ -393,15 +399,15 @@ fn an_edge_middle_and_a_station_on_a_notched_edge_fail_in_words_rather_than_take
         let error = failure(&evaluation, feature);
         assert!(
             error
-                .reason
+                .reason()
                 .contains("several pieces with gaps between them"),
             "{}",
-            error.reason
+            error.reason()
         );
         assert!(
-            error.remedy.contains("Choose the piece"),
+            error.remedy().contains("Choose the piece"),
             "{}",
-            error.remedy
+            error.remedy()
         );
         leaves_its_references(&evaluation, feature, &document);
     }
@@ -416,14 +422,16 @@ fn a_station_on_an_edge_whose_piece_left_its_line_fails_in_words() {
     let error = failure(&evaluate(&document), station);
 
     assert!(
-        error.reason.contains("split into pieces by a sketch edit"),
+        error
+            .reason()
+            .contains("split into pieces by a sketch edit"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(
-        error.remedy.contains("Choose the edge again"),
+        error.remedy().contains("Choose the edge again"),
         "{}",
-        error.remedy
+        error.remedy()
     );
 }
 
@@ -575,11 +583,13 @@ fn a_projected_edge_of_a_notched_edge_fails_in_words_rather_than_take_one_piece(
     let error = failure(&evaluation, side);
 
     assert!(
-        error.reason.contains("cut into parts which no longer join"),
+        error
+            .reason()
+            .contains("cut into parts which no longer join"),
         "{}",
-        error.reason
+        error.reason()
     );
-    assert!(error.remedy.contains("delete"), "{}", error.remedy);
+    assert!(error.remedy().contains("delete"), "{}", error.remedy());
     assert_eq!(error.fix, Some(FixTarget::Feature(side)));
     let FeatureKind::Sketch(definition) = &document.feature(side).unwrap().kind else {
         panic!("a sketch");
@@ -618,10 +628,10 @@ fn a_projected_edge_whose_piece_left_its_line_fails_in_words() {
 
     assert!(
         error
-            .reason
+            .reason()
             .contains("only some of the parts can still be traced"),
         "{}",
-        error.reason
+        error.reason()
     );
 }
 

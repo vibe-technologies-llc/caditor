@@ -1,14 +1,15 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
-    FaceId, FaceReference, OffsetError, Solid, VertexId, offset_faces, tangent_faces,
+    EdgeId, FaceId, FaceReference, OffsetError, Solid, VertexId, offset_faces, tangent_faces,
 };
 
 use crate::{
     datum::capitalized,
     describe::{describe_edge, describe_origin, edge_faces},
-    document::{Feature, FeatureId, list_names},
+    document::{Feature, FeatureId},
+    failure::{Cause, Chosen, Expected, Near, Unmatched},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
@@ -66,14 +67,8 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: OffsetFaceCause) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 
     fn distance(&self) -> Result<f64, Failure> {
@@ -81,27 +76,12 @@ impl Context<'_> {
             .distance
             .evaluate_as(Dimension::LENGTH, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the distance."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        "Edit the distance so it gives a length, such as 2 mm.".to_owned(),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        "Edit the distance or the parameters it uses.".to_owned(),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The distance cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    "distance",
+                    Expected::Length(2.0),
+                    error,
+                ))
             })
     }
 
@@ -138,96 +118,129 @@ impl Context<'_> {
     }
 
     fn failure(&self, solid: &Solid, error: &OffsetError) -> Failure {
+        let body = self.body_name.clone();
+        let face = |face: &FaceId| self.describe_face(solid, *face);
+        let edge = |edge: &EdgeId| describe_edge(self.inputs.document, solid, *edge);
         match error {
             OffsetError::Cancelled(_) => Failure::Cancelled,
-            OffsetError::InvalidDistance => self.error(
-                "The distance must be more than 0.000001 mm.".to_owned(),
-                "Enter a larger distance, positive to grow the body and negative to shrink it."
-                    .to_owned(),
-            ),
+            OffsetError::InvalidDistance => self.error(OffsetFaceCause::DistanceTooSmall),
             OffsetError::NothingToMove => Failure::Waiting(MissingInput::FacesToMove {
                 body: self.definition.body,
             }),
-            OffsetError::MissingFace(_) => self.error(
-                format!(
-                    "A face to move is no longer part of the body of {}.",
-                    self.body_name
-                ),
-                "Choose the faces again, or undo the change that removed it.".to_owned(),
-            ),
-            OffsetError::UnsupportedFace(face) => self.error(
-                format!(
-                    "{} cannot be moved yet: faces swept from splines or shaped freely cannot be \
-                     offset.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Leave this face out.".to_owned(),
-            ),
-            OffsetError::UnsupportedEdge(edge) => self.error(
-                format!(
-                    "The faces beside the moved ones cannot follow {}.",
-                    describe_edge(self.inputs.document, solid, *edge)
-                ),
-                "Move the faces tangent to the moved ones too, or try a different distance."
-                    .to_owned(),
-            ),
-            OffsetError::Vanishes(face) => self.error(
-                format!(
-                    "{} would vanish at this distance.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Enter a smaller distance.".to_owned(),
-            ),
-            OffsetError::TooCurved(face) => self.error(
-                format!(
-                    "{} curves more tightly than the distance, so it would vanish.",
-                    capitalized(&self.describe_face(solid, *face))
-                ),
-                "Enter a distance below the smallest radius of that face.".to_owned(),
-            ),
-            OffsetError::Corner(vertex) => self.error(
-                format!(
-                    "The faces of the body of {} cannot meet at {}.",
-                    self.body_name,
-                    self.describe_corner(solid, *vertex)
-                ),
-                "Change the distance, or move the faces at that corner too.".to_owned(),
-            ),
-            OffsetError::EdgeCollapses(edge) => self.error(
-                format!(
-                    "The face along {} would shrink to nothing at this distance.",
-                    describe_edge(self.inputs.document, solid, *edge)
-                ),
-                "Enter a smaller distance.".to_owned(),
-            ),
-            OffsetError::Invalid { faces, edge } => {
-                let names = self.describe_faces(solid, faces);
-                let near = match (names.is_empty(), edge) {
-                    (false, _) => format!(" near {}", list_names(&names)),
-                    (true, Some(edge)) => format!(
-                        " near {}",
-                        describe_edge(self.inputs.document, solid, *edge)
-                    ),
-                    (true, None) => String::new(),
-                };
-                self.error(
-                    format!(
-                        "The body of {} would not stay valid{near} at this distance, as a moved \
-                         face would pass through another part of it.",
-                        self.body_name
-                    ),
-                    "Enter a smaller distance.".to_owned(),
-                )
+            OffsetError::MissingFace(_) => self.error(OffsetFaceCause::FaceGone { body }),
+            OffsetError::UnsupportedFace(of) => {
+                self.error(OffsetFaceCause::UnsupportedFace { face: face(of) })
             }
-            OffsetError::Crosses { first, second } => self.error(
-                format!(
-                    "{} and {} would cross each other at this distance.",
-                    self.describe_face(solid, *first),
-                    self.describe_face(solid, *second)
-                ),
-                "Enter a smaller distance.".to_owned(),
-            ),
+            OffsetError::UnsupportedEdge(of) => {
+                self.error(OffsetFaceCause::UnsupportedEdge { edge: edge(of) })
+            }
+            OffsetError::Vanishes(of) => self.error(OffsetFaceCause::Vanishes { face: face(of) }),
+            OffsetError::TooCurved(of) => self.error(OffsetFaceCause::TooCurved { face: face(of) }),
+            OffsetError::Corner(vertex) => self.error(OffsetFaceCause::Corner {
+                body,
+                corner: self.describe_corner(solid, *vertex),
+            }),
+            OffsetError::EdgeCollapses(of) => {
+                self.error(OffsetFaceCause::EdgeCollapses { edge: edge(of) })
+            }
+            OffsetError::Invalid { faces, edge: near } => self.error(OffsetFaceCause::Invalid {
+                body,
+                near: Near {
+                    faces: self.describe_faces(solid, faces),
+                    edge: near.as_ref().map(edge),
+                },
+            }),
+            OffsetError::Crosses { first, second } => self.error(OffsetFaceCause::Crosses {
+                first: face(first),
+                second: face(second),
+            }),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum OffsetFaceCause {
+    DistanceTooSmall,
+    FaceGone { body: String },
+    UnsupportedFace { face: String },
+    UnsupportedEdge { edge: String },
+    Vanishes { face: String },
+    TooCurved { face: String },
+    Corner { body: String, corner: String },
+    EdgeCollapses { edge: String },
+    Invalid { body: String, near: Near },
+    Crosses { first: String, second: String },
+}
+
+impl OffsetFaceCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::DistanceTooSmall => "The distance must be more than 0.000001 mm.".to_owned(),
+            Self::FaceGone { body } => {
+                format!("A face to move is no longer part of the body of {body}.")
+            }
+            Self::UnsupportedFace { face } => format!(
+                "{} cannot be moved yet: faces swept from splines or shaped freely cannot be \
+                 offset.",
+                capitalized(face)
+            ),
+            Self::UnsupportedEdge { edge } => {
+                format!("The faces beside the moved ones cannot follow {edge}.")
+            }
+            Self::Vanishes { face } => {
+                format!("{} would vanish at this distance.", capitalized(face))
+            }
+            Self::TooCurved { face } => format!(
+                "{} curves more tightly than the distance, so it would vanish.",
+                capitalized(face)
+            ),
+            Self::Corner { body, corner } => {
+                format!("The faces of the body of {body} cannot meet at {corner}.")
+            }
+            Self::EdgeCollapses { edge } => {
+                format!("The face along {edge} would shrink to nothing at this distance.")
+            }
+            Self::Invalid { body, near } => format!(
+                "The body of {body} would not stay valid{near} at this distance, as a moved face \
+                 would pass through another part of it."
+            ),
+            Self::Crosses { first, second } => {
+                format!("{first} and {second} would cross each other at this distance.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::DistanceTooSmall => {
+                "Enter a larger distance, positive to grow the body and negative to shrink it."
+                    .to_owned()
+            }
+            Self::FaceGone { .. } => {
+                "Choose the faces again, or undo the change that removed it.".to_owned()
+            }
+            Self::UnsupportedFace { .. } => "Leave this face out.".to_owned(),
+            Self::UnsupportedEdge { .. } => {
+                "Move the faces tangent to the moved ones too, or try a different distance."
+                    .to_owned()
+            }
+            Self::TooCurved { .. } => {
+                "Enter a distance below the smallest radius of that face.".to_owned()
+            }
+            Self::Corner { .. } => {
+                "Change the distance, or move the faces at that corner too.".to_owned()
+            }
+            Self::Vanishes { .. }
+            | Self::EdgeCollapses { .. }
+            | Self::Invalid { .. }
+            | Self::Crosses { .. } => "Enter a smaller distance.".to_owned(),
+        }
+    }
+}
+
+impl From<OffsetFaceCause> for Cause {
+    fn from(cause: OffsetFaceCause) -> Self {
+        Self::OffsetFace(cause)
     }
 }
 
@@ -252,25 +265,13 @@ pub(crate) fn evaluate(
         return Err(inputs.missing_body(definition.body));
     };
     let faces = definition.resolve(solid).map_err(|unresolved| {
-        let body = &context.body_name;
-        let reason = match unresolved {
-            Unresolved::Missing(1) => {
-                format!("A face to move is no longer part of the body of {body}.")
-            }
-            Unresolved::Missing(missing) => {
-                format!("{missing} faces to move are no longer part of the body of {body}.")
-            }
-            Unresolved::Unrelated(1) => {
-                format!("A face to move now matches several separate faces of the body of {body}.")
-            }
-            Unresolved::Unrelated(unrelated) => format!(
-                "{unrelated} faces to move now match several separate faces of the body of \
-                 {body}."
-            ),
-        };
-        context.error(
-            reason,
-            "Choose the faces again, or undo the change that removed them.".to_owned(),
+        Failure::from(
+            FeatureError::new(Unmatched {
+                chosen: Chosen::FacesToMove,
+                unresolved,
+                body: context.body_name.clone(),
+            })
+            .fixing(FixTarget::Feature(feature.id())),
         )
     })?;
     if cancel.is_cancelled() {

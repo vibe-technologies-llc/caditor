@@ -82,7 +82,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
         panic!("moving a removed body fails");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Remove 1 removed the body made by Peg, so it no longer stands."
     );
 }

@@ -119,7 +119,7 @@ fn rib_from_the_palette_follows_the_selected_line_and_turns_into_a_web_from_its_
         .feature(rib)
         .map(|status| status.state.clone())
     {
-        Some(FeatureState::Failed(error)) => error.reason,
+        Some(FeatureState::Failed(error)) => error.reason(),
         other => panic!("a rib lying in the open top runs past the box, found {other:?}"),
     };
     assert!(reason.contains("not closed off"), "{reason}");

@@ -274,7 +274,7 @@ fn a_cut_that_takes_the_whole_body_fails_alone_in_words() {
     let evaluation = evaluate(&document, &mut engine);
 
     let error = failure(&evaluation, cut);
-    assert_eq!(error.reason, "The box removes all of the body of Base.");
+    assert_eq!(error.reason(), "The box removes all of the body of Base.");
     assert!(evaluation.body_result(base).is_some());
 }
 
@@ -308,10 +308,10 @@ fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, feature);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The length of the box must be more than zero."
     );
-    assert_eq!(error.remedy, "Enter a length above zero.");
+    assert_eq!(error.remedy(), "Enter a length above zero.");
 
     let (document, torus) = single(primitive(PrimitiveShape::Torus {
         diameter: mm(4.0),
@@ -320,7 +320,7 @@ fn sizes_take_parameters_and_bad_sizes_fail_in_words() {
     let evaluation = evaluate(&document, &mut Recompute::default());
     assert!(
         failure(&evaluation, torus)
-            .reason
+            .reason()
             .starts_with("The tube diameter of the torus must be less than its diameter")
     );
 }
@@ -512,9 +512,9 @@ fn a_cone_a_wedge_or_a_prism_out_of_shape_fails_alone_in_words() {
         let evaluation = evaluate(&document, &mut engine);
 
         assert!(
-            failure(&evaluation, feature).reason.contains(reason),
+            failure(&evaluation, feature).reason().contains(reason),
             "{shape:?}: {}",
-            failure(&evaluation, feature).reason
+            failure(&evaluation, feature).reason()
         );
     }
 }

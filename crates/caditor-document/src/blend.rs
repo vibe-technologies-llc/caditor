@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
     BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName, FaceOrigin,
     FaceReference, Solid, VertexId, blend, faces_around_vertices,
@@ -9,6 +9,7 @@ use caditor_kernel::{
 use crate::{
     describe::{describe_edge, edge_faces},
     document::{Document, Feature, FeatureId},
+    failure::{Cause, Chosen, Expected, Unmatched},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
     recompute::{
@@ -372,14 +373,8 @@ impl Context<'_> {
             })
     }
 
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: BlendCause) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 
     fn value(
@@ -388,43 +383,27 @@ impl Context<'_> {
         dimension: Dimension,
         what: &str,
     ) -> Result<f64, Failure> {
-        let example = if dimension == Dimension::ANGLE {
-            "an angle, such as 45 deg"
+        let expected = if dimension == Dimension::ANGLE {
+            Expected::Angle(45.0)
         } else {
-            "a length, such as 2 mm"
+            Expected::Length(2.0)
         };
         let value = expression
             .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the {what}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives {example}."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        format!("Edit the {what} or the parameters it uses."),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The {what} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    what,
+                    expected,
+                    error,
+                ))
             })?;
         if value > 0.0 {
             Ok(value)
         } else {
-            Err(self.error(
-                format!("The {what} must be more than zero."),
-                format!("Enter a {what} above zero."),
-            ))
+            Err(self.error(BlendCause::NotPositive {
+                what: what.to_owned(),
+            }))
         }
     }
 
@@ -449,10 +428,7 @@ impl Context<'_> {
             (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
                 let degrees = self.value(angle, Dimension::ANGLE, "angle")?;
                 if degrees >= 180.0 {
-                    return Err(self.error(
-                        "The angle must be less than 180 degrees.".to_owned(),
-                        "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned(),
-                    ));
+                    return Err(self.error(BlendCause::AngleTooWide));
                 }
                 BlendShape::AngledChamfer {
                     distance: size,
@@ -465,103 +441,44 @@ impl Context<'_> {
 
     fn failure(&self, solid: &Solid, error: &BlendError) -> Failure {
         let kind = self.definition.kind;
-        let noun = kind.noun();
-        let what = kind.size_name();
         let edge = error.edge().map_or_else(
             || "an edge".to_owned(),
             |edge| describe_edge(self.inputs.document, solid, edge),
         );
         match error {
             BlendError::Cancelled(_) => Failure::Cancelled,
-            BlendError::InvalidSize => self.error(
-                format!("The {what} must be more than 0.000001 mm."),
-                format!("Enter a larger {what}."),
-            ),
-            BlendError::InvalidAngle => self.error(
-                "The angle must be between 0 and 180 degrees.".to_owned(),
-                "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned(),
-            ),
-            BlendError::AngleMisses(_) => self.error(
-                format!("At this angle the cut never meets the other face next to {edge}."),
-                "Enter a smaller angle, flip the chamfer to measure from the other face, or \
-                 leave this edge out."
-                    .to_owned(),
-            ),
+            BlendError::InvalidSize => self.error(BlendCause::SizeTooSmall { kind }),
+            BlendError::InvalidAngle => self.error(BlendCause::AngleOutOfRange),
+            BlendError::AngleMisses(_) => self.error(BlendCause::AngleMisses { edge }),
             BlendError::NoEdges => Failure::Waiting(MissingInput::Edges {
                 body: self.definition.body,
             }),
-            BlendError::MissingEdge(_) => self.error(
-                format!(
-                    "A chosen edge is no longer part of the body of {}.",
-                    self.body_name
-                ),
-                "Choose the edges again, or undo the change that removed it.".to_owned(),
-            ),
-            BlendError::Unsupported(_) => self.error(
-                format!(
-                    "A {noun} cannot follow {edge}: the faces there do not meet along one edge \
-                     on each side, or the edge turns from an outer corner to an inner one."
-                ),
-                "Blend the outer and inner parts of the edge in separate features, or leave \
-                 this edge out."
-                    .to_owned(),
-            ),
-            BlendError::Intricate(_) => self.error(
-                format!("The faces next to {edge} curve too sharply for the {noun} to follow."),
-                format!("Enter a smaller {what}, or leave this edge out."),
-            ),
-            BlendError::Smooth(_) => self.error(
-                format!("The faces meet smoothly at {edge}, so there is no corner to blend."),
-                "Leave this edge out.".to_owned(),
-            ),
-            BlendError::TooLarge(_) => self.error(
-                format!("The {what} is too large for the faces next to {edge}."),
-                format!("Enter a smaller {what}, or leave this edge out."),
-            ),
-            BlendError::WrapsAround(_) => self.error(
-                format!(
-                    "The {noun} of {edge} would run into itself: the edge is almost a full circle \
-                     and its ends need room beyond it."
-                ),
-                format!(
-                    "Also choose the edges that continue from it, enter a smaller {what}, or \
-                     leave it out."
-                ),
-            ),
+            BlendError::MissingEdge(_) => self.error(BlendCause::EdgeGone {
+                body: self.body_name.clone(),
+            }),
+            BlendError::Unsupported(_) => self.error(BlendCause::Unsupported { kind, edge }),
+            BlendError::Intricate(_) => self.error(BlendCause::Intricate { kind, edge }),
+            BlendError::Smooth(_) => self.error(BlendCause::Smooth { edge }),
+            BlendError::TooLarge(_) => self.error(BlendCause::TooLarge { kind, edge }),
+            BlendError::WrapsAround(_) => self.error(BlendCause::WrapsAround { kind, edge }),
             BlendError::UnsupportedEnd { vertex, .. } => {
-                let reason = format!("The {noun} cannot be closed off where {edge} ends.");
                 match vertex.and_then(|vertex| self.earlier_blend_at(solid, vertex)) {
-                    Some(earlier) => self.error(
-                        format!("{reason} {earlier} already blended the corner there."),
-                        format!(
-                            "Move {} above {earlier} in the tree, so the corner is blended \
-                             after this edge, or leave this edge out.",
-                            self.feature.name
-                        ),
-                    ),
-                    None => self.error(
-                        reason,
-                        "Also choose the edges that continue from it, or leave it out.".to_owned(),
-                    ),
+                    Some(earlier) => self.error(BlendCause::CornerBlended {
+                        kind,
+                        edge,
+                        earlier,
+                        feature: self.feature.name.clone(),
+                    }),
+                    None => self.error(BlendCause::EndUnsupported { kind, edge }),
                 }
             }
-            BlendError::Lost(_) => self.error(
-                format!(
-                    "The {noun} of {edge} could not be finished after the inner corners next to \
-                     it were filled."
-                ),
-                "Blend the inner and the outer edges in separate features.".to_owned(),
-            ),
+            BlendError::Lost(_) => self.error(BlendCause::Lost { kind, edge }),
             BlendError::AfterFill(inner) => {
                 log::warn!("{} could not be built: {inner}", self.feature.name);
-                self.error(
-                    format!(
-                        "The {noun} could not be finished after the inner corners of the body of \
-                         {} were filled.",
-                        self.body_name
-                    ),
-                    "Blend the inner and the outer edges in separate features.".to_owned(),
-                )
+                self.error(BlendCause::AfterFill {
+                    kind,
+                    body: self.body_name.clone(),
+                })
             }
             BlendError::Profile { .. }
             | BlendError::Sweep { .. }
@@ -569,21 +486,233 @@ impl Context<'_> {
             | BlendError::Loft { .. }
             | BlendError::Rounding { .. } => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
-                match error.edge() {
-                    Some(_) => self.error(
-                        format!("The {noun} of {edge} could not be built."),
-                        format!("Change the {what} slightly, or leave this edge out."),
-                    ),
-                    None => self.error(
-                        format!(
-                            "The {noun} could not be built on the body of {}.",
-                            self.body_name
-                        ),
-                        format!("Change the {what} slightly, or choose fewer edges."),
-                    ),
-                }
+                self.error(BlendCause::Unbuilt {
+                    kind,
+                    edge: error.edge().map(|_| edge),
+                    body: self.body_name.clone(),
+                })
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum BlendCause {
+    NotPositive {
+        what: String,
+    },
+    AngleTooWide,
+    SizeTooSmall {
+        kind: BlendKind,
+    },
+    AngleOutOfRange,
+    AngleMisses {
+        edge: String,
+    },
+    EdgeGone {
+        body: String,
+    },
+    Unsupported {
+        kind: BlendKind,
+        edge: String,
+    },
+    Intricate {
+        kind: BlendKind,
+        edge: String,
+    },
+    Smooth {
+        edge: String,
+    },
+    TooLarge {
+        kind: BlendKind,
+        edge: String,
+    },
+    WrapsAround {
+        kind: BlendKind,
+        edge: String,
+    },
+    CornerBlended {
+        kind: BlendKind,
+        edge: String,
+        earlier: String,
+        feature: String,
+    },
+    EndUnsupported {
+        kind: BlendKind,
+        edge: String,
+    },
+    Lost {
+        kind: BlendKind,
+        edge: String,
+    },
+    AfterFill {
+        kind: BlendKind,
+        body: String,
+    },
+    Unbuilt {
+        kind: BlendKind,
+        edge: Option<String>,
+        body: String,
+    },
+    PartlyFollowed {
+        count: usize,
+    },
+}
+
+impl BlendCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::NotPositive { what } => format!("The {what} must be more than zero."),
+            Self::AngleTooWide => "The angle must be less than 180 degrees.".to_owned(),
+            Self::SizeTooSmall { kind } => {
+                format!("The {} must be more than 0.000001 mm.", kind.size_name())
+            }
+            Self::AngleOutOfRange => "The angle must be between 0 and 180 degrees.".to_owned(),
+            Self::AngleMisses { edge } => {
+                format!("At this angle the cut never meets the other face next to {edge}.")
+            }
+            Self::EdgeGone { body } => {
+                format!("A chosen edge is no longer part of the body of {body}.")
+            }
+            Self::Unsupported { kind, edge } => format!(
+                "A {} cannot follow {edge}: the faces there do not meet along one edge on each \
+                 side, or the edge turns from an outer corner to an inner one.",
+                kind.noun()
+            ),
+            Self::Intricate { kind, edge } => format!(
+                "The faces next to {edge} curve too sharply for the {} to follow.",
+                kind.noun()
+            ),
+            Self::Smooth { edge } => {
+                format!("The faces meet smoothly at {edge}, so there is no corner to blend.")
+            }
+            Self::TooLarge { kind, edge } => format!(
+                "The {} is too large for the faces next to {edge}.",
+                kind.size_name()
+            ),
+            Self::WrapsAround { kind, edge } => format!(
+                "The {} of {edge} would run into itself: the edge is almost a full circle and \
+                 its ends need room beyond it.",
+                kind.noun()
+            ),
+            Self::CornerBlended {
+                kind,
+                edge,
+                earlier,
+                ..
+            } => format!(
+                "The {} cannot be closed off where {edge} ends. {earlier} already blended the \
+                 corner there.",
+                kind.noun()
+            ),
+            Self::EndUnsupported { kind, edge } => format!(
+                "The {} cannot be closed off where {edge} ends.",
+                kind.noun()
+            ),
+            Self::Lost { kind, edge } => format!(
+                "The {} of {edge} could not be finished after the inner corners next to it were \
+                 filled.",
+                kind.noun()
+            ),
+            Self::AfterFill { kind, body } => format!(
+                "The {} could not be finished after the inner corners of the body of {body} were \
+                 filled.",
+                kind.noun()
+            ),
+            Self::Unbuilt {
+                kind,
+                edge: Some(edge),
+                ..
+            } => format!("The {} of {edge} could not be built.", kind.noun()),
+            Self::Unbuilt {
+                kind,
+                edge: None,
+                body,
+            } => format!(
+                "The {} could not be built on the body of {body}.",
+                kind.noun()
+            ),
+            Self::PartlyFollowed { count: 1 } => {
+                "A chosen edge was split into pieces by a sketch edit, and only some of the \
+                 pieces can still be traced back to it."
+                    .to_owned()
+            }
+            Self::PartlyFollowed { count } => format!(
+                "{count} chosen edges were split into pieces by a sketch edit, and only some of \
+                 the pieces can still be traced back to them."
+            ),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::NotPositive { what } => format!("Enter a {what} above zero."),
+            Self::AngleTooWide | Self::AngleOutOfRange => {
+                "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned()
+            }
+            Self::SizeTooSmall { kind } => format!("Enter a larger {}.", kind.size_name()),
+            Self::AngleMisses { .. } => {
+                "Enter a smaller angle, flip the chamfer to measure from the other face, or \
+                 leave this edge out."
+                    .to_owned()
+            }
+            Self::EdgeGone { .. } => {
+                "Choose the edges again, or undo the change that removed it.".to_owned()
+            }
+            Self::Unsupported { .. } => {
+                "Blend the outer and inner parts of the edge in separate features, or leave this \
+                 edge out."
+                    .to_owned()
+            }
+            Self::Intricate { kind, .. } | Self::TooLarge { kind, .. } => {
+                format!(
+                    "Enter a smaller {}, or leave this edge out.",
+                    kind.size_name()
+                )
+            }
+            Self::Smooth { .. } => "Leave this edge out.".to_owned(),
+            Self::WrapsAround { kind, .. } => format!(
+                "Also choose the edges that continue from it, enter a smaller {}, or leave it \
+                 out.",
+                kind.size_name()
+            ),
+            Self::CornerBlended {
+                earlier, feature, ..
+            } => format!(
+                "Move {feature} above {earlier} in the tree, so the corner is blended after \
+                 this edge, or leave this edge out."
+            ),
+            Self::EndUnsupported { .. } => {
+                "Also choose the edges that continue from it, or leave it out.".to_owned()
+            }
+            Self::Lost { .. } | Self::AfterFill { .. } => {
+                "Blend the inner and the outer edges in separate features.".to_owned()
+            }
+            Self::Unbuilt {
+                kind,
+                edge: Some(_),
+                ..
+            } => format!(
+                "Change the {} slightly, or leave this edge out.",
+                kind.size_name()
+            ),
+            Self::Unbuilt {
+                kind, edge: None, ..
+            } => format!(
+                "Change the {} slightly, or choose fewer edges.",
+                kind.size_name()
+            ),
+            Self::PartlyFollowed { .. } => {
+                "Choose the pieces of the edge again, or undo the sketch edit that split it."
+                    .to_owned()
+            }
+        }
+    }
+}
+
+impl From<BlendCause> for Cause {
+    fn from(cause: BlendCause) -> Self {
+        Self::Blend(cause)
     }
 }
 
@@ -611,29 +740,20 @@ pub(crate) fn evaluate(
         .resolve(inputs.document, solid)
         .map_err(|unresolved| {
             let body = &context.body_name;
-            let (unresolved, one, several) = match unresolved {
-                BlendUnresolved::Edges(unresolved) => (unresolved, "edge", "edges"),
-                BlendUnresolved::Faces(unresolved) => (unresolved, "face", "faces"),
-                BlendUnresolved::PartlyFollowed(count) => return partly_followed(&context, count),
-            };
-            let reason = match unresolved {
-                Unresolved::Missing(1) => {
-                    format!("A chosen {one} is no longer part of the body of {body}.")
+            let (unresolved, chosen) = match unresolved {
+                BlendUnresolved::Edges(unresolved) => (unresolved, Chosen::Edges),
+                BlendUnresolved::Faces(unresolved) => (unresolved, Chosen::Faces),
+                BlendUnresolved::PartlyFollowed(count) => {
+                    return context.error(BlendCause::PartlyFollowed { count });
                 }
-                Unresolved::Missing(missing) => {
-                    format!("{missing} chosen {several} are no longer part of the body of {body}.")
-                }
-                Unresolved::Unrelated(1) => format!(
-                    "A chosen {one} now matches several separate {several} of the body of {body}."
-                ),
-                Unresolved::Unrelated(unrelated) => format!(
-                    "{unrelated} chosen {several} now match several separate {several} of the body \
-                 of {body}."
-                ),
             };
-            context.error(
-                reason,
-                format!("Choose the {several} again, or undo the change that removed them."),
+            Failure::from(
+                FeatureError::new(Unmatched {
+                    chosen,
+                    unresolved,
+                    body: body.clone(),
+                })
+                .fixing(FixTarget::Feature(feature.id())),
             )
         })?;
     if cancel.is_cancelled() {
@@ -645,21 +765,4 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Solid(
         SolidResult::new(definition.body, result).blending(recipe),
     ))
-}
-
-fn partly_followed(context: &Context<'_>, count: usize) -> Failure {
-    let reason = if count == 1 {
-        "A chosen edge was split into pieces by a sketch edit, and only some of the pieces can \
-         still be traced back to it."
-            .to_owned()
-    } else {
-        format!(
-            "{count} chosen edges were split into pieces by a sketch edit, and only some of the \
-             pieces can still be traced back to them."
-        )
-    };
-    context.error(
-        reason,
-        "Choose the pieces of the edge again, or undo the sketch edit that split it.".to_owned(),
-    )
 }

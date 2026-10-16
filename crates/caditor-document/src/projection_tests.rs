@@ -318,7 +318,7 @@ fn a_circle_projected_from_another_sketch_follows_its_radius() {
     let error = failure(&evaluate(&document, &mut engine), above);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         format!("Circle {projected} is projected from geometry of Ring that no longer exists.")
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(above)));
@@ -796,7 +796,7 @@ fn a_projected_datum_must_be_of_its_kind_and_one_deleted_fails_the_sketch_in_wor
         .unwrap();
     let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
 
-    assert_eq!(error.reason, "It uses a feature that no longer exists.");
+    assert_eq!(error.reason(), "It uses a feature that no longer exists.");
 }
 
 #[test]
@@ -820,7 +820,7 @@ fn a_projected_axis_turned_end_on_fails_its_sketch_naming_the_axis() {
     let error = failure(&evaluate(&model.document, &mut engine), model.sketch);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         format!(
             "Line {} is projected from Post whose shape in this sketch changed kind, for \
              example a line now seen end-on.",

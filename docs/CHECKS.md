@@ -14,9 +14,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `MirrorToolError::ChosenPlane`, `PatternSketchError::Sketch`, `SolidChangeError::SelectedAxis`,
   `SplitFaceError::ChosenAxis`, `ImageTargetError::ChosenPlane`, `SymmetryError::ChosenLine`).
   `modifying::Outcome::Refused` and `queued.rs` (whose `Awaited::of` matches a refusal's words)
-  still pass a sentence along. Type each, then extend the check to `&'static str` errors. The
-  document's feature `Failure` (`reason` and `remedy` text built by each feature's `error`) is the
-  same shape and follows.
+  still pass a sentence along. Type each, then extend the check to `&'static str` errors.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

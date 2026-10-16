@@ -12,15 +12,17 @@ use crate::{
     blend::BlendRecipe,
     datum::{AxisReference, PointReference, Resolver, feature_name},
     document::{Feature, FeatureId, FeatureKind},
+    failure::Cause,
     pattern_path::{CurvePath, PathError, Station, curve_path},
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
     },
-    repeat_blend::{self, CopiedNames, CopyWords},
+    repeat_blend::{self, CopiedNames, Repeat, RepeatCause, Repeater},
     repeat_shell,
     shell::ShellRecipe,
     solid::{BodyOperation, SolidResult},
-    tolerance, trouble,
+    tolerance,
+    trouble::{self, Adjust, Trouble},
     values::ParameterValues,
 };
 
@@ -449,33 +451,29 @@ struct Steps {
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: &str) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy: remedy.to_owned(),
-            fix: Some(FixTarget::Feature(self.resolver.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: PatternCause) -> Failure {
+        Failure::from(
+            FeatureError::new(cause).fixing(FixTarget::Feature(self.resolver.feature.id())),
+        )
+    }
+
+    fn error_at(&self, cause: PatternCause, fix: FeatureId) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(fix)))
     }
 
     fn count(&self, expression: &Expression, what: &str) -> Result<u32, Failure> {
         let value = self.resolver.value(expression, what, Dimension::NONE)?;
         let whole = value.round();
         if (value - whole).abs() > WHOLE_TOLERANCE {
-            return Err(self.error(
-                format!(
-                    "The {what} must be a whole number, and {} is not.",
-                    format_number(value)
-                ),
-                "Enter a whole number, such as 4.",
-            ));
+            return Err(self.error(PatternCause::NotWhole {
+                what: what.to_owned(),
+                value,
+            }));
         }
         if whole < 1.0 {
-            return Err(self.error(
-                format!("The {what} must be at least 1."),
-                "Enter a count of 1 or more; 1 leaves the body as it is.",
-            ));
+            return Err(self.error(PatternCause::CountBelowOne {
+                what: what.to_owned(),
+            }));
         }
         if whole > f64::from(MAX_PATTERN_INSTANCES) {
             return Err(self.too_many(whole));
@@ -484,15 +482,10 @@ impl Context<'_> {
     }
 
     fn too_many(&self, instances: f64) -> Failure {
-        self.error(
-            format!(
-                "The pattern would make {} instances of {}, and at most \
-                 {MAX_PATTERN_INSTANCES} are allowed.",
-                format_number(instances),
-                self.subject
-            ),
-            "Lower the count.",
-        )
+        self.error(PatternCause::TooMany {
+            instances,
+            subject: self.subject.clone(),
+        })
     }
 
     fn steps(&self, direction: &LinearDirection, which: &str) -> Result<(Ray, Steps), Failure> {
@@ -503,25 +496,16 @@ impl Context<'_> {
             Dimension::LENGTH,
         )?;
         if spacing <= 0.0 {
-            return Err(self.error(
-                format!(
-                    "The {which}{} must be more than zero.",
-                    direction.measured.what()
-                ),
-                "Enter a length above zero, and tick Reversed to go the other way.",
-            ));
+            return Err(self.error(PatternCause::SpacingNotPositive {
+                what: format!("{which}{}", direction.measured.what()),
+            }));
         }
         let spacing = match (direction.measured, count) {
             (LinearSpacing::BetweenCopies, _) | (LinearSpacing::Total, 1) => spacing,
             (LinearSpacing::Total, count) => spacing / f64::from(count - 1),
         };
         if spacing * f64::from(count.saturating_sub(1)) > MAX_SIZE {
-            return Err(self.error(
-                "The copies would reach farther than a kilometre, the largest size caditor \
-                 models."
-                    .to_owned(),
-                "Lower the count or the spacing.",
-            ));
+            return Err(self.error(PatternCause::ReachTooFar));
         }
         let ray = self.resolver.axis(&direction.axis)?;
         let sign = if direction.reversed { -1.0 } else { 1.0 };
@@ -544,11 +528,7 @@ impl Context<'_> {
             Some(direction) => {
                 let (second_ray, across) = self.steps(direction, "second ")?;
                 if tolerance::parallel(first_ray.direction(), second_ray.direction()) {
-                    return Err(self.error(
-                        "The two directions are parallel, so the copies would fall on one line."
-                            .to_owned(),
-                        "Choose a second direction across the first, or remove it.",
-                    ));
+                    return Err(self.error(PatternCause::Parallel));
                 }
                 across
             }
@@ -580,11 +560,7 @@ impl Context<'_> {
             .resolver
             .value(&circular.angle, "angle", Dimension::ANGLE)?;
         if angle <= 0.0 || angle > FULL_TURN + ANGLE_TOLERANCE {
-            return Err(self.error(
-                "The angle must be more than 0° and at most 360°.".to_owned(),
-                "Enter an angle up to 360 deg; a full turn spaces the copies evenly around the \
-                 axis.",
-            ));
+            return Err(self.error(PatternCause::AngleRange));
         }
         let Some(axis) = &circular.axis else {
             return Err(Failure::Waiting(MissingInput::Axis));
@@ -620,44 +596,22 @@ impl Context<'_> {
                 sketch: &result.geometry,
                 name,
             }),
-            None => Err(self.resolver.error(
-                format!("It follows {name}, which has an error or is not a sketch."),
-                format!("Fix {name} first, or choose another sketch."),
-                sketch,
-            )),
+            None => Err(self.error_at(PatternCause::SketchUnavailable { name }, sketch)),
         }
     }
 
     fn path_failure(&self, placed: &Placed<'_>, sketch: FeatureId, error: &PathError) -> Failure {
-        let name = &placed.name;
-        let (reason, remedy) = match error {
-            PathError::NoCurves => (
-                format!("{name} has no curve for the copies to follow."),
-                format!("Draw a line, arc or spline in {name}, or choose another sketch."),
-            ),
-            PathError::NotOneChain => (
-                format!(
-                    "The curves of {name} do not join end to end into one chain, so it is \
-                     unclear which way the copies run."
-                ),
-                format!(
-                    "Join the curves of {name} end to end without branches, or make the others \
-                     construction geometry."
-                ),
-            ),
-            PathError::NoLength { entity } => (
-                format!(
-                    "{} in {name} has no length.",
-                    entity_label(placed.sketch, *entity)
-                ),
-                format!("Give it a length or delete it from {name}."),
-            ),
-            PathError::Curve(_) => (
-                format!("A curve of {name} could not be followed."),
-                format!("Redraw the curves of {name}."),
-            ),
+        let name = placed.name.clone();
+        let cause = match error {
+            PathError::NoCurves => PatternCause::PathEmpty { name },
+            PathError::NotOneChain => PatternCause::PathBroken { name },
+            PathError::NoLength { entity } => PatternCause::PathNoLength {
+                name,
+                curve: entity_label(placed.sketch, *entity),
+            },
+            PathError::Curve(_) => PatternCause::PathUnfollowable { name },
         };
-        self.resolver.error(reason, remedy, sketch)
+        self.error_at(cause, sketch)
     }
 
     fn curve(&self, curve: &CurvePattern) -> Result<Vec<PatternCopy>, Failure> {
@@ -700,10 +654,9 @@ impl Context<'_> {
                     .resolver
                     .value(&curve.spacing, "spacing", Dimension::LENGTH)?;
                 if spacing <= 0.0 {
-                    return Err(self.error(
-                        "The spacing must be more than zero.".to_owned(),
-                        "Enter a length above zero, and tick Reversed to go the other way.",
-                    ));
+                    return Err(self.error(PatternCause::SpacingNotPositive {
+                        what: "spacing".to_owned(),
+                    }));
                 }
                 spacing
             }
@@ -715,30 +668,16 @@ impl Context<'_> {
             reach > length + LINEAR_RESOLUTION
         };
         if past_end {
-            let length = format_number(length);
-            let reason = if path.is_closed() {
-                format!(
-                    "The copies would go all the way round the curve, which is {length} mm \
-                     long, and land on the original."
-                )
-            } else {
-                format!(
-                    "The copies would run past the end of the curve, which is {length} mm long."
-                )
-            };
-            return Err(self.error(
-                reason,
-                "Lower the count or the spacing, or spread the copies over the whole curve.",
-            ));
+            return Err(self.error(PatternCause::PastEnd {
+                closed: path.is_closed(),
+                length,
+            }));
         }
         Ok(step)
     }
 
     fn unplaceable(&self) -> Failure {
-        self.error(
-            "A copy could not be placed on the curve.".to_owned(),
-            "Redraw the curve so it has a direction everywhere.",
-        )
+        self.error(PatternCause::Unplaceable)
     }
 
     fn points(&self, points: &PointsPattern) -> Result<Vec<PatternCopy>, Failure> {
@@ -748,13 +687,7 @@ impl Context<'_> {
         let ids = placed.sketch.layout_points();
         if ids.is_empty() {
             let name = &placed.name;
-            return Err(self.resolver.error(
-                format!("{name} has no lone points to place copies at."),
-                format!(
-                    "Add points to {name} with the Point tool; the ends of curves do not count."
-                ),
-                points.sketch,
-            ));
+            return Err(self.error_at(PatternCause::NoPoints { name: name.clone() }, points.sketch));
         }
         let mut copies = Vec::with_capacity(ids.len());
         for id in ids {
@@ -778,12 +711,7 @@ impl Context<'_> {
         index: [u32; 2],
         placement: Option<RigidTransform>,
     ) -> Result<PatternCopy, Failure> {
-        let placement = placement.ok_or_else(|| {
-            self.error(
-                "A copy could not be placed.".to_owned(),
-                "Change the spacing, the angle or the axis.",
-            )
-        })?;
+        let placement = placement.ok_or_else(|| self.error(PatternCause::CopyUnplaced))?;
         Ok(PatternCopy {
             index,
             placement: placement.into(),
@@ -800,43 +728,30 @@ impl Context<'_> {
     }
 
     fn failure(&self, error: &PatternError) -> Failure {
-        let body = &self.subject;
+        let subject = self.subject.clone();
         match error {
             PatternError::Cancelled(_) => Failure::Cancelled,
-            PatternError::Placement { .. } => self.error(
-                format!("A copy of {body} could not be placed that far away."),
-                "Lower the count or the spacing.",
-            ),
+            PatternError::Placement { .. } => self.error(PatternCause::FarAway { subject }),
             PatternError::Union {
                 copies,
                 error: BooleanError::NonManifold(_),
-            } => self.error(
-                format!(
-                    "{} of {body} meet only along an edge or at a corner, and could not be \
-                     kept as separate shells.",
-                    self.describe(copies)
-                ),
-                "Change the spacing or the angle so the copies overlap or stand apart.",
-            ),
+            } => self.error(PatternCause::Edgewise {
+                copies: self.describe(copies),
+                subject,
+            }),
             PatternError::Union {
                 copies,
                 error: BooleanError::Ambiguous(_),
-            } => self.error(
-                format!(
-                    "{} of {body} touch where it cannot be told which side is inside.",
-                    self.describe(copies)
-                ),
-                "Change the spacing or the angle slightly.",
-            ),
+            } => self.error(PatternCause::Touching {
+                copies: self.describe(copies),
+                subject,
+            }),
             PatternError::Union { copies, .. } => {
                 log::warn!("{} could not be built: {error}", self.resolver.feature.name);
-                self.error(
-                    format!(
-                        "{} of {body} could not be joined together.",
-                        self.describe(copies)
-                    ),
-                    "Change the spacing or the angle slightly, or lower the count.",
-                )
+                self.error(PatternCause::Unjoined {
+                    copies: self.describe(copies),
+                    subject,
+                })
             }
         }
     }
@@ -873,14 +788,14 @@ impl<'a> Seeds<'a> {
         inputs: &'a Inputs<'_>,
         features: &[FeatureId],
         body: FeatureId,
-        words: &SeedWords,
+        repeater: Repeater,
     ) -> Result<Self, Failure> {
         let mut seeds = Self {
             repeated: Vec::with_capacity(features.len()),
             shell: None,
         };
         for &feature in features {
-            match seed(inputs, feature, body, words)? {
+            match seed(inputs, feature, body, repeater)? {
                 Repeated::Shell(shell) => seeds.shell = Some(shell),
                 repeated => seeds.repeated.push((feature, repeated)),
             }
@@ -896,45 +811,16 @@ impl<'a> Seeds<'a> {
     }
 }
 
-pub(crate) struct SeedWords {
-    pub feature: &'static str,
-    pub repeats: &'static str,
-    pub places: &'static str,
-    pub repeated: &'static str,
-    pub verb: &'static str,
-}
-
-const PATTERN_WORDS: SeedWords = SeedWords {
-    feature: "pattern",
-    repeats: "repeats",
-    places: "repeats it on",
-    repeated: "repeated",
-    verb: "pattern",
-};
-
-fn seed_error(seed: FeatureId, reason: String, remedy: &str) -> Failure {
-    Failure::Error(Box::new(FeatureError {
-        reason,
-        remedy: remedy.to_owned(),
-        fix: Some(FixTarget::Feature(seed)),
-        constraints: Vec::new(),
-        place: None,
-    }))
+fn seed_error(seed: FeatureId, cause: RepeatCause) -> Failure {
+    Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(seed)))
 }
 
 pub(crate) fn seed<'a>(
     inputs: &'a Inputs<'_>,
     seed: FeatureId,
     body: FeatureId,
-    words: &SeedWords,
+    repeater: Repeater,
 ) -> Result<Repeated<'a>, Failure> {
-    let SeedWords {
-        feature,
-        repeats,
-        places,
-        repeated,
-        verb,
-    } = words;
     let name = inputs.document.feature(seed).map_or_else(
         || "a deleted feature".to_owned(),
         |found| found.name.clone(),
@@ -942,15 +828,13 @@ pub(crate) fn seed<'a>(
     let Some(result) = inputs.features.get(&seed).and_then(|result| result.solid()) else {
         return Err(seed_error(
             seed,
-            format!("It {repeats} {name}, whose shape is not available."),
-            &format!("Fix {name} first, or leave it out of the {feature}."),
+            RepeatCause::SeedUnavailable { repeater, name },
         ));
     };
     if result.body != body {
         return Err(seed_error(
             seed,
-            format!("{name} changes another body than the one this {feature} {places}."),
-            &format!("Leave it out of the {feature}, or {verb} the body it changes."),
+            RepeatCause::SeedOtherBody { repeater, name },
         ));
     }
     if let Some(recipe) = result.blended() {
@@ -965,11 +849,11 @@ pub(crate) fn seed<'a>(
                 .map_or_else(|| "another feature".to_owned(), |found| found.name.clone());
             return Err(seed_error(
                 seed,
-                format!(
-                    "{after} changes the body after {name}, so this {feature} cannot hollow its \
-                     copies with {name}."
-                ),
-                &format!("Move this {feature} right below {name}, or leave {name} out of it."),
+                RepeatCause::SeedShellLate {
+                    repeater,
+                    name,
+                    after,
+                },
             ));
         };
         return Ok(Repeated::Shell(RepeatedShell {
@@ -982,10 +866,7 @@ pub(crate) fn seed<'a>(
         ([], []) => {
             return Err(seed_error(
                 seed,
-                format!(
-                    "{name} neither adds to nor removes from a body, so it cannot be {repeated}."
-                ),
-                &format!("Leave it out of the {feature}, or {verb} the whole body."),
+                RepeatCause::SeedNeither { repeater, name },
             ));
         }
         ([], joins) => (BooleanOperation::Union, joins),
@@ -1017,20 +898,17 @@ impl Context<'_> {
             inputs,
             &definition.repeated,
             definition.body,
-            &PATTERN_WORDS,
+            Repeater::Pattern,
         )?;
         let mut body = seeds.start(solid).clone();
         let mut cuts = Vec::new();
         let mut names = CopiedNames::new(self.resolver.feature.id());
         let instances: Vec<Instance> = copies.iter().map(|copy| copy.index).collect();
         let copy_words = |instance: Instance| definition.instance_words(instance);
-        let base = CopyWords {
+        let base = Repeat {
             feature: self.resolver.feature.id(),
-            repeated: "",
-            seed: &PATTERN_WORDS,
+            repeater: Repeater::Pattern,
             copy: &copy_words,
-            copies: "the copies",
-            clear: "Change the spacing or the angle so",
         };
         for (feature, repeated) in seeds.repeated {
             let seed = match repeated {
@@ -1038,9 +916,7 @@ impl Context<'_> {
                 Repeated::Blend { name, recipe } => {
                     body = names
                         .blend(body, recipe, &instances, cancel)
-                        .map_err(|error| {
-                            repeat_blend::failure(&error, recipe, &base.naming(&name))
-                        })?;
+                        .map_err(|error| repeat_blend::failure(&error, recipe, &base, &name))?;
                     continue;
                 }
                 Repeated::Shell(_) => continue,
@@ -1075,7 +951,7 @@ impl Context<'_> {
         if let Some(shell) = &seeds.shell {
             body = names
                 .shell(&body, shell.recipe, &instances, cancel)
-                .map_err(|error| repeat_shell::failure(&error, &base.naming(&shell.name)))?;
+                .map_err(|error| repeat_shell::failure(&error, &base, &shell.name))?;
         }
         Ok(SolidResult::new(definition.body, body).cutting(cuts))
     }
@@ -1089,28 +965,32 @@ impl Context<'_> {
     ) -> Failure {
         let name = &seed.name;
         let body = &self.subject;
-        let headline = match (error, seed.operation) {
+        let cutting = match (error, seed.operation) {
             (BooleanError::Cancelled(_), _) => return Failure::Cancelled,
             (BooleanError::Empty, _) => {
-                return self.error(
-                    format!("The copies of {name} would leave nothing of {body}."),
-                    "Lower the count or change the spacing.",
-                );
+                return self.error(PatternCause::CopiesVanish {
+                    name: name.clone(),
+                    subject: body.clone(),
+                });
             }
-            (_, BooleanOperation::Difference) => {
-                format!("The copies of {name} could not be cut into {body}.")
-            }
-            (_, _) => format!("The copies of {name} could not be joined to {body}."),
+            (_, BooleanOperation::Difference) => true,
+            (_, _) => false,
         };
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
         let trouble = trouble::boolean_trouble(
             inputs.document,
             operands,
             error,
-            "Change the spacing or the angle slightly",
+            Adjust::ChangeTheSpacingOrTheAngleSlightly,
         );
-        self.error(trouble.reason(headline), &trouble.remedy)
-            .placed(trouble.place)
+        let place = trouble.place;
+        self.error(PatternCause::CopiesUncombined {
+            name: name.clone(),
+            subject: body.clone(),
+            cutting,
+            trouble,
+        })
+        .placed(place)
     }
 }
 
@@ -1207,4 +1087,219 @@ pub(crate) fn evaluate(
         definition.body,
         result,
     )))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PatternCause {
+    NotWhole {
+        what: String,
+        value: f64,
+    },
+    CountBelowOne {
+        what: String,
+    },
+    TooMany {
+        instances: f64,
+        subject: String,
+    },
+    SpacingNotPositive {
+        what: String,
+    },
+    ReachTooFar,
+    Parallel,
+    AngleRange,
+    SketchUnavailable {
+        name: String,
+    },
+    PathEmpty {
+        name: String,
+    },
+    PathBroken {
+        name: String,
+    },
+    PathNoLength {
+        name: String,
+        curve: String,
+    },
+    PathUnfollowable {
+        name: String,
+    },
+    PastEnd {
+        closed: bool,
+        length: f64,
+    },
+    Unplaceable,
+    NoPoints {
+        name: String,
+    },
+    CopyUnplaced,
+    FarAway {
+        subject: String,
+    },
+    Edgewise {
+        copies: String,
+        subject: String,
+    },
+    Touching {
+        copies: String,
+        subject: String,
+    },
+    Unjoined {
+        copies: String,
+        subject: String,
+    },
+    CopiesVanish {
+        name: String,
+        subject: String,
+    },
+    CopiesUncombined {
+        name: String,
+        subject: String,
+        cutting: bool,
+        trouble: Trouble,
+    },
+}
+
+impl PatternCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::NotWhole { what, value } => format!(
+                "The {what} must be a whole number, and {} is not.",
+                format_number(*value)
+            ),
+            Self::CountBelowOne { what } => format!("The {what} must be at least 1."),
+            Self::TooMany { instances, subject } => format!(
+                "The pattern would make {} instances of {subject}, and at most \
+                 {MAX_PATTERN_INSTANCES} are allowed.",
+                format_number(*instances)
+            ),
+            Self::SpacingNotPositive { what } => format!("The {what} must be more than zero."),
+            Self::ReachTooFar => {
+                "The copies would reach farther than a kilometre, the largest size caditor models."
+                    .to_owned()
+            }
+            Self::Parallel => {
+                "The two directions are parallel, so the copies would fall on one line.".to_owned()
+            }
+            Self::AngleRange => "The angle must be more than 0° and at most 360°.".to_owned(),
+            Self::SketchUnavailable { name } => {
+                format!("It follows {name}, which has an error or is not a sketch.")
+            }
+            Self::PathEmpty { name } => format!("{name} has no curve for the copies to follow."),
+            Self::PathBroken { name } => format!(
+                "The curves of {name} do not join end to end into one chain, so it is unclear \
+                 which way the copies run."
+            ),
+            Self::PathNoLength { name, curve } => format!("{curve} in {name} has no length."),
+            Self::PathUnfollowable { name } => {
+                format!("A curve of {name} could not be followed.")
+            }
+            Self::PastEnd {
+                closed: true,
+                length,
+            } => format!(
+                "The copies would go all the way round the curve, which is {} mm long, and land \
+                 on the original.",
+                format_number(*length)
+            ),
+            Self::PastEnd {
+                closed: false,
+                length,
+            } => format!(
+                "The copies would run past the end of the curve, which is {} mm long.",
+                format_number(*length)
+            ),
+            Self::Unplaceable => "A copy could not be placed on the curve.".to_owned(),
+            Self::NoPoints { name } => format!("{name} has no lone points to place copies at."),
+            Self::CopyUnplaced => "A copy could not be placed.".to_owned(),
+            Self::FarAway { subject } => {
+                format!("A copy of {subject} could not be placed that far away.")
+            }
+            Self::Edgewise { copies, subject } => format!(
+                "{copies} of {subject} meet only along an edge or at a corner, and could not be \
+                 kept as separate shells."
+            ),
+            Self::Touching { copies, subject } => {
+                format!("{copies} of {subject} touch where it cannot be told which side is inside.")
+            }
+            Self::Unjoined { copies, subject } => {
+                format!("{copies} of {subject} could not be joined together.")
+            }
+            Self::CopiesVanish { name, subject } => {
+                format!("The copies of {name} would leave nothing of {subject}.")
+            }
+            Self::CopiesUncombined {
+                name,
+                subject,
+                cutting,
+                trouble,
+            } => trouble.reason(if *cutting {
+                format!("The copies of {name} could not be cut into {subject}.")
+            } else {
+                format!("The copies of {name} could not be joined to {subject}.")
+            }),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::NotWhole { .. } => "Enter a whole number, such as 4.".to_owned(),
+            Self::CountBelowOne { .. } => {
+                "Enter a count of 1 or more; 1 leaves the body as it is.".to_owned()
+            }
+            Self::TooMany { .. } => "Lower the count.".to_owned(),
+            Self::SpacingNotPositive { .. } => {
+                "Enter a length above zero, and tick Reversed to go the other way.".to_owned()
+            }
+            Self::ReachTooFar | Self::FarAway { .. } => {
+                "Lower the count or the spacing.".to_owned()
+            }
+            Self::Parallel => {
+                "Choose a second direction across the first, or remove it.".to_owned()
+            }
+            Self::AngleRange => {
+                "Enter an angle up to 360 deg; a full turn spaces the copies evenly around the \
+                 axis."
+                    .to_owned()
+            }
+            Self::SketchUnavailable { name } => {
+                format!("Fix {name} first, or choose another sketch.")
+            }
+            Self::PathEmpty { name } => {
+                format!("Draw a line, arc or spline in {name}, or choose another sketch.")
+            }
+            Self::PathBroken { name } => format!(
+                "Join the curves of {name} end to end without branches, or make the others \
+                 construction geometry."
+            ),
+            Self::PathNoLength { name, .. } => {
+                format!("Give it a length or delete it from {name}.")
+            }
+            Self::PathUnfollowable { name } => format!("Redraw the curves of {name}."),
+            Self::PastEnd { .. } => {
+                "Lower the count or the spacing, or spread the copies over the whole curve."
+                    .to_owned()
+            }
+            Self::Unplaceable => "Redraw the curve so it has a direction everywhere.".to_owned(),
+            Self::NoPoints { name } => format!(
+                "Add points to {name} with the Point tool; the ends of curves do not count."
+            ),
+            Self::CopyUnplaced => "Change the spacing, the angle or the axis.".to_owned(),
+            Self::Edgewise { .. } => {
+                "Change the spacing or the angle so the copies overlap or stand apart.".to_owned()
+            }
+            Self::Touching { .. } => "Change the spacing or the angle slightly.".to_owned(),
+            Self::Unjoined { .. } => {
+                "Change the spacing or the angle slightly, or lower the count.".to_owned()
+            }
+            Self::CopiesVanish { .. } => "Lower the count or change the spacing.".to_owned(),
+            Self::CopiesUncombined { trouble, .. } => trouble.remedy(),
+        }
+    }
+}
+
+impl From<PatternCause> for Cause {
+    fn from(cause: PatternCause) -> Self {
+        Self::Pattern(cause)
+    }
 }

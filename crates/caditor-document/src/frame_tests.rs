@@ -183,11 +183,11 @@ fn an_x_axis_square_to_the_plane_is_refused_in_words() {
         panic!("a degenerate coordinate system must fail");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The Z axis stands square to the XY plane, so it gives no direction in that plane for \
          the X axis."
     );
-    assert!(error.remedy.contains("runs along the plane"));
+    assert!(error.remedy().contains("runs along the plane"));
 }
 
 #[test]

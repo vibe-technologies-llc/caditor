@@ -12,16 +12,21 @@ use crate::{
     datum::{AxisReference, Resolver, capitalized, describe_axis, feature_name},
     describe::{describe_origin, describe_surface},
     document::{Feature, FeatureId},
+    failure::{Cause, Chosen, Unmatched, Upstream},
     origins,
     pieces::{Resolution, Unresolved, pieces_of_one_face, tally},
-    recompute::{CancelToken, Failure, FeatureResult, Inputs, MissingInput, SketchResult},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+        SketchResult,
+    },
     solid::{SolidResult, profile_curves},
     split::{
         HalfSpaceError, MixedCurves, SplitAlong, Sweep, SweptError, half_space_solid,
         is_open_chain, mixed_curves,
     },
-    surface_tool::{SurfaceToolError, surface_tool},
-    tolerance, trouble,
+    surface_tool::{SurfaceCause, SurfaceToolError, surface_tool},
+    tolerance,
+    trouble::{self, Adjust, Trouble},
 };
 
 const SAME_HALF_ANGLE: f64 = 1e-9;
@@ -158,8 +163,12 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: &str) -> Failure {
-        self.resolver.own_error(reason, remedy)
+    fn error(&self, cause: SplitFaceCause) -> Failure {
+        self.error_at(cause, self.resolver.feature.id())
+    }
+
+    fn error_at(&self, cause: SplitFaceCause, fix: FeatureId) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(fix)))
     }
 
     fn no_faces(&self) -> Failure {
@@ -167,43 +176,27 @@ impl Context<'_> {
     }
 
     fn misses(&self) -> Failure {
-        self.error(
-            format!("{} does not cross any of the chosen faces.", self.tool),
-            "Choose faces it crosses, or move it so it runs across them.",
-        )
+        self.error(SplitFaceCause::Misses {
+            tool: self.tool.clone(),
+        })
     }
 
     fn unbuildable(&self, error: &dyn std::fmt::Display) -> Failure {
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
-        self.error(
-            format!(
-                "The faces of {} could not be divided along {}.",
-                self.body_name, self.tool
-            ),
-            "Move it slightly, so it does not run exactly along an edge.",
-        )
+        self.error(SplitFaceCause::Unbuilt {
+            body: self.body_name.clone(),
+            tool: self.tool.clone(),
+        })
     }
 
     fn unresolved(&self, unresolved: Unresolved) -> Failure {
-        let body = &self.body_name;
-        let reason = match unresolved {
-            Unresolved::Missing(1) => {
-                format!("A face to split is no longer part of the body of {body}.")
-            }
-            Unresolved::Missing(missing) => {
-                format!("{missing} faces to split are no longer part of the body of {body}.")
-            }
-            Unresolved::Unrelated(1) => {
-                format!("A face to split now matches several separate faces of the body of {body}.")
-            }
-            Unresolved::Unrelated(unrelated) => format!(
-                "{unrelated} faces to split now match several separate faces of the body of \
-                 {body}."
-            ),
-        };
-        self.error(
-            reason,
-            "Choose the faces again, or undo the change that removed them.",
+        Failure::from(
+            FeatureError::new(Unmatched {
+                chosen: Chosen::FacesToSplit,
+                unresolved,
+                body: self.body_name.clone(),
+            })
+            .fixing(FixTarget::Feature(self.resolver.feature.id())),
         )
     }
 
@@ -214,16 +207,16 @@ impl Context<'_> {
             FaceSplitError::Undivided => self.misses(),
             FaceSplitError::Boolean(error) => {
                 let document = self.resolver.inputs.document;
-                let trouble = trouble::boolean_trouble(document, [solid, tool], &error, "Move it");
+                let trouble =
+                    trouble::boolean_trouble(document, [solid, tool], &error, Adjust::MoveIt);
                 log::warn!("{} could not be built: {error}", self.resolver.feature.name);
-                self.error(
-                    trouble.reason(format!(
-                        "The faces of {} could not be divided along {}.",
-                        self.body_name, self.tool
-                    )),
-                    &trouble.remedy,
-                )
-                .placed(trouble.place)
+                let place = trouble.place;
+                self.error(SplitFaceCause::Uncombined {
+                    body: self.body_name.clone(),
+                    tool: self.tool.clone(),
+                    trouble,
+                })
+                .placed(place)
             }
         }
     }
@@ -232,42 +225,23 @@ impl Context<'_> {
         if matches!(error, SurfaceToolError::Misses) {
             return self.misses();
         }
-        match error.words(self.resolver.inputs.document, face) {
-            Some(words) => self.error(words.reason, &words.remedy),
+        match error.cause(self.resolver.inputs.document, face) {
+            Some(cause) => self.error(SplitFaceCause::Surface(cause)),
             None => self.unbuildable(&error),
         }
     }
 
     fn swept_failure(&self, sketch: FeatureId, error: SweptError) -> Failure {
         let name = feature_name(self.resolver.inputs.document, sketch);
-        let (reason, remedy) = match error {
-            SweptError::NoCurves => (
-                format!("{name} has no curve to split along."),
-                format!("Draw a curve across the faces in {name}."),
-            ),
-            SweptError::NotOneChain | SweptError::Profile(_) => (
-                format!(
-                    "The curves of {name} form neither one open chain nor closed outlines, so \
-                     they do not divide the faces into sides."
-                ),
-                format!(
-                    "Leave one open chain of curves in {name}, or close its outlines, making \
-                     other curves construction geometry."
-                ),
-            ),
-            SweptError::CrossesItself => (
-                format!(
-                    "The curve of {name}, carried on straight past its ends, crosses itself, so \
-                     it does not divide the faces into two sides."
-                ),
-                format!(
-                    "Lengthen the curve of {name} so it runs past the faces, or draw it without \
-                     crossing itself."
-                ),
-            ),
+        let cause = match error {
+            SweptError::NoCurves => SplitFaceCause::SweptEmpty { name },
+            SweptError::NotOneChain | SweptError::Profile(_) => {
+                SplitFaceCause::SweptUnclosed { name }
+            }
+            SweptError::CrossesItself => SplitFaceCause::SweptCrossing { name },
             other => return self.unbuildable(&other),
         };
-        self.resolver.error(reason, remedy, sketch)
+        self.error_at(cause, sketch)
     }
 }
 
@@ -289,7 +263,6 @@ enum Tool<'a> {
 }
 
 fn sketch_result<'a>(
-    context: &Context<'_>,
     inputs: &'a Inputs<'_>,
     sketch: FeatureId,
 ) -> Result<&'a SketchResult, Failure> {
@@ -299,10 +272,8 @@ fn sketch_result<'a>(
         .and_then(|result| result.sketch())
         .ok_or_else(|| {
             let name = feature_name(inputs.document, sketch);
-            context.resolver.error(
-                format!("It uses {name}, which has an error."),
-                format!("Fix {name} first."),
-                sketch,
+            Failure::from(
+                FeatureError::new(Upstream::Failed { name }).fixing(FixTarget::Feature(sketch)),
             )
         })
 }
@@ -321,15 +292,10 @@ fn carried_direction(
     let direction = axis.direction().normalize();
     if tolerance::perpendicular(direction, normal) {
         let document = context.resolver.inputs.document;
-        return Err(context.error(
-            format!(
-                "{} runs along the plane of {}, so its curves cannot be carried along it.",
-                capitalized(&describe_axis(document, reference)),
-                feature_name(document, sketch)
-            ),
-            "Choose an edge, axis or line that leaves the sketch plane, or carry the curves \
-             square to the sketch.",
-        ));
+        return Err(context.error(SplitFaceCause::AxisAlong {
+            axis: capitalized(&describe_axis(document, reference)),
+            sketch: feature_name(document, sketch),
+        }));
     }
     Ok(Some(if direction.dot(normal) < 0.0 {
         -direction
@@ -344,7 +310,7 @@ fn sketch_tool<'a>(
     solid: &Solid,
     sketch: FeatureId,
 ) -> Result<Tool<'a>, Failure> {
-    let result = sketch_result(context, context.resolver.inputs, sketch)?;
+    let result = sketch_result(context.resolver.inputs, sketch)?;
     let geometry = &result.geometry;
     let plane = geometry.plane();
     let sweep = Sweep {
@@ -400,10 +366,10 @@ impl Unrolled {
         }
     }
 
-    fn noun(self) -> &'static str {
+    fn round(self) -> Round {
         match self {
-            Self::Cylinder(_) => "cylinder",
-            Self::Cone(_) => "cone",
+            Self::Cylinder(_) => Round::Cylinder,
+            Self::Cone(_) => Round::Cone,
         }
     }
 
@@ -438,38 +404,20 @@ fn wrapping_surface(
     for face in faces.iter().filter_map(|face| solid.face(*face)) {
         let named = || capitalized(&describe_origin(document, face.origin()));
         let Some(found) = Unrolled::of(face.surface()) else {
-            let reason = if matches!(face.surface(), Surface::Sphere(_)) {
-                format!(
-                    "{} is spherical, and a sphere cannot be unrolled flat, so the curves of \
-                     {sketch} cannot be wrapped onto it.",
-                    named()
-                )
-            } else {
-                format!(
-                    "{} is neither cylindrical nor conical, so the curves of {sketch} cannot be \
-                     wrapped onto it.",
-                    named()
-                )
-            };
-            return Err(context.error(
-                reason,
-                "Choose faces of one cylinder or cone only, or carry the curves square to the \
-                 sketch.",
-            ));
+            return Err(context.error(SplitFaceCause::NotUnrollable {
+                face: named(),
+                sketch: sketch.to_owned(),
+                spherical: matches!(face.surface(), Surface::Sphere(_)),
+            }));
         };
         match unrolled {
             None => unrolled = Some(found),
             Some(first) if first.same(found) => {}
             Some(_) => {
-                return Err(context.error(
-                    format!(
-                        "The chosen faces of {} do not lie on one cylinder or cone, so the curves \
-                         of {sketch} cannot be wrapped onto them all.",
-                        context.body_name
-                    ),
-                    "Choose faces of one cylinder or cone only, or split the others in another \
-                     feature.",
-                ));
+                return Err(context.error(SplitFaceCause::MixedSurfaces {
+                    body: context.body_name.clone(),
+                    sketch: sketch.to_owned(),
+                }));
             }
         }
     }
@@ -501,82 +449,39 @@ fn wrap_failure(
     error: WrapError,
 ) -> Failure {
     let name = feature_name(context.resolver.inputs.document, sketch);
-    let surface = unrolled.noun();
-    let (reason, remedy) = match error {
+    let round = unrolled.round();
+    let cause = match error {
         WrapError::Cancelled(_) => return Failure::Cancelled,
         WrapError::Misses => return context.misses(),
         WrapError::NotOneChain => return context.swept_failure(sketch, SweptError::NotOneChain),
         WrapError::BeyondFullTurn { turns } => match unrolled {
             Unrolled::Cylinder(cylinder) => {
                 let circumference = TAU * cylinder.radius();
-                (
-                    format!(
-                        "The outlines of {name} reach {} mm round the cylinder, which is only {} \
-                         mm round, so wrapped they would overlap.",
-                        format_number(turns * circumference),
-                        format_number(circumference)
-                    ),
-                    format!(
-                        "Keep the outlines of {name} within {} mm across the cylinder's axis.",
-                        format_number(circumference)
-                    ),
-                )
+                SplitFaceCause::BeyondCylinder {
+                    name,
+                    reach: turns * circumference,
+                    circumference,
+                }
             }
-            Unrolled::Cone(_) => (
-                format!(
-                    "The outlines of {name} reach {} degrees round the cone, more than once \
-                     round, so wrapped they would overlap.",
-                    format_number(turns * 360.0)
-                ),
-                format!("Keep the outlines of {name} within once round the cone."),
-            ),
+            Unrolled::Cone(_) => SplitFaceCause::BeyondCone {
+                name,
+                degrees: turns * 360.0,
+            },
         },
-        WrapError::PastApex => (
-            format!(
-                "The curves of {name} reach past the tip of the cone, where it cannot be unrolled."
-            ),
-            format!("Keep the curves of {name} on the side of the cone, short of its tip."),
-        ),
-        WrapError::EndRunsRound => (
-            format!(
-                "An end of the curve of {name} runs straight round the {surface}, so carried on \
-                 it never leaves the faces."
-            ),
-            format!(
-                "Draw the curve of {name} so its ends head along the axis, or reach past the \
-                 edges of the faces."
-            ),
-        ),
-        WrapError::CrossesItself => (
-            format!(
-                "The curve of {name}, wrapped round the {surface}, crosses itself, so it does not \
-                 divide the faces into two sides."
-            ),
-            format!("Draw the curve of {name} so it does not run round onto itself."),
-        ),
-        WrapError::ClosesRound => (
-            format!(
-                "The curve of {name} runs right round the {surface} and back to the same edge of \
-                 the faces, so it cannot be wrapped as a cut yet."
-            ),
-            format!(
-                "Keep the curve of {name} within once round, or let it end on the other edge of \
-                 the faces."
-            ),
-        ),
+        WrapError::PastApex => SplitFaceCause::PastApex { name },
+        WrapError::EndRunsRound => SplitFaceCause::EndRunsRound { name, round },
+        WrapError::CrossesItself => SplitFaceCause::WrappedCrossing { name, round },
+        WrapError::ClosesRound => SplitFaceCause::ClosesRound { name, round },
         WrapError::NoSeamPlace => {
-            return context.error(
-                format!(
-                    "The chosen faces of {} meet round the {surface} without a common line along \
-                     its axis, so the curve of {name} cannot be wrapped across them all.",
-                    context.body_name
-                ),
-                "Choose fewer faces, or split the others in another feature.",
-            );
+            return context.error(SplitFaceCause::NoSeam {
+                body: context.body_name.clone(),
+                name,
+                round,
+            });
         }
         other => return context.unbuildable(&other),
     };
-    context.resolver.error(reason, remedy, sketch)
+    context.error_at(cause, sketch)
 }
 
 fn wrapped_tool<'a>(
@@ -586,23 +491,16 @@ fn wrapped_tool<'a>(
     sketch: FeatureId,
 ) -> Result<Tool<'a>, Failure> {
     let inputs = context.resolver.inputs;
-    let result = sketch_result(context, inputs, sketch)?;
+    let result = sketch_result(inputs, sketch)?;
     let geometry = &result.geometry;
     let plane = geometry.plane();
     let name = feature_name(inputs.document, sketch);
     let unrolled = wrapping_surface(context, solid, faces, &name)?;
     if !tolerance::perpendicular(plane.normal(), unrolled.axis()) {
-        return Err(context.error(
-            format!(
-                "{name} does not lie on a plane along the axis of the chosen faces, so its \
-                 curves cannot be wrapped round them."
-            ),
-            &format!(
-                "Place the sketch on a plane parallel to the {}'s axis, such as one touching it, \
-                 or carry the curves square to the sketch.",
-                unrolled.noun()
-            ),
-        ));
+        return Err(context.error(SplitFaceCause::NotAlongAxis {
+            name,
+            round: unrolled.round(),
+        }));
     }
     let curves = profile_curves(geometry);
     if curves.is_empty() {
@@ -656,13 +554,11 @@ fn tool<'a>(
                     other => context.unbuildable(&other),
                 })
         }
-        SplitAlong::Body(tool) if *tool == definition.body => Err(context.error(
-            format!(
-                "The faces of {} cannot be split along its own body.",
-                context.body_name
-            ),
-            "Choose another body to split them along.",
-        )),
+        SplitAlong::Body(tool) if *tool == definition.body => {
+            Err(context.error(SplitFaceCause::OwnBody {
+                body: context.body_name.clone(),
+            }))
+        }
         SplitAlong::Body(tool) => context.resolver.body(*tool).map(Tool::Body),
         SplitAlong::Sketch(sketch) if definition.is_wrapped() => {
             wrapped_tool(context, solid, faces, *sketch)
@@ -769,4 +665,269 @@ pub(crate) fn evaluate(
         definition.body,
         split,
     )))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Round {
+    Cylinder,
+    Cone,
+}
+
+impl Round {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Cylinder => "cylinder",
+            Self::Cone => "cone",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SplitFaceCause {
+    Misses {
+        tool: String,
+    },
+    Unbuilt {
+        body: String,
+        tool: String,
+    },
+    Uncombined {
+        body: String,
+        tool: String,
+        trouble: Trouble,
+    },
+    Surface(SurfaceCause),
+    SweptEmpty {
+        name: String,
+    },
+    SweptUnclosed {
+        name: String,
+    },
+    SweptCrossing {
+        name: String,
+    },
+    AxisAlong {
+        axis: String,
+        sketch: String,
+    },
+    NotUnrollable {
+        face: String,
+        sketch: String,
+        spherical: bool,
+    },
+    MixedSurfaces {
+        body: String,
+        sketch: String,
+    },
+    NotAlongAxis {
+        name: String,
+        round: Round,
+    },
+    BeyondCylinder {
+        name: String,
+        reach: f64,
+        circumference: f64,
+    },
+    BeyondCone {
+        name: String,
+        degrees: f64,
+    },
+    PastApex {
+        name: String,
+    },
+    EndRunsRound {
+        name: String,
+        round: Round,
+    },
+    WrappedCrossing {
+        name: String,
+        round: Round,
+    },
+    ClosesRound {
+        name: String,
+        round: Round,
+    },
+    NoSeam {
+        body: String,
+        name: String,
+        round: Round,
+    },
+    OwnBody {
+        body: String,
+    },
+}
+
+impl SplitFaceCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::Misses { tool } => format!("{tool} does not cross any of the chosen faces."),
+            Self::Unbuilt { body, tool } => Self::not_divided(body, tool),
+            Self::Uncombined {
+                body,
+                tool,
+                trouble,
+            } => trouble.reason(Self::not_divided(body, tool)),
+            Self::Surface(cause) => cause.reason(),
+            Self::SweptEmpty { name } => format!("{name} has no curve to split along."),
+            Self::SweptUnclosed { name } => format!(
+                "The curves of {name} form neither one open chain nor closed outlines, so they \
+                 do not divide the faces into sides."
+            ),
+            Self::SweptCrossing { name } => format!(
+                "The curve of {name}, carried on straight past its ends, crosses itself, so it \
+                 does not divide the faces into two sides."
+            ),
+            Self::AxisAlong { axis, sketch } => format!(
+                "{axis} runs along the plane of {sketch}, so its curves cannot be carried along \
+                 it."
+            ),
+            Self::NotUnrollable {
+                face,
+                sketch,
+                spherical: true,
+            } => format!(
+                "{face} is spherical, and a sphere cannot be unrolled flat, so the curves of \
+                 {sketch} cannot be wrapped onto it."
+            ),
+            Self::NotUnrollable {
+                face,
+                sketch,
+                spherical: false,
+            } => format!(
+                "{face} is neither cylindrical nor conical, so the curves of {sketch} cannot be \
+                 wrapped onto it."
+            ),
+            Self::MixedSurfaces { body, sketch } => format!(
+                "The chosen faces of {body} do not lie on one cylinder or cone, so the curves of \
+                 {sketch} cannot be wrapped onto them all."
+            ),
+            Self::NotAlongAxis { name, .. } => format!(
+                "{name} does not lie on a plane along the axis of the chosen faces, so its \
+                 curves cannot be wrapped round them."
+            ),
+            Self::BeyondCylinder {
+                name,
+                reach,
+                circumference,
+            } => format!(
+                "The outlines of {name} reach {} mm round the cylinder, which is only {} mm \
+                 round, so wrapped they would overlap.",
+                format_number(*reach),
+                format_number(*circumference)
+            ),
+            Self::BeyondCone { name, degrees } => format!(
+                "The outlines of {name} reach {} degrees round the cone, more than once round, \
+                 so wrapped they would overlap.",
+                format_number(*degrees)
+            ),
+            Self::PastApex { name } => format!(
+                "The curves of {name} reach past the tip of the cone, where it cannot be \
+                 unrolled."
+            ),
+            Self::EndRunsRound { name, round } => format!(
+                "An end of the curve of {name} runs straight round the {}, so carried on it \
+                 never leaves the faces.",
+                round.noun()
+            ),
+            Self::WrappedCrossing { name, round } => format!(
+                "The curve of {name}, wrapped round the {}, crosses itself, so it does not \
+                 divide the faces into two sides.",
+                round.noun()
+            ),
+            Self::ClosesRound { name, round } => format!(
+                "The curve of {name} runs right round the {} and back to the same edge of the \
+                 faces, so it cannot be wrapped as a cut yet.",
+                round.noun()
+            ),
+            Self::NoSeam { body, name, round } => format!(
+                "The chosen faces of {body} meet round the {} without a common line along its \
+                 axis, so the curve of {name} cannot be wrapped across them all.",
+                round.noun()
+            ),
+            Self::OwnBody { body } => {
+                format!("The faces of {body} cannot be split along its own body.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::Misses { .. } => {
+                "Choose faces it crosses, or move it so it runs across them.".to_owned()
+            }
+            Self::Unbuilt { .. } => {
+                "Move it slightly, so it does not run exactly along an edge.".to_owned()
+            }
+            Self::Uncombined { trouble, .. } => trouble.remedy(),
+            Self::Surface(cause) => cause.remedy(),
+            Self::SweptEmpty { name } => format!("Draw a curve across the faces in {name}."),
+            Self::SweptUnclosed { name } => format!(
+                "Leave one open chain of curves in {name}, or close its outlines, making other \
+                 curves construction geometry."
+            ),
+            Self::SweptCrossing { name } => format!(
+                "Lengthen the curve of {name} so it runs past the faces, or draw it without \
+                 crossing itself."
+            ),
+            Self::AxisAlong { .. } => {
+                "Choose an edge, axis or line that leaves the sketch plane, or carry the curves \
+                 square to the sketch."
+                    .to_owned()
+            }
+            Self::NotUnrollable { .. } => {
+                "Choose faces of one cylinder or cone only, or carry the curves square to the \
+                 sketch."
+                    .to_owned()
+            }
+            Self::MixedSurfaces { .. } => {
+                "Choose faces of one cylinder or cone only, or split the others in another \
+                 feature."
+                    .to_owned()
+            }
+            Self::NotAlongAxis { round, .. } => format!(
+                "Place the sketch on a plane parallel to the {}'s axis, such as one touching it, \
+                 or carry the curves square to the sketch.",
+                round.noun()
+            ),
+            Self::BeyondCylinder {
+                name,
+                circumference,
+                ..
+            } => format!(
+                "Keep the outlines of {name} within {} mm across the cylinder's axis.",
+                format_number(*circumference)
+            ),
+            Self::BeyondCone { name, .. } => {
+                format!("Keep the outlines of {name} within once round the cone.")
+            }
+            Self::PastApex { name } => {
+                format!("Keep the curves of {name} on the side of the cone, short of its tip.")
+            }
+            Self::EndRunsRound { name, .. } => format!(
+                "Draw the curve of {name} so its ends head along the axis, or reach past the \
+                 edges of the faces."
+            ),
+            Self::WrappedCrossing { name, .. } => {
+                format!("Draw the curve of {name} so it does not run round onto itself.")
+            }
+            Self::ClosesRound { name, .. } => format!(
+                "Keep the curve of {name} within once round, or let it end on the other edge of \
+                 the faces."
+            ),
+            Self::NoSeam { .. } => {
+                "Choose fewer faces, or split the others in another feature.".to_owned()
+            }
+            Self::OwnBody { .. } => "Choose another body to split them along.".to_owned(),
+        }
+    }
+
+    fn not_divided(body: &str, tool: &str) -> String {
+        format!("The faces of {body} could not be divided along {tool}.")
+    }
+}
+
+impl From<SplitFaceCause> for Cause {
+    fn from(cause: SplitFaceCause) -> Self {
+        Self::SplitFace(cause)
+    }
 }

@@ -158,7 +158,11 @@ fn a_combine_that_fails_leaves_both_bodies_as_they_were() {
     let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
         panic!("the combine should fail");
     };
-    assert!(error.reason.contains("do not overlap"), "{}", error.reason);
+    assert!(
+        error.reason().contains("do not overlap"),
+        "{}",
+        error.reason()
+    );
     assert_eq!(evaluation.failed_count(), 1);
     let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
     assert_eq!(bodies, vec![pair.plate, pair.peg, far]);
@@ -180,7 +184,7 @@ fn a_body_cannot_be_combined_with_itself() {
     let FeatureState::Failed(error) = &evaluation.feature(combined).unwrap().state else {
         panic!("the combine should fail");
     };
-    assert_eq!(error.reason, "A body cannot be combined with itself.");
+    assert_eq!(error.reason(), "A body cannot be combined with itself.");
 }
 
 #[test]
@@ -325,18 +329,22 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     };
     let place = error.place.unwrap();
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The bodies of Plate and Peg could not be combined. The faces of the result would not \
          close up at Plate side from Circle 13, Plate start face and Peg start face."
     );
     assert!(
         error
-            .remedy
+            .remedy()
             .contains("line up exactly or stay clearly apart"),
         "{}",
-        error.remedy
+        error.remedy()
     );
-    assert!(!error.remedy.contains("exactly touch"), "{}", error.remedy);
+    assert!(
+        !error.remedy().contains("exactly touch"),
+        "{}",
+        error.remedy()
+    );
     let from_axis = (place.x - 10.0).hypot(place.y - 5.0);
     assert!((from_axis - 2.5).abs() < 1e-4, "{place:?}");
     assert!(place.z.abs() < 1e-6, "{place:?}");
@@ -416,11 +424,11 @@ fn a_feature_using_a_consumed_body_blames_the_combine_that_took_it() {
         panic!("the boss should fail");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "Combine 1 combined the body made by Peg into the body of Plate, so it no longer stands on its own."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Use the body of Plate instead, or move this feature above Combine 1."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(combined)));
@@ -547,11 +555,15 @@ fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
     let FeatureState::Failed(error) = &evaluation.feature(twice).unwrap().state else {
         panic!("the combine should fail");
     };
-    assert!(error.reason.contains("more than once"), "{}", error.reason);
+    assert!(
+        error.reason().contains("more than once"),
+        "{}",
+        error.reason()
+    );
     let FeatureState::Failed(error) = &evaluation.feature(itself).unwrap().state else {
         panic!("the combine should fail");
     };
-    assert_eq!(error.reason, "A body cannot be combined with itself.");
+    assert_eq!(error.reason(), "A body cannot be combined with itself.");
 }
 
 #[test]

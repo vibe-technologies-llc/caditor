@@ -9,6 +9,7 @@ use crate::{
         AxisReference, CurveStation, DatumFrame, FaceTangent, PlaneReference, PointBy, Resolver,
         capitalized, describe_axis, describe_plane, face_axis, feature_name,
     },
+    datum_cause::{DatumCause, Pair, Run, Unplaced},
     describe::describe_origin,
     document::FeatureId,
     edge_run::EdgeRun,
@@ -29,29 +30,14 @@ fn resolved_run<'a>(
     let name = feature_name(document, body);
     SplitEdges::new(document, solid)
         .run(reference)
-        .map_err(|unrun| match unrun {
-            Unrun::Missing => resolver.own_error(
-                format!("The edge it follows is no longer part of {name}."),
-                "Choose another edge for it.",
-            ),
-            Unrun::Tied => resolver.own_error(
-                format!("The edge of {name} it follows is now several edges."),
-                "Choose the edge again.",
-            ),
-            Unrun::Gapped => resolver.own_error(
-                format!(
-                    "The edge of {name} it follows is now several pieces with gaps between them, \
-                     so there is no one edge to follow."
-                ),
-                "Choose the piece it should follow, or undo the edit that split the edge.",
-            ),
-            Unrun::PartlyTraced => resolver.own_error(
-                format!(
-                    "The edge of {name} it follows was split into pieces by a sketch edit, and \
-                     only some of the pieces can still be traced back to it."
-                ),
-                "Choose the edge again, or undo the sketch edit that split it.",
-            ),
+        .map_err(|unrun| {
+            let run = match unrun {
+                Unrun::Missing => Run::Missing,
+                Unrun::Tied => Run::Tied,
+                Unrun::Gapped => Run::Gapped,
+                Unrun::PartlyTraced => Run::PartlyTraced,
+            };
+            resolver.error(DatumCause::RunMissing { run, name })
         })
 }
 
@@ -65,13 +51,11 @@ fn station_point(
     let length = run.length();
 
     if distance.abs() > length + LINEAR_RESOLUTION {
-        return Err(resolver.own_error(
-            format!(
-                "The edge of {name} it follows is only {length:.3} mm long, so a distance of \
-                 {distance:.3} mm along it lies past its end."
-            ),
-            "Shorten the distance, or choose a longer edge.",
-        ));
+        return Err(resolver.error(DatumCause::PastEnd {
+            name,
+            length,
+            distance,
+        }));
     }
 
     let along = if distance >= 0.0 {
@@ -82,10 +66,7 @@ fn station_point(
     let (point, tangent) = run.at(along.max(0.0));
 
     if !point.is_finite() || tangent.length() <= f64::EPSILON {
-        return Err(resolver.own_error(
-            format!("The edge of {name} it follows has no direction at that distance."),
-            "Change the distance.",
-        ));
+        return Err(resolver.error(DatumCause::NoDirection { name }));
     }
     Ok((point, tangent))
 }
@@ -95,12 +76,8 @@ pub(crate) fn square_to_curve(
     station: &CurveStation,
 ) -> Result<Plane, Failure> {
     let (point, tangent) = station_point(resolver, station)?;
-    Plane::new(point, tangent).ok_or_else(|| {
-        resolver.own_error(
-            "The plane could not be placed square to the edge.".to_owned(),
-            "Change the distance or choose another edge.",
-        )
-    })
+    Plane::new(point, tangent)
+        .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneSquareToEdge)))
 }
 
 pub(crate) fn tangent_plane(
@@ -114,58 +91,42 @@ pub(crate) fn tangent_plane(
         Ok(found) => vec![found],
         Err(ReferenceError::Ambiguous(pieces)) => pieces,
         Err(ReferenceError::Missing) => {
-            return Err(resolver.own_error(
-                format!(
-                    "{described} is no longer part of {}.",
-                    feature_name(document, tangent.body)
-                ),
-                "Choose another face for it.",
-            ));
+            return Err(resolver.error(DatumCause::FaceGone {
+                described,
+                body: feature_name(document, tangent.body),
+            }));
         }
     };
     let Some(face) = pieces.first().copied() else {
-        return Err(resolver.own_error(
-            format!("{described} is no longer part of the body."),
-            "Choose another face for it.",
-        ));
+        return Err(resolver.error(DatumCause::FaceMissing { described }));
     };
     let surface = solid.face(face).map(|face| face.surface());
     let (Some(surface @ (Surface::Cylinder(_) | Surface::Cone(_))), Some(axis)) =
         (surface, face_axis(solid, face))
     else {
-        return Err(resolver.own_error(
-            format!("{described} is no longer a cylindrical or conical face."),
-            "Choose a cylindrical or conical face.",
-        ));
+        return Err(resolver.error(DatumCause::NotCurved { described }));
     };
     let toward = resolver.point(&tangent.toward)?;
     let offset = toward - axis.origin();
     let radial = offset - axis.direction() * offset.dot(axis.direction());
     if radial.length() <= LINEAR_RESOLUTION {
-        return Err(resolver.own_error(
-            format!(
-                "The point that picks the side of {described} lies on its axis, so every side \
-                 is equally near."
-            ),
-            "Choose a point off the axis of the face.",
-        ));
+        return Err(resolver.error(DatumCause::OnAxis { described }));
     }
     let foot = surface.project(toward, None);
     let touching = surface.point(foot.x, foot.y);
     let mut normal = surface.normal(foot.x, foot.y).ok_or_else(|| {
-        resolver.own_error(
-            format!("{described} has no surface direction at the chosen side."),
-            "Choose a point farther from the tip of the cone.",
-        )
+        resolver.error(DatumCause::NoSurfaceDirection {
+            described: described.clone(),
+        })
     })?;
     if normal.dot(radial) < 0.0 {
         normal = -normal;
     }
     Plane::with_x_axis(touching, normal, axis.direction()).ok_or_else(|| {
-        resolver.own_error(
-            format!("The plane could not be placed against {described}."),
-            "Choose another point to pick the side.",
-        )
+        resolver.error(DatumCause::PlaneAgainst {
+            described,
+            picked: true,
+        })
     })
 }
 
@@ -192,14 +153,10 @@ fn resolved_faces(
         Err(ReferenceError::Missing) => Vec::new(),
     };
     if pieces.is_empty() {
-        return Err(resolver.own_error(
-            format!(
-                "{} is no longer part of {}.",
-                capitalized(&described),
-                feature_name(document, body)
-            ),
-            "Choose another face for it.",
-        ));
+        return Err(resolver.error(DatumCause::FaceGone {
+            described: capitalized(&described),
+            body: feature_name(document, body),
+        }));
     }
     Ok(pieces)
 }
@@ -213,10 +170,9 @@ fn face_centre(
     let faces = resolved_faces(resolver, body, reference)?;
     let described = describe_origin(resolver.inputs.document, reference.origin());
     let unfound = || {
-        resolver.own_error(
-            format!("The centre of {described} could not be found."),
-            "Choose another face, or place the point at a corner or along an edge.",
-        )
+        resolver.error(DatumCause::CentreNotFound {
+            described: described.clone(),
+        })
     };
     let mesh = solid
         .tessellate(&solid.tolerance_for(&MeshQuality::SMOOTH))
@@ -264,30 +220,22 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
     let faces = resolved_faces(resolver, tangent.body, &tangent.face)?;
     let described = describe_origin(resolver.inputs.document, tangent.face.origin());
     let Some(face) = faces.first().and_then(|face| solid.face(*face)) else {
-        return Err(resolver.own_error(
-            format!("{} is no longer part of the body.", capitalized(&described)),
-            "Choose another face for it.",
-        ));
+        return Err(resolver.error(DatumCause::FaceMissing {
+            described: capitalized(&described),
+        }));
     };
     let surface = face.surface();
     if matches!(surface, Surface::Plane(_)) {
-        return Err(resolver.own_error(
-            format!(
-                "{} is flat, so it has no single point to touch.",
-                capitalized(&described)
-            ),
-            "Choose a curved face, or base a plane on this face instead.",
-        ));
+        return Err(resolver.error(DatumCause::FlatFace {
+            described: capitalized(&described),
+        }));
     }
     let toward = resolver.point(&tangent.toward)?;
-    let even = |what: &str| {
-        resolver.own_error(
-            format!(
-                "The chosen point lies {what} of {described}, so every side of it is equally \
-                 near."
-            ),
-            "Choose a point off the middle of the face.",
-        )
+    let even = |what: &'static str| {
+        resolver.error(DatumCause::EvenSides {
+            what,
+            described: described.clone(),
+        })
     };
     let axis_gap = |origin: Point3, direction: Vector3| {
         let offset = toward - origin;
@@ -312,13 +260,9 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
         .normal(foot.x, foot.y)
         .filter(|normal| normal.is_finite() && normal.length() > f64::EPSILON)
         .ok_or_else(|| {
-            resolver.own_error(
-                format!(
-                    "{} has no surface direction nearest the chosen point.",
-                    capitalized(&described)
-                ),
-                "Choose a point nearer another part of the face.",
-            )
+            resolver.error(DatumCause::NoNormalNearest {
+                described: capitalized(&described),
+            })
         })?
         .normalize();
     let away = toward - point;
@@ -329,10 +273,7 @@ fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Fai
         -outward
     };
     if !point.is_finite() {
-        return Err(resolver.own_error(
-            format!("The point of {described} nearest the chosen point could not be found."),
-            "Choose another point.",
-        ));
+        return Err(resolver.error(DatumCause::NearestNotFound { described }));
     }
     Ok(Foot {
         point,
@@ -347,10 +288,10 @@ pub(crate) fn tangent_plane_at(
 ) -> Result<Plane, Failure> {
     let foot = face_foot(resolver, tangent)?;
     Plane::new(foot.point, foot.normal).ok_or_else(|| {
-        resolver.own_error(
-            format!("The plane could not be placed against {}.", foot.described),
-            "Choose another point.",
-        )
+        resolver.error(DatumCause::PlaneAgainst {
+            described: foot.described,
+            picked: false,
+        })
     })
 }
 
@@ -360,10 +301,9 @@ pub(crate) fn square_to_face(
 ) -> Result<Ray, Failure> {
     let foot = face_foot(resolver, tangent)?;
     Ray::new(foot.point, foot.normal).ok_or_else(|| {
-        resolver.own_error(
-            format!("The axis could not be placed square to {}.", foot.described),
-            "Choose another point.",
-        )
+        resolver.error(DatumCause::AxisAgainst {
+            described: foot.described,
+        })
     })
 }
 
@@ -377,13 +317,12 @@ pub(crate) fn plane_through_lines(
     let first_name = capitalized(&describe_axis(document, first));
     let second_name = describe_axis(document, second);
     if tolerance::same_line(one, other) {
-        return Err(resolver.own_error(
-            format!(
-                "{first_name} and {second_name} are the same line, so no single plane is fixed \
-                 by them."
-            ),
-            "Choose two lines that are not the same.",
-        ));
+        return Err(resolver.error(DatumCause::SameLine {
+            pair: Pair {
+                first: first_name,
+                second: second_name,
+            },
+        }));
     }
     let apart = other.origin() - one.origin();
     let normal = if tolerance::parallel(one.direction(), other.direction()) {
@@ -391,22 +330,17 @@ pub(crate) fn plane_through_lines(
     } else {
         let across = one.direction().cross(other.direction());
         if apart.dot(across.normalize_or_zero()).abs() > LINEAR_RESOLUTION {
-            return Err(resolver.own_error(
-                format!(
-                    "{first_name} and {second_name} do not lie in one plane, since they neither \
-                     cross nor run parallel."
-                ),
-                "Choose two lines that cross or run parallel.",
-            ));
+            return Err(resolver.error(DatumCause::LinesNotOnePlane {
+                pair: Pair {
+                    first: first_name,
+                    second: second_name,
+                },
+            }));
         }
         across
     };
-    Plane::with_x_axis(one.origin(), normal, one.direction()).ok_or_else(|| {
-        resolver.own_error(
-            "The plane could not be placed through the two lines.".to_owned(),
-            "Choose two other lines.",
-        )
-    })
+    Plane::with_x_axis(one.origin(), normal, one.direction())
+        .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::PlaneThroughLines)))
 }
 
 fn lines_cross(
@@ -419,20 +353,24 @@ fn lines_cross(
     let first_name = capitalized(&describe_axis(document, first));
     let second_name = describe_axis(document, second);
     let parallel = || {
-        resolver.own_error(
-            format!("{first_name} and {second_name} run parallel, so they never cross."),
-            "Choose two lines that cross.",
-        )
+        resolver.error(DatumCause::LinesParallel {
+            pair: Pair {
+                first: first_name.clone(),
+                second: second_name.clone(),
+            },
+        })
     };
     if tolerance::parallel(one.direction(), other.direction()) {
         return Err(parallel());
     }
     let across = one.direction().cross(other.direction()).normalize_or_zero();
     if (other.origin() - one.origin()).dot(across).abs() > LINEAR_RESOLUTION {
-        return Err(resolver.own_error(
-            format!("{first_name} and {second_name} pass each other without meeting."),
-            "Choose two lines that lie in one plane, or move one of them.",
-        ));
+        return Err(resolver.error(DatumCause::LinesApart {
+            pair: Pair {
+                first: first_name,
+                second: second_name,
+            },
+        }));
     }
     one.closest_along_line(other.origin(), other.direction())
         .map(|along| other.at(along))
@@ -450,12 +388,11 @@ fn line_meets_plane(
     let axis_name = capitalized(&describe_axis(document, axis));
     let plane_name = describe_plane(document, plane);
     if tolerance::perpendicular(line.direction(), flat.normal()) {
-        let reason = if tolerance::along_plane(line, &flat) {
-            format!("{axis_name} lies in {plane_name}, so it crosses it everywhere.")
-        } else {
-            format!("{axis_name} runs parallel to {plane_name}, so it never crosses it.")
-        };
-        return Err(resolver.own_error(reason, "Choose a line that cuts across the plane."));
+        return Err(resolver.error(DatumCause::LineAlongPlane {
+            axis: axis_name,
+            plane: plane_name,
+            within: tolerance::along_plane(line, &flat),
+        }));
     }
     let distance = -flat.signed_distance(line.origin()) / line.direction().dot(flat.normal());
     Ok(line.at(distance))
@@ -474,16 +411,11 @@ fn planes_meet(
     let corner = two.normal().cross(three.normal());
     let determinant = one.normal().dot(corner);
     if determinant.abs() <= PLANES_MEET_TOLERANCE {
-        return Err(resolver.own_error(
-            format!(
-                "{}, {} and {} do not meet in a single point, since two of them are parallel or \
-                 all three share a line.",
-                capitalized(&describe_plane(document, &references[0])),
-                describe_plane(document, &references[1]),
-                describe_plane(document, &references[2])
-            ),
-            "Choose three planes or flat faces that cross each other in a corner.",
-        ));
+        return Err(resolver.error(DatumCause::PlanesNoCorner {
+            first: capitalized(&describe_plane(document, &references[0])),
+            second: describe_plane(document, &references[1]),
+            third: describe_plane(document, &references[2]),
+        }));
     }
     let distance = |plane: &Plane| plane.normal().dot(plane.origin());
     Ok((corner * distance(&one)
@@ -504,10 +436,7 @@ pub(crate) fn point_by(resolver: &Resolver<'_>, by: &PointBy) -> Result<Point3, 
     if point.is_finite() {
         Ok(point)
     } else {
-        Err(resolver.own_error(
-            "The point could not be placed.".to_owned(),
-            "Choose other references.",
-        ))
+        Err(resolver.error(DatumCause::Unplaced(Unplaced::Point)))
     }
 }
 
@@ -530,19 +459,11 @@ pub(crate) fn coordinate_system(
         axis.direction()
     };
     if tolerance::parallel(along, normal) {
-        return Err(resolver.own_error(
-            format!(
-                "{} stands square to {}, so it gives no direction in that plane for the X axis.",
-                capitalized(&describe_axis(document, &frame.x_axis)),
-                describe_plane(document, &frame.plane)
-            ),
-            "Choose an axis or straight edge that runs along the plane, or another plane.",
-        ));
+        return Err(resolver.error(DatumCause::XAxisAcross {
+            axis: capitalized(&describe_axis(document, &frame.x_axis)),
+            plane: describe_plane(document, &frame.plane),
+        }));
     }
-    Plane::with_x_axis(origin, normal, along).ok_or_else(|| {
-        resolver.own_error(
-            "The coordinate system could not be placed.".to_owned(),
-            "Choose another point, axis or plane for it.",
-        )
-    })
+    Plane::with_x_axis(origin, normal, along)
+        .ok_or_else(|| resolver.error(DatumCause::Unplaced(Unplaced::CoordinateSystem)))
 }

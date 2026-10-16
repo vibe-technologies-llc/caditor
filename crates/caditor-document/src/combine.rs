@@ -4,9 +4,10 @@ use caditor_kernel::{BooleanError, BooleanOperation, Solid, boolean};
 
 use crate::{
     document::{Document, Feature, FeatureId},
+    failure::Cause,
     recompute::{CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
-    trouble::{self, boolean_trouble},
+    trouble::{self, Adjust, Trouble, boolean_trouble},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,14 +84,8 @@ impl Context<'_> {
         self.inputs.document.body_label(id).unwrap_or_default()
     }
 
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: CombineCause) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 }
 
@@ -104,16 +99,12 @@ pub(crate) fn evaluate(
     let mut seen = BTreeSet::from([definition.body]);
     for tool in definition.tools() {
         if tool == definition.body {
-            return Err(context.error(
-                "A body cannot be combined with itself.".to_owned(),
-                "Choose another body for the tool.".to_owned(),
-            ));
+            return Err(context.error(CombineCause::WithItself));
         }
         if !seen.insert(tool) {
-            return Err(context.error(
-                format!("{} is chosen as a tool more than once.", context.name(tool)),
-                "Choose each tool body once.".to_owned(),
-            ));
+            return Err(context.error(CombineCause::RepeatedTool {
+                tool: context.name(tool),
+            }));
         }
     }
     let target = inputs
@@ -150,26 +141,12 @@ fn failure(
     let tool = context.name(tool_id);
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
-        BooleanError::Empty => {
-            let reason = match definition.operation {
-                CombineOperation::Intersect => {
-                    format!("The bodies of {target} and {tool} do not overlap, so nothing is left.")
-                }
-                CombineOperation::Cut | CombineOperation::Join => {
-                    format!("Cutting {tool} from {target} would leave nothing.")
-                }
-            };
-            context.error(
-                reason,
-                "Move a body so part of the target stays, or choose another operation.".to_owned(),
-            )
-        }
-        BooleanError::NonManifold(_) => context.error(
-            format!(
-                "The result would have parts of {target} and {tool} that meet only along an edge."
-            ),
-            "Move a body so they overlap more or stay clear.".to_owned(),
-        ),
+        BooleanError::Empty => context.error(CombineCause::Nothing {
+            operation: definition.operation,
+            target,
+            tool,
+        }),
+        BooleanError::NonManifold(_) => context.error(CombineCause::Edgewise { target, tool }),
         BooleanError::Intersection { .. }
         | BooleanError::Split(_)
         | BooleanError::Ambiguous(_)
@@ -183,17 +160,83 @@ fn failure(
                 context.inputs.document,
                 operands,
                 error,
-                "Move or resize a body",
+                Adjust::MoveOrResizeABody,
             );
-            context.error(
-                trouble.reason(format!(
-                    "The bodies of {target} and {tool} could not be combined."
-                )),
-                trouble.remedy,
-            )
+            context.error(CombineCause::Uncombined {
+                target,
+                tool,
+                trouble,
+            })
         }
     };
     failure.placed(trouble::place(error))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CombineCause {
+    WithItself,
+    RepeatedTool {
+        tool: String,
+    },
+    Nothing {
+        operation: CombineOperation,
+        target: String,
+        tool: String,
+    },
+    Edgewise {
+        target: String,
+        tool: String,
+    },
+    Uncombined {
+        target: String,
+        tool: String,
+        trouble: Trouble,
+    },
+}
+
+impl CombineCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::WithItself => "A body cannot be combined with itself.".to_owned(),
+            Self::RepeatedTool { tool } => format!("{tool} is chosen as a tool more than once."),
+            Self::Nothing {
+                operation: CombineOperation::Intersect,
+                target,
+                tool,
+            } => format!("The bodies of {target} and {tool} do not overlap, so nothing is left."),
+            Self::Nothing { target, tool, .. } => {
+                format!("Cutting {tool} from {target} would leave nothing.")
+            }
+            Self::Edgewise { target, tool } => format!(
+                "The result would have parts of {target} and {tool} that meet only along an edge."
+            ),
+            Self::Uncombined {
+                target,
+                tool,
+                trouble,
+            } => trouble.reason(format!(
+                "The bodies of {target} and {tool} could not be combined."
+            )),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::WithItself => "Choose another body for the tool.".to_owned(),
+            Self::RepeatedTool { .. } => "Choose each tool body once.".to_owned(),
+            Self::Nothing { .. } => {
+                "Move a body so part of the target stays, or choose another operation.".to_owned()
+            }
+            Self::Edgewise { .. } => "Move a body so they overlap more or stay clear.".to_owned(),
+            Self::Uncombined { trouble, .. } => trouble.remedy(),
+        }
+    }
+}
+
+impl From<CombineCause> for Cause {
+    fn from(cause: CombineCause) -> Self {
+        Self::Combine(cause)
+    }
 }
 
 impl Document {

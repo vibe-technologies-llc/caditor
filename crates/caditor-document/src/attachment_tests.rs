@@ -212,7 +212,7 @@ fn a_lost_face_fails_the_sketch_and_its_users_only() {
         panic!("the sketch should fail");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The face this sketch lies on is no longer part of Base."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(stack.top)));

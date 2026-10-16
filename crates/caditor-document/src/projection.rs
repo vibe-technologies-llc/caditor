@@ -18,6 +18,7 @@ use crate::{
     document::{Feature, FeatureId},
     edge_run::EdgeRun,
     edit::{Edit, TransactionBuilder},
+    failure::Cause,
     origins,
     pieces::{Resolution, pieces_of_one_edge},
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
@@ -1110,66 +1111,12 @@ fn projection_failure(
         | ProjectionSource::DatumPoint { .. }
         | ProjectionSource::Origin => source_name,
     };
-    let verb = match source {
+    let drawn = matches!(
+        source,
         ProjectionSource::Section { .. }
-        | ProjectionSource::DatumPlane { .. }
-        | ProjectionSource::PrincipalPlane { .. } => "drawn from",
-        ProjectionSource::Edge { .. }
-        | ProjectionSource::Vertex { .. }
-        | ProjectionSource::SketchEntity { .. }
-        | ProjectionSource::DatumAxis { .. }
-        | ProjectionSource::PrincipalAxis { .. }
-        | ProjectionSource::DatumPoint { .. }
-        | ProjectionSource::Origin => "projected from",
-    };
-    let redo = match source {
-        ProjectionSource::Section { .. }
-        | ProjectionSource::DatumPlane { .. }
-        | ProjectionSource::PrincipalPlane { .. } => "intersect what you want",
-        ProjectionSource::Edge { .. }
-        | ProjectionSource::Vertex { .. }
-        | ProjectionSource::SketchEntity { .. }
-        | ProjectionSource::DatumAxis { .. }
-        | ProjectionSource::PrincipalAxis { .. }
-        | ProjectionSource::DatumPoint { .. }
-        | ProjectionSource::Origin => "project the geometry you want",
-    };
-    let reason = match error {
-        ProjectionError::SourceUnavailable => {
-            format!("{label} is {verb} {what}, which is not available at this point in the tree.")
-        }
-        ProjectionError::Missing => {
-            format!("{label} is {verb} {what} that no longer exists.")
-        }
-        ProjectionError::Ambiguous => format!(
-            "{label} is {verb} {what} that was split into separate parts, so it is unclear which \
-             one to follow."
-        ),
-        ProjectionError::ChangedShape => format!(
-            "{label} is {verb} {what} whose shape in this sketch changed kind, for example a \
-             line now seen end-on."
-        ),
-        ProjectionError::Unjoined => format!(
-            "{label} is {verb} {what} that a trim, split or break upstream cut into parts which \
-             no longer join end to end into one curve, so no single projected curve follows it."
-        ),
-        ProjectionError::PartlyTraced => format!(
-            "{label} is {verb} {what} that a trim, split or break upstream cut into parts, and \
-             only some of the parts can still be traced."
-        ),
-        ProjectionError::NotCut => format!(
-            "{label} is {verb} {what}, but the sketch plane no longer cuts the face it came from."
-        ),
-        ProjectionError::Uncuttable => format!(
-            "{label} is {verb} {what}, which could not be worked out: the body could not be cut \
-             along the sketch plane."
-        ),
-        ProjectionError::Parallel => format!(
-            "{label} is {verb} {what}, which now lies parallel to the sketch, so the two no \
-             longer meet in a line."
-        ),
-        ProjectionError::Cancelled => format!("{label} is {verb} {what}, which was cancelled."),
-    };
+            | ProjectionSource::DatumPlane { .. }
+            | ProjectionSource::PrincipalPlane { .. }
+    );
     let fix = match error {
         ProjectionError::SourceUnavailable | ProjectionError::Parallel => Some(FixTarget::Feature(
             source.feature().unwrap_or_else(|| feature.id()),
@@ -1183,11 +1130,93 @@ fn projection_failure(
         | ProjectionError::Uncuttable
         | ProjectionError::Cancelled => Some(FixTarget::Feature(feature.id())),
     };
-    Failure::Error(Box::new(FeatureError {
-        reason,
-        remedy: format!("Open the sketch, delete {label} and {redo} in its place."),
-        fix,
-        constraints: Vec::new(),
-        place: None,
-    }))
+    let error = FeatureError::new(ProjectionCause {
+        label,
+        what,
+        error,
+        drawn,
+    });
+    Failure::from(match fix {
+        Some(fix) => error.fixing(fix),
+        None => error,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProjectionCause {
+    label: String,
+    what: String,
+    error: ProjectionError,
+    drawn: bool,
+}
+
+impl ProjectionCause {
+    pub(crate) fn reason(&self) -> String {
+        let Self {
+            label, what, error, ..
+        } = self;
+        let verb = if self.drawn {
+            "drawn from"
+        } else {
+            "projected from"
+        };
+        match error {
+            ProjectionError::SourceUnavailable => format!(
+                "{label} is {verb} {what}, which is not available at this point in the tree."
+            ),
+            ProjectionError::Missing => {
+                format!("{label} is {verb} {what} that no longer exists.")
+            }
+            ProjectionError::Ambiguous => format!(
+                "{label} is {verb} {what} that was split into separate parts, so it is unclear \
+                 which one to follow."
+            ),
+            ProjectionError::ChangedShape => format!(
+                "{label} is {verb} {what} whose shape in this sketch changed kind, for example a \
+                 line now seen end-on."
+            ),
+            ProjectionError::Unjoined => format!(
+                "{label} is {verb} {what} that a trim, split or break upstream cut into parts \
+                 which no longer join end to end into one curve, so no single projected curve \
+                 follows it."
+            ),
+            ProjectionError::PartlyTraced => format!(
+                "{label} is {verb} {what} that a trim, split or break upstream cut into parts, \
+                 and only some of the parts can still be traced."
+            ),
+            ProjectionError::NotCut => format!(
+                "{label} is {verb} {what}, but the sketch plane no longer cuts the face it came \
+                 from."
+            ),
+            ProjectionError::Uncuttable => format!(
+                "{label} is {verb} {what}, which could not be worked out: the body could not be \
+                 cut along the sketch plane."
+            ),
+            ProjectionError::Parallel => format!(
+                "{label} is {verb} {what}, which now lies parallel to the sketch, so the two no \
+                 longer meet in a line."
+            ),
+            ProjectionError::Cancelled => {
+                format!("{label} is {verb} {what}, which was cancelled.")
+            }
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        let redo = if self.drawn {
+            "intersect what you want"
+        } else {
+            "project the geometry you want"
+        };
+        format!(
+            "Open the sketch, delete {} and {redo} in its place.",
+            self.label
+        )
+    }
+}
+
+impl From<ProjectionCause> for Cause {
+    fn from(cause: ProjectionCause) -> Self {
+        Self::Projection(cause)
+    }
 }

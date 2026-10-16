@@ -1,6 +1,8 @@
 ---
 paths:
   - "crates/caditor-document/src/recompute.rs"
+  - "crates/caditor-document/src/failure.rs"
+  - "crates/caditor-document/src/trouble.rs"
   - "crates/caditor-document/src/history.rs"
   - "crates/caditor-document/src/presenting.rs"
   - "crates/caditor-document/src/pool.rs"
@@ -72,9 +74,20 @@ paths:
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it); which used features are
   suppressed is part of its key too.
-- A failing feature is `Failed` with a `FeatureError` (reason, remedy, `FixTarget`, and a model
-  point `place` where the kernel gives one) and keeps its last good result. `Failure::Error` boxes
-  it, keeping every `Result` small. Dependents fail with a pointer back to it; everything else is
+- A failing feature is `Failed` with a `FeatureError` (a typed `Cause`, a `FixTarget`, the
+  constraints involved and a model point `place` where the kernel gives one) and keeps its last good
+  result. `Failure::Error` boxes it, keeping every `Result` small. The `Cause` (`failure.rs`) is an
+  enum over the families that fail: shared ones (`Unevaluable` for an expression that does not
+  evaluate, `TooBig`, `Upstream` for a used feature that failed, is suppressed, is gone or a body
+  that no longer stands, `Unmatched` for chosen faces or edges that no longer match, `SketchCause`
+  for a sketch that does not solve) and one enum per feature family (`BlendCause`, `ShellCause`,
+  `SolidCause`, `SweepCause`, `DatumCause`, `MeasureCause` and the rest, each in the file of its
+  feature). A variant is one failure and carries what its words quote, such as the kernel's own
+  error, a feature or body name or a number; `FeatureError::reason` and `remedy` word it only when
+  asked, so no sentence is stored, built or cached, and the app and the MCP server read those two
+  methods. A new failure mode is a new variant, never text; the words of a variant stay in its
+  enum's `reason` and `remedy`, with the shared wording in `Trouble` (`trouble.rs`: a boolean's
+  failure in words, with what to adjust as an `Adjust`). Dependents fail with a pointer back to it; everything else is
   unaffected. A panic inside an `Evaluator` is caught and becomes that feature's error.
 - A feature missing an input it is still being set up for is `Waiting` with a `MissingInput` (an
   enum, one variant per missing input carrying what it names: `Axis` of a circular pattern, `Path`

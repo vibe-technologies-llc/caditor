@@ -246,17 +246,17 @@ fn through_all_only_cuts_and_needs_something_of_the_body_ahead() {
 
     let refused = failure(&evaluation, adding);
     assert_eq!(
-        refused.reason,
+        refused.reason(),
         "Through all only cuts into a body or intersects with it, so it cannot add material."
     );
     assert_eq!(refused.fix, Some(FixTarget::Feature(adding)));
     let behind = failure(&evaluation, backwards);
     assert_eq!(
-        behind.reason,
+        behind.reason(),
         "No part of the body of Plate lies ahead of the sketch, so there is nothing to go through."
     );
     assert_eq!(
-        behind.remedy,
+        behind.remedy(),
         "Turn Reversed on or off to go the other way, or enter a distance."
     );
     assert!((volume(&evaluation, model.plate) - 16_000.0).abs() < 1e-6);
@@ -401,21 +401,21 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
     let evaluation = evaluate(&model.document, &mut Recompute::default());
 
     assert_eq!(
-        failure(&evaluation, beside).reason,
+        failure(&evaluation, beside).reason(),
         "Part of the profile of Below sketch passes beside the body of Plate, so there is no one \
          next face to stop at."
     );
     assert_eq!(
-        failure(&evaluation, separate).reason,
+        failure(&evaluation, separate).reason(),
         "Up to next stops at the body this extrusion changes, and it makes a new body instead."
     );
     assert_eq!(
-        failure(&evaluation, removing).reason,
+        failure(&evaluation, removing).reason(),
         "The profile of Under sketch first meets the body of Plate where it enters it, so \
          extruding up to that face removes nothing."
     );
     assert_eq!(
-        failure(&evaluation, inside).reason,
+        failure(&evaluation, inside).reason(),
         "The profile of Inner sketch starts inside the body of Plate, so extruding it up to the \
          next face adds nothing."
     );
@@ -521,11 +521,11 @@ fn up_to_a_curved_next_face_follows_the_face() {
         "{found} {expected}"
     );
     assert_eq!(
-        failure(&evaluation, offset).remedy,
+        failure(&evaluation, offset).remedy(),
         "Clear the end offset, or use Up to face with a flat face or plane."
     );
     assert_eq!(
-        failure(&evaluation, both).reason,
+        failure(&evaluation, both).reason(),
         "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
          sides can only stop at one flat face."
     );
@@ -642,11 +642,11 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
     assert!((volume(&before, tower) - 16.0 * 25.0).abs() < 1e-6);
     let error = failure(&after, tower);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The face this extrusion runs up to is no longer part of the body of Plate."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Select a flat face or plane and use it for this end, or choose another end."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(tower)));
@@ -737,24 +737,24 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
 
     let behind = failure(&evaluation, upwards);
     assert_eq!(
-        behind.reason,
+        behind.reason(),
         "Plate end face does not lie ahead of the sketch."
     );
     assert_eq!(
-        behind.remedy,
+        behind.remedy(),
         "Turn Reversed on or off to go the other way, or choose a face or plane beyond the sketch."
     );
     assert_eq!(
-        failure(&evaluation, forward_behind).reason,
+        failure(&evaluation, forward_behind).reason(),
         "Plate end face does not lie on the forward side of the sketch."
     );
     assert_eq!(
-        failure(&evaluation, across).reason,
+        failure(&evaluation, across).reason(),
         "Slope cuts across the profile of Centred sketch, so the extrusion would end before it \
          starts in places."
     );
     assert_eq!(
-        failure(&evaluation, along).reason,
+        failure(&evaluation, along).reason(),
         "The XZ plane runs along the direction of the extrusion, so the extrusion never reaches \
          it."
     );
@@ -1000,8 +1000,8 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
     let full = PI * (16.0 - 4.0) * 3.0;
     assert!((volume(&evaluation, turned) - full / 3.0).abs() < 1e-3 * full);
     let error = failure(&evaluation, too_far);
-    assert_eq!(error.reason, "The two angles add up to more than 360°.");
-    assert_eq!(error.remedy, "Enter angles that add up to at most 360°.");
+    assert_eq!(error.reason(), "The two angles add up to more than 360°.");
+    assert_eq!(error.remedy(), "Enter angles that add up to at most 360°.");
 }
 
 #[test]
@@ -1175,12 +1175,12 @@ fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
     assert!((volume(&evaluation, past) - 2_500.0).abs() < 1e-6);
     let refused = failure(&evaluation, behind);
     assert_eq!(
-        refused.reason,
+        refused.reason(),
         "Stopping 25 mm short of Plate end face would end the extrusion before it starts in \
          places."
     );
     assert_eq!(
-        refused.remedy,
+        refused.remedy(),
         "Enter a smaller end offset, or choose a face or plane farther from the sketch."
     );
     assert_eq!(evaluation.failed_count(), 1);
@@ -1265,11 +1265,11 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
     );
     let refused = failure(&evaluation, blocked);
     assert!(
-        refused.reason.starts_with(
+        refused.reason().starts_with(
             "The profile of Strip sketch meets Block start face of Rod before it reaches"
         ),
         "{}",
-        refused.reason
+        refused.reason()
     );
     assert!(
         document
@@ -1348,11 +1348,11 @@ fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
     assert!((one + other - full / 2.0).abs() < 1e-3 * full);
     assert!((one.min(other) - full / 12.0).abs() < 1e-3 * full);
     assert_eq!(
-        failure(&evaluation, across).reason,
+        failure(&evaluation, across).reason(),
         "The XY plane does not hold the revolution axis, so the revolution cannot end on it."
     );
     assert_eq!(
-        failure(&evaluation, holding).reason,
+        failure(&evaluation, holding).reason(),
         "The XZ plane holds the profile of Section, so the revolution would not turn."
     );
     assert!(
@@ -1443,11 +1443,11 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
     assert!((bounds.max().x - (10.0 + rise)).abs() < 1e-9);
     assert!((volume(&evaluation, to_level) - 500.0).abs() < 1e-6);
     assert_eq!(
-        failure(&evaluation, tapered).reason,
+        failure(&evaluation, tapered).reason(),
         "A tapered extrusion runs square to its sketch, and Tapered follows a direction."
     );
     assert_eq!(
-        failure(&evaluation, flat).reason,
+        failure(&evaluation, flat).reason(),
         "The X axis runs along the plane of Square, so the extrusion cannot follow it."
     );
     assert!(

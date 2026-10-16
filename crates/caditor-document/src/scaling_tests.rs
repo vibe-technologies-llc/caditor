@@ -44,7 +44,7 @@ fn face_names(evaluation: &Evaluation, body: FeatureId) -> BTreeSet<FaceName> {
 
 fn reason(evaluation: &Evaluation, feature: FeatureId) -> String {
     match &evaluation.feature(feature).unwrap().state {
-        FeatureState::Failed(error) => error.reason.clone(),
+        FeatureState::Failed(error) => error.reason().clone(),
         state => panic!("the scale should fail, not {state:?}"),
     }
 }

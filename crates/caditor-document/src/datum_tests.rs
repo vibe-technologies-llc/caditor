@@ -191,7 +191,7 @@ fn an_offset_plane_carries_a_sketch_and_follows_its_parameter() {
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, plane);
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Edit the offset so it gives a length, such as 10 mm."
     );
     assert_eq!(
@@ -242,7 +242,7 @@ fn a_plane_cannot_turn_about_an_axis_that_crosses_it() {
     let evaluation = evaluate(&document, &mut Recompute::default());
     let error = failure(&evaluation, plane);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The Z axis does not run along the XY plane, so turning the plane about it cannot work."
     );
 }
@@ -314,7 +314,7 @@ fn datums_on_body_faces_and_edges_follow_the_body() {
     );
     let evaluation = evaluate(&document, &mut engine);
     assert_eq!(
-        failure(&evaluation, parallel).reason,
+        failure(&evaluation, parallel).reason(),
         "Plane 1 and the XY plane are parallel, so they do not meet in a line."
     );
 }
@@ -375,7 +375,7 @@ fn a_revolve_turns_about_a_datum_axis_in_its_sketch_plane() {
     );
     let evaluation = evaluate(&document, &mut engine);
     assert_eq!(
-        failure(&evaluation, tilted).reason,
+        failure(&evaluation, tilted).reason(),
         "The Y axis does not lie in the plane of Section, so the sketch cannot turn about it."
     );
 }

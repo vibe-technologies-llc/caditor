@@ -11,6 +11,7 @@ use caditor_kernel::{
 use crate::{
     describe::{describe_origin, edge_faces, lowercase_first},
     document::{Document, Feature, FeatureId},
+    failure::Cause,
     hole::{Hole, HoleShape},
     hole_standard::pitch_text,
     origins,
@@ -384,49 +385,26 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: ThreadCause) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature.id())))
     }
 
     fn depth(&self, depth: &Expression) -> Result<f64, Failure> {
         let value = depth
             .evaluate_as(Dimension::LENGTH, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the depth."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        "Edit the depth so it gives a length, such as 10 mm.".to_owned(),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
-                    _ => (
-                        "Edit the depth or the parameters it uses.".to_owned(),
-                        FixTarget::Feature(self.feature.id()),
-                    ),
+                let fix = match &error {
+                    EvalError::ParameterFailed { id, .. } => FixTarget::Parameter(*id),
+                    _ => FixTarget::Feature(self.feature.id()),
                 };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The thread's depth cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(
+                    FeatureError::new(ThreadCause::DepthUnevaluable { error }).fixing(fix),
+                )
             })?;
         if value.is_finite() && value > 0.0 {
             Ok(value)
         } else {
-            Err(self.error(
-                "The thread's depth must be more than 0 mm.".to_owned(),
-                "Enter a larger depth, or let the thread run the whole face.".to_owned(),
-            ))
+            Err(self.error(ThreadCause::DepthNotPositive))
         }
     }
 
@@ -438,85 +416,311 @@ impl Context<'_> {
     }
 
     fn unresolved(&self, resolution: &Resolution<FaceId>) -> Failure {
-        let body = &self.body_name;
-        let reason = match resolution {
-            Resolution::Tied(_) => {
-                format!(
-                    "The threaded face now matches several separate faces of the body of {body}."
-                )
-            }
+        let body = self.body_name.clone();
+        self.error(match resolution {
+            Resolution::Tied(_) => ThreadCause::FaceTied { body },
             Resolution::One(_) | Resolution::Pieces(_) | Resolution::Missing => {
-                format!("The threaded face is no longer part of the body of {body}.")
+                ThreadCause::FaceGone { body }
             }
-        };
-        self.error(
-            reason,
-            "Choose the face to thread again, or undo the change that removed it.".to_owned(),
-        )
+        })
     }
 
     fn not_round(&self, solid: &Solid, face: FaceId) -> Failure {
-        self.error(
-            format!(
-                "{} is not cylindrical, so it cannot carry a thread.",
-                crate::datum::capitalized(&self.describe_face(solid, face))
-            ),
-            "Choose a cylindrical face: a bore, a shaft or a boss.".to_owned(),
-        )
+        self.error(ThreadCause::NotRound {
+            face: self.describe_face(solid, face),
+        })
     }
 
     fn wrong_class(&self, side: ThreadSide) -> Failure {
-        let family = self.definition.size.family();
-        let (what, wanted) = match side {
-            ThreadSide::Internal => ("a hole", "an internal thread"),
-            ThreadSide::External => ("a shaft", "an external thread"),
-        };
-        let class = self.definition.class.id();
-        let suggestion = family.default_class(side).id();
-        let remedy = if suggestion.is_empty() {
-            format!("Choose the class for {wanted}.")
-        } else {
-            format!("Choose a class for {wanted}, such as {suggestion}.")
-        };
-        self.error(
-            format!(
-                "The threaded face is {what}, but the class {class} is not one {} offers for \
-                 {wanted}.",
-                family.label()
-            ),
-            remedy,
-        )
+        self.error(ThreadCause::WrongClass {
+            size: self.definition.size,
+            class: self.definition.class,
+            side,
+        })
     }
 
     fn misfit(&self, bore: &Bore) -> Failure {
-        let size = self.definition.size;
-        let side = bore.side;
-        let what = match side {
+        self.error(ThreadCause::Misfit {
+            size: self.definition.size,
+            side: bore.side,
+            diameter: bore.diameter,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ThreadCause {
+    DepthUnevaluable {
+        error: EvalError,
+    },
+    DepthNotPositive,
+    FaceTied {
+        body: String,
+    },
+    FaceGone {
+        body: String,
+    },
+    NotRound {
+        face: String,
+    },
+    WrongClass {
+        size: ThreadSize,
+        class: ThreadClass,
+        side: ThreadSide,
+    },
+    Misfit {
+        size: ThreadSize,
+        side: ThreadSide,
+        diameter: f64,
+    },
+    Unmodellable {
+        size: ThreadSize,
+        face: String,
+    },
+    Modelled {
+        size: ThreadSize,
+        side: ThreadSide,
+        face: String,
+        error: ThreadError,
+    },
+}
+
+impl ThreadCause {
+    pub(crate) fn cutting(
+        feature: FeatureId,
+        size: ThreadSize,
+        side: ThreadSide,
+        face: &str,
+        error: ThreadError,
+    ) -> Failure {
+        if matches!(error, ThreadError::Cancelled(_)) {
+            return Failure::Cancelled;
+        }
+        let place = match &error {
+            ThreadError::Cut(boolean) => trouble::place(boolean),
+            _ => None,
+        };
+        Failure::from(
+            FeatureError::new(Self::Modelled {
+                size,
+                side,
+                face: face.to_owned(),
+                error,
+            })
+            .fixing(FixTarget::Feature(feature)),
+        )
+        .placed(place)
+    }
+
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::DepthUnevaluable { error } => {
+                format!("The thread's depth cannot be evaluated: {error}.")
+            }
+            Self::DepthNotPositive => "The thread's depth must be more than 0 mm.".to_owned(),
+            Self::FaceTied { body } => format!(
+                "The threaded face now matches several separate faces of the body of {body}."
+            ),
+            Self::FaceGone { body } => {
+                format!("The threaded face is no longer part of the body of {body}.")
+            }
+            Self::NotRound { face } => format!(
+                "{} is not cylindrical, so it cannot carry a thread.",
+                crate::datum::capitalized(face)
+            ),
+            Self::WrongClass { size, class, side } => {
+                let (what, wanted) = Self::kind_of(*side);
+                format!(
+                    "The threaded face is {what}, but the class {} is not one {} offers for \
+                     {wanted}.",
+                    class.id(),
+                    size.family().label()
+                )
+            }
+            Self::Misfit {
+                size,
+                side,
+                diameter,
+            } => {
+                let what = Self::bore_word(*side);
+                let (too, limit, limit_name) = if *diameter >= size.major_diameter(*side) {
+                    ("wide", size.major_diameter(*side), "major")
+                } else {
+                    ("narrow", size.minor_diameter(*side), "minor")
+                };
+                format!(
+                    "The {what} is {} across, too {too} for the {} thread, whose {limit_name} \
+                     diameter is {}.",
+                    millimetres(*diameter),
+                    size.label(),
+                    millimetres(limit)
+                )
+            }
+            Self::Unmodellable { size, face } => {
+                format!("The {} thread on {face} cannot be modelled.", size.label())
+            }
+            Self::Modelled {
+                size,
+                side,
+                face,
+                error,
+            } => Self::modelled_reason(*size, *side, face, error),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::DepthUnevaluable { error } => match error {
+                EvalError::ParameterFailed { name, .. } => {
+                    format!("Fix {name} under Parameters, or edit the depth.")
+                }
+                EvalError::WrongKind { .. } => {
+                    "Edit the depth so it gives a length, such as 10 mm.".to_owned()
+                }
+                _ => "Edit the depth or the parameters it uses.".to_owned(),
+            },
+            Self::DepthNotPositive => {
+                "Enter a larger depth, or let the thread run the whole face.".to_owned()
+            }
+            Self::FaceTied { .. } | Self::FaceGone { .. } => {
+                "Choose the face to thread again, or undo the change that removed it.".to_owned()
+            }
+            Self::NotRound { .. } => {
+                "Choose a cylindrical face: a bore, a shaft or a boss.".to_owned()
+            }
+            Self::WrongClass { size, side, .. } => {
+                let (_, wanted) = Self::kind_of(*side);
+                let suggestion = size.family().default_class(*side).id();
+                if suggestion.is_empty() {
+                    format!("Choose the class for {wanted}.")
+                } else {
+                    format!("Choose a class for {wanted}, such as {suggestion}.")
+                }
+            }
+            Self::Misfit {
+                size,
+                side,
+                diameter,
+            } => {
+                let what = Self::bore_word(*side);
+                let nearest = size.family().nearest(*diameter, *side);
+                if nearest.fits(*diameter, *side) {
+                    format!(
+                        "Choose {} instead, or change the {what}'s diameter.",
+                        nearest.label()
+                    )
+                } else {
+                    format!("Choose a thread of another standard, or change the {what}'s diameter.")
+                }
+            }
+            Self::Unmodellable { .. } => "Make the thread cosmetic.".to_owned(),
+            Self::Modelled { side, error, .. } => Self::modelled_remedy(*side, error),
+        }
+    }
+
+    fn kind_of(side: ThreadSide) -> (&'static str, &'static str) {
+        match side {
+            ThreadSide::Internal => ("a hole", "an internal thread"),
+            ThreadSide::External => ("a shaft", "an external thread"),
+        }
+    }
+
+    fn bore_word(side: ThreadSide) -> &'static str {
+        match side {
             ThreadSide::Internal => "bore",
             ThreadSide::External => "shaft",
-        };
-        let across = millimetres(bore.diameter);
-        let (too, limit, limit_name) = if bore.diameter >= size.major_diameter(side) {
-            ("wide", size.major_diameter(side), "major")
-        } else {
-            ("narrow", size.minor_diameter(side), "minor")
-        };
-        let reason = format!(
-            "The {what} is {across} across, too {too} for the {} thread, whose {limit_name} \
-             diameter is {}.",
-            size.label(),
-            millimetres(limit)
-        );
-        let nearest = size.family().nearest(bore.diameter, side);
-        let remedy = if nearest.fits(bore.diameter, side) {
-            format!(
-                "Choose {} instead, or change the {what}'s diameter.",
-                nearest.label()
-            )
-        } else {
-            format!("Choose a thread of another standard, or change the {what}'s diameter.")
-        };
-        self.error(reason, remedy)
+        }
+    }
+
+    fn modelled_reason(
+        size: ThreadSize,
+        side: ThreadSide,
+        face: &str,
+        error: &ThreadError,
+    ) -> String {
+        let size = size.label();
+        match error {
+            ThreadError::Cancelled(_) => String::new(),
+            ThreadError::TooShort { length, needed } => format!(
+                "The modelled {size} thread on {face} is {} long, shorter than the {} its form \
+                 needs.",
+                millimetres(*length),
+                millimetres(*needed)
+            ),
+            ThreadError::TooManyTurns { turns } => format!(
+                "The modelled {size} thread on {face} would turn {turns:.0} times, more than the \
+                 {MAX_THREAD_TURNS} a modelled thread can."
+            ),
+            ThreadError::TooLarge => format!(
+                "The modelled {size} thread on {face} would reach farther than {MAX_SIZE} mm \
+                 from the origin."
+            ),
+            ThreadError::RootOutsideFace => {
+                let (what, too) = match side {
+                    ThreadSide::Internal => ("bore", "wide"),
+                    ThreadSide::External => ("shaft", "narrow"),
+                };
+                format!(
+                    "The {what} at {face} is too {too} for the root of a modelled {size} \
+                     thread, so there is nothing to cut."
+                )
+            }
+            ThreadError::NonFinite
+            | ThreadError::NoPitch
+            | ThreadError::FlankAngle
+            | ThreadError::NoRootWidth
+            | ThreadError::GrooveOverlaps
+            | ThreadError::CrestBeyondRoot => {
+                format!("The form of the {size} thread on {face} cannot be modelled.")
+            }
+            ThreadError::Geometry(_)
+            | ThreadError::GrooveUnassembled
+            | ThreadError::Groove(_)
+            | ThreadError::Ring(_) => {
+                format!("The groove of the modelled {size} thread on {face} could not be built.")
+            }
+            ThreadError::Cut(_) => format!(
+                "The modelled {size} thread could not be cut into {face}: where it meets the \
+                 faces around it, the result would not be a valid solid."
+            ),
+        }
+    }
+
+    fn modelled_remedy(side: ThreadSide, error: &ThreadError) -> String {
+        let cosmetic = "or make the thread cosmetic";
+        match error {
+            ThreadError::Cancelled(_) => String::new(),
+            ThreadError::TooShort { .. } => {
+                format!("Thread a longer length or choose a finer pitch, {cosmetic}.")
+            }
+            ThreadError::TooManyTurns { .. } => format!("Thread a shorter length, {cosmetic}."),
+            ThreadError::TooLarge => format!("Move the body nearer the origin, {cosmetic}."),
+            ThreadError::RootOutsideFace => {
+                let what = Self::bore_word(side);
+                format!("Choose another size or change the {what}'s diameter, {cosmetic}.")
+            }
+            ThreadError::NonFinite
+            | ThreadError::NoPitch
+            | ThreadError::FlankAngle
+            | ThreadError::NoRootWidth
+            | ThreadError::GrooveOverlaps
+            | ThreadError::CrestBeyondRoot => format!("Choose another size, {cosmetic}."),
+            ThreadError::Geometry(_)
+            | ThreadError::GrooveUnassembled
+            | ThreadError::Groove(_)
+            | ThreadError::Ring(_) => {
+                format!("Change the thread's length or size slightly, {cosmetic}.")
+            }
+            ThreadError::Cut(_) => format!(
+                "Change the thread's length slightly or move what touches its ends, {cosmetic}."
+            ),
+        }
+    }
+}
+
+impl From<ThreadCause> for Cause {
+    fn from(cause: ThreadCause) -> Self {
+        Self::Thread(cause)
     }
 }
 
@@ -539,97 +743,6 @@ pub(crate) fn cut_thread(
         threaded = boolean(&threaded, tool, BooleanOperation::Difference)?;
     }
     Ok((threaded, tools))
-}
-
-pub(crate) struct ThreadWords<'a> {
-    pub size: ThreadSize,
-    pub side: ThreadSide,
-    pub face: &'a str,
-}
-
-pub(crate) struct Worded {
-    pub reason: String,
-    pub remedy: String,
-    pub place: Option<Point3>,
-}
-
-impl ThreadWords<'_> {
-    pub fn words(&self, error: &ThreadError) -> Option<Worded> {
-        let size = self.size.label();
-        let face = self.face;
-        let cosmetic = "or make the thread cosmetic";
-        let worded = |reason: String, remedy: String| Worded {
-            reason,
-            remedy,
-            place: None,
-        };
-        Some(match error {
-            ThreadError::Cancelled(_) => return None,
-            ThreadError::TooShort { length, needed } => worded(
-                format!(
-                    "The modelled {size} thread on {face} is {} long, shorter than the {} its \
-                     form needs.",
-                    millimetres(*length),
-                    millimetres(*needed)
-                ),
-                format!("Thread a longer length or choose a finer pitch, {cosmetic}."),
-            ),
-            ThreadError::TooManyTurns { turns } => worded(
-                format!(
-                    "The modelled {size} thread on {face} would turn {turns:.0} times, more than \
-                     the {MAX_THREAD_TURNS} a modelled thread can."
-                ),
-                format!("Thread a shorter length, {cosmetic}."),
-            ),
-            ThreadError::TooLarge => worded(
-                format!(
-                    "The modelled {size} thread on {face} would reach farther than {MAX_SIZE} mm \
-                     from the origin."
-                ),
-                format!("Move the body nearer the origin, {cosmetic}."),
-            ),
-            ThreadError::RootOutsideFace => {
-                let (what, too) = match self.side {
-                    ThreadSide::Internal => ("bore", "wide"),
-                    ThreadSide::External => ("shaft", "narrow"),
-                };
-                worded(
-                    format!(
-                        "The {what} at {face} is too {too} for the root of a modelled {size} \
-                         thread, so there is nothing to cut."
-                    ),
-                    format!("Choose another size or change the {what}'s diameter, {cosmetic}."),
-                )
-            }
-            ThreadError::NonFinite
-            | ThreadError::NoPitch
-            | ThreadError::FlankAngle
-            | ThreadError::NoRootWidth
-            | ThreadError::GrooveOverlaps
-            | ThreadError::CrestBeyondRoot => worded(
-                format!("The form of the {size} thread on {face} cannot be modelled."),
-                format!("Choose another size, {cosmetic}."),
-            ),
-            ThreadError::Geometry(_)
-            | ThreadError::GrooveUnassembled
-            | ThreadError::Groove(_)
-            | ThreadError::Ring(_) => worded(
-                format!("The groove of the modelled {size} thread on {face} could not be built."),
-                format!("Change the thread's length or size slightly, {cosmetic}."),
-            ),
-            ThreadError::Cut(error) => Worded {
-                reason: format!(
-                    "The modelled {size} thread could not be cut into {face}: where it meets \
-                     the faces around it, the result would not be a valid solid."
-                ),
-                remedy: format!(
-                    "Change the thread's length slightly or move what touches its ends, \
-                     {cosmetic}."
-                ),
-                place: trouble::place(error),
-            },
-        })
-    }
 }
 
 pub(crate) fn part_name(part: u64) -> &'static str {
@@ -802,27 +915,14 @@ pub(crate) fn evaluate(
         let Some(spec) =
             bore.modelled_spec(definition.size, definition.hand, depth, definition.reversed)
         else {
-            return Err(context.error(
-                format!(
-                    "The {} thread on {face} cannot be modelled.",
-                    definition.size.label()
-                ),
-                "Make the thread cosmetic.".to_owned(),
-            ));
-        };
-        let worded = ThreadWords {
-            size: definition.size,
-            side,
-            face: &face,
+            return Err(context.error(ThreadCause::Unmodellable {
+                size: definition.size,
+                face,
+            }));
         };
         let (threaded, tools) =
             cut_thread(solid, &spec, feature.id().raw(), None).map_err(|error| {
-                match worded.words(&error) {
-                    None => Failure::Cancelled,
-                    Some(words) => context
-                        .error(words.reason, words.remedy)
-                        .placed(words.place),
-                }
+                ThreadCause::cutting(feature.id(), definition.size, side, &face, error)
             })?;
         return Ok(FeatureResult::Solid(
             SolidResult::new(definition.body, threaded).cutting(tools),

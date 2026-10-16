@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, LinearExtent, MAX_SIZE, Profile,
@@ -13,9 +13,10 @@ use caditor_kernel::{
 use crate::{
     datum::{PlaneReference, Resolver},
     document::{Feature, FeatureId},
+    failure::{Cause, Expected},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{BodyOperation, SolidResult},
-    trouble::{self, boolean_trouble},
+    trouble::{self, Adjust, Trouble, boolean_trouble},
 };
 
 const FRONT: u64 = 1;
@@ -372,14 +373,8 @@ impl<'a> Context<'a> {
         &self.resolver
     }
 
-    pub(crate) fn error(&self, reason: String, remedy: String) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(self.feature().id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    pub(crate) fn error(&self, cause: impl Into<Cause>) -> Failure {
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(self.feature().id())))
     }
 
     fn value(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
@@ -393,37 +388,22 @@ impl<'a> Context<'a> {
         dimension: Dimension,
     ) -> Result<f64, Failure> {
         let parameters = self.resolver.inputs.parameters;
-        let example = if dimension == Dimension::LENGTH {
-            "a length, such as 10 mm"
+        let expected = if dimension == Dimension::LENGTH {
+            Expected::Length(10.0)
         } else if dimension == Dimension::ANGLE {
-            "an angle, such as 5 deg"
+            Expected::Angle(5.0)
         } else {
-            "a plain number, such as 6"
+            Expected::Number(6.0)
         };
         expression
             .evaluate_as(dimension, &|id| parameters.value(id))
             .map_err(|error| {
-                let (remedy, fix) = match &error {
-                    EvalError::ParameterFailed { id, name } => (
-                        format!("Fix {name} under Parameters, or edit the {what}."),
-                        FixTarget::Parameter(*id),
-                    ),
-                    EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives {example}."),
-                        FixTarget::Feature(self.feature().id()),
-                    ),
-                    _ => (
-                        format!("Edit the {what} or the parameters it uses."),
-                        FixTarget::Feature(self.feature().id()),
-                    ),
-                };
-                Failure::Error(Box::new(FeatureError {
-                    reason: format!("The {what} cannot be evaluated: {error}."),
-                    remedy,
-                    fix: Some(fix),
-                    constraints: Vec::new(),
-                    place: None,
-                }))
+                Failure::from(FeatureError::unevaluable(
+                    self.feature().id(),
+                    what,
+                    expected,
+                    error,
+                ))
             })
     }
 
@@ -431,20 +411,19 @@ impl<'a> Context<'a> {
         if value.abs() <= MAX_SIZE {
             return Ok(value);
         }
-        let most = MAX_SIZE / 1_000.0;
-        Err(self.error(
-            format!("The {what} cannot be more than {most} m."),
-            format!("Enter a {what} of at most {most} m."),
-        ))
+        Err(Failure::from(FeatureError::too_big(
+            FixTarget::Feature(self.feature().id()),
+            what,
+        )))
     }
 
     pub(crate) fn size(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
         if value <= 0.0 {
-            return Err(self.error(
-                format!("The {what} of the {} must be more than zero.", self.shape),
-                format!("Enter a {what} above zero."),
-            ));
+            return Err(self.error(PrimitiveCause::NotPositive {
+                what: what.to_owned(),
+                shape: self.shape.to_owned(),
+            }));
         }
         self.within_reach(value, what)
     }
@@ -452,10 +431,10 @@ impl<'a> Context<'a> {
     pub(crate) fn size_or_zero(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
         let value = self.value(expression, what)?;
         if value < 0.0 {
-            return Err(self.error(
-                format!("The {what} of the {} cannot be negative.", self.shape),
-                format!("Enter a {what} of zero or more."),
-            ));
+            return Err(self.error(PrimitiveCause::Negative {
+                what: what.to_owned(),
+                shape: self.shape.to_owned(),
+            }));
         }
         self.within_reach(value, what)
     }
@@ -468,23 +447,133 @@ impl<'a> Context<'a> {
             || whole < f64::from(MIN_PRISM_SIDES)
             || whole > f64::from(MAX_PRISM_SIDES)
         {
-            return Err(self.error(
-                format!(
-                    "The {what} of the prism must be a whole number from {MIN_PRISM_SIDES} to \
-                     {MAX_PRISM_SIDES}."
-                ),
-                format!("Enter a whole number from {MIN_PRISM_SIDES} to {MAX_PRISM_SIDES}."),
-            ));
+            return Err(self.error(PrimitiveCause::Sides {
+                what: what.to_owned(),
+            }));
         }
         Ok(whole as u32)
     }
 
     fn unbuildable(&self, error: &dyn std::fmt::Display) -> Failure {
         log::warn!("{} could not be built: {error}", self.feature().name);
-        self.error(
-            format!("The {} cannot be built with these sizes here.", self.shape),
-            "Change its sizes or place it nearer the origin.".to_owned(),
-        )
+        self.error(PrimitiveCause::Unbuildable {
+            shape: self.shape.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PrimitiveCause {
+    NotPositive {
+        what: String,
+        shape: String,
+    },
+    Negative {
+        what: String,
+        shape: String,
+    },
+    Sides {
+        what: String,
+    },
+    TorusTube,
+    ConeFlat,
+    WedgeTop,
+    Unbuildable {
+        shape: String,
+    },
+    Vanishes {
+        shape: String,
+        body: String,
+        intersecting: bool,
+    },
+    Edgewise {
+        shape: String,
+        body: String,
+    },
+    Uncombined {
+        shape: String,
+        body: String,
+        trouble: Trouble,
+    },
+}
+
+impl PrimitiveCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::NotPositive { what, shape } => {
+                format!("The {what} of the {shape} must be more than zero.")
+            }
+            Self::Negative { what, shape } => {
+                format!("The {what} of the {shape} cannot be negative.")
+            }
+            Self::Sides { what } => format!(
+                "The {what} of the prism must be a whole number from {MIN_PRISM_SIDES} to \
+                 {MAX_PRISM_SIDES}."
+            ),
+            Self::TorusTube => {
+                "The tube diameter of the torus must be less than its diameter, measured across \
+                 the middle of the tube."
+                    .to_owned()
+            }
+            Self::ConeFlat => {
+                "The bottom and top diameters of the cone cannot both be zero.".to_owned()
+            }
+            Self::WedgeTop => {
+                "The top length of the wedge cannot be more than its length.".to_owned()
+            }
+            Self::Unbuildable { shape } => {
+                format!("The {shape} cannot be built with these sizes here.")
+            }
+            Self::Vanishes {
+                shape,
+                body,
+                intersecting: true,
+            } => format!(
+                "The {shape} does not overlap the body of {body}, so nothing would be left."
+            ),
+            Self::Vanishes { shape, body, .. } => {
+                format!("The {shape} removes all of the body of {body}.")
+            }
+            Self::Edgewise { shape, body } => {
+                format!("The {shape} and the body of {body} meet only along an edge or at a point.")
+            }
+            Self::Uncombined {
+                shape,
+                body,
+                trouble,
+            } => trouble.reason(format!(
+                "The {shape} could not be combined with the body of {body}."
+            )),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::NotPositive { what, .. } => format!("Enter a {what} above zero."),
+            Self::Negative { what, .. } => format!("Enter a {what} of zero or more."),
+            Self::Sides { .. } => {
+                format!("Enter a whole number from {MIN_PRISM_SIDES} to {MAX_PRISM_SIDES}.")
+            }
+            Self::TorusTube => "Make the tube thinner or the torus wider.".to_owned(),
+            Self::ConeFlat => "Enter a diameter above zero for the bottom or the top.".to_owned(),
+            Self::WedgeTop => "Make the top shorter or the wedge longer.".to_owned(),
+            Self::Unbuildable { .. } => {
+                "Change its sizes or place it nearer the origin.".to_owned()
+            }
+            Self::Vanishes { shape, .. } => {
+                format!("Move or resize the {shape} so that part of the body stays.")
+            }
+            Self::Edgewise { shape, .. } => format!(
+                "Move or resize the {shape} so it overlaps the body, or choose New body instead."
+            ),
+            Self::Uncombined { trouble, .. } => trouble.remedy(),
+        }
+    }
+}
+
+impl From<PrimitiveCause> for Cause {
+    fn from(cause: PrimitiveCause) -> Self {
+        Self::Primitive(cause)
     }
 }
 
@@ -540,12 +629,7 @@ impl Sizes {
                 let ring = context.size(diameter, "diameter")? / 2.0;
                 let tube = context.size(tube, "tube diameter")? / 2.0;
                 if tube >= ring {
-                    return Err(context.error(
-                        "The tube diameter of the torus must be less than its diameter, \
-                         measured across the middle of the tube."
-                            .to_owned(),
-                        "Make the tube thinner or the torus wider.".to_owned(),
-                    ));
+                    return Err(context.error(PrimitiveCause::TorusTube));
                 }
                 Self::Torus { ring, tube }
             }
@@ -558,10 +642,7 @@ impl Sizes {
                 let top = context.size_or_zero(top, "top diameter")? / 2.0;
                 let height = context.size(height, "height")?;
                 if bottom <= 0.0 && top <= 0.0 {
-                    return Err(context.error(
-                        "The bottom and top diameters of the cone cannot both be zero.".to_owned(),
-                        "Enter a diameter above zero for the bottom or the top.".to_owned(),
-                    ));
+                    return Err(context.error(PrimitiveCause::ConeFlat));
                 }
                 Self::Cone {
                     bottom,
@@ -582,10 +663,7 @@ impl Sizes {
                 ];
                 let top = context.size_or_zero(top, "top length")?;
                 if top > extents[0] {
-                    return Err(context.error(
-                        "The top length of the wedge cannot be more than its length.".to_owned(),
-                        "Make the top shorter or the wedge longer.".to_owned(),
-                    ));
+                    return Err(context.error(PrimitiveCause::WedgeTop));
                 }
                 Self::Wedge { extents, top }
             }
@@ -841,27 +919,15 @@ fn combine_failure(
     let body_name = inputs.document.body_label(body).unwrap_or_default();
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
-        BooleanError::Empty => {
-            let reason = match operation {
-                BodyOperation::Intersect(_) => format!(
-                    "The {shape} does not overlap the body of {body_name}, so nothing would be \
-                     left."
-                ),
-                _ => format!("The {shape} removes all of the body of {body_name}."),
-            };
-            context.error(
-                reason,
-                format!("Move or resize the {shape} so that part of the body stays."),
-            )
-        }
-        BooleanError::NonManifold(_) => context.error(
-            format!(
-                "The {shape} and the body of {body_name} meet only along an edge or at a point."
-            ),
-            format!(
-                "Move or resize the {shape} so it overlaps the body, or choose New body instead."
-            ),
-        ),
+        BooleanError::Empty => context.error(PrimitiveCause::Vanishes {
+            shape: shape.to_owned(),
+            body: body_name,
+            intersecting: matches!(operation, BodyOperation::Intersect(_)),
+        }),
+        BooleanError::NonManifold(_) => context.error(PrimitiveCause::Edgewise {
+            shape: shape.to_owned(),
+            body: body_name,
+        }),
         BooleanError::Intersection { .. }
         | BooleanError::Split(_)
         | BooleanError::Ambiguous(_)
@@ -872,14 +938,15 @@ fn combine_failure(
                 inputs.document,
                 operands,
                 error,
-                &format!("Move or resize the {shape}"),
+                Adjust::MoveOrResize {
+                    shape: shape.to_owned(),
+                },
             );
-            context.error(
-                trouble.reason(format!(
-                    "The {shape} could not be combined with the body of {body_name}."
-                )),
-                trouble.remedy,
-            )
+            context.error(PrimitiveCause::Uncombined {
+                shape: shape.to_owned(),
+                body: body_name,
+                trouble,
+            })
         }
     };
     failure.placed(trouble::place(error))

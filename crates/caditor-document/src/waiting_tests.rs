@@ -179,7 +179,7 @@ fn a_sweep_without_a_path_waits_and_what_uses_its_body_fails_as_without_a_result
         panic!("the move should fail without the swept body");
     };
     assert_eq!(error.fix, Some(FixTarget::Feature(sweep)));
-    assert!(error.reason.contains("Sweep 1"), "{}", error.reason);
+    assert!(error.reason().contains("Sweep 1"), "{}", error.reason());
 }
 
 #[test]

@@ -13,10 +13,11 @@ use crate::{
     datum::{PlaneReference, Resolver, capitalized, feature_name},
     describe::describe_surface,
     document::{Document, Feature, FeatureId},
+    failure::{Cause, Upstream},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{SolidResult, profile_curves},
-    surface_tool::{SurfaceTool, SurfaceToolError, surface_tool},
-    trouble,
+    surface_tool::{SurfaceCause, SurfaceTool, SurfaceToolError, surface_tool},
+    trouble::{self, Adjust, Trouble},
 };
 
 const HALF_SPACE_SIDES: [u64; 4] = [1, 2, 3, 4];
@@ -127,62 +128,50 @@ impl Split {
     }
 }
 
-struct Words {
-    tool: String,
-    misses: String,
-    aim: String,
-    adjust: String,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SplitTool {
+    Plane,
+    Body { tool: String },
+    Sketch { sketch: String },
+    Surface { surface: String, holder: String },
 }
 
-impl Words {
-    fn new(document: &Document, along: &SplitAlong, body: &str) -> Self {
+impl SplitTool {
+    fn new(document: &Document, along: &SplitAlong) -> Self {
         match along {
-            SplitAlong::Plane(_) => Self {
-                tool: "the plane".to_owned(),
-                misses: format!(
-                    "The plane does not pass through the body of {body}, so nothing lies on one \
-                     of its sides."
-                ),
-                aim: "Choose a plane that crosses the body.".to_owned(),
-                adjust: "Move the plane".to_owned(),
+            SplitAlong::Plane(_) => Self::Plane,
+            SplitAlong::Body(tool) => Self::Body {
+                tool: feature_name(document, *tool),
             },
-            SplitAlong::Body(tool) => {
-                let tool = feature_name(document, *tool);
-                Self {
-                    misses: format!(
-                        "{tool} does not cut through the body of {body}, so the body lies wholly \
-                         inside it or wholly outside it."
-                    ),
-                    aim: format!("Choose a body that passes partly through {body}."),
-                    adjust: format!("Move {tool}"),
-                    tool,
-                }
-            }
-            SplitAlong::Sketch(sketch) => {
-                let sketch = feature_name(document, *sketch);
-                Self {
-                    tool: format!("the curve of {sketch}"),
-                    misses: format!(
-                        "The curve of {sketch}, carried on straight past its ends, does not cross \
-                         the body of {body}, so nothing lies on one of its sides."
-                    ),
-                    aim: format!("Draw the curve of {sketch} across the body."),
-                    adjust: format!("Move the curve of {sketch}"),
-                }
-            }
-            SplitAlong::Surface(face) => {
-                let tool = describe_surface(document, face);
-                Self {
-                    misses: format!(
-                        "{}, carried on past its edges, does not pass through the body of \
-                         {body}, so nothing lies on one of its sides.",
-                        capitalized(&tool)
-                    ),
-                    tool,
-                    aim: "Choose a face whose surface crosses the body.".to_owned(),
-                    adjust: format!("Move {}", feature_name(document, face.body)),
-                }
-            }
+            SplitAlong::Sketch(sketch) => Self::Sketch {
+                sketch: feature_name(document, *sketch),
+            },
+            SplitAlong::Surface(face) => Self::Surface {
+                surface: describe_surface(document, face),
+                holder: feature_name(document, face.body),
+            },
+        }
+    }
+
+    fn words(&self) -> String {
+        match self {
+            Self::Plane => "the plane".to_owned(),
+            Self::Body { tool } => tool.clone(),
+            Self::Sketch { sketch } => format!("the curve of {sketch}"),
+            Self::Surface { surface, .. } => surface.clone(),
+        }
+    }
+
+    fn adjust(&self) -> Adjust {
+        match self {
+            Self::Plane => Adjust::MoveThePlane,
+            Self::Body { tool } => Adjust::Move { what: tool.clone() },
+            Self::Sketch { sketch } => Adjust::MoveTheCurveOf {
+                sketch: sketch.clone(),
+            },
+            Self::Surface { holder, .. } => Adjust::Move {
+                what: holder.clone(),
+            },
         }
     }
 }
@@ -190,40 +179,29 @@ impl Words {
 struct Context<'a> {
     resolver: Resolver<'a>,
     body_name: String,
-    words: Words,
+    tool: SplitTool,
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: &str) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy: remedy.to_owned(),
-            fix: Some(FixTarget::Feature(self.resolver.feature.id())),
-            constraints: Vec::new(),
-            place: None,
-        }))
+    fn error(&self, cause: SplitCause) -> Failure {
+        Failure::from(
+            FeatureError::new(cause).fixing(FixTarget::Feature(self.resolver.feature.id())),
+        )
     }
 
     fn misses(&self) -> Failure {
-        self.error(self.words.misses.clone(), &self.words.aim)
-    }
-
-    fn not_split(&self) -> String {
-        format!(
-            "The body of {} could not be split along {}.",
-            self.body_name, self.words.tool
-        )
+        self.error(SplitCause::Misses {
+            tool: self.tool.clone(),
+            body: self.body_name.clone(),
+        })
     }
 
     fn unbuildable(&self, error: &dyn std::fmt::Display) -> Failure {
         log::warn!("{} could not be built: {error}", self.resolver.feature.name);
-        self.error(
-            self.not_split(),
-            &format!(
-                "{} slightly, so it does not run exactly along a face or edge.",
-                self.words.adjust
-            ),
-        )
+        self.error(SplitCause::Unbuilt {
+            tool: self.tool.clone(),
+            body: self.body_name.clone(),
+        })
     }
 
     fn boolean_failure(&self, solid: &Solid, tool: &Solid, error: BooleanError) -> Failure {
@@ -233,10 +211,15 @@ impl Context<'_> {
             other => {
                 let document = self.resolver.inputs.document;
                 let trouble =
-                    trouble::boolean_trouble(document, [solid, tool], &other, &self.words.adjust);
+                    trouble::boolean_trouble(document, [solid, tool], &other, self.tool.adjust());
                 log::warn!("{} could not be built: {other}", self.resolver.feature.name);
-                self.error(trouble.reason(self.not_split()), &trouble.remedy)
-                    .placed(trouble.place)
+                let place = trouble.place;
+                self.error(SplitCause::Uncombined {
+                    tool: self.tool.clone(),
+                    body: self.body_name.clone(),
+                    trouble,
+                })
+                .placed(place)
             }
         }
     }
@@ -245,55 +228,153 @@ impl Context<'_> {
         if matches!(error, SurfaceToolError::Misses) {
             return self.misses();
         }
-        match error.words(self.resolver.inputs.document, face) {
-            Some(words) => self.error(words.reason, &words.remedy),
+        match error.cause(self.resolver.inputs.document, face) {
+            Some(cause) => self.error(SplitCause::Surface(cause)),
             None => self.unbuildable(&error),
         }
     }
 
     fn swept_failure(&self, sketch: FeatureId, error: SweptError) -> Failure {
         let name = feature_name(self.resolver.inputs.document, sketch);
-        let (reason, remedy) = match error {
-            SweptError::NoCurves => (
-                format!("{name} has no curve to split along."),
-                format!("Draw an open line, arc or spline across the body in {name}."),
-            ),
-            SweptError::Closed => (
-                format!(
-                    "The curves of {name} close on themselves, so they do not run across the \
-                     body from one side to the other."
-                ),
-                format!(
-                    "Leave {name} one open chain of curves, or split along a body made from it \
-                     instead."
-                ),
-            ),
-            SweptError::NotOneChain => (
-                format!("The curves of {name} do not form one chain joined end to end."),
-                format!(
-                    "Leave one open chain of curves in {name}, or make the others construction \
-                     geometry."
-                ),
-            ),
-            SweptError::CrossesItself => (
-                format!(
-                    "The curve of {name}, carried on straight past its ends, crosses itself, so \
-                     it does not divide the body into two sides."
-                ),
-                format!(
-                    "Lengthen the curve of {name} so it runs past the body, or draw it without \
-                     crossing itself."
-                ),
-            ),
+        let cause = match error {
+            SweptError::NoCurves => SplitCause::SweptEmpty { name },
+            SweptError::Closed => SplitCause::SweptClosed { name },
+            SweptError::NotOneChain => SplitCause::SweptBroken { name },
+            SweptError::CrossesItself => SplitCause::SweptCrossing { name },
             other => return self.unbuildable(&other),
         };
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy,
-            fix: Some(FixTarget::Feature(sketch)),
-            constraints: Vec::new(),
-            place: None,
-        }))
+        Failure::from(FeatureError::new(cause).fixing(FixTarget::Feature(sketch)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SplitCause {
+    Misses {
+        tool: SplitTool,
+        body: String,
+    },
+    Unbuilt {
+        tool: SplitTool,
+        body: String,
+    },
+    Uncombined {
+        tool: SplitTool,
+        body: String,
+        trouble: Trouble,
+    },
+    Surface(SurfaceCause),
+    SweptEmpty {
+        name: String,
+    },
+    SweptClosed {
+        name: String,
+    },
+    SweptBroken {
+        name: String,
+    },
+    SweptCrossing {
+        name: String,
+    },
+    OwnBody {
+        body: String,
+    },
+}
+
+impl SplitCause {
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            Self::Misses { tool, body } => match tool {
+                SplitTool::Plane => format!(
+                    "The plane does not pass through the body of {body}, so nothing lies on one \
+                     of its sides."
+                ),
+                SplitTool::Body { tool } => format!(
+                    "{tool} does not cut through the body of {body}, so the body lies wholly \
+                     inside it or wholly outside it."
+                ),
+                SplitTool::Sketch { sketch } => format!(
+                    "The curve of {sketch}, carried on straight past its ends, does not cross \
+                     the body of {body}, so nothing lies on one of its sides."
+                ),
+                SplitTool::Surface { surface, .. } => format!(
+                    "{}, carried on past its edges, does not pass through the body of {body}, so \
+                     nothing lies on one of its sides.",
+                    capitalized(surface)
+                ),
+            },
+            Self::Unbuilt { tool, body } => Self::not_split(tool, body),
+            Self::Uncombined {
+                tool,
+                body,
+                trouble,
+            } => trouble.reason(Self::not_split(tool, body)),
+            Self::Surface(cause) => cause.reason(),
+            Self::SweptEmpty { name } => format!("{name} has no curve to split along."),
+            Self::SweptClosed { name } => format!(
+                "The curves of {name} close on themselves, so they do not run across the body \
+                 from one side to the other."
+            ),
+            Self::SweptBroken { name } => {
+                format!("The curves of {name} do not form one chain joined end to end.")
+            }
+            Self::SweptCrossing { name } => format!(
+                "The curve of {name}, carried on straight past its ends, crosses itself, so it \
+                 does not divide the body into two sides."
+            ),
+            Self::OwnBody { body } => format!("The body of {body} cannot be split along itself."),
+        }
+    }
+
+    pub(crate) fn remedy(&self) -> String {
+        match self {
+            Self::Misses { tool, body } => match tool {
+                SplitTool::Plane => "Choose a plane that crosses the body.".to_owned(),
+                SplitTool::Body { .. } => {
+                    format!("Choose a body that passes partly through {body}.")
+                }
+                SplitTool::Sketch { sketch } => {
+                    format!("Draw the curve of {sketch} across the body.")
+                }
+                SplitTool::Surface { .. } => {
+                    "Choose a face whose surface crosses the body.".to_owned()
+                }
+            },
+            Self::Unbuilt { tool, .. } => format!(
+                "{} slightly, so it does not run exactly along a face or edge.",
+                tool.adjust().words()
+            ),
+            Self::Uncombined { trouble, .. } => trouble.remedy(),
+            Self::Surface(cause) => cause.remedy(),
+            Self::SweptEmpty { name } => {
+                format!("Draw an open line, arc or spline across the body in {name}.")
+            }
+            Self::SweptClosed { name } => format!(
+                "Leave {name} one open chain of curves, or split along a body made from it \
+                 instead."
+            ),
+            Self::SweptBroken { name } => format!(
+                "Leave one open chain of curves in {name}, or make the others construction \
+                 geometry."
+            ),
+            Self::SweptCrossing { name } => format!(
+                "Lengthen the curve of {name} so it runs past the body, or draw it without \
+                 crossing itself."
+            ),
+            Self::OwnBody { .. } => "Choose another body to split it along.".to_owned(),
+        }
+    }
+
+    fn not_split(tool: &SplitTool, body: &str) -> String {
+        format!(
+            "The body of {body} could not be split along {}.",
+            tool.words()
+        )
+    }
+}
+
+impl From<SplitCause> for Cause {
+    fn from(cause: SplitCause) -> Self {
+        Self::Split(cause)
     }
 }
 
@@ -313,11 +394,11 @@ pub(crate) fn evaluate(
         .document
         .body_label(definition.body)
         .unwrap_or_default();
-    let words = Words::new(inputs.document, &definition.along, &body_name);
+    let tool = SplitTool::new(inputs.document, &definition.along);
     let context = Context {
         resolver: Resolver { feature, inputs },
         body_name,
-        words,
+        tool,
     };
     let plane = definition
         .along
@@ -325,13 +406,12 @@ pub(crate) fn evaluate(
         .map(|reference| context.resolver.plane(reference))
         .transpose()?;
     let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::Error(Box::new(FeatureError {
-            reason: format!("The body made by {} has no shape.", context.body_name),
-            remedy: format!("Fix {} first.", context.body_name),
-            fix: Some(FixTarget::Feature(definition.body)),
-            constraints: Vec::new(),
-            place: None,
-        })));
+        return Err(Failure::from(
+            FeatureError::new(Upstream::BodyShapeless {
+                body: context.body_name.clone(),
+            })
+            .fixing(FixTarget::Feature(definition.body)),
+        ));
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
@@ -345,13 +425,9 @@ pub(crate) fn evaluate(
             feature,
         )?),
         (SplitAlong::Body(tool), _) if *tool == definition.body => {
-            return Err(context.error(
-                format!(
-                    "The body of {} cannot be split along itself.",
-                    context.body_name
-                ),
-                "Choose another body to split it along.",
-            ));
+            return Err(context.error(SplitCause::OwnBody {
+                body: context.body_name.clone(),
+            }));
         }
         (SplitAlong::Body(tool), _) => Tool::Outside(context.resolver.body(*tool)?),
         (SplitAlong::Sketch(sketch), _) => Tool::Inside(swept(
@@ -426,10 +502,8 @@ fn swept(
         .and_then(|result| result.sketch())
     else {
         let name = feature_name(inputs.document, sketch);
-        return Err(context.resolver.error(
-            format!("It uses {name}, which has an error."),
-            format!("Fix {name} first."),
-            sketch,
+        return Err(Failure::from(
+            FeatureError::new(Upstream::Failed { name }).fixing(FixTarget::Feature(sketch)),
         ));
     };
     swept_half_space(solid, &result.geometry, flipped, feature.id().raw())

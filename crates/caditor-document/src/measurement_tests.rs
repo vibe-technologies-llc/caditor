@@ -438,7 +438,7 @@ fn a_failed_measurement_fails_the_features_reading_it_alone() {
 
     assert!(
         failure(&evaluation, measurement)
-            .reason
+            .reason()
             .contains("has no radius")
     );
     let follows = failure(&evaluation, reader);
@@ -576,7 +576,7 @@ fn a_measurement_reads_an_offset_along_an_axis_a_perimeter_and_a_sweep() {
     assert!((swept.value - 90.0).abs() < 1e-9);
     assert!(
         failure(&evaluation, not_an_arc)
-            .reason
+            .reason()
             .contains("is not an arc")
     );
 }
@@ -717,7 +717,11 @@ fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_ag
     let denser = run(&model.document);
 
     let error = failure(&without, mass);
-    assert!(error.reason.contains("has no density"), "{}", error.reason);
+    assert!(
+        error.reason().contains("has no density"),
+        "{}",
+        error.reason()
+    );
     assert_eq!(error.fix, Some(FixTarget::Feature(model.base)));
     assert!((reading_value(&dense, mass) - 0.64).abs() < 1e-9);
     assert!((reading_value(&denser, mass) - 0.96).abs() < 1e-9);
@@ -765,12 +769,12 @@ fn reading_a_body_quantity_of_anything_else_fails_in_words() {
 
     assert!(
         failure(&evaluation, volume)
-            .reason
+            .reason()
             .contains("is not a body")
     );
     assert!(
         failure(&evaluation, position)
-            .reason
+            .reason()
             .contains("has no position")
     );
 }

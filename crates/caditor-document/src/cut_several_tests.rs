@@ -98,7 +98,11 @@ fn only_a_removal_takes_other_bodies() {
 
     let (failed, error) = evaluation.failures().next().unwrap();
     assert_eq!(failed, cut);
-    assert!(error.reason.contains("Only a removal cuts several bodies"));
+    assert!(
+        error
+            .reason()
+            .contains("Only a removal cuts several bodies")
+    );
     assert!(close(volume(&evaluation, pair.peg), PEG));
 }
 

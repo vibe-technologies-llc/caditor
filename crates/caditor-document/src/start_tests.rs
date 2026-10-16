@@ -213,12 +213,12 @@ fn a_start_plane_that_is_not_parallel_to_the_sketch_fails_the_feature_alone() {
 
     let error = failure(&evaluation, block);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The XZ plane is not parallel to the plane of Outline, so the extrusion cannot start from \
          it."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Choose a face or plane parallel to the sketch, or enter a distance."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(block)));

@@ -209,7 +209,7 @@ fn a_failing_feature_is_skipped_and_the_rest_still_apply() {
     let FeatureState::Failed(error) = &evaluation.feature(model.pocket).unwrap().state else {
         panic!("the pocket should fail");
     };
-    assert_eq!(error.reason, "The distance must be more than zero.");
+    assert_eq!(error.reason(), "The distance must be more than zero.");
     assert_eq!(
         evaluation.feature(model.boss).unwrap().state,
         FeatureState::UpToDate
@@ -363,7 +363,7 @@ fn an_open_sketch_is_reported_against_the_sketch() {
     let FeatureState::Failed(error) = &evaluation.feature(solid).unwrap().state else {
         panic!("an open sketch cannot be extruded");
     };
-    assert_eq!(error.reason, "Open has no closed shape to sweep.");
+    assert_eq!(error.reason(), "Open has no closed shape to sweep.");
     assert_eq!(error.fix, Some(FixTarget::Feature(sketch)));
 }
 
@@ -403,7 +403,7 @@ fn an_outline_with_a_gap_names_the_two_ends_and_how_far_apart_they_are() {
 
     let (first, last) = (lines.first().unwrap(), lines.last().unwrap());
     assert_eq!(
-        error.reason,
+        error.reason(),
         format!(
             "Plate has no closed shape to sweep: an end of Line {first} is 0.5 mm from an end of Line {last}."
         )
@@ -537,7 +537,7 @@ fn renaming_keeps_results_and_refreshes_only_failure_messages() {
     let FeatureState::Failed(error) = &renamed.feature(solid).unwrap().state else {
         panic!("an open sketch cannot be extruded");
     };
-    assert_eq!(error.reason, "Outline has no closed shape to sweep.");
+    assert_eq!(error.reason(), "Outline has no closed shape to sweep.");
 }
 
 #[test]
@@ -588,7 +588,7 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
         panic!("a negative distance should be refused");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The backward distance must be more than zero."
     );
 }
@@ -846,7 +846,7 @@ fn an_import_makes_a_body_named_by_its_own_feature() {
         panic!("an empty import cannot make a body");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The shape imported from “empty.step” could not be read back from the model file."
     );
 }
@@ -984,9 +984,9 @@ fn a_placement_that_is_not_a_length_fails_the_import_alone() {
         panic!("an angle cannot shift a body");
     };
     assert!(
-        error.reason.contains("distance along Y"),
+        error.reason().contains("distance along Y"),
         "{}",
-        error.reason
+        error.reason()
     );
     assert!(BodyPlacement::default().is_at_origin());
 }
@@ -1008,14 +1008,14 @@ fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
         panic!("regions on both sides of the axis cannot revolve");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         format!(
             "In Section, {label} lies on the other side of the revolution axis from the rest of \
              the profile."
         )
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Keep one side of the axis, choose only the regions on one side, or choose another axis."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(body)));
@@ -1035,7 +1035,7 @@ fn a_revolve_keeping_one_side_of_its_axis_turns_only_the_part_of_the_profile_the
         let (document, body) = single_body(one_sided(side), section.clone());
         let evaluation = evaluate(&document, &mut Recompute::default());
         match &evaluation.feature(body).unwrap().state {
-            FeatureState::Failed(error) => Err(error.reason.clone()),
+            FeatureState::Failed(error) => Err(error.reason().clone()),
             _ => Ok(volume(&evaluation, body)),
         }
     };
@@ -1104,11 +1104,11 @@ fn a_revolve_keeping_a_side_with_nothing_on_it_says_so() {
         panic!("nothing lies on the left of the axis");
     };
     assert_eq!(
-        error.reason,
+        error.reason(),
         "No part of the profile of Section lies on the left side of the revolution axis."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Keep the other side, or choose regions on this side of the axis."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(body)));
@@ -1124,8 +1124,8 @@ fn a_distance_beyond_a_kilometre_is_refused_in_words() {
     let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
         panic!("a two-kilometre extrusion should be refused");
     };
-    assert_eq!(error.reason, "The distance cannot be more than 1000 m.");
-    assert_eq!(error.remedy, "Enter a distance of at most 1000 m.");
+    assert_eq!(error.reason(), "The distance cannot be more than 1000 m.");
+    assert_eq!(error.remedy(), "Enter a distance of at most 1000 m.");
 }
 
 #[test]
@@ -1358,7 +1358,7 @@ fn a_start_offset_that_cannot_be_evaluated_or_reaches_too_far_fails_the_extrusio
         let FeatureState::Failed(error) = &evaluation.feature(base).unwrap().state else {
             panic!("the extrusion should fail for {start}");
         };
-        assert!(error.reason.starts_with(reason), "{}", error.reason);
+        assert!(error.reason().starts_with(reason), "{}", error.reason());
         assert_eq!(evaluation.failed_count(), 1);
     }
 }

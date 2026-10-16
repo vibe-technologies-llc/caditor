@@ -8,6 +8,7 @@ mod combine;
 mod configuration_import;
 mod configurations;
 mod datum;
+mod datum_cause;
 mod datum_construction;
 mod delete_face;
 mod dependencies;
@@ -16,6 +17,7 @@ mod document;
 mod edge_run;
 mod edit;
 mod editor;
+mod failure;
 mod feature_list;
 mod grouping;
 mod healing;
@@ -30,6 +32,7 @@ mod lookahead;
 mod mate;
 mod mate_placement;
 mod measurement;
+mod measurement_cause;
 mod mirror;
 mod model_parameters;
 mod model_scale;
@@ -62,12 +65,14 @@ mod section;
 mod selection_sets;
 mod shell;
 mod solid;
+mod solid_cause;
 mod split;
 mod split_edges;
 mod split_face;
 mod step_text;
 mod surface_tool;
 mod sweep;
+mod sweep_cause;
 mod thread;
 mod thread_standard;
 mod tolerance;
@@ -1078,7 +1083,7 @@ mod tests {
 
         let error = failure(&evaluation, ids.base);
         assert_eq!(
-            error.reason,
+            error.reason(),
             "Distance between Point 0 and Point 1 cannot be evaluated: it gives an angle, but a \
              length is needed."
         );
@@ -1121,12 +1126,12 @@ mod tests {
         );
         let error = failure(&evaluation, ids.base);
         assert_eq!(
-            error.reason,
+            error.reason(),
             "Distance between Point 0 and Point 1 cannot be evaluated: it uses width, which has \
              an error."
         );
         assert_eq!(
-            error.remedy,
+            error.remedy(),
             "Fix width under Parameters, or edit this dimension."
         );
         assert_eq!(error.fix, Some(FixTarget::Parameter(ids.width)));
@@ -1236,11 +1241,11 @@ mod tests {
         let error = failure(&evaluation, feature);
         assert!(
             error
-                .reason
+                .reason()
                 .starts_with("The sketch has 2 separate problems. (1) ")
         );
-        assert!(error.reason.contains(" (2) "));
-        assert!(error.remedy.starts_with("Fix each of them. (1) "));
+        assert!(error.reason().contains(" (2) "));
+        assert!(error.remedy().starts_with("Fix each of them. (1) "));
         assert_eq!(
             error.constraints,
             [
@@ -1284,11 +1289,11 @@ mod tests {
 
         let error = failure(&evaluation, replaced);
         assert_eq!(
-            error.reason,
+            error.reason(),
             "Vertical Line 2 conflicts with Horizontal Line 2."
         );
         assert_eq!(
-            error.remedy,
+            error.remedy(),
             "Delete or change one of these constraints, or undo the last change."
         );
         assert_eq!(
@@ -1334,7 +1339,7 @@ mod tests {
 
         let error = failure(&evaluation, feature);
         assert_eq!(
-            error.reason,
+            error.reason(),
             "Horizontal Point 0 and Origin conflicts with Fix Point 0."
         );
         assert_eq!(error.constraints, [fixed, level]);
@@ -1358,11 +1363,11 @@ mod tests {
         let evaluation = recompute(&mut Recompute::default(), &document);
         let error = failure(&evaluation, feature);
         assert_eq!(
-            error.reason,
+            error.reason(),
             "Diameter of Circle 2 cannot be evaluated: a diameter must be greater than zero."
         );
         assert_eq!(
-            error.remedy,
+            error.remedy(),
             "Edit the dimension so it gives more than zero."
         );
     }
@@ -1386,11 +1391,11 @@ mod tests {
         let unknown = recompute::unsolvable_error(feature, &sketch, &[], None);
 
         assert_eq!(
-            many.reason,
+            many.reason(),
             "Line 2, Line 5, Line 8 and 2 more could not be solved from their current shape."
         );
         assert_eq!(
-            many.remedy,
+            many.remedy(),
             "Delete or change Horizontal Line 14, the newest constraint on them, or undo the last \
              change."
         );
@@ -1402,16 +1407,19 @@ mod tests {
             })
         );
         assert_eq!(
-            one.reason,
+            one.reason(),
             "Line 2 could not be solved from its current shape."
         );
-        assert_eq!(one.remedy, "Delete and redraw it, or undo the last change.");
+        assert_eq!(
+            one.remedy(),
+            "Delete and redraw it, or undo the last change."
+        );
         assert_eq!(one.fix, Some(FixTarget::Feature(feature)));
         assert_eq!(
-            unknown.reason,
+            unknown.reason(),
             "The sketch could not be solved from its current shape."
         );
-        assert_eq!(unknown.remedy, "Undo the last change.");
+        assert_eq!(unknown.remedy(), "Undo the last change.");
     }
 
     #[test]

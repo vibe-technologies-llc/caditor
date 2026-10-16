@@ -188,30 +188,30 @@ fn a_wrong_class_size_or_face_fails_the_thread_alone_in_words() {
 
     let error = failure(&evaluation, inside);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The threaded face is a shaft, but the class 6H is not one ISO metric coarse offers for \
          an external thread."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Choose a class for an external thread, such as 6g."
     );
     let error = failure(&evaluation, large);
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The shaft is 8 mm across, too narrow for the M12 thread, whose minor diameter is 9.85 mm."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Choose M8 instead, or change the shaft's diameter."
     );
     assert!(
         failure(&evaluation, flat)
-            .reason
+            .reason()
             .ends_with("is not cylindrical, so it cannot carry a thread.")
     );
     assert_eq!(
-        failure(&evaluation, lost).reason,
+        failure(&evaluation, lost).reason(),
         "The threaded face is no longer part of the body of Shaft."
     );
     assert_eq!(evaluation.body(shaft).unwrap(), &solid);
@@ -434,11 +434,11 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
     let error = failure(&evaluation, hole);
 
     assert_eq!(
-        error.reason,
+        error.reason(),
         "The class 6g is not one ISO metric coarse offers for a tapped hole."
     );
     assert_eq!(
-        error.remedy,
+        error.remedy(),
         "Choose a class for an internal thread, such as 6H."
     );
 
@@ -452,7 +452,7 @@ fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(
-        failure(&evaluation, hole).reason,
+        failure(&evaluation, hole).reason(),
         "The thread depth must be more than zero."
     );
 }
