@@ -448,6 +448,9 @@ pub(crate) enum CoilCause {
     NoDirection {
         name: String,
     },
+    StartOnAxis {
+        name: String,
+    },
 }
 
 impl CoilCause {
@@ -485,6 +488,9 @@ impl CoilCause {
             Self::TooFar { name } => format!("{name} reaches too far from the origin."),
             Self::Unbuildable { name, .. } => format!("{name} cannot be built with these sizes."),
             Self::NoDirection { name } => format!("The axis of {name} has no direction."),
+            Self::StartOnAxis { name } => {
+                format!("The start point of {name} lies on its axis, so it has no angle round it.")
+            }
         }
     }
 
@@ -524,6 +530,9 @@ impl CoilCause {
                 "Change its diameter, section, pitch or taper.".to_owned()
             }
             Self::NoDirection { .. } => "Choose another axis.".to_owned(),
+            Self::StartOnAxis { .. } => {
+                "Pick a point off the axis, or type a start angle instead.".to_owned()
+            }
         }
     }
 }

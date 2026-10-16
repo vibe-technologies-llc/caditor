@@ -239,6 +239,11 @@ pub fn feature_kind(
             taper: scene.turn(input)?,
             turning: *input.choose(&CoilTurning::ALL)?,
             start: scene.turn(input)?,
+            start_point: if input.arbitrary()? {
+                Some(scene.point(input)?)
+            } else {
+                None
+            },
         }),
         Family::Rib => FeatureKind::Rib(Rib {
             sketch: scene.sketch(input)?,

@@ -222,7 +222,12 @@ Extrusions and revolves:
   around a `helix` record (`feature`) with `start`, the start angle's text (unreadable 0 deg,
   reported), written only when the start is not a literal zero; an older reader reports the helix
   as from a newer version rather than starting it elsewhere; a wrapped kind that is not a helix
-  loads without it, reported. The corpus holds it in `helix-starts.caditor`.
+  loads without it, reported. The corpus holds it in `helix-starts.caditor`. `helix_point`: a
+  wrapper around a `helix` or `helix_start` record (`feature`) with `point`, the point reference
+  the helix starts at (unreadable: the helix loads starting at its typed angle, reported), written
+  only when `start_point` is set; an older reader reports the helix as from a newer version rather
+  than starting it elsewhere; a wrapped kind that is not a helix loads without it, reported. The
+  corpus holds it in `helix-points.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

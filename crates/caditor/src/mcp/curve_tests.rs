@@ -87,6 +87,33 @@ fn helices_are_wound_edited_and_followed() {
 }
 
 #[test]
+fn a_helix_starts_at_a_picked_point_until_an_angle_is_typed_again() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [0.0, 0.0], "Block");
+
+    let helix = added(
+        &mut client,
+        "add_helix",
+        json!({ "axis": "Z", "start_point": { "body": block, "corner": [10, 10, 0] } }),
+    );
+    let pointed = saved_helix(&mut client, &folder);
+
+    assert!(pointed.start_point.is_some());
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "start_angle": "30 deg" }),
+    );
+    let typed = saved_helix(&mut client, &folder);
+
+    assert_eq!(typed.start_point, None);
+    assert_eq!(typed.start, Expression::parse_stored("30 deg").unwrap());
+    client.finish();
+}
+
+#[test]
 fn curve_and_point_patterns_follow_their_sketches() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

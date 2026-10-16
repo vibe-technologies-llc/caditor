@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
-use caditor_kernel::{HelixError, HelixSpec, HelixTurn, helix};
+use caditor_kernel::{HelixError, HelixSpec, HelixTurn, LINEAR_RESOLUTION, helix};
 
 use crate::{
     coil::{self, CoilCause, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
-    datum::AxisReference,
+    datum::{AxisReference, PointReference},
     document::{Feature, FeatureId},
     primitive::Context,
     recompute::{CancelToken, Failure, FeatureResult, Inputs},
@@ -23,6 +23,7 @@ pub struct Helix {
     pub taper: Expression,
     pub turning: CoilTurning,
     pub start: Expression,
+    pub start_point: Option<PointReference>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +57,7 @@ impl Helix {
             taper: Expression::measure(0.0, Unit::Degree),
             turning: CoilTurning::CounterClockwise,
             start: Expression::measure(0.0, Unit::Degree),
+            start_point: None,
         }
     }
 
@@ -91,21 +93,38 @@ impl Helix {
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
+        let point = self.start_point.as_ref();
         self.axis
             .datum()
             .into_iter()
             .chain(self.axis.body())
             .chain(self.axis.sketch())
             .chain(self.axis.frame())
+            .chain(point.and_then(PointReference::datum))
+            .chain(point.and_then(PointReference::body))
+            .chain(point.and_then(PointReference::sketch))
+            .chain(point.and_then(PointReference::frame))
             .collect()
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
-        self.axis.origin_features()
+        self.axis
+            .origin_features()
+            .into_iter()
+            .chain(
+                self.start_point
+                    .iter()
+                    .flat_map(PointReference::origin_features),
+            )
+            .collect()
     }
 
     pub fn heap_size(&self) -> usize {
         self.axis.heap_size()
+            + self
+                .start_point
+                .as_ref()
+                .map_or(0, PointReference::heap_size)
             + self
                 .expressions()
                 .into_iter()
@@ -152,13 +171,13 @@ pub(crate) fn evaluate(
     let diameter = context.size(&definition.diameter, "diameter")?;
     let span = coil::span(&context, &definition.length)?;
     let taper = coil::taper(&context, &definition.taper)?;
-    let start = context.value_as(&definition.start, "start angle", Dimension::ANGLE)?;
     let axis = context.resolver().axis(&definition.axis)?;
     let frame = definition.frame(axis).ok_or_else(|| {
         context.error(CoilCause::NoDirection {
             name: feature.name.clone(),
         })
     })?;
+    let start = start_angle(&context, feature, definition, &frame)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -169,8 +188,28 @@ pub(crate) fn evaluate(
         turns: span.turns,
         taper,
         hand: definition.turning.hand(),
-        start_angle: start.to_radians(),
+        start_angle: start,
     };
     let turns = helix(&spec).map_err(|error| failure(&context, feature, &error))?;
     Ok(FeatureResult::Helix(HelixResult { frame, turns }))
+}
+
+fn start_angle(
+    context: &Context<'_>,
+    feature: &Feature,
+    definition: &Helix,
+    frame: &Plane,
+) -> Result<f64, Failure> {
+    let Some(reference) = &definition.start_point else {
+        let typed = context.value_as(&definition.start, "start angle", Dimension::ANGLE)?;
+        return Ok(typed.to_radians());
+    };
+    let point = context.resolver().point(reference)?;
+    let around = frame.to_local(point);
+    if around.length() <= LINEAR_RESOLUTION {
+        return Err(context.error(CoilCause::StartOnAxis {
+            name: feature.name.clone(),
+        }));
+    }
+    Ok(around.y.atan2(around.x))
 }

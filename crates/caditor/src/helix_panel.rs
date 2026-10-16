@@ -1,12 +1,13 @@
 use caditor_document::{
     CoilSizing, CoilTurning, Feature, FeatureId, Helix, Transaction, capitalized, describe_axis,
+    describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
     coil_panel::{self, AXIS, DIAMETER, SIZED_BY, TAPER, TURNING},
-    feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment},
+    feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment, Shown},
     helix_tools::{self, HelixError},
     model::{Action, Model},
     reference_picking::Slot,
@@ -17,6 +18,11 @@ use crate::{
 pub const DESCRIPTION: &str = "A helix curve winding around an axis from the axis's start along \
                                it, for a sweep or pipe to follow";
 pub const START_ANGLE: &str = "Start angle";
+pub const STARTS_AT: &str = "Starts at";
+pub const BY_ANGLE: &str = "The start angle below";
+const START_POINT_HOVER: &str =
+    "Start the helix at the angle of the selected corner, round edge, sketch point or datum point";
+const START_POINT_REMOVE_HOVER: &str = "Start at the typed angle again";
 const PICK_HOVER: &str = "Wind around the selected axis, straight edge, round face or sketch line";
 
 fn sizing_hover(sizing: CoilSizing) -> &'static str {
@@ -172,7 +178,48 @@ impl Panel<'_> {
         });
     }
 
+    fn start_point_row(&mut self, ui: &mut Ui) {
+        let (model, id, helix) = (self.model, self.id(), self.helix);
+        let shown = match &helix.start_point {
+            Some(point) => Shown::Named(capitalized(&describe_point(model.document(), point))),
+            None => Shown::Named(BY_ANGLE.to_owned()),
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::HelixStart,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                model,
+                self.selection,
+                (id, Slot::HelixStart),
+                || helix_tools::start_point_change(model, self.selection, id, helix),
+            ),
+            hover: START_POINT_HOVER,
+        };
+        let mut actions = Vec::new();
+        let removed = feature_fields::reference_row(
+            ui,
+            model,
+            STARTS_AT,
+            shown,
+            picker,
+            helix
+                .start_point
+                .is_some()
+                .then_some(START_POINT_REMOVE_HOVER),
+            &mut actions,
+        );
+        self.actions.extend(actions);
+        if removed {
+            self.apply(helix_tools::with_start_point(helix, None));
+        }
+    }
+
     fn start_row(&mut self, ui: &mut Ui) {
+        self.start_point_row(ui);
+        if self.helix.start_point.is_some() {
+            return;
+        }
         let helix = self.helix.clone();
         let field = ("start", &self.helix.start, Dimension::ANGLE, Rule::Any);
         self.value_row(ui, START_ANGLE, field, move |start| Helix {

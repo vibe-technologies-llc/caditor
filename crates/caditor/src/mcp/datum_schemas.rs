@@ -122,7 +122,8 @@ pub fn helix() -> Value {
             "pitch": amount("The rise per turn"),
             "height": amount("The whole height"),
             "taper": amount("A cone angle, such as \"5 deg\""),
-            "start_angle": amount("Where the helix starts round its axis, an angle counter-clockwise from its frame's X direction; 0 deg by default"),
+            "start_angle": amount("Where the helix starts round its axis, an angle counter-clockwise from its frame's X direction; 0 deg by default. Giving it clears start_point"),
+            "start_point": point(),
             "clockwise": flag("Wind clockwise instead of counter-clockwise"),
             "name": name()
         }),

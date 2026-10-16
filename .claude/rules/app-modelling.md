@@ -571,9 +571,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   turns at a pitch of 5 mm, counter-clockwise, and opens it; with no axis selected it winds round Z
   and starts choosing one (`Slot::HelixAxis`), as a coil does. It makes no body.
 - Panel (`helix_panel.rs`): a description, Axis with Reverse direction, Sized by and its two fields,
-  Diameter, Taper, Start angle (`helix_panel::START_ANGLE`, any angle) and Turning, built like the
-  coil's (`coil_panel::length_fields`, `with_length_value`, `turning_hover`; `helix_tools::sized_by`
-  through `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" |
+  Diameter, Taper, Starts at (`STARTS_AT`: a `Slot::HelixStart` picker for a corner, round edge,
+  sketch point or datum point made before the helix, `datum_tools::only_point`, through
+  `helix_tools::start_point_change`; its remove button, `with_start_point(None)`, returns to the
+  typed angle; a point on the axis is applied and fails the helix in words, the kernel never sees
+  it), Start angle (`helix_panel::START_ANGLE`, any angle, shown only while no point is chosen) and
+  Turning, built like the coil's (`coil_panel::length_fields`, `with_length_value`,
+  `turning_hover`; `helix_tools::sized_by` through `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" |
   "taper" | "start" | "turns" | "pitch" | "height")`. Reverse direction flips `reversed`. Its value
   arrows are the coil's `Measured::CoilDiameter`, `CoilPitch` and `CoilHeight` (Value handles).
 - The scene draws a built helix like a datum (`Builder::helix`: `helix_tools::points`, 64 per turn,

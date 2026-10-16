@@ -10665,6 +10665,58 @@ fn a_helix_started_at_an_angle_wraps_its_record_so_an_older_reader_leaves_it_out
 }
 
 #[test]
+fn a_helix_started_at_a_point_wraps_its_record_so_an_older_reader_leaves_it_out() {
+    use caditor_document::{AxisReference, Helix, PointReference, PrincipalAxis};
+    let (mut document, _, _) = solid_model();
+    let mut transaction = document.transaction("Helix at a point");
+    let mut marks = Sketch::new(Plane::XY);
+    let mark = marks.add_point(Point2::new(3.0, 4.0));
+    let marks = transaction.add_feature("Marks", FeatureKind::from(marks));
+    let helix = transaction.add_feature(
+        "Helix 1",
+        FeatureKind::Helix(Helix {
+            start: Expression::parse_stored("30 deg").unwrap(),
+            start_point: Some(PointReference::Sketch {
+                sketch: marks,
+                entity: mark,
+            }),
+            ..Helix::new(
+                AxisReference::Principal(PrincipalAxis::Z),
+                Expression::parse_stored("20 mm").unwrap(),
+            )
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("helix_point", "helix_pint"));
+    let damaged = decode_text(&text.replacen("\"point\":{\"sketch\":", "\"point\":{\"stray\":", 1));
+    let restored = damaged
+        .document
+        .feature(helix)
+        .and_then(|feature| feature.kind.helix())
+        .unwrap();
+
+    assert!(
+        text.contains("\"helix_point\":{\"feature\":{\"helix_start\":{"),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(helix).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("starts at"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(restored.start_point, None);
+    assert_eq!(restored.start, Expression::parse_stored("30 deg").unwrap());
+}
+
+#[test]
 fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
     let (document, helix, _) = helix_model();
     let text = encode(&document)

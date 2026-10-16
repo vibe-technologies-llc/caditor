@@ -327,6 +327,7 @@ pub(crate) enum FeatureKindRecord {
     Helix(Box<HelixRecord>),
     AlongHelix(Box<AlongHelixRecord>),
     HelixStart(Box<HelixStartRecord>),
+    HelixPoint(Box<HelixPointRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
@@ -363,6 +364,12 @@ pub(crate) enum RibEndsRecord {
 pub(crate) struct HelixStartRecord {
     pub feature: FeatureKindRecord,
     pub start: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixPointRecord {
+    pub feature: FeatureKindRecord,
+    pub point: Lenient<PointReferenceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1037,7 +1044,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 86] = [
+pub(crate) const FEATURE_KINDS: [&str; 87] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1121,6 +1128,7 @@ pub(crate) const FEATURE_KINDS: [&str; 86] = [
     "helix",
     "along_helix",
     "helix_start",
+    "helix_point",
     "shaped_rib",
     "sweep_shape",
     "loft_ends",
@@ -3797,6 +3805,16 @@ fn starts_where_its_frame_points(start: &Expression) -> bool {
 
 fn helix_record(helix: &Helix) -> FeatureKindRecord {
     let text = Expression::to_stored_text;
+    if let Some(point) = &helix.start_point {
+        let typed = Helix {
+            start_point: None,
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixPoint(Box::new(HelixPointRecord {
+            feature: helix_record(&typed),
+            point: Lenient::Read(point_record(point)),
+        }));
+    }
     if !starts_where_its_frame_points(&helix.start) {
         let plain = Helix {
             start: Expression::measure(0.0, Unit::Degree),
@@ -3870,6 +3888,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
         taper,
         turning: restore_turning(record.turning),
         start: Expression::measure(0.0, Unit::Degree),
+        start_point: None,
     }
 }
 
@@ -6214,6 +6233,28 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to start at an angle round its axis, but it is not a helix, so \
                      that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::HelixPoint(pointed) => {
+            let mut kind = restore_kind(&pointed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.start_point = match &pointed.point {
+                        Lenient::Read(point) => restore_point(point),
+                        Lenient::Unreadable(_) => None,
+                    };
+                    if helix.start_point.is_none() {
+                        issues.push(format!(
+                            "The point “{name}” starts at could not be read, so it starts at its \
+                             start angle."
+                        ));
+                    }
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to start at a point, but it is not a helix, so that was left \
+                     out."
                 )),
             }
             kind
