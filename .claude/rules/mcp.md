@@ -72,7 +72,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
 - References are by stable identity only (`references.rs`): features and bodies by id or name,
   sketch entities by id or `origin`, `horizontal_axis`, `vertical_axis`, faces by a key of their
   `FaceName` digest and occurrence (`face_key_text`), edges by their `EdgeName` digest
-  (`places::edge_key_text`), resolved on the body as it stands now. `places.rs` turns a plane
+  (`places::edge_key_text`), resolved on the body as it stands now, or as a feature received it when
+  editing that feature or listing with `before` (below). `places.rs` turns a plane
   (`XY`/`XZ`/`YZ`, `{body, face}` through `attachment_in`, `{datum}`, `{frame, plane}`), an axis
   (`X`/`Y`/`Z`, `{body, edge}`, `{body, face}`, `{sketch, line}`, `{datum}`, `{frame, axis}`) or a
   point (`"origin"`, a corner `{body, corner: [x, y, z]}` found among the shown body's vertices
@@ -154,8 +155,17 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   optional so an edit gives only what changes: the same `*_built` function runs with the feature's
   kind as its base, keeping every part not given (references too, so a fillet's edges need not be
   named again), and a missing required argument is `FeatureError::Missing` only when adding. The
-  change is the app's own `edit` transaction for the kind (`SetFeatureKind`, carrying parameter
-  owners where the app does), labelled `Edit <name>`, plus `Edit::RenameFeature` for a new
+  edit first evaluates, then runs the rebuild inside `Session::looking_before(feature, …)`
+  for a feature that changes a body (`FeatureKind::modifies_body`, so
+  `Evaluation::body_before` exists): `Session::document()` and `evaluation()` then answer with the
+  document rolled back to before the feature (`Document::rolled_back_before`) and the evaluation
+  with the feature's body pointed at its input (`Evaluation::standing_before`), so every
+  resolver (`references::face`, `places::edge`, `face_at_bar`, datums above the bar) finds faces
+  and edges as the app's open feature does, an edge a fillet rounded away included. A key the
+  input lacks is `FeatureEditError::NoFaceBefore` or `NoEdgeBefore`, pointing at `list_faces` and
+  `list_edges` with `before` (a feature, `edits::viewed_before`; `NothingBefore` for one that
+  changes no body). Other kinds resolve on the body as it stands. The change is the app's own
+  `edit` transaction for the kind (`SetFeatureKind`, carrying parameter owners where the app does), labelled `Edit <name>`, plus `Edit::RenameFeature` for a new
   `name`, one undo step.
 - Tree edits (`tree_edits.rs`) use the tree's own transactions: `Edit::RenameFeature`,
   `Document::suppression`, `Document::move_row` before or after another feature (its
@@ -263,7 +273,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   tangent arc continuing an item of the same call and a conic's rho held by a parameter.
   `mcp/edit_tests.rs` edits primitives, extrusions, patterns, revolves, fillets and holes by
   volume, with undo, renaming and refusals, and checks extrusion ends (curved faces, second sides), regions, walls, directions, offsets and tapers,
-  revolves up to a plane, and hole standards, heads, threads, steps, slots, drill points and circle sizing. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
+  revolves up to a plane, edits naming the edges and faces a fillet or shell received, and hole standards, heads, threads, steps, slots, drill points and circle sizing. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
   threads, scales, splits, split faces and deleted faces by volumes, body and face counts.
   `mcp/datum_tests.rs` places datum planes, axes, points and coordinate systems every way and
   edits them, probing each with a box placed on, mated to or turned about it, and mates bodies by

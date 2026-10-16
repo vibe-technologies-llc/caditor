@@ -45,7 +45,7 @@ pub use crate::{
     },
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
-    lighting::{LightDirection, Lighting},
+    lighting::{LightDirection, Lighting, Surroundings},
     machine::Machine,
     mesh::{
         Corner, Division, FaceStyle, MeshFace, MeshInstance, MeshPoint, MeshSource, Piece,

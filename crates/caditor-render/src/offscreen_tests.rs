@@ -5257,6 +5257,7 @@ fn lit_by(azimuth: f64, elevation: f64) -> crate::Lighting {
         shadows: false,
         bounce: 0.0,
         occlusion: 0.0,
+        surroundings: crate::Surroundings::default(),
     }
 }
 
@@ -5601,6 +5602,125 @@ fn the_rendered_view_draws_a_blue_sky_and_the_ground_catches_a_body_s_shadow() {
         "{:?} {:?}",
         pixel(&lit, shadow),
         pixel(&unshadowed, shadow)
+    );
+}
+
+#[test]
+fn a_plain_backdrop_replaces_the_sky_with_its_colour_and_a_visible_floor_takes_the_shadow() {
+    let cube = Arc::new(box_mesh(10.0));
+    let grey = Color::from_rgb8(180, 180, 180);
+    let resting = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
+    let view = oblique_view(160.0);
+    let shadow = view.project(Point3::new(14.0, -14.0, 0.0)).unwrap();
+    let sunlit = view.project(Point3::new(26.0, -26.0, 0.0)).unwrap();
+    let plain = Color::from_rgb8(200, 40, 40);
+    let scene_with = |surroundings: crate::Surroundings| Scene {
+        meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            environment: 1.0,
+            surroundings,
+            ..lit_by(
+                3.0 * std::f64::consts::FRAC_PI_4,
+                std::f64::consts::FRAC_PI_4,
+            )
+        }),
+        ..Scene::default()
+    };
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let shot = |scene: &Scene| {
+        let mut renderer = viewport_renderer(&device, 4);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, shadow),
+        )
+    };
+    let corner = DVec2::new(5.0, 2.0);
+    let bottom = DVec2::new(5.0, f64::from(SIZE) - 3.0);
+
+    let sky = shot(&scene_with(crate::Surroundings::default()));
+    let coloured = shot(&scene_with(crate::Surroundings {
+        backdrop: Some(plain),
+        floor: false,
+    }));
+    let floored = shot(&scene_with(crate::Surroundings {
+        backdrop: None,
+        floor: true,
+    }));
+    let floored_plain = shot(&scene_with(crate::Surroundings {
+        backdrop: Some(plain),
+        floor: true,
+    }));
+
+    for at in [corner, bottom] {
+        let seen = pixel(&coloured, at);
+        assert!(
+            seen[0].abs_diff(200) <= 2 && seen[1].abs_diff(40) <= 2 && seen[2].abs_diff(40) <= 2,
+            "{seen:?}"
+        );
+    }
+    assert_eq!(pixel(&coloured, shadow), pixel(&coloured, corner));
+    let sky_floor = pixel(&sky, sunlit);
+    let lit_floor = pixel(&floored, sunlit);
+    let shaded_floor = pixel(&floored, shadow);
+    let plain_floor = pixel(&floored_plain, sunlit);
+
+    assert!(sky_floor[2] > sky_floor[0] + 20, "{sky_floor:?}");
+    assert!(lit_floor[0].abs_diff(lit_floor[2]) < 25, "{lit_floor:?}");
+    assert!(
+        brightness(lit_floor) > brightness(shaded_floor) + 40,
+        "{lit_floor:?} {shaded_floor:?}"
+    );
+    assert!(
+        plain_floor[0].abs_diff(plain_floor[2]) < 25,
+        "{plain_floor:?}"
+    );
+}
+
+#[test]
+fn a_visible_floor_in_an_orthographic_view_holds_the_shadow_where_the_body_projects_it() {
+    let cube = Arc::new(box_mesh(10.0));
+    let grey = Color::from_rgb8(180, 180, 180);
+    let resting = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
+    let view = oblique_view(160.0).with_projection(crate::Projection::Orthographic);
+    let shadow = view.project(Point3::new(14.0, -14.0, 0.0)).unwrap();
+    let sunlit = view.project(Point3::new(26.0, -26.0, 0.0)).unwrap();
+    let scene = Scene {
+        meshes: vec![finished_mesh(&cube, grey, MATTE, resting)],
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            surroundings: crate::Surroundings {
+                backdrop: None,
+                floor: true,
+            },
+            ..lit_by(
+                3.0 * std::f64::consts::FRAC_PI_4,
+                std::f64::consts::FRAC_PI_4,
+            )
+        }),
+        ..Scene::default()
+    };
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mut renderer = viewport_renderer(&device, 4);
+
+    let rendered = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, shadow),
+    );
+
+    assert!(
+        brightness(pixel(&rendered, sunlit)) > brightness(pixel(&rendered, shadow)) + 40,
+        "{:?} {:?}",
+        pixel(&rendered, sunlit),
+        pixel(&rendered, shadow)
     );
 }
 

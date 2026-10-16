@@ -1,7 +1,8 @@
 use std::{ops::RangeInclusive, sync::Arc};
 
+use caditor_document::Rgb;
 use caditor_file::Settings;
-use caditor_render::{Backdrop, Environment, LightDirection};
+use caditor_render::{Backdrop, Color, Environment, LightDirection, Surroundings};
 
 use crate::preferences::Choice;
 
@@ -16,6 +17,8 @@ const EXPOSURE_KEY: &str = "rendering.exposure";
 const SHADOWS_KEY: &str = "rendering.shadows";
 const BACKDROP_TURN_KEY: &str = "rendering.backdrop_turn";
 const BACKDROP_EXPOSURE_KEY: &str = "rendering.backdrop_exposure";
+const BACKDROP_COLOUR_KEY: &str = "rendering.backdrop_colour";
+const FLOOR_KEY: &str = "rendering.floor";
 const OCCLUSION_KEY: &str = "rendering.occlusion";
 pub const AZIMUTH: RangeInclusive<f64> = -180.0..=180.0;
 pub const ELEVATION: RangeInclusive<f64> = 0.0..=90.0;
@@ -79,6 +82,8 @@ pub struct Lighting {
     pub shadows: bool,
     pub backdrop_turn: f64,
     pub backdrop_exposure: f64,
+    pub backdrop_colour: Option<Rgb>,
+    pub floor: bool,
 }
 
 impl Default for Lighting {
@@ -96,6 +101,8 @@ impl Default for Lighting {
             shadows: true,
             backdrop_turn: 0.0,
             backdrop_exposure: 0.0,
+            backdrop_colour: None,
+            floor: false,
         }
     }
 }
@@ -124,6 +131,8 @@ impl Lighting {
                 BACKDROP_EXPOSURE,
                 defaults.backdrop_exposure,
             ),
+            backdrop_colour: raw.text(BACKDROP_COLOUR_KEY).and_then(Rgb::from_hex),
+            floor: raw.flag(FLOOR_KEY).unwrap_or(defaults.floor),
         }
     }
 
@@ -140,6 +149,11 @@ impl Lighting {
         settings.set_flag(SHADOWS_KEY, self.shadows);
         settings.set_number(BACKDROP_TURN_KEY, self.backdrop_turn);
         settings.set_number(BACKDROP_EXPOSURE_KEY, self.backdrop_exposure);
+        match self.backdrop_colour {
+            Some(colour) => settings.set_text(BACKDROP_COLOUR_KEY, &colour.hex()),
+            None => settings.remove(BACKDROP_COLOUR_KEY),
+        }
+        settings.set_flag(FLOOR_KEY, self.floor);
     }
 
     pub fn render(&self) -> caditor_render::Lighting {
@@ -157,6 +171,16 @@ impl Lighting {
             shadows: self.shadows,
             bounce: self.bounce as f32,
             occlusion: self.occlusion as f32,
+            surroundings: self.surroundings(),
+        }
+    }
+
+    pub fn surroundings(&self) -> Surroundings {
+        Surroundings {
+            backdrop: self
+                .backdrop_colour
+                .map(|colour| Color::from_rgb8(colour.red, colour.green, colour.blue)),
+            floor: self.floor,
         }
     }
 
@@ -241,6 +265,8 @@ mod tests {
             shadows: false,
             backdrop_turn: -45.0,
             backdrop_exposure: 1.5,
+            backdrop_colour: Some(Rgb::new(0x20, 0x40, 0x80)),
+            floor: true,
         };
         let mut settings = Settings::default();
         lighting.write(&mut settings);
@@ -256,11 +282,41 @@ mod tests {
             Lighting::default()
         );
         odd.set_number(BACKDROP_TURN_KEY, 900.0);
+        odd.set_text(BACKDROP_COLOUR_KEY, "blue");
+        odd.set_text(FLOOR_KEY, "yes");
         let read = Lighting::from_settings(&odd);
         assert_eq!(read.backdrop_turn, *BACKDROP_TURN.end());
         assert_eq!(read.frame, LightFrame::Model);
+        assert_eq!(read.backdrop_colour, None);
+        assert!(!read.floor);
         assert_eq!(read.elevation, *ELEVATION.end());
         assert_eq!(read.strength, Lighting::default().strength);
+    }
+
+    #[test]
+    fn a_plain_backdrop_and_the_floor_reach_the_renderer_and_forgetting_them_clears_the_keys() {
+        let lighting = Lighting {
+            backdrop_colour: Some(Rgb::new(0x20, 0x40, 0x80)),
+            floor: true,
+            ..Lighting::default()
+        };
+        let mut settings = Settings::default();
+        lighting.write(&mut settings);
+        Lighting::default().write(&mut settings);
+
+        let surroundings = lighting.surroundings();
+
+        assert_eq!(
+            surroundings.backdrop,
+            Some(Color::from_rgb8(0x20, 0x40, 0x80))
+        );
+        assert!(surroundings.floor);
+        assert_eq!(settings.text(BACKDROP_COLOUR_KEY), None);
+        assert_eq!(Lighting::from_settings(&settings), Lighting::default());
+        assert_eq!(
+            Lighting::default().render().surroundings,
+            Surroundings::default()
+        );
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::{
     feature_tree::count,
     field::{self, Expected, ExpressionError},
     model::Model,
-    modifying::{Hint, Outcome, Prompt, ValueField},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError, ValueField},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
     typed_point,
@@ -40,7 +40,6 @@ pub const CIRCULAR_KEYS: &str = "A count alone spaces them over a full turn; cou
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
-const NOTHING_SELECTED: &str = "select what to repeat first: click it or drag a box around it";
 pub const RECTANGULAR_FIELD: ValueField = ValueField {
     label: "Repeat",
     placeholder: "4 x 10, 3 x 15",
@@ -51,8 +50,6 @@ pub const CIRCULAR_FIELD: ValueField = ValueField {
     placeholder: "6  or  5 over 120",
     action: "repeat",
 };
-const NO_POINT_HIGHLIGHTED: &str =
-    "Highlight a point first, with Highlight the next item in the view";
 const CENTRE_FIRST: &str = "click the point to repeat the selection about first";
 const QUARTER_TURN_DEGREES: f64 = 90.0;
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -320,7 +317,9 @@ impl Patterning {
 
     pub fn finish(&mut self) -> Outcome {
         if self.selected.is_empty() {
-            return Outcome::Refused(trimming::refusal(self.kind.tool(), NOTHING_SELECTED));
+            return Outcome::Refused(Refusal::NothingToRepeat {
+                tool: self.kind.tool(),
+            });
         }
         if self.kind == PatternKind::Rectangular || !self.gathering {
             return self.activate();
@@ -368,7 +367,7 @@ impl Patterning {
         self.kind == PatternKind::Circular && !self.gathering
     }
 
-    pub fn steppable(&self) -> Result<(), &'static str> {
+    pub fn steppable(&self) -> Result<(), StepError> {
         Ok(())
     }
 
@@ -400,10 +399,10 @@ impl Patterning {
             .and_then(|next| points.get(next).copied());
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NO_POINT_HIGHLIGHTED),
+            None => Err(HighlightNeeded::Point),
         }
     }
 

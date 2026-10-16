@@ -16,6 +16,7 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model},
     move_tools::{self, BodyChoiceError},
+    queued::Pending,
     selection::{Pickable, Selection},
     sketch_placement, solid_tools,
 };
@@ -87,6 +88,13 @@ pub enum MateError {
 impl Reason for MateError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Body(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

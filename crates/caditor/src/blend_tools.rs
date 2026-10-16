@@ -18,7 +18,7 @@ use crate::{
     field::{self, CheckError},
     last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
-    queued,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
 };
 
@@ -73,7 +73,7 @@ pub enum BlendError {
     NothingToBlend,
     #[error("Select edges or faces of one body only")]
     SeveralBodies,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape { body: FeatureId },
     #[error("A selected face is no longer part of the model")]
     FaceGone,
@@ -101,6 +101,10 @@ pub enum BlendError {
 impl Reason for BlendError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoShape { .. }).then_some(Pending::BodyShape)
     }
 }
 
@@ -276,7 +280,7 @@ pub fn create_actions(
                 BlendKind::Fillet => Command::Fillet,
                 BlendKind::Chamfer => Command::Chamfer,
             };
-            vec![queued::refused(command, kind.title(), &reason.to_string())]
+            vec![queued::refused(command, kind.title(), &reason)]
         }
     }
 }

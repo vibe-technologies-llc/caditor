@@ -20,7 +20,9 @@ use crate::{
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    projecting, scene,
+    projecting,
+    queued::Pending,
+    scene,
     selection::{self, Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_panel, visibility,
@@ -73,6 +75,13 @@ pub enum FaceSweepError {
 impl Reason for FaceSweepError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Attachment(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 

@@ -55,7 +55,7 @@ use crate::{
     menu_bar::MenuEntries,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
     model_dimensions::{self, ModelDimensions, Outside},
-    modifying::{Hint, Modifying, Outcome, SketchVersion},
+    modifying::{HighlightNeeded, Hint, Modifying, Outcome, SketchVersion, StepError},
     move_manipulator::Handle,
     offset_face_tools,
     paint_selection::{self, Painting},
@@ -66,7 +66,7 @@ use crate::{
         StartingToggles, Transitions, ViewDetails, ZoomToward,
     },
     primitive_tools, projecting,
-    queued::{self, Queued, Rerun},
+    queued::{Pending, Queued, Rerun},
     reference_picking::{self, Slot},
     reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
@@ -155,14 +155,11 @@ pub const TAKING_HIDDEN_PROMPT: &str = "Taking what is hidden behind too";
 pub const HOLD_ALT_HINT: &str = "Alt: also take what is hidden";
 pub const LET_GO_OF_ALT_HINT: &str = "Alt: let go to take only what can be seen";
 const SELECT_THROUGH_ON_HINT: &str = "Select through is on: View › Selection tools turns it off";
-const NOTHING_TO_HIGHLIGHT: &str = "Nothing in the view can be picked";
 const MEASURE_LABEL_LIFT: f32 = 6.0;
 const PROBLEM_LABEL_LIFT: f32 = 9.0;
 const PLACE_SHARE: f64 = 0.2;
 const MIN_PLACE_REACH: f64 = 1.0;
 const NO_VIEW_YET: &str = "The 3D view is not shown yet";
-const NO_TARGET_HIGHLIGHTED: &str =
-    "Highlight a piece or an end first, with Highlight the next item in the view";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum PasteRefusal {
@@ -182,10 +179,12 @@ enum CopyError {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 enum SymmetryError {
-    #[error("{}", symmetric_drawing::NO_LINE_SELECTED)]
+    #[error("{}", symmetric_drawing::NoLineSelected)]
     NoLineSelected,
     #[error("{refusal}")]
-    ChosenLine { refusal: &'static str },
+    ChosenLine {
+        refusal: symmetric_drawing::NoLineSelected,
+    },
 }
 
 impl Reason for SymmetryError {
@@ -212,7 +211,7 @@ impl Reason for StartCardRefusal {
 enum ListRefusal {
     #[error("This tool picks its own targets: press Esc to go back to Select first")]
     WithTool,
-    #[error("{}", NOTHING_TO_HIGHLIGHT)]
+    #[error("{}", StepError::NothingToPick)]
     NothingToHighlight,
 }
 
@@ -224,7 +223,7 @@ impl Reason for ListRefusal {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum TypedEditError {
-    #[error("{}", queued::SKETCH_SHOWN)]
+    #[error("{}", Pending::SketchShown)]
     SketchShown,
     #[error(transparent)]
     Moved(#[from] sketch_drag::MoveError),
@@ -234,6 +233,12 @@ enum TypedEditError {
     Point(#[from] TypedPointError),
     #[error(transparent)]
     Value(#[from] TypedValueError),
+}
+
+impl TypedEditError {
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::SketchShown).then_some(Pending::SketchShown)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -3578,7 +3583,7 @@ impl ViewportState {
         let highlightable = match &targets {
             Some(sketch) if trims => self.trimming.steppable(sketch),
             Some(sketch) => self.modifying.steppable(sketch),
-            None if !self.scenes.has_pickables() => Err(NOTHING_TO_HIGHLIGHT),
+            None if !self.scenes.has_pickables() => Err(StepError::NothingToPick),
             None => Ok(()),
         };
         let steps = [
@@ -3655,7 +3660,7 @@ impl ViewportState {
             let activation = if self.trimming.has_highlight() {
                 Ok(())
             } else {
-                Err(NO_TARGET_HIGHLIGHTED)
+                Err(HighlightNeeded::Target)
             };
             if commands.invoke(Command::ActivateHighlighted, &activation) {
                 actions.extend(outcome_action(self.trimming.activate(model)));
@@ -3688,7 +3693,7 @@ impl ViewportState {
         }
         let sketch = editing
             .active()
-            .ok_or(projecting::NO_SKETCH_TO_PROJECT)
+            .ok_or(projecting::NoSketchToProject)
             .and_then(|active| {
                 projecting::sketch_to_project(
                     model,
@@ -4100,7 +4105,7 @@ impl ViewportState {
                     matches!(pickable, Pickable::Face { .. } | Pickable::Edge { .. })
                 }) {
                     true => Ok(()),
-                    false => Err(selection_sets::NOTHING_TO_KEEP),
+                    false => Err(body_selection::SelectionRefusal::NothingToKeep),
                 },
             );
         if commands.invoke(Command::SaveSelectionSet, &keepable) && keepable.is_ok() {
@@ -4506,7 +4511,8 @@ impl ViewportState {
         };
         if let Some(count) = typed_point::sides(&typed.text) {
             if let Err(reason) = self.drawing.set_sides(count) {
-                self.typed_point.open_with(typed.entered, reason.to_owned());
+                self.typed_point
+                    .open_with(typed.entered, reason.to_string());
             }
             return;
         }
@@ -4514,7 +4520,9 @@ impl ViewportState {
             let set = rho
                 .map_err(|error| error.to_string())
                 .and_then(|(value, typed)| {
-                    self.drawing.set_rho(value, typed).map_err(str::to_owned)
+                    self.drawing
+                        .set_rho(value, typed)
+                        .map_err(|error| error.to_string())
                 });
             if let Err(reason) = set {
                 self.typed_point.open_with(typed.entered, reason);
@@ -4544,7 +4552,7 @@ impl ViewportState {
                     .collect();
                 self.drawing
                     .lock_length(lock.length, dimensions)
-                    .map_err(str::to_owned)
+                    .map_err(|error| error.to_string())
             });
             if let Err(error) = locked {
                 self.typed_point.open_with(typed.entered, error);
@@ -4759,7 +4767,9 @@ impl ViewportState {
                     self.add_to_selection(feature, entities, false);
                 }
             }
-            Outcome::Refused(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Outcome::Refused(reason) => {
+                actions.push(Action::Inform(Notice::warning(reason.to_string())))
+            }
         }
     }
 
@@ -4795,9 +4805,8 @@ impl ViewportState {
         match target {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
-                let error = error.to_string();
                 queue_typed(&typed.entered, typed_point::MOVE_LABEL, &error, actions);
-                self.typed_point.open_with(typed.entered, error);
+                self.typed_point.open_with(typed.entered, error.to_string());
                 self.moving = Some(moving);
             }
         }
@@ -4897,9 +4906,8 @@ impl ViewportState {
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
-                let error = error.to_string();
                 queue_typed(&typed.entered, field.label, &error, actions);
-                self.typed_point.open_with(typed.entered, error);
+                self.typed_point.open_with(typed.entered, error.to_string());
                 self.transforming = Some(transforming);
             }
         }
@@ -6371,9 +6379,10 @@ fn fresh_from_sketch<T, E: Into<TypedEditError>>(
     refresh(&shown).map_err(Into::into)
 }
 
-fn queue_typed(entered: &str, title: &str, error: &str, actions: &mut Vec<Action>) {
-    if let Some(waiting) = Queued::new(Rerun::Typed(entered.to_owned()), title, error) {
-        actions.push(Action::Queue(Box::new(waiting)));
+fn queue_typed(entered: &str, title: &str, error: &TypedEditError, actions: &mut Vec<Action>) {
+    if let Some(pending) = error.pending() {
+        let rerun = Rerun::Typed(entered.to_owned());
+        actions.push(Action::Queue(Box::new(Queued::new(rerun, title, pending))));
     }
 }
 

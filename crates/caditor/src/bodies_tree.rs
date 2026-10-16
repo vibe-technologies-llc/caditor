@@ -8,7 +8,7 @@ use crate::{
     body_appearance,
     body_groups::{self, Entry, Listing},
     body_selection,
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, Reason},
     feature_tree::{self, CommandContext},
     icons,
     model::{Action, Model, Notice},
@@ -22,9 +22,20 @@ use crate::{
 };
 
 pub const GROUP_TITLE: &str = "Bodies";
-const NO_BODY_CHOSEN: &str = "Select a face, edge or vertex of a body, or a body in the tree";
-const SEVERAL_BODIES: &str =
-    "Select faces, edges or vertices of one body only, or one body in the tree";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum PaintedBodyError {
+    #[error("Select a face, edge or vertex of a body, or a body in the tree")]
+    NoBody,
+    #[error("Select faces, edges or vertices of one body only, or one body in the tree")]
+    SeveralBodies,
+}
+
+impl Reason for PaintedBodyError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 fn group_title(count: usize) -> String {
     format!("{GROUP_TITLE} ({count})")
@@ -367,7 +378,7 @@ fn paint_button(ui: &mut Ui, name: &str, open: bool) -> bool {
 fn chosen_body(
     context: &CommandContext<'_>,
     state: &PanelState,
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, PaintedBodyError> {
     let document = context.model.document();
     let tree = body_selection::tree_bodies(document, &state.chosen());
     let chosen = if tree.is_empty() {
@@ -377,7 +388,7 @@ fn chosen_body(
     };
     match chosen.as_slice() {
         [body] => return Ok(*body),
-        [_, _, ..] => return Err(SEVERAL_BODIES),
+        [_, _, ..] => return Err(PaintedBodyError::SeveralBodies),
         [] => {}
     }
     context
@@ -388,7 +399,7 @@ fn chosen_body(
         .filter(|feature| !feature.separates_pieces())
         .and_then(Feature::body)
         .filter(|body| document.feature(*body).is_some_and(Feature::makes_body))
-        .ok_or(NO_BODY_CHOSEN)
+        .ok_or(PaintedBodyError::NoBody)
 }
 
 pub fn commands(

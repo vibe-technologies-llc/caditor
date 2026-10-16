@@ -849,7 +849,9 @@ fn no_pin_is_copied_into_a_workflow() {
     }
 }
 
-const TEXT_PAYLOADS: [&str; 3] = ["reason", "message", "detail"];
+const TEXT_PAYLOADS: [&str; 5] = ["reason", "message", "detail", "words", "refusal"];
+const OWNED_TEXT: [&str; 1] = ["String"];
+const TEXT_TYPES: [&str; 2] = ["String", "&'static str"];
 
 fn is_test_source(path: &Path) -> bool {
     let name = path.file_name().unwrap().to_string_lossy();
@@ -939,6 +941,14 @@ fn last_argument(arguments: &str) -> Option<&str> {
 }
 
 fn first_text_error(source: &str) -> Option<String> {
+    text_error_in(source, &TEXT_TYPES)
+}
+
+fn first_owned_text_error(source: &str) -> Option<String> {
+    text_error_in(source, &OWNED_TEXT)
+}
+
+fn text_error_in(source: &str, texts: &[&str]) -> Option<String> {
     let code = flattened(&without_test_items(&without_literals(source)));
     let string_result = code.match_indices("Result<").find_map(|(at, word)| {
         let preceded = code[..at]
@@ -946,7 +956,7 @@ fn first_text_error(source: &str) -> Option<String> {
             .next_back()
             .is_some_and(is_identifier_character);
         let error = last_argument(generic_arguments(&code, at + word.len() - 1)?)?;
-        (!preceded && error == "String").then(|| "Result<…, String>".to_owned())
+        (!preceded && texts.contains(&error)).then(|| format!("Result<…, {error}>"))
     });
     let bridge = code.match_indices(" for String {").find_map(|(at, _)| {
         let start = code[..at].rfind("impl")?;
@@ -955,14 +965,26 @@ fn first_text_error(source: &str) -> Option<String> {
             .then(|| code[start..at + 13].to_owned())
     });
     let payload = TEXT_PAYLOADS.iter().find_map(|field| {
-        [
-            format!("{{ {field}: String }}"),
-            format!("{{ {field}: String, }}"),
-        ]
-        .into_iter()
-        .find(|shape| code.contains(shape.as_str()))
+        texts.iter().find_map(|text| {
+            [
+                format!("{{ {field}: {text} }}"),
+                format!("{{ {field}: {text}, }}"),
+            ]
+            .into_iter()
+            .find(|shape| code.contains(shape.as_str()))
+        })
     });
-    string_result.or(bridge).or(payload)
+    let tuple = texts
+        .contains(&"&'static str")
+        .then_some(())
+        .and_then(|()| {
+            code.match_indices("(&'static str)").find_map(|(at, _)| {
+                let name_start = code[..at].trim_end_matches(is_identifier_character).len();
+                let attribute_before = code[..name_start].trim_end().ends_with(")]");
+                attribute_before.then(|| code[name_start..at + 14].to_owned())
+            })
+        });
+    string_result.or(bridge).or(payload).or(tuple)
 }
 
 #[test]
@@ -972,7 +994,12 @@ fn errors_are_typed_rather_than_text() {
         .into_iter()
         .filter(|path| !is_test_source(path))
         .filter_map(|path| {
-            let shape = first_text_error(&fs::read_to_string(&path).unwrap())?;
+            let source = fs::read_to_string(&path).unwrap();
+            let shape = if path.to_string_lossy().contains("crates/caditor/src") {
+                first_text_error(&source)
+            } else {
+                first_owned_text_error(&source)
+            }?;
             Some(format!("{}: {shape}", path.display()))
         })
         .collect();
@@ -1013,6 +1040,22 @@ fn the_text_error_scanner_finds_string_errors_outside_tests_only() {
     );
     assert_eq!(
         first_text_error("const T: &str = \"Result<u8, String>\";"),
+        None
+    );
+    assert!(first_text_error("fn f() -> Result<u8, &'static str> { g() }").is_some());
+    assert!(
+        first_text_error("enum E {\n    #[error(\"{0}\")]\n    Unfitting(&'static str),\n}")
+            .is_some()
+    );
+    assert!(first_text_error("enum E { Refused { words: &'static str } }").is_some());
+    assert_eq!(first_text_error("enum E { Keys(&'static str) }"), None);
+    assert_eq!(
+        first_owned_text_error("fn f() -> Result<u8, &'static str> { g() }"),
+        None
+    );
+    assert!(first_owned_text_error("fn f() -> Result<u8, String> { g() }").is_some());
+    assert_eq!(
+        first_text_error("fn f() -> Result<&'static str, E> { g() }"),
         None
     );
     assert_eq!(first_text_error("impl Reason for String { }"), None);

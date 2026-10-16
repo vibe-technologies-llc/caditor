@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     CopyOrientation, CurvePattern, CurveSpacing, Document, FeatureId, FeatureKind, FeatureResult,
     Pattern, PatternKind, PointReference, PointsPattern, Transaction, is_curve_path,
@@ -7,29 +9,78 @@ use caditor_sketch::Sketch;
 use thiserror::Error;
 
 use crate::{
+    commands::Reason,
     datum_tools,
     model::Model,
-    move_tools,
+    move_tools::{self, BodyChoiceError},
     pattern_tools::{self, PatternSource, Shape},
+    queued::Pending,
     selection::{Pickable, Selection},
     units::LengthUnit,
 };
 
 pub const DEFAULT_CURVE_COUNT: f64 = 4.0;
 const DEFAULT_CURVE_SPACING: f64 = 10.0;
-pub const NO_PATH: &str = "Draw the curve to follow in a sketch above the pattern, as one chain of lines, arcs or splines";
-pub const NO_POINTS: &str =
-    "Draw lone points with the Point tool in a sketch above the pattern to place the copies at";
-const NO_BODY: &str = "Make a body first, then pattern it";
 const NO_BODY_SELECTED: &str =
     "Select a face, edge or vertex of the body to pattern, or the body in the tree";
-const SEVERAL_SKETCHES: &str =
-    "Geometry of several sketches is selected; select the curves or points of one";
-const NOT_A_PATH: &str =
-    "The curves of the selected sketch do not join end to end into one chain to follow";
-const POINTLESS: &str = "The selected sketch has no lone points to place copies at";
-const MADE_LATER: &str = "The selected sketch is made after the pattern";
-const NOT_FROM_A_SKETCH: &str = "Only a curve or point pattern follows a sketch";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum NoSketchError {
+    #[error(
+        "Draw the curve to follow in a sketch above the pattern, as one chain of lines, arcs or \
+         splines"
+    )]
+    NoPath,
+    #[error(
+        "Draw lone points with the Point tool in a sketch above the pattern to place the copies at"
+    )]
+    NoPoints,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SketchPickError {
+    #[error("Geometry of several sketches is selected; select the curves or points of one")]
+    SeveralSketches,
+    #[error("The selected sketch is made after the pattern")]
+    MadeLater,
+    #[error("The selected sketch has no lone points to place copies at")]
+    Pointless,
+    #[error("The curves of the selected sketch do not join end to end into one chain to follow")]
+    NotAPath,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ResketchError {
+    #[error("It already follows that sketch")]
+    Already,
+    #[error("Only a curve or point pattern follows a sketch")]
+    NotFromASketch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SketchSourceError {
+    #[error("Make a body first, then pattern it")]
+    NoBody,
+    #[error(transparent)]
+    Body(#[from] BodyChoiceError),
+    #[error(transparent)]
+    Pick(#[from] SketchPickError),
+    #[error(transparent)]
+    Wanting(#[from] NoSketchError),
+}
+
+impl Reason for SketchSourceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Body(error) => error.pending(),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum PatternSketchError {
@@ -45,8 +96,10 @@ pub enum PatternSketchError {
     NotAPointPattern,
     #[error("It is already placed from that point")]
     AlreadyPlacedFromThatPoint,
-    #[error("{0}")]
-    Sketch(&'static str),
+    #[error(transparent)]
+    Pick(#[from] SketchPickError),
+    #[error(transparent)]
+    Resketch(#[from] ResketchError),
     #[error(transparent)]
     Change(crate::pattern_tools::PatternToolError),
 }
@@ -100,10 +153,10 @@ pub fn guess(model: &Model, shape: Shape, before: usize) -> Option<FeatureId> {
     })
 }
 
-fn wanting(shape: Shape) -> &'static str {
+fn wanting(shape: Shape) -> NoSketchError {
     match shape {
-        Shape::Points => NO_POINTS,
-        Shape::Curve | Shape::Linear | Shape::Circular => NO_PATH,
+        Shape::Points => NoSketchError::NoPoints,
+        Shape::Curve | Shape::Linear | Shape::Circular => NoSketchError::NoPath,
     }
 }
 
@@ -112,7 +165,7 @@ pub fn selected_sketch(
     selection: &Selection,
     shape: Shape,
     before: usize,
-) -> Result<Option<FeatureId>, &'static str> {
+) -> Result<Option<FeatureId>, SketchPickError> {
     let mut sketches: Vec<FeatureId> = selection
         .iter()
         .filter_map(|pickable| match pickable {
@@ -128,7 +181,7 @@ pub fn selected_sketch(
         return if sketches.is_empty() {
             Ok(None)
         } else {
-            Err(SEVERAL_SKETCHES)
+            Err(SketchPickError::SeveralSketches)
         };
     };
     if model
@@ -136,12 +189,12 @@ pub fn selected_sketch(
         .feature_index(*sketch)
         .is_none_or(|index| index >= before)
     {
-        return Err(MADE_LATER);
+        return Err(SketchPickError::MadeLater);
     }
     if !qualifies(model, shape, *sketch) {
         return Err(match shape {
-            Shape::Points => POINTLESS,
-            Shape::Curve | Shape::Linear | Shape::Circular => NOT_A_PATH,
+            Shape::Points => SketchPickError::Pointless,
+            Shape::Curve | Shape::Linear | Shape::Circular => SketchPickError::NotAPath,
         });
     }
     Ok(Some(*sketch))
@@ -161,7 +214,7 @@ pub fn source(
     selection: &Selection,
     (tree, rows): (&[FeatureId], &[FeatureId]),
     shape: Shape,
-) -> Result<PatternSource, &'static str> {
+) -> Result<PatternSource, SketchSourceError> {
     let document = model.document();
     let before = document.bar_index();
     let (body, repeated) = match pattern_tools::repeatable(document, rows) {
@@ -171,7 +224,7 @@ pub fn source(
                 .bodies_standing_in(model.evaluation())
                 .last()
                 .copied()
-                .ok_or(NO_BODY)?,
+                .ok_or(SketchSourceError::NoBody)?,
             Vec::new(),
         ),
         None => (
@@ -213,7 +266,7 @@ pub fn reshaped_kind(
     pattern: &Pattern,
     shape: Shape,
     before: usize,
-) -> Result<PatternKind, &'static str> {
+) -> Result<PatternKind, NoSketchError> {
     let kept = pattern
         .kind
         .sketch()
@@ -237,10 +290,12 @@ fn count_of(kind: &PatternKind) -> Option<Expression> {
     }
 }
 
-pub fn with_sketch(pattern: &Pattern, sketch: FeatureId) -> Result<Pattern, &'static str> {
+pub fn with_sketch(pattern: &Pattern, sketch: FeatureId) -> Result<Pattern, ResketchError> {
     let kind = match &pattern.kind {
-        PatternKind::Curve(curve) if curve.sketch == sketch => return Err(ALREADY),
-        PatternKind::Points(points) if points.sketch == sketch => return Err(ALREADY),
+        PatternKind::Curve(curve) if curve.sketch == sketch => return Err(ResketchError::Already),
+        PatternKind::Points(points) if points.sketch == sketch => {
+            return Err(ResketchError::Already);
+        }
         PatternKind::Curve(curve) => PatternKind::Curve(CurvePattern {
             sketch,
             ..curve.clone()
@@ -249,7 +304,9 @@ pub fn with_sketch(pattern: &Pattern, sketch: FeatureId) -> Result<Pattern, &'st
             sketch,
             ..points.clone()
         }),
-        PatternKind::Linear { .. } | PatternKind::Circular(_) => return Err(NOT_FROM_A_SKETCH),
+        PatternKind::Linear { .. } | PatternKind::Circular(_) => {
+            return Err(ResketchError::NotFromASketch);
+        }
     };
     Ok(Pattern {
         kind,
@@ -257,8 +314,6 @@ pub fn with_sketch(pattern: &Pattern, sketch: FeatureId) -> Result<Pattern, &'st
         ..pattern.clone()
     })
 }
-
-const ALREADY: &str = "It already follows that sketch";
 
 pub fn sketch_change(
     model: &Model,
@@ -271,10 +326,9 @@ pub fn sketch_change(
         .feature_index(feature)
         .ok_or(PatternSketchError::Gone)?;
     let shape = Shape::of(&pattern.kind);
-    let sketch = selected_sketch(model, selection, shape, before)
-        .map_err(PatternSketchError::Sketch)?
+    let sketch = selected_sketch(model, selection, shape, before)?
         .ok_or(PatternSketchError::NoSketchSelected)?;
-    let changed = with_sketch(pattern, sketch).map_err(PatternSketchError::Sketch)?;
+    let changed = with_sketch(pattern, sketch)?;
     pattern_tools::change(model, feature, changed).map_err(PatternSketchError::Change)
 }
 

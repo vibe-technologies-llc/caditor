@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{
-    feature_tests::{added, box_of, close, face_where, started, total_volume},
+    feature_tests::{added, box_of, close, face_where, number, started, total_volume},
     tests::Client,
 };
 
@@ -755,5 +755,101 @@ fn holes_take_steps_slots_drill_points_and_sizes_from_circles() {
         json!({ "feature": sized, "sizing": "typed" }),
     );
     assert!(close(total_volume(&mut client), plain - PI * 4.0 * 5.0));
+    client.finish();
+}
+
+fn line_edges(client: &mut Client, body: &Value, before: Option<&Value>) -> Vec<(String, f64)> {
+    let mut arguments = json!({ "body": body });
+    if let Some(feature) = before {
+        arguments["before"] = feature.clone();
+    }
+    let listed = client.tool("list_edges", arguments);
+    listed["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|edge| edge["kind"] == "line")
+        .map(|edge| {
+            (
+                edge["edge"].as_str().unwrap().to_owned(),
+                number(&edge["length"]),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn an_edit_names_the_edges_and_faces_the_feature_received() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+    let long = line_edges(&mut client, &block, None)
+        .into_iter()
+        .find(|(_, length)| close(*length, 40.0))
+        .unwrap()
+        .0;
+
+    let fillet = added(
+        &mut client,
+        "add_fillet",
+        json!({ "body": block, "edges": [long], "radius": 2 }),
+    );
+    let small = total_volume(&mut client);
+    assert!(small < 24_000.0);
+
+    let now: Vec<String> = line_edges(&mut client, &block, None)
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    assert!(!now.contains(&long), "{now:?}");
+    let received: Vec<String> = line_edges(&mut client, &block, Some(&fillet))
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    assert!(received.contains(&long), "{received:?}");
+    assert_eq!(received.len(), 12);
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": fillet, "edges": [long], "radius": 4 }),
+    );
+    assert!(total_volume(&mut client) < small);
+
+    let only_now = now.iter().find(|key| !received.contains(key)).unwrap();
+    let refused = client.tool_error(
+        "edit_feature",
+        json!({ "feature": fillet, "edges": [only_now] }),
+    );
+    assert!(refused.contains("had no edge"), "{refused}");
+    assert!(refused.contains("Fillet 1 received it"), "{refused}");
+    assert!(refused.contains("list_edges with before"), "{refused}");
+
+    let not_a_body_change =
+        client.tool_error("list_edges", json!({ "body": block, "before": "Block" }));
+    assert!(
+        not_a_body_change.contains("does not change a body"),
+        "{not_a_body_change}"
+    );
+
+    let shell = added(
+        &mut client,
+        "add_shell",
+        json!({ "body": block, "open_faces": [top], "thickness": 2 }),
+    );
+    let hollow = total_volume(&mut client);
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": shell, "open_faces": [top], "thickness": 3 }),
+    );
+    assert!(total_volume(&mut client) > hollow);
+
+    let gone = client.tool_error(
+        "edit_feature",
+        json!({ "feature": shell, "open_faces": ["abc"] }),
+    );
+    assert!(gone.contains("had no face abc"), "{gone}");
     client.finish();
 }

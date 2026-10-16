@@ -21,6 +21,7 @@ use crate::{
     feature_tree::kind_words,
     image_export::RenderedRows,
     mcp::{
+        edits::viewed_before,
         references::{self, Named, body_label, entity_name, face_key_text},
         session::{Cancelled, Session, Work},
         tools::{Answer, ToolError},
@@ -48,6 +49,8 @@ pub struct Nothing {}
 #[serde(deny_unknown_fields)]
 pub struct OfBody {
     pub body: Named,
+    #[serde(default)]
+    pub before: Option<Named>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -406,6 +409,16 @@ pub fn faces(
     of: &OfBody,
 ) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+    viewed_before(session, of.before.as_ref(), |session| {
+        listed_faces(session, work, of)
+    })
+}
+
+fn listed_faces(
+    session: &Session,
+    work: &Work<'_>,
+    of: &OfBody,
+) -> Result<Map<String, Value>, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
     let body = references::body(document, evaluation, &of.body)?;

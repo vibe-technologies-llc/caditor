@@ -13,7 +13,8 @@ use crate::{
     editing::{self, EditingCommand},
     field::{self, CheckError},
     model::{Action, Model},
-    move_tools, pattern_tools, queued,
+    move_tools, pattern_tools,
+    queued::{self, Pending},
     selection::{Pickable, Selection},
 };
 
@@ -29,7 +30,7 @@ pub enum MirrorToolError {
     NoFaces,
     #[error("Select faces of one body only")]
     OneBodyOnly,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoShape,
     #[error("Some of the selected faces are no longer part of the model")]
     FacesGone,
@@ -47,8 +48,8 @@ pub enum MirrorToolError {
     Already,
     #[error("The feature no longer exists")]
     FeatureGone,
-    #[error("{words}")]
-    ChosenPlane { words: &'static str },
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     ChosenBody(#[from] move_tools::BodyChoiceError),
     #[error(transparent)]
@@ -58,6 +59,14 @@ pub enum MirrorToolError {
 impl Reason for MirrorToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::NoShape => Some(Pending::BodyShape),
+            Self::ChosenBody(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -107,7 +116,7 @@ pub fn faces_source(
     rest.extend(others);
     bodies::shown(model.evaluation(), body).ok_or(MirrorToolError::NoShape)?;
     let plane = datum_tools::chosen_plane(model, &rest, model.document().bar_index())
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?
+        .map_err(MirrorToolError::ChosenPlane)?
         .map(|chosen| chosen.plane);
     Ok(FaceMirrorSource { body, faces, plane })
 }
@@ -144,11 +153,7 @@ pub fn create_faces_actions(model: &Model, source: &FaceMirrorSource) -> Vec<Act
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(error) => vec![queued::refused(
-            Command::MirrorFaces,
-            FACES_TITLE,
-            &error.to_string(),
-        )],
+        Err(error) => vec![queued::refused(Command::MirrorFaces, FACES_TITLE, &error)],
     }
 }
 
@@ -233,7 +238,7 @@ pub fn source(
 ) -> Result<MirrorSource, MirrorToolError> {
     let document = model.document();
     let chosen = datum_tools::chosen_plane(model, selection, document.bar_index())
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?;
+        .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
     let (body, mirrored) = match pattern_tools::repeatable(document, rows) {
         Some(features) => features,
@@ -307,7 +312,7 @@ pub fn plane_change(
         .feature_index(feature)
         .ok_or(MirrorToolError::FeatureGone)?;
     let plane = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|words| MirrorToolError::ChosenPlane { words })?
+        .map_err(MirrorToolError::ChosenPlane)?
         .ok_or(MirrorToolError::NoPlane)?
         .plane;
     if plane == mirror.plane {

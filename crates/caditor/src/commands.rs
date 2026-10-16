@@ -9,7 +9,7 @@ use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
-    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, queued::Awaited,
+    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, queued::Pending,
     samples::Sample, section::SectionCommand, selection::SelectionFilter, shape_modes::ShapeMode,
     sketch_tools::ConstraintTool, variants::all_variants,
 };
@@ -2749,11 +2749,41 @@ pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> 
 pub struct Offer {
     pub command: Command,
     pub availability: Result<(), Cow<'static, str>>,
+    pub pending: Option<Pending>,
     pub detail: Option<String>,
 }
 
 pub trait Reason {
     fn reason(&self) -> Cow<'static, str>;
+
+    fn pending(&self) -> Option<Pending> {
+        None
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declined {
+    words: Cow<'static, str>,
+    pending: Option<Pending>,
+}
+
+impl Declined {
+    pub fn of(reason: &impl Reason) -> Self {
+        Self {
+            words: reason.reason(),
+            pending: reason.pending(),
+        }
+    }
+}
+
+impl Reason for Declined {
+    fn reason(&self) -> Cow<'static, str> {
+        self.words.clone()
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        self.pending
+    }
 }
 
 impl Reason for &'static str {
@@ -2803,7 +2833,7 @@ pub struct CommandFrame<'a> {
     showing_state: Vec<Command>,
     offers: Vec<Offer>,
     offered: BTreeSet<Command>,
-    refused: Vec<(Command, String)>,
+    refused: Vec<(Command, Declined)>,
     ran: Vec<Command>,
     clipboard: Clipboard,
     paste_asked: Option<Command>,
@@ -2881,21 +2911,24 @@ impl<'a> CommandFrame<'a> {
         detail: Option<String>,
         availability: &Result<T, E>,
     ) -> bool {
-        let availability = availability.as_ref().map(|_| ()).map_err(Reason::reason);
+        let declined = availability.as_ref().err().map(Declined::of);
         let triggered = self.take(command);
-        if triggered && let Err(reason) = &availability {
-            self.refused.push((command, reason.to_string()));
+        if triggered && let Some(declined) = &declined {
+            self.refused.push((command, declined.clone()));
         }
         if !self.offered.insert(command) {
             self.offers.retain(|offer| offer.command != command);
         }
-        let ready = availability.is_ok();
+        let ready = declined.is_none();
         if triggered && ready {
             self.ran.push(command);
         }
         self.offers.push(Offer {
             command,
-            availability,
+            availability: declined
+                .as_ref()
+                .map_or(Ok(()), |declined| Err(declined.reason())),
+            pending: declined.as_ref().and_then(Declined::pending),
             detail,
         });
         triggered && ready
@@ -2906,18 +2939,18 @@ impl<'a> CommandFrame<'a> {
     }
 
     pub fn queue(&mut self, command: Command) {
-        if let Some(reason) = self.awaited_reason(command).map(str::to_owned) {
+        if let Some(reason) = self.awaited_reason(command) {
             self.refused.push((command, reason));
         }
     }
 
-    fn awaited_reason(&self, command: Command) -> Option<&str> {
-        self.offers
-            .iter()
-            .find(|offer| offer.command == command)
-            .and_then(|offer| offer.availability.as_ref().err())
-            .map(AsRef::as_ref)
-            .filter(|reason| Awaited::of(reason).is_some())
+    fn awaited_reason(&self, command: Command) -> Option<Declined> {
+        let offer = self.offers.iter().find(|offer| offer.command == command)?;
+        let words = offer.availability.as_ref().err()?;
+        offer.pending.map(|pending| Declined {
+            words: words.clone(),
+            pending: Some(pending),
+        })
     }
 
     pub fn available(&mut self, command: Command) -> bool {
@@ -2951,7 +2984,7 @@ impl<'a> CommandFrame<'a> {
         &self.ran
     }
 
-    pub fn finish(self) -> (Vec<Offer>, Vec<(Command, String)>) {
+    pub fn finish(self) -> (Vec<Offer>, Vec<(Command, Declined)>) {
         (self.offers, self.refused)
     }
 }

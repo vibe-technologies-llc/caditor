@@ -1,9 +1,11 @@
+use std::borrow::Cow;
+
 use caditor_document::{Evaluation, FeatureId, FeatureState, SketchResult};
 use caditor_sketch::{ConstraintId, EntityId, SketchSolution};
 use egui::Ui;
 
 use crate::{
-    commands::Command,
+    commands::{Command, Reason},
     feature_tree::count,
     icons,
     panels::Focus,
@@ -21,10 +23,26 @@ pub const SHOW_PROBLEM: &str = "Show the problem";
 pub const SELECT_FREE: &str = "Select what is still free";
 pub const SELECT_OPEN_ENDS: &str = "Select the open ends and bring them into view";
 pub const SELECT_REDUNDANT: &str = "Select the redundant constraints, ready to delete";
-pub const NOT_SOLVED: &str = "Open ends and redundant constraints are known once the sketch has solved; fix its problems or wait for it";
-pub const NO_OPEN_ENDS: &str = "The sketch has no open ends: every curve end is joined";
-pub const NOTHING_REDUNDANT: &str = "No constraint in the sketch repeats what others say";
 const WIDEST_FREEDOM: usize = 88;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum StatusSelectError {
+    #[error(
+        "Open ends and redundant constraints are known once the sketch has solved; fix its \
+         problems or wait for it"
+    )]
+    NotSolved,
+    #[error("The sketch has no open ends: every curve end is joined")]
+    NoOpenEnds,
+    #[error("No constraint in the sketch repeats what others say")]
+    NothingRedundant,
+}
+
+impl Reason for StatusSelectError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchStatus {
@@ -157,10 +175,10 @@ pub fn up_to_date_result(evaluation: &Evaluation, feature: FeatureId) -> Option<
 pub fn open_ends(
     evaluation: &Evaluation,
     feature: FeatureId,
-) -> Result<Vec<EntityId>, &'static str> {
-    let result = up_to_date_result(evaluation, feature).ok_or(NOT_SOLVED)?;
+) -> Result<Vec<EntityId>, StatusSelectError> {
+    let result = up_to_date_result(evaluation, feature).ok_or(StatusSelectError::NotSolved)?;
     if result.open_ends.is_empty() {
-        Err(NO_OPEN_ENDS)
+        Err(StatusSelectError::NoOpenEnds)
     } else {
         Ok(result.open_ends.clone())
     }
@@ -169,15 +187,15 @@ pub fn open_ends(
 pub fn redundant_constraints(
     evaluation: &Evaluation,
     feature: FeatureId,
-) -> Result<Vec<ConstraintId>, &'static str> {
-    let solution = up_to_date_solution(evaluation, feature).ok_or(NOT_SOLVED)?;
+) -> Result<Vec<ConstraintId>, StatusSelectError> {
+    let solution = up_to_date_solution(evaluation, feature).ok_or(StatusSelectError::NotSolved)?;
     let redundant: Vec<ConstraintId> = solution
         .redundancies()
         .iter()
         .map(|redundancy| redundancy.constraint)
         .collect();
     if redundant.is_empty() {
-        Err(NOTHING_REDUNDANT)
+        Err(StatusSelectError::NothingRedundant)
     } else {
         Ok(redundant)
     }

@@ -145,9 +145,9 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
 
     assert_eq!(
         two_faces,
-        Err(MirrorToolError::ChosenPlane {
-            words: datum_tools::SEVERAL_PLANES
-        })
+        Err(MirrorToolError::ChosenPlane(
+            datum_tools::OneChoiceError::SeveralPlanes
+        ))
     );
     assert_eq!(
         datum_and_face.map(|source| source.plane),

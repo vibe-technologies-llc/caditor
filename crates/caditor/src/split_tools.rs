@@ -13,6 +13,7 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model},
     move_tools,
+    queued::Pending,
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
 };
@@ -37,8 +38,8 @@ pub enum SplitError {
     SeveralTools,
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
-    #[error("{0}")]
-    ChosenPlane(String),
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     SurfaceAttachment(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
@@ -50,6 +51,14 @@ pub enum SplitError {
 impl Reason for SplitError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::SurfaceAttachment(error) => error.pending(),
+            Self::ChosenBody(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -152,8 +161,8 @@ pub fn chosen_along(
     selection: &Selection,
     index: usize,
 ) -> Result<Option<(SplitAlong, Option<Pickable>)>, SplitError> {
-    if let Some(chosen) = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|error| SplitError::ChosenPlane(error.into()))?
+    if let Some(chosen) =
+        datum_tools::chosen_plane(model, selection, index).map_err(SplitError::ChosenPlane)?
     {
         return Ok(Some((SplitAlong::Plane(chosen.plane), chosen.face)));
     }

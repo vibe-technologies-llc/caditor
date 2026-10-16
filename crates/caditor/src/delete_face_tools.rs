@@ -11,31 +11,31 @@ use crate::{
     commands::Command,
     editing::{self, EditingCommand},
     model::{Action, Model, Notice},
-    offset_face_tools, queued,
+    offset_face_tools::{self, FacePurpose, FaceToolError},
+    queued,
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
 };
 
 pub const TITLE: &str = "Delete face";
-const CHOOSE_FACES: &str = "Select the faces of a body to delete";
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, &'static str> {
-    offset_face_tools::faces_of_one_body(model, selection, CHOOSE_FACES)
+pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
+    offset_face_tools::faces_of_one_body(model, selection, FacePurpose::Delete)
 }
 
 pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
+) -> Result<(Transaction, FeatureId), FaceToolError> {
+    let shown = bodies::shown(evaluation, source.body).ok_or(FaceToolError::NoShape)?;
     let faces: Vec<FaceReference> = source
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
     if faces.len() < source.faces.len() {
-        return Err("Some of the selected faces are no longer part of the model");
+        return Err(FaceToolError::FacesGone);
     }
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -69,7 +69,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(Command::DeleteFace, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::DeleteFace, TITLE, &reason)],
     }
 }
 

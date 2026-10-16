@@ -5,7 +5,7 @@ use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 
 use super::{Harness, constraints_of_kind, drag_in_sketch, entities_of_kind, line_ends, near};
 use crate::{
-    drawing::{CHAIN_ARC_PROMPT, LINE_CHAIN_PROMPT, NOTHING_TO_ARC_FROM},
+    drawing::{CHAIN_ARC_PROMPT, ChainArcError, LINE_CHAIN_PROMPT},
     editing::Tool,
 };
 
@@ -140,12 +140,11 @@ fn the_tangent_arc_key_turns_the_next_segment_of_a_line_chain_into_an_arc_and_ba
     harness.use_tool(Key::T);
 
     assert_eq!(harness.tool(), Some(Tool::Line));
-    assert!(
-        harness
-            .model
-            .notice()
-            .is_some_and(|notice| notice.text.ends_with(NOTHING_TO_ARC_FROM))
-    );
+    assert!(harness.model.notice().is_some_and(|notice| {
+        notice
+            .text
+            .ends_with(&ChainArcError::NothingToArcFrom.to_string())
+    }));
 
     harness.click_at(Point2::new(40.0, 10.0));
     harness.use_tool(Key::T);

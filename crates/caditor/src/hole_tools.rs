@@ -18,7 +18,7 @@ use crate::{
     hole_on_curve::{self, CurveHoleError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
-    queued,
+    queued::{self, Pending},
     reference_picking::{Picking, Slot},
     scene,
     selection::{Pickable, Selection},
@@ -86,6 +86,20 @@ pub enum HoleToolError {
     CannotStand { source: EditError },
     #[error(transparent)]
     OnCurve(#[from] CurveHoleError),
+}
+
+impl Reason for HoleToolError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Attachment(error) => error.pending(),
+            Self::OnCurve(error) => error.pending(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -486,7 +500,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::OpenSolid(feature)),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error.to_string())],
+            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error)],
         },
         HoleStart::CurvedFace(face) => match hole_on_curve::create(model, face) {
             Ok((transaction, feature, told)) => vec![
@@ -495,7 +509,7 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::Pick(Picking::new(feature, Slot::HolePlace))),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error.to_string())],
+            Err(error) => vec![queued::refused(Command::Hole, TITLE, &error)],
         },
     }
 }

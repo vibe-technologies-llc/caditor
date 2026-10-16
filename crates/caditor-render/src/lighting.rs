@@ -8,6 +8,7 @@ use crate::{
     environment::Environment,
     environment_textures::{self, EnvironmentViews},
     gpu::{self, Pack},
+    scene::Color,
 };
 
 pub const SHADOW_MAP_SIDE: u32 = 2048;
@@ -41,6 +42,30 @@ pub struct Lighting {
     pub shadows: bool,
     pub bounce: f32,
     pub occlusion: f32,
+    pub surroundings: Surroundings,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Surroundings {
+    pub backdrop: Option<Color>,
+    pub floor: bool,
+}
+
+impl Surroundings {
+    fn backdrop_uniform(self) -> [f32; 4] {
+        match self.backdrop {
+            Some(colour) => {
+                let [red, green, blue] = [colour.red, colour.green, colour.blue]
+                    .map(|channel| finite_at_least_zero(channel).min(1.0));
+                [red, green, blue, 1.0]
+            }
+            None => [0.0; 4],
+        }
+    }
+
+    fn floor_uniform(self) -> [f32; 4] {
+        [if self.floor { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0]
+    }
 }
 
 impl Lighting {
@@ -215,6 +240,8 @@ pub(crate) struct LightUniform {
     ground: [f32; 4],
     sky_view: [f32; 4],
     environment: [f32; 4],
+    backdrop_colour: [f32; 4],
+    floor: [f32; 4],
     shadow_matrix: Mat4,
     relative_from_light: Mat4,
 }
@@ -228,6 +255,8 @@ impl LightUniform {
         ground: [0.0; 4],
         sky_view: [0.0; 4],
         environment: [0.0; 4],
+        backdrop_colour: [0.0; 4],
+        floor: [0.0; 4],
         shadow_matrix: Mat4::ZERO,
         relative_from_light: Mat4::ZERO,
     };
@@ -263,6 +292,8 @@ impl LightUniform {
             ground: ground.map_or([0.0; 4], |ground| ground.uniform(view.eye())),
             sky_view: [(tan_y * view.aspect()) as f32, tan_y as f32, 0.0, 0.0],
             environment: [0.0; 4],
+            backdrop_colour: lighting.surroundings.backdrop_uniform(),
+            floor: lighting.surroundings.floor_uniform(),
             shadow_matrix: frame.map_or(Mat4::ZERO, |frame| frame.matrix),
             relative_from_light: frame.map_or(Mat4::ZERO, |frame| frame.relative_from_light),
         }
@@ -292,6 +323,8 @@ impl LightUniform {
             .floats(&self.ground)
             .floats(&self.sky_view)
             .floats(&self.environment)
+            .floats(&self.backdrop_colour)
+            .floats(&self.floor)
             .mat4(self.shadow_matrix)
             .mat4(self.relative_from_light);
     }

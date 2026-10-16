@@ -151,8 +151,8 @@ pub enum SolidChangeError {
     NoAxisSelected,
     #[error("{axis} does not lie in the plane of {sketch}")]
     AxisOffSketchPlane { axis: String, sketch: String },
-    #[error("{0}")]
-    SelectedAxis(String),
+    #[error(transparent)]
+    SelectedAxis(datum_tools::OneChoiceError),
     #[error(transparent)]
     Target(#[from] TargetError),
     #[error(transparent)]
@@ -1864,7 +1864,7 @@ pub fn direction_change(
 ) -> Result<Transaction, SolidChangeError> {
     let index = model.document().feature_index(feature).unwrap_or(0);
     let axis = datum_tools::only_axis(model, selection, index)
-        .map_err(|error| SolidChangeError::SelectedAxis(error.into()))?
+        .map_err(SolidChangeError::SelectedAxis)?
         .ok_or(SolidChangeError::NoDirectionSelected)?;
     if extrude.direction.as_deref() == Some(&axis) {
         return Err(SolidChangeError::ExtrusionAlreadyAlongAxis);
@@ -1929,7 +1929,7 @@ pub fn selected_axis_change(
 ) -> Result<Transaction, SolidChangeError> {
     let index = model.document().feature_index(feature).unwrap_or(0);
     let chosen = datum_tools::only_axis(model, selection, index)
-        .map_err(|error| SolidChangeError::SelectedAxis(error.into()))?
+        .map_err(SolidChangeError::SelectedAxis)?
         .map(|axis| match axis {
             AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
                 RevolveAxis::Sketch(entity)

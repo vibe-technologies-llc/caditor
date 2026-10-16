@@ -13,7 +13,7 @@ use crate::{
     editing::Tool,
     field::Expected,
     model::Model,
-    modifying::{Hint, Outcome, Prompt, length_text},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError, length_text},
     patterning,
     snap::{self, Pointer, Screen},
     trimming::{self, SketchGone, capitalized},
@@ -26,8 +26,6 @@ pub const SPROCKET_TRANSACTION: &str = "Draw sprocket";
 pub const PROMPT: &str =
     "Click where the gear's centre goes: on a point, or anywhere in the sketch";
 const KEYS: &str = "Enter: draw it at the selected point or the origin   Esc: back to Select";
-const NOTHING_HIGHLIGHTED: &str =
-    "Highlight a point first, with Highlight the next item in the view";
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
@@ -687,10 +685,10 @@ impl Gearing {
         if drawn.is_ok() {
             self.shown = None;
         }
-        drawn.map_err(|error| error.to_string()).into()
+        drawn.into()
     }
 
-    pub fn steppable(&self) -> Result<(), &'static str> {
+    pub fn steppable(&self) -> Result<(), StepError> {
         Ok(())
     }
 
@@ -717,10 +715,10 @@ impl Gearing {
             .and_then(|next| points.get(next).copied());
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NOTHING_HIGHLIGHTED),
+            None => Err(HighlightNeeded::Point),
         }
     }
 

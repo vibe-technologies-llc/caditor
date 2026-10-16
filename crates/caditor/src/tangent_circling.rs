@@ -9,7 +9,9 @@ use crate::{
     drawing::Preview,
     editing::Tool,
     model::Model,
-    modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
+    modifying::{
+        HighlightNeeded, Hint, Outcome, Prompt, StepError, Value, ValueField, length_text,
+    },
     snap::{self, Pointer, Screen},
     trimming::{self, SketchGone, capitalized},
     units::Units,
@@ -20,8 +22,6 @@ pub const PROMPT: &str = "Click the lines, circles or arcs the circle should tou
 pub const RADIUS_PROMPT: &str = "Click a third curve for the circle touching all three, or type the radius of one touching these two";
 const PICK_KEYS: &str = "Esc: back to Select";
 const RADIUS_KEYS: &str = "Type the radius   Enter: draw it   Esc: let go of the last curve";
-const NOTHING_HIGHLIGHTED: &str =
-    "Highlight a line, circle or arc first, with Highlight the next item in the view";
 const MOST_PICKS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -203,9 +203,7 @@ impl TangentCircling {
         }
         let mut curves = self.picked.clone();
         curves.push(curve);
-        self.draw(model, feature, curves, None)
-            .map_err(|error| error.to_string())
-            .into()
+        self.draw(model, feature, curves, None).into()
     }
 
     pub fn enter_text(
@@ -247,7 +245,7 @@ impl TangentCircling {
         Ok(drawn)
     }
 
-    pub fn steppable(&self) -> Result<(), &'static str> {
+    pub fn steppable(&self) -> Result<(), StepError> {
         Ok(())
     }
 
@@ -270,10 +268,10 @@ impl TangentCircling {
             .and_then(|next| curves.get(next).copied());
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NOTHING_HIGHLIGHTED),
+            None => Err(HighlightNeeded::Curve),
         }
     }
 

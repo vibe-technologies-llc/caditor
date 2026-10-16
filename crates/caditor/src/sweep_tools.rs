@@ -14,7 +14,7 @@ use crate::{
     field::{self, CheckError},
     helix_tools,
     model::{Action, Model},
-    queued,
+    queued::{self, Pending},
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     solid_tools::{self, SweepSource},
@@ -49,7 +49,7 @@ pub enum SweepError {
     SeveralSketches,
     #[error("Click a curve of a sketch, an edge of a body or a helix")]
     NotACurveOrEdge,
-    #[error("{}", queued::BODY_SHAPE)]
+    #[error("{}", Pending::BodyShape)]
     NoBodyShape,
     #[error("It already follows the selected path")]
     AlreadyFollowed,
@@ -69,6 +69,10 @@ pub enum SweepError {
 impl Reason for SweepError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        matches!(self, Self::NoBodyShape).then_some(Pending::BodyShape)
     }
 }
 
@@ -338,7 +342,7 @@ pub fn create_actions(model: &Model, start: &SweepStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Sweep, TITLE, &reason.to_string())],
+        Err(reason) => vec![queued::refused(Command::Sweep, TITLE, &reason)],
     }
 }
 

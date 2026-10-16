@@ -214,33 +214,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
   wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
   through.
-- [low · medium] The rendered view's surroundings are a procedural sky or a Radiance `.hdr`
-  picture (`render.md`, the environment) over a shadow-catching ground; a user cannot read an
-  OpenEXR picture (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which
-  `cargo deny` refuses), choose a plain-colour backdrop or a visible ground, nor give a material texture, bump or
-  clear-coat maps, and the ground bounces no light or occlusion onto the bodies.
-- [medium · hard] The MCP server (`caditor mcp`, `mcp.md`) builds only part of the model: an
-  assistant can read the tree, parameters, bodies, faces, edges and sketches, measure between
-  points, faces and edges, draw a picture, set parameters, sketch points, lines, polylines,
-  rectangles, circles, arcs and tangent arcs, slots, polygons, splines, conics, ellipses and
-  elliptical arcs with constraints and dimensions (adding, removing and editing them) on a
-  principal plane, datum plane, coordinate system or flat face, trim, extend, offset, mirror,
-  pattern, fillet, chamfer, move, rotate and scale sketch geometry, project body edges and faces
-  into a sketch, extrude, revolve, drill holes, fillet, chamfer, shell, offset faces, add
-  primitives, mirror, pattern in a row, grid, circle, along curves or at points, combine, move
-  and mate bodies, add datum planes, axes and points every way, coordinate systems and helices,
-  sweep, pipe, loft, coil, rib, thread, split and delete faces, split and scale bodies, edit any
-  of those features, rename, suppress, reorder and delete features, import models, meshes and
-  drawings, undo, redo, save, save under another name and export.
-  What remains, through the same `Session` layer:
-  - Faces and edges named in an edit are found on the body as it stands now, so an edge a fillet
-    rounded away cannot be named again.
+- [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
+  (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
+  refuses), nor give a material texture, bump or clear-coat maps, and the visible floor
+  (`render.md`) bounces no light or occlusion onto the bodies.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
+- [low · medium] An MCP `edit_feature` names faces and edges on the body as the edited feature
+  received it only for features that change a body (`mcp.md`): a mirror's `faces`, a pipe's
+  `{body, edges}` and an extrusion's `up_to_surface` on its own body are still found on the body as
+  it stands now, since those features record no input body.
 - [low · medium] A copy from another model keeps none of its references outside the copied set. A
   sketch's section projection of a copied body is still left out, its edge being named by the
   sketch's own cut (`section.rs`), and a corner picked on a body outside the copy is not followed

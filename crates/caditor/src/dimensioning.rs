@@ -11,18 +11,31 @@ use crate::{
     sketch_tools::{self, Added, ConstraintOfferError, ConstraintTool},
 };
 
-pub const PICK_FIRST: &str = "Click a line, circle, arc or point to dimension it";
 pub const FIRST_KEYS: &str = "Esc: back to Select";
 pub const PICKED_KEYS: &str =
     "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
 pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
-const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle, arc or \
-                              ellipse; dimension the points or lines that shape it otherwise";
-const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
-const ELLIPSE_REFUSED: &str = "An ellipse takes its major and minor radii alone, or a distance from \
-                               one point or curve; dimension its centre and axis points otherwise";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Unfit {
+    #[error("Click a line, circle, arc or point to dimension it")]
+    PickFirst,
+    #[error("That is not part of the sketch being edited")]
+    NotInSketch,
+    #[error(
+        "An ellipse takes its major and minor radii alone, or a distance from one point or curve; \
+         dimension its centre and axis points otherwise"
+    )]
+    Ellipse,
+    #[error(
+        "A spline takes only a distance from a point, line, circle, arc or ellipse; dimension the \
+         points or lines that shape it otherwise"
+    )]
+    Spline,
+}
+
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
 
@@ -56,13 +69,13 @@ fn kind(sketch: &Sketch, id: EntityId) -> Option<Kind> {
 pub enum Fit {
     Ready(ConstraintTool),
     Waiting,
-    Refused(&'static str),
+    Refused(Unfit),
 }
 
 pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     let kinds: Option<Vec<Kind>> = picks.iter().map(|id| kind(sketch, *id)).collect();
     let Some(kinds) = kinds else {
-        return Fit::Refused(NOT_IN_SKETCH);
+        return Fit::Refused(Unfit::NotInSketch);
     };
     match kinds.as_slice() {
         [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
@@ -75,7 +88,7 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
             return Fit::Ready(ConstraintTool::Angle);
         }
         [_, Kind::Ellipse] | [Kind::Ellipse, _] => return Fit::Ready(ConstraintTool::Distance),
-        _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(ELLIPSE_REFUSED),
+        _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(Unfit::Ellipse),
         [Kind::Spline]
             if picks
                 .iter()
@@ -94,7 +107,7 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
         ] => {
             return Fit::Ready(ConstraintTool::Distance);
         }
-        _ if kinds.contains(&Kind::Spline) => return Fit::Refused(SPLINE_REFUSED),
+        _ if kinds.contains(&Kind::Spline) => return Fit::Refused(Unfit::Spline),
         _ => {}
     }
     match (kinds.as_slice(), picks) {
@@ -111,7 +124,7 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
             Fit::Ready(ConstraintTool::Angle)
         }
         ([_, _], _) => Fit::Ready(ConstraintTool::Distance),
-        _ => Fit::Refused(PICK_FIRST),
+        _ => Fit::Refused(Unfit::PickFirst),
     }
 }
 
@@ -359,7 +372,7 @@ pub fn prompt(
         );
     }
     match (picks, fitting(sketch, picks)) {
-        ([], _) => (PICK_FIRST.to_owned(), FIRST_KEYS),
+        ([], _) => (Unfit::PickFirst.to_string(), FIRST_KEYS),
         ([point], Fit::Waiting) => (
             format!(
                 "Click a second point, a line or a circle for its distance from {}",
@@ -385,7 +398,7 @@ pub fn prompt(
                 PICKED_KEYS,
             )
         }
-        (_, Fit::Waiting | Fit::Refused(_)) => (PICK_FIRST.to_owned(), FIRST_KEYS),
+        (_, Fit::Waiting | Fit::Refused(_)) => (Unfit::PickFirst.to_string(), FIRST_KEYS),
     }
 }
 
@@ -425,7 +438,7 @@ pub fn hover_words(
         (_, Fit::Waiting) => {
             format!("Click to measure from {label}, then click what to measure to")
         }
-        (_, Fit::Refused(reason)) => reason.to_owned(),
+        (_, Fit::Refused(reason)) => reason.to_string(),
     }
 }
 
@@ -433,8 +446,8 @@ pub fn hover_words(
 pub enum DimensionToolError {
     #[error("{prompt}")]
     Waiting { prompt: String },
-    #[error("{0}")]
-    Unfitting(&'static str),
+    #[error(transparent)]
+    Unfitting(#[from] Unfit),
     #[error(transparent)]
     Unproposed(#[from] ConstraintOfferError),
 }
@@ -526,7 +539,7 @@ mod tests {
         let other_spline = sketch.add_spline(&[Point2::new(5.0, 0.0), Point2::new(6.0, 2.0)]);
         assert_eq!(
             fitting(&sketch, &[spline, other_spline]),
-            Fit::Refused(SPLINE_REFUSED)
+            Fit::Refused(Unfit::Spline)
         );
         let ellipse = sketch.add_ellipse(Point2::new(0.0, 9.0), Point2::new(4.0, 9.0), 2.0);
         let other_ellipse = sketch.add_ellipse(Point2::new(9.0, 9.0), Point2::new(9.0, 12.0), 1.0);
@@ -540,7 +553,7 @@ mod tests {
         );
         assert_eq!(
             fitting(&sketch, &[ellipse, other_ellipse, spline]),
-            Fit::Refused(ELLIPSE_REFUSED)
+            Fit::Refused(Unfit::Ellipse)
         );
         assert_eq!(
             fitting(&sketch, &[level, arc]),
@@ -562,7 +575,7 @@ mod tests {
         );
         assert_eq!(
             fitting(&sketch, &[level, above, slanted]),
-            Fit::Refused(PICK_FIRST)
+            Fit::Refused(Unfit::PickFirst)
         );
     }
 

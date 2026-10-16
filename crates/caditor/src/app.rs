@@ -30,7 +30,7 @@ use crate::{
     body_selection, canvas,
     comb::CombTool,
     comb_panel,
-    commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
+    commands::{self, Clipboard, Command, CommandFrame, Declined, Offer, Situation},
     completion,
     configurations::{self, ConfigurationsDraft},
     constraint_trial, defender, drawing_export, drop_target,
@@ -952,7 +952,15 @@ pub fn show(
         };
         let asked = lighting_panel::show(
             ui,
-            (preferences.lighting, sky),
+            (
+                preferences.lighting,
+                sky,
+                preferences
+                    .appearance
+                    .body
+                    .custom()
+                    .unwrap_or(crate::body_appearance::DEFAULT_COLOUR),
+            ),
             viewport.style(),
             room,
             lighting,
@@ -1085,7 +1093,7 @@ pub fn show(
     let (mut offers, mut refused) = commands.finish();
     match repetition.settle(asked_to_repeat, &ran, &mut offers) {
         Some(Repeat::Again(command)) => deferred_commands.push(command),
-        Some(Repeat::Refused(reason)) => refused.push((Command::RepeatLast, reason)),
+        Some(Repeat::Refused(reason)) => refused.push((Command::RepeatLast, Declined::of(&reason))),
         None => {}
     }
     let menu_toggles = ToggleStates::of(viewport, section.open)

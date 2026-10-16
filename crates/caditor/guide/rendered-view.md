@@ -43,6 +43,8 @@ shading.
   ambient occlusion), so it only sees surfaces on screen; 0 turns it off, above 1 deepens it.
 - **Exposure** brightens or darkens the whole picture in stops.
 - **Cast shadows**: bodies shade what lies behind them from the sun.
+- **Visible floor**: draws the ground the bodies stand on, a neutral grey at the model's lowest
+  point that takes the sun's shadow and fades into the backdrop away from the model. Off at first.
 
 {command:view.reset_lighting} puts every setting back as it was at first, the sky picture
 included.
@@ -53,7 +55,15 @@ Behind the model the Rendered view shows a blue sky, deeper at the top of the vi
 below, and leaves out the grid, sketch curves, datums and the principal planes, axes and origin,
 so only the bodies show. They come back while a sketch is edited, a feature is open or a plane is
 being chosen. The bodies stand on an unseen ground at their lowest point, which shows only the
-shadow the sun casts on it, fading away from the model.
+shadow the sun casts on it, fading away from the model, unless Visible floor draws it.
+
+**Behind the model** in the Lighting panel (and in the same Preferences section) replaces the
+sky, or the sky picture below, with one plain colour: pick a white, grey or black swatch, or
+the **+** swatch for any colour, and **Sky** brings the sky back. The sky or the picture still
+lights the bodies, so only what you see behind them changes. A colour that would hide the bodies
+(less than 1.5:1 against the colour bodies without one of their own take) is refused, saying so; a
+colour that a later change of the body colour makes hide them is still drawn, with a warning. With
+Visible floor on, the floor and its shadow are drawn over the plain colour too.
 
 Bright light rolls off smoothly rather than clipping to white, keeping a material's colour
 recognisable. [Exporting](exporting) an image while the Rendered style is shown draws it with the
@@ -81,4 +91,5 @@ still lights the model as well, so turn Sun strength down to 0 to let the pictur
   instead. Other kinds of picture, OpenEXR included, are not read yet.
 
 {command:view.clear_backdrop} (Use the plain sky) goes back to the blue sky, and
-{command:view.reset_lighting} does that as well as putting every other setting back.
+{command:view.reset_lighting} does that as well as putting every other setting back, the plain
+backdrop colour and the floor included.

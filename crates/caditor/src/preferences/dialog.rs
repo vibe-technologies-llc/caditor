@@ -1130,15 +1130,21 @@ fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
     let note = "These light the Rendered display style, which View › Display style chooses; \
                 Light the rendered view opens them beside the 3D view, where the sky picture is \
                 chosen too; restoring the defaults here brings back the plain sky.";
-    section(
-        ui,
-        shown,
-        Section::RenderedView,
-        Some(note.to_owned()),
-        |ui| {
+    let body = shown
+        .preferences
+        .appearance
+        .body
+        .custom()
+        .unwrap_or(body_appearance::DEFAULT_COLOUR);
+    section_card(ui, shown, Section::RenderedView, |ui| {
+        widgets::properties(ui, Section::RenderedView.id(), |ui| {
             lighting_panel::rows(ui, shown.preferences.lighting, command);
-        },
-    );
+        });
+        ui.add_space(SPACE_M);
+        lighting_panel::backdrop_colour(ui, shown.preferences.lighting, body, command);
+        ui.add_space(SPACE_S);
+        ui.add(Label::new(widgets::muted(note, ui)).wrap());
+    });
 }
 
 fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {

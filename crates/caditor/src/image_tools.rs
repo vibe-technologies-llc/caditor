@@ -14,6 +14,7 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model, Notice},
     primitive_tools,
+    queued::Pending,
     reference_picking::Slot,
     selection::{Pickable, Selection},
     solid_tools,
@@ -52,8 +53,8 @@ pub enum ImageError {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ImageTargetError {
-    #[error("{refusal}")]
-    ChosenPlane { refusal: &'static str },
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     ChosenSpot(#[from] primitive_tools::PrimitiveError),
 }
@@ -61,6 +62,13 @@ pub enum ImageTargetError {
 impl Reason for ImageTargetError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::ChosenSpot(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -80,7 +88,7 @@ pub fn target(
     }
     let index = model.document().bar_index();
     let chosen = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|refusal| ImageTargetError::ChosenPlane { refusal })?;
+        .map_err(ImageTargetError::ChosenPlane)?;
     match chosen {
         Some(chosen) => {
             let (plane, at) = primitive_tools::chosen_spot(model, &chosen, index)?;

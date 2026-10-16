@@ -391,7 +391,7 @@ impl Tool {
             Self::ListFaces => {
                 "Lists the faces of one body with a stable key (pass it to add_sketch), a \
                  description in words, the kind of surface, a flat face's outward normal and \
-                 point, a round face's radius and the area."
+                 point, a round face's radius and the area. With before, the faces as that feature received the body."
             }
             Self::GetSketch => {
                 "Describes one sketch: its plane in model coordinates, what it lies on, its \
@@ -484,7 +484,7 @@ impl Tool {
                  graphics adapter). A relative path is taken from the model's folder."
             }
             Self::ListEdges => {
-                "Lists the edges of one body with a stable key (pass it to add_fillet, add_chamfer, measure or as an axis), a description in words naming the faces it lies between, its kind (line, circle, arc, ellipse, curve), its length and a line's ends or a round edge's centre and radius."
+                "Lists the edges of one body with a stable key (pass it to add_fillet, add_chamfer, measure or as an axis), a description in words naming the faces it lies between, its kind (line, circle, arc, ellipse, curve), its length and a line's ends or a round edge's centre and radius. With before, the edges as that feature received the body."
             }
             Self::Measure => {
                 "Measures the shortest distance between two things, each a point, a face or an edge of a body, with the closest points on each, and the angle between them when they have one (two planes, two lines, a line and a plane)."
@@ -581,7 +581,7 @@ impl Tool {
             }
             Self::AddScale => "Scales a body by a factor about a centre point. One undo step.",
             Self::EditFeature => {
-                "Changes an existing feature, as one undo step, with the arguments of the tool that adds its kind (add_extrusion for an extrusion, add_fillet for a fillet, and so on): what is given replaces that part, the rest stays as it is, and name renames it. Sketches change through the sketch tools."
+                "Changes an existing feature, as one undo step, with the arguments of the tool that adds its kind (add_extrusion for an extrusion, add_fillet for a fillet, and so on): what is given replaces that part, the rest stays as it is, and name renames it. Faces and edges of the feature's own body are named as that feature received it (list_faces and list_edges with before), so an edge a fillet rounded away can be named again. Sketches change through the sketch tools."
             }
             Self::RenameFeature => "Renames a feature. One undo step.",
             Self::SuppressFeatures => {
@@ -668,7 +668,10 @@ impl Tool {
             | Self::Redo
             | Self::Save => nothing,
             Self::ListFaces => object(
-                json!({ "body": reference("The body, by id or name from list_bodies") }),
+                json!({
+                    "body": reference("The body, by id or name from list_bodies"),
+                    "before": reference("A feature by id or name: list the body as that feature received it, which is what edit_feature resolves the faces and edges it is given on")
+                }),
                 &["body"],
             ),
             Self::GetSketch => object(

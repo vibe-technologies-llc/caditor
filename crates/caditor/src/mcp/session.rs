@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_document::{
-    CancelToken, Document, EditError, Editor, Evaluation, ModelEvaluator, ParameterValues,
-    Recompute, Transaction,
+    CancelToken, Document, EditError, Editor, Evaluation, FeatureId, ModelEvaluator,
+    ParameterValues, Recompute, Transaction,
 };
 use caditor_file::{
     FILE_EXTENSION, FileDigest, FileJournal, JournalEntry, JournalFailure, LoadError, Report,
@@ -175,6 +175,11 @@ struct Journal {
     pending: Option<PendingSave>,
 }
 
+struct Standing {
+    document: Document,
+    evaluation: Evaluation,
+}
+
 pub struct Session {
     model: PathBuf,
     folders: Vec<PathBuf>,
@@ -187,6 +192,7 @@ pub struct Session {
     recompute: Recompute,
     evaluation: Evaluation,
     evaluated: Option<u64>,
+    before: Option<Standing>,
     journal: Journal,
 }
 
@@ -246,6 +252,7 @@ impl Session {
             recompute: Recompute::default(),
             evaluation: Evaluation::default(),
             evaluated: None,
+            before: None,
             journal: Journal {
                 config: storage,
                 storage: None,
@@ -273,11 +280,36 @@ impl Session {
     }
 
     pub fn document(&self) -> &Document {
-        self.editor.document()
+        self.before
+            .as_ref()
+            .map_or_else(|| self.editor.document(), |standing| &standing.document)
     }
 
     pub fn evaluation(&self) -> &Evaluation {
-        &self.evaluation
+        self.before
+            .as_ref()
+            .map_or(&self.evaluation, |standing| &standing.evaluation)
+    }
+
+    pub fn looking_before<T>(
+        &mut self,
+        feature: FeatureId,
+        run: impl FnOnce(&mut Self) -> T,
+    ) -> Option<T> {
+        if !self.is_evaluated() || self.before.is_some() {
+            return None;
+        }
+        let document = self.editor.document();
+        let standing = Standing {
+            evaluation: self
+                .evaluation
+                .standing_before(document.feature(feature)?)?,
+            document: document.rolled_back_before(feature),
+        };
+        self.before = Some(standing);
+        let result = run(self);
+        self.before = None;
+        Some(result)
     }
 
     pub fn parameters(&self) -> ParameterValues {
@@ -308,6 +340,7 @@ impl Session {
     }
 
     pub fn forget_evaluation(&mut self) {
+        self.before = None;
         self.evaluated = None;
     }
 

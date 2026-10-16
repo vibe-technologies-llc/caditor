@@ -38,17 +38,20 @@ impl Repetition {
             None => Offer {
                 command: Command::RepeatLast,
                 availability: Err(Cow::Borrowed(NOTHING_TO_REPEAT)),
+                pending: None,
                 detail: None,
             },
             Some(command) => match offered(offers, command) {
                 Some(found) => Offer {
                     command: Command::RepeatLast,
                     availability: found.availability.clone(),
+                    pending: found.pending,
                     detail: Some(found.title()),
                 },
                 None => Offer {
                     command: Command::RepeatLast,
                     availability: Err(Cow::Owned(not_here(command))),
+                    pending: None,
                     detail: Some(command.title()),
                 },
             },

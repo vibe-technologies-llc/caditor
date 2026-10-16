@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use crate::{
     bodies,
     mcp::{
+        edits::viewed_before,
         places::{self, OnEdge, OnFace, edge_key_text},
         reading::{OfBody, point3, rounded, vector3},
         references::{self, ReferenceError, body_label},
@@ -51,6 +52,16 @@ pub fn edges(
     of: &OfBody,
 ) -> Result<Map<String, Value>, ToolError> {
     session.evaluate(work)?;
+    viewed_before(session, of.before.as_ref(), |session| {
+        listed_edges(session, work, of)
+    })
+}
+
+fn listed_edges(
+    session: &Session,
+    work: &Work<'_>,
+    of: &OfBody,
+) -> Result<Map<String, Value>, ToolError> {
     let document = session.document();
     let evaluation = session.evaluation();
     let body = references::body(document, evaluation, &of.body)?;

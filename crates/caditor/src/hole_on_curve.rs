@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     Datum, DatumPoint, Document, Edit, EditError, FaceTangent, FeatureId, FeatureKind, Hole,
     PlaneThrough, PointReference, SketchAttachment, SketchFeature, Transaction,
@@ -9,10 +11,12 @@ use caditor_sketch::Sketch;
 use crate::{
     bodies,
     body_selection::face_boundary,
+    commands::Reason,
     editing,
     hole_tools::{self, TITLE},
     last_values::Starts,
     model::Model,
+    queued::Pending,
     sketch_placement::{self, FaceChoice},
 };
 
@@ -34,6 +38,19 @@ pub enum CurveHoleError {
     CannotStandOnFace { source: EditError },
     #[error("The hole cannot stand there")]
     CannotStandThere { source: EditError },
+}
+
+impl Reason for CurveHoleError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::Surface(error) => error.pending(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

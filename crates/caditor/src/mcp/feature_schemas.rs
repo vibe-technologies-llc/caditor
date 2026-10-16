@@ -174,7 +174,10 @@ fn triple(description: &str) -> Value {
 
 pub fn list_edges() -> Value {
     object(
-        json!({ "body": reference("The body, by id or name from list_bodies") }),
+        json!({
+            "body": reference("The body, by id or name from list_bodies"),
+            "before": reference("A feature by id or name: list the body as that feature received it, which is what edit_feature resolves the faces and edges it is given on")
+        }),
         &["body"],
     )
 }

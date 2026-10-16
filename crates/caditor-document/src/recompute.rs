@@ -558,6 +558,15 @@ impl Evaluation {
         self.features.get(state)?.result.as_ref()
     }
 
+    #[must_use]
+    pub fn standing_before(&self, feature: &Feature) -> Option<Self> {
+        let body = feature.kind.body_input()?;
+        let state = *self.inputs_before.get(&feature.id())?;
+        let mut before = self.clone();
+        before.bodies.insert(body, state);
+        Some(before)
+    }
+
     pub fn cuts(&self, feature: FeatureId) -> &[Arc<FeatureResult>] {
         self.features
             .get(&feature)

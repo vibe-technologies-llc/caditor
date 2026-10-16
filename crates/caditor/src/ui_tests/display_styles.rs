@@ -213,6 +213,60 @@ fn the_lighting_panel_opens_from_the_palette_and_its_settings_reach_the_rendered
 }
 
 #[test]
+fn the_lighting_panel_offers_a_plain_backdrop_and_a_visible_floor_that_reach_the_rendered_scene() {
+    let mut harness = plate();
+    choose_from_menu(&mut harness, "Rendered");
+    run_from_palette(&mut harness, "light the rendered view");
+    harness.frame();
+    let surroundings = |harness: &mut Harness| harness.built().scene.lighting.unwrap().surroundings;
+    let at_first = surroundings(&mut harness);
+
+    harness.click_button(&crate::lighting_panel::backdrop_swatch_name("Charcoal"));
+    harness.frame();
+    harness.frame();
+    let charcoal = surroundings(&mut harness);
+    let stored =
+        crate::lighting::Lighting::from_settings(&harness.workspace.preferences.settings());
+
+    harness.click(crate::lighting_panel::FLOOR);
+    harness.frame();
+    harness.frame();
+    let floored = surroundings(&mut harness);
+
+    harness.click_button(crate::lighting_panel::CUSTOM_BACKDROP);
+    harness.frame();
+    let hex =
+        crate::colour_selector::hex_id(egui::Id::unique(crate::lighting_panel::BACKDROP_SELECTOR));
+    let hiding = crate::body_appearance::DEFAULT_COLOUR.hex();
+    harness.type_into_field(hex, &hiding);
+    harness.frame();
+    let refused = surroundings(&mut harness);
+    let said = harness.shows_containing("shows bodies in");
+
+    harness.click_button(crate::lighting_panel::SKY_SWATCH);
+    harness.frame();
+    harness.frame();
+    let sky_again = surroundings(&mut harness);
+
+    assert_eq!(at_first, caditor_render::Surroundings::default());
+    assert_eq!(
+        charcoal.backdrop,
+        Some(caditor_render::Color::from_rgb8(0x2b, 0x2e, 0x34))
+    );
+    assert!(!charcoal.floor);
+    assert_eq!(
+        stored.backdrop_colour,
+        Some(caditor_document::Rgb::new(0x2b, 0x2e, 0x34))
+    );
+    assert!(floored.floor);
+    assert_eq!(floored.backdrop, charcoal.backdrop);
+    assert_eq!(refused, floored);
+    assert!(said);
+    assert_eq!(sky_again.backdrop, None);
+    assert!(sky_again.floor);
+}
+
+#[test]
 fn the_display_picker_in_the_view_names_the_style_and_switches_it_from_its_menu() {
     let mut harness = plate();
     let shaded = crate::display_picker::name_of(DisplayStyle::ShadedWithEdges);

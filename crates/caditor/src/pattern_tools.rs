@@ -18,6 +18,7 @@ use crate::{
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     move_tools,
+    queued::Pending,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_pattern_tools, solid_tools,
@@ -63,12 +64,14 @@ pub enum PatternToolError {
     AlreadyAlong,
     #[error("It already turns about the selection")]
     AlreadyTurns,
-    #[error("{}", sketch_pattern_tools::NO_PATH)]
+    #[error("{}", sketch_pattern_tools::NoSketchError::NoPath)]
     NoPath,
     #[error(transparent)]
     ChosenBody(#[from] move_tools::BodyChoiceError),
-    #[error("{words}")]
-    SketchPattern { words: &'static str },
+    #[error(transparent)]
+    Reshape(#[from] sketch_pattern_tools::NoSketchError),
+    #[error(transparent)]
+    Resketch(#[from] sketch_pattern_tools::ResketchError),
     #[error(transparent)]
     Choice(#[from] ChoiceRefusal),
     #[error(transparent)]
@@ -78,6 +81,13 @@ pub enum PatternToolError {
 impl Reason for PatternToolError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
+    }
+
+    fn pending(&self) -> Option<Pending> {
+        match self {
+            Self::ChosenBody(error) => error.pending(),
+            _ => None,
+        }
     }
 }
 
@@ -494,8 +504,7 @@ pub fn reshaped(
                 .document()
                 .feature_index(feature)
                 .ok_or(PatternToolError::FeatureGone)?;
-            sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)
-                .map_err(|words| PatternToolError::SketchPattern { words })?
+            sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)?
         }
         (PatternKind::Curve(curve), Shape::Linear | Shape::Circular) => {
             let mut kind = kind_for(model, shape, (pattern.body, &pattern.repeated), None);

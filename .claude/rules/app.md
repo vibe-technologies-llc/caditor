@@ -577,6 +577,21 @@ paths:
   and brightness (stops) are `Lighting::backdrop_turn` and `backdrop_exposure`, shown only with a
   picture ready. The picture rides `Scene::backdrop` like the lighting: `SceneCache::set_backdrop`
   sets it in place, so it is not part of the scene key, and image export carries it the same way.
+- The surroundings are two more `Lighting` fields, so they are kept, previewed, reset and handed
+  to the renderer with the rest of the light (`Lighting::surroundings`, `render.md`):
+  `backdrop_colour` (`rendering.backdrop_colour`, `#rrggbb`, absent for the sky, an unreadable
+  value reads as absent) and `floor` (`rendering.floor`, off by default). A plain backdrop only
+  replaces what is seen behind the bodies; the sky or the sky picture still lights them. Behind the
+  model (`lighting_panel::backdrop_colour`, below the sky picture in the panel and after the rows in
+  Preferences › Appearance › Rendered view) is a row of swatches: Sky (none), the fixed
+  `BACKDROPS` and a custom colour opening `colour_selector.rs` (`BACKDROP_SELECTOR`); Visible floor
+  is a checkbox among the rows. Every colour goes through `scene_palette::seen_backdrop`: below
+  `BODY_SEEN` (1.5:1) against the colour bodies without one of their own take (the custom body
+  colour, else `DEFAULT_COLOUR`) it is refused in words naming both colours and the ratio
+  (`UnseenBackdrop::sentence`; a fixed swatch is disabled with that sentence as its hover), and a
+  stored colour a later body colour now hides keeps drawing but raises a warning callout
+  (`UnseenBackdrop::warning`). Bodies with a colour of their own are not checked. Reset lighting
+  and restoring the Rendered view section put the sky back and the floor off.
 
 ## Samples
 
