@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, Document, Edit, FaceAttachment, FaceAxisMate,
     FaceMate, FaceOnRound, FacePair, FeatureId, FeatureKind, Mate, MatePair, PlaneReference,
@@ -6,11 +8,14 @@ use caditor_document::{
 use caditor_kernel::FaceReference;
 
 use crate::{
-    bodies, datum_tools,
+    bodies,
+    commands::Reason,
+    datum_tools,
     editing::{self, EditingCommand},
-    field,
+    feature_fields::ChoiceRefusal,
+    field::{self, CheckError},
     model::{Action, Model},
-    move_tools,
+    move_tools::{self, BodyChoiceError},
     selection::{Pickable, Selection},
     sketch_placement, solid_tools,
 };
@@ -20,29 +25,76 @@ const DEFAULT_ANGLE_DEGREES: f64 = 90.0;
 const NO_PAIR: &str = "Select a flat face, axis, round face or corner of the body to move, then \
                        the face, plane, axis, round face or point to mate it onto; or a flat face \
                        and an axis of the body, then a face and an axis to mate them onto";
-const NO_ANGLE_PAIR: &str = "Select a flat face or axis of the body to move, then the face, plane \
-                             or axis to set its angle to";
-const SAME_BODY: &str =
-    "Select what to mate onto on another body, or a plane or axis; not on the body that moves";
-const NO_FACE: &str = "Select a flat face of the body this mate moves";
-const NO_AXIS: &str = "Select a straight edge or round face of the body this mate moves";
-const NO_ROUND: &str = "Select a cylindrical or spherical face of the body this mate moves";
-const NO_POINT: &str =
-    "Select a corner, round edge or sphere of the body this mate moves for its point";
-const NO_TARGET_PLANE: &str =
-    "Select a flat face of another body, or a plane, made before this feature";
-const NO_TARGET_AXIS: &str =
-    "Select an axis, or a straight edge or round face of another body, made before this feature";
-const NO_TARGET_ROUND: &str = "Select a cylindrical or spherical face of another body, made \
-                               before this feature";
-const NO_TARGET_POINT: &str = "Select a point, corner, flat face or plane made before this \
-                               feature, not on the body that moves";
-const NO_SECOND_PART: &str = "This mate holds one pair; only a flush and concentric mate also \
-                              holds an axis";
-const ALREADY: &str = "The mate already uses the selected face or axis";
-const NOT_ON_AXES: &str = "This mate does not line up axes there";
-const NOT_ON_PLANES: &str = "This mate does not rest on a plane there";
-const GONE: &str = "The feature no longer exists";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum MateError {
+    #[error("{NO_PAIR}")]
+    NoPair,
+    #[error(
+        "Select a flat face or axis of the body to move, then the face, plane \
+         or axis to set its angle to"
+    )]
+    NoAnglePair,
+    #[error(
+        "Select what to mate onto on another body, or a plane or axis; not on the body that moves"
+    )]
+    SameBody,
+    #[error("Select a flat face of the body this mate moves")]
+    NoFace,
+    #[error("Select a straight edge or round face of the body this mate moves")]
+    NoAxis,
+    #[error("Select a cylindrical or spherical face of the body this mate moves")]
+    NoRound,
+    #[error("Select a corner, round edge or sphere of the body this mate moves for its point")]
+    NoPoint,
+    #[error("Select a flat face of another body, or a plane, made before this feature")]
+    NoTargetPlane,
+    #[error(
+        "Select an axis, or a straight edge or round face of another body, made before this feature"
+    )]
+    NoTargetAxis,
+    #[error(
+        "Select a cylindrical or spherical face of another body, made \
+         before this feature"
+    )]
+    NoTargetRound,
+    #[error(
+        "Select a point, corner, flat face or plane made before this \
+         feature, not on the body that moves"
+    )]
+    NoTargetPoint,
+    #[error(
+        "This mate holds one pair; only a flush and concentric mate also \
+         holds an axis"
+    )]
+    NoSecondPart,
+    #[error("The mate already uses the selected face or axis")]
+    Already,
+    #[error("This mate does not line up axes there")]
+    NotOnAxes,
+    #[error("This mate does not rest on a plane there")]
+    NotOnPlanes,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Body(#[from] BodyChoiceError),
+    #[error(transparent)]
+    Choice(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<MateError> for String {
+    fn from(error: MateError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for MateError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MatePart {
@@ -217,43 +269,43 @@ fn flush_and_concentric(
     ))
 }
 
-fn shown(model: &Model, body: FeatureId) -> Result<FeatureId, &'static str> {
+fn shown(model: &Model, body: FeatureId) -> Result<FeatureId, BodyChoiceError> {
     move_tools::chosen_body(model, &Selection::default(), &[body], NO_PAIR)
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<MateSource, &'static str> {
+pub fn source(model: &Model, selection: &Selection) -> Result<MateSource, MateError> {
     let index = model.document().bar_index();
     let picked = selection.in_pick_order();
     let found = match picked.as_slice() {
         [first, second] => {
-            let body = first.body().ok_or(NO_PAIR)?;
+            let body = first.body().ok_or(MateError::NoPair)?;
             if second.body() == Some(body) {
-                return Err(SAME_BODY);
+                return Err(MateError::SameBody);
             }
             one_pair(model, *first, *second, index)
         }
         [first, _, _, _] => {
-            let body = first.body().ok_or(NO_PAIR)?;
+            let body = first.body().ok_or(MateError::NoPair)?;
             flush_and_concentric(model, &picked, body, index)
         }
         _ => None,
     };
-    let (body, pair) = found.ok_or(NO_PAIR)?;
+    let (body, pair) = found.ok_or(MateError::NoPair)?;
     Ok(MateSource {
         body: shown(model, body)?,
         pair,
     })
 }
 
-pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, &'static str> {
+pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, MateError> {
     let index = model.document().bar_index();
     let picked = selection.in_pick_order();
     let [first, second] = picked.as_slice() else {
-        return Err(NO_ANGLE_PAIR);
+        return Err(MateError::NoAnglePair);
     };
-    let body = first.body().ok_or(NO_ANGLE_PAIR)?;
+    let body = first.body().ok_or(MateError::NoAnglePair)?;
     if second.body() == Some(body) {
-        return Err(SAME_BODY);
+        return Err(MateError::SameBody);
     }
     let sides = match one_pair(model, *first, *second, index) {
         Some((_, MatePair::Faces(faces))) => AngleSides::Faces(FacePair {
@@ -261,7 +313,7 @@ pub fn angle_source(model: &Model, selection: &Selection) -> Result<MateSource, 
             target: faces.target,
         }),
         Some((_, MatePair::Axes(axes))) => AngleSides::Axes(*axes),
-        Some(_) | None => return Err(NO_ANGLE_PAIR),
+        Some(_) | None => return Err(MateError::NoAnglePair),
     };
     let angle = AngleMate {
         sides,
@@ -306,17 +358,17 @@ pub fn edit(document: &Document, feature: FeatureId, mate: Mate) -> Option<Trans
     ))
 }
 
-pub fn change(model: &Model, feature: FeatureId, mate: Mate) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, mate: Mate) -> Result<Transaction, MateError> {
     let document = model.document();
-    let transaction = edit(document, feature, mate).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, mate).ok_or(MateError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
-fn index_of(model: &Model, feature: FeatureId) -> Result<usize, String> {
+fn index_of(model: &Model, feature: FeatureId) -> Result<usize, MateError> {
     model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())
+        .ok_or(MateError::Gone { feature })
 }
 
 fn changed(
@@ -324,9 +376,9 @@ fn changed(
     feature: FeatureId,
     mate: &Mate,
     pair: MatePair,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MateError> {
     if pair == mate.pair {
-        return Err(ALREADY.to_owned());
+        return Err(MateError::Already);
     }
     change(
         model,
@@ -348,36 +400,34 @@ impl Picks<'_> {
     fn first<T>(
         &self,
         find: impl Fn(&Model, Pickable, usize) -> Option<T>,
-        missing: &'static str,
-    ) -> Result<T, &'static str> {
+        missing: MateError,
+    ) -> Result<T, MateError> {
         self.picked
             .iter()
             .find_map(|pickable| find(self.model, *pickable, self.index))
             .ok_or(missing)
     }
 
-    fn face(&self) -> Result<FaceReference, &'static str> {
-        self.first(moving_face, NO_FACE).map(|(_, face)| face)
+    fn face(&self) -> Result<FaceReference, MateError> {
+        self.first(moving_face, MateError::NoFace)
+            .map(|(_, face)| face)
     }
 
-    fn axis(&self) -> Result<AxisReference, &'static str> {
-        self.first(moving_axis, NO_AXIS).map(|(_, axis)| axis)
+    fn axis(&self) -> Result<AxisReference, MateError> {
+        self.first(moving_axis, MateError::NoAxis)
+            .map(|(_, axis)| axis)
     }
 
-    fn plane(&self) -> Result<PlaneReference, &'static str> {
-        self.first(datum_tools::plane_reference, NO_TARGET_PLANE)
+    fn plane(&self) -> Result<PlaneReference, MateError> {
+        self.first(datum_tools::plane_reference, MateError::NoTargetPlane)
     }
 
-    fn target_axis(&self) -> Result<AxisReference, &'static str> {
-        self.first(datum_tools::axis_reference, NO_TARGET_AXIS)
+    fn target_axis(&self) -> Result<AxisReference, MateError> {
+        self.first(datum_tools::axis_reference, MateError::NoTargetAxis)
     }
 }
 
-fn moved_pair(
-    picks: &Picks<'_>,
-    pair: &MatePair,
-    part: MatePart,
-) -> Result<MatePair, &'static str> {
+fn moved_pair(picks: &Picks<'_>, pair: &MatePair, part: MatePart) -> Result<MatePair, MateError> {
     Ok(match (pair, part) {
         (MatePair::Faces(faces), MatePart::Main) => MatePair::Faces(Box::new(FaceMate {
             face: picks.face()?,
@@ -406,11 +456,11 @@ fn moved_pair(
             MatePair::Angle(Box::new(angle))
         }
         (MatePair::Tangent(tangent), MatePart::Main) => MatePair::Tangent(Box::new(FacePair {
-            face: picks.first(moving_round, NO_ROUND)?.1,
+            face: picks.first(moving_round, MateError::NoRound)?.1,
             ..tangent.as_ref().clone()
         })),
         (MatePair::Point(point), MatePart::Main) => MatePair::Point(Box::new(PointMate {
-            point: picks.first(moving_point, NO_POINT)?.1,
+            point: picks.first(moving_point, MateError::NoPoint)?.1,
             ..point.as_ref().clone()
         })),
         (MatePair::FaceOnRound(resting), MatePart::Main) => {
@@ -427,15 +477,11 @@ fn moved_pair(
             | MatePair::Point(_)
             | MatePair::FaceOnRound(_),
             MatePart::Axis,
-        ) => return Err(NO_SECOND_PART),
+        ) => return Err(MateError::NoSecondPart),
     })
 }
 
-fn target_pair(
-    picks: &Picks<'_>,
-    pair: &MatePair,
-    part: MatePart,
-) -> Result<MatePair, &'static str> {
+fn target_pair(picks: &Picks<'_>, pair: &MatePair, part: MatePart) -> Result<MatePair, MateError> {
     Ok(match (pair, part) {
         (MatePair::Faces(faces), MatePart::Main) => MatePair::Faces(Box::new(FaceMate {
             target: picks.plane()?,
@@ -468,12 +514,12 @@ fn target_pair(
             ..tangent.as_ref().clone()
         })),
         (MatePair::Point(point), MatePart::Main) => MatePair::Point(Box::new(PointMate {
-            target: picks.first(point_target, NO_TARGET_POINT)?,
+            target: picks.first(point_target, MateError::NoTargetPoint)?,
             ..point.as_ref().clone()
         })),
         (MatePair::FaceOnRound(resting), MatePart::Main) => {
             MatePair::FaceOnRound(Box::new(FaceOnRound {
-                round: picks.first(round_target, NO_TARGET_ROUND)?,
+                round: picks.first(round_target, MateError::NoTargetRound)?,
                 ..resting.as_ref().clone()
             }))
         }
@@ -485,7 +531,7 @@ fn target_pair(
             | MatePair::Point(_)
             | MatePair::FaceOnRound(_),
             MatePart::Axis,
-        ) => return Err(NO_SECOND_PART),
+        ) => return Err(MateError::NoSecondPart),
     })
 }
 
@@ -495,7 +541,7 @@ pub fn target_axis_change(
     mate: &Mate,
     part: MatePart,
     axis: AxisReference,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MateError> {
     let pair = match (&mate.pair, part) {
         (MatePair::Axes(axes), MatePart::Main) => MatePair::Axes(Box::new(AxisMate {
             target: axis,
@@ -509,12 +555,12 @@ pub fn target_axis_change(
         (MatePair::Angle(angle), MatePart::Main) => {
             let mut angle = angle.as_ref().clone();
             let AngleSides::Axes(axes) = &mut angle.sides else {
-                return Err(NOT_ON_AXES.to_owned());
+                return Err(MateError::NotOnAxes);
             };
             axes.target = axis;
             MatePair::Angle(Box::new(angle))
         }
-        _ => return Err(NOT_ON_AXES.to_owned()),
+        _ => return Err(MateError::NotOnAxes),
     };
     changed(model, feature, mate, pair)
 }
@@ -524,7 +570,7 @@ pub fn target_plane_change(
     feature: FeatureId,
     mate: &Mate,
     plane: PlaneReference,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MateError> {
     let pair = match &mate.pair {
         MatePair::Faces(faces) => MatePair::Faces(Box::new(FaceMate {
             target: plane,
@@ -538,7 +584,7 @@ pub fn target_plane_change(
         MatePair::Angle(angle) => {
             let mut angle = angle.as_ref().clone();
             let AngleSides::Faces(faces) = &mut angle.sides else {
-                return Err(NOT_ON_PLANES.to_owned());
+                return Err(MateError::NotOnPlanes);
             };
             faces.target = plane;
             MatePair::Angle(Box::new(angle))
@@ -554,7 +600,7 @@ pub fn target_plane_change(
             }))
         }
         MatePair::Axes(_) | MatePair::Point(_) | MatePair::FaceOnRound(_) => {
-            return Err(NOT_ON_PLANES.to_owned());
+            return Err(MateError::NotOnPlanes);
         }
     };
     changed(model, feature, mate, pair)
@@ -566,7 +612,7 @@ pub fn moving_change(
     feature: FeatureId,
     mate: &Mate,
     part: MatePart,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MateError> {
     let picks = Picks {
         model,
         picked: selection
@@ -586,7 +632,7 @@ pub fn target_change(
     feature: FeatureId,
     mate: &Mate,
     part: MatePart,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MateError> {
     let picks = Picks {
         model,
         picked: selection

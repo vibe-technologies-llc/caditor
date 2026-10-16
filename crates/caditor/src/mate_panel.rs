@@ -8,7 +8,7 @@ use egui::{Id, Ui};
 use crate::{
     datum_tools,
     feature_fields::{self, AxisRow, Choice, Picker, Quantity, Rule, Shown},
-    mate_tools::{self, MatePart},
+    mate_tools::{self, MateError, MatePart},
     model::{Action, Model},
     plane_selector,
     reference_picking::Slot,
@@ -51,7 +51,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn picker(&self, ctx: &egui::Context, end: End) -> Picker<'static> {
+    fn picker(&self, ctx: &egui::Context, end: End) -> Picker<'static, MateError> {
         let (model, selection, id, mate) = (self.model, self.selection, self.id(), self.mate);
         let (target, part) = match end {
             End::Moving(part) => (false, part),

@@ -1,11 +1,17 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AxisReference, AxisTurn, Document, Edit, FeatureId, FeatureKind, Move, PrincipalAxis,
     Transaction, TurnCentre,
 };
 
 use crate::{
-    bodies, body_selection, datum_tools,
+    bodies, body_selection,
+    commands::Reason,
+    datum_tools,
     editing::{self, EditingCommand},
+    feature_fields::ChoiceRefusal,
+    field::{self, CheckError},
     model::{Action, Model},
     queued,
     selection::{Pickable, Selection},
@@ -19,17 +25,66 @@ pub const DESCRIPTION: &str =
     "Shift and turn a body, by distances and angles that can be parameters";
 const NO_BODY: &str = "Select a face or edge of the body to move";
 const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one body in the tree";
-const NO_SHAPE: &str = queued::BODY_SHAPE;
-const NO_AXIS: &str =
-    "Select an axis, straight edge, round face or sketch line made before this move";
-const ALREADY_ABOUT: &str = "The body already turns about the selected axis";
-const GONE: &str = "The feature no longer exists";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum BodyChoiceError {
+    #[error("{instruction}")]
+    Nothing { instruction: &'static str },
+    #[error("{SEVERAL_BODIES}")]
+    Several,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoShape,
+}
+
+impl BodyChoiceError {
+    fn text(self) -> &'static str {
+        match self {
+            Self::Nothing { instruction } => instruction,
+            Self::Several => SEVERAL_BODIES,
+            Self::NoShape => queued::BODY_SHAPE,
+        }
+    }
+}
+
+impl From<BodyChoiceError> for &'static str {
+    fn from(error: BodyChoiceError) -> Self {
+        error.text()
+    }
+}
+
+impl Reason for BodyChoiceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Borrowed(self.text())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum MoveError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Select an axis, straight edge, round face or sketch line made before this move")]
+    NoAxis,
+    #[error("The body already turns about the selected axis")]
+    AlreadyAbout,
+    #[error("{0}")]
+    AxisSelection(&'static str),
+    #[error(transparent)]
+    Choice(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<MoveError> for String {
+    fn from(error: MoveError) -> Self {
+        error.to_string()
+    }
+}
 
 pub fn selected_body(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, BodyChoiceError> {
     chosen_body(model, selection, tree, NO_BODY)
 }
 
@@ -38,7 +93,7 @@ pub fn chosen_body(
     selection: &Selection,
     tree: &[FeatureId],
     none: &'static str,
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, BodyChoiceError> {
     chosen_body_beside(model, selection, tree, None, none)
 }
 
@@ -48,7 +103,7 @@ pub fn chosen_body_beside(
     tree: &[FeatureId],
     reference: Option<Pickable>,
     none: &'static str,
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, BodyChoiceError> {
     let rest: Vec<FeatureId> = body_selection::bodies_in(selection)
         .into_iter()
         .filter(|body| {
@@ -65,11 +120,11 @@ pub fn chosen_body_beside(
         rest
     };
     match chosen.as_slice() {
-        [] => Err(none),
+        [] => Err(BodyChoiceError::Nothing { instruction: none }),
         [body] => bodies::shown(model.evaluation(), *body)
             .map(|_| *body)
-            .ok_or(NO_SHAPE),
-        _ => Err(SEVERAL_BODIES),
+            .ok_or(BodyChoiceError::NoShape),
+        _ => Err(BodyChoiceError::Several),
     }
 }
 
@@ -119,10 +174,10 @@ pub fn checked_change(
     model: &Model,
     feature: FeatureId,
     movement: Move,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MoveError> {
     let document = model.document();
-    let transaction = edit(document, feature, movement).ok_or_else(|| GONE.to_owned())?;
-    crate::field::checked(document, transaction)
+    let transaction = edit(document, feature, movement).ok_or(MoveError::Gone { feature })?;
+    field::checked(document, transaction)
 }
 
 pub fn about_axis(movement: &Move, axis: AxisReference) -> Move {
@@ -152,14 +207,16 @@ pub fn axis_change(
     selection: &Selection,
     feature: FeatureId,
     movement: &Move,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, MoveError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
-    let axis = datum_tools::only_axis(model, selection, index)?.ok_or(NO_AXIS)?;
+        .ok_or(MoveError::Gone { feature })?;
+    let axis = datum_tools::only_axis(model, selection, index)
+        .map_err(MoveError::AxisSelection)?
+        .ok_or(MoveError::NoAxis)?;
     if movement.about.axis() == Some(&axis) {
-        return Err(ALREADY_ABOUT.to_owned());
+        return Err(MoveError::AlreadyAbout);
     }
     checked_change(model, feature, about_axis(movement, axis))
 }

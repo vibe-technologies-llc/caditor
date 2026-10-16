@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Pieces, RegionChoice,
     SolidFeature, SolidResult, Sweep, SweepPath, Transaction, profile_curve,
@@ -7,9 +9,10 @@ use caditor_sketch::EntityId;
 
 use crate::{
     bodies, body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand, SketchEditing},
-    field, helix_tools,
+    field::{self, CheckError},
+    helix_tools,
     model::{Action, Model},
     queued,
     reference_picking::{Picking, Slot},
@@ -19,23 +22,61 @@ use crate::{
 };
 
 pub const TITLE: &str = "Sweep";
-pub const NOTHING_TO_SWEEP: &str = "Select the regions or curves of a sketch to sweep, with the \
-                                    curves of another sketch or edges of a body to sweep along";
-const SEVERAL_PATH_SKETCHES: &str = "Curves of more than two sketches are selected; select the \
-                                     profile's sketch and the curves of one sketch to follow";
-pub const PATH_EDGES_OF_SEVERAL_BODIES: &str =
-    "Edges of several bodies are selected; select the edges of the path on one body only";
-pub const CURVES_AND_EDGES: &str = "Both sketch curves and body edges are selected for the path; \
-                                select one or the other";
-const NOT_A_PATH: &str =
-    "Click a curve of a sketch other than the profile's, an edge of a body or a helix";
-pub const SEVERAL_SKETCHES: &str =
-    "Curves of more than one sketch are selected; select the curves of one sketch to follow";
-const NOT_A_CURVE_OR_EDGE: &str = "Click a curve of a sketch, an edge of a body or a helix";
-const NO_BODY_SHAPE: &str = queued::BODY_SHAPE;
-pub const ALREADY_FOLLOWED: &str = "It already follows the selected path";
-pub const HELIX_AND_OTHERS: &str = "A helix and curves or edges are selected for the path; select \
-                                    one helix, or the curves or edges";
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SweepError {
+    #[error(
+        "Select the regions or curves of a sketch to sweep, with the \
+         curves of another sketch or edges of a body to sweep along"
+    )]
+    NothingToSweep,
+    #[error(
+        "Curves of more than two sketches are selected; select the \
+         profile's sketch and the curves of one sketch to follow"
+    )]
+    SeveralPathSketches,
+    #[error("Edges of several bodies are selected; select the edges of the path on one body only")]
+    PathEdgesOfSeveralBodies,
+    #[error(
+        "Both sketch curves and body edges are selected for the path; \
+         select one or the other"
+    )]
+    CurvesAndEdges,
+    #[error("Click a curve of a sketch other than the profile's, an edge of a body or a helix")]
+    NotAPath,
+    #[error(
+        "Curves of more than one sketch are selected; select the curves of one sketch to follow"
+    )]
+    SeveralSketches,
+    #[error("Click a curve of a sketch, an edge of a body or a helix")]
+    NotACurveOrEdge,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoBodyShape,
+    #[error("It already follows the selected path")]
+    AlreadyFollowed,
+    #[error(
+        "A helix and curves or edges are selected for the path; select \
+         one helix, or the curves or edges"
+    )]
+    HelixAndOthers,
+    #[error("Some of the selected edges are no longer part of the model")]
+    EdgesGone,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<SweepError> for String {
+    fn from(error: SweepError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for SweepError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathPick {
@@ -81,10 +122,10 @@ pub fn helix_path(
     document: &Document,
     selection: &Selection,
     other_path: bool,
-) -> Result<Option<FeatureId>, &'static str> {
+) -> Result<Option<FeatureId>, SweepError> {
     match (selected_helices(document, selection).as_slice(), other_path) {
         ([], _) => Ok(None),
-        ([_], true) | ([_, _, ..], _) => Err(HELIX_AND_OTHERS),
+        ([_], true) | ([_, _, ..], _) => Err(SweepError::HelixAndOthers),
         ([helix], false) => Ok(Some(*helix)),
     }
 }
@@ -113,7 +154,7 @@ pub fn source(
     model: &Model,
     selection: &Selection,
     editing: &SketchEditing,
-) -> Result<SweepStart, &'static str> {
+) -> Result<SweepStart, SweepError> {
     let document = model.document();
     let evaluation = model.evaluation();
     let picked = selection.in_pick_order();
@@ -161,8 +202,8 @@ pub fn source(
     )?;
     let path = match (path_sketches.as_slice(), edges.first()) {
         ([], None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
-        ([_, ..], Some(_)) => return Err(CURVES_AND_EDGES),
-        ([_, _, ..], None) => return Err(SEVERAL_PATH_SKETCHES),
+        ([_, ..], Some(_)) => return Err(SweepError::CurvesAndEdges),
+        ([_, _, ..], None) => return Err(SweepError::SeveralPathSketches),
         ([sketch], None) => PathPick::Curves {
             sketch: *sketch,
             curves: picked
@@ -179,7 +220,7 @@ pub fn source(
         },
         ([], Some((body, _))) => {
             if edges.iter().any(|(other, _)| other != body) {
-                return Err(PATH_EDGES_OF_SEVERAL_BODIES);
+                return Err(SweepError::PathEdgesOfSeveralBodies);
             }
             PathPick::Edges {
                 body: *body,
@@ -193,7 +234,7 @@ pub fn source(
     };
     let sketch = chosen_profile
         .or_else(|| guessed_profile(document, evaluation, path_sketch))
-        .ok_or(NOTHING_TO_SWEEP)?;
+        .ok_or(SweepError::NothingToSweep)?;
     let path_body = match &path {
         PathPick::Edges { body, .. } => Some(*body),
         PathPick::Unchosen | PathPick::Curves { .. } | PathPick::Helix { .. } => None,
@@ -219,19 +260,19 @@ pub fn source(
 fn captured_edges(
     body: &SolidResult,
     edges: &[EdgeName],
-) -> Result<Vec<EdgeReference>, &'static str> {
+) -> Result<Vec<EdgeReference>, SweepError> {
     let naming = EdgeNaming::new(&body.solid);
     edges
         .iter()
         .map(|name| {
             bodies::find_edge(body, *name)
                 .and_then(|edge| EdgeReference::capture_in(&naming, edge))
-                .ok_or("Some of the selected edges are no longer part of the model")
+                .ok_or(SweepError::EdgesGone)
         })
         .collect()
 }
 
-pub fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, &'static str> {
+pub fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, SweepError> {
     Ok(match path {
         PathPick::Unchosen => SweepPath::Unchosen,
         PathPick::Curves { sketch, curves } => SweepPath::Curves {
@@ -239,7 +280,7 @@ pub fn captured(evaluation: &Evaluation, path: &PathPick) -> Result<SweepPath, &
             curves: curves.clone(),
         },
         PathPick::Edges { body, edges } => {
-            let shown = bodies::shown(evaluation, *body).ok_or(NO_BODY_SHAPE)?;
+            let shown = bodies::shown(evaluation, *body).ok_or(SweepError::NoBodyShape)?;
             SweepPath::Edges {
                 body: *body,
                 edges: captured_edges(shown, edges)?,
@@ -254,7 +295,7 @@ pub fn create(
     evaluation: &Evaluation,
     start: &SweepStart,
     pieces: Pieces,
-) -> Result<(Transaction, FeatureId), &'static str> {
+) -> Result<(Transaction, FeatureId), SweepError> {
     let path = captured(evaluation, &start.path)?;
     let name = editing::next_feature_name(document, TITLE);
     let operation = start
@@ -303,7 +344,7 @@ pub fn create_actions(model: &Model, start: &SweepStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Sweep, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::Sweep, TITLE, &reason.to_string())],
     }
 }
 
@@ -317,10 +358,10 @@ fn path_body_state(
         .or_else(|| bodies::shown(evaluation, body))
 }
 
-pub fn change(model: &Model, feature: FeatureId, sweep: Sweep) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, sweep: Sweep) -> Result<Transaction, SweepError> {
     let document = model.document();
     let transaction = solid_tools::edit(document, feature, SolidFeature::Sweep(sweep))
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(SweepError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -329,7 +370,7 @@ pub fn selected_path(
     selection: &Selection,
     feature: FeatureId,
     profile: Option<FeatureId>,
-) -> Result<SweepPath, String> {
+) -> Result<SweepPath, SweepError> {
     let document = model.document();
     let evaluation = model.evaluation();
     let mut curves: Vec<(FeatureId, EntityId)> = Vec::new();
@@ -351,18 +392,16 @@ pub fn selected_path(
     }
     match (curves.first(), edges.first()) {
         (None, None) => Err(match profile {
-            Some(_) => NOT_A_PATH,
-            None => NOT_A_CURVE_OR_EDGE,
-        }
-        .to_owned()),
-        (Some(_), Some(_)) => Err(CURVES_AND_EDGES.to_owned()),
+            Some(_) => SweepError::NotAPath,
+            None => SweepError::NotACurveOrEdge,
+        }),
+        (Some(_), Some(_)) => Err(SweepError::CurvesAndEdges),
         (Some((sketch, _)), None) => {
             if curves.iter().any(|(other, _)| other != sketch) {
                 return Err(match profile {
-                    Some(_) => SEVERAL_PATH_SKETCHES,
-                    None => SEVERAL_SKETCHES,
-                }
-                .to_owned());
+                    Some(_) => SweepError::SeveralPathSketches,
+                    None => SweepError::SeveralSketches,
+                });
             }
             Ok(SweepPath::Curves {
                 sketch: *sketch,
@@ -371,9 +410,10 @@ pub fn selected_path(
         }
         (None, Some((body, _))) => {
             if edges.iter().any(|(other, _)| other != body) {
-                return Err(PATH_EDGES_OF_SEVERAL_BODIES.to_owned());
+                return Err(SweepError::PathEdgesOfSeveralBodies);
             }
-            let state = path_body_state(evaluation, feature, *body).ok_or(NO_BODY_SHAPE)?;
+            let state =
+                path_body_state(evaluation, feature, *body).ok_or(SweepError::NoBodyShape)?;
             let names: Vec<EdgeName> = edges.iter().map(|(_, edge)| *edge).collect();
             Ok(SweepPath::Edges {
                 body: *body,
@@ -388,7 +428,7 @@ pub fn toggled_path(
     selection: &Selection,
     feature: FeatureId,
     (current, profile): (&SweepPath, Option<FeatureId>),
-) -> Result<SweepPath, String> {
+) -> Result<SweepPath, SweepError> {
     let picked = selected_path(model, selection, feature, profile)?;
     Ok(match (current, picked) {
         (
@@ -450,10 +490,10 @@ pub fn selected_change(
     selection: &Selection,
     feature: FeatureId,
     sweep: &Sweep,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SweepError> {
     let path = selected_path(model, selection, feature, Some(sweep.sketch))?;
     if path == sweep.path {
-        return Err(ALREADY_FOLLOWED.to_owned());
+        return Err(SweepError::AlreadyFollowed);
     }
     change(
         model,
@@ -470,7 +510,7 @@ pub fn path_change(
     selection: &Selection,
     feature: FeatureId,
     sweep: &Sweep,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SweepError> {
     let path = toggled_path(model, selection, feature, (&sweep.path, Some(sweep.sketch)))?;
     change(
         model,

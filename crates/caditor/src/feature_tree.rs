@@ -2359,7 +2359,7 @@ fn move_change(
 ) -> Result<Transaction, String> {
     match &feature.kind {
         FeatureKind::Move(movement) => {
-            move_tools::axis_change(model, selection, feature.id(), movement)
+            move_tools::axis_change(model, selection, feature.id(), movement).map_err(String::from)
         }
         _ => Err(format!("{} is not a move", feature.name)),
     }
@@ -2667,11 +2667,13 @@ fn feature_commands(
         (Command::DatumUseSelected, &|feature| {
             datum_change(feature, |datum| {
                 datum_panel::base_change(model, selection, feature.id(), datum)
+                    .map_err(String::from)
             })
         }),
         (Command::DatumTurnAboutSelected, &|feature| {
             datum_change(feature, |datum| {
                 datum_panel::rotation_change(model, selection, feature.id(), datum)
+                    .map_err(String::from)
             })
         }),
         (Command::PatternUseSelected, &|feature| {

@@ -5,7 +5,8 @@ use egui::{Id, Ui};
 
 use crate::{
     feature_fields::{self, OperationRows, Picker, Quantity, Rule, Segment, Shown},
-    icons, loft_tools,
+    icons,
+    loft_tools::{self, LoftError},
     model::{Action, Model},
     reference_picking::Slot,
     selection::Selection,
@@ -97,7 +98,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, loft: Loft) -> Result<Transaction, String> {
+    fn change(&self, loft: Loft) -> Result<Transaction, LoftError> {
         loft_tools::change(self.model, self.id(), loft)
     }
 

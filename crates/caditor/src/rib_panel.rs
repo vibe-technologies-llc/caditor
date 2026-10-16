@@ -8,7 +8,8 @@ use egui::{Id, Ui};
 use crate::{
     feature_fields::{self, Choice, MISSING_BODY, MISSING_SKETCH, Quantity, Rule, Segment},
     model::{Action, Model},
-    rib_tools, widgets,
+    rib_tools::{self, RibError},
+    widgets,
 };
 
 pub const SKETCH: &str = "Sketch";
@@ -20,7 +21,6 @@ pub const ENDS: &str = "Free ends";
 pub const SIDE: &str = "Side";
 pub const REVERSE_FILL: &str = "Fill the other side of the curves";
 pub const REVERSE_DIRECTION: &str = "Run the other way from the sketch";
-const NOT_A_RIB_PATH: &str = "Its curves close on themselves";
 const PARALLEL_HOVER: &str = "A rib: the material lies in the sketch's plane, on one side of the \
                               curves, and runs on until it meets the body; the thickness is \
                               across the sketch";
@@ -78,7 +78,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, rib: Rib) -> Result<Transaction, String> {
+    fn change(&self, rib: Rib) -> Result<Transaction, RibError> {
         rib_tools::change(self.model, self.id(), rib)
     }
 
@@ -104,7 +104,7 @@ impl Panel<'_> {
                                         ..self.rib.clone()
                                     })
                                 } else {
-                                    Err(NOT_A_RIB_PATH.to_owned())
+                                    Err(RibError::PathClosed)
                                 };
                             Choice {
                                 label: sketch.name.clone(),

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Rib, RibDirection, RibEnds,
     RibSide, Transaction, is_rib_path, rib_facing,
@@ -6,9 +8,9 @@ use caditor_sketch::Sketch;
 
 use crate::{
     body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model},
     queued,
@@ -17,16 +19,40 @@ use crate::{
 
 pub const TITLE: &str = "Rib";
 pub const DEFAULT_THICKNESS: f64 = 2.0;
-pub const NO_BODY: &str = "Make a body first, then add a rib or web to it";
-pub const NO_SKETCH: &str =
-    "Draw the line or arc the rib runs along in a sketch, as an open chain, then choose Rib";
-const SEVERAL_SKETCHES: &str =
-    "Geometry of several sketches is selected; select the curves of the one the rib runs along";
-const SEVERAL_BODIES: &str = "Several bodies are selected; select only the one the rib joins";
-const MADE_LATER: &str = "The selected sketch is made after where the rib would go";
-const NOT_OPEN: &str =
-    "The curves of the selected sketch close on themselves, so no rib can follow them to an end";
-const GONE: &str = "The feature no longer exists";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum RibError {
+    #[error("Make a body first, then add a rib or web to it")]
+    NoBody,
+    #[error(
+        "Draw the line or arc the rib runs along in a sketch, as an open chain, then choose Rib"
+    )]
+    NoSketch,
+    #[error(
+        "Geometry of several sketches is selected; select the curves of the one the rib runs along"
+    )]
+    SeveralSketches,
+    #[error("Several bodies are selected; select only the one the rib joins")]
+    SeveralBodies,
+    #[error("The selected sketch is made after where the rib would go")]
+    MadeLater,
+    #[error(
+        "The curves of the selected sketch close on themselves, so no rib can follow them to an end"
+    )]
+    NotOpen,
+    #[error("Its curves close on themselves")]
+    PathClosed,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl Reason for RibError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RibStart {
@@ -75,7 +101,7 @@ fn selected_sketch(
     selection: &Selection,
     rows: &[FeatureId],
     before: usize,
-) -> Result<Option<FeatureId>, &'static str> {
+) -> Result<Option<FeatureId>, RibError> {
     let document = model.document();
     let mut sketches: Vec<FeatureId> = selection
         .iter()
@@ -97,17 +123,17 @@ fn selected_sketch(
         return if sketches.is_empty() {
             Ok(None)
         } else {
-            Err(SEVERAL_SKETCHES)
+            Err(RibError::SeveralSketches)
         };
     };
     if document
         .feature_index(*sketch)
         .is_none_or(|index| index >= before)
     {
-        return Err(MADE_LATER);
+        return Err(RibError::MadeLater);
     }
     if !qualifies(model.evaluation(), *sketch) {
-        return Err(NOT_OPEN);
+        return Err(RibError::NotOpen);
     }
     Ok(Some(*sketch))
 }
@@ -117,7 +143,7 @@ fn chosen_body(
     selection: &Selection,
     tree: &[FeatureId],
     sketch: FeatureId,
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, RibError> {
     let document = model.document();
     let standing = document.bodies_standing_in(model.evaluation());
     let picked: Vec<FeatureId> = if tree.is_empty() {
@@ -127,7 +153,7 @@ fn chosen_body(
     };
     match picked.as_slice() {
         [body] if standing.contains(body) => return Ok(*body),
-        [_, _, ..] => return Err(SEVERAL_BODIES),
+        [_, _, ..] => return Err(RibError::SeveralBodies),
         [_] | [] => {}
     }
     let attached = document
@@ -135,25 +161,27 @@ fn chosen_body(
         .and_then(|feature| feature.kind.attachment())
         .and_then(|attachment| attachment.body())
         .filter(|body| standing.contains(body));
-    attached.or_else(|| standing.last().copied()).ok_or(NO_BODY)
+    attached
+        .or_else(|| standing.last().copied())
+        .ok_or(RibError::NoBody)
 }
 
 pub fn source(
     model: &Model,
     selection: &Selection,
     (tree, rows): (&[FeatureId], &[FeatureId]),
-) -> Result<RibStart, &'static str> {
+) -> Result<RibStart, RibError> {
     let before = model.document().bar_index();
     if model
         .document()
         .bodies_standing_in(model.evaluation())
         .is_empty()
     {
-        return Err(NO_BODY);
+        return Err(RibError::NoBody);
     }
     let sketch = match selected_sketch(model, selection, rows, before)? {
         Some(sketch) => sketch,
-        None => guess(model, before).ok_or(NO_SKETCH)?,
+        None => guess(model, before).ok_or(RibError::NoSketch)?,
     };
     let body = chosen_body(model, selection, tree, sketch)?;
     Ok(RibStart { sketch, body })
@@ -198,7 +226,7 @@ pub fn create(
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(model: &Model, start: &Result<RibStart, &'static str>) -> Vec<Action> {
+pub fn create_actions(model: &Model, start: &Result<RibStart, RibError>) -> Vec<Action> {
     match start {
         Ok(start) => {
             let (transaction, feature) = create(
@@ -212,7 +240,7 @@ pub fn create_actions(model: &Model, start: &Result<RibStart, &'static str>) -> 
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ]
         }
-        Err(reason) => vec![queued::refused(Command::Rib, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::Rib, TITLE, &reason.to_string())],
     }
 }
 
@@ -228,9 +256,9 @@ pub fn edit(document: &Document, feature: FeatureId, rib: Rib) -> Option<Transac
     Some(document.carrying_owners(transaction, feature, []))
 }
 
-pub fn change(model: &Model, feature: FeatureId, rib: Rib) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, rib: Rib) -> Result<Transaction, RibError> {
     let document = model.document();
-    let transaction = edit(document, feature, rib).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, rib).ok_or(RibError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

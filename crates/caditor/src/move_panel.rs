@@ -8,7 +8,7 @@ use egui::{Id, Ui};
 use crate::{
     feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
-    move_tools,
+    move_tools::{self, MoveError},
     reference_picking::Slot,
     selection::Selection,
     widgets,
@@ -115,7 +115,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, movement: Move) -> Result<Transaction, String> {
+    fn change(&self, movement: Move) -> Result<Transaction, MoveError> {
         move_tools::checked_change(self.model, self.id(), movement)
     }
 

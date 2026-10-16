@@ -8,7 +8,7 @@ use egui::{Id, Ui};
 use crate::{
     feature_fields::{self, OperationRows, Picker, Quantity, Rule, Segment, Shown},
     model::{Action, Model},
-    pipe_tools,
+    pipe_tools::{self, PipeError},
     reference_picking::Slot,
     selection::Selection,
     solid_panel::PATH,
@@ -49,7 +49,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, pipe: Pipe) -> Result<Transaction, String> {
+    fn change(&self, pipe: Pipe) -> Result<Transaction, PipeError> {
         pipe_tools::change(self.model, self.id(), pipe)
     }
 

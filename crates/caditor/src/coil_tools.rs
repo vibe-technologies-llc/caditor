@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AxisReference, BodyOperation, Coil, CoilLength, CoilSizing, CoilSpan, CoilTurning,
     DEFAULT_PITCH, DEFAULT_TURNS, Document, Edit, FeatureId, FeatureKind, PrincipalAxis,
@@ -7,9 +9,11 @@ use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{CoilPlacement, CoilShape};
 
 use crate::{
+    commands::Reason,
     datum_tools,
     editing::{self, EditingCommand},
-    field,
+    feature_fields::ChoiceRefusal,
+    field::{self, CheckError},
     model::{Action, Model},
     reference_picking::{Picking, Slot},
     selection::Selection,
@@ -21,17 +25,43 @@ pub const DEFAULT_DIAMETER: f64 = 20.0;
 pub const DEFAULT_SECTION: f64 = 2.0;
 pub const DEFAULT_AXIS: AxisReference = AxisReference::Principal(PrincipalAxis::Z);
 const SHOWN_PLACES: f64 = 1e6;
-const GONE: &str = "The feature no longer exists";
-const NO_AXIS: &str = "Select an axis, straight edge, round face or sketch line to wind around";
-const ALREADY_AROUND: &str = "The coil already winds around that axis";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum CoilError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Select an axis, straight edge, round face or sketch line to wind around")]
+    NoAxis,
+    #[error("The coil already winds around that axis")]
+    AlreadyAround,
+    #[error("{0}")]
+    AxisSelection(&'static str),
+    #[error(transparent)]
+    Choice(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<CoilError> for String {
+    fn from(error: CoilError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for CoilError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoilStart {
     pub axis: Option<AxisReference>,
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<CoilStart, &'static str> {
-    let axis = datum_tools::only_axis(model, selection, model.document().bar_index())?;
+pub fn source(model: &Model, selection: &Selection) -> Result<CoilStart, CoilError> {
+    let axis = datum_tools::only_axis(model, selection, model.document().bar_index())
+        .map_err(CoilError::AxisSelection)?;
     Ok(CoilStart { axis })
 }
 
@@ -84,9 +114,9 @@ pub fn edit(document: &Document, feature: FeatureId, coil: Coil) -> Option<Trans
     Some(document.carrying_owners(transaction, feature, []))
 }
 
-pub fn change(model: &Model, feature: FeatureId, coil: Coil) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, coil: Coil) -> Result<Transaction, CoilError> {
     let document = model.document();
-    let transaction = edit(document, feature, coil).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, coil).ok_or(CoilError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -102,14 +132,16 @@ pub fn axis_change(
     selection: &Selection,
     feature: FeatureId,
     coil: &Coil,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, CoilError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
-    let axis = datum_tools::only_axis(model, selection, index)?.ok_or(NO_AXIS)?;
+        .ok_or(CoilError::Gone { feature })?;
+    let axis = datum_tools::only_axis(model, selection, index)
+        .map_err(CoilError::AxisSelection)?
+        .ok_or(CoilError::NoAxis)?;
     if axis == coil.axis {
-        return Err(ALREADY_AROUND.to_owned());
+        return Err(CoilError::AlreadyAround);
     }
     change(model, feature, with_axis(coil, axis))
 }

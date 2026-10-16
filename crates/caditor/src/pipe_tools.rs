@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Pipe, SweepPath, Transaction,
 };
@@ -5,15 +7,15 @@ use caditor_kernel::{EdgeName, PipeShape};
 use caditor_sketch::EntityId;
 
 use crate::{
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model},
     queued,
     reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
-    sweep_tools::{self, PathPick},
+    sweep_tools::{self, PathPick, SweepError},
     units::LengthUnit,
 };
 
@@ -21,14 +23,35 @@ pub const TITLE: &str = "Pipe";
 pub const DEFAULT_SIZE: f64 = 10.0;
 pub const DEFAULT_BEND: f64 = 10.0;
 pub const DEFAULT_WALL: f64 = 1.0;
-const GONE: &str = "The feature no longer exists";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum PipeError {
+    #[error(transparent)]
+    Path(#[from] SweepError),
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<PipeError> for String {
+    fn from(error: PipeError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for PipeError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PipeStart {
     pub path: PathPick,
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, &'static str> {
+pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, PipeError> {
     let document = model.document();
     let mut curves: Vec<(FeatureId, EntityId)> = Vec::new();
     let mut edges: Vec<(FeatureId, EdgeName)> = Vec::new();
@@ -47,10 +70,10 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, &'stati
         sweep_tools::helix_path(document, selection, !curves.is_empty() || !edges.is_empty())?;
     let path = match (curves.first(), edges.first()) {
         (None, None) => helix.map_or(PathPick::Unchosen, |helix| PathPick::Helix { helix }),
-        (Some(_), Some(_)) => return Err(sweep_tools::CURVES_AND_EDGES),
+        (Some(_), Some(_)) => return Err(SweepError::CurvesAndEdges.into()),
         (Some((sketch, _)), None) => {
             if curves.iter().any(|(other, _)| other != sketch) {
-                return Err(sweep_tools::SEVERAL_SKETCHES);
+                return Err(SweepError::SeveralSketches.into());
             }
             PathPick::Curves {
                 sketch: *sketch,
@@ -59,7 +82,7 @@ pub fn source(model: &Model, selection: &Selection) -> Result<PipeStart, &'stati
         }
         (None, Some((body, _))) => {
             if edges.iter().any(|(other, _)| other != body) {
-                return Err(sweep_tools::PATH_EDGES_OF_SEVERAL_BODIES);
+                return Err(SweepError::PathEdgesOfSeveralBodies.into());
             }
             PathPick::Edges {
                 body: *body,
@@ -75,7 +98,7 @@ pub fn create(
     evaluation: &Evaluation,
     start: &PipeStart,
     starts: &Starts,
-) -> Result<(Transaction, FeatureId), &'static str> {
+) -> Result<(Transaction, FeatureId), PipeError> {
     let path = sweep_tools::captured(evaluation, &start.path)?;
     let operation = path
         .body()
@@ -114,7 +137,7 @@ pub fn create_actions(model: &Model, start: &PipeStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Pipe, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::Pipe, TITLE, &reason.to_string())],
     }
 }
 
@@ -130,9 +153,9 @@ pub fn edit(document: &Document, feature: FeatureId, pipe: Pipe) -> Option<Trans
     Some(document.carrying_owners(transaction, feature, []))
 }
 
-pub fn change(model: &Model, feature: FeatureId, pipe: Pipe) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, pipe: Pipe) -> Result<Transaction, PipeError> {
     let document = model.document();
-    let transaction = edit(document, feature, pipe).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, pipe).ok_or(PipeError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -162,10 +185,10 @@ pub fn selected_change(
     selection: &Selection,
     feature: FeatureId,
     pipe: &Pipe,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PipeError> {
     let path = sweep_tools::selected_path(model, selection, feature, None)?;
     if path == pipe.path {
-        return Err(sweep_tools::ALREADY_FOLLOWED.to_owned());
+        return Err(SweepError::AlreadyFollowed.into());
     }
     change(
         model,
@@ -182,7 +205,7 @@ pub fn path_change(
     selection: &Selection,
     feature: FeatureId,
     pipe: &Pipe,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, PipeError> {
     let path = sweep_tools::toggled_path(model, selection, feature, (&pipe.path, None))?;
     change(
         model,
