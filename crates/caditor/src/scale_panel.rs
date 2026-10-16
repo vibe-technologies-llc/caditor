@@ -7,7 +7,7 @@ use crate::{
     field, icons,
     model::{Action, Model},
     reference_picking::Slot,
-    scale_tools,
+    scale_tools::{self, ScaleError},
     selection::Selection,
     widgets,
 };
@@ -23,10 +23,10 @@ const BODY_CENTRE_HOVER: &str =
 pub const FRAME_DESCRIPTION: &str =
     "The centre is measured from the origin of the coordinate system, along its X, Y and Z axes";
 
-fn change(model: &Model, feature: FeatureId, scale: Scale) -> Result<Transaction, String> {
+fn change(model: &Model, feature: FeatureId, scale: Scale) -> Result<Transaction, ScaleError> {
     let document = model.document();
-    let transaction = scale_tools::edit(document, feature, scale)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let transaction =
+        scale_tools::edit(document, feature, scale).ok_or(ScaleError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

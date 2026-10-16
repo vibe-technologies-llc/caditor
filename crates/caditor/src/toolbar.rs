@@ -533,16 +533,18 @@ fn solid_buttons(
         };
         let available = match (face, source.as_ref()) {
             (Some(Ok(_)), _) => Ok(()),
-            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(reason),
+            (Some(Err(reason)), _) => Err(reason.to_string()),
+            (None, Err(reason)) => Err(reason.to_string()),
             (None, Ok(Some(_))) => Ok(()),
-            (None, Ok(None)) => Err(missing),
+            (None, Ok(None)) => Err(missing.to_owned()),
         };
         let invoked = commands.invoke(command, &available);
         let help = match (face, source.as_ref()) {
             (Some(Ok(profile)), _) => {
                 Ok(commands.with_keys(command, &face_sweep_help(document, sweep, profile)))
             }
-            (Some(Err(&reason)), _) | (None, Err(&reason)) => Err(Blocked::Refused(reason)),
+            (Some(Err(reason)), _) => Err(Blocked::Refused(reason.to_string())),
+            (None, Err(reason)) => Err(Blocked::Refused(reason.to_string())),
             (None, Ok(Some(source))) => {
                 let sketch = document
                     .feature(source.sketch)
@@ -567,7 +569,7 @@ fn solid_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            (None, Ok(None)) => Err(Blocked::Refused(missing)),
+            (None, Ok(None)) => Err(Blocked::Refused(missing.to_owned())),
         };
         let response = tool(ui, commands, command, sweep.label(), &help);
         if !(response.clicked() || invoked) {

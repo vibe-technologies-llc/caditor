@@ -6,7 +6,8 @@ use crate::{
     model::{Action, Model},
     reference_picking::Slot,
     selection::Selection,
-    split_tools, widgets,
+    split_tools::{self, SplitError},
+    widgets,
 };
 
 pub const DESCRIPTION: &str = "Cuts the body along a plane, a sketch curve swept through it, \
@@ -30,7 +31,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, split: Split) -> Result<Action, String> {
+    fn change(&self, split: Split) -> Result<Action, SplitError> {
         split_tools::change(self.model, self.id(), split).map(Action::Apply)
     }
 

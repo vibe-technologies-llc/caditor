@@ -14,7 +14,7 @@ use crate::{
     feature_tree::count,
     field::Expected,
     model::Model,
-    modifying::{Hint, Outcome, Prompt, SketchVersion, Value, ValueField, length_text},
+    modifying::{Hint, Outcome, Prompt, SketchVersion, Value, ValueError, ValueField, length_text},
     patterning,
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
@@ -40,7 +40,6 @@ const NO_CORNER_HIGHLIGHTED: &str =
     "Highlight a corner first, with Highlight the next item in the view";
 const NOTHING_TO_ROUND: &str =
     "The sketch has no corner where two lines, arcs or elliptical arcs meet";
-const CHOOSE_FIRST: &str = "Choose the corner first";
 const SECOND_CURVE_KEYS: &str = "Esc: let go of the first curve";
 const SAME_CORNER: f64 = 1e-6;
 pub const FIELD: ValueField = ValueField {
@@ -53,7 +52,6 @@ pub const CHAMFER_FIELD: ValueField = ValueField {
     placeholder: "5  or  5, 3  or  5 < 45",
     action: "cut the corner",
 };
-const CHAMFER_FORMS: &str = "Type a distance such as 5, two distances such as 5, 3, or a distance and an angle such as 5 < 45";
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
     non_negative: false,
@@ -166,10 +164,45 @@ enum Shown {
     Chamfer(ChamferSize),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ChamferError {
+    #[error(
+        "Type a distance such as 5, two distances such as 5, 3, or a distance and an angle such \
+         as 5 < 45"
+    )]
+    Forms,
+    #[error(transparent)]
+    Distance(patterning::PatternTextError),
+    #[error(transparent)]
+    Angle(patterning::PatternTextError),
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum FilletingError {
+    #[error("{}: Choose the corner first.", .tool.label())]
+    ChooseFirst { tool: Tool },
+    #[error("{}: {error}.", .tool.label())]
+    Fillet { tool: Tool, error: FilletError },
+    #[error("{0}")]
+    Reshaping(String),
+    #[error(transparent)]
+    Value(#[from] ValueError),
+    #[error(transparent)]
+    Chamfer(#[from] ChamferError),
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum LeftOutReason {
+    #[error(transparent)]
+    Fillet(#[from] FilletError),
+    #[error("{label} meets no other selected line, arc or elliptical arc at a corner")]
+    Alone { curve: EntityId, label: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct LeftOut {
     count: usize,
-    reason: String,
+    reason: LeftOutReason,
 }
 
 impl LeftOut {
@@ -242,7 +275,7 @@ pub struct Filleting {
     at: Option<Point2>,
     pointer: Option<Point2>,
     typed: Option<f64>,
-    typed_chamfer: Option<Result<ChamferSize, String>>,
+    typed_chamfer: Option<Result<ChamferSize, ChamferError>>,
     rounding: Option<Result<Vec<Cut>, FilletError>>,
     joined: Option<Joined>,
     #[cfg(test)]
@@ -461,7 +494,7 @@ impl Filleting {
         model: &Model,
         feature: FeatureId,
         text: &str,
-    ) -> Result<Outcome, String> {
+    ) -> Result<Outcome, FilletingError> {
         let text = self.reused(text);
         let size = match self.cut {
             CornerCut::Round => Size::Radius(Value::typed(model, &text)?),
@@ -539,7 +572,9 @@ impl Filleting {
             },
             Some(Err(error)) => capitalized(&error.to_string()),
             None => match &self.typed_chamfer {
-                Some(Err(reason)) if self.cut == CornerCut::Chamfer => capitalized(reason),
+                Some(Err(reason)) if self.cut == CornerCut::Chamfer => {
+                    capitalized(&reason.to_string())
+                }
                 _ => subject,
             },
         };
@@ -646,7 +681,7 @@ impl Filleting {
         match self.last.clone() {
             Some(last) => self
                 .enter_text(model, feature, &last)
-                .unwrap_or_else(Outcome::Refused),
+                .unwrap_or_else(|error| Outcome::Refused(error.to_string())),
             None => self.round_at_pointer(model, feature),
         }
     }
@@ -672,11 +707,11 @@ impl Filleting {
         feature: FeatureId,
         size: Size,
         text: String,
-    ) -> Result<Transaction, String> {
+    ) -> Result<Transaction, FilletingError> {
         let cut = self.cut;
         let aims = self.aims();
         if aims.is_empty() {
-            return Err(trimming::refusal(cut.tool(), CHOOSE_FIRST));
+            return Err(FilletingError::ChooseFirst { tool: cut.tool() });
         }
         let label = match (cut, aims.len()) {
             (CornerCut::Round, 1) => TRANSACTION,
@@ -684,7 +719,13 @@ impl Filleting {
             (CornerCut::Chamfer, 1) => CHAMFER_TRANSACTION,
             (CornerCut::Chamfer, _) => CHAMFER_CORNERS_TRANSACTION,
         };
-        let refused = |error: FilletError| trimming::refusal(cut.tool(), &error.to_string());
+        let refused = |error: FilletError| {
+            FilletingError::Fillet {
+                tool: cut.tool(),
+                error,
+            }
+            .to_string()
+        };
         let rounded = trimming::reshaped(model, feature, label.to_owned(), |sketch| {
             for aim in &aims {
                 let current = aim.found_in(sketch).map_err(refused)?;
@@ -700,7 +741,8 @@ impl Filleting {
                 .map_err(refused)?;
             }
             Ok(())
-        })?;
+        })
+        .map_err(FilletingError::Reshaping)?;
         self.chosen = None;
         self.more.clear();
         self.left_out = None;
@@ -837,7 +879,7 @@ fn curve_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
 
 fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut>) {
     let mut corners: Vec<Corner> = Vec::new();
-    let mut refused: Vec<String> = Vec::new();
+    let mut refused: Vec<LeftOutReason> = Vec::new();
     let mut take = |corner: Corner| {
         if !corners.iter().any(|known| same_corner(known, &corner)) {
             corners.push(corner);
@@ -850,7 +892,7 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
     for point in points {
         match sketch.corner_at(point) {
             Ok(corner) => take(corner),
-            Err(error) => refused.push(error.to_string()),
+            Err(error) => refused.push(error.into()),
         }
     }
     sketch
@@ -866,14 +908,14 @@ fn gathered(sketch: &Sketch, selected: &[EntityId]) -> (Vec<Aim>, Option<LeftOut
     match lonely.as_slice() {
         [first, second] => match crossing(sketch, *first, *second) {
             Ok(aim) => aims.push(aim),
-            Err(error) => refused.push(error.to_string()),
+            Err(error) => refused.push(error.into()),
         },
         _ => {
             for curve in lonely {
-                refused.push(format!(
-                    "{} meets no other selected line, arc or elliptical arc at a corner",
-                    sketch.entity_label(curve)
-                ));
+                refused.push(LeftOutReason::Alone {
+                    curve,
+                    label: sketch.entity_label(curve),
+                });
             }
         }
     }
@@ -935,29 +977,31 @@ fn bevel_words(unit: Units, bevel: &Bevel) -> String {
     }
 }
 
-fn parse_chamfer(model: &Model, text: &str) -> Result<ChamferSize, String> {
-    let distance = |term: &str| patterning::quantity(model, term, LENGTH, "distance");
+fn parse_chamfer(model: &Model, text: &str) -> Result<ChamferSize, ChamferError> {
+    let distance = |term: &str| {
+        patterning::quantity(model, term, LENGTH, "distance").map_err(ChamferError::Distance)
+    };
     let terms = typed_point::coordinates(text);
     match terms.as_slice() {
         [term] => match typed_point::polar(term).as_slice() {
             [only] => Ok(ChamferSize::Equal(distance(only)?)),
             [only, angle] => Ok(ChamferSize::DistanceAndAngle {
                 distance: distance(only)?,
-                angle: patterning::degrees(model, angle)?,
+                angle: patterning::degrees(model, angle).map_err(ChamferError::Angle)?,
             }),
-            _ => Err(CHAMFER_FORMS.to_owned()),
+            _ => Err(ChamferError::Forms),
         },
         [first, second] => {
             let plain = |term: &&str| typed_point::polar(term).len() == 1;
             if !(plain(first) && plain(second)) {
-                return Err(CHAMFER_FORMS.to_owned());
+                return Err(ChamferError::Forms);
             }
             Ok(ChamferSize::Distances {
                 first: distance(first)?,
                 second: distance(second)?,
             })
         }
-        _ => Err(CHAMFER_FORMS.to_owned()),
+        _ => Err(ChamferError::Forms),
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, Document, EdgeGroup, Edit, Evaluation, Feature, FeatureId,
@@ -13,9 +13,9 @@ use crate::{
     blend_panel,
     bodies::{self, FaceKey},
     body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
     queued,
@@ -47,8 +47,6 @@ fn starting_form(kind: BlendKind, starts: &Starts) -> ChamferForm {
     }
 }
 
-const NO_SHAPE: &str = queued::BODY_SHAPE;
-
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,27 +66,67 @@ pub struct EdgeSource {
 
 pub const NOTHING_TO_BLEND: &str =
     "Select edges or faces of a body, or choose a body in the tree, first";
-pub const SEVERAL_BODIES: &str = "Select edges or faces of one body only";
-const FACE_GONE: &str = "A selected face is no longer part of the model";
-const NO_EDGES: &str = "The selected faces or body have no edges to round";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum BlendError {
+    #[error("{}", NOTHING_TO_BLEND)]
+    NothingToBlend,
+    #[error("Select edges or faces of one body only")]
+    SeveralBodies,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoShape { body: FeatureId },
+    #[error("A selected face is no longer part of the model")]
+    FaceGone,
+    #[error("The selected faces or body have no edges to round")]
+    NoEdges,
+    #[error("The selected edges are no longer part of the model")]
+    EdgesGone,
+    #[error("Some of the selected edges are no longer part of the model")]
+    SomeEdgesGone,
+    #[error("The feature is not a chamfer")]
+    NotAChamfer { feature: FeatureId },
+    #[error("{name} is already {form}")]
+    AlreadyForm { name: String, form: String },
+    #[error(
+        "A chamfer by one distance is the same on both faces; choose two distances or an angle \
+         first"
+    )]
+    NothingToFlip,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<BlendError> for String {
+    fn from(error: BlendError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for BlendError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 pub fn selected_edges(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
-) -> Result<EdgeSource, &'static str> {
+) -> Result<EdgeSource, BlendError> {
     match tree {
         [] => edges_of_selection(model, selection),
         [body] => edges_of_body(model, *body),
-        [_, _, ..] => Err(SEVERAL_BODIES),
+        [_, _, ..] => Err(BlendError::SeveralBodies),
     }
 }
 
-fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, &'static str> {
-    let shown = bodies::shown(model.evaluation(), body).ok_or(NO_SHAPE)?;
+fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, BlendError> {
+    let shown = bodies::shown(model.evaluation(), body).ok_or(BlendError::NoShape { body })?;
     let edges = edge_names(shown, &GroupResolution::Body.edges(&shown.solid));
     if edges.is_empty() {
-        return Err(NO_EDGES);
+        return Err(BlendError::NoEdges);
     }
     Ok(EdgeSource {
         body,
@@ -99,7 +137,7 @@ fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, &'static 
     })
 }
 
-fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource, &'static str> {
+fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource, BlendError> {
     let mut body = None;
     let mut around = Vec::new();
     let mut picked = Vec::new();
@@ -114,13 +152,14 @@ fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource
             }
         };
         match body {
-            Some(known) if known != owner => return Err(SEVERAL_BODIES),
+            Some(known) if known != owner => return Err(BlendError::SeveralBodies),
             _ => body = Some(owner),
         }
         match pickable {
             Pickable::Face { face, .. } => {
-                let shown = bodies::shown(model.evaluation(), owner).ok_or(NO_SHAPE)?;
-                let found = bodies::find_face(shown, face).ok_or(FACE_GONE)?;
+                let shown = bodies::shown(model.evaluation(), owner)
+                    .ok_or(BlendError::NoShape { body: owner })?;
+                let found = bodies::find_face(shown, face).ok_or(BlendError::FaceGone)?;
                 let resolution = GroupResolution::Face(Resolution::One(found));
                 around.extend(edge_names(shown, &resolution.edges(&shown.solid)));
                 if !groups.contains(&GroupSource::Face(face)) {
@@ -131,7 +170,7 @@ fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource
             _ => {}
         }
     }
-    let body = body.ok_or(NOTHING_TO_BLEND)?;
+    let body = body.ok_or(BlendError::NothingToBlend)?;
     let mut seen: BTreeSet<EdgeName> = around.iter().copied().collect();
     picked.retain(|edge| seen.insert(*edge));
     let mut listed = BTreeSet::new();
@@ -141,7 +180,7 @@ fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource
         .filter(|edge| listed.insert(*edge))
         .collect();
     if edges.is_empty() {
-        return Err(NO_EDGES);
+        return Err(BlendError::NoEdges);
     }
     Ok(EdgeSource {
         body,
@@ -166,8 +205,9 @@ pub fn create(
     kind: BlendKind,
     source: &EdgeSource,
     starts: &Starts,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(NO_SHAPE)?;
+) -> Result<(Transaction, FeatureId), BlendError> {
+    let shown =
+        bodies::shown(evaluation, source.body).ok_or(BlendError::NoShape { body: source.body })?;
     let naming = EdgeNaming::new(&shown.solid);
     let edges: Vec<EdgeReference> = source
         .picked
@@ -189,13 +229,13 @@ pub fn create(
         })
         .collect();
     if edges.is_empty() && groups.is_empty() {
-        return Err("The selected edges are no longer part of the model");
+        return Err(BlendError::EdgesGone);
     }
     if edges.len() < source.picked.len() {
-        return Err("Some of the selected edges are no longer part of the model");
+        return Err(BlendError::SomeEdgesGone);
     }
     if groups.len() < source.groups.len() {
-        return Err(FACE_GONE);
+        return Err(BlendError::FaceGone);
     }
     let name = editing::next_feature_name(document, kind.title());
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -242,7 +282,7 @@ pub fn create_actions(
                 BlendKind::Fillet => Command::Fillet,
                 BlendKind::Chamfer => Command::Chamfer,
             };
-            vec![queued::refused(command, kind.title(), reason)]
+            vec![queued::refused(command, kind.title(), &reason.to_string())]
         }
     }
 }
@@ -274,9 +314,6 @@ pub const FORMS: [FormChoice; 3] = [
 ];
 
 const DEFAULT_ANGLE_DEGREES: f64 = 45.0;
-const NOT_A_CHAMFER: &str = "The feature is not a chamfer";
-const NOTHING_TO_FLIP: &str =
-    "A chamfer by one distance is the same on both faces; choose two distances or an angle first";
 
 impl FormChoice {
     pub fn of(form: &ChamferForm) -> Self {
@@ -341,39 +378,42 @@ impl FormChoice {
     }
 }
 
-fn chamfer_of(feature: &Feature) -> Result<&Blend, String> {
+fn chamfer_of(feature: &Feature) -> Result<&Blend, BlendError> {
     feature
         .kind
         .blend()
         .filter(|blend| blend.kind == BlendKind::Chamfer)
-        .ok_or_else(|| NOT_A_CHAMFER.to_owned())
+        .ok_or(BlendError::NotAChamfer {
+            feature: feature.id(),
+        })
 }
 
 pub fn form_change(
     document: &Document,
     feature: &Feature,
     choice: FormChoice,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, BlendError> {
     let blend = chamfer_of(feature)?;
     if FormChoice::of(&blend.form) == choice {
-        return Err(format!(
-            "{} is already {}",
-            feature.name,
-            choice.label().to_lowercase()
-        ));
+        return Err(BlendError::AlreadyForm {
+            name: feature.name.clone(),
+            form: choice.label().to_lowercase(),
+        });
     }
     edit(
         document,
         feature.id(),
         choice.applied_to(document, feature.id(), blend),
     )
-    .ok_or_else(|| NOT_A_CHAMFER.to_owned())
+    .ok_or(BlendError::NotAChamfer {
+        feature: feature.id(),
+    })
 }
 
-pub fn flip_change(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+pub fn flip_change(document: &Document, feature: &Feature) -> Result<Transaction, BlendError> {
     let blend = chamfer_of(feature)?;
     if blend.form.is_equal() {
-        return Err(NOTHING_TO_FLIP.to_owned());
+        return Err(BlendError::NothingToFlip);
     }
     edit(
         document,
@@ -383,7 +423,9 @@ pub fn flip_change(document: &Document, feature: &Feature) -> Result<Transaction
             ..blend.clone()
         },
     )
-    .ok_or_else(|| NOT_A_CHAMFER.to_owned())
+    .ok_or(BlendError::NotAChamfer {
+        feature: feature.id(),
+    })
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -584,13 +626,7 @@ mod tests {
         };
 
         assert_eq!(create(vec![present]), Ok(()));
-        assert_eq!(
-            create(vec![present, gone]),
-            Err("Some of the selected edges are no longer part of the model")
-        );
-        assert_eq!(
-            create(vec![gone]),
-            Err("The selected edges are no longer part of the model")
-        );
+        assert_eq!(create(vec![present, gone]), Err(BlendError::SomeEdgesGone));
+        assert_eq!(create(vec![gone]), Err(BlendError::EdgesGone));
     }
 }

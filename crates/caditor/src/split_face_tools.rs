@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
@@ -9,33 +9,68 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 use crate::{
     bodies::{self, FaceKey},
     body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     datum_tools,
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     model::{Action, Model, Notice},
     queued,
     selection::{Pickable, Selection},
-    split_tools,
+    split_tools::{self, SplitError},
 };
 
 pub const TITLE: &str = "Split face";
-const CHOOSE_FACES: &str = "Select the faces of a body to split";
-const ONE_BODY: &str = "Select faces of one body only";
-const NO_TOOL: &str =
-    "Select a plane, flat face, sketch curve or another body made before this feature";
-const ALREADY: &str = "The faces are already split along the selected plane, curve or body";
-const SEVERAL_TOOLS: &str = "Several other bodies are selected; select only the one to split along";
-const GONE: &str = "The feature no longer exists";
-const NO_DIRECTION: &str =
-    "Select an edge, axis, round face or sketch line to carry the curves along";
-const ALREADY_CARRIED: &str = "The curves are already carried along the selected edge or axis";
-const NOT_ALONG_SKETCH: &str = "Only a sketch's curves can be wrapped round the faces; split along \
-                                one first";
-const ALREADY_WRAPPED: &str = "The curves are already wrapped round the faces";
-const NOT_ONE_SURFACE: &str =
-    "Only faces of one cylinder or cone can have curves wrapped round them";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SplitFaceError {
+    #[error("Select the faces of a body to split")]
+    ChooseFaces,
+    #[error("Select faces of one body only")]
+    OneBody,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoShape { body: FeatureId },
+    #[error("Some of the selected faces are no longer part of the model")]
+    FacesGone,
+    #[error("Select a plane, flat face, sketch curve or another body made before this feature")]
+    NoTool,
+    #[error("The faces are already split along the selected plane, curve or body")]
+    Already,
+    #[error("Several other bodies are selected; select only the one to split along")]
+    SeveralTools,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Select an edge, axis, round face or sketch line to carry the curves along")]
+    NoDirection,
+    #[error("The curves are already carried along the selected edge or axis")]
+    AlreadyCarried,
+    #[error("Only a sketch's curves can be wrapped round the faces; split along one first")]
+    NotAlongSketch,
+    #[error("The curves are already wrapped round the faces")]
+    AlreadyWrapped,
+    #[error("Only faces of one cylinder or cone can have curves wrapped round them")]
+    NotOneSurface,
+    #[error("{name} does not split faces")]
+    DoesNotSplitFaces { name: String },
+    #[error("{0}")]
+    ChosenAxis(String),
+    #[error(transparent)]
+    Along(#[from] SplitError),
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<SplitFaceError> for String {
+    fn from(error: SplitFaceError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for SplitFaceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SplitFaceSource {
@@ -51,20 +86,20 @@ fn without_faces(selection: &Selection) -> Selection {
     rest
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, &'static str> {
+pub fn source(model: &Model, selection: &Selection) -> Result<SplitFaceSource, SplitFaceError> {
     let mut body = None;
     let mut faces = Vec::new();
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
-                Some(known) if known != owner => return Err(ONE_BODY),
+                Some(known) if known != owner => return Err(SplitFaceError::OneBody),
                 _ => body = Some(owner),
             }
             faces.push(face);
         }
     }
-    let body = body.ok_or(CHOOSE_FACES)?;
-    bodies::shown(model.evaluation(), body).ok_or(CHOOSE_FACES)?;
+    let body = body.ok_or(SplitFaceError::ChooseFaces)?;
+    bodies::shown(model.evaluation(), body).ok_or(SplitFaceError::ChooseFaces)?;
     let rest = without_faces(selection);
     let along = split_tools::chosen_along(model, &rest, model.document().bar_index())?
         .map(|(along, _)| along);
@@ -94,15 +129,16 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &SplitFaceSource,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
+) -> Result<(Transaction, FeatureId), SplitFaceError> {
+    let shown = bodies::shown(evaluation, source.body)
+        .ok_or(SplitFaceError::NoShape { body: source.body })?;
     let faces: Vec<FaceReference> = source
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
     if faces.len() < source.faces.len() {
-        return Err("Some of the selected faces are no longer part of the model");
+        return Err(SplitFaceError::FacesGone);
     }
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -142,7 +178,11 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(Command::SplitFace, TITLE, reason)],
+        Err(reason) => vec![queued::refused(
+            Command::SplitFace,
+            TITLE,
+            &reason.to_string(),
+        )],
     }
 }
 
@@ -157,9 +197,13 @@ pub fn edit(document: &Document, feature: FeatureId, split: SplitFace) -> Option
     ))
 }
 
-pub fn change(model: &Model, feature: FeatureId, split: SplitFace) -> Result<Transaction, String> {
+pub fn change(
+    model: &Model,
+    feature: FeatureId,
+    split: SplitFace,
+) -> Result<Transaction, SplitFaceError> {
     let document = model.document();
-    let transaction = edit(document, feature, split).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, split).ok_or(SplitFaceError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -187,11 +231,11 @@ pub fn along_change(
     selection: &Selection,
     feature: FeatureId,
     split: &SplitFace,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SplitFaceError> {
     let document = model.document();
     let index = document
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
+        .ok_or(SplitFaceError::Gone { feature })?;
     let along = match split_tools::chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
@@ -201,14 +245,14 @@ pub fn along_change(
                 .filter(|body| *body != split.body && earlier.contains(body))
                 .collect();
             match tools.as_slice() {
-                [] => return Err(NO_TOOL.to_owned()),
+                [] => return Err(SplitFaceError::NoTool),
                 [tool] => SplitAlong::Body(*tool),
-                [_, _, ..] => return Err(SEVERAL_TOOLS.to_owned()),
+                [_, _, ..] => return Err(SplitFaceError::SeveralTools),
             }
         }
     };
     if along == split.along {
-        return Err(ALREADY.to_owned());
+        return Err(SplitFaceError::Already);
     }
     change(model, feature, split.with_along(along))
 }
@@ -218,15 +262,16 @@ pub fn direction_change(
     selection: &Selection,
     feature: FeatureId,
     split: &SplitFace,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SplitFaceError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
-    let axis =
-        datum_tools::only_axis(model, selection, index)?.ok_or_else(|| NO_DIRECTION.to_owned())?;
+        .ok_or(SplitFaceError::Gone { feature })?;
+    let axis = datum_tools::only_axis(model, selection, index)
+        .map_err(|error| SplitFaceError::ChosenAxis(error.into()))?
+        .ok_or(SplitFaceError::NoDirection)?;
     if split.direction() == Some(&axis) {
-        return Err(ALREADY_CARRIED.to_owned());
+        return Err(SplitFaceError::AlreadyCarried);
     }
     change(
         model,
@@ -252,15 +297,15 @@ pub fn wrapped_change(
     model: &Model,
     feature: FeatureId,
     split: &SplitFace,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SplitFaceError> {
     if split.along.sketch().is_none() {
-        return Err(NOT_ALONG_SKETCH.to_owned());
+        return Err(SplitFaceError::NotAlongSketch);
     }
     if split.is_wrapped() {
-        return Err(ALREADY_WRAPPED.to_owned());
+        return Err(SplitFaceError::AlreadyWrapped);
     }
     if !on_one_unrolled(model, feature, split) {
-        return Err(NOT_ONE_SURFACE.to_owned());
+        return Err(SplitFaceError::NotOneSurface);
     }
     change(
         model,
@@ -272,10 +317,12 @@ pub fn wrapped_change(
     )
 }
 
-pub fn wrap_command(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+pub fn wrap_command(model: &Model, feature: &Feature) -> Result<Transaction, SplitFaceError> {
     match feature.kind.split_face() {
         Some(split) => wrapped_change(model, feature.id(), split),
-        None => Err(format!("{} does not split faces", feature.name)),
+        None => Err(SplitFaceError::DoesNotSplitFaces {
+            name: feature.name.clone(),
+        }),
     }
 }
 

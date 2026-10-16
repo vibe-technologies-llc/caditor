@@ -104,10 +104,12 @@ impl TangentCircling {
 
     pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
         self.radius = text.filter(|text| !text.trim().is_empty()).map(|text| {
-            Value::typed(model, text).map(|value| Dimensioned {
-                expression: value.expression,
-                value: value.millimetres,
-            })
+            Value::typed(model, text)
+                .map(|value| Dimensioned {
+                    expression: value.expression,
+                    value: value.millimetres,
+                })
+                .map_err(String::from)
         });
     }
 

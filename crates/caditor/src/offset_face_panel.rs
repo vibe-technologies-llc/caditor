@@ -10,7 +10,7 @@ use crate::{
     editing::EditingCommand,
     feature_fields::{self, ListChoosing, Quantity, Rule},
     feature_tree::count,
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     offset_face_tools,
     reference_rows::{ReferenceRows, RowCache},
@@ -22,10 +22,22 @@ pub const DESCRIPTION: &str =
     "Moves the chosen faces along their normals, the faces beside them following";
 const TANGENT: &str = "Move the faces tangent to these too";
 
-fn change(model: &Model, feature: FeatureId, offset: OffsetFace) -> Result<Transaction, String> {
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+enum OffsetFaceChangeError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+fn change(
+    model: &Model,
+    feature: FeatureId,
+    offset: OffsetFace,
+) -> Result<Transaction, OffsetFaceChangeError> {
     let document = model.document();
     let transaction = offset_face_tools::edit(document, feature, offset)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        .ok_or(OffsetFaceChangeError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

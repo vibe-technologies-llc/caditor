@@ -31,8 +31,8 @@ pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
 pub enum HolePanelError {
     #[error("The feature no longer exists")]
     FeatureGone,
-    #[error("{words}")]
-    Target { words: String },
+    #[error(transparent)]
+    Target(#[from] solid_panel::TargetError),
     #[error("The hole already ends at the selected face or plane")]
     AlreadyEndsThere,
     #[error(transparent)]
@@ -1238,8 +1238,7 @@ pub fn target_change(
     feature: FeatureId,
     hole: &Hole,
 ) -> Result<Transaction, HolePanelError> {
-    let target = solid_panel::selected_target(model, selection, feature)
-        .map_err(|words| HolePanelError::Target { words })?;
+    let target = solid_panel::selected_target(model, selection, feature)?;
     let depth = HoleDepth::up_to_face(target).with_offset(hole.depth.offset().cloned());
     if depth == hole.depth {
         return Err(HolePanelError::AlreadyEndsThere);

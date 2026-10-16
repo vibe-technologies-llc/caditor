@@ -168,20 +168,24 @@ pub enum TreeError {
     Rejected(#[from] EditError),
     #[error("{0}")]
     Placement(String),
-    #[error("{0}")]
-    Solid(String),
+    #[error(transparent)]
+    Solid(#[from] solid_panel::SolidChangeError),
+    #[error(transparent)]
+    Regions(#[from] solid_tools::RegionError),
     #[error(transparent)]
     Mirror(#[from] mirror_tools::MirrorToolError),
-    #[error("{0}")]
-    Split(String),
+    #[error(transparent)]
+    Split(#[from] split_tools::SplitError),
+    #[error(transparent)]
+    SplitFace(#[from] split_face_tools::SplitFaceError),
     #[error(transparent)]
     Move(#[from] move_tools::MoveError),
     #[error(transparent)]
     Datum(#[from] datum_panel::DatumError),
     #[error(transparent)]
     Pattern(#[from] pattern_tools::PatternToolError),
-    #[error("{0}")]
-    Blend(String),
+    #[error(transparent)]
+    Blend(#[from] blend_tools::BlendError),
 }
 
 impl Reason for TreeError {
@@ -1618,7 +1622,8 @@ fn context_menu(
     if let Some(open) = row.taking_regions
         && feature.kind.sketch().is_some()
     {
-        let taking = solid_tools::take_sketch_regions(model, open, feature.id());
+        let taking =
+            solid_tools::take_sketch_regions(model, open, feature.id()).map_err(String::from);
         let title = format!("Take all regions of {} for {}", feature.name, open.name);
         if menu_entry(
             ui,
@@ -2441,7 +2446,7 @@ fn split_change(
             .map_err(TreeError::Split),
         (FeatureKind::SplitFace(split), None) => {
             split_face_tools::along_change(model, selection, feature.id(), split)
-                .map_err(TreeError::Split)
+                .map_err(TreeError::SplitFace)
         }
         (_, None) => Err(not_of_kind(feature, "a split")),
     }
@@ -2749,10 +2754,10 @@ fn feature_commands(
             up_to_change(model, selection, feature)
         }),
         (Command::ClearChosenRegions, &|feature| {
-            solid_tools::clear_regions(model, feature).map_err(TreeError::Solid)
+            solid_tools::clear_regions(model, feature).map_err(TreeError::Regions)
         }),
         (Command::SelectAllRegions, &|feature| {
-            solid_tools::select_all_regions(model, feature).map_err(TreeError::Solid)
+            solid_tools::select_all_regions(model, feature).map_err(TreeError::Regions)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)
@@ -2800,7 +2805,7 @@ fn feature_commands(
             blend_tools::flip_change(document, feature).map_err(TreeError::Blend)
         }),
         (Command::WrapSplitCurves, &|feature| {
-            split_face_tools::wrap_command(model, feature).map_err(TreeError::Split)
+            split_face_tools::wrap_command(model, feature).map_err(TreeError::SplitFace)
         }),
         (Command::ReverseDirection, &|feature| {
             Ok(reversing::reverse_change(document, feature)?)

@@ -7,7 +7,7 @@ use caditor_kernel::{EdgeId, FaceId};
 use egui::{Id, Ui};
 
 use crate::{
-    blend_tools::{self, FORMS, FormChoice, KINDS},
+    blend_tools::{self, BlendError, FORMS, FormChoice, KINDS},
     bodies,
     editing::EditingCommand,
     feature_fields::{self, ListChoosing, Quantity, Rule, Segment},
@@ -19,10 +19,10 @@ use crate::{
     widgets,
 };
 
-fn change(model: &Model, feature: FeatureId, blend: Blend) -> Result<Transaction, String> {
+fn change(model: &Model, feature: FeatureId, blend: Blend) -> Result<Transaction, BlendError> {
     let document = model.document();
-    let transaction = blend_tools::edit(document, feature, blend)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let transaction =
+        blend_tools::edit(document, feature, blend).ok_or(BlendError::Gone { feature })?;
     field::checked(document, transaction)
 }
 

@@ -759,14 +759,14 @@ fn sheet_fields(
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SheetLengthError {
     #[error("Enter a sheet width greater than zero")]
     NotAWidth,
     #[error("Enter a spacing of zero or more")]
     NotASpacing,
-    #[error("{0}")]
-    Typed(String),
+    #[error(transparent)]
+    Typed(#[from] modifying::ValueError),
 }
 
 pub fn parse_width(model: &Model, text: &str) -> Result<f64, SheetLengthError> {

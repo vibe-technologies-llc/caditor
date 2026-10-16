@@ -1,8 +1,8 @@
 use caditor_document::{
     Datum, DisplacedFeature, Document, Evaluation, FeatureId, FeatureResult, ModelScale,
-    ScaleSummary, ScaledValues, Transaction, principal_words,
+    ModelScaleError, ScaleSummary, ScaledValues, Transaction, principal_words,
 };
-use caditor_expression::format_number;
+use caditor_expression::{Dimension, EvalError, ParseError, format_number};
 use caditor_geometry::Point3;
 use egui::{Id, Key, TextEdit, Ui};
 
@@ -49,7 +49,7 @@ pub struct ScaleDraft {
     pub factor: String,
     pub centre: Centre,
     pub values: ScaledValues,
-    problem: Option<String>,
+    problem: Option<ScaleModelError>,
     focus_pending: bool,
     displaced: Option<Displacement>,
 }
@@ -119,41 +119,58 @@ fn centre_name(document: &Document, centre: Centre) -> String {
     }
 }
 
-pub fn scaling(model: &Model, draft: &ScaleDraft) -> Result<(Transaction, String), String> {
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ScaleModelError {
+    #[error("Enter a factor, such as 2 to double the size or 25.4 for inches.")]
+    NoFactor,
+    #[error("The factor cannot be read: {0}.")]
+    Unreadable(ParseError),
+    #[error("The factor cannot be evaluated: {0}.")]
+    Unevaluable(EvalError),
+    #[error("The factor gives {dimension}, but a plain number is needed, such as 2 or 25.4.")]
+    NotPlain { dimension: Dimension },
+    #[error("{name} has no place to scale about until it computes.")]
+    CentreUncomputed { feature: FeatureId, name: String },
+    #[error("{error} {}", error.remedy())]
+    Refused {
+        #[from]
+        error: ModelScaleError,
+    },
+}
+
+pub fn scaling(
+    model: &Model,
+    draft: &ScaleDraft,
+) -> Result<(Transaction, String), ScaleModelError> {
     let document = model.document();
     let text = draft.factor.trim();
     if text.is_empty() {
-        return Err("Enter a factor, such as 2 to double the size or 25.4 for inches.".to_owned());
+        return Err(ScaleModelError::NoFactor);
     }
-    let expression = document
-        .parse(text)
-        .map_err(|error| format!("The factor cannot be read: {error}."))?;
+    let expression = document.parse(text).map_err(ScaleModelError::Unreadable)?;
     let factor = model
         .parameters()
         .evaluate_expression(&expression)
-        .map_err(|error| format!("The factor cannot be evaluated: {error}."))?;
+        .map_err(ScaleModelError::Unevaluable)?;
     if !factor.dimension.is_plain() {
-        return Err(format!(
-            "The factor gives {}, but a plain number is needed, such as 2 or 25.4.",
-            factor.dimension
-        ));
+        return Err(ScaleModelError::NotPlain {
+            dimension: factor.dimension,
+        });
     }
     let centre = match draft.centre {
         Centre::Origin => Point3::ZERO,
         Centre::Datum(feature) => centre_point(model.evaluation(), feature).ok_or_else(|| {
-            format!(
-                "{} has no place to scale about until it computes.",
-                centre_name(document, draft.centre)
-            )
+            ScaleModelError::CentreUncomputed {
+                feature,
+                name: centre_name(document, draft.centre),
+            }
         })?,
     };
-    let scaled = document
-        .scaled(&ModelScale {
-            factor: factor.value,
-            centre,
-            values: draft.values,
-        })
-        .map_err(|error| format!("{error} {}", error.remedy()))?;
+    let scaled = document.scaled(&ModelScale {
+        factor: factor.value,
+        centre,
+        values: draft.values,
+    })?;
     let summary = summary(factor.value, &scaled.summary);
     Ok((scaled.transaction, summary))
 }
@@ -275,7 +292,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, draft: &mut ScaleDraft) -> Opt
             }
             if let Some(problem) = &draft.problem {
                 ui.add_space(SPACE_S);
-                widgets::callout(ui, Tone::Error, |ui| ui.label(problem));
+                widgets::callout(ui, Tone::Error, |ui| ui.label(problem.to_string()));
             }
             entered
         });

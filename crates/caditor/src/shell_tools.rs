@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     Document, Edit, Evaluation, FaceThickness, FeatureId, FeatureKind, Shell, ShellSide,
@@ -9,9 +9,9 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 use crate::{
     bodies::{self, FaceKey},
     body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     queued::{self, Rerun},
@@ -22,15 +22,47 @@ pub const DEFAULT_THICKNESS: f64 = 1.0;
 pub const TITLE: &str = "Shell";
 const OWN_THICKNESS_TITLE: &str = "Own thickness";
 pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces open";
-const NOT_OPENABLE: &str = "Only flat faces and cylinder, cone, sphere or torus faces can be left open, so select those \
-     only";
-const GONE: &str = "The feature no longer exists";
-const NO_SHAPE: &str = queued::BODY_SHAPE;
-const NOT_A_FACE: &str = "Click a face of the body being shelled";
-const OPENED: &str = "That face is open, so it has no wall; close it first to give it its own \
-                      thickness";
-const NOT_OFFSET: &str = "Only flat faces and cylinder, cone, sphere or torus faces can take \
-                          their own thickness";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ShellError {
+    #[error("Select faces of one body only")]
+    SeveralBodies,
+    #[error("Select the faces of a body to leave open")]
+    NoFaces,
+    #[error(
+        "Only flat faces and cylinder, cone, sphere or torus faces can be left open, so select \
+         those only"
+    )]
+    NotOpenable,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoShape { body: FeatureId },
+    #[error("Some of the selected faces are no longer part of the model")]
+    FacesGone,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Click a face of the body being shelled")]
+    NotAFace,
+    #[error("That face is open, so it has no wall; close it first to give it its own thickness")]
+    Opened,
+    #[error(
+        "Only flat faces and cylinder, cone, sphere or torus faces can take their own thickness"
+    )]
+    NotOffset,
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<ShellError> for String {
+    fn from(error: ShellError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for ShellError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FaceSource {
@@ -39,14 +71,14 @@ pub struct FaceSource {
     pub left_out: Vec<Pickable>,
 }
 
-pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, &'static str> {
+pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, ShellError> {
     let mut body = None;
     let mut faces = Vec::new();
     let mut left_out = Vec::new();
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
-                Some(known) if known != owner => return Err("Select faces of one body only"),
+                Some(known) if known != owner => return Err(ShellError::SeveralBodies),
                 _ => body = Some(owner),
             }
             faces.push(face);
@@ -54,14 +86,13 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
             left_out.push(pickable);
         }
     }
-    let body = body.ok_or("Select the faces of a body to leave open")?;
-    let shown = bodies::shown(model.evaluation(), body)
-        .ok_or("Select the faces of a body to leave open")?;
+    let body = body.ok_or(ShellError::NoFaces)?;
+    let shown = bodies::shown(model.evaluation(), body).ok_or(ShellError::NoFaces)?;
     let openable = faces.iter().all(|face| {
         bodies::find_face(shown, *face).is_some_and(|face| openable_face(&shown.solid, face))
     });
     if !openable {
-        return Err(NOT_OPENABLE);
+        return Err(ShellError::NotOpenable);
     }
     Ok(FaceSource {
         body,
@@ -75,15 +106,16 @@ pub fn create(
     evaluation: &Evaluation,
     source: &FaceSource,
     starts: &Starts,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(queued::BODY_SHAPE)?;
+) -> Result<(Transaction, FeatureId), ShellError> {
+    let shown =
+        bodies::shown(evaluation, source.body).ok_or(ShellError::NoShape { body: source.body })?;
     let open: Vec<FaceReference> = source
         .faces
         .iter()
         .filter_map(|key| FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?))
         .collect();
     if open.len() < source.faces.len() {
-        return Err("Some of the selected faces are no longer part of the model");
+        return Err(ShellError::FacesGone);
     }
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -121,7 +153,7 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![queued::refused(Command::Shell, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::Shell, TITLE, &reason.to_string())],
     }
 }
 
@@ -262,27 +294,31 @@ fn own_thickness_toggled(
     model: &Model,
     feature: FeatureId,
     clicked: FaceId,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ShellError> {
     let document = model.document();
-    let owner = document.feature(feature).ok_or(GONE)?;
-    let shell = owner.kind.shell().ok_or(GONE)?;
-    let input = bodies::input(model.evaluation(), feature).ok_or(NO_SHAPE)?;
+    let owner = document
+        .feature(feature)
+        .ok_or(ShellError::Gone { feature })?;
+    let shell = owner.kind.shell().ok_or(ShellError::Gone { feature })?;
+    let input = bodies::input(model.evaluation(), feature)
+        .ok_or(ShellError::NoShape { body: shell.body })?;
     let solid = &input.solid;
     let opened = shell
         .resolutions(solid)
         .iter()
         .any(|resolution| resolution.found().contains(&clicked));
     if opened {
-        return Err(OPENED.to_owned());
+        return Err(ShellError::Opened);
     }
     if !openable_face(solid, clicked) {
-        return Err(NOT_OFFSET.to_owned());
+        return Err(ShellError::NotOffset);
     }
     let mut changed = shell.clone();
     without_own_thickness(&mut changed, solid, &BTreeSet::from([clicked]));
     let label = if changed.faces.len() == shell.faces.len() {
         changed.faces.push(FaceThickness {
-            face: FaceReference::capture(solid, clicked).ok_or(NO_SHAPE)?,
+            face: FaceReference::capture(solid, clicked)
+                .ok_or(ShellError::NoShape { body: shell.body })?,
             thickness: shell.thickness.clone(),
         });
         format!("Give a face of {} its own thickness", owner.name)
@@ -317,10 +353,14 @@ fn clicked_face(model: &Model, feature: FeatureId, pickable: Pickable) -> Option
 pub fn own_thickness_click(model: &Model, feature: FeatureId, pickable: Pickable) -> Vec<Action> {
     if bodies::input(model.evaluation(), feature).is_none() {
         let rerun = Rerun::OwnThickness { feature, pickable };
-        return vec![queued::refused_rerun(rerun, OWN_THICKNESS_TITLE, NO_SHAPE)];
+        return vec![queued::refused_rerun(
+            rerun,
+            OWN_THICKNESS_TITLE,
+            queued::BODY_SHAPE,
+        )];
     }
     let toggled = clicked_face(model, feature, pickable)
-        .ok_or_else(|| NOT_A_FACE.to_owned())
+        .ok_or(ShellError::NotAFace)
         .and_then(|face| own_thickness_toggled(model, feature, face));
     match toggled {
         Ok(transaction) => vec![Action::Apply(transaction)],
@@ -332,12 +372,12 @@ pub fn own_thickness_change(
     model: &Model,
     selection: &Selection,
     feature: FeatureId,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ShellError> {
     let mut picked = selection
         .iter()
         .filter_map(|pickable| clicked_face(model, feature, pickable));
     match (picked.next(), picked.next()) {
         (Some(face), None) => own_thickness_toggled(model, feature, face),
-        _ => Err(NOT_A_FACE.to_owned()),
+        _ => Err(ShellError::NotAFace),
     }
 }

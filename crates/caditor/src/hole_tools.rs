@@ -23,7 +23,7 @@ use crate::{
     scene,
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
-    solid_tools,
+    solid_tools::{self, SweepSourceError},
     units::LengthUnit,
     visibility,
 };
@@ -58,8 +58,8 @@ pub enum HoleStartError {
     NoPoints,
     #[error("Make a body to drill into first")]
     NoBody,
-    #[error("{words}")]
-    SweepSource { words: &'static str },
+    #[error(transparent)]
+    SweepSource(#[from] SweepSourceError),
 }
 
 impl Reason for HoleStartError {
@@ -273,8 +273,7 @@ pub fn source(
         } else {
             solid_tools::Guess::Never
         },
-    )
-    .map_err(|words| HoleStartError::SweepSource { words })?
+    )?
     .ok_or(if may_guess {
         HoleStartError::NoSketch
     } else {

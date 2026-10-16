@@ -42,20 +42,20 @@ pub enum ImageError {
     SeveralPlanes,
     #[error("Click a second point away from the first one")]
     SameSpot,
-    #[error("{refusal}")]
-    ClickedSpot { refusal: &'static str },
+    #[error(transparent)]
+    ClickedSpot(#[from] primitive_tools::PrimitiveError),
     #[error(transparent)]
     Spot(#[from] SpotError),
     #[error(transparent)]
     Rejected(#[from] CheckError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ImageTargetError {
     #[error("{refusal}")]
     ChosenPlane { refusal: &'static str },
-    #[error("{refusal}")]
-    ChosenSpot { refusal: &'static str },
+    #[error(transparent)]
+    ChosenSpot(#[from] primitive_tools::PrimitiveError),
 }
 
 impl Reason for ImageTargetError {
@@ -83,8 +83,7 @@ pub fn target(
         .map_err(|refusal| ImageTargetError::ChosenPlane { refusal })?;
     match chosen {
         Some(chosen) => {
-            let (plane, at) = primitive_tools::chosen_spot(model, &chosen, index)
-                .map_err(|refusal| ImageTargetError::ChosenSpot { refusal })?;
+            let (plane, at) = primitive_tools::chosen_spot(model, &chosen, index)?;
             Ok(ImageTarget::Plane { plane, at })
         }
         None => Ok(ImageTarget::Plane {
@@ -186,8 +185,7 @@ fn moved_to(
         .document()
         .feature_index(feature)
         .ok_or(ImageError::Gone)?;
-    let (plane, at) = primitive_tools::clicked_spot(model, pickable, index, ray)
-        .map_err(|refusal| ImageError::ClickedSpot { refusal })?;
+    let (plane, at) = primitive_tools::clicked_spot(model, pickable, index, ray)?;
     let unit = model.length_unit();
     change(
         model,

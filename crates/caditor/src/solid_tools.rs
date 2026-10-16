@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
@@ -14,8 +14,10 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 use crate::{
     bodies::{self, FaceKey},
     body_reach, body_selection,
+    commands::Reason,
     editing::{self, EditingCommand, SketchEditing},
-    extrusion_detection, field,
+    extrusion_detection,
+    field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     projecting, scene,
@@ -30,16 +32,6 @@ pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
 pub const DEFAULT_WALL_THICKNESS: f64 = 1.0;
 const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_GAP: f64 = 1e-6;
-pub const NOT_FLAT_TO_EXTRUDE: &str =
-    "The selected face is curved; only a flat face can be extruded";
-pub const NOT_FLAT_TO_REVOLVE: &str =
-    "The selected face is curved; only a flat face can be revolved";
-pub const NOT_IN_ONE_PLANE: &str =
-    "The selected faces do not lie in one plane; select flat faces of one plane only";
-pub const FACES_OF_SEVERAL_BODIES: &str =
-    "Faces of several bodies are selected; select faces of one body only";
-pub const NO_AXIS_FOR_FACE: &str =
-    "Select the axis, straight edge or round face to revolve the face about as well";
 pub const NOTHING_TO_EXTRUDE: &str =
     "Select flat faces of one plane of a body to extrude them, or the curves of a sketch";
 pub const SEVERAL_SKETCHES: &str =
@@ -47,7 +39,66 @@ pub const SEVERAL_SKETCHES: &str =
 pub const SEVERAL_BODIES: &str =
     "Faces of several bodies are selected; select faces of the one body to add to";
 pub const NOTHING_TO_REVOLVE: &str = "Select the curves of a sketch or flat faces of a body to revolve, with the axis to turn them about";
-const NO_OUTLINE: &str = "The selected faces have no edges to sweep them by";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SweepSourceError {
+    #[error("{}", SEVERAL_SKETCHES)]
+    SeveralSketches,
+    #[error("{}", SEVERAL_BODIES)]
+    SeveralBodies,
+}
+
+impl Reason for SweepSourceError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum FaceSweepError {
+    #[error("The selected face is curved; only a flat face can be {}", .sweep.passive())]
+    NotFlat { sweep: Sweep },
+    #[error("The selected faces do not lie in one plane; select flat faces of one plane only")]
+    NotInOnePlane,
+    #[error("Faces of several bodies are selected; select faces of one body only")]
+    SeveralBodies,
+    #[error("Select the axis, straight edge or round face to revolve the face about as well")]
+    NoAxis,
+    #[error("The selected faces have no edges to sweep them by")]
+    NoOutline,
+    #[error("{0}")]
+    Attachment(String),
+}
+
+impl Reason for FaceSweepError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum RegionError {
+    #[error("{name} is not an extrusion or a revolve")]
+    NotASweep { name: String },
+    #[error("{name} has no region chosen")]
+    NoneChosen { name: String },
+    #[error("{name} takes no regions of a sketch")]
+    TakesNoRegions { name: String },
+    #[error("{name} is a thin wall, which follows every curve of its sketch")]
+    ThinWall { name: String },
+    #[error("{name} already takes every region of its sketch")]
+    AlreadyEvery { name: String },
+    #[error("Only a sketch has regions to take")]
+    NotASketch { feature: FeatureId },
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<RegionError> for String {
+    fn from(error: RegionError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sweep {
@@ -62,6 +113,13 @@ impl Sweep {
         match self {
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
+        }
+    }
+
+    fn passive(self) -> &'static str {
+        match self {
+            Self::Extrude => "extruded",
+            Self::Revolve => "revolved",
         }
     }
 }
@@ -93,7 +151,7 @@ pub fn sweep_source(
     selection: &Selection,
     editing: &SketchEditing,
     guess: Guess,
-) -> Result<Option<SweepSource>, &'static str> {
+) -> Result<Option<SweepSource>, SweepSourceError> {
     let picked = selection.in_pick_order();
     let mut selected: Vec<FeatureId> = Vec::new();
     for pickable in &picked {
@@ -107,7 +165,7 @@ pub fn sweep_source(
     let (sketch, regions) = match (editing.feature(), selected.as_slice()) {
         (Some(edited), _) => (edited, RegionChoice::All),
         (None, [sketch]) => (*sketch, RegionChoice::All),
-        (None, [_, _, ..]) => return Err(SEVERAL_SKETCHES),
+        (None, [_, _, ..]) => return Err(SweepSourceError::SeveralSketches),
         (None, []) => match guessed_sketch(document, evaluation, editing, guess) {
             Some(guessed) => (guessed, regions_left(document, evaluation, guessed)),
             None => return Ok(None),
@@ -130,7 +188,7 @@ pub fn sweep_source(
     let body = match body_selection::bodies_in(selection).as_slice() {
         [] => None,
         [body] => Some(*body),
-        [_, _, ..] => return Err(SEVERAL_BODIES),
+        [_, _, ..] => return Err(SweepSourceError::SeveralBodies),
     };
     Ok(Some(SweepSource {
         sketch,
@@ -269,7 +327,7 @@ pub fn faces_to_sweep(
     editing: &SketchEditing,
     sweep: Sweep,
     axes: &[(Pickable, AxisReference)],
-) -> Option<Result<FaceProfile, &'static str>> {
+) -> Option<Result<FaceProfile, FaceSweepError>> {
     let sketch_chosen = selection.iter().any(|pickable| {
         matches!(
             pickable,
@@ -312,31 +370,30 @@ fn face_profile(
     faces: &[FaceChoice],
     axis: Option<AxisReference>,
     sweep: Sweep,
-) -> Result<FaceProfile, &'static str> {
-    let not_flat = match sweep {
-        Sweep::Extrude => NOT_FLAT_TO_EXTRUDE,
-        Sweep::Revolve => NOT_FLAT_TO_REVOLVE,
-    };
-    let body = faces.first().map(|face| face.body).ok_or(NO_OUTLINE)?;
+) -> Result<FaceProfile, FaceSweepError> {
+    let body = faces
+        .first()
+        .map(|face| face.body)
+        .ok_or(FaceSweepError::NoOutline)?;
     if faces.iter().any(|face| face.body != body) {
-        return Err(FACES_OF_SEVERAL_BODIES);
+        return Err(FaceSweepError::SeveralBodies);
     }
-    let shown = bodies::shown(model.evaluation(), body).ok_or(NO_OUTLINE)?;
+    let shown = bodies::shown(model.evaluation(), body).ok_or(FaceSweepError::NoOutline)?;
     let planes = faces
         .iter()
         .map(|face| {
             bodies::find_face(shown, face.face)
                 .and_then(|id| face_plane(&shown.solid, id))
-                .ok_or(not_flat)
+                .ok_or(FaceSweepError::NotFlat { sweep })
         })
         .collect::<Result<Vec<Plane>, _>>()?;
     if let Some((first, rest)) = planes.split_first()
         && !rest.iter().all(|plane| same_plane(first, plane))
     {
-        return Err(NOT_IN_ONE_PLANE);
+        return Err(FaceSweepError::NotInOnePlane);
     }
     if sweep == Sweep::Revolve && axis.is_none() {
-        return Err(NO_AXIS_FOR_FACE);
+        return Err(FaceSweepError::NoAxis);
     }
     Ok(FaceProfile {
         body,
@@ -355,19 +412,20 @@ pub fn create_on_faces(
     model: &Model,
     sweep: Sweep,
     profile: &FaceProfile,
-) -> Result<(Transaction, FeatureId, String), &'static str> {
+) -> Result<(Transaction, FeatureId, String), FaceSweepError> {
     let document = model.document();
-    let first = profile.first().ok_or(NO_OUTLINE)?;
-    let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())?;
-    let shown = bodies::shown(model.evaluation(), profile.body).ok_or(NO_OUTLINE)?;
+    let first = profile.first().ok_or(FaceSweepError::NoOutline)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, first, document.bar_index())
+        .map_err(|error| FaceSweepError::Attachment(error.into()))?;
+    let shown = bodies::shown(model.evaluation(), profile.body).ok_or(FaceSweepError::NoOutline)?;
     let ids = profile
         .faces
         .iter()
-        .map(|face| bodies::find_face(shown, *face).ok_or(NO_OUTLINE))
+        .map(|face| bodies::find_face(shown, *face).ok_or(FaceSweepError::NoOutline))
         .collect::<Result<Vec<_>, _>>()?;
     let outline = projecting::face_projections(shown, profile.body, &ids, &plane);
     if outline.is_empty() {
-        return Err(NO_OUTLINE);
+        return Err(FaceSweepError::NoOutline);
     }
     let sketch_name = editing::next_sketch_name(document);
     let name = editing::next_feature_name(document, sweep.label());
@@ -411,7 +469,7 @@ pub fn create_on_faces(
             side: None,
             wall: None,
         }),
-        (Sweep::Revolve, None) => return Err(NO_AXIS_FOR_FACE),
+        (Sweep::Revolve, None) => return Err(FaceSweepError::NoAxis),
     };
     let feature = transaction.add_feature(name.clone(), FeatureKind::Solid(solid));
     let faces = match profile.faces.len() {
@@ -851,15 +909,19 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     ))
 }
 
-pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
     let Some(solid) = feature.kind.solid() else {
-        return Err(format!("{} is not an extrusion or a revolve", feature.name));
+        return Err(RegionError::NotASweep {
+            name: feature.name.clone(),
+        });
     };
     let id = feature.id();
     let nothing_chosen = selection::swept_regions(model.document(), model.evaluation(), id)
         .is_some_and(|(_, regions)| scene::chosen_regions(solid.regions(), regions).is_empty());
     if nothing_chosen {
-        return Err(format!("{} has no region chosen", feature.name));
+        return Err(RegionError::NoneChosen {
+            name: feature.name.clone(),
+        });
     }
     Ok(Transaction::single(
         format!("Clear the chosen regions of {}", feature.name),
@@ -874,7 +936,7 @@ pub fn pieces_change(
     model: &Model,
     feature: &Feature,
     pieces: Pieces,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, CheckError> {
     let label = match pieces {
         Pieces::OneBody => format!("Make one body of {}", feature.name),
         Pieces::BodyEach => format!("Make a body of each piece of {}", feature.name),
@@ -891,21 +953,21 @@ pub fn pieces_change(
     )
 }
 
-pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
     let Some(solid) = feature.kind.solid() else {
-        return Err(format!("{} takes no regions of a sketch", feature.name));
+        return Err(RegionError::TakesNoRegions {
+            name: feature.name.clone(),
+        });
     };
     if solid.wall().is_some() {
-        return Err(format!(
-            "{} is a thin wall, which follows every curve of its sketch",
-            feature.name
-        ));
+        return Err(RegionError::ThinWall {
+            name: feature.name.clone(),
+        });
     }
     if matches!(solid.regions(), RegionChoice::All) {
-        return Err(format!(
-            "{} already takes every region of its sketch",
-            feature.name
-        ));
+        return Err(RegionError::AlreadyEvery {
+            name: feature.name.clone(),
+        });
     }
     let sketch = model
         .document()
@@ -924,9 +986,11 @@ pub fn take_sketch_regions(
     model: &Model,
     feature: &Feature,
     sketch: FeatureId,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, RegionError> {
     let Some(solid) = feature.kind.solid() else {
-        return Err(format!("{} takes no regions of a sketch", feature.name));
+        return Err(RegionError::TakesNoRegions {
+            name: feature.name.clone(),
+        });
     };
     if solid.sketch() == sketch {
         return select_all_regions(model, feature);
@@ -936,7 +1000,7 @@ pub fn take_sketch_regions(
         .feature(sketch)
         .filter(|candidate| candidate.kind.sketch().is_some())
         .map(|sketch| sketch.name.clone())
-        .ok_or_else(|| "Only a sketch has regions to take".to_owned())?;
+        .ok_or(RegionError::NotASketch { feature: sketch })?;
     let transaction = Transaction::single(
         format!("Take all regions of {name} for {}", feature.name),
         Edit::SetFeatureKind {
@@ -944,10 +1008,7 @@ pub fn take_sketch_regions(
             kind: FeatureKind::Solid(solid_panel::with_sketch(solid, sketch)),
         },
     );
-    document
-        .check(&transaction)
-        .map(|()| transaction)
-        .map_err(|error| error.to_string())
+    field::checked(document, transaction)
 }
 
 #[cfg(test)]
@@ -1063,7 +1124,7 @@ mod tests {
 
         assert_eq!(
             sweep_source(&document, &evaluation, &selection, &idle, Guess::Never),
-            Err(SEVERAL_SKETCHES)
+            Err(SweepSourceError::SeveralSketches)
         );
 
         selection.clear();

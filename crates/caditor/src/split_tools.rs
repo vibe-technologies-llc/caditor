@@ -1,12 +1,16 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, FeatureResult, PlaneReference, PrincipalPlane, Split,
     SplitAlong, Transaction, capitalized, describe_plane, describe_surface, is_open_chain,
 };
 
 use crate::{
-    body_selection, datum_tools,
+    body_selection,
+    commands::Reason,
+    datum_tools,
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     move_tools,
     selection::{Pickable, Selection},
@@ -15,15 +19,45 @@ use crate::{
 
 pub const TITLE: &str = "Split body";
 const NO_BODY: &str = "Select a face or edge of the body to split";
-const NO_TOOL: &str = "Select a plane, face, sketch curve or another body made before this feature";
-const ALREADY: &str = "The body is already split along the selected plane, curve or body";
-const SEVERAL_SKETCHES: &str =
-    "Curves of several sketches are selected; select curves of only the one to split along";
-const SKETCH_MADE_LATER: &str =
-    "The selected sketch comes later in the tree; select one made before this feature";
-const SEVERAL_TOOLS: &str = "Several other bodies are selected; select only the one to split along";
-const GONE: &str = "The feature no longer exists";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SplitError {
+    #[error("Select a plane, face, sketch curve or another body made before this feature")]
+    NoTool,
+    #[error("The body is already split along the selected plane, curve or body")]
+    Already,
+    #[error(
+        "Curves of several sketches are selected; select curves of only the one to split along"
+    )]
+    SeveralSketches,
+    #[error("The selected sketch comes later in the tree; select one made before this feature")]
+    SketchMadeLater { sketch: FeatureId },
+    #[error("Several other bodies are selected; select only the one to split along")]
+    SeveralTools,
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("{0}")]
+    ChosenPlane(String),
+    #[error("{0}")]
+    SurfaceAttachment(String),
+    #[error(transparent)]
+    ChosenBody(#[from] move_tools::BodyChoiceError),
+    #[error(transparent)]
+    Checked(#[from] CheckError),
+}
+
+impl From<SplitError> for String {
+    fn from(error: SplitError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for SplitError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SplitSource {
@@ -76,7 +110,7 @@ fn chosen_sketch(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<SplitAlong>, &'static str> {
+) -> Result<Option<SplitAlong>, SplitError> {
     let document = model.document();
     let mut sketches: Vec<FeatureId> = Vec::new();
     for pickable in selection.iter() {
@@ -96,8 +130,8 @@ fn chosen_sketch(
         {
             Ok(Some(SplitAlong::Sketch(*sketch)))
         }
-        [_] => Err(SKETCH_MADE_LATER),
-        [_, _, ..] => Err(SEVERAL_SKETCHES),
+        [sketch] => Err(SplitError::SketchMadeLater { sketch: *sketch }),
+        [_, _, ..] => Err(SplitError::SeveralSketches),
     }
 }
 
@@ -105,7 +139,7 @@ fn chosen_surface(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<(SplitAlong, Option<Pickable>)>, &'static str> {
+) -> Result<Option<(SplitAlong, Option<Pickable>)>, SplitError> {
     let curved: Vec<(Pickable, FaceChoice)> = selection
         .iter()
         .filter_map(|pickable| Some((pickable, FaceChoice::of(pickable)?)))
@@ -114,7 +148,8 @@ fn chosen_surface(
     let [(pickable, choice)] = curved.as_slice() else {
         return Ok(None);
     };
-    let face = sketch_placement::surface_at(model, *choice, index)?;
+    let face = sketch_placement::surface_at(model, *choice, index)
+        .map_err(|error| SplitError::SurfaceAttachment(error.into()))?;
     Ok(Some((SplitAlong::Surface(face), Some(*pickable))))
 }
 
@@ -122,8 +157,10 @@ pub fn chosen_along(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<Option<(SplitAlong, Option<Pickable>)>, &'static str> {
-    if let Some(chosen) = datum_tools::chosen_plane(model, selection, index)? {
+) -> Result<Option<(SplitAlong, Option<Pickable>)>, SplitError> {
+    if let Some(chosen) = datum_tools::chosen_plane(model, selection, index)
+        .map_err(|error| SplitError::ChosenPlane(error.into()))?
+    {
         return Ok(Some((SplitAlong::Plane(chosen.plane), chosen.face)));
     }
     if let Some(along) = chosen_sketch(model, selection, index)? {
@@ -136,7 +173,7 @@ pub fn source(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
-) -> Result<SplitSource, &'static str> {
+) -> Result<SplitSource, SplitError> {
     let index = model.document().bar_index();
     let chosen = chosen_along(model, selection, index)?;
     if chosen.is_none()
@@ -161,7 +198,7 @@ pub fn source_for(
     model: &Model,
     selection: &Selection,
     body: FeatureId,
-) -> Result<SplitSource, &'static str> {
+) -> Result<SplitSource, SplitError> {
     let along = chosen_along(model, selection, model.document().bar_index())?;
     Ok(SplitSource {
         body,
@@ -205,9 +242,9 @@ pub fn edit(document: &Document, feature: FeatureId, split: Split) -> Option<Tra
     ))
 }
 
-pub fn change(model: &Model, feature: FeatureId, split: Split) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, split: Split) -> Result<Transaction, SplitError> {
     let document = model.document();
-    let transaction = edit(document, feature, split).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, split).ok_or(SplitError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -216,11 +253,11 @@ pub fn along_change(
     selection: &Selection,
     feature: FeatureId,
     split: &Split,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, SplitError> {
     let document = model.document();
     let index = document
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
+        .ok_or(SplitError::Gone { feature })?;
     let along = match chosen_along(model, selection, index)? {
         Some((along, _)) => along,
         None => {
@@ -230,14 +267,14 @@ pub fn along_change(
                 .filter(|body| *body != split.body && earlier.contains(body))
                 .collect();
             match tools.as_slice() {
-                [] => return Err(NO_TOOL.to_owned()),
+                [] => return Err(SplitError::NoTool),
                 [tool] => SplitAlong::Body(*tool),
-                [_, _, ..] => return Err(SEVERAL_TOOLS.to_owned()),
+                [_, _, ..] => return Err(SplitError::SeveralTools),
             }
         }
     };
     if along == split.along {
-        return Err(ALREADY.to_owned());
+        return Err(SplitError::Already);
     }
     change(
         model,
