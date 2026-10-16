@@ -545,7 +545,7 @@ fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
         placed_holes(&harness, hole)[0].0.point,
     );
 
-    assert!(refused.unwrap_err().contains("two edges"));
+    assert!(refused.unwrap_err().to_string().contains("two edges"));
 
     let base = open_extrude(&harness, plate).sketch;
     let widened: Vec<Edit> = harness

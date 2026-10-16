@@ -170,16 +170,16 @@ pub enum TreeError {
     Placement(String),
     #[error("{0}")]
     Solid(String),
-    #[error("{0}")]
-    Mirror(String),
+    #[error(transparent)]
+    Mirror(#[from] mirror_tools::MirrorToolError),
     #[error("{0}")]
     Split(String),
     #[error(transparent)]
     Move(#[from] move_tools::MoveError),
     #[error(transparent)]
     Datum(#[from] datum_panel::DatumError),
-    #[error("{0}")]
-    Pattern(String),
+    #[error(transparent)]
+    Pattern(#[from] pattern_tools::PatternToolError),
     #[error("{0}")]
     Blend(String),
 }

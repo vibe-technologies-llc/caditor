@@ -10,7 +10,7 @@ use super::{
 use crate::{
     datum_tools,
     editing::EditingCommand,
-    mirror_tools,
+    mirror_tools::{self, MirrorToolError},
     model::Action,
     selection::{Axis, Pickable, PrincipalPlane, Selection},
 };
@@ -143,7 +143,12 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
     harness.settle();
     let (low, high) = plate_bounds(&harness, plate);
 
-    assert_eq!(two_faces, Err(datum_tools::SEVERAL_PLANES));
+    assert_eq!(
+        two_faces,
+        Err(MirrorToolError::ChosenPlane {
+            words: datum_tools::SEVERAL_PLANES
+        })
+    );
     assert_eq!(
         datum_and_face.map(|source| source.plane),
         Ok(Some(PlaneReference::Principal(PrincipalPlane::Xz)))

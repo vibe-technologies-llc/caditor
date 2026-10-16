@@ -253,7 +253,7 @@ pub fn sketch_change(
     let shape = Shape::of(&pattern.kind);
     let sketch = selected_sketch(model, selection, shape, before)?.ok_or(NO_SKETCH_SELECTED)?;
     let changed = with_sketch(pattern, sketch)?;
-    pattern_tools::change(model, feature, changed)
+    pattern_tools::change(model, feature, changed).map_err(String::from)
 }
 
 pub fn base_change(
@@ -296,4 +296,5 @@ pub fn with_base(
             ..pattern.clone()
         },
     )
+    .map_err(String::from)
 }

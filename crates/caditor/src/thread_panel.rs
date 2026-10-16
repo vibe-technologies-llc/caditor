@@ -12,7 +12,8 @@ use crate::{
     model::{Action, Model},
     reference_picking::Slot,
     selection::Selection,
-    thread_tools, widgets,
+    thread_tools::{self, ThreadToolError},
+    widgets,
 };
 
 pub const DESCRIPTION: &str = "Cuts a thread into a round face, or only draws it, and names it in \
@@ -57,10 +58,10 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, thread: Thread) -> Result<Transaction, String> {
+    fn change(&self, thread: Thread) -> Result<Transaction, ThreadToolError> {
         let document = self.model.document();
-        let transaction = thread_tools::edit(document, self.id(), thread)
-            .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        let transaction =
+            thread_tools::edit(document, self.id(), thread).ok_or(ThreadToolError::FeatureGone)?;
         field::checked(document, transaction)
     }
 
@@ -170,7 +171,6 @@ impl Panel<'_> {
             .map_or(self.thread.size.fitting_diameter(side), |bore| {
                 bore.diameter
             });
-        let name = self.feature.name.clone();
         let chosen = feature_fields::combo(
             ui,
             Id::new(("thread-standard", self.id())),
@@ -187,9 +187,7 @@ impl Panel<'_> {
                                 class: family.default_class(side),
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| {
-                                feature_fields::applied(&name, Ok::<_, String>(transaction))
-                            }),
+                            .map(Action::Apply),
                     })
                     .collect()
             },
@@ -201,7 +199,6 @@ impl Panel<'_> {
     fn size_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Size");
         let current = self.thread.size;
-        let name = self.feature.name.clone();
         let chosen = feature_fields::combo(
             ui,
             Id::new(("thread-size", self.id())),
@@ -219,9 +216,7 @@ impl Panel<'_> {
                                 size,
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| {
-                                feature_fields::applied(&name, Ok::<_, String>(transaction))
-                            }),
+                            .map(Action::Apply),
                     })
                     .collect()
             },
@@ -244,7 +239,6 @@ impl Panel<'_> {
         }
         widgets::caption(ui, "Class");
         let current = self.thread.class;
-        let name = self.feature.name.clone();
         let chosen = feature_fields::combo(
             ui,
             Id::new(("thread-class", self.id())),
@@ -260,9 +254,7 @@ impl Panel<'_> {
                                 class: *class,
                                 ..self.thread.clone()
                             })
-                            .map(|transaction| {
-                                feature_fields::applied(&name, Ok::<_, String>(transaction))
-                            }),
+                            .map(Action::Apply),
                     })
                     .collect()
             },

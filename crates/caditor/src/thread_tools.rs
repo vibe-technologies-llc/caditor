@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     Bore, Document, Edit, Evaluation, FeatureId, FeatureKind, Resolution, Thread, ThreadFamily,
     ThreadForm, ThreadHand, ThreadLength, Transaction,
@@ -6,9 +8,9 @@ use caditor_kernel::{FaceReference, Surface};
 
 use crate::{
     bodies::{self, FaceKey},
-    commands::Command,
+    commands::{Command, Reason},
     editing::EditingCommand,
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     queued,
     selection::{Pickable, Selection},
@@ -16,15 +18,42 @@ use crate::{
 };
 
 pub const TITLE: &str = "Thread";
-const CHOOSE_FACE: &str = "Select the round face of a bore, shaft or boss to thread";
-const ONE_FACE: &str = "Select one round face only";
-const NOT_ROUND: &str = "Select a cylindrical face: a bore, a shaft or a boss";
-const NO_SHAPE: &str = queued::BODY_SHAPE;
-const GONE: &str = "The selected face is no longer part of the model";
-const SAME_FACE: &str = "The thread is already on the selected face";
-const GONE_FEATURE: &str = "The feature no longer exists";
-const MADE_LATER: &str =
-    "The selected face is made further down the tree, after the thread; choose one made before it";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ThreadToolError {
+    #[error("Select the round face of a bore, shaft or boss to thread")]
+    ChooseFace,
+    #[error("Select one round face only")]
+    OneFaceOnly,
+    #[error("Select a cylindrical face: a bore, a shaft or a boss")]
+    NotRound,
+    #[error("{}", queued::BODY_SHAPE)]
+    NoShape,
+    #[error("The selected face is no longer part of the model")]
+    FaceGone,
+    #[error("The thread is already on the selected face")]
+    SameFace,
+    #[error("The feature no longer exists")]
+    FeatureGone,
+    #[error(
+        "The selected face is made further down the tree, after the thread; choose one made before it"
+    )]
+    MadeLater,
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl Reason for ThreadToolError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+impl From<ThreadToolError> for String {
+    fn from(error: ThreadToolError) -> Self {
+        error.to_string()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThreadSource {
@@ -32,23 +61,26 @@ pub struct ThreadSource {
     pub face: FaceKey,
 }
 
-pub fn selected_face(model: &Model, selection: &Selection) -> Result<ThreadSource, &'static str> {
+pub fn selected_face(
+    model: &Model,
+    selection: &Selection,
+) -> Result<ThreadSource, ThreadToolError> {
     let mut faces = selection.iter().filter_map(|pickable| match pickable {
         Pickable::Face { body, face } => Some((body, face)),
         _ => None,
     });
-    let (body, face) = faces.next().ok_or(CHOOSE_FACE)?;
+    let (body, face) = faces.next().ok_or(ThreadToolError::ChooseFace)?;
     if faces.next().is_some() || selection.iter().count() > 1 {
-        return Err(ONE_FACE);
+        return Err(ThreadToolError::OneFaceOnly);
     }
-    let shown = bodies::shown(model.evaluation(), body).ok_or(CHOOSE_FACE)?;
-    let id = bodies::find_face(shown, face).ok_or(CHOOSE_FACE)?;
+    let shown = bodies::shown(model.evaluation(), body).ok_or(ThreadToolError::ChooseFace)?;
+    let id = bodies::find_face(shown, face).ok_or(ThreadToolError::ChooseFace)?;
     let round = shown
         .solid
         .face(id)
         .is_some_and(|face| matches!(face.surface(), Surface::Cylinder(_)));
     if !round {
-        return Err(NOT_ROUND);
+        return Err(ThreadToolError::NotRound);
     }
     Ok(ThreadSource { body, face })
 }
@@ -68,11 +100,11 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: ThreadSource,
-) -> Result<(Transaction, FeatureId), &'static str> {
-    let shown = bodies::shown(evaluation, source.body).ok_or(NO_SHAPE)?;
-    let face = bodies::find_face(shown, source.face).ok_or(GONE)?;
-    let reference = FaceReference::capture(&shown.solid, face).ok_or(GONE)?;
-    let bore = Bore::of(&shown.solid, &[face]).map_err(|_| NOT_ROUND)?;
+) -> Result<(Transaction, FeatureId), ThreadToolError> {
+    let shown = bodies::shown(evaluation, source.body).ok_or(ThreadToolError::NoShape)?;
+    let face = bodies::find_face(shown, source.face).ok_or(ThreadToolError::FaceGone)?;
+    let reference = FaceReference::capture(&shown.solid, face).ok_or(ThreadToolError::FaceGone)?;
+    let bore = Bore::of(&shown.solid, &[face]).map_err(|_| ThreadToolError::NotRound)?;
     let family = ThreadFamily::MetricCoarse;
     let size = family.nearest(bore.diameter, bore.side);
     let described = bodies::describe_face_id(document, shown, face);
@@ -104,7 +136,7 @@ pub fn create_actions(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(reason) => vec![queued::refused(Command::Thread, TITLE, reason)],
+        Err(error) => vec![queued::refused(Command::Thread, TITLE, &error.to_string())],
     }
 }
 
@@ -124,21 +156,21 @@ pub fn face_change(
     selection: &Selection,
     feature: FeatureId,
     thread: &Thread,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, ThreadToolError> {
     let source = selected_face(model, selection)?;
     let document = model.document();
     let index = document
         .feature_index(feature)
-        .ok_or_else(|| GONE_FEATURE.to_owned())?;
-    let shown = bodies::shown(model.evaluation(), source.body).ok_or(NO_SHAPE)?;
-    let face = bodies::find_face(shown, source.face).ok_or(GONE)?;
-    let reference = FaceReference::capture(&shown.solid, face).ok_or(GONE)?;
+        .ok_or(ThreadToolError::FeatureGone)?;
+    let shown = bodies::shown(model.evaluation(), source.body).ok_or(ThreadToolError::NoShape)?;
+    let face = bodies::find_face(shown, source.face).ok_or(ThreadToolError::FaceGone)?;
+    let reference = FaceReference::capture(&shown.solid, face).ok_or(ThreadToolError::FaceGone)?;
     let state = sketch_placement::body_state_before(model, source.body, index)
-        .map_err(|_| MADE_LATER.to_owned())?;
+        .map_err(|_| ThreadToolError::MadeLater)?;
     let found = reference
         .resolve(state)
-        .map_err(|_| MADE_LATER.to_owned())?;
-    let bore = Bore::of(state, &[found]).map_err(|_| NOT_ROUND)?;
+        .map_err(|_| ThreadToolError::MadeLater)?;
+    let bore = Bore::of(state, &[found]).map_err(|_| ThreadToolError::NotRound)?;
     let family = thread.size.family();
     let size = if thread.size.fits(bore.diameter, bore.side) {
         thread.size
@@ -158,9 +190,9 @@ pub fn face_change(
         ..thread.clone()
     };
     if changed == *thread {
-        return Err(SAME_FACE.to_owned());
+        return Err(ThreadToolError::SameFace);
     }
-    let transaction = edit(document, feature, changed).ok_or_else(|| GONE_FEATURE.to_owned())?;
+    let transaction = edit(document, feature, changed).ok_or(ThreadToolError::FeatureGone)?;
     field::checked(document, transaction)
 }
 

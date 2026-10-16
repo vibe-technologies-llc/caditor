@@ -424,7 +424,9 @@ impl Modifying {
     pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, String> {
         match &mut self.state {
             State::Pattern(patterning) => match self.context {
-                Some((feature, _)) => patterning.enter_text(model, feature, text),
+                Some((feature, _)) => patterning
+                    .enter_text(model, feature, text)
+                    .map_err(String::from),
                 None => Ok(Outcome::Nothing),
             },
             State::Fillet(filleting) => match self.context {

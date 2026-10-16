@@ -423,25 +423,27 @@ pub fn change(
             solid_panel::revolve_target_change(model, selection, feature, revolve)
         }
         (Slot::HoleTarget, FeatureKind::Hole(hole)) => {
-            hole_panel::target_change(model, selection, feature, hole)
+            hole_panel::target_change(model, selection, feature, hole).map_err(String::from)
         }
         (Slot::HolePlace, FeatureKind::Hole(hole)) => {
-            hole_tools::place_change(model, selection, feature, hole)
+            hole_tools::place_change(model, selection, feature, hole).map_err(String::from)
         }
         (Slot::HoleEdge(point), FeatureKind::Hole(hole)) => {
             hole_placement::edge_change(model, selection, feature, hole, point)
+                .map_err(String::from)
         }
         (Slot::HoleConcentric(point), FeatureKind::Hole(hole)) => {
             hole_placement::concentric_change(model, selection, feature, hole, point)
+                .map_err(String::from)
         }
         (Slot::HoleAdd, FeatureKind::Hole(hole)) => {
-            hole_placement::add_change(model, selection, feature, hole)
+            hole_placement::add_change(model, selection, feature, hole).map_err(String::from)
         }
         (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
             shell_tools::own_thickness_change(model, selection, feature)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
-            mirror_tools::plane_change(model, selection, feature, mirror)
+            mirror_tools::plane_change(model, selection, feature, mirror).map_err(String::from)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
             split_tools::along_change(model, selection, feature, split)
@@ -454,9 +456,11 @@ pub fn change(
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)
+                .map_err(String::from)
         }
         (Slot::PatternSecond, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::Second)
+                .map_err(String::from)
         }
         (Slot::PatternPath, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::sketch_change(model, selection, feature, pattern)
@@ -508,7 +512,7 @@ pub fn change(
             scale_tools::centre_change(model, selection, feature, scale)
         }
         (Slot::ThreadFace, FeatureKind::Thread(thread)) => {
-            thread_tools::face_change(model, selection, feature, thread)
+            thread_tools::face_change(model, selection, feature, thread).map_err(String::from)
         }
         (Slot::MeasuredItem(part), FeatureKind::Measurement(measurement)) => {
             measurement_tools::item_change(model, selection, feature, measurement, part)
