@@ -12,7 +12,7 @@ use crate::{
     feature_tree::count,
     field::{self, Expected, ExpressionError},
     model::Model,
-    modifying::{Hint, Outcome, Prompt, ValueField},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError, ValueField},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
     typed_point,
@@ -51,8 +51,6 @@ pub const CIRCULAR_FIELD: ValueField = ValueField {
     placeholder: "6  or  5 over 120",
     action: "repeat",
 };
-const NO_POINT_HIGHLIGHTED: &str =
-    "Highlight a point first, with Highlight the next item in the view";
 const CENTRE_FIRST: &str = "click the point to repeat the selection about first";
 const QUARTER_TURN_DEGREES: f64 = 90.0;
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
@@ -368,7 +366,7 @@ impl Patterning {
         self.kind == PatternKind::Circular && !self.gathering
     }
 
-    pub fn steppable(&self) -> Result<(), &'static str> {
+    pub fn steppable(&self) -> Result<(), StepError> {
         Ok(())
     }
 
@@ -400,10 +398,10 @@ impl Patterning {
             .and_then(|next| points.get(next).copied());
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NO_POINT_HIGHLIGHTED),
+            None => Err(HighlightNeeded::Point),
         }
     }
 

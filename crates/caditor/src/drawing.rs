@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     f64::consts::{PI, TAU},
     mem::discriminant,
     sync::Arc,
@@ -15,6 +16,7 @@ use caditor_sketch::{
 use crate::{
     body_snap::{BodyPart, BodySnaps, BodyTarget},
     canvas::{HintList, KeyHint, Rank},
+    commands::Reason,
     editing::{self, ActiveSketch, Tool},
     inference::{Inference, Inferences},
     model::Model,
@@ -31,8 +33,6 @@ use crate::{
     units::Units,
 };
 
-const ONLY_AT_POINTS: &str = "This point can only go at a point: highlight one of the sketch's \
-                              points or the origin";
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
@@ -81,14 +81,7 @@ const OPEN_SPLINE_KEYS: Keys = &[
     ("", "Click the first point to close the loop", Rank::Useful),
     ("Esc", "cancel", Rank::Main),
 ];
-pub const NOT_DRAWING_LINES: &str =
-    "Only a chain of lines goes on as a tangent arc; choose the Line tool first";
-pub const NOTHING_TO_ARC_FROM: &str =
-    "Draw a line first: the next segment then leaves its end as a tangent arc";
 const CANCEL_CONIC: Keys = &[("Esc", "cancel the conic", Rank::Main)];
-const NOT_A_CONIC: &str = "Only a conic takes a rho; choose the Conic tool first";
-const RHO_OUT_OF_RANGE: &str = "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part \
-                                of an ellipse, 0.5 a parabola, above 0.5 a hyperbola";
 const CONIC_KEYS: Keys = &[
     (
         "",
@@ -114,15 +107,93 @@ const LENGTH_LOCK_KEYS: Keys = &[
     ("", "Type an angle for an exact direction", Rank::Useful),
     ("Backspace or Esc", "let go of it", Rank::Main),
 ];
-const LENGTH_LOCK_REFUSED: &str = "A length is held from the last point once the shape has only its \
-                                   first point: place it, then type the length and <";
 
-const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
-const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
-const NOT_A_POLYGON: &str = "Choose the Polygon tool first";
-pub const NO_SHAPE_STARTED: &str = "Start a shape first: click where it begins";
-const ONLY_CHAINS_FINISH: &str =
-    "Only a line chain, a tangent arc chain or a spline ends early; place the shape's last point";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChainArcError {
+    #[error("Only a chain of lines goes on as a tangent arc; choose the Line tool first")]
+    NotDrawingLines,
+    #[error("Draw a line first: the next segment then leaves its end as a tangent arc")]
+    NothingToArcFrom,
+}
+
+impl Reason for ChainArcError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LengthLockError {
+    #[error(
+        "A length is held from the last point once the shape has only its first point: place \
+         it, then type the length and <"
+    )]
+    NotHoldable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum TypeOnCurveError {
+    #[error(
+        "This point can only go at a point: highlight one of the sketch's points or the origin"
+    )]
+    OnlyAtPoints,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ReverseError {
+    #[error("Place an arc's centre and start first; then its end can go either way round")]
+    NoSweep,
+}
+
+impl Reason for ReverseError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SidesError {
+    #[error("Choose the Polygon tool first")]
+    NotAPolygon,
+    #[error("A polygon needs at least three sides")]
+    TooFew,
+    #[error("A polygon has at most 64 sides")]
+    TooMany,
+}
+
+impl Reason for SidesError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RhoError {
+    #[error("Only a conic takes a rho; choose the Conic tool first")]
+    NotAConic,
+    #[error(
+        "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part of an ellipse, 0.5 a \
+         parabola, above 0.5 a hyperbola"
+    )]
+    OutOfRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ShapeProgressError {
+    #[error("Start a shape first: click where it begins")]
+    NoShapeStarted,
+    #[error(
+        "Only a line chain, a tangent arc chain or a spline ends early; place the shape's last \
+         point"
+    )]
+    OnlyChainsFinish,
+}
+
+impl Reason for ShapeProgressError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
@@ -890,18 +961,18 @@ impl Drawing {
         self.arcing.is_some()
     }
 
-    pub fn chain_arc(&self) -> Result<(), &'static str> {
+    pub fn chain_arc(&self) -> Result<(), ChainArcError> {
         if !matches!(self.context, Some((_, Shape::Line))) {
-            return Err(NOT_DRAWING_LINES);
+            return Err(ChainArcError::NotDrawingLines);
         }
         match self.placed.as_slice() {
             _ if self.arcing.is_some() => Ok(()),
             [start] if point_target(start.snap).is_some() => Ok(()),
-            _ => Err(NOTHING_TO_ARC_FROM),
+            _ => Err(ChainArcError::NothingToArcFrom),
         }
     }
 
-    pub fn toggle_chain_arc(&mut self, sketch: Option<&Sketch>) -> Result<(), &'static str> {
+    pub fn toggle_chain_arc(&mut self, sketch: Option<&Sketch>) -> Result<(), ChainArcError> {
         self.chain_arc()?;
         if self.arcing.is_some() {
             self.line_next();
@@ -910,7 +981,7 @@ impl Drawing {
         if self.begin_arc(sketch, Arcing::Toggled) {
             Ok(())
         } else {
-            Err(NOTHING_TO_ARC_FROM)
+            Err(ChainArcError::NothingToArcFrom)
         }
     }
 
@@ -1444,9 +1515,9 @@ impl Drawing {
         &mut self,
         length: f64,
         dimensions: Vec<TypedDimension>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), LengthLockError> {
         if !self.can_hold_length() {
-            return Err(LENGTH_LOCK_REFUSED);
+            return Err(LengthLockError::NotHoldable);
         }
         self.end_typed_preview();
         self.heading = self.heading_from(Lock::Length(length), dimensions);
@@ -1565,41 +1636,50 @@ impl Drawing {
             });
     }
 
-    pub fn type_on_curve(&mut self, sketch: &Sketch, curve: EntityId) -> Result<(), &'static str> {
+    pub fn type_on_curve(
+        &mut self,
+        sketch: &Sketch,
+        curve: EntityId,
+    ) -> Result<(), TypeOnCurveError> {
         let Some((_, shape)) = self.current() else {
-            return Err(ONLY_AT_POINTS);
+            return Err(TypeOnCurveError::OnlyAtPoints);
         };
         if self.accept(shape) != Accept::Anything {
-            return Err(ONLY_AT_POINTS);
+            return Err(TypeOnCurveError::OnlyAtPoints);
         }
         let (position, target) = match sketch.entity(curve) {
             Some(Entity::Line { .. }) => {
-                let (start, end) = sketch.line_endpoints(curve).ok_or(ONLY_AT_POINTS)?;
+                let (start, end) = sketch
+                    .line_endpoints(curve)
+                    .ok_or(TypeOnCurveError::OnlyAtPoints)?;
                 (start.midpoint(end), Target::Midpoint(curve))
             }
             Some(Entity::Arc { .. }) => {
-                let arc = sketch.arc(curve).ok_or(ONLY_AT_POINTS)?;
+                let arc = sketch.arc(curve).ok_or(TypeOnCurveError::OnlyAtPoints)?;
                 (
                     arc.point_at(arc.start_angle + arc.sweep / 2.0),
                     Target::Midpoint(curve),
                 )
             }
             Some(Entity::Circle { .. }) => {
-                let (center, radius) = sketch.circle(curve).ok_or(ONLY_AT_POINTS)?;
+                let (center, radius) =
+                    sketch.circle(curve).ok_or(TypeOnCurveError::OnlyAtPoints)?;
                 (center + Vector2::X * radius, Target::Curve(curve))
             }
             Some(Entity::Spline { .. }) => {
-                let spline = sketch.spline(curve).ok_or(ONLY_AT_POINTS)?;
+                let spline = sketch.spline(curve).ok_or(TypeOnCurveError::OnlyAtPoints)?;
                 (spline.point_at(0.5), Target::Curve(curve))
             }
             Some(Entity::Ellipse { .. } | Entity::EllipticalArc { .. }) => {
-                let ellipse = sketch.ellipse(curve).ok_or(ONLY_AT_POINTS)?;
+                let ellipse = sketch
+                    .ellipse(curve)
+                    .ok_or(TypeOnCurveError::OnlyAtPoints)?;
                 (
                     ellipse.point_at(ellipse.start + ellipse.sweep / 2.0),
                     Target::Curve(curve),
                 )
             }
-            Some(Entity::Point(_)) | None => return Err(ONLY_AT_POINTS),
+            Some(Entity::Point(_)) | None => return Err(TypeOnCurveError::OnlyAtPoints),
         };
         let placement = Placement::at(position, Snap::Target(target));
         self.hover = Some(placement);
@@ -1613,10 +1693,8 @@ impl Drawing {
         Ok(())
     }
 
-    pub fn reversible(&self) -> Result<(), &'static str> {
-        self.sweep
-            .map(|_| ())
-            .ok_or("Place an arc's centre and start first; then its end can go either way round")
+    pub fn reversible(&self) -> Result<(), ReverseError> {
+        self.sweep.map(|_| ()).ok_or(ReverseError::NoSweep)
     }
 
     pub fn reverse_arc(&mut self) {
@@ -1625,29 +1703,29 @@ impl Drawing {
         }
     }
 
-    pub fn more_sides(&self) -> Result<(), &'static str> {
+    pub fn more_sides(&self) -> Result<(), SidesError> {
         self.polygon_sides()?;
         if self.sides.0 >= MAX_SIDES {
-            return Err(TOO_MANY_SIDES);
+            return Err(SidesError::TooMany);
         }
         Ok(())
     }
 
-    pub fn fewer_sides(&self) -> Result<(), &'static str> {
+    pub fn fewer_sides(&self) -> Result<(), SidesError> {
         self.polygon_sides()?;
         if self.sides.0 <= MIN_SIDES {
-            return Err(TOO_FEW_SIDES);
+            return Err(SidesError::TooFew);
         }
         Ok(())
     }
 
-    pub fn set_sides(&mut self, count: usize) -> Result<(), &'static str> {
+    pub fn set_sides(&mut self, count: usize) -> Result<(), SidesError> {
         self.polygon_sides()?;
         if count < MIN_SIDES {
-            return Err(TOO_FEW_SIDES);
+            return Err(SidesError::TooFew);
         }
         if count > MAX_SIDES {
-            return Err(TOO_MANY_SIDES);
+            return Err(SidesError::TooMany);
         }
         self.sides = Sides(count);
         Ok(())
@@ -1657,12 +1735,12 @@ impl Drawing {
         matches!(self.context, Some((_, Shape::Conic)))
     }
 
-    pub fn set_rho(&mut self, value: f64, typed: Expression) -> Result<(), &'static str> {
+    pub fn set_rho(&mut self, value: f64, typed: Expression) -> Result<(), RhoError> {
         if !self.can_type_rho() {
-            return Err(NOT_A_CONIC);
+            return Err(RhoError::NotAConic);
         }
         if !SplineKind::rho_is_valid(value) {
-            return Err(RHO_OUT_OF_RANGE);
+            return Err(RhoError::OutOfRange);
         }
         self.rho = Rho {
             value,
@@ -1710,10 +1788,10 @@ impl Drawing {
         );
     }
 
-    fn polygon_sides(&self) -> Result<(), &'static str> {
+    fn polygon_sides(&self) -> Result<(), SidesError> {
         match self.context {
             Some((_, Shape::Polygon(_))) => Ok(()),
-            _ => Err(NOT_A_POLYGON),
+            _ => Err(SidesError::NotAPolygon),
         }
     }
 
@@ -2204,19 +2282,19 @@ impl Drawing {
         )
     }
 
-    pub fn started(&self) -> Result<(), &'static str> {
+    pub fn started(&self) -> Result<(), ShapeProgressError> {
         if self.in_progress() {
             Ok(())
         } else {
-            Err(NO_SHAPE_STARTED)
+            Err(ShapeProgressError::NoShapeStarted)
         }
     }
 
-    pub fn finishable(&self) -> Result<(), &'static str> {
+    pub fn finishable(&self) -> Result<(), ShapeProgressError> {
         self.started()?;
         match self.context.map(|(_, shape)| shape) {
             Some(Shape::Line | Shape::TangentArc | Shape::Spline(_)) => Ok(()),
-            _ => Err(ONLY_CHAINS_FINISH),
+            _ => Err(ShapeProgressError::OnlyChainsFinish),
         }
     }
 

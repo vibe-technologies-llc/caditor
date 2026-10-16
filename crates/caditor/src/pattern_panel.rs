@@ -565,7 +565,7 @@ impl Panel<'_> {
                             .to_owned(),
                         selected: sketch == current,
                         change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
-                            .map_err(|words| PatternToolError::SketchPattern { words })
+                            .map_err(PatternToolError::from)
                             .and_then(|pattern| {
                                 pattern_tools::change(self.model, self.id(), pattern)
                             })

@@ -7,7 +7,7 @@ use crate::{
     editing::Tool,
     feature_tree::count,
     model::Model,
-    modifying::{Hint, Outcome, Prompt},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
 };
@@ -29,8 +29,6 @@ const GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes  
 const GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: let go of the selection";
 const LINE_KEYS: &str = "Esc: change what is mirrored";
 const NOTHING_SELECTED: &str = "select what to mirror first: click it or drag a box around it";
-const NO_LINE_HIGHLIGHTED: &str =
-    "Highlight a line or an axis first, with Highlight the next item in the view";
 
 #[derive(Debug, Clone, Default)]
 pub struct Mirroring {
@@ -192,7 +190,7 @@ impl Mirroring {
         outcome.into()
     }
 
-    pub fn steppable(&self) -> Result<(), &'static str> {
+    pub fn steppable(&self) -> Result<(), StepError> {
         Ok(())
     }
 
@@ -220,10 +218,10 @@ impl Mirroring {
             .and_then(|next| lines.get(next).copied());
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NO_LINE_HIGHLIGHTED),
+            None => Err(HighlightNeeded::Line),
         }
     }
 

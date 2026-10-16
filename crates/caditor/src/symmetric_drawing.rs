@@ -4,8 +4,10 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{drawing::Preview, model::Model};
 
-pub const NO_LINE_SELECTED: &str =
-    "Select the one line or axis to draw about first, then turn on Draw symmetrically";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Select the one line or axis to draw about first, then turn on Draw symmetrically")]
+pub struct NoLineSelected;
+
 pub const SYMMETRICALLY: &str = "symmetrically";
 pub const TURNED_OFF: &str = "Drawing symmetrically off: shapes are drawn once.";
 
@@ -79,10 +81,10 @@ pub fn is_line(sketch: &Sketch, item: EntityId) -> bool {
         || matches!(sketch.entity(item), Some(Entity::Line { .. }))
 }
 
-pub fn chosen_line(sketch: &Sketch, selected: &[EntityId]) -> Result<EntityId, &'static str> {
+pub fn chosen_line(sketch: &Sketch, selected: &[EntityId]) -> Result<EntityId, NoLineSelected> {
     match selected {
         [only] if is_line(sketch, *only) => Ok(*only),
-        _ => Err(NO_LINE_SELECTED),
+        _ => Err(NoLineSelected),
     }
 }
 
@@ -190,10 +192,10 @@ mod tests {
             chosen_line(&sketch, &[EntityId::VERTICAL_AXIS]),
             Ok(EntityId::VERTICAL_AXIS)
         );
-        assert_eq!(chosen_line(&sketch, &[circle]), Err(NO_LINE_SELECTED));
+        assert_eq!(chosen_line(&sketch, &[circle]), Err(NoLineSelected));
         assert_eq!(
             chosen_line(&sketch, &[slanted, circle]),
-            Err(NO_LINE_SELECTED)
+            Err(NoLineSelected)
         );
     }
 }

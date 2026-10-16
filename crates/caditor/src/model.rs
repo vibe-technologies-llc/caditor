@@ -1370,7 +1370,7 @@ impl Model {
             worker: self.recomputer.as_ref(),
         };
         if let Err(refusal) = self.pastes.start(request, target, wake) {
-            self.set_notice(Notice::warning(refusal));
+            self.set_notice(Notice::warning(refusal.to_string()));
         }
     }
 
