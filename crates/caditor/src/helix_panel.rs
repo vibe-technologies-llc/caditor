@@ -7,7 +7,7 @@ use egui::{Id, Ui};
 use crate::{
     coil_panel::{self, AXIS, DIAMETER, SIZED_BY, TAPER, TURNING},
     feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment},
-    helix_tools,
+    helix_tools::{self, HelixError},
     model::{Action, Model},
     reference_picking::Slot,
     selection::Selection,
@@ -42,7 +42,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, helix: Helix) -> Result<Transaction, String> {
+    fn change(&self, helix: Helix) -> Result<Transaction, HelixError> {
         helix_tools::change(self.model, self.id(), helix)
     }
 

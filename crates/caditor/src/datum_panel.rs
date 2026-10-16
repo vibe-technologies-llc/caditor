@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document,
     FaceTangent, Feature, FeatureId, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
@@ -9,9 +11,10 @@ use caditor_kernel::{EdgeReference, FaceReference, Surface};
 use egui::{Id, Ui};
 
 use crate::{
+    commands::Reason,
     datum_tools,
     feature_fields::{self, Picker, Quantity, Rule, Shown},
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     plane_selector,
     reference_picking::Slot,
@@ -76,6 +79,57 @@ impl FramePart {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum DatumError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("It already starts from the selection")]
+    AlreadyStartsFromSelection,
+    #[error("Select a plane or flat face made before this plane")]
+    NoBasePlane,
+    #[error("Select three points, two planes, an axis and a point, two lines or a curved edge")]
+    NoPlaneThroughSelection,
+    #[error("It already follows the selection")]
+    AlreadyFollowsSelection,
+    #[error("Select a corner, round edge, sketch point or datum point")]
+    NoPointSelected,
+    #[error("It already sits at the selection")]
+    AlreadySitsAtSelection,
+    #[error("Only a coordinate system has an origin, an X axis and an XY plane")]
+    NotACoordinateSystem,
+    #[error("{}", part.missing())]
+    FramePartMissing { part: FramePart },
+    #[error("Only a datum plane turns about an axis")]
+    NotADatumPlane,
+    #[error("It already turns about the selection")]
+    AlreadyTurnsAboutSelection,
+    #[error("Select an axis, straight edge or round face made before this plane")]
+    NoRotationAxis,
+    #[error("{0}")]
+    Selection(&'static str),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<&'static str> for DatumError {
+    fn from(error: &'static str) -> Self {
+        Self::Selection(error)
+    }
+}
+
+impl From<DatumError> for String {
+    fn from(error: DatumError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for DatumError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 const CONTAINS_AXIS: &str = "Contains it";
 const SQUARE_TO_AXIS: &str = "Square to it";
 const TANGENT_TO_FACE: &str = "Tangent to it";
@@ -113,56 +167,66 @@ impl Chooser<'_> {
         }
     }
 
-    fn change(&self, datum: Datum) -> Result<Transaction, String> {
+    fn change(&self, datum: Datum) -> Result<Transaction, DatumError> {
         let document = self.model.document();
-        let transaction = datum_tools::edit(document, self.feature, datum)
-            .ok_or_else(|| "The feature no longer exists".to_owned())?;
+        let transaction =
+            datum_tools::edit(document, self.feature, datum).ok_or(DatumError::Gone {
+                feature: self.feature,
+            })?;
         field::checked(document, transaction)
     }
 
-    fn only_plane(&self) -> Result<Option<PlaneReference>, &'static str> {
-        datum_tools::only_plane(self.model, self.selection, self.index)
+    fn only_plane(&self) -> Result<Option<PlaneReference>, DatumError> {
+        Ok(datum_tools::only_plane(
+            self.model,
+            self.selection,
+            self.index,
+        )?)
     }
 
-    fn only_axis(&self) -> Result<Option<AxisReference>, &'static str> {
-        datum_tools::only_axis(self.model, self.selection, self.index)
+    fn only_axis(&self) -> Result<Option<AxisReference>, DatumError> {
+        Ok(datum_tools::only_axis(
+            self.model,
+            self.selection,
+            self.index,
+        )?)
     }
 
-    fn base(&self, datum: &Datum) -> Result<Datum, &'static str> {
+    fn base(&self, datum: &Datum) -> Result<Datum, DatumError> {
         match datum {
             Datum::Plane(plane) => match self.only_plane()? {
-                Some(base) if base == plane.base => Err("It already starts from the selection"),
+                Some(base) if base == plane.base => Err(DatumError::AlreadyStartsFromSelection),
                 Some(base) => Ok(Datum::Plane(DatumPlane {
                     base,
                     ..plane.clone()
                 })),
-                None => Err("Select a plane or flat face made before this plane"),
+                None => Err(DatumError::NoBasePlane),
             },
-            Datum::PlaneThrough(_) if self.selection.is_empty() => Err(
-                "Select three points, two planes, an axis and a point, two lines or a curved edge",
-            ),
+            Datum::PlaneThrough(_) if self.selection.is_empty() => {
+                Err(DatumError::NoPlaneThroughSelection)
+            }
             Datum::PlaneThrough(held) => {
                 let chosen =
                     datum_tools::plane_from_selection(self.model, self.selection, self.index)?;
                 match keeping_plane_mode(held, chosen) {
-                    chosen if &chosen == datum => Err("It already follows the selection"),
+                    chosen if &chosen == datum => Err(DatumError::AlreadyFollowsSelection),
                     chosen => Ok(chosen),
                 }
             }
             Datum::Axis(axis) => {
                 match datum_tools::axis_from_selection(self.model, self.selection, self.index) {
-                    Ok(chosen) if &chosen == axis => Err("It already follows the selection"),
+                    Ok(chosen) if &chosen == axis => Err(DatumError::AlreadyFollowsSelection),
                     Ok(chosen) => Ok(Datum::Axis(chosen)),
-                    Err(reason) => Err(reason),
+                    Err(reason) => Err(reason.into()),
                 }
             }
             Datum::Point(_) | Datum::PointBy(_) if self.selection.is_empty() => {
-                Err("Select a corner, round edge, sketch point or datum point")
+                Err(DatumError::NoPointSelected)
             }
             Datum::Point(point) => {
                 match datum_tools::point_from_selection(self.model, self.selection, self.index)? {
                     Datum::Point(chosen) if chosen.base == point.base => {
-                        Err("It already sits at the selection")
+                        Err(DatumError::AlreadySitsAtSelection)
                     }
                     Datum::Point(chosen) => Ok(Datum::Point(DatumPoint {
                         base: chosen.base,
@@ -175,7 +239,7 @@ impl Chooser<'_> {
                 let chosen =
                     datum_tools::point_from_selection(self.model, self.selection, self.index)?;
                 match keeping_point_mode(held, chosen) {
-                    chosen if &chosen == datum => Err("It already follows the selection"),
+                    chosen if &chosen == datum => Err(DatumError::AlreadyFollowsSelection),
                     chosen => Ok(chosen),
                 }
             }
@@ -192,39 +256,43 @@ impl Chooser<'_> {
         }
     }
 
-    fn frame_part(&self, datum: &Datum, part: FramePart) -> Result<Datum, &'static str> {
+    fn frame_part(&self, datum: &Datum, part: FramePart) -> Result<Datum, DatumError> {
         let Datum::Frame(frame) = datum else {
-            return Err("Only a coordinate system has an origin, an X axis and an XY plane");
+            return Err(DatumError::NotACoordinateSystem);
         };
         let mut changed = frame.as_ref().clone();
         let unchanged = match part {
             FramePart::Origin => {
                 let origin = datum_tools::only_point(self.model, self.selection, self.index)?
-                    .ok_or(part.missing())?;
+                    .ok_or(DatumError::FramePartMissing { part })?;
                 std::mem::replace(&mut changed.origin, origin) == changed.origin
             }
             FramePart::XAxis => {
-                let axis = self.only_axis()?.ok_or(part.missing())?;
+                let axis = self
+                    .only_axis()?
+                    .ok_or(DatumError::FramePartMissing { part })?;
                 std::mem::replace(&mut changed.x_axis, axis) == changed.x_axis
             }
             FramePart::Plane => {
-                let plane = self.only_plane()?.ok_or(part.missing())?;
+                let plane = self
+                    .only_plane()?
+                    .ok_or(DatumError::FramePartMissing { part })?;
                 std::mem::replace(&mut changed.plane, plane) == changed.plane
             }
         };
         if unchanged {
-            return Err("It already follows the selection");
+            return Err(DatumError::AlreadyFollowsSelection);
         }
         Ok(Datum::Frame(Box::new(changed)))
     }
 
-    fn rotation(&self, datum: &Datum) -> Result<Datum, &'static str> {
+    fn rotation(&self, datum: &Datum) -> Result<Datum, DatumError> {
         let Datum::Plane(plane) = datum else {
-            return Err("Only a datum plane turns about an axis");
+            return Err(DatumError::NotADatumPlane);
         };
         match self.only_axis()? {
             Some(axis) if plane.rotation.as_ref().map(|rotation| &rotation.axis) == Some(&axis) => {
-                Err("It already turns about the selection")
+                Err(DatumError::AlreadyTurnsAboutSelection)
             }
             Some(axis) => Ok(Datum::Plane(DatumPlane {
                 rotation: Some(PlaneRotation {
@@ -236,14 +304,12 @@ impl Chooser<'_> {
                 }),
                 ..plane.clone()
             })),
-            None => Err("Select an axis, straight edge or round face made before this plane"),
+            None => Err(DatumError::NoRotationAxis),
         }
     }
 
-    fn checked(&self, datum: Result<Datum, &str>) -> Result<Transaction, String> {
-        datum
-            .map_err(str::to_owned)
-            .and_then(|datum| self.change(datum))
+    fn checked(&self, datum: Result<Datum, DatumError>) -> Result<Transaction, DatumError> {
+        datum.and_then(|datum| self.change(datum))
     }
 }
 
@@ -297,7 +363,7 @@ pub fn base_change(
     selection: &Selection,
     feature: FeatureId,
     datum: &Datum,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DatumError> {
     let chooser = Chooser::of(model, selection, feature);
     chooser.checked(chooser.base(datum))
 }
@@ -308,7 +374,7 @@ pub fn frame_change(
     feature: FeatureId,
     datum: &Datum,
     part: FramePart,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DatumError> {
     let chooser = Chooser::of(model, selection, feature);
     chooser.checked(chooser.frame_part(datum, part))
 }
@@ -318,7 +384,7 @@ pub fn rotation_change(
     selection: &Selection,
     feature: FeatureId,
     datum: &Datum,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, DatumError> {
     let chooser = Chooser::of(model, selection, feature);
     chooser.checked(chooser.rotation(datum))
 }
@@ -337,11 +403,11 @@ impl Panel<'_> {
         }
     }
 
-    fn change(&self, datum: Datum) -> Result<Transaction, String> {
+    fn change(&self, datum: Datum) -> Result<Transaction, DatumError> {
         self.chooser().change(datum)
     }
 
-    fn apply(&mut self, change: Result<Transaction, String>) {
+    fn apply(&mut self, change: Result<Transaction, DatumError>) {
         self.actions
             .push(feature_fields::applied(&self.feature.name, change));
     }
@@ -349,9 +415,9 @@ impl Panel<'_> {
     fn picker(
         &self,
         slot: Slot,
-        selected: Result<Transaction, String>,
+        selected: Result<Transaction, DatumError>,
         hover: &'static str,
-    ) -> Picker<'static> {
+    ) -> Picker<'static, DatumError> {
         Picker {
             feature: self.id(),
             slot,
@@ -811,7 +877,7 @@ impl Panel<'_> {
         }
     }
 
-    fn frame_plane_row(&mut self, ui: &mut Ui, frame: &DatumFrame, picker: Picker<'_>) {
+    fn frame_plane_row(&mut self, ui: &mut Ui, frame: &DatumFrame, picker: Picker<'_, DatumError>) {
         let row = plane_selector::Row {
             caption: FramePart::Plane.caption(),
             id: Id::new(("frame-plane", self.id())),

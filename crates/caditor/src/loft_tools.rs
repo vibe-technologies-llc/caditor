@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{
     BodyOperation, Document, Edit, Evaluation, FeatureId, FeatureKind, Loft, LoftSection,
     PointReference, SketchFeature, Transaction, TransactionBuilder,
@@ -7,10 +9,10 @@ use caditor_sketch::Sketch;
 
 use crate::{
     bodies, body_selection,
-    commands::Command,
+    commands::{Command, Reason},
     datum_tools,
     editing::{self, EditingCommand},
-    field,
+    field::{self, CheckError},
     model::{Action, Model},
     projecting, queued,
     reference_picking::{Picking, Slot},
@@ -20,17 +22,47 @@ use crate::{
 };
 
 pub const TITLE: &str = "Loft";
-const GONE: &str = "The feature no longer exists";
-const NOT_A_PROFILE: &str =
-    "Click a region or a curve of a sketch with a closed shape, or a flat face of a body";
-const NO_PROFILE_SELECTED: &str = "Select a region or a curve of each sketch, or a flat face of a body, to loft through, in order";
-const FACE_GONE: &str = "The selected face is no longer part of its body";
-const NO_FACE_OUTLINE: &str = "The selected face has no edges to outline";
-const NO_POINT_SELECTED: &str =
-    "Select one corner, round edge, sphere, sketch point or datum point to end at";
-const REGION_GONE: &str = "The selected region is no longer part of its sketch";
-const ALREADY_THROUGH: &str = "It already lofts through the selected profiles";
-const ALREADY_ENDS: &str = "It already ends at that point";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum LoftError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Click a region or a curve of a sketch with a closed shape, or a flat face of a body")]
+    NotAProfile,
+    #[error(
+        "Select a region or a curve of each sketch, or a flat face of a body, to loft through, \
+         in order"
+    )]
+    NoProfileSelected,
+    #[error("The selected face is no longer part of its body")]
+    FaceGone,
+    #[error("The selected face has no edges to outline")]
+    NoFaceOutline,
+    #[error("Select one corner, round edge, sphere, sketch point or datum point to end at")]
+    NoPointSelected,
+    #[error("The selected region is no longer part of its sketch")]
+    RegionGone,
+    #[error("It already lofts through the selected profiles")]
+    AlreadyThrough,
+    #[error("It already ends at that point")]
+    AlreadyEnds,
+    #[error("{0}")]
+    FacePlacement(&'static str),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<LoftError> for String {
+    fn from(error: LoftError) -> Self {
+        error.to_string()
+    }
+}
+
+impl Reason for LoftError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProfilePick {
@@ -92,13 +124,14 @@ fn face_sketch(
     transaction: &mut TransactionBuilder<'_>,
     (face, index): (FaceChoice, usize),
     name: String,
-) -> Result<FeatureId, &'static str> {
-    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)?;
-    let shown = bodies::shown(model.evaluation(), face.body).ok_or(FACE_GONE)?;
-    let found = bodies::find_face(shown, face.face).ok_or(FACE_GONE)?;
+) -> Result<FeatureId, LoftError> {
+    let (attachment, plane) =
+        sketch_placement::attachment_at(model, face, index).map_err(LoftError::FacePlacement)?;
+    let shown = bodies::shown(model.evaluation(), face.body).ok_or(LoftError::FaceGone)?;
+    let found = bodies::find_face(shown, face.face).ok_or(LoftError::FaceGone)?;
     let outline = projecting::face_projections(shown, face.body, &[found], &plane);
     if outline.is_empty() {
-        return Err(NO_FACE_OUTLINE);
+        return Err(LoftError::NoFaceOutline);
     }
     let sketch = transaction.add_feature(
         name,
@@ -156,7 +189,7 @@ fn profile_picks(model: &Model, selection: &Selection) -> Vec<ProfilePick> {
     picks
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, &'static str> {
+pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, LoftError> {
     let document = model.document();
     let index = document.bar_index();
     let profiles = picks(model, selection);
@@ -176,20 +209,20 @@ pub fn source(model: &Model, selection: &Selection) -> Result<LoftStart, &'stati
     })
 }
 
-fn captured(evaluation: &Evaluation, pick: ProfilePick) -> Result<LoftSection, &'static str> {
+fn captured(evaluation: &Evaluation, pick: ProfilePick) -> Result<LoftSection, LoftError> {
     let Some(key) = pick.region else {
         return Ok(LoftSection::whole(pick.sketch));
     };
     let region = selection::sketch_regions(evaluation, pick.sketch)
         .and_then(|regions| regions.iter().find(|region| region.region.key() == key))
-        .ok_or(REGION_GONE)?;
+        .ok_or(LoftError::RegionGone)?;
     Ok(LoftSection {
         sketch: pick.sketch,
         region: Some(region.reference()),
     })
 }
 
-pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureId), &'static str> {
+pub fn create(model: &Model, start: &LoftStart) -> Result<(Transaction, FeatureId), LoftError> {
     let document = model.document();
     let index = document.bar_index();
     let name = editing::next_feature_name(document, TITLE);
@@ -243,7 +276,7 @@ pub fn create_actions(model: &Model, start: &LoftStart) -> Vec<Action> {
             }
             actions
         }
-        Err(reason) => vec![queued::refused(Command::Loft, TITLE, reason)],
+        Err(reason) => vec![queued::refused(Command::Loft, TITLE, &reason.to_string())],
     }
 }
 
@@ -258,9 +291,9 @@ pub fn edit(document: &Document, feature: FeatureId, loft: Loft) -> Option<Trans
     ))
 }
 
-pub fn change(model: &Model, feature: FeatureId, loft: Loft) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, loft: Loft) -> Result<Transaction, LoftError> {
     let document = model.document();
-    let transaction = edit(document, feature, loft).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, loft).ok_or(LoftError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -352,7 +385,7 @@ pub fn profile_change(
     selection: &Selection,
     feature: FeatureId,
     loft: &Loft,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, LoftError> {
     let chosen = picks(model, selection);
     let pick = match chosen.as_slice() {
         [Pick::Sketch(pick)] => pick,
@@ -364,7 +397,7 @@ pub fn profile_change(
                 (loft.profiles.clone(), &[Pick::Face(*face)]),
             );
         }
-        _ => return Err(NOT_A_PROFILE.to_owned()),
+        _ => return Err(LoftError::NotAProfile),
     };
     let mut profiles = loft.profiles.clone();
     match profiles
@@ -401,10 +434,10 @@ pub fn selected_change(
     selection: &Selection,
     feature: FeatureId,
     loft: &Loft,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, LoftError> {
     let chosen = picks(model, selection);
     if chosen.is_empty() {
-        return Err(NO_PROFILE_SELECTED.to_owned());
+        return Err(LoftError::NoProfileSelected);
     }
     if chosen.iter().any(|pick| matches!(pick, Pick::Face(_))) {
         return with_picks(model, feature, loft, (Vec::new(), &chosen));
@@ -419,7 +452,7 @@ pub fn selected_change(
             is_pick(known, *pick) && pick.region.is_some() == known.region.is_some()
         });
     if unchanged {
-        return Err(ALREADY_THROUGH.to_owned());
+        return Err(LoftError::AlreadyThrough);
     }
     change(
         model,
@@ -436,16 +469,19 @@ pub fn end_change(
     selection: &Selection,
     feature: FeatureId,
     loft: &Loft,
-) -> Result<Transaction, String> {
-    let index = model.document().feature_index(feature).ok_or(GONE)?;
+) -> Result<Transaction, LoftError> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or(LoftError::Gone { feature })?;
     let mut picked = selection.iter();
     let end = match (picked.next(), picked.next()) {
         (Some(only), None) => datum_tools::point_reference(model, only, index),
         _ => None,
     }
-    .ok_or(NO_POINT_SELECTED)?;
+    .ok_or(LoftError::NoPointSelected)?;
     if loft.end.as_ref() == Some(&end) {
-        return Err(ALREADY_ENDS.to_owned());
+        return Err(LoftError::AlreadyEnds);
     }
     change(
         model,
@@ -472,10 +508,16 @@ fn with_picks(
     feature: FeatureId,
     loft: &Loft,
     (mut profiles, chosen): (Vec<LoftSection>, &[Pick]),
-) -> Result<Transaction, String> {
+) -> Result<Transaction, LoftError> {
     let document = model.document();
-    let index = document.feature_index(feature).ok_or(GONE)?;
-    let name = document.feature(feature).ok_or(GONE)?.name.clone();
+    let index = document
+        .feature_index(feature)
+        .ok_or(LoftError::Gone { feature })?;
+    let name = document
+        .feature(feature)
+        .ok_or(LoftError::Gone { feature })?
+        .name
+        .clone();
     let mut transaction = document
         .transaction(format!("Edit {name}"))
         .inserting_at(index);

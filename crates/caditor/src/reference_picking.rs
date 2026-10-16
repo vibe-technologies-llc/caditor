@@ -405,16 +405,16 @@ pub fn change(
             solid_panel::start_change(model, selection, feature, solid)
         }
         (Slot::SweepPath, FeatureKind::Solid(SolidFeature::Sweep(sweep))) => {
-            sweep_tools::path_change(model, selection, feature, sweep)
+            sweep_tools::path_change(model, selection, feature, sweep).map_err(String::from)
         }
         (Slot::SweepPath, FeatureKind::Pipe(pipe)) => {
-            pipe_tools::path_change(model, selection, feature, pipe)
+            pipe_tools::path_change(model, selection, feature, pipe).map_err(String::from)
         }
         (Slot::LoftProfiles, FeatureKind::Loft(loft)) => {
-            loft_tools::profile_change(model, selection, feature, loft)
+            loft_tools::profile_change(model, selection, feature, loft).map_err(String::from)
         }
         (Slot::LoftEnd, FeatureKind::Loft(loft)) => {
-            loft_tools::end_change(model, selection, feature, loft)
+            loft_tools::end_change(model, selection, feature, loft).map_err(String::from)
         }
         (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
             solid_panel::direction_change(model, selection, feature, extrude)
@@ -465,28 +465,31 @@ pub fn change(
             sketch_pattern_tools::base_change(model, selection, feature, pattern)
         }
         (Slot::DatumBase, FeatureKind::Datum(datum)) => {
-            datum_panel::base_change(model, selection, feature, datum)
+            datum_panel::base_change(model, selection, feature, datum).map_err(String::from)
         }
         (Slot::DatumRotation, FeatureKind::Datum(datum)) => {
-            datum_panel::rotation_change(model, selection, feature, datum)
+            datum_panel::rotation_change(model, selection, feature, datum).map_err(String::from)
         }
         (Slot::FrameOrigin, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::Origin)
+                .map_err(String::from)
         }
         (Slot::FrameAxis, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::XAxis)
+                .map_err(String::from)
         }
         (Slot::FramePlane, FeatureKind::Datum(datum)) => {
             datum_panel::frame_change(model, selection, feature, datum, FramePart::Plane)
+                .map_err(String::from)
         }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
-            move_tools::axis_change(model, selection, feature, movement)
+            move_tools::axis_change(model, selection, feature, movement).map_err(String::from)
         }
         (Slot::CoilAxis, FeatureKind::Coil(coil)) => {
-            coil_tools::axis_change(model, selection, feature, coil)
+            coil_tools::axis_change(model, selection, feature, coil).map_err(String::from)
         }
         (Slot::HelixAxis, FeatureKind::Helix(helix)) => {
-            helix_tools::axis_change(model, selection, feature, helix)
+            helix_tools::axis_change(model, selection, feature, helix).map_err(String::from)
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
@@ -495,10 +498,10 @@ pub fn change(
             image_tools::place_change(model, selection, feature, image)
         }
         (Slot::MateMoving(part), FeatureKind::Mate(mate)) => {
-            mate_tools::moving_change(model, selection, feature, mate, part)
+            mate_tools::moving_change(model, selection, feature, mate, part).map_err(String::from)
         }
         (Slot::MateTarget(part), FeatureKind::Mate(mate)) => {
-            mate_tools::target_change(model, selection, feature, mate, part)
+            mate_tools::target_change(model, selection, feature, mate, part).map_err(String::from)
         }
         (Slot::ScaleCentre, FeatureKind::Scale(scale)) => {
             scale_tools::centre_change(model, selection, feature, scale)

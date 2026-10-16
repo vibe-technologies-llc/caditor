@@ -33,7 +33,7 @@ pub fn selected_body(
     selection: &Selection,
     tree: &[FeatureId],
 ) -> Result<FeatureId, &'static str> {
-    move_tools::chosen_body(model, selection, tree, NO_BODY)
+    Ok(move_tools::chosen_body(model, selection, tree, NO_BODY)?)
 }
 
 pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {

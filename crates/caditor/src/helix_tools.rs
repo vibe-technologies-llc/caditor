@@ -9,7 +9,8 @@ use crate::{
     coil_tools::{self, CoilStart, DEFAULT_AXIS, DEFAULT_DIAMETER},
     datum_tools,
     editing::{self, EditingCommand},
-    field,
+    feature_fields::ChoiceRefusal,
+    field::{self, CheckError},
     model::{Action, Model},
     reference_picking::{Picking, Slot},
     selection::Selection,
@@ -18,9 +19,28 @@ use crate::{
 
 pub const TITLE: &str = "Helix";
 const POINTS_PER_TURN: usize = 64;
-const GONE: &str = "The feature no longer exists";
-const NO_AXIS: &str = "Select an axis, straight edge, round face or sketch line to wind around";
-const ALREADY_AROUND: &str = "The helix already winds around that axis";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum HelixError {
+    #[error("The feature no longer exists")]
+    Gone { feature: FeatureId },
+    #[error("Select an axis, straight edge, round face or sketch line to wind around")]
+    NoAxis,
+    #[error("The helix already winds around that axis")]
+    AlreadyAround,
+    #[error("{0}")]
+    AxisSelection(&'static str),
+    #[error(transparent)]
+    Choice(#[from] ChoiceRefusal),
+    #[error(transparent)]
+    Check(#[from] CheckError),
+}
+
+impl From<HelixError> for String {
+    fn from(error: HelixError) -> Self {
+        error.to_string()
+    }
+}
 
 pub fn create(
     document: &Document,
@@ -70,9 +90,9 @@ pub fn edit(document: &Document, feature: FeatureId, helix: Helix) -> Option<Tra
     Some(document.carrying_owners(transaction, feature, []))
 }
 
-pub fn change(model: &Model, feature: FeatureId, helix: Helix) -> Result<Transaction, String> {
+pub fn change(model: &Model, feature: FeatureId, helix: Helix) -> Result<Transaction, HelixError> {
     let document = model.document();
-    let transaction = edit(document, feature, helix).ok_or_else(|| GONE.to_owned())?;
+    let transaction = edit(document, feature, helix).ok_or(HelixError::Gone { feature })?;
     field::checked(document, transaction)
 }
 
@@ -88,14 +108,16 @@ pub fn axis_change(
     selection: &Selection,
     feature: FeatureId,
     helix: &Helix,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, HelixError> {
     let index = model
         .document()
         .feature_index(feature)
-        .ok_or_else(|| GONE.to_owned())?;
-    let axis = datum_tools::only_axis(model, selection, index)?.ok_or(NO_AXIS)?;
+        .ok_or(HelixError::Gone { feature })?;
+    let axis = datum_tools::only_axis(model, selection, index)
+        .map_err(HelixError::AxisSelection)?
+        .ok_or(HelixError::NoAxis)?;
     if axis == helix.axis {
-        return Err(ALREADY_AROUND.to_owned());
+        return Err(HelixError::AlreadyAround);
     }
     change(model, feature, with_axis(helix, axis))
 }

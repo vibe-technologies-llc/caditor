@@ -7,7 +7,7 @@ use caditor_kernel::{CoilPlacement, CoilShape};
 use egui::{Id, Ui};
 
 use crate::{
-    coil_tools,
+    coil_tools::{self, CoilError},
     feature_fields::{self, AxisRow, OperationRows, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
     reference_picking::Slot,
@@ -102,7 +102,7 @@ impl Panel<'_> {
         self.feature.id()
     }
 
-    fn change(&self, coil: Coil) -> Result<Transaction, String> {
+    fn change(&self, coil: Coil) -> Result<Transaction, CoilError> {
         coil_tools::change(self.model, self.id(), coil)
     }
 

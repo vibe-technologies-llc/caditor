@@ -174,10 +174,10 @@ pub enum TreeError {
     Mirror(String),
     #[error("{0}")]
     Split(String),
-    #[error("{0}")]
-    Move(String),
-    #[error("{0}")]
-    Datum(String),
+    #[error(transparent)]
+    Move(#[from] move_tools::MoveError),
+    #[error(transparent)]
+    Datum(#[from] datum_panel::DatumError),
     #[error("{0}")]
     Pattern(String),
     #[error("{0}")]
@@ -2463,7 +2463,7 @@ fn move_change(
 
 fn datum_change(
     feature: &Feature,
-    change: impl FnOnce(&Datum) -> Result<Transaction, String>,
+    change: impl FnOnce(&Datum) -> Result<Transaction, datum_panel::DatumError>,
 ) -> Result<Transaction, TreeError> {
     feature
         .kind
