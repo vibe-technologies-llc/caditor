@@ -1,42 +1,66 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_document::{Document, Feature, FeatureId, SolidResult};
 use caditor_kernel::{EdgeId, FaceId, Solid, hole_faces, tangent_chain, tangent_faces};
 
 use crate::{
     bodies::{self, FaceKey},
+    commands::Reason,
     model::Model,
     selection::{Pickable, Selection, SelectionFilter},
+    selection_sets,
     similar::{self, Shape},
     visibility,
 };
 
 pub const IN_SKETCH: &str = "Finish the sketch first; faces, edges and vertices of bodies are not selectable while one is edited";
-pub const NO_KIND_TO_SELECT: &str =
-    "Choose faces, edges or vertices in the selection filter first, or select one of them";
-pub const NO_SHAPES: &str = "No shown body has anything of that kind to select";
-pub const NO_EDGE_SELECTED: &str = "Select an edge first to follow its tangent edges";
 pub const NO_TANGENT_EDGES: &str = "The selected edges have no tangent edge beyond themselves";
-pub const NO_TANGENT_FACE_SELECTED: &str =
-    "Select a face first to spread the selection to its tangent faces";
 pub const NO_TANGENT_FACES: &str = "The selected faces meet no other face smoothly";
-pub const NO_HOLE_FACE_SELECTED: &str =
-    "Select a face of a hole's wall first to select the whole hole";
 pub const NO_HOLE: &str = "The selected faces are not the round wall of a hole";
-pub const NO_FACE_SELECTED: &str = "Select a face first to select the edges around it";
 pub const NO_FACE_EDGES: &str = "The selected faces have no edge to select";
 pub const NOTHING_TO_INVERT: &str =
     "Everything of that kind is selected already, so there is nothing to invert to";
-pub const NO_FEATURE_FACE_SELECTED: &str =
-    "Select a face first to select every face of the feature that made it";
 pub const NO_FEATURE_FACES: &str = "The selected faces share their feature with no other face";
-pub const NO_LOOP_PAIR_SELECTED: &str =
-    "Select an edge and one of the faces it bounds first to select its loop";
 pub const NO_LOOP: &str = "The selected edge is on no loop of the selected faces";
-pub const NO_SIMILAR_SELECTED: &str =
-    "Select a face or an edge first to select the ones of the same kind and size";
 pub const NO_SIMILAR: &str =
     "No other shown face or edge is the same kind and size as the selected ones";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SelectionRefusal {
+    #[error("{}", IN_SKETCH)]
+    InSketch,
+    #[error("Choose faces, edges or vertices in the selection filter first, or select one of them")]
+    NoKindToSelect,
+    #[error("No shown body has anything of that kind to select")]
+    NoShapes,
+    #[error("Select an edge first to follow its tangent edges")]
+    NoEdgeSelected,
+    #[error("Select a face first to spread the selection to its tangent faces")]
+    NoTangentFaceSelected,
+    #[error("Select a face of a hole's wall first to select the whole hole")]
+    NoHoleFaceSelected,
+    #[error("Select a face first to select the edges around it")]
+    NoFaceSelected,
+    #[error("Select a face first to select every face of the feature that made it")]
+    NoFeatureFaceSelected,
+    #[error("Select an edge and one of the faces it bounds first to select its loop")]
+    NoLoopPairSelected,
+    #[error("Select a face or an edge first to select the ones of the same kind and size")]
+    NoSimilarSelected,
+    #[error("Select a face, edge or vertex of each body to select whole")]
+    NoBodySelected,
+    #[error("{}", selection_sets::NOTHING_TO_KEEP)]
+    NothingToKeep,
+}
+
+impl Reason for SelectionRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 fn counted(count: usize, one: &str, several: &str) -> Option<String> {
     match count {
@@ -75,9 +99,13 @@ pub fn left_out_words(left_out: &[Pickable]) -> Option<String> {
 
 pub fn outside_sketch<T>(
     in_sketch: bool,
-    offer: Result<T, &'static str>,
-) -> Result<T, &'static str> {
-    if in_sketch { Err(IN_SKETCH) } else { offer }
+    offer: Result<T, SelectionRefusal>,
+) -> Result<T, SelectionRefusal> {
+    if in_sketch {
+        Err(SelectionRefusal::InSketch)
+    } else {
+        offer
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,10 +170,10 @@ pub fn offer_select_all(
     model: &Model,
     selection: &Selection,
     filter: SelectionFilter,
-) -> Result<Kind, &'static str> {
-    let kind = Kind::chosen(filter, selection).ok_or(NO_KIND_TO_SELECT)?;
+) -> Result<Kind, SelectionRefusal> {
+    let kind = Kind::chosen(filter, selection).ok_or(SelectionRefusal::NoKindToSelect)?;
     if shown_bodies(model).next().is_none() {
-        return Err(NO_SHAPES);
+        return Err(SelectionRefusal::NoShapes);
     }
     Ok(kind)
 }
@@ -155,8 +183,6 @@ pub fn select_all(model: &Model, kind: Kind) -> Vec<Pickable> {
         .flat_map(|(body, result)| everything_of(body, result, kind))
         .collect()
 }
-
-pub const NO_BODY_SELECTED: &str = "Select a face, edge or vertex of each body to select whole";
 
 fn unique(bodies: impl IntoIterator<Item = FeatureId>) -> Vec<FeatureId> {
     let mut unique: Vec<FeatureId> = Vec::new();
@@ -198,10 +224,10 @@ pub fn tree_bodies(document: &Document, chosen: &[FeatureId]) -> Vec<FeatureId> 
     )
 }
 
-pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, &'static str> {
+pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, SelectionRefusal> {
     let bodies = bodies_in(selection);
     if bodies.is_empty() {
-        return Err(NO_BODY_SELECTED);
+        return Err(SelectionRefusal::NoBodySelected);
     }
     Ok(bodies)
 }
@@ -240,12 +266,12 @@ fn selected_edges(model: &Model, selection: &Selection) -> Vec<(FeatureId, EdgeI
         .collect()
 }
 
-pub fn offer_tangent_edges(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_tangent_edges(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| Kind::of(pickable) == Some(Kind::Edges))
         .then_some(())
-        .ok_or(NO_EDGE_SELECTED)
+        .ok_or(SelectionRefusal::NoEdgeSelected)
 }
 
 pub fn tangent_edges(model: &Model, selection: &Selection) -> Vec<Pickable> {
@@ -276,24 +302,24 @@ fn selected_faces(selection: &Selection) -> Vec<(FeatureId, FaceKey)> {
         .collect()
 }
 
-pub fn offer_tangent_faces(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_tangent_faces(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
         .then_some(())
-        .ok_or(NO_TANGENT_FACE_SELECTED)
+        .ok_or(SelectionRefusal::NoTangentFaceSelected)
 }
 
 pub fn tangent_faces_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
     spread_faces(model, selection, tangent_faces)
 }
 
-pub fn offer_hole(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_hole(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
         .then_some(())
-        .ok_or(NO_HOLE_FACE_SELECTED)
+        .ok_or(SelectionRefusal::NoHoleFaceSelected)
 }
 
 pub fn hole_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
@@ -343,12 +369,12 @@ pub fn face_boundary(solid: &Solid, face: FaceId) -> Vec<EdgeId> {
         .collect()
 }
 
-pub fn offer_face_edges(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_face_edges(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
         .then_some(())
-        .ok_or(NO_FACE_SELECTED)
+        .ok_or(SelectionRefusal::NoFaceSelected)
 }
 
 pub fn face_edges(model: &Model, selection: &Selection) -> Vec<Pickable> {
@@ -386,12 +412,12 @@ pub fn invert(
         .collect()
 }
 
-pub fn offer_feature_faces(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_feature_faces(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
         .then_some(())
-        .ok_or(NO_FEATURE_FACE_SELECTED)
+        .ok_or(SelectionRefusal::NoFeatureFaceSelected)
 }
 
 pub fn feature_faces(model: &Model, selection: &Selection) -> Vec<Pickable> {
@@ -424,7 +450,7 @@ pub fn feature_faces(model: &Model, selection: &Selection) -> Vec<Pickable> {
         .collect()
 }
 
-pub fn offer_loop(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_loop(selection: &Selection) -> Result<(), SelectionRefusal> {
     let has = |kind| {
         selection
             .iter()
@@ -432,7 +458,7 @@ pub fn offer_loop(selection: &Selection) -> Result<(), &'static str> {
     };
     (has(Kind::Edges) && has(Kind::Faces))
         .then_some(())
-        .ok_or(NO_LOOP_PAIR_SELECTED)
+        .ok_or(SelectionRefusal::NoLoopPairSelected)
 }
 
 fn loops_holding(solid: &Solid, face: FaceId, edge: EdgeId) -> Vec<Vec<EdgeId>> {
@@ -473,12 +499,12 @@ pub fn loops_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
         .collect()
 }
 
-pub fn offer_similar(selection: &Selection) -> Result<(), &'static str> {
+pub fn offer_similar(selection: &Selection) -> Result<(), SelectionRefusal> {
     selection
         .iter()
         .any(|pickable| matches!(Kind::of(pickable), Some(Kind::Faces | Kind::Edges)))
         .then_some(())
-        .ok_or(NO_SIMILAR_SELECTED)
+        .ok_or(SelectionRefusal::NoSimilarSelected)
 }
 
 pub struct Similar {

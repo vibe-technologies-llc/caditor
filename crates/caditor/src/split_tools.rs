@@ -37,8 +37,8 @@ pub enum SplitError {
     SeveralTools,
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
-    #[error("{0}")]
-    ChosenPlane(String),
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     SurfaceAttachment(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
@@ -152,8 +152,8 @@ pub fn chosen_along(
     selection: &Selection,
     index: usize,
 ) -> Result<Option<(SplitAlong, Option<Pickable>)>, SplitError> {
-    if let Some(chosen) = datum_tools::chosen_plane(model, selection, index)
-        .map_err(|error| SplitError::ChosenPlane(error.into()))?
+    if let Some(chosen) =
+        datum_tools::chosen_plane(model, selection, index).map_err(SplitError::ChosenPlane)?
     {
         return Ok(Some((SplitAlong::Plane(chosen.plane), chosen.face)));
     }

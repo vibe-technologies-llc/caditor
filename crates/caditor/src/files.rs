@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::OsString,
     fs, io,
@@ -45,7 +46,7 @@ use self::{
 };
 use crate::{
     bodies::{self, FaceKey},
-    commands::{Command, CommandFrame, RecentSlot},
+    commands::{Command, CommandFrame, Reason, RecentSlot},
     configuration_export::ConfigurationFile,
     drawing_export::{
         self, DrawingCommand, DrawingExporter, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH,
@@ -98,12 +99,6 @@ const IMPORT_MENU: &str = "Import";
 const EXPORT_MENU: &str = "Export";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const NOT_FOUND: &str = "(not found)";
-const NOTHING_EXPORTED: &str = "Nothing has been exported from this model yet. Export it once and \
-                                Export again repeats that export";
-const EXPORT_RUNNING: &str = "An export is already running";
-const WAITING_FOR_RECOMPUTE: &str = "Waiting for the model to finish recomputing";
-const WOULD_REPLACE_MODEL: &str = "Export again never replaces the model's own file. Export to \
-                                   another file";
 pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was last exported to, \
                                      with the same format and choices, without asking for a file";
 const REVERT_HINT: &str = "Undo every change made since the model was last saved, as one step \
@@ -504,6 +499,27 @@ impl Stamp {
             length: metadata.len(),
             modified: metadata.modified().ok(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ExportAgainError {
+    #[error(
+        "Nothing has been exported from this model yet. Export it once and Export again repeats \
+         that export"
+    )]
+    NothingExported,
+    #[error("An export is already running")]
+    ExportRunning,
+    #[error("Waiting for the model to finish recomputing")]
+    WaitingForRecompute,
+    #[error("Export again never replaces the model's own file. Export to another file")]
+    WouldReplaceModel,
+}
+
+impl Reason for ExportAgainError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
     }
 }
 
@@ -1256,25 +1272,25 @@ impl Files {
         self.missing_recent.contains(path)
     }
 
-    fn export_again_target(&self, model: &Model) -> Result<&LastExport, &'static str> {
+    fn export_again_target(&self, model: &Model) -> Result<&LastExport, ExportAgainError> {
         let last = self
             .last_export
             .as_ref()
             .filter(|last| last.session == model.session())
-            .ok_or(NOTHING_EXPORTED)?;
+            .ok_or(ExportAgainError::NothingExported)?;
         if self.exporter.is_running() {
-            return Err(EXPORT_RUNNING);
+            return Err(ExportAgainError::ExportRunning);
         }
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
-            return Err(WAITING_FOR_RECOMPUTE);
+            return Err(ExportAgainError::WaitingForRecompute);
         }
         if model.path() == Some(last.path.as_path()) {
-            return Err(WOULD_REPLACE_MODEL);
+            return Err(ExportAgainError::WouldReplaceModel);
         }
         Ok(last)
     }
 
-    pub fn export_again_name(&self, model: &Model) -> Result<String, &'static str> {
+    pub fn export_again_name(&self, model: &Model) -> Result<String, ExportAgainError> {
         self.export_again_target(model)
             .map(|last| display_name(Some(&last.path)))
     }

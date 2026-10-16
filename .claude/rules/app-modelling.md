@@ -145,7 +145,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   take it so; Measure and Interference take every chosen row's body. Offers carry the tree's bodies in
   their basis.
 - Several candidates for one slot (two planes, two axes, curves of two sketches, faces of two bodies)
-  are refused naming the conflict (`datum_tools::only_plane`, `only_axis`, `chosen_plane`, `SEVERAL_*`),
+  are refused naming the conflict (`datum_tools::only_plane`, `only_axis`, `chosen_plane`, answering `OneChoiceError`; the datum tools' `*_from_selection` answer
+  `DatumFromSelectionError`, the selection commands `SelectionRefusal`),
   except where pick order decides: a revolve turns about the line or axis picked last
   (`solid_tools::with_model_axis`), and a pattern's direction ignores edges and faces of the patterned
   body when an axis outside it is selected.

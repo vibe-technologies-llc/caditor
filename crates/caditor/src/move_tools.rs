@@ -66,8 +66,8 @@ pub enum MoveError {
     NoAxis,
     #[error("The body already turns about the selected axis")]
     AlreadyAbout,
-    #[error("{0}")]
-    AxisSelection(&'static str),
+    #[error(transparent)]
+    AxisSelection(datum_tools::OneChoiceError),
     #[error(transparent)]
     Choice(#[from] ChoiceRefusal),
     #[error(transparent)]

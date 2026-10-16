@@ -41,14 +41,14 @@ pub enum PrimitiveError {
     PlaneUnavailable,
     #[error("The click does not meet that plane; look at it from another side")]
     Missed,
-    #[error("{}", datum_tools::DATUM_NOT_A_PLANE)]
+    #[error("{}", datum_tools::OneChoiceError::DatumNotAPlane)]
     DatumNotAPlane,
-    #[error("{}", datum_tools::DATUM_MADE_LATER)]
+    #[error("{}", datum_tools::OneChoiceError::DatumMadeLater)]
     DatumMadeLater,
     #[error("{}", datum_tools::SEVERAL_PLANES)]
     SeveralPlanes,
-    #[error("{0}")]
-    ChosenPlane(String),
+    #[error(transparent)]
+    ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
     FaceAttachment(crate::sketch_placement::AttachmentError),
     #[error(transparent)]
@@ -80,7 +80,7 @@ pub fn command(kind: PrimitiveKind) -> Command {
 
 pub fn source(model: &Model, selection: &Selection) -> Result<PrimitiveSource, PrimitiveError> {
     let chosen = datum_tools::chosen_plane(model, selection, model.document().bar_index())
-        .map_err(|error| PrimitiveError::ChosenPlane(error.into()))?;
+        .map_err(PrimitiveError::ChosenPlane)?;
     Ok(PrimitiveSource { chosen })
 }
 
