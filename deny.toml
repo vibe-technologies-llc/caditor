@@ -70,8 +70,16 @@ skip = [
     },
     { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 under winit's calloop 0.13" },
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18 has not moved to miniz_oxide 0.9" },
+    {
+        crate = "read-fonts@0.41.0",
+        reason = "epaint's harfrust pins an older read-fonts than caditor-file's skrifa"
+    },
     { crate = "rustc-hash@1.1.0", reason = "naga 30 still uses rustc-hash 1" },
     { crate = "rustix@0.38.44", reason = "winit's calloop 0.13" },
+    {
+        crate = "skrifa@0.44.0",
+        reason = "epaint's harfrust pins an older skrifa than caditor-file's font outlines"
+    },
     {
         crate = "smithay-client-toolkit@0.19.2",
         reason = "winit 0.30 stays on 0.19 while egui's clipboard moved to 0.20"
