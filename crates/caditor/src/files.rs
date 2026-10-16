@@ -23,7 +23,7 @@ use caditor_file::{
     Closing, ConfigurationFileError, Construction, DRAWING_IMPORT_EXTENSIONS, DiscardError,
     Drawing, DrawingExported, DrawingSheet, ExportError, ExportFormat, FILE_EXTENSION,
     FaceExported, FileJournal, Handover, History, ImportError, LoadError, Loaded,
-    MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
+    MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
     PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage, RecentChange, RecentFiles,
     Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
     SheetLayout, SketchExported, SketchFormat, TextOutlines, UpdateFailure, describe_set_aside,
@@ -63,6 +63,7 @@ use crate::{
     image_tools::ImageTarget,
     import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
+    import_unit::{self, ImportUnitCommand, Scaling},
     menu_bar::{self, MenuEntries},
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
@@ -161,6 +162,7 @@ pub enum FileCommand {
     Discard(PathBuf),
     DismissReport,
     ImportOptions(ImportOptionsCommand),
+    ImportUnit(ImportUnitCommand),
     Replace(bool),
     QuitAnyway,
     StopExportsAndQuit,
@@ -1084,6 +1086,7 @@ pub struct Files {
     import_attempt: u64,
     model_reader: ModelReader,
     arranging: Option<Arranging>,
+    scaling: Option<Scaling>,
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
     image: ImageExporter,
@@ -1146,6 +1149,7 @@ impl Files {
             import_attempt: 0,
             model_reader: Arc::new(import::read_model),
             arranging: None,
+            scaling: None,
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
             image: ImageExporter::default(),
@@ -1237,7 +1241,10 @@ impl Files {
     }
 
     pub fn is_importing(&self) -> bool {
-        self.importing.is_some() || self.arranging.is_some() || !self.queued_imports.is_empty()
+        self.importing.is_some()
+            || self.arranging.is_some()
+            || self.scaling.is_some()
+            || !self.queued_imports.is_empty()
     }
 
     pub fn is_blocking(&self) -> bool {
@@ -1249,6 +1256,7 @@ impl Files {
             || self.opening.is_some()
             || self.report.is_some()
             || self.arranging.is_some()
+            || self.scaling.is_some()
             || self.showing_recovery()
             || self.exporter.is_open()
             || self.image.is_open()
@@ -1323,6 +1331,7 @@ impl Files {
         self.history.close();
         self.report = None;
         self.arranging = None;
+        self.scaling = None;
         self.recovery_open = false;
         self.confirm_discard = None;
     }
@@ -1410,6 +1419,7 @@ impl Files {
             }
             FileCommand::DismissReport => self.report = None,
             FileCommand::ImportOptions(command) => self.import_options(command, model),
+            FileCommand::ImportUnit(command) => self.import_unit(command, model),
             FileCommand::Replace(confirmed) => {
                 let Some((replacement, session)) = self.confirm_replace.take() else {
                     return;
@@ -1605,9 +1615,48 @@ impl Files {
         }
     }
 
+    fn import_unit(&mut self, command: ImportUnitCommand, model: &mut Model) {
+        match command {
+            ImportUnitCommand::Cancel => self.scaling = None,
+            ImportUnitCommand::Choose(unit) => {
+                if let Some(scaling) = &mut self.scaling {
+                    scaling.chosen = unit;
+                }
+            }
+            ImportUnitCommand::Confirm => {
+                let Some(scaling) = self.scaling.take() else {
+                    return;
+                };
+                if scaling.session != model.session() {
+                    return;
+                }
+                if scaling.keeps_the_guess() {
+                    self.report_placed(import::place_bodies(
+                        model,
+                        &scaling.path,
+                        Ok(scaling.imported),
+                    ));
+                } else {
+                    self.read_in(scaling.path, scaling.chosen, model);
+                }
+            }
+        }
+    }
+
+    fn report_placed(&mut self, report: Option<import::ImportReport>) {
+        if let Some(report) = report {
+            self.report = Some(Report {
+                heading: report.heading,
+                intro: None,
+                issues: report.notes,
+            });
+        }
+    }
+
     fn import_next(&mut self, model: &Model) {
         if self.importing.is_some()
             || self.arranging.is_some()
+            || self.scaling.is_some()
             || self.report.is_some()
             || self.picking.is_some()
         {
@@ -2185,17 +2234,21 @@ impl Files {
                 if session != model.session() {
                     return;
                 }
+                let result = match (replacing, result) {
+                    (None, Ok(imported)) => match imported.unit {
+                        Some(reading) if reading.is_guess() => {
+                            self.scaling = Some(Scaling::new(path, session, imported, reading));
+                            return;
+                        }
+                        _ => Ok(imported),
+                    },
+                    (_, result) => result,
+                };
                 let report = match replacing {
                     Some(feature) => import::replace_body(model, feature, &path, result),
                     None => import::place_bodies(model, &path, result),
                 };
-                if let Some(report) = report {
-                    self.report = Some(Report {
-                        heading: report.heading,
-                        intro: None,
-                        issues: report.notes,
-                    });
-                }
+                self.report_placed(report);
             }
         }
     }
@@ -2279,6 +2332,28 @@ impl Files {
                 session,
                 attempt,
                 replacing: Some(feature),
+                result: Err(ImportError::Crashed),
+            },
+        );
+    }
+
+    fn read_in(&mut self, path: PathBuf, unit: MeshUnit, model: &Model) {
+        let session = model.session();
+        let failed = path.clone();
+        self.start_import(
+            Importing::reading(path.clone(), None, None),
+            move |attempt, cancel, _| Event::ImportedModel {
+                result: import::read_mesh_in(&path, unit, &cancel),
+                path,
+                session,
+                attempt,
+                replacing: None,
+            },
+            move |attempt| Event::ImportedModel {
+                path: failed,
+                session,
+                attempt,
+                replacing: None,
                 result: Err(ImportError::Crashed),
             },
         );
@@ -4140,6 +4215,8 @@ pub fn show(
             .is_some_and(|feature| editing::edited_sketch(model.document(), feature).is_some());
         command = import_options::dialog(&ctx, model, arranging, into_edited_sketch)
             .map(FileCommand::ImportOptions);
+    } else if let Some(scaling) = &files.scaling {
+        command = import_unit::dialog(&ctx, model, scaling).map(FileCommand::ImportUnit);
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {

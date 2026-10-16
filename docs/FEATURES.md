@@ -183,8 +183,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   - Stay quick on scans and printer files of millions of triangles, in the background with
     progress and Cancel, and keep the source mesh in the model so the conversion can be redone at
     another tolerance later without breaking what references its faces.
-  - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
-    metres) and offers a scale before committing, rather than leaving it to the scale item.
 
 ## Technical drawings
 

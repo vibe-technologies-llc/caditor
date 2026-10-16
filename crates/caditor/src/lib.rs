@@ -96,6 +96,7 @@ mod image_tools;
 mod import;
 mod import_options;
 mod import_panel;
+mod import_unit;
 mod inference;
 mod interference;
 mod interference_panel;
