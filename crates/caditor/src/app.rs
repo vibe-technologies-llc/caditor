@@ -952,7 +952,15 @@ pub fn show(
         };
         let asked = lighting_panel::show(
             ui,
-            (preferences.lighting, sky),
+            (
+                preferences.lighting,
+                sky,
+                preferences
+                    .appearance
+                    .body
+                    .custom()
+                    .unwrap_or(crate::body_appearance::DEFAULT_COLOUR),
+            ),
             viewport.style(),
             room,
             lighting,

@@ -480,7 +480,7 @@ paths:
   to the model by `apply_preferences` and sent with every `SaveRequest`, `file-format.md`), and
   the rendered view's light (`rendering.light_follows` `view` or `model`, `rendering.azimuth`,
   `elevation`, `strength`, `temperature`, `environment`, `bounce`, `occlusion`, `exposure`,
-  `shadows`, `backdrop_turn`, `backdrop_exposure`; numbers
+  `shadows`, `backdrop_turn`, `backdrop_exposure`, `backdrop_colour`, `floor`; numbers
   read clamped, `lighting::Lighting`, Appearance › Rendered view, `app.md`) and the sky picture's
   file (`rendering.backdrop_image`, `Preferences::backdrop`, read and written by
   `backdrop::read` and `backdrop::write`, restored with the Rendered view section).
