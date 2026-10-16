@@ -96,6 +96,8 @@ skip = [
     { crate = "syn@2.0.119", reason = "most proc macros are still on syn 2" },
     { crate = "thiserror-impl@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" },
     { crate = "thiserror@1.0.69", reason = "winit's calloop 0.13 still uses thiserror 1" },
+    { crate = "zbus@5.19.0", reason = "accesskit_unix under egui-winit still uses zbus 5" },
+    { crate = "zbus_macros@5.19.0", reason = "accesskit_unix under egui-winit still uses zbus 5" },
     { crate = "windows-sys@0.52.0", reason = "winit 0.30 on Windows" },
     {
         crate = "windows-sys@0.59.0",
