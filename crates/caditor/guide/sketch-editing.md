@@ -32,9 +32,10 @@ the pointer and selects it; dimensions keep parameters of the same name in the t
 ## The context menu
 
 Right-click a curve or point for the constraints the selection can take, construction, splitting,
-deleting, the tools that work on the selection under **Modify** (offset, mirror, the patterns,
-sketch fillet and chamfer, tangent circle), moving, cut, copy and paste, selecting and Smart
-dimension; right-click empty space to paste or finish the sketch. While a shape is half drawn the
+adding a [spline control point](spline), deleting, the tools that work on the selection under
+**Modify** (offset, mirror, the patterns, sketch fillet and chamfer, tangent circle), moving, cut,
+copy and paste, selecting and Smart dimension; right-click empty space to paste or finish the
+sketch. While a shape is half drawn the
 menu offers {command:sketch.take_back_point}, {command:sketch.finish_shape} for a chain of lines, tangent arcs
 or a spline, {command:sketch.cancel_shape}, {command:sketch.chain_arc} in a line chain, reversing
 an arc and typing an exact value. See

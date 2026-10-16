@@ -151,6 +151,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   it) gives a split anywhere. Break (`Command::BreakCurves`, `BreakChange`) breaks each selected
   line, arc, elliptical arc and spline at every crossing with other curves and the axes in one
   transaction (`sketch.md`, Break); else `NOTHING_TO_BREAK`.
+  Add a control point (`Command::InsertSplinePoint`, `SplinePointChange`, in the Modify menu, the
+  context menu and the palette) takes the selected splines, or one spline and a point near where it
+  goes (also a lone point held on one spline by `Coincident`), checks each
+  (`Sketch::check_point_insertion`, `CannotInsert`) and inserts keeping the shape
+  (`Sketch::insert_control_point`, `sketch.md`); else `NOTHING_TO_INSERT`. A held neighbour
+  point fails the transaction as a warning notice (`Insert`).
   Respace (`Command::RespaceFitSplines`, `RespaceChange`) turns selected evenly spaced fit-point
   splines (files saved before centripetal spacing) into centripetal ones
   (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.

@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::BTreeSet, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
-mod spline;
+pub(crate) mod spline;
 
 use crate::{
     constraint::Constraint,
@@ -682,7 +682,7 @@ impl Sketch {
                     label: label(),
                 });
             }
-            Entity::Spline { kind, .. } if kind.is_closed() => {
+            Entity::Spline { ref kind, .. } if kind.is_closed() => {
                 return Err(ExtendError::Closed {
                     entity: curve,
                     label: label(),

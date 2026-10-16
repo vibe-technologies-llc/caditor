@@ -6,8 +6,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    BreakError, Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, Reference,
-    Relations, Sketch, SketchError, SketchSolution, SplineKind, SplitError,
+    BreakError, Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, InsertError,
+    Reference, Relations, Sketch, SketchError, SketchSolution, SplineKind, SplitError,
 };
 use thiserror::Error;
 
@@ -2226,6 +2226,9 @@ pub const SPLIT_TITLE: &str = "Split curve";
 pub const NOTHING_TO_BREAK: &str =
     "Select the lines, arcs, elliptical arcs and splines to break at their crossings";
 pub const BREAK_TITLE: &str = "Break curves";
+pub const NOTHING_TO_INSERT: &str = "Select a spline drawn from control points, with a point near \
+                                     where it should get its new control point if you like";
+pub const INSERT_TITLE: &str = "Add control point";
 pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
                                       the spacing of their points";
 pub const RESPACE_TITLE: &str = "Respace fit-point splines";
@@ -2242,6 +2245,12 @@ pub enum SketchChangeError {
     Unsplittable(SplitError),
     #[error("{}", NOTHING_TO_BREAK)]
     NothingToBreak,
+    #[error("{}", NOTHING_TO_INSERT)]
+    NothingToInsert,
+    #[error("{}", sentence(&.0.to_string()))]
+    CannotInsert(InsertError),
+    #[error("{}: {source}.", INSERT_TITLE)]
+    Insert { source: InsertError },
     #[error("{}", NOTHING_TO_RESPACE)]
     NothingToRespace,
     #[error("{}", NOTHING_TO_UNLINK)]
@@ -2330,6 +2339,75 @@ fn followed(document: &Document, source: &ProjectionSource) -> String {
         ProjectionSource::PrincipalPlane { plane, .. } => format!("the {}", plane.name()),
         ProjectionSource::PrincipalAxis { axis, .. } => format!("the {}", axis.name()),
         ProjectionSource::Origin => "the origin".to_owned(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplinePointChange {
+    pub splines: Vec<EntityId>,
+    pub near: Option<EntityId>,
+}
+
+impl SplinePointChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, SketchChangeError> {
+        let (points, curves): (Vec<EntityId>, Vec<EntityId>) = selected
+            .iter()
+            .copied()
+            .filter(|id| !id.is_reference())
+            .partition(|id| matches!(sketch.entity(*id), Some(Entity::Point(_))));
+        let mut splines: Vec<EntityId> = curves
+            .into_iter()
+            .filter(|id| matches!(sketch.entity(*id), Some(Entity::Spline { .. })))
+            .collect();
+        let near = match points.as_slice() {
+            [] => None,
+            [point] => {
+                if splines.is_empty() {
+                    splines = sketch
+                        .constraints_using(*point)
+                        .into_iter()
+                        .filter_map(|id| match sketch.constraint(id)? {
+                            Constraint::Coincident(a, b) if a == point => Some(*b),
+                            Constraint::Coincident(a, b) if b == point => Some(*a),
+                            _ => None,
+                        })
+                        .filter(|curve| {
+                            matches!(sketch.entity(*curve), Some(Entity::Spline { .. }))
+                        })
+                        .collect::<BTreeSet<_>>()
+                        .into_iter()
+                        .collect();
+                }
+                Some(*point)
+            }
+            _ => return Err(SketchChangeError::NothingToInsert),
+        };
+        match (splines.as_slice(), near) {
+            ([], _) | ([_, _, ..], Some(_)) => return Err(SketchChangeError::NothingToInsert),
+            _ => {}
+        }
+        for spline in &splines {
+            sketch
+                .check_point_insertion(*spline)
+                .map_err(SketchChangeError::CannotInsert)?;
+        }
+        Ok(Self { splines, near })
+    }
+
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        trimming::reshape(model, feature, INSERT_TITLE.to_owned(), |sketch| {
+            let near = self.near.and_then(|point| sketch.point(point));
+            for spline in &self.splines {
+                sketch
+                    .insert_control_point(*spline, near)
+                    .map_err(|source| SketchChangeError::Insert { source })?;
+            }
+            Ok(())
+        })
     }
 }
 

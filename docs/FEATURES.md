@@ -113,8 +113,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading
-  them; the degree cannot be chosen; and no point can be inserted or removed while keeping the
-  shape.
+  them; the degree cannot be chosen; a point cannot be removed while keeping the shape (only
+  approximately possible); and a point can be inserted keeping the shape only in an open control
+  spline of four points or more, not in a closed one (it needs a closed spline with knots of its
+  own), a conic or one of fewer points.
 - [medium · hard] A spur gear (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
   geometry, not tied to the values in the Spur gear panel (expressions using parameters are read
   when it is drawn), so changing the module, teeth or pressure angle, or a parameter they use,

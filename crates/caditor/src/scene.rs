@@ -927,7 +927,12 @@ fn sketch_shapes(
 fn control_polygon(sketch: &Sketch, id: EntityId, entity: &Entity) -> Vec<Segment> {
     let shows_handles = matches!(
         entity.spline_kind(),
-        Some(SplineKind::Control { .. } | SplineKind::Conic { .. } | SplineKind::Piece { .. })
+        Some(
+            SplineKind::Control { .. }
+                | SplineKind::Conic { .. }
+                | SplineKind::Piece { .. }
+                | SplineKind::Knotted { .. }
+        )
     );
     match sketch.spline_control_points(id) {
         Some(points) if shows_handles => curve_segments(sketch.plane(), &points, true).collect(),

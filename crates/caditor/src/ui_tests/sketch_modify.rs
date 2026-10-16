@@ -392,6 +392,75 @@ fn a_control_spline_is_split_at_the_selected_point_without_changing_its_shape() 
 }
 
 #[test]
+fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_undoes() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 50.0),
+        Point2::new(10.0, 65.0),
+        Point2::new(20.0, 40.0),
+        Point2::new(30.0, 62.0),
+        Point2::new(40.0, 36.0),
+        Point2::new(50.0, 58.0),
+        Point2::new(60.0, 50.0),
+    ]);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+    let whole = sketch.spline(spline).unwrap();
+    let hint = sketch.add_point(whole.point_at(0.8));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    let moved_by = |sketch: &Sketch| {
+        let after = sketch.spline(spline).unwrap();
+        (0..=200)
+            .map(|step| f64::from(step) / 200.0)
+            .map(|parameter| {
+                whole
+                    .point_at(parameter)
+                    .distance(after.point_at(parameter))
+            })
+            .fold(0.0, f64::max)
+    };
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: line,
+    }]);
+    run_from_palette(&mut harness, "add a control point to the selected spline");
+    harness.settle();
+    let refused = harness.shows_containing(crate::sketch_tools::NOTHING_TO_INSERT);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([
+        Pickable::SketchEntity {
+            feature,
+            entity: spline,
+        },
+        Pickable::SketchEntity {
+            feature,
+            entity: hint,
+        },
+    ]);
+    run_from_palette(&mut harness, "add a control point to the selected spline");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(refused);
+    assert!(matches!(
+        sketch.entity(spline),
+        Some(caditor_sketch::Entity::Spline { points, .. }) if points.len() == 8
+    ));
+    assert!(moved_by(sketch) < 1e-9);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::sketch_tools::INSERT_TITLE)
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
 fn a_sketch_fillet_takes_its_radius_from_the_pointer_and_escape_backs_out_a_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

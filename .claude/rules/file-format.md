@@ -422,7 +422,9 @@ Sketch entities:
   (`start`, `apex`, `end`, `rho`; an out-of-range rho is refused like any bad entity),
   `spline_piece` (`control_points`, `lead`, `trail`; what trim and extend leave of a control spline,
   refused with fewer than five points or end spans not above zero; `spline-pieces.caditor` in the
-  corpus). A conic's rho dimension is a `rho` constraint (`conic`, `value`), falling back to the
+  corpus), `spline_knots` (`control_points`, `spans`; what adding a control point leaves, refused
+  unless the spans are at least two, above zero, and three fewer than the points;
+  `spline-knots.caditor`). A conic's rho dimension is a `rho` constraint (`conic`, `value`), falling back to the
   drawn rho.
 - `ellipse` (`center`, `major`, `minor_radius`), `elliptical_arc` (plus `start`, `end`). Radii are
   `major_radius` and `minor_radius` constraints (`ellipse`, `value`, falling back to the drawn

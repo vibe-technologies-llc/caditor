@@ -43,7 +43,7 @@ pub(crate) use crate::solve::{
 };
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
-    entity::{Entity, SplineKind},
+    entity::Entity,
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
@@ -77,7 +77,11 @@ fn spaced_fit_variables(sketch: &Sketch, system: &System) -> Vec<usize> {
 fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> {
     let spaced: Vec<EntityId> = sketch
         .entities()
-        .filter(|(_, entity)| entity.spline_kind().is_some_and(SplineKind::is_centripetal))
+        .filter(|(_, entity)| {
+            entity
+                .spline_kind()
+                .is_some_and(|kind| kind.is_centripetal())
+        })
         .map(|(id, _)| id)
         .collect();
     if spaced.is_empty() {

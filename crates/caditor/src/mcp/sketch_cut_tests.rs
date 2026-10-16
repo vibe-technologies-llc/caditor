@@ -221,3 +221,70 @@ fn old_evenly_spaced_splines_are_respaced() {
 fn entity_count(sketch: &serde_json::Value) -> usize {
     sketch["entities"].as_array().unwrap().len()
 }
+
+fn model_with_a_control_spline(folder: &TempDir) -> std::path::PathBuf {
+    let mut sketch = Sketch::new(PrincipalPlane::Xy.plane());
+    sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 8.0),
+        Point2::new(20.0, -6.0),
+        Point2::new(30.0, 7.0),
+        Point2::new(40.0, 0.0),
+    ]);
+    sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 20.0),
+            Point2::new(10.0, 28.0),
+            Point2::new(20.0, 14.0),
+        ],
+        SplineKind::fit(false),
+    );
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    transaction.add_feature("Splines", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let path = folder.path().join("splines.caditor");
+    caditor_file::save(&document, &path, false).unwrap();
+    path
+}
+
+#[test]
+fn a_control_point_is_added_to_a_control_spline_and_refused_for_a_fit_spline() {
+    let folder = TempDir::new().unwrap();
+    let mut client = Client::start(opening(model_with_a_control_spline(&folder)));
+    client.initialize("2025-06-18");
+
+    let before = described(&mut client, &json!("Splines"));
+    let splines = of_kind(&before, "spline");
+    let control = splines
+        .iter()
+        .find(|spline| spline["form"] == "control")
+        .unwrap()["id"]
+        .clone();
+    let fit = splines
+        .iter()
+        .find(|spline| spline["form"] == "fit")
+        .unwrap()["id"]
+        .clone();
+    let added = modify(
+        &mut client,
+        &json!("Splines"),
+        json!({ "operation": "insert_control_point", "splines": [control] }),
+    );
+    let after = described(&mut client, &json!("Splines"));
+    let refusal = refused(
+        &mut client,
+        &json!("Splines"),
+        json!({ "operation": "insert_control_point", "splines": [fit] }),
+    );
+    client.finish();
+
+    assert_eq!(added["change"], "Add control point");
+    assert_eq!(added["refined"], json!([control]));
+    assert_eq!(entity_count(&after), entity_count(&before) + 1);
+    assert_eq!(
+        entity(&after, &control)["points"].as_array().unwrap().len(),
+        6
+    );
+    assert!(refusal.contains("passes through its points"), "{refusal}");
+}

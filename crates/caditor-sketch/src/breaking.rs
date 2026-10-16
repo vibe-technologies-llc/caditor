@@ -1,6 +1,6 @@
 use crate::{
     constraint::Constraint,
-    entity::Entity,
+    entity::{Entity, SplineKind},
     id::EntityId,
     sketch::{Sketch, SketchError},
     split::SplitError,
@@ -115,10 +115,10 @@ impl Sketch {
     fn break_at_crossings(&mut self, curve: EntityId) -> Result<Vec<EntityId>, BreakError> {
         let label = || self.entity_label(curve);
         let spline = match self.entity(curve) {
-            Some(Entity::Spline { kind, .. }) => Some(*kind),
+            Some(Entity::Spline { kind, .. }) => Some(kind.clone()),
             _ => None,
         };
-        if spline.is_some_and(|kind| kind.passes_its_points()) {
+        if spline.as_ref().is_some_and(SplineKind::passes_its_points) {
             return Err(BreakError::FitSpline {
                 entity: curve,
                 label: label(),

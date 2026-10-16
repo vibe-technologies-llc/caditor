@@ -83,6 +83,15 @@ paths:
     long (`curve::piece_knots`): what trim and extend leave of a control spline, so the curve keeps
     its shape exactly. At least `MIN_PIECE_POINTS` (`TooFewPiecePoints`), spans finite and above
     zero (`InvalidEndSpans`); `same_form` compares the spans, which nothing solves.
+  - Knotted (`SplineKind::Knotted { spans }`, named "Spline", saved as `spline_knots`) is an open
+    cubic control spline whose spans between knots are the given widths (relative, summing to one
+    when made by the sketch): what knot insertion leaves, since no other kind holds a knot where
+    the old ones are not uniform. The spans are at least two, finite and above zero
+    (`InvalidKnotSpans`) and three fewer than the points (`KnotSpanCount`); `curve::span_knots`
+    builds the knots, `same_form` compares the spans, nothing solves them. `SplineKind` is not
+    `Copy` because of it, so `Entity::spline_kind` returns a clone. Trim and extend read the result
+    as a `Piece` when its inner spans are all equal (always with up to six points), else as a
+    `Knotted` of the spans of the part's knots (`Part::kind`).
   - A conic has exactly three points (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO`
     (`InvalidRho`): a rational quadratic with middle weight `rho / (1 - rho)`, passing the point
     rho of the way from the chord's middle to the apex (below 0.5 ellipse, 0.5 parabola, above
@@ -217,7 +226,7 @@ relative to the extent.
     point whose window and position are unchanged keeps its point and ID, every other is a new
     point and the old ones no curve uses go with their constraints. An open control spline or piece
     becomes a plain control spline when the stretch lies within one span or both its end spans
-    are whole, else a `Piece`; a closed
+    are whole, else a `Piece` (a `Knotted` when its inner spans are uneven); a closed
     one is unrolled over two turns (`Knotted::periodic`) and opens into one; a conic stays a conic
     (normalised middle weight gives the new rho; its `Rho` dimension is dropped). A fit-point
     spline cannot hold an exact piece, so its piece is a fit spline of the same spacing through the
@@ -390,6 +399,20 @@ relative to the extent.
   measured inside the cut-off triangle (`from`, `to`, `reversed` giving a positive drawn value are
   found by measuring, `AngleNotHeld` if none does; an elliptical arc's measured from its tangent at
   the new end).
+- Insert a control point (`insertion.rs`): `insert_control_point(spline, near)` adds one control
+  point to an open control spline, piece or knotted spline of at least four points, keeping the
+  curve exactly by Boehm's knot insertion (`Knotted::inserted`, in homogeneous coordinates like the
+  blossoms): a knot goes into the span at the parameter closest to `near` (clamped `SPAN_MARGIN`
+  of the span from its knots so no span collapses), else into the span with the longest curve
+  that leaves its neighbours alone. With degree three the knot replaces the two control points
+  before the span's end by three, so those two keep their IDs and move along the polygon, the
+  third is new and gets the next place in the list, and the result is `Part::kind` (a `Piece` or
+  `Knotted`). Moving them may not break a constraint, so they must be free: no constraint, no
+  other user, not projected, listed once (`InsertError::HeldPoint` names the first that is not;
+  with no `near` the next longest span is tried). Constraints on the spline itself hold, since
+  its curve does not change. Refused with `FitSpline`, `ClosedSpline` (a periodic spline would
+  need a closed knotted kind), `Conic`, `TooFewPoints` (degrees one and two would change degree),
+  `Projected`, `NotASpline`. It works on a clone, so a refusal changes nothing.
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point on it between its ends
   (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve dropped.
   A line's pieces are `Collinear` or each keeps horizontal or vertical; a point that was the line's

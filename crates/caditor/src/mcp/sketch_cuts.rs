@@ -9,7 +9,7 @@ use crate::{
         tools::ToolError,
         writing,
     },
-    sketch_tools::{BREAK_TITLE, ConstructionChange, RESPACE_TITLE, SPLIT_TITLE},
+    sketch_tools::{BREAK_TITLE, ConstructionChange, INSERT_TITLE, RESPACE_TITLE, SPLIT_TITLE},
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -33,6 +33,14 @@ pub struct Splitting {
 pub struct Breaking {
     pub sketch: Named,
     pub curves: Vec<EntityName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InsertingPoints {
+    pub sketch: Named,
+    pub splines: Vec<EntityName>,
+    pub point: Option<EntityName>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -108,6 +116,44 @@ pub(super) fn break_curves(target: &Target<'_>, asked: &Breaking) -> Result<Plan
             .map_err(|error| SketchEditError::Break(error).into())
     })?;
     Ok(Planned::of(transaction))
+}
+
+pub(super) fn insert_control_points(
+    target: &Target<'_>,
+    asked: &InsertingPoints,
+) -> Result<Planned, ToolError> {
+    let splines = target.entities(&asked.splines)?;
+    let near = asked
+        .point
+        .as_ref()
+        .map(|name| target.point_of(name))
+        .transpose()?;
+    if splines.is_empty() || (near.is_some() && splines.len() != 1) {
+        return Err(SketchEditError::InsertionTargets {
+            sketch: target.name.to_owned(),
+        }
+        .into());
+    }
+    let working = target.working();
+    for spline in &splines {
+        working
+            .check_point_insertion(*spline)
+            .map_err(|error| ToolError::from(SketchEditError::Insert(error)))?;
+    }
+    let transaction = target.reshaped(INSERT_TITLE.to_owned(), |sketch| {
+        let near = near.and_then(|point| sketch.point(point));
+        for spline in &splines {
+            sketch
+                .insert_control_point(*spline, near)
+                .map_err(|error| ToolError::from(SketchEditError::Insert(error)))?;
+        }
+        Ok(())
+    })?;
+    let mut planned = Planned::of(transaction);
+    planned
+        .details
+        .insert("refined".to_owned(), writing::ids(&splines));
+    Ok(planned)
 }
 
 pub(super) fn respace(target: &Target<'_>, asked: &Respacing) -> Result<Planned, ToolError> {

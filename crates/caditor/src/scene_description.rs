@@ -390,7 +390,10 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                         unit.spoken_length(minor)
                     )
                 }
-                Entity::Spline { ref points, kind } => {
+                Entity::Spline {
+                    ref points,
+                    ref kind,
+                } => {
                     let ends = entity
                         .spline_ends()
                         .map(|(first, last)| format!(" from {} to {}", point(first), point(last)))
@@ -400,7 +403,9 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                         SplineKind::Fit { .. } => {
                             format!("{}{ends}", count(points.len(), "fit point", "fit points"))
                         }
-                        SplineKind::Control { .. } | SplineKind::Piece { .. } => format!(
+                        SplineKind::Control { .. }
+                        | SplineKind::Piece { .. }
+                        | SplineKind::Knotted { .. } => format!(
                             "{}{ends}",
                             count(points.len(), "control point", "control points")
                         ),

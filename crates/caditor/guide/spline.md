@@ -24,14 +24,27 @@ this for you.
 
 A point held on a closed spline slides all the way round it, past where the spline started.
 
-Fit-point splines from files saved before caditor spaced them by their points keep the shape
-they were saved with, which can overshoot between unevenly spaced points. Select them and run
-{command:sketch.respace_fit_splines} to space them by their points like a new one; the points stay
-where they are and the curve between them changes. Undo puts the old shape back.
+## Adding control points
+
+{command:sketch.insert_spline_point} gives a spline drawn from control points one more control
+point without changing its shape. Select the spline, and a point if you want the new control point
+near a place along it; with no point, it goes into the spline's longest stretch. Several splines
+selected together each get one, and the command is also in the right-click menu on a spline. Add
+points one at a time to refine a stretch as far as you like; Undo takes the point away.
+
+To keep the curve exactly, the two control points beside the new one move a little along the
+control polygon. If either has a constraint or another curve on it, the command stops and names it,
+or, when you gave no place, picks a stretch that leaves them alone.
+
+Splines through fit points, conics, closed splines and splines of fewer than four points cannot
+take a point without changing shape, and the command says which. Taking a control point away while
+keeping the shape is not possible exactly.
 
 A spline drawn by control points shows its control polygon dashed while its sketch is edited;
 {command:view.toggle_control_polygons} hides or shows it. A spline through fit points shows none,
 since the fit points are its handles.
 
-Splines cut other curves and can be trimmed and extended themselves, keeping their shape; see
-[Trim and extend](trim-and-extend). For a curve shaped by a single value, see [Conic](conic).
+Splines cut other curves and can be trimmed, extended, split and broken themselves, keeping their
+shape; see [Trim and extend](trim-and-extend) and
+[splitting and breaking](sketch-editing). For a curve shaped by a single value, see
+[Conic](conic).

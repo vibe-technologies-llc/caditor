@@ -6,7 +6,7 @@ use crate::{
     constraint::Constraint,
     curve::{
         BSpline, CONIC_DEGREE, CONIC_KNOTS, MAX_SPLINE_DEGREE, clamped_knots, conic_weight,
-        periodic_knots, piece_knots,
+        periodic_knots, piece_knots, span_knots,
     },
     entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId},
@@ -378,13 +378,13 @@ impl System {
                 .iter()
                 .map(|point| self.point(*point))
                 .collect::<Result<Vec<_>, _>>()?;
-            let handle = match *kind {
+            let handle = match kind {
                 SplineKind::Control { closed: false } => clamped_handle(handles),
                 SplineKind::Control { closed: true } => {
                     periodic_handle(&handles, periodic_knots(handles.len()).1)
                 }
                 SplineKind::Conic { rho } => {
-                    let driven = self.rhos.get(&id).copied().unwrap_or(rho);
+                    let driven = self.rhos.get(&id).copied().unwrap_or(*rho);
                     let weight = conic_weight(driven).ok_or(SketchError::InvalidRho)?;
                     SplineHandle {
                         points: handles,
@@ -395,9 +395,10 @@ impl System {
                     }
                 }
                 SplineKind::Fit { closed, spacing } => {
-                    self.fit_handle(id, &handles, closed, spacing)
+                    self.fit_handle(id, &handles, *closed, *spacing)
                 }
-                SplineKind::Piece { lead, trail } => piece_handle(handles, lead, trail),
+                SplineKind::Piece { lead, trail } => piece_handle(handles, *lead, *trail),
+                SplineKind::Knotted { spans } => knotted_handle(handles, spans),
             };
             self.splines.insert(id, Arc::new(handle));
         }
@@ -492,6 +493,19 @@ fn clamped_handle(points: Vec<PointHandle>) -> SplineHandle {
 
 fn piece_handle(points: Vec<PointHandle>, lead: f64, trail: f64) -> SplineHandle {
     let Some((degree, knots)) = piece_knots(points.len(), lead, trail) else {
+        return clamped_handle(points);
+    };
+    SplineHandle {
+        points,
+        degree,
+        knots,
+        weights: None,
+        periodic: false,
+    }
+}
+
+fn knotted_handle(points: Vec<PointHandle>, spans: &[f64]) -> SplineHandle {
+    let Some((degree, knots)) = span_knots(spans) else {
         return clamped_handle(points);
     };
     SplineHandle {

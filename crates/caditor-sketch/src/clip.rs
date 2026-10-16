@@ -163,7 +163,7 @@ impl Sketch {
                         .iter()
                         .map(|point| rename(&renamed, *point))
                         .collect(),
-                    kind: *kind,
+                    kind: kind.clone(),
                 },
                 Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
                     entity.with_points_mapped(|point| rename(&renamed, point))

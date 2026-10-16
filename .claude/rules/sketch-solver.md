@@ -103,7 +103,7 @@ paths:
   point handles, degree, knots, weights); the forms read only the handle, so each constraint works
   on every kind. Open control spline: its points; closed: its points taken round again (`points +
   3` handles on `periodic_knots`, gradients arriving at each copy); a piece (`SplineKind::Piece`)
-  its points on `piece_knots`; conic: three points with
+  its points on `piece_knots`; a knotted spline (`SplineKind::Knotted`) on `span_knots`; conic: three points with
   rational weights, from the active `Rho` dimension else the stored rho, and `Key::weights` holds
   them in the memo key since rho is no variable.
 - A fit-point spline's control points are variables of their own (`System::hidden`, `Variable::Control`

@@ -353,6 +353,19 @@ impl BSpline {
         })
     }
 
+    pub fn knotted(control_points: Vec<Point2>, spans: &[f64]) -> Option<Self> {
+        if control_points.len() != spans.len() + MAX_SPLINE_DEGREE {
+            return None;
+        }
+        let (degree, knots) = span_knots(spans)?;
+        Some(Self {
+            control_points,
+            degree,
+            knots,
+            weights: None,
+        })
+    }
+
     pub fn interpolate_closed(points: &[Point2]) -> Option<Self> {
         Self::periodic(&periodic_through(points)?)
     }
@@ -766,6 +779,26 @@ pub(crate) fn clamped_knots(count: usize) -> (usize, Vec<f64>) {
         .chain(std::iter::repeat_n(1.0, degree + 1))
         .collect();
     (degree, knots)
+}
+
+pub(crate) fn span_knots(spans: &[f64]) -> Option<(usize, Vec<f64>)> {
+    if !SplineKind::spans_are_valid(spans) {
+        return None;
+    }
+    let total: f64 = spans.iter().sum();
+    let degree = MAX_SPLINE_DEGREE;
+    let inner = spans
+        .iter()
+        .take(spans.len().saturating_sub(1))
+        .scan(0.0, |reached, span| {
+            *reached += span;
+            Some(*reached / total)
+        });
+    let knots = std::iter::repeat_n(0.0, degree + 1)
+        .chain(inner)
+        .chain(std::iter::repeat_n(1.0, degree + 1))
+        .collect();
+    Some((degree, knots))
 }
 
 pub(crate) fn piece_knots(count: usize, lead: f64, trail: f64) -> Option<(usize, Vec<f64>)> {

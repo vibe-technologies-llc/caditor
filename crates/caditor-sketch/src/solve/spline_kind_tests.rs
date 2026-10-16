@@ -350,7 +350,7 @@ fn a_point_held_on_a_closed_spline_moves_across_its_seam() {
         let ring: Vec<Point2> = (0..6)
             .map(|step| Point2::from_angle(f64::from(step) * TAU / 6.0) * 20.0)
             .collect();
-        let spline = sketch.add_spline_of(&ring, kind);
+        let spline = sketch.add_spline_of(&ring, kind.clone());
         for point in points_of(&sketch, spline) {
             let at = sketch.point(point).unwrap();
             sketch
@@ -373,4 +373,45 @@ fn a_point_held_on_a_closed_spline_moves_across_its_seam() {
             "{kind:?}"
         );
     }
+}
+
+#[test]
+fn a_point_on_a_spline_with_knots_of_its_own_stays_on_the_curve_as_its_points_move() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let wave: Vec<Point2> = (0..7)
+        .map(|index| Point2::new(index as f64 * 10.0, if index % 2 == 0 { 0.0 } else { 12.0 }))
+        .collect();
+    let spline = sketch.add_spline(&wave);
+    for parameter in [0.2, 0.55] {
+        let near = sketch.spline(spline).unwrap().point_at(parameter);
+        sketch.insert_control_point(spline, Some(near)).unwrap();
+    }
+    let points = points_of(&sketch, spline);
+    let on = sketch.spline(spline).unwrap().point_at(0.45);
+    let point = sketch.add_point(on);
+    sketch
+        .add_constraint(Constraint::Coincident(point, spline))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: points[0],
+            to: points[8],
+            value: Expression::Measure(70.0, Unit::Millimetre),
+        })
+        .unwrap();
+
+    let solved = solve(&sketch).unwrap();
+    let geometry = &solved.geometry;
+    let at = geometry.point(point).unwrap();
+    let (first, last) = (
+        geometry.point(points[0]).unwrap(),
+        geometry.point(points[8]).unwrap(),
+    );
+
+    assert!(matches!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        Some(SplineKind::Knotted { .. })
+    ));
+    assert!((first.distance(last) - 70.0).abs() < EXACT);
+    assert!(geometry.closest_on_curve(spline, at).unwrap().distance(at) < 1e-7);
 }
