@@ -178,6 +178,7 @@ pub fn command(command: Command) -> &'static str {
         Command::BreakCurves => phosphor::GIT_FORK,
         Command::UnlinkProjection => phosphor::LINK_BREAK,
         Command::RespaceFitSplines => phosphor::BEZIER_CURVE,
+        Command::InsertSplinePoint => phosphor::PLUS_CIRCLE,
         Command::RotateGeometry => phosphor::ARROW_ARC_LEFT,
         Command::ScaleGeometry => phosphor::RESIZE,
         Command::Construction => CONSTRUCTION,

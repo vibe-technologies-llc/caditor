@@ -4,9 +4,9 @@ use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
     BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, Dimensioned,
-    EntityId, ExtendError, FilletError, GearError, MAX_LENGTH, MirrorError, OffsetError,
-    PatternError, PatternRow, RectangularPattern, Sketch, SketchError, SplitError, Spread,
-    TangentError, TrimError,
+    EntityId, ExtendError, FilletError, GearError, InsertError, MAX_LENGTH, MirrorError,
+    OffsetError, PatternError, PatternRow, RectangularPattern, Sketch, SketchError, SplitError,
+    Spread, TangentError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -19,7 +19,7 @@ use crate::{
         references::{self, EntityName, Named},
         session::{Session, Work},
         sketch_additions::{self, Blending, Copying, Gearing, TangentCircling},
-        sketch_cuts::{self, Breaking, Constructing, Respacing, Splitting},
+        sketch_cuts::{self, Breaking, Constructing, InsertingPoints, Respacing, Splitting},
         sketch_moves,
         sketch_projections::{self, Intersecting, Projecting},
         tools::{Answer, ToolError, ValueRefusal},
@@ -90,6 +90,12 @@ pub enum SketchEditError {
     Break(BreakError),
     #[error("the splines cannot be respaced: {0}")]
     Respace(SketchError),
+    #[error("a control point cannot be added there: {0}")]
+    Insert(InsertError),
+    #[error(
+        "give at least one spline in {sketch} to add a control point to, and a point only with a single spline"
+    )]
+    InsertionTargets { sketch: String },
     #[error(
         "nothing to change in {sketch}: construction applies to curves, not points, and every curve given already is what was asked"
     )]
@@ -171,6 +177,7 @@ pub enum Modification {
     Split(Splitting),
     Break(Breaking),
     Respace(Respacing),
+    InsertControlPoint(InsertingPoints),
     TangentCircle(TangentCircling),
     Blend(Blending),
     Gear(Gearing),
@@ -478,6 +485,7 @@ fn sketch_of(asked: &Modification) -> &Named {
         Modification::Split(asked) => &asked.sketch,
         Modification::Break(asked) => &asked.sketch,
         Modification::Respace(asked) => &asked.sketch,
+        Modification::InsertControlPoint(asked) => &asked.sketch,
         Modification::TangentCircle(asked) => &asked.sketch,
         Modification::Blend(asked) => &asked.sketch,
         Modification::Gear(asked) => &asked.sketch,
@@ -509,6 +517,9 @@ fn plan(
         Modification::Split(asked) => sketch_cuts::split(target, asked),
         Modification::Break(asked) => sketch_cuts::break_curves(target, asked),
         Modification::Respace(asked) => sketch_cuts::respace(target, asked),
+        Modification::InsertControlPoint(asked) => {
+            sketch_cuts::insert_control_points(target, asked)
+        }
         Modification::TangentCircle(asked) => {
             sketch_additions::tangent_circle(session, target, asked)
         }

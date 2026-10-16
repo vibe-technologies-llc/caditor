@@ -219,8 +219,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   cut), a body (the cut through all of it, found through its first face key, as Shift-click), a
   datum plane or a principal plane (a construction line). Construction (`ConstructionChange`,
   switching every curve the other way unless `construction` says), split (`check_split`,
-  `split_at`), break (`break_curves`) and respace (`respace_fit_spline`, only for splines still
-  evenly spaced) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
+  `split_at`), break (`break_curves`) respace (`respace_fit_spline`, only for splines still
+  evenly spaced) and insert_control_point (`splines`, and `point` with a single one;
+  `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
   `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel) and copy (`Sketch::clip`
   then `paste`, within the sketch shifted by `clipboard::same_sketch_shift` or from `from_sketch`
@@ -232,7 +233,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), edges with
   `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two
   points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`
-  (a spline with its form, a fit spline's spacing and a conic's rho, an ellipse or elliptical arc with its major end and
+  (a spline with its form (control, fit, conic, piece or knotted), a fit spline's spacing and a conic's rho, an ellipse or elliptical arc with its major end and
   minor radius), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
   `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `save_as` sends the same `SaveRequest` for a new

@@ -235,11 +235,12 @@ enum SplineForm {
     ClosedFit(FitSpacing),
     Conic,
     Piece,
+    Knotted,
 }
 
 impl SplineForm {
-    fn of(kind: SplineKind) -> Self {
-        match kind {
+    fn of(kind: &SplineKind) -> Self {
+        match *kind {
             SplineKind::Control { closed: false } => Self::Open,
             SplineKind::Control { closed: true } => Self::Closed,
             SplineKind::Fit {
@@ -252,6 +253,7 @@ impl SplineForm {
             } => Self::ClosedFit(spacing),
             SplineKind::Conic { .. } => Self::Conic,
             SplineKind::Piece { .. } => Self::Piece,
+            SplineKind::Knotted { .. } => Self::Knotted,
         }
     }
 }
@@ -274,7 +276,7 @@ impl Shape {
             Entity::Line { .. } => Self::Line,
             Entity::Circle { .. } => Self::Circle,
             Entity::Arc { .. } => Self::Arc,
-            Entity::Spline { points, kind } => Self::Spline(points.len(), SplineForm::of(*kind)),
+            Entity::Spline { points, kind } => Self::Spline(points.len(), SplineForm::of(kind)),
             Entity::Ellipse { .. } => Self::Ellipse,
             Entity::EllipticalArc { .. } => Self::EllipticalArc,
         }
@@ -288,7 +290,7 @@ impl Outline {
             Self::Line { .. } => Shape::Line,
             Self::Circle { .. } => Shape::Circle,
             Self::Arc { .. } => Shape::Arc,
-            Self::Spline { points, kind } => Shape::Spline(points.len(), SplineForm::of(*kind)),
+            Self::Spline { points, kind } => Shape::Spline(points.len(), SplineForm::of(kind)),
             Self::Ellipse { .. } => Shape::Ellipse,
             Self::EllipticalArc { .. } => Shape::EllipticalArc,
         }
@@ -598,7 +600,7 @@ fn sketch_entity_outline(
                 .iter()
                 .map(|point| source.point(*point).map(local))
                 .collect::<Option<Vec<_>>>()?,
-            kind: *kind,
+            kind: kind.clone(),
         },
         Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
             let ellipse = source.ellipse(entity)?;
@@ -702,7 +704,7 @@ impl TransactionBuilder<'_> {
                     self,
                     Entity::Spline {
                         points,
-                        kind: *kind,
+                        kind: kind.clone(),
                     },
                 )
             }
@@ -1002,17 +1004,17 @@ fn place(sketch: &mut Sketch, entity: EntityId, outline: &Outline) -> Result<(),
                 points: positions,
                 kind: wanted,
             },
-        ) if points.len() == positions.len() && kind.same_form(*wanted) => {
+        ) if points.len() == positions.len() && kind.same_form(wanted) => {
             for (id, position) in points.iter().zip(positions) {
                 set_point(sketch, *id, *position)?;
             }
-            if kind != *wanted {
+            if &kind != wanted {
                 sketch
                     .replace_entity(
                         entity,
                         Entity::Spline {
                             points,
-                            kind: *wanted,
+                            kind: wanted.clone(),
                         },
                     )
                     .map_err(|_| ())?;

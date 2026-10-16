@@ -1415,7 +1415,7 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
     ];
     for kind in [SplineKind::Control { closed: true }, SplineKind::fit(true)] {
         let mut sketch = Sketch::new(Plane::XY);
-        sketch.add_spline_of(&outline, kind);
+        sketch.add_spline_of(&outline, kind.clone());
         let (document, body) = single_body(
             extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
             sketch,

@@ -112,8 +112,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading
-  them; the degree cannot be chosen; and no point can be inserted or removed while keeping the
-  shape.
+  them; the degree cannot be chosen; a point cannot be removed while keeping the shape (only
+  approximately possible); and a point can be inserted keeping the shape only in an open control
+  spline of four points or more, not in a closed one (it needs a closed spline with knots of its
+  own), a conic or one of fewer points.
 - [medium · hard] A spur gear (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
   geometry, not tied to the values in the Spur gear panel (expressions using parameters are read
   when it is drawn), so changing the module, teeth or pressure angle, or a parameter they use,
@@ -124,8 +126,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
   along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
   equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
-  refitted through its remaining points rather than kept exactly (its knots follow its points, so
-  no fit spline holds the piece), and a spline cannot be split or broken at a point.
+  refitted through its remaining points rather than kept exactly, and one cannot be split or broken
+  at a point (its knots follow its points, so no fit spline holds the piece).
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the

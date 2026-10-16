@@ -135,7 +135,7 @@ fn a_point_off_the_curve_or_at_its_end_and_a_circle_are_refused() {
     ));
     assert!(matches!(
         sketch.check_split(circle, on_circle),
-        Err(SplitError::NotLineOrArc { .. })
+        Err(SplitError::NotSplittable { .. })
     ));
 }
 

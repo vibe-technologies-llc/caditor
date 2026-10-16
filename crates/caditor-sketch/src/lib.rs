@@ -15,6 +15,7 @@ mod fit;
 mod gear;
 mod id;
 mod inference;
+mod insertion;
 mod intersect;
 mod mirror;
 mod offset;
@@ -48,6 +49,7 @@ pub use crate::{
     },
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
+    insertion::InsertError,
     mirror::{MirrorError, MirrorImage},
     offset::{Caps, Chain, OffsetError, Outline, Side},
     pattern::{

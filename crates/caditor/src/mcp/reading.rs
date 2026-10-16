@@ -652,6 +652,7 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                         SplineKind::Fit { .. } => "fit",
                         SplineKind::Conic { .. } => "conic",
                         SplineKind::Piece { .. } => "piece",
+                        SplineKind::Knotted { .. } => "knotted",
                     };
                     entry.insert("form".to_owned(), json!(form));
                     if let SplineKind::Conic { rho } = kind {

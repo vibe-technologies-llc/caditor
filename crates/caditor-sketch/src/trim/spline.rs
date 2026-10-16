@@ -183,6 +183,56 @@ impl Knotted {
         points.get(degree).copied()
     }
 
+    pub(crate) fn spans(&self) -> Vec<KnotSpan> {
+        (self.degree..self.points.len())
+            .filter_map(|index| {
+                let low = *self.knots.get(index)?;
+                let high = *self.knots.get(index + 1)?;
+                (high > low).then_some(KnotSpan { low, high })
+            })
+            .collect()
+    }
+
+    pub(crate) fn inserted(&self, parameter: f64) -> Option<Inserted> {
+        let degree = self.degree;
+        let span = self.span_at(parameter)?;
+        let first = (span + 1).checked_sub(degree)?;
+        let mut knots = self.knots.clone();
+        knots.insert(span + 1, parameter);
+        let points = (0..=self.points.len())
+            .map(|index| {
+                if index < first {
+                    return self.points.get(index).copied();
+                }
+                if index > span {
+                    return self.points.get(index.checked_sub(1)?).copied();
+                }
+                let low = *self.knots.get(index)?;
+                let high = *self.knots.get(index + degree)?;
+                let share = (parameter - low) / (high - low);
+                let previous = *self.points.get(index.checked_sub(1)?)?;
+                let current = *self.points.get(index)?;
+                share.is_finite().then_some(previous.lerp(current, share))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let part = Part {
+            degree,
+            sources: vec![None; points.len()],
+            knots,
+            points,
+        };
+        Some(Inserted {
+            kind: part.kind(None, false)?,
+            positions: part
+                .points
+                .iter()
+                .map(|point| Part::position(*point))
+                .collect::<Option<_>>()?,
+            first,
+            span,
+        })
+    }
+
     fn snapped(&self, parameter: f64) -> f64 {
         let Some((low, high)) = self.domain() else {
             return parameter;
@@ -241,6 +291,20 @@ impl Knotted {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct KnotSpan {
+    pub(crate) low: f64,
+    pub(crate) high: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Inserted {
+    pub(crate) kind: SplineKind,
+    pub(crate) positions: Vec<Point2>,
+    pub(crate) first: usize,
+    pub(crate) span: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Part {
     degree: usize,
@@ -292,10 +356,31 @@ impl Part {
         if self.degree != MAX_SPLINE_DEGREE || count < MIN_PIECE_POINTS {
             return None;
         }
-        let width = width.filter(|width| *width > 0.0)?;
-        let knot = |index: usize| self.knots.get(index).copied();
-        let lead = (knot(self.degree + 1)? - knot(self.degree)?) / width;
-        let trail = (knot(count)? - knot(count - 1)?) / width;
+        let spans: Vec<f64> = (self.degree..count)
+            .map(|index| Some(self.knots.get(index + 1)? - self.knots.get(index)?))
+            .collect::<Option<_>>()?;
+        if !SplineKind::spans_are_valid(&spans) {
+            return None;
+        }
+        let (lead, inner, trail) = match spans.as_slice() {
+            [lead, inner @ .., trail] => (*lead, inner, *trail),
+            _ => return None,
+        };
+        let unit = inner
+            .first()
+            .copied()
+            .or(width.filter(|width| *width > 0.0))
+            .unwrap_or(trail);
+        let uniform = inner
+            .iter()
+            .all(|span| (span / unit - 1.0).abs() <= UNIFORM_SLACK);
+        if !uniform {
+            let total: f64 = spans.iter().sum();
+            return Some(SplineKind::Knotted {
+                spans: spans.iter().map(|span| span / total).collect(),
+            });
+        }
+        let (lead, trail) = (lead / unit, trail / unit);
         if (lead - 1.0).abs() <= UNIFORM_SLACK && (trail - 1.0).abs() <= UNIFORM_SLACK {
             return Some(SplineKind::OPEN);
         }
@@ -333,14 +418,21 @@ pub(crate) struct SplineSource {
     pub(crate) knotted: Knotted,
     pub(crate) rational: bool,
     width: Option<f64>,
-    points: Vec<EntityId>,
-    kind: SplineKind,
+    pub(crate) points: Vec<EntityId>,
+    pub(crate) kind: SplineKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Stretch {
     from: f64,
     to: f64,
+}
+
+struct Halves {
+    near: Stretch,
+    far: Stretch,
+    near_shape: Reshape,
+    far_shape: Reshape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,7 +485,7 @@ impl Sketch {
                     Some(1.0 / spans),
                 )
             }
-            SplineKind::Conic { .. } | SplineKind::Fit { .. } => {
+            SplineKind::Knotted { .. } | SplineKind::Conic { .. } | SplineKind::Fit { .. } => {
                 (Knotted::of(&self.spline(curve)?), None)
             }
         };
@@ -546,6 +638,81 @@ impl Sketch {
         }
     }
 
+    pub(crate) fn spline_split_is_inside(
+        &self,
+        curve: EntityId,
+        at: Point2,
+        tolerance: f64,
+    ) -> Result<bool, SketchError> {
+        let spline = self.spline(curve).ok_or(SketchError::NoSuchEntity(curve))?;
+        let length = spline.length();
+        if length.partial_cmp(&0.0) != Some(Ordering::Greater) {
+            return Ok(false);
+        }
+        let parameter = closest_spline_parameter(&spline, at);
+        let slack = tolerance / length;
+        let inside = spline.point_at(parameter).distance(at) <= tolerance
+            && parameter > slack
+            && parameter < 1.0 - slack;
+        if inside {
+            self.spline_halves(curve, parameter)?;
+        }
+        Ok(inside)
+    }
+
+    fn spline_halves(&self, curve: EntityId, parameter: f64) -> Result<Halves, SketchError> {
+        let no_piece = || SketchError::NoExactPiece {
+            entity: curve,
+            label: self.entity_label(curve),
+        };
+        let near = Stretch {
+            from: 0.0,
+            to: parameter,
+        };
+        let far = Stretch {
+            from: parameter,
+            to: 1.0,
+        };
+        Ok(Halves {
+            near,
+            far,
+            near_shape: self
+                .spline_reshape(curve, near.from, near.to)
+                .ok_or_else(no_piece)?,
+            far_shape: self
+                .spline_reshape(curve, far.from, far.to)
+                .ok_or_else(no_piece)?,
+        })
+    }
+
+    pub(crate) fn split_spline(
+        &mut self,
+        curve: EntityId,
+        point: EntityId,
+    ) -> Result<EntityId, SketchError> {
+        let Some(Entity::Spline { points, .. }) = self.entity(curve).cloned() else {
+            return Err(SketchError::NoSuchEntity(curve));
+        };
+        let at = self.point(point).ok_or(SketchError::NoSuchEntity(point))?;
+        let spline = self.spline(curve).ok_or(SketchError::NoSuchEntity(curve))?;
+        let mut halves = self.spline_halves(curve, closest_spline_parameter(&spline, at))?;
+        let fates = self.spline_fates(curve, halves.near, Some(halves.far));
+        halves.near_shape.set_end(true, Slot::Kept(point));
+        halves.far_shape.set_end(false, Slot::Kept(point));
+        self.place_spline(curve, halves.near_shape, &fates.leaving())?;
+        let far_points = self.slot_points(&halves.far_shape.slots);
+        let piece = self.add_piece(
+            curve,
+            Entity::Spline {
+                points: far_points,
+                kind: halves.far_shape.kind,
+            },
+        )?;
+        self.move_constraints(fates.moved, curve, piece)?;
+        self.drop_unused(&points)?;
+        Ok(piece)
+    }
+
     fn shorten_spline(
         &mut self,
         curve: EntityId,
@@ -636,7 +803,7 @@ impl Sketch {
         let closed = self
             .entity(curve)
             .and_then(Entity::spline_kind)
-            .is_some_and(SplineKind::is_closed);
+            .is_some_and(|kind| kind.is_closed());
         let length = spline.length();
         let slack = if length > 0.0 {
             TOLERANCE * SplineCourse::reach_of(&spline).max(1.0) / length
@@ -780,7 +947,7 @@ impl SplineSource {
                 slots.insert(1.min(slots.len()), inner);
             }
             return Some(Reshape {
-                kind: self.kind,
+                kind: self.kind.clone(),
                 slots,
             });
         }

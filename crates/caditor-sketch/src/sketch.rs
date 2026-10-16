@@ -8,7 +8,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     constraint::{Constraint, DimensionError},
-    curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
+    curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, MAX_SPLINE_DEGREE},
     entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
@@ -18,12 +18,12 @@ use crate::{
     target::{PointTarget, listed},
 };
 
-pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
+pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<BSpline> {
     match (kind, positions) {
         (SplineKind::Control { closed: false }, _) => BSpline::clamped(positions.to_vec()),
         (SplineKind::Control { closed: true }, _) => BSpline::periodic(positions),
         (
-            SplineKind::Fit {
+            &SplineKind::Fit {
                 closed,
                 spacing: FitSpacing::Even,
             },
@@ -36,7 +36,7 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
             }
         }
         (
-            SplineKind::Fit {
+            &SplineKind::Fit {
                 closed,
                 spacing: FitSpacing::Centripetal,
             },
@@ -48,14 +48,15 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
                 BSpline::interpolate_centripetal(positions)
             }
         }
-        (SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
+        (&SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
         (SplineKind::Conic { .. }, _) => None,
-        (SplineKind::Piece { lead, trail }, _) => BSpline::piece(positions.to_vec(), lead, trail),
+        (&SplineKind::Piece { lead, trail }, _) => BSpline::piece(positions.to_vec(), lead, trail),
+        (SplineKind::Knotted { spans }, _) => BSpline::knotted(positions.to_vec(), spans),
     }
 }
 
 impl SplineKind {
-    pub fn curve(self, points: &[Point2]) -> Option<BSpline> {
+    pub fn curve(&self, points: &[Point2]) -> Option<BSpline> {
         spline_through(points, self)
     }
 }
@@ -98,6 +99,12 @@ pub enum SketchError {
     TooFewPiecePoints,
     #[error("the end spans of a piece of a spline must be finite and longer than nothing")]
     InvalidEndSpans,
+    #[error("the knot spans of a spline must be at least two, finite and longer than nothing")]
+    InvalidKnotSpans,
+    #[error("a spline with knot spans of its own has three control points more than it has spans")]
+    KnotSpanCount,
+    #[error("{label} cannot be cut at that point into pieces that keep its shape")]
+    NoExactPiece { entity: EntityId, label: String },
     #[error("it uses {label} twice")]
     SameEntity { entity: EntityId, label: String },
     #[error("it needs {needed}, but {found} is not one")]
@@ -365,7 +372,7 @@ impl Sketch {
             .iter()
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
-        spline_through(&positions, *kind)
+        spline_through(&positions, kind)
     }
 
     pub fn spline_control_points(&self, id: EntityId) -> Option<Vec<Point2>> {
@@ -376,15 +383,16 @@ impl Sketch {
             .iter()
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
-        match *kind {
+        match kind {
             SplineKind::Control { closed: false }
             | SplineKind::Conic { .. }
-            | SplineKind::Piece { .. } => Some(positions),
+            | SplineKind::Piece { .. }
+            | SplineKind::Knotted { .. } => Some(positions),
             SplineKind::Control { closed: true } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
             SplineKind::Fit { .. } => {
-                spline_through(&positions, *kind).map(|spline| spline.control_points().to_vec())
+                spline_through(&positions, kind).map(|spline| spline.control_points().to_vec())
             }
         }
     }
@@ -589,7 +597,10 @@ impl Sketch {
             Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
             Constraint::Rho { conic, .. } => match self.entity(conic)?.spline_kind()? {
                 SplineKind::Conic { rho } => rho,
-                SplineKind::Control { .. } | SplineKind::Fit { .. } | SplineKind::Piece { .. } => {
+                SplineKind::Control { .. }
+                | SplineKind::Fit { .. }
+                | SplineKind::Piece { .. }
+                | SplineKind::Knotted { .. } => {
                     return None;
                 }
             },
@@ -1679,7 +1690,22 @@ impl Sketch {
             } if !(SplineKind::end_span_is_valid(lead) && SplineKind::end_span_is_valid(trail)) => {
                 return Err(SketchError::InvalidEndSpans);
             }
-            Entity::Spline { ref points, kind } if points.len() < kind.fewest_points() => {
+            Entity::Spline {
+                kind: SplineKind::Knotted { ref spans },
+                ..
+            } if !SplineKind::spans_are_valid(spans) => {
+                return Err(SketchError::InvalidKnotSpans);
+            }
+            Entity::Spline {
+                ref points,
+                kind: SplineKind::Knotted { ref spans },
+            } if points.len() != spans.len() + MAX_SPLINE_DEGREE => {
+                return Err(SketchError::KnotSpanCount);
+            }
+            Entity::Spline {
+                ref points,
+                ref kind,
+            } if points.len() < kind.fewest_points() => {
                 return Err(SketchError::TooFewClosedPoints);
             }
             Entity::Spline {

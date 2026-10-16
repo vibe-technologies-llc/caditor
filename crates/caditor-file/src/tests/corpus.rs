@@ -206,6 +206,10 @@ const KEPT: [(&str, &str); 43] = [
         "4d56af94bbefdc7ca4d04154800c5ee3b009a13b6083696abbaf7c5c728ead87",
     ),
     (
+        "model-1/spline-knots.caditor",
+        "1d17cc7945db58ee4b2354f106d72212c46f6fd0f2a3c92ab69d45240525f002",
+    ),
+    (
         "model-1/spline-pieces.caditor",
         "d6b13fe6a8e0771a6d16da0077d3c92e4831b9ce1c312fb0420539f3fa3d6b3b",
     ),
@@ -750,6 +754,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&spline_pieces(), "Spline pieces"),
         ),
         (
+            model("spline-knots"),
+            saved(&spline_knots(), "Spline knots"),
+        ),
+        (
             model("projected-datums"),
             saved(&projected_datums(), "Projected datums"),
         ),
@@ -890,6 +898,30 @@ fn spline_pieces() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Spline pieces");
     transaction.add_feature("Trimmed spline", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn spline_knots() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let wave = [
+        Point2::new(100.0, 100.0),
+        Point2::new(110.0, 115.0),
+        Point2::new(120.0, 90.0),
+        Point2::new(130.0, 112.0),
+        Point2::new(140.0, 86.0),
+        Point2::new(150.0, 108.0),
+        Point2::new(160.0, 100.0),
+    ];
+    let spline = drawn.add_spline(&wave);
+    for at in [115.0, 135.0] {
+        drawn
+            .insert_control_point(spline, Some(Point2::new(at, 100.0)))
+            .unwrap();
+    }
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Spline knots");
+    transaction.add_feature("Refined spline", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

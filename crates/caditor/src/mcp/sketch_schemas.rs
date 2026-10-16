@@ -50,10 +50,10 @@ pub fn modify_sketch() -> Value {
                 "enum": [
                     "trim", "extend", "offset", "mirror", "rectangular_pattern", "circular_pattern",
                     "fillet", "chamfer", "move", "rotate", "scale", "project", "intersect",
-                    "construction", "split", "break", "respace", "tangent_circle", "blend", "gear",
+                    "construction", "split", "break", "respace", "insert_control_point", "tangent_circle", "blend", "gear",
                     "copy"
                 ],
-                "description": "trim takes pieces; extend takes curve and end or near; offset takes curves and distance; mirror takes items and about; rectangular_pattern takes items, count, spacing and optionally angle and rows; circular_pattern takes items, center, count and optionally angle; fillet takes corners and radius; chamfer takes corners, distance and optionally second_distance or angle; move takes items and by or to; rotate takes items and angle, optionally about; scale takes items and factor, optionally about; project takes any of: body with edges, faces or corners, source_sketch (with source_curves, else the whole sketch), axes, datums, origin; intersect takes body (with a face, else the whole body), datum or plane; construction takes items and optionally construction (else switches them all the other way); split takes curve and point; break takes curves; respace takes splines; tangent_circle takes curves (two with a radius, or three) and optionally near; blend takes first and second ends and optionally continuity; gear takes optionally shape, center or at, and the gear's sizes; copy takes items, optionally from_sketch and by or to"
+                "description": "trim takes pieces; extend takes curve and end or near; offset takes curves and distance; mirror takes items and about; rectangular_pattern takes items, count, spacing and optionally angle and rows; circular_pattern takes items, center, count and optionally angle; fillet takes corners and radius; chamfer takes corners, distance and optionally second_distance or angle; move takes items and by or to; rotate takes items and angle, optionally about; scale takes items and factor, optionally about; project takes any of: body with edges, faces or corners, source_sketch (with source_curves, else the whole sketch), axes, datums, origin; intersect takes body (with a face, else the whole body), datum or plane; construction takes items and optionally construction (else switches them all the other way); split takes curve and point; break takes curves; respace takes splines; insert_control_point takes splines and optionally point (with a single spline); tangent_circle takes curves (two with a radius, or three) and optionally near; blend takes first and second ends and optionally continuity; gear takes optionally shape, center or at, and the gear's sizes; copy takes items, optionally from_sketch and by or to"
             },
             "pieces": {
                 "type": "array",
@@ -79,7 +79,7 @@ pub fn modify_sketch() -> Value {
                 "description": "extend: the point ending the curve at the end to extend"
             }),
             "near": point("extend: a position by the end to extend, instead of end; tangent_circle: of the circles that fit, the one whose centre is nearest this position"),
-            "curves": entities("offset: lines, arcs and circles forming one chain, or one ellipse; break: the lines, arcs and elliptical arcs to break at every crossing with other curves and the axes; tangent_circle: the lines, circles and arcs the circle touches"),
+            "curves": entities("offset: lines, arcs and circles forming one chain, or one ellipse; break: the lines, arcs, elliptical arcs and control-point splines to break at every crossing with other curves and the axes; tangent_circle: the lines, circles and arcs the circle touches"),
             "whole_chain": { "type": "boolean", "description": "offset: take every curve joined end to end with the given ones, as a click on a curve does" },
             "distance": expression("offset: how far, such as \"3 mm\", negative for the other side; chamfer: how far from the corner it cuts"),
             "toward": point("offset: a position on the side to offset toward; without it the outside of a closed chain"),
@@ -110,7 +110,7 @@ pub fn modify_sketch() -> Value {
             "construction": { "type": "boolean", "description": "construction: true to make the curves construction geometry, false to make them ordinary; without it every curve switches the way the first one is not" },
             "point": json!({
                 "type": ["integer", "string"],
-                "description": "split: the point lying on the curve between its ends where it is cut"
+                "description": "split: the point lying on the curve between its ends where it is cut; insert_control_point: a point near where the one spline gets its new control point (else its longest stretch)"
             }),
             "splines": entities("respace: fit-point splines saved before centripetal spacing"),
             "first": blend_end("blend: the end of the first curve"),

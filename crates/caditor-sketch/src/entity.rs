@@ -69,7 +69,7 @@ impl Entity {
         self.kind_name() == other.kind_name()
             && self.points() == other.points()
             && match (self.spline_kind(), other.spline_kind()) {
-                (Some(kind), Some(other)) => kind.same_form(other),
+                (Some(kind), Some(other)) => kind.same_form(&other),
                 (kind, other) => kind.is_none() && other.is_none(),
             }
     }
@@ -110,7 +110,7 @@ impl Entity {
             },
             Self::Spline { points, kind } => Self::Spline {
                 points: points.iter().map(|point| map(*point)).collect(),
-                kind: *kind,
+                kind: kind.clone(),
             },
             Self::Ellipse {
                 center,
@@ -139,7 +139,7 @@ impl Entity {
 
     pub fn spline_kind(&self) -> Option<SplineKind> {
         match self {
-            Self::Spline { kind, .. } => Some(*kind),
+            Self::Spline { kind, .. } => Some(kind.clone()),
             Self::Point(_)
             | Self::Line { .. }
             | Self::Circle { .. }
@@ -213,12 +213,13 @@ pub enum FitSpacing {
     Centripetal,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SplineKind {
     Control { closed: bool },
     Fit { closed: bool, spacing: FitSpacing },
     Conic { rho: f64 },
     Piece { lead: f64, trail: f64 },
+    Knotted { spans: Vec<f64> },
 }
 
 impl SplineKind {
@@ -231,25 +232,25 @@ impl SplineKind {
         }
     }
 
-    pub fn is_closed(self) -> bool {
+    pub fn is_closed(&self) -> bool {
         match self {
-            Self::Control { closed } | Self::Fit { closed, .. } => closed,
-            Self::Conic { .. } | Self::Piece { .. } => false,
+            Self::Control { closed } | Self::Fit { closed, .. } => *closed,
+            Self::Conic { .. } | Self::Piece { .. } | Self::Knotted { .. } => false,
         }
     }
 
-    pub fn opened(self) -> Self {
+    pub fn opened(&self) -> Self {
         match self {
             Self::Control { .. } => Self::Control { closed: false },
             Self::Fit { spacing, .. } => Self::Fit {
                 closed: false,
-                spacing,
+                spacing: *spacing,
             },
-            Self::Conic { .. } | Self::Piece { .. } => self,
+            Self::Conic { .. } | Self::Piece { .. } | Self::Knotted { .. } => self.clone(),
         }
     }
 
-    pub fn is_centripetal(self) -> bool {
+    pub fn is_centripetal(&self) -> bool {
         matches!(
             self,
             Self::Fit {
@@ -259,30 +260,30 @@ impl SplineKind {
         )
     }
 
-    pub fn same_form(self, other: Self) -> bool {
+    pub fn same_form(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Conic { .. }, Self::Conic { .. }) => true,
             (kind, other) => kind == other,
         }
     }
 
-    pub fn passes_its_points(self) -> bool {
+    pub fn passes_its_points(&self) -> bool {
         matches!(self, Self::Fit { .. })
     }
 
-    pub fn fewest_points(self) -> usize {
+    pub fn fewest_points(&self) -> usize {
         match self {
             Self::Control { closed: false } | Self::Fit { closed: false, .. } => 2,
             Self::Control { closed: true }
             | Self::Fit { closed: true, .. }
             | Self::Conic { .. } => 3,
-            Self::Piece { .. } => MIN_PIECE_POINTS,
+            Self::Piece { .. } | Self::Knotted { .. } => MIN_PIECE_POINTS,
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(&self) -> &'static str {
         match self {
-            Self::Control { closed: false } | Self::Piece { .. } => "Spline",
+            Self::Control { closed: false } | Self::Piece { .. } | Self::Knotted { .. } => "Spline",
             Self::Control { closed: true } => "Closed spline",
             Self::Fit { closed: false, .. } => "Fit-point spline",
             Self::Fit { closed: true, .. } => "Closed fit-point spline",
@@ -296,5 +297,9 @@ impl SplineKind {
 
     pub fn end_span_is_valid(span: f64) -> bool {
         span.is_finite() && span > 0.0
+    }
+
+    pub fn spans_are_valid(spans: &[f64]) -> bool {
+        spans.len() >= 2 && spans.iter().all(|span| Self::end_span_is_valid(*span))
     }
 }

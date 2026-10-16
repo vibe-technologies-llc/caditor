@@ -15,9 +15,12 @@ Escape or the status bar's Cancel drops it.
 
 ## Splitting and breaking
 
-- {command:sketch.split_curve} cuts a line, arc or elliptical arc at a selected point on it.
-- {command:sketch.break_curves} breaks the selected lines, arcs and elliptical arcs at every
-  crossing.
+- {command:sketch.split_curve} cuts a line, arc, elliptical arc or spline at a selected point on
+  it. A spline drawn from control points splits into two splines of exactly the same curve; one
+  drawn through fit points, or a closed one, is refused with the reason (trim a closed spline open
+  first).
+- {command:sketch.break_curves} breaks the selected lines, arcs, elliptical arcs and splines at
+  every crossing.
 - [Trim and Extend](trim-and-extend) cut away or lengthen pieces with a click.
 
 ## Copy and paste
@@ -29,9 +32,10 @@ the pointer and selects it; dimensions keep parameters of the same name in the t
 ## The context menu
 
 Right-click a curve or point for the constraints the selection can take, construction, splitting,
-deleting, the tools that work on the selection under **Modify** (offset, mirror, the patterns,
-sketch fillet and chamfer, tangent circle), moving, cut, copy and paste, selecting and Smart
-dimension; right-click empty space to paste or finish the sketch. While a shape is half drawn the
+adding a [spline control point](spline), deleting, the tools that work on the selection under
+**Modify** (offset, mirror, the patterns, sketch fillet and chamfer, tangent circle), moving, cut,
+copy and paste, selecting and Smart dimension; right-click empty space to paste or finish the
+sketch. While a shape is half drawn the
 menu offers {command:sketch.take_back_point}, {command:sketch.finish_shape} for a chain of lines, tangent arcs
 or a spline, {command:sketch.cancel_shape}, {command:sketch.chain_arc} in a line chain, reversing
 an arc and typing an exact value. See

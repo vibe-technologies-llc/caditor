@@ -106,6 +106,7 @@ pub enum Command {
     SplitCurve,
     BreakCurves,
     RespaceFitSplines,
+    InsertSplinePoint,
     UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
@@ -817,6 +818,7 @@ plain_commands! {
     SplitCurve,
     BreakCurves,
     RespaceFitSplines,
+    InsertSplinePoint,
     UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
@@ -980,6 +982,7 @@ impl Command {
             Self::BreakCurves => "sketch.break_curves",
             Self::UnlinkProjection => "sketch.unlink_projection",
             Self::RespaceFitSplines => "sketch.respace_fit_splines",
+            Self::InsertSplinePoint => "sketch.insert_spline_point",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
@@ -1311,6 +1314,9 @@ impl Command {
             Self::BreakCurves => "Break the selected curves at every crossing",
             Self::UnlinkProjection => "Keep the selected projections as ordinary curves",
             Self::RespaceFitSplines => "Respace the selected fit-point splines by their points",
+            Self::InsertSplinePoint => {
+                "Add a control point to the selected spline, keeping its shape exactly"
+            }
             Self::RotateGeometry => "Rotate selected sketch geometry",
             Self::ScaleGeometry => "Scale selected sketch geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
@@ -1936,6 +1942,7 @@ impl Command {
             | Self::BreakCurves
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
+            | Self::InsertSplinePoint
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1979,6 +1986,7 @@ impl Command {
             | Self::BreakCurves
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
+            | Self::InsertSplinePoint
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -2151,6 +2159,7 @@ impl Command {
             | Self::BreakCurves
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
+            | Self::InsertSplinePoint
             | Self::ProjectSketch
             | Self::RotateGeometry
             | Self::ScaleGeometry

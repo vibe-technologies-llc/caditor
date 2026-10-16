@@ -49,7 +49,8 @@ first, so two programs never change one model at once.
   corners of a body, curves of other sketches, axes, datums and the origin into a sketch,
   following their source as it changes, and intersect a body, a face or a plane with the sketch
   plane. The same tool switches curves to construction geometry and back, splits a curve at a
-  point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)),
+  point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)), adds a
+  control point to a [spline](spline),
   draws a [tangent circle](tangent-circle), a [blend curve](blend-curve) and a [spur gear](gear),
   gear pair or sprocket, and copies geometry with its constraints within a sketch or from
   another, as [copy and paste](move-and-copy) do.

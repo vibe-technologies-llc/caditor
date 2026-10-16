@@ -1966,6 +1966,10 @@ pub(crate) enum EntityKindRecord {
         lead: f64,
         trail: f64,
     },
+    SplineKnots {
+        control_points: Vec<u64>,
+        spans: Vec<f64>,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -1982,7 +1986,7 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 14] = [
+const ENTITY_KINDS: [&str; 15] = [
     "point",
     "line",
     "circle",
@@ -1995,6 +1999,7 @@ const ENTITY_KINDS: [&str; 14] = [
     "closed_centripetal_fit_spline",
     "conic",
     "spline_piece",
+    "spline_knots",
     "ellipse",
     "elliptical_arc",
 ];
@@ -5169,7 +5174,7 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
         },
         Entity::Spline { points, kind } => {
             let raw: Vec<u64> = points.iter().map(|point| point.raw()).collect();
-            match (*kind, raw.as_slice()) {
+            match (kind, raw.as_slice()) {
                 (SplineKind::Control { closed: false }, _) => EntityKindRecord::Spline {
                     control_points: raw,
                 },
@@ -5208,15 +5213,19 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                     start,
                     apex,
                     end,
-                    rho,
+                    rho: *rho,
                 },
                 (SplineKind::Conic { .. }, _) => EntityKindRecord::Spline {
                     control_points: raw,
                 },
                 (SplineKind::Piece { lead, trail }, _) => EntityKindRecord::SplinePiece {
                     control_points: raw,
-                    lead,
-                    trail,
+                    lead: *lead,
+                    trail: *trail,
+                },
+                (SplineKind::Knotted { spans }, _) => EntityKindRecord::SplineKnots {
+                    control_points: raw,
+                    spans: spans.clone(),
                 },
             }
         }
@@ -9159,6 +9168,15 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             kind: SplineKind::Piece {
                 lead: *lead,
                 trail: *trail,
+            },
+        },
+        EntityKindRecord::SplineKnots {
+            control_points,
+            spans,
+        } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Knotted {
+                spans: spans.clone(),
             },
         },
         EntityKindRecord::Ellipse {

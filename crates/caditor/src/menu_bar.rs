@@ -1035,6 +1035,7 @@ impl Menus<'_> {
                             Command::SplitCurve,
                             Command::BreakCurves,
                             Command::RespaceFitSplines,
+                            Command::InsertSplinePoint,
                             Command::UnlinkProjection,
                         ],
                     );

@@ -447,7 +447,7 @@ impl Tool {
                  axes, datums and the origin into the sketch (following their source), \
                  intersect a body, face or plane with the sketch plane, switch curves to \
                  construction geometry and back, split a curve at a point, break curves at \
-                 their crossings, respace old fit-point splines, draw a circle tangent to two \
+                 their crossings, respace old fit-point splines, add a control point to a spline keeping its shape, draw a circle tangent to two \
                  or three curves, blend two curve ends with a spline, draw a spur gear, gear \
                  pair or sprocket, or copy geometry (with its constraints) within a sketch or \
                  from another. Lengths and angles are expressions with units and parameters. \

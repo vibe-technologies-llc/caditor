@@ -32,7 +32,8 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
         self, ActivityChange, BreakChange, ConstraintOfferError, ConstraintTool,
-        ConstructionChange, RespaceChange, SketchChangeError, SplitChange, UnlinkChange,
+        ConstructionChange, RespaceChange, SketchChangeError, SplinePointChange, SplitChange,
+        UnlinkChange,
     },
     toggles::ToggleStates,
     units::Units,
@@ -229,6 +230,7 @@ const MODIFY_MENU: &[&[Command]] = &[
         Command::SplitCurve,
         Command::BreakCurves,
         Command::RespaceFitSplines,
+        Command::InsertSplinePoint,
         Command::UnlinkProjection,
     ],
     &[
@@ -482,6 +484,7 @@ pub fn show(
         _ => Err(SketchChangeError::NothingToUnlink),
     };
     let respacing = RespaceChange::of(&shown, &selected);
+    let inserting = SplinePointChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
@@ -526,6 +529,10 @@ pub fn show(
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
         respacing: respacing
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        inserting: inserting
             .as_ref()
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
@@ -665,6 +672,14 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
+    if request.inserting
+        && let Ok(change) = &inserting
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
+        });
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -725,6 +740,7 @@ struct Request {
     breaking: bool,
     unlinking: bool,
     respacing: bool,
+    inserting: bool,
     delete: bool,
     finish: bool,
     cancel: bool,
@@ -785,6 +801,7 @@ struct Bar<'a, 'b> {
     breaking: Result<(), Unavailable>,
     unlinking: Result<(), Unavailable>,
     respacing: Result<(), Unavailable>,
+    inserting: Result<(), Unavailable>,
     deletable: Result<(), Unavailable>,
     moving: Result<(), Unavailable>,
     select_all: Result<(), Unavailable>,
@@ -1401,6 +1418,12 @@ impl Bar<'_, '_> {
             .invoke(Command::RespaceFitSplines, &self.respacing)
         {
             self.request.respacing = true;
+        }
+        if self
+            .commands
+            .invoke(Command::InsertSplinePoint, &self.inserting)
+        {
+            self.request.inserting = true;
         }
         for tool in OFF_RIBBON {
             self.off_ribbon_tool(tool);
