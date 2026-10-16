@@ -16,7 +16,7 @@ use crate::{
     history::HistoryCommand,
     icons,
     layout::PanelLayout,
-    model::{Action, NEVER_SAVED, NO_CHANGES_SINCE_SAVED},
+    model::{Action, SavedVersionError},
     preferences::Preferences,
     samples::Sample,
     undo_history, version_preview,
@@ -139,7 +139,7 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
 
     assert_eq!(
         offered(&harness, Command::RevertToSaved),
-        Err(NEVER_SAVED.into())
+        Err(SavedVersionError::NeverSaved.to_string().into())
     );
 
     harness.command(FileCommand::OpenPath(path.clone()));
@@ -150,7 +150,7 @@ fn revert_to_saved_goes_back_to_the_file_in_one_step_that_undo_takes_back() {
 
     assert_eq!(
         offered(&harness, Command::RevertToSaved),
-        Err(NO_CHANGES_SINCE_SAVED.into())
+        Err(SavedVersionError::NoChangesSinceSaved.to_string().into())
     );
 
     let saved = harness.document().clone();

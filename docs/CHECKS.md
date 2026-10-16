@@ -6,10 +6,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [medium · medium] Errors carried as constant text: no app function returns `Result<_, String>`
   any more and `errors_are_typed_rather_than_text` (`conventions_tests.rs`) keeps it so, but about
-  55 still return `Result<_, &'static str>` (`drawing.rs`, the `Offers` fields in `offers.rs`
+  35 still return `Result<_, &'static str>` (`drawing.rs`, the `Offers` fields in `offers.rs`
   (whose datum fields convert `DatumFromSelectionError::text` at the boundary),
   `sketch_pattern_tools.rs`, the tools' `steppable` and `highlight_needed` shared with
-  `commands::Reason`, and some twenty more), so the variants wrapping them hold that text
+  `commands::Reason`, and a few more), so the variants wrapping them hold that text
   (`PatternSketchError::Sketch`, `SymmetryError::ChosenLine`).
   `modifying::Outcome::Refused` and `queued.rs` (whose `Awaited::of` matches a refusal's words)
   still pass a sentence along. Type each, then extend the check to `&'static str` errors. The

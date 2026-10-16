@@ -1,6 +1,8 @@
-use std::collections::VecDeque;
+use std::{borrow::Cow, collections::VecDeque};
 
 use caditor_render::Viewpoint;
+
+use crate::commands::Reason;
 
 pub const KEPT_VIEWS: usize = 32;
 pub const NO_EARLIER_VIEW: &str =
@@ -8,6 +10,18 @@ pub const NO_EARLIER_VIEW: &str =
 const IDLE_SECONDS: f64 = 0.4;
 const SAME_PLACE_SHARE: f64 = 1e-9;
 const SAME_TURN_COSINE: f64 = 1.0 - 1e-12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum BackError {
+    #[error("{NO_EARLIER_VIEW}")]
+    NoEarlierView,
+}
+
+impl Reason for BackError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Borrowed(NO_EARLIER_VIEW)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gesture {
@@ -79,7 +93,7 @@ impl ViewHistory {
         None
     }
 
-    pub fn availability(&self, current: Viewpoint) -> Result<(), &'static str> {
+    pub fn availability(&self, current: Viewpoint) -> Result<(), BackError> {
         let earlier = self
             .moving
             .iter()
@@ -89,7 +103,7 @@ impl ViewHistory {
         if earlier {
             Ok(())
         } else {
-            Err(NO_EARLIER_VIEW)
+            Err(BackError::NoEarlierView)
         }
     }
 
@@ -144,7 +158,10 @@ mod tests {
         assert_eq!(history.back(from(3.0)), Some(from(2.0)));
         assert_eq!(history.back(from(2.0)), Some(from(1.0)));
         assert_eq!(history.back(from(1.0)), None);
-        assert_eq!(history.availability(from(1.0)), Err(NO_EARLIER_VIEW));
+        assert_eq!(
+            history.availability(from(1.0)),
+            Err(BackError::NoEarlierView)
+        );
     }
 
     #[test]
@@ -185,6 +202,9 @@ mod tests {
         history.leave(from(1.0));
         history.moving(Gesture::Drag, from(2.0), 0.0);
         history.clear();
-        assert_eq!(history.availability(from(3.0)), Err(NO_EARLIER_VIEW));
+        assert_eq!(
+            history.availability(from(3.0)),
+            Err(BackError::NoEarlierView)
+        );
     }
 }

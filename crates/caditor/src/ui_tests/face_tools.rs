@@ -290,6 +290,6 @@ fn looking_straight_at_a_face_again_turns_the_view_a_quarter_turn() {
     assert!(along.forward().cross(direction).length() < 1e-6);
     assert_eq!(
         look_at::look_target(&harness.model, &Selection::default()),
-        Err(look_at::NOTHING_TO_LOOK_AT)
+        Err(look_at::LookError::Nothing)
     );
 }
