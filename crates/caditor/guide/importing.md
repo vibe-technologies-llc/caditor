@@ -34,8 +34,14 @@ Acrylic (Clear), comes in see-through), their finishes (an appearance named for 
 sheen, such as Steel - Satin, Aluminum - Anodized or Plastic - Matte, comes in with the matching
 [finish](bodies)), and layers; a copy coloured on its own in an assembly keeps its own
 colour, and a body whose faces differ takes the colour most of them share, the others keeping
-theirs. STL, OBJ and 3MF meshes come in as bodies made of flat facets; STL and OBJ files carry no
-unit, so they are read as millimetres. 3MF projects that keep each object's mesh in a part of its
+theirs. STL, OBJ and 3MF meshes come in as bodies made of flat facets. 3MF files state their unit;
+STL and OBJ files carry none, so they are read as millimetres unless the size is implausible for
+that (a part 0.05 across, say, is far more likely to be in metres than a twentieth of a
+millimetre, and one tens of thousands across more likely in micrometres). Then a dialog asks
+before the body is added: it says what was guessed, offers micrometres, millimetres, centimetres
+and metres with the guess chosen, shows the size the part will have, and Import reads it in the
+unit you picked. The report always says which unit was used; a part that still comes out the
+wrong size can be fixed with {command:model.scale}. 3MF projects that keep each object's mesh in a part of its
 own, as Bambu Studio and OrcaSlicer save them, come in whole; one naming a part the file does not
 hold is refused, naming that part. Each body is an [imported body](imported-bodies) in the
 tree.

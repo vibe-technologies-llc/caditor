@@ -6,7 +6,8 @@ use caditor_kernel::{SamplingTolerance, Solid, interruptible};
 use crate::{
     export::zip::{ZipEntry, archive},
     import::{
-        ImportError, MeshFormat, ModelImport, mesh::MAX_MODEL_ELEMENTS, parse_mesh, read_mesh_file,
+        ImportError, MeshFormat, MeshUnit, ModelImport, UnitBasis, mesh::MAX_MODEL_ELEMENTS,
+        parse_mesh, parse_mesh_in, read_mesh_file,
     },
 };
 
@@ -102,11 +103,15 @@ fn a_binary_stl_cube_imports_as_one_body_of_six_faces_read_in_millimetres() {
 }
 
 pub(crate) fn text_stl(skipped: usize) -> String {
+    scaled_text_stl(skipped, 1.0)
+}
+
+fn scaled_text_stl(skipped: usize, factor: f64) -> String {
     let mut text = "solid cube\n".to_owned();
     for triangle in TRIANGLES.iter().skip(skipped) {
         text.push_str("facet normal 0 0 0\nouter loop\n");
         for corner in triangle {
-            let [x, y, z] = CORNERS[*corner];
+            let [x, y, z] = CORNERS[*corner].map(|value| value * factor);
             writeln!(text, "vertex {x} {y} {z}").unwrap();
         }
         text.push_str("endloop\nendfacet\n");
@@ -591,4 +596,131 @@ fn a_model_element_with_thousands_of_attributes_is_refused() {
         read_package(&package).map(|_| ()),
         Err(ImportError::TooManyAttributes)
     );
+}
+
+fn scaled_obj(factor: f64) -> String {
+    let mut text = String::new();
+    for corner in CORNERS {
+        let [x, y, z] = corner.map(|value| value * factor);
+        writeln!(text, "v {x} {y} {z}").unwrap();
+    }
+    for [a, b, c] in TRIANGLES {
+        writeln!(text, "f {} {} {}", a + 1, b + 1, c + 1).unwrap();
+    }
+    text
+}
+
+fn read_stl_in(factor: f64, chosen: Option<MeshUnit>) -> ModelImport {
+    let text = scaled_text_stl(0, factor);
+    parse_mesh_in(text.as_bytes(), MeshFormat::Stl, "cube.stl", "cube", chosen).unwrap()
+}
+
+#[test]
+fn the_unit_guess_follows_the_longest_side_and_stays_silent_for_a_plausible_millimetre_size() {
+    assert_eq!(MeshUnit::guess(0.05), Some(MeshUnit::Metres));
+    assert_eq!(MeshUnit::guess(0.0001), Some(MeshUnit::Metres));
+    assert_eq!(MeshUnit::guess(0.999), Some(MeshUnit::Metres));
+    assert_eq!(MeshUnit::guess(50_000.0), Some(MeshUnit::Micrometres));
+    assert_eq!(MeshUnit::guess(10_000.5), Some(MeshUnit::Micrometres));
+
+    assert_eq!(MeshUnit::guess(1.0), None);
+    assert_eq!(MeshUnit::guess(10.0), None);
+    assert_eq!(MeshUnit::guess(10_000.0), None);
+    assert_eq!(MeshUnit::guess(0.00001), None);
+    assert_eq!(MeshUnit::guess(0.0), None);
+    assert_eq!(MeshUnit::guess(f64::NAN), None);
+    assert_eq!(MeshUnit::guess(f64::INFINITY), None);
+}
+
+#[test]
+fn a_part_a_hundredth_across_is_read_as_metres_and_the_report_says_so() {
+    let imported = read_stl_in(0.001, None);
+
+    let reading = imported.unit.unwrap();
+    assert_eq!(reading.unit, MeshUnit::Metres);
+    assert_eq!(reading.basis, UnitBasis::Guessed);
+    assert!(reading.is_guess());
+    assert!((reading.size.max_element() - 0.01).abs() < 1e-12);
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    assert!(imported.notes.iter().any(|note| {
+        note.contains("read as metres")
+            && note.contains("would be 0.01 mm")
+            && note.contains("10 mm long")
+    }));
+}
+
+#[test]
+fn a_part_of_plausible_size_is_assumed_to_be_in_millimetres_without_a_guess() {
+    let imported = read_stl_in(1.0, None);
+
+    let reading = imported.unit.unwrap();
+    assert_eq!(reading.unit, MeshUnit::Millimetres);
+    assert_eq!(reading.basis, UnitBasis::Assumed);
+    assert!(!reading.is_guess());
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    assert!(
+        imported
+            .notes
+            .iter()
+            .any(|note| note.contains("read as millimetres"))
+    );
+}
+
+#[test]
+fn a_huge_number_of_units_is_guessed_to_be_micrometres() {
+    let imported = read_stl_in(2_000.0, None);
+
+    let reading = imported.unit.unwrap();
+    assert_eq!(reading.unit, MeshUnit::Micrometres);
+    assert!((only_volume(&imported) - 8_000.0).abs() < 1e-3);
+}
+
+#[test]
+fn a_chosen_unit_overrides_the_guess_and_the_report_says_it_was_chosen() {
+    let imported = read_stl_in(0.05, Some(MeshUnit::Centimetres));
+
+    let reading = imported.unit.unwrap();
+    assert_eq!(reading.unit, MeshUnit::Centimetres);
+    assert_eq!(reading.basis, UnitBasis::Chosen);
+    assert!(!reading.is_guess());
+    assert!((only_volume(&imported) - 125.0).abs() < 1e-6);
+    assert!(
+        imported
+            .notes
+            .iter()
+            .any(|note| note.contains("read as centimetres, as you chose"))
+    );
+}
+
+#[test]
+fn every_offered_unit_scales_the_part_by_its_size_in_millimetres() {
+    for unit in MeshUnit::ALL {
+        let imported = read_stl_in(1.0, Some(unit));
+
+        let cubed = unit.millimetres().powi(3);
+        assert!((only_volume(&imported) - 1000.0 * cubed).abs() < 1e-6 * cubed.max(1.0));
+    }
+}
+
+#[test]
+fn an_obj_is_guessed_like_an_stl() {
+    let text = scaled_obj(0.001);
+
+    let imported = parse_mesh(text.as_bytes(), MeshFormat::Obj, "cube.obj", "cube").unwrap();
+
+    assert_eq!(imported.unit.unwrap().unit, MeshUnit::Metres);
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_3mf_declares_its_units_so_it_is_neither_guessed_nor_offered_a_scale() {
+    let package = parts_package(&[(
+        "3D/3dmodel.model",
+        &production_model(&cube_object(1, 0.5), "<item objectid=\"1\"/>"),
+    )]);
+
+    let imported = read_package(&package).unwrap();
+
+    assert_eq!(imported.unit, None);
+    assert!(imported.notes.iter().all(|note| !note.contains("no units")));
 }

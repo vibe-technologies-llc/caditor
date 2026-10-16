@@ -10,6 +10,7 @@ use caditor_kernel::{
 use crate::{
     import::{
         ImportError, MAX_EXPANDED_OBJECTS, ensure_going,
+        mesh_unit::{MeshUnit, UnitReading},
         model::{ImportedBody, ModelImport, canonical},
         xml::{self, Node, XmlError},
         zip_read::{self, EntryError},
@@ -33,8 +34,6 @@ pub(super) const MAX_PLACED_OBJECTS: usize = MAX_EXPANDED_OBJECTS;
 pub(super) const MAX_PLACED_VERTICES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_PLACED_TRIANGLES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
-const NO_UNITS_NOTE: &str = "The file gives no units, so its sizes were read as millimetres; if the \
-                             part comes out the wrong size, scale it with Scale body.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeshFormat {
@@ -64,6 +63,14 @@ impl MeshFormat {
 }
 
 pub fn read_mesh_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, ImportError> {
+    read_mesh_file_in(path, None, cancel)
+}
+
+pub fn read_mesh_file_in(
+    path: &Path,
+    chosen: Option<MeshUnit>,
+    cancel: &CancelToken,
+) -> Result<ModelImport, ImportError> {
     let format = MeshFormat::of(path).ok_or(ImportError::NotMesh)?;
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
@@ -74,7 +81,7 @@ pub fn read_mesh_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, 
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().trim().to_owned());
     let imported = interruptible(cancel.interrupt(), || {
-        parse_mesh(&bytes, format, &source, &stem)
+        parse_mesh_in(&bytes, format, &source, &stem, chosen)
     });
     ensure_going(cancel)?;
     imported
@@ -86,17 +93,26 @@ pub fn parse_mesh(
     source: &str,
     name: &str,
 ) -> Result<ModelImport, ImportError> {
+    parse_mesh_in(bytes, format, source, name, None)
+}
+
+pub fn parse_mesh_in(
+    bytes: &[u8],
+    format: MeshFormat,
+    source: &str,
+    name: &str,
+    chosen: Option<MeshUnit>,
+) -> Result<ModelImport, ImportError> {
     let damaged = ImportError::DamagedMesh(format);
-    let (mesh, mut notes) = match format {
-        MeshFormat::Stl => (
-            read_stl(bytes).ok_or(damaged)?,
-            vec![NO_UNITS_NOTE.to_owned()],
-        ),
-        MeshFormat::Obj => (
-            read_obj(bytes).ok_or(damaged)?,
-            vec![NO_UNITS_NOTE.to_owned()],
-        ),
-        MeshFormat::ThreeMf => (read_three_mf(bytes)?, Vec::new()),
+    let mesh = match format {
+        MeshFormat::Stl => read_stl(bytes).ok_or(damaged)?,
+        MeshFormat::Obj => read_obj(bytes).ok_or(damaged)?,
+        MeshFormat::ThreeMf => read_three_mf(bytes)?,
+    };
+    let unit = (format != MeshFormat::ThreeMf).then(|| UnitReading::of(&mesh, chosen));
+    let (mesh, mut notes) = match &unit {
+        Some(reading) => (reading.scale(mesh), vec![reading.note()]),
+        None => (mesh, Vec::new()),
     };
     let built = faceted_solids(&mesh).map_err(|error| match error {
         FacetedError::NoTriangles => ImportError::DamagedMesh(format),
@@ -133,7 +149,11 @@ pub fn parse_mesh(
     if bodies.is_empty() {
         return Err(ImportError::NothingStorable);
     }
-    Ok(ModelImport { bodies, notes })
+    Ok(ModelImport {
+        bodies,
+        notes,
+        unit,
+    })
 }
 
 fn repair_notes(repairs: &MeshRepairs) -> Vec<String> {

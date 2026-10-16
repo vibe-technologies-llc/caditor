@@ -28,7 +28,7 @@ use caditor_step::{
 };
 
 use crate::{
-    import::{ImportError, ensure_going},
+    import::{ImportError, ensure_going, mesh_unit::UnitReading},
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
 };
@@ -76,6 +76,7 @@ pub struct ImportedFace {
 pub struct ModelImport {
     pub bodies: Vec<ImportedBody>,
     pub notes: Vec<String>,
+    pub unit: Option<UnitReading>,
 }
 
 #[derive(Debug, Default)]
@@ -241,6 +242,7 @@ fn parse_step_reporting(
     let mut imported = ModelImport {
         bodies: Vec::with_capacity(model.copies.len()),
         notes: model.notes,
+        unit: None,
     };
     let mut parts: Vec<&StepCopy> = Vec::new();
     let mut seen: BTreeSet<usize> = BTreeSet::new();

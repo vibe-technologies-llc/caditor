@@ -238,7 +238,18 @@ paths:
   before any vertex is pushed (`add_mesh`); past any the file is `ModelPlacesTooMuch`, and each
   placed object polls the kernel interrupt. An object reached again while its own components are
   being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
-  damage. STL and OBJ have no units and read as millimetres with a note.
+  damage.
+- STL and OBJ have no units (`import/mesh_unit.rs`). `UnitReading` on `ModelImport::unit` (none for
+  3MF and STEP) says which `MeshUnit` (micrometres, millimetres, centimetres, metres) scaled the
+  positions to millimetres before `faceted_solids` runs, so its tolerances see the real size, and
+  on what `UnitBasis`: `Assumed` (millimetres, nothing suggested otherwise), `Guessed` or `Chosen`
+  (`read_mesh_file_in` and `parse_mesh_in` take the choice; `read_mesh_file` and `parse_mesh`
+  guess). `MeshUnit::guess` looks at the longest side as written: from `1e-4` up to below 1 reads
+  as metres, past 10,000 as micrometres, anything else (or an empty or non-finite mesh) is
+  assumed millimetres; centimetres is offered but never guessed. `UnitReading::size` is the
+  bounding box as written, so a dialog shows the part's size in any unit without building it. The
+  import-report note says which unit was used and why (assumed, guessed with the sizes it rests
+  on, or chosen).
 - Triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each canonicalised
   like a STEP body and imported as an `Import` named after the file; what the kernel repaired or
   left out becomes import-report notes. Failures are their own `ImportError` variants

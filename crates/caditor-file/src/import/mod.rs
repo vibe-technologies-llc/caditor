@@ -5,6 +5,7 @@ mod entity_tests;
 mod mesh;
 #[cfg(test)]
 pub(crate) mod mesh_tests;
+mod mesh_unit;
 mod model;
 mod sketch;
 mod svg;
@@ -30,7 +31,11 @@ use caditor_step::ReadError;
 pub use crate::import::{
     arrange::{DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE},
     dxf::parse_dxf,
-    mesh::{MESH_IMPORT_EXTENSIONS, MeshFormat, parse_mesh, read_mesh_file},
+    mesh::{
+        MESH_IMPORT_EXTENSIONS, MeshFormat, parse_mesh, parse_mesh_in, read_mesh_file,
+        read_mesh_file_in,
+    },
+    mesh_unit::{MeshUnit, UnitBasis, UnitReading},
     model::{
         ImportedBody, ImportedFace, ModelImport, ReadingProgress, ReadingStage,
         STEP_IMPORT_EXTENSIONS, bodies_transaction, parse_step, read_step_file,

@@ -9,9 +9,9 @@ use caditor_document::{
     Transaction,
 };
 use caditor_file::{
-    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, ModelImport,
+    Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, MeshUnit, ModelImport,
     ReadingProgress, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction,
-    read_mesh_file, read_step_file_reporting,
+    read_mesh_file, read_mesh_file_in, read_step_file_reporting,
 };
 
 use crate::{
@@ -159,15 +159,27 @@ pub fn read_model(
     cancel: &CancelToken,
     progress: &ReadingProgress,
 ) -> Result<ModelImport, ImportError> {
-    let mut imported = match MeshFormat::of(path) {
+    let imported = match MeshFormat::of(path) {
         Some(_) => read_mesh_file(path, cancel),
         None => read_step_file_reporting(path, cancel, progress),
     }?;
+    Ok(kept_from(path, imported))
+}
+
+pub fn read_mesh_in(
+    path: &Path,
+    unit: MeshUnit,
+    cancel: &CancelToken,
+) -> Result<ModelImport, ImportError> {
+    read_mesh_file_in(path, Some(unit), cancel).map(|imported| kept_from(path, imported))
+}
+
+fn kept_from(path: &Path, mut imported: ModelImport) -> ModelImport {
     let kept = path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     for body in &mut imported.bodies {
         body.import = body.import.clone().from_file(kept.clone());
     }
-    Ok(imported)
+    imported
 }
 
 pub struct KeptSource {

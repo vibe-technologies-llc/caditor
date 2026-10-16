@@ -21,6 +21,7 @@ paths:
   - "crates/caditor/src/model.rs"
   - "crates/caditor/src/drop_target.rs"
   - "crates/caditor/src/import_options.rs"
+  - "crates/caditor/src/import_unit.rs"
   - "crates/caditor/src/model_properties.rs"
   - "crates/caditor/src/window_export.rs"
 ---
@@ -275,6 +276,17 @@ paths:
   (Import disabled while none). It shows the resulting size and warns when the chosen layers pass
   `MAX_DRAWING_CURVES` (`Drawing::chosen_curve_count`); Cancel adds nothing, a queue of dropped files
   waits behind it.
+- A new STL or OBJ import whose read came back with a guessed unit (`UnitReading::is_guess`, a
+  longest side that is implausible in millimetres, `file-import-export.md`) opens the unit offer
+  (`import_unit.rs`, `Files::scaling`, `Scaling`) instead of placing the bodies: an info callout
+  saying what the file's size would be as millimetres and what was guessed, the units as a
+  segmented choice (µm, mm, cm, m, the guess selected, SI only) and the size the part gets in the
+  chosen one. The bodies were already built in the guess, so Import with it kept places them at
+  once (`import::place_bodies`); another unit rereads the file in it on an import thread
+  (`import::read_mesh_in`, the unit offered no second time since it is `Chosen`), and Cancel adds
+  nothing. A size plausible in millimetres imports straight away with the note, and Replace from
+  file and Reload import never ask: they read with the guess. The report says which unit was
+  used. Like the drawing options dialog it blocks while open and holds a queue of dropped files.
 - An import's details (`import_panel.rs`) end with its placement: Placed in (World or a coordinate
   system, `feature_fields::frame_row`), Turn about and Move along X, Y, Z, then Scale (a factor above
   zero), all expressions (key `import-field`, `turn` or `offset` and the axis index, or
