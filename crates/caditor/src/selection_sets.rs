@@ -4,8 +4,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Edit, FeatureId, MAX_SET_NAME_CHARS, SelectionSet, SelectionSets, SetItem, SetLoss,
-    SetMember, SolidResult, Transaction, set_name,
+    Document, Edit, EditError, FeatureId, MAX_SET_NAME_CHARS, SelectionSet, SelectionSets, SetItem,
+    SetLoss, SetMember, SolidResult, Transaction, set_name,
 };
 use caditor_kernel::{EdgeName, EdgeNaming, EdgeReference, FaceId, FaceReference};
 use egui::{Id, Key, ScrollArea, Sides, TextEdit, Ui};
@@ -27,6 +27,33 @@ pub const SAVE_LABEL: &str = "Save selection";
 pub const NAME_CAPTION: &str = "Name";
 pub const NOTHING_TO_KEEP: &str =
     "Select faces, edges or whole bodies first; a selection set keeps those";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SelectionSetError {
+    #[error("{}", NOTHING_TO_KEEP)]
+    NothingToKeep,
+    #[error("The selection set '{name}' no longer exists")]
+    Missing { name: String },
+    #[error("That selection set no longer exists")]
+    SetGone,
+    #[error("{}", body_selection::IN_SKETCH)]
+    InSketch,
+    #[error("Nothing in the selection set “{name}” can be selected now")]
+    NothingSelectable { name: String },
+    #[error(
+        "Nothing in the selection set “{name}” can be selected now: {missed}. Show its bodies or \
+         replace the set with a new selection"
+    )]
+    NothingSelectableBecause { name: String, missed: String },
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
+
+impl From<SelectionSetError> for String {
+    fn from(error: SelectionSetError) -> Self {
+        error.to_string()
+    }
+}
 const EXPLANATION: &str = "Keep a group of faces, edges or bodies under a name and select it \
                            again later, for a fillet, a hide or a pattern. Sets belong to the \
                            model and follow its faces and edges as it changes.";
@@ -97,10 +124,10 @@ pub fn capture(model: &Model, selection: &Selection) -> Captured {
     Captured { members, left_out }
 }
 
-fn captured_members(model: &Model, selection: &Selection) -> Result<Captured, String> {
+fn captured_members(model: &Model, selection: &Selection) -> Result<Captured, SelectionSetError> {
     let captured = capture(model, selection);
     if captured.members.is_empty() {
-        return Err(NOTHING_TO_KEEP.to_owned());
+        return Err(SelectionSetError::NothingToKeep);
     }
     Ok(captured)
 }
@@ -120,8 +147,8 @@ pub fn left_out_note(left_out: usize) -> Option<String> {
 fn replacing(
     document: &Document,
     label: String,
-    change: impl FnOnce(&mut SelectionSets) -> Result<(), String>,
-) -> Result<Transaction, String> {
+    change: impl FnOnce(&mut SelectionSets) -> Result<(), SelectionSetError>,
+) -> Result<Transaction, SelectionSetError> {
     let mut sets = document.selection_sets().clone();
     change(&mut sets)?;
     let transaction = Transaction::single(
@@ -130,14 +157,14 @@ fn replacing(
             sets: Box::new(sets),
         },
     );
-    document
-        .check(&transaction)
-        .map_err(|error| error.to_string())?;
+    document.check(&transaction)?;
     Ok(transaction)
 }
 
-fn missing(name: &str) -> String {
-    format!("The selection set '{name}' no longer exists")
+fn missing(name: &str) -> SelectionSetError {
+    SelectionSetError::Missing {
+        name: name.to_owned(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +173,7 @@ pub struct Saved {
     pub left_out: usize,
 }
 
-pub fn save(model: &Model, selection: &Selection, name: &str) -> Result<Saved, String> {
+pub fn save(model: &Model, selection: &Selection, name: &str) -> Result<Saved, SelectionSetError> {
     let captured = captured_members(model, selection)?;
     let name = set_name(name);
     let transaction = replacing(
@@ -166,7 +193,11 @@ pub fn save(model: &Model, selection: &Selection, name: &str) -> Result<Saved, S
     })
 }
 
-pub fn update(model: &Model, selection: &Selection, name: &str) -> Result<Saved, String> {
+pub fn update(
+    model: &Model,
+    selection: &Selection,
+    name: &str,
+) -> Result<Saved, SelectionSetError> {
     let captured = captured_members(model, selection)?;
     let transaction = replacing(
         model.document(),
@@ -185,7 +216,7 @@ pub fn update(model: &Model, selection: &Selection, name: &str) -> Result<Saved,
     })
 }
 
-pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, String> {
+pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, SelectionSetError> {
     let to = set_name(to);
     replacing(
         document,
@@ -200,7 +231,7 @@ pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, 
     )
 }
 
-pub fn delete(document: &Document, name: &str) -> Result<Transaction, String> {
+pub fn delete(document: &Document, name: &str) -> Result<Transaction, SelectionSetError> {
     replacing(
         document,
         format!("Delete selection set “{name}”"),
@@ -304,9 +335,9 @@ fn item_body(item: SetItem) -> FeatureId {
     }
 }
 
-pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, String> {
+pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, SelectionSetError> {
     if in_sketch {
-        return Err(body_selection::IN_SKETCH.to_owned());
+        return Err(SelectionSetError::InSketch);
     }
     let document = model.document();
     let evaluation = model.evaluation();
@@ -314,7 +345,7 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, St
         .selection_sets()
         .sets
         .get(index)
-        .ok_or_else(|| "That selection set no longer exists".to_owned())?;
+        .ok_or(SelectionSetError::SetGone)?;
     let resolved = set.resolve(document, evaluation);
     let mut missed = Missed::default();
     for lost in resolved.lost {
@@ -345,12 +376,10 @@ pub fn choose(model: &Model, index: usize, in_sketch: bool) -> Result<Chosen, St
     let name = &set.name;
     let missed = missed.words(document);
     if pickables.is_empty() {
+        let name = name.clone();
         return Err(match missed {
-            Some(missed) => format!(
-                "Nothing in the selection set “{name}” can be selected now: {missed}. Show its \
-                 bodies or replace the set with a new selection"
-            ),
-            None => format!("Nothing in the selection set “{name}” can be selected now"),
+            Some(missed) => SelectionSetError::NothingSelectableBecause { name, missed },
+            None => SelectionSetError::NothingSelectable { name },
         });
     }
     let report = match missed {
@@ -374,7 +403,7 @@ struct Renaming {
 pub struct SetsDraft {
     name: String,
     renaming: Option<Renaming>,
-    problem: Option<String>,
+    problem: Option<SelectionSetError>,
     note: Option<String>,
     focus_pending: bool,
 }
@@ -451,7 +480,7 @@ fn body(
     }
     if let Some(problem) = &draft.problem {
         ui.add_space(SPACE_S);
-        widgets::callout(ui, Tone::Error, |ui| ui.label(problem));
+        widgets::callout(ui, Tone::Error, |ui| ui.label(problem.to_string()));
     } else if let Some(note) = &draft.note {
         ui.add_space(SPACE_S);
         widgets::callout(ui, Tone::Info, |ui| ui.label(note));
@@ -459,7 +488,10 @@ fn body(
     outcome
 }
 
-fn applying(draft: &mut SetsDraft, built: Result<Transaction, String>) -> Option<Outcome> {
+fn applying(
+    draft: &mut SetsDraft,
+    built: Result<Transaction, SelectionSetError>,
+) -> Option<Outcome> {
     draft.note = None;
     match built {
         Ok(transaction) => {
@@ -473,7 +505,10 @@ fn applying(draft: &mut SetsDraft, built: Result<Transaction, String>) -> Option
     }
 }
 
-fn applying_saved(draft: &mut SetsDraft, built: Result<Saved, String>) -> Option<Outcome> {
+fn applying_saved(
+    draft: &mut SetsDraft,
+    built: Result<Saved, SelectionSetError>,
+) -> Option<Outcome> {
     let left_out = built.as_ref().map_or(0, |saved| saved.left_out);
     let outcome = applying(draft, built.map(|saved| saved.transaction));
     draft.note = left_out_note(left_out);

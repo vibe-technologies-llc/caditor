@@ -1,6 +1,6 @@
 use caditor_document::{
-    BodyAppearance, Document, Edit, FaceColour, FeatureId, Finish, MAX_BODY_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
+    BodyAppearance, DensityError, Document, Edit, FaceColour, FeatureId, Finish,
+    MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::FaceReference;
@@ -11,13 +11,29 @@ use crate::{
     appearance::SPACE_S,
     bodies, canvas, colour_selector,
     feature_fields::{self, Choice},
-    field::{self, Expected},
+    field::{self, CheckError, Expected, ExpressionError},
     icons,
     model::{Action, Model},
     preferences::{PreferenceChange, PreferencesCommand},
     selection::{Pickable, Selection},
     widgets::{self, FIELD_WIDTH},
 };
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum AppearanceError {
+    #[error("The body no longer exists")]
+    BodyGone,
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+    #[error("Enter a name of at most {limit} characters; this one has {length}")]
+    NameTooLong { limit: usize, length: usize },
+    #[error("{}", colour_selector::HEX_HINT)]
+    NotAColour,
+    #[error(transparent)]
+    Unreadable(#[from] ExpressionError),
+    #[error("{}", field::sentence(&.0.to_string()))]
+    Density(DensityError),
+}
 
 pub const DEFAULT_COLOUR: Rgb = caditor_document::DEFAULT_BODY_COLOUR;
 pub const DEFAULT_COLOUR_NAME: &str = "Default colour";
@@ -274,10 +290,8 @@ pub fn change(
     body: FeatureId,
     appearance: BodyAppearance,
     what: &str,
-) -> Result<Transaction, String> {
-    let name = document
-        .body_name(body)
-        .ok_or_else(|| "The body no longer exists".to_owned())?;
+) -> Result<Transaction, AppearanceError> {
+    let name = document.body_name(body).ok_or(AppearanceError::BodyGone)?;
     let label = format!("Change the {what} of {name}");
     field::checked(
         document,
@@ -420,7 +434,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
     }
 }
 
-pub fn parse_density(model: &Model, text: &str) -> Result<Option<Expression>, String> {
+pub fn parse_density(model: &Model, text: &str) -> Result<Option<Expression>, AppearanceError> {
     if text.trim().is_empty() {
         return Ok(None);
     }
@@ -435,7 +449,7 @@ pub fn parse_density(model: &Model, text: &str) -> Result<Option<Expression>, St
         },
         model.units(),
     )?;
-    density_of(&expression, parameters).map_err(|error| field::sentence(&error.to_string()))?;
+    density_of(&expression, parameters).map_err(AppearanceError::Density)?;
     Ok(Some(expression))
 }
 
@@ -624,10 +638,10 @@ impl Panel<'_> {
             |text| {
                 let length = text.trim().chars().count();
                 if length > MAX_BODY_NAME_CHARS {
-                    return Err(format!(
-                        "Enter a name of at most {MAX_BODY_NAME_CHARS} characters; this one has \
-                         {length}"
-                    ));
+                    return Err(AppearanceError::NameTooLong {
+                        limit: MAX_BODY_NAME_CHARS,
+                        length,
+                    });
                 }
                 Ok(material_name(text))
             },
@@ -668,7 +682,7 @@ impl Panel<'_> {
                 }
                 Rgb::from_hex(text)
                     .map(Some)
-                    .ok_or_else(|| colour_selector::HEX_HINT.to_owned())
+                    .ok_or(AppearanceError::NotAColour)
             },
         );
         ui.end_row();
@@ -795,10 +809,10 @@ impl Panel<'_> {
             |text| {
                 let length = text.chars().count();
                 if length > MAX_MATERIAL_NAME_CHARS {
-                    return Err(format!(
-                        "Enter a name of at most {MAX_MATERIAL_NAME_CHARS} characters; this one \
-                         has {length}"
-                    ));
+                    return Err(AppearanceError::NameTooLong {
+                        limit: MAX_MATERIAL_NAME_CHARS,
+                        length,
+                    });
                 }
                 Ok(material_name(text))
             },

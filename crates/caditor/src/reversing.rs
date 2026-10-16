@@ -4,30 +4,63 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 
-use crate::{coil_tools, field, helix_tools, model::Notice, rib_tools, solid_tools};
+use crate::{
+    coil_tools,
+    field::{self, CheckError},
+    helix_tools,
+    model::Notice,
+    rib_tools, solid_tools,
+};
 
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, \
                                       mate, split, coil, helix or rib has a direction to reverse";
-const MATE_HAS_NO_SIDE: &str = "sets an angle or puts a point in place, so it has no side to \
-                                flip; edit its angle or what it mates onto instead";
-const POINTS_HAVE_NO_DIRECTION: &str =
-    "places its copies at the points of a sketch, so it has no direction to reverse";
 
-fn refusal(feature: &Feature, reason: &str) -> String {
-    format!("{} {reason}", feature.name)
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ReverseError {
+    #[error("{}", NOTHING_TO_REVERSE)]
+    NothingToReverse,
+    #[error("{name} runs both ways from its sketch; set its Extent to One side to reverse it")]
+    ExtrudeBothWays { name: String },
+    #[error("{name} turns a full turn, so it has no direction to reverse")]
+    FullTurn { name: String },
+    #[error(
+        "{name} turns both ways from its sketch; set its Extent to One side or Up to face to \
+         reverse it"
+    )]
+    RevolveBothWays { name: String },
+    #[error("{name} follows its path from the profile, so it has no direction to reverse")]
+    SweepFollowsPath { name: String },
+    #[error("{name} follows its path, so it has no direction to reverse")]
+    PipeFollowsPath { name: String },
+    #[error("{name} runs through its profiles in their order, so it has no direction to reverse")]
+    LoftInOrder { name: String },
+    #[error(
+        "{name} is centred on its place, so it grows both ways; set Starts at to Corner or Base \
+         centre to reverse it"
+    )]
+    PrimitiveCentred { name: String },
+    #[error(
+        "{name} places its copies at the points of a sketch, so it has no direction to reverse"
+    )]
+    PointsPattern { name: String },
+    #[error(
+        "{name} sets an angle or puts a point in place, so it has no side to flip; edit its \
+         angle or what it mates onto instead"
+    )]
+    MateHasNoSide { name: String },
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
 }
 
-pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
+pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
+    let name = || feature.name.clone();
     match &feature.kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
             let mut extrude = extrude.clone();
             match &mut extrude.extent {
                 ExtrudeExtent::OneSide { reversed, .. } => *reversed = !*reversed,
                 ExtrudeExtent::Symmetric { .. } | ExtrudeExtent::TwoSides { .. } => {
-                    return Err(refusal(
-                        feature,
-                        "runs both ways from its sketch; set its Extent to One side to reverse it",
-                    ));
+                    return Err(ReverseError::ExtrudeBothWays { name: name() });
                 }
             }
             Ok(FeatureKind::Solid(SolidFeature::Extrude(extrude)))
@@ -39,36 +72,22 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
                     *reversed = !*reversed;
                 }
                 RevolveExtent::Full => {
-                    return Err(refusal(
-                        feature,
-                        "turns a full turn, so it has no direction to reverse",
-                    ));
+                    return Err(ReverseError::FullTurn { name: name() });
                 }
                 RevolveExtent::Symmetric { .. } | RevolveExtent::TwoSides { .. } => {
-                    return Err(refusal(
-                        feature,
-                        "turns both ways from its sketch; set its Extent to One side or Up to \
-                         face to reverse it",
-                    ));
+                    return Err(ReverseError::RevolveBothWays { name: name() });
                 }
             }
             Ok(FeatureKind::Solid(SolidFeature::Revolve(revolve)))
         }
-        FeatureKind::Solid(SolidFeature::Sweep(_)) => Err(refusal(
-            feature,
-            "follows its path from the profile, so it has no direction to reverse",
-        )),
+        FeatureKind::Solid(SolidFeature::Sweep(_)) => {
+            Err(ReverseError::SweepFollowsPath { name: name() })
+        }
         FeatureKind::Coil(coil) => Ok(FeatureKind::Coil(coil_tools::reversed(coil))),
         FeatureKind::Helix(helix) => Ok(FeatureKind::Helix(helix_tools::reversed(helix))),
         FeatureKind::Rib(rib) => Ok(FeatureKind::Rib(rib_tools::reversed(rib))),
-        FeatureKind::Pipe(_) => Err(refusal(
-            feature,
-            "follows its path, so it has no direction to reverse",
-        )),
-        FeatureKind::Loft(_) => Err(refusal(
-            feature,
-            "runs through its profiles in their order, so it has no direction to reverse",
-        )),
+        FeatureKind::Pipe(_) => Err(ReverseError::PipeFollowsPath { name: name() }),
+        FeatureKind::Loft(_) => Err(ReverseError::LoftInOrder { name: name() }),
         FeatureKind::Hole(hole) => {
             let mut hole = hole.clone();
             hole.reversed = !hole.reversed;
@@ -76,11 +95,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
         }
         FeatureKind::Primitive(primitive) => {
             if primitive.anchor == PrimitiveAnchor::Centre {
-                return Err(refusal(
-                    feature,
-                    "is centred on its place, so it grows both ways; set Starts at to Corner or \
-                     Base centre to reverse it",
-                ));
+                return Err(ReverseError::PrimitiveCentred { name: name() });
             }
             let mut primitive = primitive.clone();
             primitive.reversed = !primitive.reversed;
@@ -93,12 +108,14 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
                 PatternKind::Circular(circular) => circular.reversed = !circular.reversed,
                 PatternKind::Curve(curve) => curve.reversed = !curve.reversed,
                 PatternKind::Points(_) => {
-                    return Err(refusal(feature, POINTS_HAVE_NO_DIRECTION));
+                    return Err(ReverseError::PointsPattern { name: name() });
                 }
             }
             Ok(FeatureKind::Pattern(pattern))
         }
-        FeatureKind::Mate(mate) if !mate.flips() => Err(refusal(feature, MATE_HAS_NO_SIDE)),
+        FeatureKind::Mate(mate) if !mate.flips() => {
+            Err(ReverseError::MateHasNoSide { name: name() })
+        }
         FeatureKind::Mate(mate) => {
             let mut mate = mate.clone();
             mate.flipped = !mate.flipped;
@@ -124,11 +141,11 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
         | FeatureKind::Remove(_)
         | FeatureKind::Thread(_)
         | FeatureKind::Measurement(_)
-        | FeatureKind::ReferenceImage(_) => Err(NOTHING_TO_REVERSE.to_owned()),
+        | FeatureKind::ReferenceImage(_) => Err(ReverseError::NothingToReverse),
     }
 }
 
-pub fn reverse_change(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+pub fn reverse_change(document: &Document, feature: &Feature) -> Result<Transaction, ReverseError> {
     let kind = reversed(feature)?;
     field::checked(
         document,

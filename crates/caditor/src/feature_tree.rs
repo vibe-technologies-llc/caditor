@@ -1,10 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use caditor_document::{
-    BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
-    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput, PatternKind,
-    PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature, SolidResult,
-    Transaction, TreeRow,
+    BlendKind, CombineOperation, Datum, Document, Edit, EditError, Feature, FeatureError,
+    FeatureId, FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput,
+    PatternKind, PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature,
+    SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -19,11 +23,12 @@ use crate::{
     blend_panel,
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, Reason},
     completion, datum_panel, delete_face_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
-    feature_clipboard, feature_fields, feature_groups,
+    feature_clipboard, feature_fields,
+    feature_groups::{self, GroupError},
     field::{self, DimensionTarget},
     files::FileCommand,
     fonts, helix_panel, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator,
@@ -37,7 +42,9 @@ use crate::{
     preferences::{DoubleClick, PreferencesCommand},
     primitive_panel, principal_tree,
     reference_picking::{Picking, Slot},
-    removal, reversing, rib_panel, scale_panel,
+    removal,
+    reversing::{self, ReverseError},
+    rib_panel, scale_panel,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -46,7 +53,8 @@ use crate::{
     split_tools, thread_panel,
     tree_row::{self, GROUP_INDENT, Look},
     units::Units,
-    viewport, visibility,
+    viewport,
+    visibility::{self, VisibilityError},
     widgets::{self, DialogWidth, Tone},
 };
 
@@ -58,9 +66,6 @@ const NO_KEPT_FILE: &str = "This body was imported before caditor kept where fil
 pub const RELOAD_FROM_FILE: &str = "Reload";
 const RELOAD_HINT: &str = "Read the file this body came from again, keeping what uses its faces:";
 const RELOAD_HINT_SHORT: &str = "Read the file this body came from again, in place of this body";
-const NO_FEATURE_CHOSEN: &str = "Select a feature in the tree, or open one, first";
-const NOTHING_SELECTED: &str =
-    "Select geometry in an edited sketch, or a feature in the tree, to delete it";
 const NOTHING_OPEN: &str = "No feature is open; open one with Edit feature first";
 const MORE_HINT: &str = "Rename, move, suppress, roll back or delete (also on right-click)";
 const DIMENSION_FIELD_WIDTH: f32 = 150.0;
@@ -73,7 +78,6 @@ const SHOW_PLACE_LABEL: &str = "Show where";
 const UPDATE_REFERENCES_LABEL: &str = "Update references";
 const HEALED_HINT: &str =
     "Some of what it uses changed and was matched to the most similar geometry";
-const NOTHING_HEALED: &str = "Every reference it holds is found as it was chosen";
 pub const HEALING_AWAITS_RECOMPUTE: &str =
     "The recompute has not checked its references since the last change; wait for it to finish";
 pub const OPEN_SAMPLE_LABEL: &str = "Open a sample";
@@ -88,8 +92,6 @@ const ROLLBACK_BAR_HINT: &str = "Drag to roll the model back to any point: featu
                                  bar are not computed, and new features go in above it";
 const SUPPRESSED_HINT: &str = "Suppressed: left out when the model is computed";
 const ROLLED_BACK_HINT: &str = "Below the rollback bar: not computed";
-const BAR_AT_END: &str = "The rollback bar is already at the end";
-const BAR_AT_TOP: &str = "The rollback bar is already at the top";
 pub const DELETE_WITH_DEPENDENTS: &str = "Delete with dependents";
 pub const KEEP_DEPENDENTS: &str = "Keep dependents";
 pub const CANCEL_DELETE: &str = "Cancel";
@@ -115,6 +117,78 @@ const UNSUPPRESS_LABEL: &str = "Unsuppress";
 const ROLL_FORWARD_LABEL: &str = "Roll forward to here";
 const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TreeError {
+    #[error("Select a feature in the tree, or open one, first")]
+    NoFeatureChosen,
+    #[error("Select geometry in an edited sketch, or a feature in the tree, to delete it")]
+    NothingSelected,
+    #[error("Every reference it holds is found as it was chosen")]
+    NothingHealed,
+    #[error("{}", HEALING_AWAITS_RECOMPUTE)]
+    HealingAwaitsRecompute,
+    #[error("The rollback bar is already at the end")]
+    BarAtEnd,
+    #[error("The rollback bar is already at the top")]
+    BarAtTop,
+    #[error("The rollback bar is already right below {name}")]
+    BarBelow { name: String },
+    #[error("{name} no longer exists")]
+    FeatureGone { name: String },
+    #[error("{name} is already the first feature")]
+    AlreadyFirst { name: String },
+    #[error("{name} is already the last feature")]
+    AlreadyLast { name: String },
+    #[error("{name} is suppressed; unsuppress it to edit it")]
+    Suppressed { name: String },
+    #[error("{name} is below the rollback bar; roll forward past it to edit it")]
+    RolledBack { name: String },
+    #[error("{name} is already being edited")]
+    AlreadyEdited { name: String },
+    #[error("{name} is an imported body and has no settings to edit")]
+    ImportedBody { name: String },
+    #[error("{name} is not made from a sketch, so there is none to edit")]
+    NotFromASketch { name: String },
+    #[error("The sketch of {name} is no longer in the model")]
+    SketchGone { name: String },
+    #[error("{name} does not lie on a face or datum plane")]
+    NotAttached { name: String },
+    #[error("{name} has no position yet; recompute the model first")]
+    NoPosition { name: String },
+    #[error("{name} is not {kind}")]
+    NotOfKind { name: String, kind: &'static str },
+    #[error(transparent)]
+    Group(#[from] GroupError),
+    #[error(transparent)]
+    Visibility(#[from] VisibilityError),
+    #[error(transparent)]
+    Reverse(#[from] ReverseError),
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+    #[error("{0}")]
+    Placement(String),
+    #[error("{0}")]
+    Solid(String),
+    #[error("{0}")]
+    Mirror(String),
+    #[error("{0}")]
+    Split(String),
+    #[error("{0}")]
+    Move(String),
+    #[error("{0}")]
+    Datum(String),
+    #[error("{0}")]
+    Pattern(String),
+    #[error("{0}")]
+    Blend(String),
+}
+
+impl Reason for TreeError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 pub fn show(
     ui: &mut Ui,
@@ -941,7 +1015,7 @@ fn open_feature(
         None => collapsing.toggle(ui),
         Some(command) => match editable(document, feature) {
             Ok(()) => actions.push(Action::Editing(command)),
-            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
         },
     }
 }
@@ -1489,14 +1563,19 @@ fn finish_renaming(
     };
 }
 
-fn menu_entry<T>(ui: &mut Ui, glyph: &str, label: &str, outcome: &Result<T, String>) -> bool {
+fn menu_entry<T, E: Display>(
+    ui: &mut Ui,
+    glyph: &str,
+    label: &str,
+    outcome: &Result<T, E>,
+) -> bool {
     let response = ui
         .add_enabled_ui(outcome.is_ok(), |ui| {
             widgets::menu_item(ui, glyph, label, None)
         })
         .inner;
     let response = match outcome {
-        Err(reason) => response.on_disabled_hover_text(reason),
+        Err(reason) => response.on_disabled_hover_text(reason.to_string()),
         Ok(_) => response,
     };
     let clicked = response.clicked();
@@ -1776,7 +1855,7 @@ fn group_commands(
     let grouped: Vec<FeatureId> = choice.targets.iter().map(|feature| feature.id()).collect();
     if let Some(transaction) =
         offer_change(offers, commands, Command::GroupFeatures, detail, || {
-            feature_groups::grouping(document, &grouped)
+            Ok(feature_groups::grouping(document, &grouped)?)
         })
     {
         actions.push(Action::Apply(transaction));
@@ -1788,14 +1867,20 @@ fn group_commands(
             feature_groups::start_renaming(state, first);
         }
     }
-    let member = choice.current.ok_or(NO_FEATURE_CHOSEN).and_then(|feature| {
-        feature
-            .group
-            .as_ref()
-            .map(|_| feature)
-            .ok_or(feature_groups::NOT_IN_A_GROUP)
-    });
-    let group_detail = member.ok().and_then(|feature| feature.group.clone());
+    let member = choice
+        .current
+        .ok_or(TreeError::NoFeatureChosen)
+        .and_then(|feature| {
+            feature
+                .group
+                .as_ref()
+                .map(|_| feature)
+                .ok_or(TreeError::Group(GroupError::NotInAGroup))
+        });
+    let group_detail = member
+        .as_ref()
+        .ok()
+        .and_then(|feature| feature.group.clone());
     if let Some(transaction) = offer_change(
         offers,
         commands,
@@ -1803,8 +1888,8 @@ fn group_commands(
         group_detail.clone(),
         || {
             member
-                .map_err(str::to_owned)
-                .and_then(|feature| feature_groups::ungrouping(document, feature.id()))
+                .clone()
+                .and_then(|feature| Ok(feature_groups::ungrouping(document, feature.id())?))
         },
     ) {
         actions.push(Action::Apply(transaction));
@@ -1846,7 +1931,7 @@ impl Direction {
         }
     }
 
-    fn transaction(self, document: &Document, feature: &Feature) -> Result<Transaction, String> {
+    fn transaction(self, document: &Document, feature: &Feature) -> Result<Transaction, TreeError> {
         let name = &feature.name;
         let row = TreeRow::Feature(feature.id());
         let mut rows = document.tree_rows();
@@ -1856,30 +1941,26 @@ impl Direction {
         let at = rows
             .iter()
             .position(|candidate| *candidate == row)
-            .ok_or_else(|| format!("{name} no longer exists"))?;
+            .ok_or_else(|| TreeError::FeatureGone { name: name.clone() })?;
         let gap = match self {
             Self::Up => at
                 .checked_sub(1)
-                .ok_or_else(|| format!("{name} is already the first feature"))?,
+                .ok_or_else(|| TreeError::AlreadyFirst { name: name.clone() })?,
             Self::Down => Some(at + 2)
                 .filter(|gap| *gap <= rows.len())
-                .ok_or_else(|| format!("{name} is already the last feature"))?,
+                .ok_or_else(|| TreeError::AlreadyLast { name: name.clone() })?,
         };
-        document
-            .move_row(row, gap, format!("{} {name}", self.label()))
-            .map_err(|error| error.to_string())
+        Ok(document.move_row(row, gap, format!("{} {name}", self.label()))?)
     }
 }
 
-fn editable(document: &Document, feature: &Feature) -> Result<(), String> {
+fn editable(document: &Document, feature: &Feature) -> Result<(), TreeError> {
     let name = &feature.name;
     if feature.suppressed {
-        return Err(format!("{name} is suppressed; unsuppress it to edit it"));
+        return Err(TreeError::Suppressed { name: name.clone() });
     }
     if document.is_rolled_back(feature.id()) {
-        return Err(format!(
-            "{name} is below the rollback bar; roll forward past it to edit it"
-        ));
+        return Err(TreeError::RolledBack { name: name.clone() });
     }
     Ok(())
 }
@@ -1914,9 +1995,9 @@ fn suppress_title(targets: &[&Feature]) -> (&'static str, &'static str) {
     }
 }
 
-fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transaction, String> {
+fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transaction, TreeError> {
     if targets.is_empty() {
-        return Err(NO_FEATURE_CHOSEN.to_owned());
+        return Err(TreeError::NoFeatureChosen);
     }
     let suppress = targets.iter().any(|feature| !feature.suppressed);
     let verb = if suppress { "Suppress" } else { "Unsuppress" };
@@ -1924,9 +2005,9 @@ fn suppress_change(document: &Document, targets: &[&Feature]) -> Result<Transact
     Ok(document.suppression(&ids, suppress, format!("{verb} {}", described(targets))))
 }
 
-fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, String> {
+fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, TreeError> {
     if targets.is_empty() {
-        return Err(NO_FEATURE_CHOSEN.to_owned());
+        return Err(TreeError::NoFeatureChosen);
     }
     let document = model.document();
     let updates: Vec<Transaction> = targets
@@ -1941,8 +2022,8 @@ fn reference_update(model: &Model, targets: &[&Feature]) -> Result<Transaction, 
                 .is_some_and(|status| status.healing.is_some())
     });
     match updates.as_slice() {
-        [] if awaiting => Err(HEALING_AWAITS_RECOMPUTE.to_owned()),
-        [] => Err(NOTHING_HEALED.to_owned()),
+        [] if awaiting => Err(TreeError::HealingAwaitsRecompute),
+        [] => Err(TreeError::NothingHealed),
         [only] => Ok(only.clone()),
         _ => Ok(Transaction::new(
             format!(
@@ -1965,14 +2046,14 @@ fn unsuppress(document: &Document, id: FeatureId) -> Transaction {
     )
 }
 
-fn roll_to_here(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+fn roll_to_here(document: &Document, feature: &Feature) -> Result<Transaction, TreeError> {
     let name = &feature.name;
     let index = document
         .feature_index(feature.id())
-        .ok_or_else(|| format!("{name} no longer exists"))?;
+        .ok_or_else(|| TreeError::FeatureGone { name: name.clone() })?;
     let bar = document.bar_before_index(index + 1);
     if bar == document.rollback_bar() {
-        return Err(format!("The rollback bar is already right below {name}"));
+        return Err(TreeError::BarBelow { name: name.clone() });
     }
     Ok(document.roll_to(bar, format!("{} {name}", roll_verb(document, feature))))
 }
@@ -1985,34 +2066,32 @@ fn roll_verb(document: &Document, feature: &Feature) -> &'static str {
     }
 }
 
-fn roll_to_end(document: &Document) -> Result<Transaction, String> {
+fn roll_to_end(document: &Document) -> Result<Transaction, TreeError> {
     if document.rollback_bar() == RollbackBar::AtEnd {
-        return Err(BAR_AT_END.to_owned());
+        return Err(TreeError::BarAtEnd);
     }
     Ok(document.roll_to(RollbackBar::AtEnd, "Roll to end"))
 }
 
-fn step_bar(document: &Document, up: bool) -> Result<Transaction, String> {
+fn step_bar(document: &Document, up: bool) -> Result<Transaction, TreeError> {
     let rows = document.tree_rows();
     let at = rows
         .iter()
         .position(|row| *row == TreeRow::Bar)
         .unwrap_or(rows.len());
     let gap = if up {
-        at.checked_sub(1).ok_or(BAR_AT_TOP)?
+        at.checked_sub(1).ok_or(TreeError::BarAtTop)?
     } else {
         Some(at + 2)
             .filter(|gap| *gap <= rows.len())
-            .ok_or(BAR_AT_END)?
+            .ok_or(TreeError::BarAtEnd)?
     };
     let label = if up {
         Command::RollbackUp.title()
     } else {
         Command::RollbackDown.title()
     };
-    document
-        .move_row(TreeRow::Bar, gap, label)
-        .map_err(|error| error.to_string())
+    Ok(document.move_row(TreeRow::Bar, gap, label)?)
 }
 
 #[derive(Debug, Clone)]
@@ -2033,9 +2112,9 @@ impl Deletion {
     }
 }
 
-fn delete_request(document: &Document, targets: &[&Feature]) -> Result<Deletion, String> {
+fn delete_request(document: &Document, targets: &[&Feature]) -> Result<Deletion, TreeError> {
     if targets.is_empty() {
-        return Err(NO_FEATURE_CHOSEN.to_owned());
+        return Err(TreeError::NoFeatureChosen);
     }
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
     if document.dependents_of(&ids).is_empty() {
@@ -2196,8 +2275,8 @@ pub fn current_feature<'a>(
         })
 }
 
-type FeatureChange<'a> = &'a dyn Fn(&Feature) -> Result<Transaction, String>;
-type FeatureRoll = fn(&Document) -> Result<Transaction, String>;
+type FeatureChange<'a> = &'a dyn Fn(&Feature) -> Result<Transaction, TreeError>;
+type FeatureRoll = fn(&Document) -> Result<Transaction, TreeError>;
 
 pub struct CommandContext<'a> {
     pub model: &'a Model,
@@ -2214,14 +2293,13 @@ fn edit_change(
     document: &Document,
     editing: &SketchEditing,
     feature: &Feature,
-) -> Result<EditingCommand, String> {
+) -> Result<EditingCommand, TreeError> {
     let name = &feature.name;
     if is_edited(editing, feature) {
-        return Err(format!("{name} is already being edited"));
+        return Err(TreeError::AlreadyEdited { name: name.clone() });
     }
     editable(document, feature)?;
-    edit_command(feature, false)
-        .ok_or_else(|| format!("{name} is an imported body and has no settings to edit"))
+    edit_command(feature, false).ok_or_else(|| TreeError::ImportedBody { name: name.clone() })
 }
 
 fn sketch_of(feature: &Feature) -> Option<FeatureId> {
@@ -2238,54 +2316,65 @@ fn sketch_change(
     document: &Document,
     editing: &SketchEditing,
     feature: &Feature,
-) -> Result<EditingCommand, String> {
+) -> Result<EditingCommand, TreeError> {
     let name = &feature.name;
-    let sketch = sketch_of(feature)
-        .ok_or_else(|| format!("{name} is not made from a sketch, so there is none to edit"))?;
+    let sketch =
+        sketch_of(feature).ok_or_else(|| TreeError::NotFromASketch { name: name.clone() })?;
     let owner = document
         .feature(sketch)
-        .ok_or_else(|| format!("The sketch of {name} is no longer in the model"))?;
+        .ok_or_else(|| TreeError::SketchGone { name: name.clone() })?;
     if editing.feature() == Some(sketch) {
-        return Err(format!("{} is already being edited", owner.name));
+        return Err(TreeError::AlreadyEdited {
+            name: owner.name.clone(),
+        });
     }
     editable(document, owner)?;
     Ok(EditingCommand::Enter(sketch))
 }
 
-fn detach_change(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+fn not_of_kind(feature: &Feature, kind: &'static str) -> TreeError {
+    TreeError::NotOfKind {
+        name: feature.name.clone(),
+        kind,
+    }
+}
+
+fn detach_change(model: &Model, feature: &Feature) -> Result<Transaction, TreeError> {
     let name = &feature.name;
     if feature.kind.sketch().is_none() {
-        return Err(format!("{name} is not a sketch"));
+        return Err(not_of_kind(feature, "a sketch"));
     }
     if feature.kind.attachment().is_none() {
-        return Err(format!("{name} does not lie on a face or datum plane"));
+        return Err(TreeError::NotAttached { name: name.clone() });
     }
     sketch_placement::detach(model, feature.id())
-        .ok_or_else(|| format!("{name} has no position yet; recompute the model first"))
+        .ok_or_else(|| TreeError::NoPosition { name: name.clone() })
 }
 
 fn place_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     if feature.kind.sketch().is_none() {
-        return Err(format!("{} is not a sketch", feature.name));
+        return Err(not_of_kind(feature, "a sketch"));
     }
-    sketch_placement::place_on_selection(model, selection, feature.id()).map_err(str::to_owned)
+    sketch_placement::place_on_selection(model, selection, feature.id())
+        .map_err(|reason| TreeError::Placement(reason.to_owned()))
 }
 
 fn axis_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match feature.kind.solid() {
         Some(SolidFeature::Revolve(revolve)) => {
             solid_panel::selected_axis_change(model, selection, feature.id(), revolve)
+                .map_err(TreeError::Solid)
         }
         Some(SolidFeature::Extrude(_) | SolidFeature::Sweep(_)) | None => {
-            Err(format!("{} is not a revolve", feature.name))
+            Err(not_of_kind(feature, "a revolve"))
         }
     }
 }
@@ -2294,13 +2383,14 @@ fn up_to_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match feature.kind.solid() {
         Some(SolidFeature::Extrude(extrude)) => {
             solid_panel::up_to_selected_change(model, selection, feature.id(), extrude)
+                .map_err(TreeError::Solid)
         }
         Some(SolidFeature::Revolve(_) | SolidFeature::Sweep(_)) | None => {
-            Err(format!("{} is not an extrusion", feature.name))
+            Err(not_of_kind(feature, "an extrusion"))
         }
     }
 }
@@ -2309,10 +2399,11 @@ fn start_at_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match feature.kind.solid() {
-        Some(solid) => solid_panel::start_change(model, selection, feature.id(), solid),
-        None => Err(format!("{} is not an extrusion or a revolve", feature.name)),
+        Some(solid) => solid_panel::start_change(model, selection, feature.id(), solid)
+            .map_err(TreeError::Solid),
+        None => Err(not_of_kind(feature, "an extrusion or a revolve")),
     }
 }
 
@@ -2320,10 +2411,11 @@ fn mirror_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match feature.kind.mirror() {
-        Some(mirror) => mirror_tools::plane_change(model, selection, feature.id(), mirror),
-        None => Err(format!("{} is not a mirror", feature.name)),
+        Some(mirror) => mirror_tools::plane_change(model, selection, feature.id(), mirror)
+            .map_err(TreeError::Mirror),
+        None => Err(not_of_kind(feature, "a mirror")),
     }
 }
 
@@ -2331,10 +2423,11 @@ fn mirror_faces_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match feature.kind.mirror() {
-        Some(mirror) => mirror_tools::faces_change(model, selection, feature.id(), mirror),
-        None => Err(format!("{} is not a mirror", feature.name)),
+        Some(mirror) => mirror_tools::faces_change(model, selection, feature.id(), mirror)
+            .map_err(TreeError::Mirror),
+        None => Err(not_of_kind(feature, "a mirror")),
     }
 }
 
@@ -2342,13 +2435,15 @@ fn split_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match (&feature.kind, feature.kind.split()) {
-        (_, Some(split)) => split_tools::along_change(model, selection, feature.id(), split),
+        (_, Some(split)) => split_tools::along_change(model, selection, feature.id(), split)
+            .map_err(TreeError::Split),
         (FeatureKind::SplitFace(split), None) => {
             split_face_tools::along_change(model, selection, feature.id(), split)
+                .map_err(TreeError::Split)
         }
-        (_, None) => Err(format!("{} is not a split", feature.name)),
+        (_, None) => Err(not_of_kind(feature, "a split")),
     }
 }
 
@@ -2356,24 +2451,25 @@ fn move_change(
     model: &Model,
     selection: &Selection,
     feature: &Feature,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     match &feature.kind {
         FeatureKind::Move(movement) => {
             move_tools::axis_change(model, selection, feature.id(), movement)
+                .map_err(TreeError::Move)
         }
-        _ => Err(format!("{} is not a move", feature.name)),
+        _ => Err(not_of_kind(feature, "a move")),
     }
 }
 
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     feature
         .kind
         .datum()
-        .ok_or_else(|| format!("{} is not a datum plane or axis", feature.name))
-        .and_then(change)
+        .ok_or_else(|| not_of_kind(feature, "a datum plane or axis"))
+        .and_then(|datum| change(datum).map_err(TreeError::Datum))
 }
 
 fn pattern_change(
@@ -2381,12 +2477,13 @@ fn pattern_change(
     selection: &Selection,
     feature: &Feature,
     reference: Reference,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, TreeError> {
     let pattern = feature
         .kind
         .pattern()
-        .ok_or_else(|| format!("{} is not a pattern", feature.name))?;
+        .ok_or_else(|| not_of_kind(feature, "a pattern"))?;
     pattern_tools::selected_change(model, selection, feature.id(), pattern, reference)
+        .map_err(TreeError::Pattern)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2432,8 +2529,8 @@ impl OfferBasis {
 #[derive(Debug, Clone, Default)]
 pub struct TreeOffers {
     basis: Option<OfferBasis>,
-    changes: BTreeMap<Command, Result<Transaction, String>>,
-    deletions: BTreeMap<Command, Result<Deletion, String>>,
+    changes: BTreeMap<Command, Result<Transaction, TreeError>>,
+    deletions: BTreeMap<Command, Result<Deletion, TreeError>>,
     #[cfg(test)]
     builds: usize,
 }
@@ -2450,8 +2547,8 @@ impl TreeOffers {
     fn change(
         &mut self,
         command: Command,
-        build: impl FnOnce() -> Result<Transaction, String>,
-    ) -> &Result<Transaction, String> {
+        build: impl FnOnce() -> Result<Transaction, TreeError>,
+    ) -> &Result<Transaction, TreeError> {
         self.changes.entry(command).or_insert_with(|| {
             #[cfg(test)]
             {
@@ -2464,8 +2561,8 @@ impl TreeOffers {
     fn deletion(
         &mut self,
         command: Command,
-        build: impl FnOnce() -> Result<Deletion, String>,
-    ) -> &Result<Deletion, String> {
+        build: impl FnOnce() -> Result<Deletion, TreeError>,
+    ) -> &Result<Deletion, TreeError> {
         self.deletions.entry(command).or_insert_with(build)
     }
 
@@ -2480,7 +2577,7 @@ fn offer_change(
     commands: &mut CommandFrame<'_>,
     command: Command,
     detail: Option<String>,
-    build: impl FnOnce() -> Result<Transaction, String>,
+    build: impl FnOnce() -> Result<Transaction, TreeError>,
 ) -> Option<Transaction> {
     let offered = offers.change(command, build);
     if commands.invoke_detailed(command, detail, offered) {
@@ -2495,11 +2592,11 @@ fn offer_change_on(
     commands: &mut CommandFrame<'_>,
     command: Command,
     feature: Option<&Feature>,
-    change: impl FnOnce(&Feature) -> Result<Transaction, String>,
+    change: impl FnOnce(&Feature) -> Result<Transaction, TreeError>,
 ) -> Option<Transaction> {
     let detail = feature.map(|feature| feature.name.clone());
     offer_change(offers, commands, command, detail, || {
-        feature.map_or_else(|| Err(NO_FEATURE_CHOSEN.to_owned()), change)
+        feature.map_or_else(|| Err(TreeError::NoFeatureChosen), change)
     })
 }
 
@@ -2507,9 +2604,9 @@ fn invoke_on<T>(
     commands: &mut CommandFrame<'_>,
     command: Command,
     current: Option<&Feature>,
-    change: impl FnOnce(&Feature) -> Result<T, String>,
+    change: impl FnOnce(&Feature) -> Result<T, TreeError>,
 ) -> Option<T> {
-    let result = current.map_or_else(|| Err(NO_FEATURE_CHOSEN.to_owned()), change);
+    let result = current.map_or_else(|| Err(TreeError::NoFeatureChosen), change);
     let detail = current.map(|feature| feature.name.clone());
     if commands.invoke_detailed(command, detail, &result) {
         result.ok()
@@ -2576,39 +2673,44 @@ fn feature_commands(
         offer_change(offers, commands, Command::ToggleVisibility, detail, || {
             let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
             if toggled.is_empty() {
-                Err(NO_FEATURE_CHOSEN.to_owned())
+                Err(TreeError::NoFeatureChosen)
             } else {
-                visibility::toggle_rows(document, &toggled).map(|toggle| toggle.transaction)
+                Ok(visibility::toggle_rows(document, &toggled)?.transaction)
             }
         })
     {
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::HideSelection, None, || {
-        visibility::hide_selection(document, selection, chosen.rows, editing.feature())
+        Ok(visibility::hide_selection(
+            document,
+            selection,
+            chosen.rows,
+            editing.feature(),
+        )?)
     }) {
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::HideOthers, None, || {
-        visibility::hide_others(
+        Ok(visibility::hide_others(
             document,
             model.evaluation(),
             model.principal_view(),
             selection,
             chosen.rows,
             editing.feature(),
-        )
+        )?)
     }) {
         actions.push(Action::Apply(transaction));
     }
     if let Some(transaction) = offer_change(offers, commands, Command::ShowAll, None, || {
-        visibility::show_all(document)
+        Ok(visibility::show_all(document)?)
     }) {
         let shown_principal: Vec<PrincipalGeometry> = document.hidden_principal().collect();
         actions.push(Action::Apply(transaction));
         actions.push(Action::KeepPrincipalShown(shown_principal));
     }
-    if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
+    if commands.invoke(Command::TogglePrincipal, &Ok::<_, TreeError>(())) {
         actions
             .extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
     }
@@ -2621,7 +2723,7 @@ fn feature_commands(
     .zip(visibility::Kind::ALL)
     {
         if let Some(transaction) = offer_change(offers, commands, command, None, || {
-            visibility::toggle_kind(document, kind, editing.feature())
+            Ok(visibility::toggle_kind(document, kind, editing.feature())?)
         }) {
             actions.push(Action::Apply(transaction));
         }
@@ -2647,10 +2749,10 @@ fn feature_commands(
             up_to_change(model, selection, feature)
         }),
         (Command::ClearChosenRegions, &|feature| {
-            solid_tools::clear_regions(model, feature)
+            solid_tools::clear_regions(model, feature).map_err(TreeError::Solid)
         }),
         (Command::SelectAllRegions, &|feature| {
-            solid_tools::select_all_regions(model, feature)
+            solid_tools::select_all_regions(model, feature).map_err(TreeError::Solid)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)
@@ -2684,22 +2786,24 @@ fn feature_commands(
             move_change(model, selection, feature)
         }),
         (Command::ChamferEqual, &|feature| {
-            blend_tools::form_change(document, feature, FormChoice::Equal)
+            blend_tools::form_change(document, feature, FormChoice::Equal).map_err(TreeError::Blend)
         }),
         (Command::ChamferTwoDistances, &|feature| {
             blend_tools::form_change(document, feature, FormChoice::TwoDistances)
+                .map_err(TreeError::Blend)
         }),
         (Command::ChamferDistanceAngle, &|feature| {
             blend_tools::form_change(document, feature, FormChoice::DistanceAngle)
+                .map_err(TreeError::Blend)
         }),
         (Command::FlipChamfer, &|feature| {
-            blend_tools::flip_change(document, feature)
+            blend_tools::flip_change(document, feature).map_err(TreeError::Blend)
         }),
         (Command::WrapSplitCurves, &|feature| {
-            split_face_tools::wrap_command(model, feature)
+            split_face_tools::wrap_command(model, feature).map_err(TreeError::Split)
         }),
         (Command::ReverseDirection, &|feature| {
-            reversing::reverse_change(document, feature)
+            Ok(reversing::reverse_change(document, feature)?)
         }),
     ];
     for (command, change) in changes {
@@ -2751,7 +2855,7 @@ pub fn commands(
     if commands.invoke(Command::FilterFeatures, &filterable) {
         state.request_focus(Focus::TreeFilter);
     }
-    let chosen = current.ok_or(NO_FEATURE_CHOSEN);
+    let chosen = current.ok_or(TreeError::NoFeatureChosen);
     if commands.invoke(Command::RenameFeature, &chosen)
         && let Some(feature) = current
     {
@@ -2762,7 +2866,7 @@ pub fn commands(
         if let Some(transaction) =
             offer_change(&mut offers, commands, direction.command(), None, || {
                 current.map_or_else(
-                    || Err(NO_FEATURE_CHOSEN.to_owned()),
+                    || Err(TreeError::NoFeatureChosen),
                     |feature| direction.transaction(document, feature),
                 )
             })
@@ -2877,7 +2981,7 @@ pub fn commands(
     if editing.active().is_none() {
         let selected = offers.deletion(Command::DeleteSelection, || {
             if rows.is_empty() {
-                Err(NOTHING_SELECTED.to_owned())
+                Err(TreeError::NothingSelected)
             } else {
                 let features: Vec<&Feature> = document
                     .features()
@@ -2976,7 +3080,7 @@ fn waiting(
         if clicked {
             actions.push(match editable(document, row.feature) {
                 Ok(()) => Action::Editing(start),
-                Err(reason) => Action::Inform(Notice::warning(reason)),
+                Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
             });
         }
     });
@@ -2993,7 +3097,7 @@ fn edit_itself(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row:
     if ui.add(button).clicked() {
         actions.push(match editable(document, row.feature) {
             Ok(()) => Action::Editing(command),
-            Err(reason) => Action::Inform(Notice::warning(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
 }

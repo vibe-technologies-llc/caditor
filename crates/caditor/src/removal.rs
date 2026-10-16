@@ -4,7 +4,7 @@ use egui::{Id, Ui};
 use crate::{
     editing,
     feature_fields::{self, Choice},
-    field,
+    field::{self, CheckError},
     model::{Action, Model, Notice},
     widgets,
 };
@@ -13,6 +13,14 @@ pub const TITLE: &str = "Remove";
 pub const DESCRIPTION: &str =
     "Takes a body out of the model from here on; suppress or delete this to bring it back";
 const NOT_A_BODY: &str = "A body that is no longer there";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum RemovalError {
+    #[error("The feature no longer exists")]
+    FeatureGone,
+    #[error(transparent)]
+    Rejected(#[from] CheckError),
+}
 
 pub fn create(document: &Document, body: FeatureId) -> Option<(Transaction, String)> {
     let removed = document.body_name(body)?.into_owned();
@@ -42,11 +50,11 @@ pub fn create_actions(document: &Document, body: FeatureId) -> Vec<Action> {
     ]
 }
 
-fn change(model: &Model, feature: FeatureId, remove: Remove) -> Result<Transaction, String> {
+fn change(model: &Model, feature: FeatureId, remove: Remove) -> Result<Transaction, RemovalError> {
     let document = model.document();
     let name = &document
         .feature(feature)
-        .ok_or_else(|| "The feature no longer exists".to_owned())?
+        .ok_or(RemovalError::FeatureGone)?
         .name;
     field::checked(
         document,
@@ -83,7 +91,10 @@ pub fn show(
                         label: document.body_label(body)?,
                         selected: body == remove.body,
                         change: change(model, id, Remove { body }).map(|transaction| {
-                            feature_fields::applied(&feature.name, Ok::<_, String>(transaction))
+                            feature_fields::applied(
+                                &feature.name,
+                                Ok::<_, RemovalError>(transaction),
+                            )
                         }),
                     })
                 })

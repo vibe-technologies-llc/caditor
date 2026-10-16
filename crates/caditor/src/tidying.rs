@@ -22,9 +22,20 @@ use crate::{
 };
 
 pub const NOT_SETTLED: &str = "Waiting for the sketch to solve…";
-pub const UNSOLVED: &str = "The sketch has to solve before anything can be found in it. Fix the \
-                            problem the sketch bar names first.";
-pub const FAILED: &str = "Looking through the sketch failed. Try again after changing it.";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum TidyError {
+    #[error(
+        "The sketch has to solve before anything can be found in it. Fix the problem the sketch \
+         bar names first."
+    )]
+    Unsolved,
+    #[error("Looking through the sketch failed. Try again after changing it.")]
+    Failed,
+    #[error("The datum is not usable: {0}.")]
+    DatumNotUsable(InferenceError),
+}
+
 const TIGHT_SHARE: f64 = 2e-4;
 const TIGHT_DEGREES: f64 = 0.25;
 const LOOSE_SHARE: f64 = 5e-3;
@@ -118,7 +129,7 @@ pub enum Progress<'a> {
     Working,
     Stopped,
     Found(&'a Found),
-    Failed(&'a str),
+    Failed(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +143,7 @@ struct Basis {
     datum: EntityId,
 }
 
-type Answer = Result<Found, String>;
+type Answer = Result<Found, TidyError>;
 
 struct Running {
     basis: Basis,
@@ -263,7 +274,7 @@ impl Tidying {
         }
         match (&self.answered, &self.running) {
             (Some((_, Ok(found))), _) => Progress::Found(found),
-            (Some((_, Err(reason))), _) => Progress::Failed(reason),
+            (Some((_, Err(reason))), _) => Progress::Failed(reason.to_string()),
             (None, Some(_)) => Progress::Working,
             (None, None) if self.stopped.is_some() => Progress::Stopped,
             (None, None) => Progress::NotSettled,
@@ -273,10 +284,7 @@ impl Tidying {
     #[cfg(test)]
     pub fn wait(&mut self) {
         if let Some(running) = self.running.take() {
-            let answer = running
-                .answer
-                .recv()
-                .unwrap_or_else(|_| Err(FAILED.to_owned()));
+            let answer = running.answer.recv().unwrap_or(Err(TidyError::Failed));
             self.answered = Some((running.basis, answer));
         }
     }
@@ -288,7 +296,7 @@ impl Tidying {
         let answer = match running.answer.try_recv() {
             Ok(answer) => answer,
             Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => Err(FAILED.to_owned()),
+            Err(TryRecvError::Disconnected) => Err(TidyError::Failed),
         };
         if let Some(running) = self.running.take() {
             self.answered = Some((running.basis, answer));
@@ -313,7 +321,7 @@ impl Tidying {
                 let answer =
                     panic::catch_unwind(AssertUnwindSafe(|| job.run())).unwrap_or_else(|_| {
                         log::error!("looking through a sketch panicked");
-                        Some(Err(FAILED.to_owned()))
+                        Some(Err(TidyError::Failed))
                     });
                 if let Some(answer) = answer
                     && sender.send(answer).is_ok()
@@ -331,7 +339,7 @@ impl Tidying {
             }
             Err(error) => {
                 log::warn!("could not start looking through the sketch: {error}");
-                self.answered = Some((basis, Err(FAILED.to_owned())));
+                self.answered = Some((basis, Err(TidyError::Failed)));
             }
         }
     }
@@ -378,19 +386,11 @@ impl Job {
                 sketch: self.sketch,
             })),
             Err(InferenceError::Cancelled) => None,
-            Err(InferenceError::Unsolved(_)) => Some(Err(UNSOLVED.to_owned())),
+            Err(InferenceError::Unsolved(_)) => Some(Err(TidyError::Unsolved)),
             Err(error @ InferenceError::NotAPoint { .. }) => {
-                Some(Err(sentence(&format!("the datum is not usable: {error}"))))
+                Some(Err(TidyError::DatumNotUsable(error)))
             }
         }
-    }
-}
-
-pub fn sentence(text: &str) -> String {
-    let mut characters = text.chars();
-    match characters.next() {
-        Some(first) => format!("{}{}.", first.to_uppercase(), characters.as_str()),
-        None => String::new(),
     }
 }
 

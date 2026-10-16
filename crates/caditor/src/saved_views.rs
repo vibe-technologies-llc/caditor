@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, HOME_VIEW_NAME, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
-    Transaction, view_name,
+    Document, Edit, EditError, HOME_VIEW_NAME, MAX_VIEW_NAME_CHARS, NamedView, SavedView,
+    SavedViews, Transaction, view_name,
 };
 use caditor_render::Viewpoint;
 use egui::{Id, Key, ScrollArea, Sides, TextEdit, Ui};
@@ -29,6 +29,20 @@ const UPDATE_HOVER: &str = "Replace it with the current view";
 const RENAME_HOVER: &str = "Rename it";
 const DELETE_HOVER: &str = "Delete it";
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum SavedViewError {
+    #[error("The view '{name}' no longer exists")]
+    Missing { name: String },
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
+
+impl From<SavedViewError> for String {
+    fn from(error: SavedViewError) -> Self {
+        error.to_string()
+    }
+}
+
 pub fn saved_view(viewpoint: Viewpoint) -> SavedView {
     SavedView {
         target: viewpoint.target,
@@ -48,8 +62,8 @@ pub fn viewpoint(view: SavedView) -> Viewpoint {
 fn replacing(
     document: &Document,
     label: String,
-    change: impl FnOnce(&mut SavedViews) -> Result<(), String>,
-) -> Result<Transaction, String> {
+    change: impl FnOnce(&mut SavedViews) -> Result<(), SavedViewError>,
+) -> Result<Transaction, SavedViewError> {
     let mut views = document.saved_views().clone();
     change(&mut views)?;
     let transaction = Transaction::single(
@@ -58,17 +72,21 @@ fn replacing(
             views: Box::new(views),
         },
     );
-    document
-        .check(&transaction)
-        .map_err(|error| error.to_string())?;
+    document.check(&transaction)?;
     Ok(transaction)
 }
 
-fn missing(name: &str) -> String {
-    format!("The view '{name}' no longer exists")
+fn missing(name: &str) -> SavedViewError {
+    SavedViewError::Missing {
+        name: name.to_owned(),
+    }
 }
 
-pub fn save(document: &Document, name: &str, view: SavedView) -> Result<Transaction, String> {
+pub fn save(
+    document: &Document,
+    name: &str,
+    view: SavedView,
+) -> Result<Transaction, SavedViewError> {
     let name = view_name(name);
     replacing(document, format!("Save view “{name}”"), |views| {
         views.named.push(NamedView {
@@ -79,7 +97,11 @@ pub fn save(document: &Document, name: &str, view: SavedView) -> Result<Transact
     })
 }
 
-pub fn update(document: &Document, name: &str, view: SavedView) -> Result<Transaction, String> {
+pub fn update(
+    document: &Document,
+    name: &str,
+    view: SavedView,
+) -> Result<Transaction, SavedViewError> {
     replacing(document, format!("Update view “{name}”"), |views| {
         let index = views.position(name).ok_or_else(|| missing(name))?;
         if let Some(named) = views.named.get_mut(index) {
@@ -89,7 +111,7 @@ pub fn update(document: &Document, name: &str, view: SavedView) -> Result<Transa
     })
 }
 
-pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, String> {
+pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, SavedViewError> {
     let to = view_name(to);
     replacing(
         document,
@@ -104,7 +126,7 @@ pub fn rename(document: &Document, name: &str, to: &str) -> Result<Transaction, 
     )
 }
 
-pub fn delete(document: &Document, name: &str) -> Result<Transaction, String> {
+pub fn delete(document: &Document, name: &str) -> Result<Transaction, SavedViewError> {
     replacing(document, format!("Delete view “{name}”"), |views| {
         let index = views.position(name).ok_or_else(|| missing(name))?;
         views.named.remove(index);
@@ -112,7 +134,7 @@ pub fn delete(document: &Document, name: &str) -> Result<Transaction, String> {
     })
 }
 
-pub fn set_home(document: &Document, view: SavedView) -> Result<Transaction, String> {
+pub fn set_home(document: &Document, view: SavedView) -> Result<Transaction, SavedViewError> {
     replacing(
         document,
         format!("Change the {HOME_VIEW_NAME} view"),
@@ -123,7 +145,7 @@ pub fn set_home(document: &Document, view: SavedView) -> Result<Transaction, Str
     )
 }
 
-pub fn reset_home(document: &Document) -> Result<Transaction, String> {
+pub fn reset_home(document: &Document) -> Result<Transaction, SavedViewError> {
     replacing(
         document,
         format!("Reset the {HOME_VIEW_NAME} view"),
@@ -145,7 +167,7 @@ struct Renaming {
 pub struct ViewsDraft {
     name: String,
     renaming: Option<Renaming>,
-    problem: Option<String>,
+    problem: Option<SavedViewError>,
     pub current: SavedView,
     focus_pending: bool,
 }
@@ -216,12 +238,12 @@ fn body(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Option<Outc
     }
     if let Some(problem) = &draft.problem {
         ui.add_space(SPACE_S);
-        widgets::callout(ui, Tone::Error, |ui| ui.label(problem));
+        widgets::callout(ui, Tone::Error, |ui| ui.label(problem.to_string()));
     }
     outcome
 }
 
-fn applying(draft: &mut ViewsDraft, built: Result<Transaction, String>) -> Option<Outcome> {
+fn applying(draft: &mut ViewsDraft, built: Result<Transaction, SavedViewError>) -> Option<Outcome> {
     match built {
         Ok(transaction) => {
             draft.problem = None;

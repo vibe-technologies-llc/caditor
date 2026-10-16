@@ -1,13 +1,13 @@
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
-    BodyGrouping, Document, FeatureId, Transaction, folder_label, group_name, is_within,
+    BodyGrouping, Document, EditError, FeatureId, Transaction, folder_label, group_name, is_within,
 };
 use egui::{Id, Key, Label, Popup, Response, Ui, collapsing_header::CollapsingState};
 
 use crate::{
     appearance, bodies_tree, body_selection,
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, Reason},
     feature_tree::{self, CommandContext},
     field, icons,
     model::{Action, Model, Notice},
@@ -17,13 +17,31 @@ use crate::{
     visibility, widgets,
 };
 
-pub const NOTHING_TO_GROUP: &str = "Select bodies in the Bodies list or in the view to group them";
-pub const NO_GROUP_CHOSEN: &str = "Choose a group in the Bodies list, or a body in one";
-pub const NOT_IN_A_GROUP: &str = "The bodies chosen are in no group";
 pub const MOVE_TO_GROUP_LABEL: &str = "Move to group";
 pub const TOP_LEVEL_LABEL: &str = "Out of every group";
-const UNNAMED_GROUP: &str = "A group needs a name; Ungroup takes its bodies out of it";
 const GROUP_MORE_HINT: &str = "Rename, ungroup or move";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum BodyGroupError {
+    #[error("Select bodies in the Bodies list or in the view to group them")]
+    NothingToGroup,
+    #[error("Choose a group in the Bodies list, or a body in one")]
+    NoGroupChosen,
+    #[error("The bodies chosen are in no group")]
+    NotInAGroup,
+    #[error("A group needs a name; Ungroup takes its bodies out of it")]
+    Unnamed,
+    #[error("{group} is in no other group")]
+    InNoOtherGroup { group: String },
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
+
+impl Reason for BodyGroupError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 pub enum Entry {
     Body(FeatureId),
@@ -132,56 +150,50 @@ pub fn grouping(
     document: &Document,
     bodies: &[FeatureId],
     listed: &[FeatureId],
-) -> Result<BodyGrouping, String> {
+) -> Result<BodyGrouping, BodyGroupError> {
     if bodies.is_empty() {
-        return Err(NOTHING_TO_GROUP.to_owned());
+        return Err(BodyGroupError::NothingToGroup);
     }
-    document
-        .body_grouping(
-            bodies,
-            listed,
-            format!("Group {}", bodies_named(document, bodies)),
-        )
-        .map_err(|error| error.to_string())
+    Ok(document.body_grouping(
+        bodies,
+        listed,
+        format!("Group {}", bodies_named(document, bodies)),
+    )?)
 }
 
-pub fn ungrouping(document: &Document, folder: &[String]) -> Result<Transaction, String> {
-    document
-        .body_ungrouping(folder, format!("Ungroup {}", folder_label(folder)))
-        .map_err(|error| error.to_string())
+pub fn ungrouping(document: &Document, folder: &[String]) -> Result<Transaction, BodyGroupError> {
+    Ok(document.body_ungrouping(folder, format!("Ungroup {}", folder_label(folder)))?)
 }
 
-pub fn renaming(document: &Document, folder: &[String], text: &str) -> Result<Transaction, String> {
-    let name = group_name(text).ok_or(UNNAMED_GROUP)?;
-    document
-        .body_group_renaming(folder, &name, format!("Rename {}", folder_label(folder)))
-        .map_err(|error| error.to_string())
+pub fn renaming(
+    document: &Document,
+    folder: &[String],
+    text: &str,
+) -> Result<Transaction, BodyGroupError> {
+    let name = group_name(text).ok_or(BodyGroupError::Unnamed)?;
+    Ok(document.body_group_renaming(folder, &name, format!("Rename {}", folder_label(folder)))?)
 }
 
 pub fn moving_group(
     document: &Document,
     folder: &[String],
     into: &[String],
-) -> Result<Transaction, String> {
+) -> Result<Transaction, BodyGroupError> {
     let label = format!("Move {} {}", folder_label(folder), place_words(into));
-    document
-        .body_group_moving(folder, into, label)
-        .map_err(|error| error.to_string())
+    Ok(document.body_group_moving(folder, into, label)?)
 }
 
 pub fn moving_bodies(
     document: &Document,
     bodies: &[FeatureId],
     into: &[String],
-) -> Result<Transaction, String> {
+) -> Result<Transaction, BodyGroupError> {
     let label = format!(
         "Move {} {}",
         bodies_named(document, bodies),
         place_words(into)
     );
-    document
-        .bodies_moving(bodies, into, label)
-        .map_err(|error| error.to_string())
+    Ok(document.bodies_moving(bodies, into, label)?)
 }
 
 pub fn chosen_bodies(
@@ -214,7 +226,7 @@ pub fn current_group(
     document: &Document,
     state: &PanelState,
     chosen: &[FeatureId],
-) -> Result<Vec<String>, &'static str> {
+) -> Result<Vec<String>, BodyGroupError> {
     if let Some(folder) = chosen_row(document, state, chosen) {
         return Ok(folder.clone());
     }
@@ -222,21 +234,23 @@ pub fn current_group(
         .first()
         .map(|body| document.body_folder(*body))
         .filter(|folder| !folder.is_empty())
-        .ok_or(NO_GROUP_CHOSEN)
+        .ok_or(BodyGroupError::NoGroupChosen)
 }
 
 fn moving_out(
     document: &Document,
     state: &PanelState,
     chosen: &[FeatureId],
-) -> Result<Transaction, String> {
+) -> Result<Transaction, BodyGroupError> {
     if let Some(folder) = chosen_row(document, state, chosen) {
         let Some(parent) = folder
             .len()
             .checked_sub(2)
             .and_then(|end| folder.get(..end))
         else {
-            return Err(format!("{} is in no other group", folder_label(folder)));
+            return Err(BodyGroupError::InNoOtherGroup {
+                group: folder_label(folder),
+            });
         };
         return moving_group(document, folder, parent);
     }
@@ -246,7 +260,7 @@ fn moving_out(
         .filter(|body| !document.body_folder(*body).is_empty())
         .collect();
     if grouped.is_empty() {
-        return Err(NOT_IN_A_GROUP.to_owned());
+        return Err(BodyGroupError::NotInAGroup);
     }
     let label = format!(
         "Move {} out of {}",
@@ -257,9 +271,7 @@ fn moving_out(
             "their groups"
         }
     );
-    document
-        .bodies_moving_out(&grouped, label)
-        .map_err(|error| error.to_string())
+    Ok(document.bodies_moving_out(&grouped, label)?)
 }
 
 pub fn start_renaming(state: &mut PanelState, folder: Vec<String>) {
@@ -269,7 +281,11 @@ pub fn start_renaming(state: &mut PanelState, folder: Vec<String>) {
     });
 }
 
-fn apply_or_tell(actions: &mut Vec<Action>, title: &str, made: Result<Transaction, String>) {
+fn apply_or_tell(
+    actions: &mut Vec<Action>,
+    title: &str,
+    made: Result<Transaction, BodyGroupError>,
+) {
     match made {
         Ok(transaction) => actions.push(Action::Apply(transaction)),
         Err(reason) => actions.push(Action::Inform(Notice::warning(format!(
@@ -304,8 +320,8 @@ pub fn commands(
 ) {
     let document = context.model.document();
     let chosen = chosen_bodies(document, state, context.selection);
-    let groupable: Result<(), &str> = if chosen.is_empty() {
-        Err(NOTHING_TO_GROUP)
+    let groupable: Result<(), BodyGroupError> = if chosen.is_empty() {
+        Err(BodyGroupError::NothingToGroup)
     } else {
         Ok(())
     };
@@ -333,10 +349,10 @@ pub fn commands(
         || chosen
             .iter()
             .any(|body| !document.body_folder(*body).is_empty());
-    let out: Result<(), &str> = if in_a_group {
+    let out: Result<(), BodyGroupError> = if in_a_group {
         Ok(())
     } else {
-        Err(NOT_IN_A_GROUP)
+        Err(BodyGroupError::NotInAGroup)
     };
     if commands.invoke(Command::MoveOutOfBodyGroup, &out) {
         apply_or_tell(

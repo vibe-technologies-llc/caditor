@@ -11,13 +11,23 @@ use crate::{
     selection::{Axis, Pickable, Selection},
 };
 
-const NOTHING_TO_HIDE: &str =
-    "Select a body, sketch, datum, principal plane or axis in the view or the tree first";
-const NOTHING_TO_ISOLATE: &str = "Select what to keep in the view or the tree first";
-const ALREADY_ISOLATED: &str = "Everything else is already hidden";
-const NOTHING_HIDDEN: &str = "Nothing is hidden";
-const NOT_HIDEABLE: &str = "Only sketches, datums and features that make a body can be hidden";
 const PRINCIPAL_GROUP: &str = "principal planes, axes and origin";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum VisibilityError {
+    #[error("Select a body, sketch, datum, principal plane or axis in the view or the tree first")]
+    NothingToHide,
+    #[error("Select what to keep in the view or the tree first")]
+    NothingToIsolate,
+    #[error("Everything else is already hidden")]
+    AlreadyIsolated,
+    #[error("Nothing is hidden")]
+    NothingHidden,
+    #[error("Only sketches, datums and features that make a body can be hidden")]
+    NotHideable,
+    #[error("The model has no {} to hide or show", kind.plural())]
+    NoneOfKind { kind: Kind },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -252,9 +262,9 @@ fn set_principal_hidden(geometry: PrincipalGeometry, hidden: bool) -> Edit {
     Edit::SetPrincipalHidden { geometry, hidden }
 }
 
-pub fn toggle(feature: &Feature) -> Result<Transaction, String> {
+pub fn toggle(feature: &Feature) -> Result<Transaction, VisibilityError> {
     if !can_hide(feature) {
-        return Err(NOT_HIDEABLE.to_owned());
+        return Err(VisibilityError::NotHideable);
     }
     let verb = if feature.hidden { "Show" } else { "Hide" };
     Ok(Transaction::single(
@@ -263,16 +273,16 @@ pub fn toggle(feature: &Feature) -> Result<Transaction, String> {
     ))
 }
 
-pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, String> {
+pub fn toggle_body(document: &Document, body: FeatureId) -> Result<Transaction, VisibilityError> {
     if !body.is_piece() {
         return document
             .feature(body)
-            .ok_or_else(|| NOT_HIDEABLE.to_owned())
+            .ok_or(VisibilityError::NotHideable)
             .and_then(toggle);
     }
     let maker = document
         .body_maker(body)
-        .ok_or_else(|| NOT_HIDEABLE.to_owned())?;
+        .ok_or(VisibilityError::NotHideable)?;
     let name = document.body_name(body).unwrap_or_default();
     let hidden = document.body_hidden(body);
     let verb = if hidden { "Show" } else { "Hide" };
@@ -287,14 +297,14 @@ pub fn toggle_bodies(
     document: &Document,
     bodies: &[FeatureId],
     name: &str,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, VisibilityError> {
     let hiding = bodies.iter().any(|body| !document.body_hidden(*body));
     let mut edits = Vec::new();
     let mut makers_shown = BTreeSet::new();
     for body in bodies {
         let maker = document
             .body_maker(*body)
-            .ok_or_else(|| NOT_HIDEABLE.to_owned())?;
+            .ok_or(VisibilityError::NotHideable)?;
         if document.body_hidden(*body) == hiding {
             continue;
         }
@@ -332,7 +342,7 @@ pub struct RowToggle {
     pub transaction: Transaction,
 }
 
-pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle, String> {
+pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle, VisibilityError> {
     let toggled: Vec<&Feature> = hideable_rows(document, rows)
         .into_iter()
         .filter_map(|id| document.feature(id))
@@ -340,7 +350,7 @@ pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle,
     let hiding = toggled.iter().any(|feature| !feature.hidden);
     let verb = if hiding { "Hide" } else { "Show" };
     let label = match toggled.as_slice() {
-        [] => return Err(NOT_HIDEABLE.to_owned()),
+        [] => return Err(VisibilityError::NotHideable),
         [only] => format!("{verb} {}", only.name),
         many => format!("{verb} {} features", many.len()),
     };
@@ -433,16 +443,13 @@ pub fn toggle_kind(
     document: &Document,
     kind: Kind,
     edited: Option<FeatureId>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, VisibilityError> {
     let held: Vec<&Feature> = document
         .features()
         .filter(|feature| kind.holds(feature) && Some(feature.id()) != edited)
         .collect();
     if held.is_empty() {
-        return Err(format!(
-            "The model has no {} to hide or show",
-            kind.plural()
-        ));
+        return Err(VisibilityError::NoneOfKind { kind });
     }
     let hide = held.iter().any(|feature| !feature.hidden);
     let verb = if hide { "Hide" } else { "Show" };
@@ -460,7 +467,7 @@ pub fn hide_selection(
     selection: &Selection,
     rows: &[FeatureId],
     edited: Option<FeatureId>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, VisibilityError> {
     let owners: BTreeSet<FeatureId> = selection
         .iter()
         .filter_map(owner)
@@ -483,7 +490,7 @@ pub fn hide_selection(
         .filter(|geometry| is_principal_shown(document, *geometry))
         .collect();
     let label = match (hiding.as_slice(), principal.len() + pieces.len()) {
-        ([], 0) => return Err(NOTHING_TO_HIDE.to_owned()),
+        ([], 0) => return Err(VisibilityError::NothingToHide),
         ([only], 0) => format!("Hide {}", only.name),
         ([], 1) if let [piece] = pieces.as_slice() => {
             format!("Hide {}", document.body_name(*piece).unwrap_or_default())
@@ -517,7 +524,7 @@ pub fn hide_others(
     selection: &Selection,
     rows: &[FeatureId],
     edited: Option<FeatureId>,
-) -> Result<Transaction, String> {
+) -> Result<Transaction, VisibilityError> {
     let owners: BTreeSet<FeatureId> = selection.iter().filter_map(owner).collect();
     let kept_pieces: BTreeSet<FeatureId> = owners
         .iter()
@@ -544,7 +551,7 @@ pub fn hide_others(
         .count()
         + kept_principal.len();
     if kept == 0 {
-        return Err(NOTHING_TO_ISOLATE.to_owned());
+        return Err(VisibilityError::NothingToIsolate);
     }
     let other_pieces: Vec<FeatureId> = kept_pieces
         .iter()
@@ -579,7 +586,7 @@ pub fn hide_others(
         )
         .collect();
     if edits.is_empty() {
-        return Err(ALREADY_ISOLATED.to_owned());
+        return Err(VisibilityError::AlreadyIsolated);
     }
     let label = if kept == 1 {
         let name = match (kept_pieces.first(), kept_pieces.len()) {
@@ -605,7 +612,7 @@ pub fn hide_others(
     Ok(Transaction::new(label, edits))
 }
 
-pub fn show_all(document: &Document) -> Result<Transaction, String> {
+pub fn show_all(document: &Document) -> Result<Transaction, VisibilityError> {
     let hidden_pieces = document.features().flat_map(|feature| {
         feature
             .piece_looks
@@ -626,7 +633,7 @@ pub fn show_all(document: &Document) -> Result<Transaction, String> {
         )
         .collect();
     if edits.is_empty() {
-        return Err(NOTHING_HIDDEN.to_owned());
+        return Err(VisibilityError::NothingHidden);
     }
     Ok(Transaction::new("Show everything", edits))
 }
@@ -671,11 +678,11 @@ mod tests {
 
         assert_eq!(hide.label(), "Hide 3 items");
         assert_eq!(hide.edits().len(), 3);
-        assert_eq!(again, Err(NOTHING_TO_HIDE.to_owned()));
+        assert_eq!(again, Err(VisibilityError::NothingToHide));
         assert!(hidden_xy);
         assert!(is_shown(&document, first) && is_shown(&document, second));
         assert!(is_principal_shown(&document, xy));
-        assert_eq!(show_all(&document), Err(NOTHING_HIDDEN.to_owned()));
+        assert_eq!(show_all(&document), Err(VisibilityError::NothingHidden));
         assert_eq!(
             toggle(document.feature(first).unwrap()).map(|toggle| toggle.label().to_owned()),
             Ok("Hide First".to_owned())
@@ -724,13 +731,13 @@ mod tests {
             None,
         );
 
-        assert_eq!(nothing, Err(NOTHING_TO_ISOLATE.to_owned()));
+        assert_eq!(nothing, Err(VisibilityError::NothingToIsolate));
         assert_eq!(isolate.label(), "Hide everything but First");
         assert_eq!(isolate.edits().len(), 2 + PrincipalGeometry::ALL.len());
         assert!(is_shown(&document, first));
         assert!(!is_shown(&document, second) && !is_shown(&document, third));
         assert!(!any_principal_shown(&document, PrincipalView::default()));
-        assert_eq!(again, Err(ALREADY_ISOLATED.to_owned()));
+        assert_eq!(again, Err(VisibilityError::AlreadyIsolated));
     }
 
     #[test]
@@ -761,7 +768,7 @@ mod tests {
         );
         assert_eq!(
             toggle_kind(&document, Kind::Datums, None),
-            Err("The model has no datums to hide or show".to_owned())
+            Err(VisibilityError::NoneOfKind { kind: Kind::Datums })
         );
         assert!(toggle_kind(&document, Kind::Bodies, None).is_err());
     }

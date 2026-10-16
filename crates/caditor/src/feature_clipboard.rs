@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use caditor_document::{CarriedParameters, Feature, FeatureId, copied_picks, feature_parameters};
+use caditor_file::ClipboardError;
 use egui::Ui;
 
 use crate::{
@@ -18,6 +19,10 @@ const NOTHING_CHOSEN: &str = "Choose the features to copy in the tree first";
 const IN_SKETCH: &str = "Finish the sketch first; in a sketch, paste pastes sketch geometry";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy features in the tree first.";
 const PROGRESS_REFRESH: Duration = Duration::from_millis(100);
+
+#[derive(Debug, thiserror::Error)]
+#[error("Nothing was copied: {0}.")]
+struct CopyError(#[from] ClipboardError);
 
 pub fn commands(
     model: &Model,
@@ -42,7 +47,7 @@ pub fn commands(
                     described(targets)
                 ))));
             }
-            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            Err(error) => actions.push(Action::Inform(Notice::warning(error.to_string()))),
         }
     }
     follow_finished_paste(model, state);
@@ -67,15 +72,18 @@ fn described(features: &[&Feature]) -> String {
     }
 }
 
-fn copied_text(model: &Model, targets: &[&Feature]) -> Result<String, String> {
+fn copied_text(model: &Model, targets: &[&Feature]) -> Result<String, CopyError> {
     let features: Vec<Feature> = targets.iter().map(|feature| (*feature).clone()).collect();
     let parameters = CarriedParameters::of(
         model.document(),
         model.parameters(),
         features.iter().flat_map(feature_parameters),
     );
-    caditor_file::features_clipboard_text(&features, &parameters, &clipboard::source(model))
-        .map_err(|error| format!("Nothing was copied: {error}."))
+    Ok(caditor_file::features_clipboard_text(
+        &features,
+        &parameters,
+        &clipboard::source(model),
+    )?)
 }
 
 fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Action>) {

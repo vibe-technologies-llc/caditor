@@ -1,4 +1,4 @@
-use caditor_document::{Document, FeatureId, Transaction, group_name};
+use caditor_document::{Document, EditError, FeatureId, Transaction, group_name};
 use egui::{Id, Key, Label, Popup, Rect, Response, Ui, collapsing_header::CollapsingState};
 
 use crate::{
@@ -9,12 +9,21 @@ use crate::{
     widgets,
 };
 
-pub const NOTHING_TO_GROUP: &str = "Select features in the tree to group them";
-pub const NOT_IN_A_GROUP: &str = "The feature chosen in the tree is in no group";
 pub const UNGROUP_LABEL: &str = "Ungroup";
 pub const RENAME_GROUP_LABEL: &str = "Rename group";
 const GROUP_MORE_HINT: &str = "Rename or ungroup";
-const UNNAMED_GROUP: &str = "A group needs a name; Ungroup takes its features out of it";
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum GroupError {
+    #[error("Select features in the tree to group them")]
+    NothingToGroup,
+    #[error("The feature chosen in the tree is in no group")]
+    NotInAGroup,
+    #[error("A group needs a name; Ungroup takes its features out of it")]
+    Unnamed,
+    #[error(transparent)]
+    Rejected(#[from] EditError),
+}
 
 pub struct Header {
     pub rect: Rect,
@@ -26,25 +35,21 @@ enum Name {
     Renaming(field::FieldResponse<Transaction>),
 }
 
-pub fn grouping(document: &Document, features: &[FeatureId]) -> Result<Transaction, String> {
+pub fn grouping(document: &Document, features: &[FeatureId]) -> Result<Transaction, GroupError> {
     if features.is_empty() {
-        return Err(NOTHING_TO_GROUP.to_owned());
+        return Err(GroupError::NothingToGroup);
     }
     let name = document.unused_group_name();
     let label = format!(
         "Group {}",
         crate::feature_tree::count(features.len(), "feature", "features")
     );
-    document
-        .grouping(features, &name, label)
-        .map_err(|error| error.to_string())
+    Ok(document.grouping(features, &name, label)?)
 }
 
-pub fn ungrouping(document: &Document, member: FeatureId) -> Result<Transaction, String> {
-    let name = document.group_of(member).ok_or(NOT_IN_A_GROUP)?;
-    document
-        .regrouping(&document.group_run(member), None, format!("Ungroup {name}"))
-        .map_err(|error| error.to_string())
+pub fn ungrouping(document: &Document, member: FeatureId) -> Result<Transaction, GroupError> {
+    let name = document.group_of(member).ok_or(GroupError::NotInAGroup)?;
+    Ok(document.regrouping(&document.group_run(member), None, format!("Ungroup {name}"))?)
 }
 
 pub fn start_renaming(state: &mut PanelState, member: FeatureId) {
@@ -181,10 +186,12 @@ fn rename_field(
         width,
         renaming.focus_pending,
         |text| {
-            let renamed = group_name(text).ok_or(UNNAMED_GROUP)?;
-            document
-                .regrouping(run, Some(renamed), format!("Rename {name}"))
-                .map_err(|error| error.to_string())
+            let renamed = group_name(text).ok_or(GroupError::Unnamed)?;
+            Ok::<_, GroupError>(document.regrouping(
+                run,
+                Some(renamed),
+                format!("Rename {name}"),
+            )?)
         },
     )
 }
