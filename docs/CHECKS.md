@@ -6,9 +6,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [medium · medium] Errors carried as constant text: no app function returns `Result<_, String>`
   any more and `errors_are_typed_rather_than_text` (`conventions_tests.rs`) keeps it so, but about
-  80 still return `Result<_, &'static str>` (`drawing.rs`, `datum_tools.rs`, `body_selection.rs`,
+  60 still return `Result<_, &'static str>` (`drawing.rs`, `datum_tools.rs`, `body_selection.rs`,
   the `Offers` fields in `offers.rs`, `sketch_pattern_tools.rs`, the tools' `steppable` and
-  `highlight_needed` shared with `commands::Reason`, and some twenty more), so the variants
+  `highlight_needed` shared with `commands::Reason`, and a few more), so the variants
   wrapping them hold that text (`DatumError::Selection`, `CoilError`, `HelixError` and
   `MoveError`'s `AxisSelection`, `SplitError::ChosenPlane`, `PrimitiveError::ChosenPlane`,
   `MirrorToolError::ChosenPlane`, `PatternSketchError::Sketch`, `SolidChangeError::SelectedAxis`,

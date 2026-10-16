@@ -1,10 +1,11 @@
-use std::f64::consts::FRAC_PI_2;
+use std::{borrow::Cow, f64::consts::FRAC_PI_2};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3, Rotation3, Vector3};
 use caditor_render::Viewpoint;
 
 use crate::{
+    commands::Reason,
     datum_tools, measure,
     model::Model,
     scene,
@@ -12,12 +13,26 @@ use crate::{
     sketch_placement::{self, FaceChoice},
 };
 
-pub const NOTHING_TO_LOOK_AT: &str =
-    "Select one face, plane, sketch or straight edge to look straight at it";
-pub const SEVERAL_TO_LOOK_AT: &str =
-    "Several things are selected; select only the face, plane, sketch or edge to look at";
-pub const NO_DIRECTION: &str = "The selected item has no direction to look along; select a flat or round face, a plane, a sketch or a straight edge";
 const FACING_SLACK: f64 = 1e-6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LookError {
+    #[error("Select one face, plane, sketch or straight edge to look straight at it")]
+    Nothing,
+    #[error("Several things are selected; select only the face, plane, sketch or edge to look at")]
+    Several,
+    #[error(
+        "The selected item has no direction to look along; select a flat or round face, a plane, \
+         a sketch or a straight edge"
+    )]
+    NoDirection,
+}
+
+impl Reason for LookError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LookTarget {
@@ -79,32 +94,32 @@ fn candidate(pickable: Pickable) -> Candidate {
     }
 }
 
-pub fn look_target(model: &Model, selection: &Selection) -> Result<LookTarget, &'static str> {
+pub fn look_target(model: &Model, selection: &Selection) -> Result<LookTarget, LookError> {
     let mut sketch = None;
     let mut other = None;
     for pickable in selection.iter() {
         match candidate(pickable) {
             Candidate::Sketch(feature) => match sketch {
-                Some(known) if known != feature => return Err(SEVERAL_TO_LOOK_AT),
+                Some(known) if known != feature => return Err(LookError::Several),
                 _ => sketch = Some(feature),
             },
             Candidate::Other(pickable) => match other {
-                Some(_) => return Err(SEVERAL_TO_LOOK_AT),
+                Some(_) => return Err(LookError::Several),
                 None => other = Some(pickable),
             },
         }
     }
     match (sketch, other) {
-        (None, None) => Err(NOTHING_TO_LOOK_AT),
-        (Some(_), Some(_)) => Err(SEVERAL_TO_LOOK_AT),
+        (None, None) => Err(LookError::Nothing),
+        (Some(_), Some(_)) => Err(LookError::Several),
         (Some(sketch), None) => scene::sketch_plane(model.document(), model.evaluation(), sketch)
             .map(LookTarget::Plane)
-            .ok_or(NO_DIRECTION),
+            .ok_or(LookError::NoDirection),
         (None, Some(pickable)) => target_of(model, pickable),
     }
 }
 
-fn target_of(model: &Model, pickable: Pickable) -> Result<LookTarget, &'static str> {
+fn target_of(model: &Model, pickable: Pickable) -> Result<LookTarget, LookError> {
     if let Some(face) = FaceChoice::of(pickable)
         && let Some(normal) = sketch_placement::outward_direction(model, face)
     {
@@ -112,7 +127,7 @@ fn target_of(model: &Model, pickable: Pickable) -> Result<LookTarget, &'static s
     }
     let direction = measure::direction_of(model, pickable)
         .filter(|direction| direction.length_squared() > 0.0)
-        .ok_or(NO_DIRECTION)?;
+        .ok_or(LookError::NoDirection)?;
     match pickable {
         Pickable::Plane(_) | Pickable::FramePlane { .. } => Ok(LookTarget::Normal(direction)),
         Pickable::Datum(datum) if datum_tools::is_plane(model.document(), datum) => {
@@ -123,7 +138,7 @@ fn target_of(model: &Model, pickable: Pickable) -> Result<LookTarget, &'static s
         | Pickable::Axis(_)
         | Pickable::FrameAxis { .. }
         | Pickable::Datum(_) => Ok(LookTarget::Axis(direction)),
-        _ => Err(NO_DIRECTION),
+        _ => Err(LookError::NoDirection),
     }
 }
 
