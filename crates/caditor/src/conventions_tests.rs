@@ -850,7 +850,6 @@ fn no_pin_is_copied_into_a_workflow() {
 }
 
 const TEXT_PAYLOADS: [&str; 5] = ["reason", "message", "detail", "words", "refusal"];
-const OWNED_TEXT: [&str; 1] = ["String"];
 const TEXT_TYPES: [&str; 2] = ["String", "&'static str"];
 
 fn is_test_source(path: &Path) -> bool {
@@ -944,10 +943,6 @@ fn first_text_error(source: &str) -> Option<String> {
     text_error_in(source, &TEXT_TYPES)
 }
 
-fn first_owned_text_error(source: &str) -> Option<String> {
-    text_error_in(source, &OWNED_TEXT)
-}
-
 fn text_error_in(source: &str, texts: &[&str]) -> Option<String> {
     let code = flattened(&without_test_items(&without_literals(source)));
     let string_result = code.match_indices("Result<").find_map(|(at, word)| {
@@ -995,11 +990,7 @@ fn errors_are_typed_rather_than_text() {
         .filter(|path| !is_test_source(path))
         .filter_map(|path| {
             let source = fs::read_to_string(&path).unwrap();
-            let shape = if path.to_string_lossy().contains("crates/caditor/src") {
-                first_text_error(&source)
-            } else {
-                first_owned_text_error(&source)
-            }?;
+            let shape = first_text_error(&source)?;
             Some(format!("{}: {shape}", path.display()))
         })
         .collect();
@@ -1049,11 +1040,7 @@ fn the_text_error_scanner_finds_string_errors_outside_tests_only() {
     );
     assert!(first_text_error("enum E { Refused { words: &'static str } }").is_some());
     assert_eq!(first_text_error("enum E { Keys(&'static str) }"), None);
-    assert_eq!(
-        first_owned_text_error("fn f() -> Result<u8, &'static str> { g() }"),
-        None
-    );
-    assert!(first_owned_text_error("fn f() -> Result<u8, String> { g() }").is_some());
+    assert!(first_text_error("fn f() -> Result<u8, String> { g() }").is_some());
     assert_eq!(
         first_text_error("fn f() -> Result<&'static str, E> { g() }"),
         None

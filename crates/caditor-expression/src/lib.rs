@@ -520,7 +520,7 @@ mod tests {
         );
         assert_eq!(
             error_kind("mm * 2"),
-            ParseErrorKind::UnitWithoutNumber("mm")
+            ParseErrorKind::UnitWithoutNumber(Unit::Millimetre)
         );
         assert_eq!(error_kind("(1 + 2"), ParseErrorKind::UnclosedParenthesis);
         assert_eq!(

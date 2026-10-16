@@ -51,8 +51,8 @@ pub enum ParseErrorKind {
     MissingArguments(Function),
     #[error("{function} takes {expected}")]
     WrongArgumentCount { function: Function, expected: Arity },
-    #[error("A unit must follow a number, as in 10 {0}")]
-    UnitWithoutNumber(&'static str),
+    #[error("A unit must follow a number, as in 10 {}", .0.symbol())]
+    UnitWithoutNumber(Unit),
     #[error("caditor works in SI units; write {suggestion} instead of {found}")]
     ImperialUnit {
         found: String,
@@ -699,7 +699,7 @@ impl Parser<'_> {
             return Ok(Expression::Constant(constant));
         }
         if let Some((unit, _)) = unit_with_power(name) {
-            return Err(error(ParseErrorKind::UnitWithoutNumber(unit.symbol())));
+            return Err(error(ParseErrorKind::UnitWithoutNumber(unit)));
         }
         if let Some(function) = Function::from_name(name) {
             return Err(error(ParseErrorKind::MissingArguments(function)));

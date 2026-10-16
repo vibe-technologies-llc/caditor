@@ -31,7 +31,10 @@ use caditor_geometry::Similarity;
 use caditor_kernel::{Solid, check_interrupt, current_interrupt, interruptible};
 
 pub use crate::read::{
-    fault::Fault, finish::Finish, offset::OffsetRefusal, presentation::FaceLook,
+    fault::Fault,
+    finish::Finish,
+    offset::{OffsetBasis, OffsetRefusal},
+    presentation::FaceLook,
 };
 use crate::{
     part21::{Exchange, SyntaxError, parse},

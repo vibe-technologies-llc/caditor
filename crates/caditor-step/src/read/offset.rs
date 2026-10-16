@@ -17,20 +17,38 @@ const POLE_NUDGE: f64 = 1e-7;
 const RADIAL_SLACK: f64 = 1e-9;
 const SAMPLES_PER_CHARGE: usize = 16;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OffsetBasis {
+    #[error("cylinder")]
+    Cylinder,
+    #[error("sphere")]
+    Sphere,
+    #[error("torus's tube")]
+    TorusTube,
+    #[error("profile's circle")]
+    ProfileCircle,
+    #[error("surface of extrusion")]
+    Extrusion,
+    #[error("surface of revolution")]
+    Revolution,
+    #[error("spline surface")]
+    Spline,
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum OffsetRefusal {
     #[error("is offset by more than the radius of its {0}, which leaves no surface")]
-    PastCentre(&'static str),
+    PastCentre(OffsetBasis),
     #[error("is offset so far that the tube of its torus reaches the axis")]
     TubeReachesAxis,
     #[error("is an offset of a {0} with no end, which caditor cannot import yet")]
-    Endless(&'static str),
+    Endless(OffsetBasis),
     #[error("is an offset of a surface of its kind, which caditor cannot import yet")]
     Unsupported,
     #[error("is offset farther than its {0} curves, so the offset folds over itself")]
-    Folds(&'static str),
+    Folds(OffsetBasis),
     #[error("is offset from a point where its {0} has no direction across it")]
-    NoNormal(&'static str),
+    NoNormal(OffsetBasis),
     #[error(
         "is an offset of a {what} that caditor could not match within {} mm (its closest match is \
          {} mm off)",
@@ -38,7 +56,7 @@ pub enum OffsetRefusal {
         short(*.reached)
     )]
     NotFitted {
-        what: &'static str,
+        what: OffsetBasis,
         within: f64,
         reached: f64,
     },
@@ -67,7 +85,7 @@ pub(crate) fn offset(
     distance: f64,
     fit: &Fit<'_>,
 ) -> Result<Surface, OffsetRefusal> {
-    let grown = |radius: f64, what: &'static str| {
+    let grown = |radius: f64, what: OffsetBasis| {
         let offset = radius + distance;
         if offset > 0.0 {
             Ok(offset)
@@ -86,14 +104,18 @@ pub(crate) fn offset(
             .ok_or(GeometryError::NonFinite)?;
             PlaneSurface::new(moved)?.into()
         }
-        Surface::Cylinder(cylinder) => {
-            Cylinder::new(*cylinder.frame(), grown(cylinder.radius(), "cylinder")?)?.into()
-        }
-        Surface::Sphere(sphere) => {
-            Sphere::new(*sphere.frame(), grown(sphere.radius(), "sphere")?)?.into()
-        }
+        Surface::Cylinder(cylinder) => Cylinder::new(
+            *cylinder.frame(),
+            grown(cylinder.radius(), OffsetBasis::Cylinder)?,
+        )?
+        .into(),
+        Surface::Sphere(sphere) => Sphere::new(
+            *sphere.frame(),
+            grown(sphere.radius(), OffsetBasis::Sphere)?,
+        )?
+        .into(),
         Surface::Torus(torus) => {
-            let minor = grown(torus.minor_radius(), "torus's tube")?;
+            let minor = grown(torus.minor_radius(), OffsetBasis::TorusTube)?;
             if minor >= torus.major_radius() {
                 return Err(OffsetRefusal::TubeReachesAxis);
             }
@@ -114,7 +136,7 @@ pub(crate) fn offset(
             Cone::new(moved, radius, cone.half_angle())?.into()
         }
         Surface::Extrusion(extrusion) => {
-            let what = "surface of extrusion";
+            let what = OffsetBasis::Extrusion;
             let (profile, samples) = offset_profile(
                 extrusion.profile(),
                 |t| basis.normal(t, 0.0),
@@ -132,7 +154,7 @@ pub(crate) fn offset(
             moved
         }
         Surface::Revolution(revolution) => {
-            let what = "surface of revolution";
+            let what = OffsetBasis::Revolution;
             let (profile, samples) = offset_profile(
                 revolution.profile(),
                 |t| basis.normal(0.0, t),
@@ -162,7 +184,7 @@ fn unfolded(
     basis: &Surface,
     moved: &Surface,
     samples: impl Iterator<Item = Point2>,
-    what: &'static str,
+    what: OffsetBasis,
 ) -> Result<(), OffsetRefusal> {
     for uv in samples {
         if let (Some(before), Some(after)) = (basis.normal(uv.x, uv.y), moved.normal(uv.x, uv.y))
@@ -179,7 +201,7 @@ fn offset_profile(
     normal: impl Fn(f64) -> Option<Vector3>,
     distance: f64,
     fit: &Fit<'_>,
-    what: &'static str,
+    what: OffsetBasis,
 ) -> Result<(Curve, Vec<f64>), OffsetRefusal> {
     match profile {
         Curve::Line(line) => {
@@ -191,7 +213,7 @@ fn offset_profile(
             if let Some(sign) = radial_sign(profile, circle, &normal) {
                 let radius = circle.radius() + sign * distance;
                 if radius <= 0.0 {
-                    return Err(OffsetRefusal::PastCentre("profile's circle"));
+                    return Err(OffsetRefusal::PastCentre(OffsetBasis::ProfileCircle));
                 }
                 let moved = Circle::new(*circle.frame(), radius)?;
                 return Ok((moved.into(), circle_samples().to_vec()));
@@ -325,7 +347,7 @@ fn fitted_curve(
     breaks: &[f64],
     exact: impl Fn(f64) -> Result<Point3, OffsetRefusal>,
     fit: &Fit<'_>,
-    what: &'static str,
+    what: OffsetBasis,
 ) -> Result<(BSpline<Point3>, Vec<f64>), OffsetRefusal> {
     let breaks = spans(breaks, (MAX_CURVE_SAMPLES - 1) / FIRST_PIECES);
     let mut pieces = FIRST_PIECES;
@@ -372,7 +394,7 @@ fn fitted_surface(
     distance: f64,
     fit: &Fit<'_>,
 ) -> Result<Surface, OffsetRefusal> {
-    let what = "spline surface";
+    let what = OffsetBasis::Spline;
     let (u_domain, v_domain) = (spline.u_domain(), spline.v_domain());
     let most = (MAX_SURFACE_SAMPLES - 1) / FIRST_PIECES;
     let breaks_of = |knots: &[f64], domain: Interval| {

@@ -1,9 +1,26 @@
 use std::borrow::Cow;
 
-use crate::commands::{Command, Offer};
+use crate::commands::{Command, Offer, Reason};
 
 pub const NOTHING_TO_REPEAT: &str =
     "Run a modelling or sketch command first; there is nothing to repeat yet";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RepeatRefusal {
+    #[error("{NOTHING_TO_REPEAT}")]
+    NothingYet,
+    #[error("{} is not available here", .0.title())]
+    NotHere(Command),
+}
+
+impl Reason for RepeatRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        match self {
+            Self::NothingYet => Cow::Borrowed(NOTHING_TO_REPEAT),
+            Self::NotHere(_) => Cow::Owned(self.to_string()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Repetition {
@@ -13,7 +30,7 @@ pub struct Repetition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Repeat {
     Again(Command),
-    Refused(String),
+    Refused(RepeatRefusal),
 }
 
 impl Repetition {
@@ -30,9 +47,9 @@ impl Repetition {
         offers.retain(|offer| offer.command != Command::RepeatLast);
 
         let outcome = asked.then(|| match before {
-            None => Repeat::Refused(NOTHING_TO_REPEAT.to_owned()),
+            None => Repeat::Refused(RepeatRefusal::NothingYet),
             Some(command) if offered(offers, command).is_some() => Repeat::Again(command),
-            Some(command) => Repeat::Refused(not_here(command)),
+            Some(command) => Repeat::Refused(RepeatRefusal::NotHere(command)),
         });
         let offer = match self.last {
             None => Offer {
@@ -50,7 +67,7 @@ impl Repetition {
                 },
                 None => Offer {
                     command: Command::RepeatLast,
-                    availability: Err(Cow::Owned(not_here(command))),
+                    availability: Err(RepeatRefusal::NotHere(command).reason()),
                     pending: None,
                     detail: Some(command.title()),
                 },
@@ -63,8 +80,4 @@ impl Repetition {
 
 fn offered(offers: &[Offer], command: Command) -> Option<&Offer> {
     offers.iter().find(|offer| offer.command == command)
-}
-
-fn not_here(command: Command) -> String {
-    format!("{} is not available here", command.title())
 }

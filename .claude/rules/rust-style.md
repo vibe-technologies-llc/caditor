@@ -37,10 +37,11 @@ paths:
   worded by their `Display`; a caller wraps a callee's error with `#[from]` or a field, never its
   text, and the text is made only where it is shown (a notice, a callout, a tool answer). A user's
   own names or typed text may stay a `String` field. `conventions_tests.rs`
-  (`errors_are_typed_rather_than_text`) refuses `Result<_, String>`, `From<…> for String` and a
-  variant whose only payload is a `reason`, `message`, `detail`, `words` or `refusal` string
-  outside test code; in the app crate it also refuses `Result<_, &'static str>`, such a payload
-  held as `&'static str` and an `#[error]` tuple variant holding one. A refusal that only says the
+  (`errors_are_typed_rather_than_text`) refuses, in every crate outside test code,
+  `Result<_, String>` and `Result<_, &'static str>`, `From<…> for String`, a variant whose only
+  payload is a `reason`, `message`, `detail`, `words` or `refusal` string (owned or
+  `&'static str`) and an `#[error]` tuple variant holding a `&'static str`: a name shown in the
+  words is the typed value it names (`MeshFormat`, `Unit`, `OffsetBasis`). A refusal that only says the
   model is not ready is a `queued::Pending` the error answers through `Reason::pending`
   (`app-input.md`).
 - Edition 2024, no MSRV: never set `rust-version`; any feature stable on the current toolchain is

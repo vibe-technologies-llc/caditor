@@ -201,11 +201,11 @@ fn a_3mf_places_its_components_and_converts_its_unit() {
 fn damaged_and_open_meshes_are_refused_in_words() {
     assert_eq!(
         parse_mesh(b"solid nothing\nendsolid\n", MeshFormat::Stl, "a.stl", "a"),
-        Err(ImportError::DamagedMesh("STL"))
+        Err(ImportError::DamagedMesh(MeshFormat::Stl))
     );
     assert_eq!(
         parse_mesh(b"not a zip", MeshFormat::ThreeMf, "a.3mf", "a"),
-        Err(ImportError::DamagedMesh("3MF"))
+        Err(ImportError::DamagedMesh(MeshFormat::ThreeMf))
     );
     let sheet = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
 
@@ -264,7 +264,7 @@ fn a_3mf_with_relationships_nested_a_hundred_thousand_deep_is_refused_instead_of
 
     assert_eq!(
         parse_mesh(&package, MeshFormat::ThreeMf, "deep.3mf", "deep"),
-        Err(ImportError::DamagedMesh("3MF"))
+        Err(ImportError::DamagedMesh(MeshFormat::ThreeMf))
     );
 }
 

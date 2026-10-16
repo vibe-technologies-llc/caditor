@@ -86,7 +86,7 @@ pub fn parse_mesh(
     source: &str,
     name: &str,
 ) -> Result<ModelImport, ImportError> {
-    let damaged = ImportError::DamagedMesh(format.name());
+    let damaged = ImportError::DamagedMesh(format);
     let (mesh, mut notes) = match format {
         MeshFormat::Stl => (
             read_stl(bytes).ok_or(damaged)?,
@@ -99,7 +99,7 @@ pub fn parse_mesh(
         MeshFormat::ThreeMf => (read_three_mf(bytes)?, Vec::new()),
     };
     let built = faceted_solids(&mesh).map_err(|error| match error {
-        FacetedError::NoTriangles => ImportError::DamagedMesh(format.name()),
+        FacetedError::NoTriangles => ImportError::DamagedMesh(format),
         FacetedError::NotClosed { open_edges } => ImportError::MeshNotClosed { open_edges },
         FacetedError::TooDetailed { faces } => ImportError::MeshTooDetailed { faces },
         FacetedError::Build(error) => {
@@ -376,7 +376,7 @@ fn unit_scale(unit: Option<&str>) -> Option<f64> {
 }
 
 fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
-    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
     let archive = zip_read::Archive::new(bytes).ok_or_else(damaged)?;
     let mut package = Package {
         archive,
@@ -469,7 +469,7 @@ impl Package<'_> {
     }
 
     fn read_part(&mut self, path: &str) -> Result<Part, ImportError> {
-        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
         let name = format!("/{path}");
         let bytes = self
             .archive
@@ -541,7 +541,7 @@ fn read_reference(
     scale: f64,
     directory: &str,
 ) -> Result<Reference, ImportError> {
-    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
     let transform = Transform::parse(node.attribute("transform"))
         .ok_or_else(damaged)?
         .in_units(scale);
@@ -558,7 +558,7 @@ fn read_reference(
 }
 
 fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
-    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+    let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
     let coordinate = |vertex: Node<'_, '_>, name: &str| -> Result<f64, ImportError> {
         vertex
             .attribute(name)
@@ -642,7 +642,7 @@ impl Placement<'_> {
     }
 
     fn add_object(&mut self, part: usize, id: &str, placed: Transform) -> Result<(), ImportError> {
-        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf.name());
+        let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
         check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
         self.placed_objects += 1;
         if self.placed_objects > MAX_PLACED_OBJECTS {

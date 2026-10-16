@@ -197,8 +197,8 @@ pub enum ImportError {
     NothingStorable,
     #[error("it is not an STL, OBJ or 3MF mesh")]
     NotMesh,
-    #[error("it is not a readable {0} mesh")]
-    DamagedMesh(&'static str),
+    #[error("it is not a readable {} mesh", .0.name())]
+    DamagedMesh(MeshFormat),
     #[error(
         "its 3D model holds more than {} elements, more than caditor reads from one 3MF; reduce \
          its triangles in a mesh editor first",
