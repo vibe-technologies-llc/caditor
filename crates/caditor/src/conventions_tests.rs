@@ -848,3 +848,190 @@ fn no_pin_is_copied_into_a_workflow() {
         }
     }
 }
+
+const TEXT_PAYLOADS: [&str; 3] = ["reason", "message", "detail"];
+
+fn is_test_source(path: &Path) -> bool {
+    let name = path.file_name().unwrap().to_string_lossy();
+    name.ends_with("tests.rs")
+        || path
+            .components()
+            .any(|component| matches!(component.as_os_str().to_str(), Some("tests" | "ui_tests")))
+}
+
+fn without_literals(source: &str) -> String {
+    let characters: Vec<char> = source.chars().collect();
+    let mut code = String::new();
+    let mut index = 0;
+    while let Some(current) = characters.get(index) {
+        match literal_end(&characters, index) {
+            Some(end) => {
+                code.push_str("\"\"");
+                index = end;
+            }
+            None => {
+                code.push(*current);
+                index += 1;
+            }
+        }
+    }
+    code
+}
+
+fn without_test_items(code: &str) -> String {
+    let mut kept = Vec::new();
+    let mut lines = code.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() != "#[cfg(test)]" {
+            kept.push(line);
+            continue;
+        }
+        let mut depth = 0_i64;
+        let mut opened = false;
+        for skipped in lines.by_ref() {
+            let opening = skipped.matches('{').count();
+            let closing = skipped.matches('}').count();
+            depth += i64::try_from(opening).unwrap() - i64::try_from(closing).unwrap();
+            opened |= opening > 0;
+            if (opened && depth <= 0) || (!opened && skipped.trim_end().ends_with(';')) {
+                break;
+            }
+        }
+    }
+    kept.join("\n")
+}
+
+fn flattened(code: &str) -> String {
+    code.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn generic_arguments(code: &str, opening: usize) -> Option<&str> {
+    let mut depth = 0_usize;
+    let mut previous = ' ';
+    for (offset, character) in code.get(opening..)?.char_indices() {
+        match character {
+            '<' => depth += 1,
+            '>' if previous != '-' => {
+                depth -= 1;
+                if depth == 0 {
+                    return code.get(opening + 1..opening + offset);
+                }
+            }
+            _ => {}
+        }
+        previous = character;
+    }
+    None
+}
+
+fn last_argument(arguments: &str) -> Option<&str> {
+    let mut depth = 0_usize;
+    let mut last = None;
+    for (offset, character) in arguments.char_indices() {
+        match character {
+            '<' | '(' | '[' => depth += 1,
+            '>' | ')' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => last = Some(offset + 1),
+            _ => {}
+        }
+    }
+    arguments.get(last?..).map(str::trim)
+}
+
+fn first_text_error(source: &str) -> Option<String> {
+    let code = flattened(&without_test_items(&without_literals(source)));
+    let string_result = code.match_indices("Result<").find_map(|(at, word)| {
+        let preceded = code[..at]
+            .chars()
+            .next_back()
+            .is_some_and(is_identifier_character);
+        let error = last_argument(generic_arguments(&code, at + word.len() - 1)?)?;
+        (!preceded && error == "String").then(|| "Result<…, String>".to_owned())
+    });
+    let bridge = code.match_indices(" for String {").find_map(|(at, _)| {
+        let start = code[..at].rfind("impl")?;
+        code[start..at]
+            .contains("From<")
+            .then(|| code[start..at + 13].to_owned())
+    });
+    let payload = TEXT_PAYLOADS.iter().find_map(|field| {
+        [
+            format!("{{ {field}: String }}"),
+            format!("{{ {field}: String, }}"),
+        ]
+        .into_iter()
+        .find(|shape| code.contains(shape.as_str()))
+    });
+    string_result.or(bridge).or(payload)
+}
+
+#[test]
+fn errors_are_typed_rather_than_text() {
+    let root = repository();
+    let texts: Vec<String> = files_with_extension(&root.join("crates"), "rs")
+        .into_iter()
+        .filter(|path| !is_test_source(path))
+        .filter_map(|path| {
+            let shape = first_text_error(&fs::read_to_string(&path).unwrap())?;
+            Some(format!("{}: {shape}", path.display()))
+        })
+        .collect();
+
+    assert!(
+        texts.is_empty(),
+        "give each failure a variant of an error enum with typed data, worded by its Display, \
+         rather than text, in {texts:#?}"
+    );
+}
+
+#[test]
+fn the_text_error_scanner_finds_string_errors_outside_tests_only() {
+    let result = "fn f() -> Result<u8, String> { Ok(1) }";
+    let nested = "fn f() -> Result<Vec<(u8, u8)>, String> { todo() }";
+    let bridge =
+        "impl From<Error> for String {\n    fn from(e: Error) -> Self { e.to_string() }\n}";
+    let generic = "impl<P: Display> From<Edit<P>> for String { }";
+    let payload = "enum E {\n    Refused {\n        reason: String,\n    },\n}";
+
+    assert!(first_text_error(result).is_some());
+    assert!(first_text_error(nested).is_some());
+    assert!(first_text_error(bridge).is_some());
+    assert!(first_text_error(generic).is_some());
+    assert!(first_text_error(payload).is_some());
+
+    assert_eq!(
+        first_text_error("fn f() -> io::Result<String> { g() }"),
+        None
+    );
+    assert_eq!(
+        first_text_error("fn f() -> Result<String, Error> { g() }"),
+        None
+    );
+    assert_eq!(
+        first_text_error("fn f() -> TryResult<u8, String> { g() }"),
+        None
+    );
+    assert_eq!(
+        first_text_error("const T: &str = \"Result<u8, String>\";"),
+        None
+    );
+    assert_eq!(first_text_error("impl Reason for String { }"), None);
+    assert_eq!(first_text_error("enum E { Named { name: String } }"), None);
+    assert_eq!(
+        first_text_error("enum E { Refused { reason: String, remedy: String } }"),
+        None
+    );
+    assert_eq!(
+        first_text_error(
+            "#[cfg(test)]\nmod tests {\n    fn f() -> Result<u8, String> { Ok(1) }\n}\n"
+        ),
+        None
+    );
+    assert_eq!(
+        first_text_error("#[cfg(test)]\nfn f() -> Result<u8, String> {\n    Ok(1)\n}\nfn g() {}"),
+        None
+    );
+    assert!(
+        first_text_error("#[cfg(test)]\nuse x;\nfn f() -> Result<u8, String> { Ok(1) }").is_some()
+    );
+}

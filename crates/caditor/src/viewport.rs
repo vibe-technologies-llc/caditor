@@ -226,8 +226,10 @@ impl Reason for ListRefusal {
 enum TypedEditError {
     #[error("{}", queued::SKETCH_SHOWN)]
     SketchShown,
-    #[error("{refusal}")]
-    SketchDrag { refusal: String },
+    #[error(transparent)]
+    Moved(#[from] sketch_drag::MoveError),
+    #[error(transparent)]
+    Transformed(#[from] sketch_drag::TransformError),
     #[error(transparent)]
     Point(#[from] TypedPointError),
     #[error(transparent)]
@@ -4777,9 +4779,7 @@ impl ViewportState {
             }
             return;
         };
-        let fresh = fresh_from_sketch(model, moving.feature, |sketch| {
-            moving.refreshed(sketch).map_err(|error| error.to_string())
-        });
+        let fresh = fresh_from_sketch(model, moving.feature, |sketch| moving.refreshed(sketch));
         let target = fresh.and_then(|fresh| {
             let from = typed_point::From {
                 last: Some(fresh.anchor),
@@ -4880,17 +4880,15 @@ impl ViewportState {
             return;
         };
         let commands = fresh_from_sketch(model, transforming.feature, |sketch| {
-            transforming
-                .refreshed(sketch)
-                .map_err(|error| error.to_string())
+            transforming.refreshed(sketch)
         })
         .and_then(|fresh| {
             let amount = typed_point::parse_transform(model, &typed.text, transform)?;
             match transform {
-                Transform::Rotate => fresh.rotated(amount).map_err(|error| error.to_string()),
-                Transform::Scale => fresh.scaled(amount).map_err(|error| error.to_string()),
+                Transform::Rotate => fresh.rotated(amount),
+                Transform::Scale => fresh.scaled(amount),
             }
-            .map_err(|refusal| TypedEditError::SketchDrag { refusal })
+            .map_err(TypedEditError::from)
         });
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
@@ -6355,17 +6353,17 @@ fn zoom_factor(navigation: &Navigation, zooming_in: f64) -> f64 {
     (direction * zooming_in * ZOOM_PER_SCROLL_POINT * navigation.zoom_speed).exp()
 }
 
-fn fresh_from_sketch<T>(
+fn fresh_from_sketch<T, E: Into<TypedEditError>>(
     model: &Model,
     feature: FeatureId,
-    refresh: impl FnOnce(&Sketch) -> Result<T, String>,
+    refresh: impl FnOnce(&Sketch) -> Result<T, E>,
 ) -> Result<T, TypedEditError> {
     let shown = model
         .document()
         .feature(feature)
         .and_then(|owner| model.displayed_sketch(owner))
         .ok_or(TypedEditError::SketchShown)?;
-    refresh(&shown).map_err(|refusal| TypedEditError::SketchDrag { refusal })
+    refresh(&shown).map_err(Into::into)
 }
 
 fn queue_typed(entered: &str, title: &str, error: &str, actions: &mut Vec<Action>) {

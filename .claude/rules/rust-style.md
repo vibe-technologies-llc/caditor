@@ -33,5 +33,11 @@ paths:
   for a stated growth of the input. A wait for another thread is bounded by a deadline fixed before
   the loop. `conventions_tests.rs` (`no_assertion_reads_the_clock`) refuses `elapsed` inside an
   assert.
+- Errors are enums of specific variants (`thiserror`), one per failure, carrying typed data and
+  worded by their `Display`; a caller wraps a callee's error with `#[from]` or a field, never its
+  text, and the text is made only where it is shown (a notice, a callout, a tool answer). A user's
+  own names or typed text may stay a `String` field. `conventions_tests.rs`
+  (`errors_are_typed_rather_than_text`) refuses `Result<_, String>`, `From<…> for String` and a
+  variant whose only payload is a `reason`, `message` or `detail` string outside test code.
 - Edition 2024, no MSRV: never set `rust-version`; any feature stable on the current toolchain is
   fair game.
