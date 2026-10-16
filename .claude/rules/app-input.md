@@ -505,7 +505,7 @@ paths:
   `Heading`): `Drawing::place` puts the point that far from it toward the pointer, ahead of snapping;
   the prompt says the length (the radius for round shapes) is locked (`held_noun`) and a click keeps
   it as a dimension. It is held only while the shape has just its first point (a spline from its
-  first on), else `LENGTH_LOCK_REFUSED` in the field; zero, negative and out-of-range lengths and a
+  first on), else `LengthLockError::NotHoldable` in the field; zero, negative and out-of-range lengths and a
   missing last point are errors in the field. Release is as for the direction, and the field
   previews it (`Drawing::preview_length`).
 - It is canvas chrome (`Chrome::panel`, `canvas::Hints`) in the band left of the view cube.

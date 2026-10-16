@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{borrow::Cow, fmt::Display};
 
 use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{Dimension, EvalError, Expression, Quantity};
@@ -6,6 +6,7 @@ use caditor_sketch::{EntityId, Faceting, Sketch};
 
 use crate::{
     blend_curving::BlendCurving,
+    commands::Reason,
     drawing::Preview,
     editing::{ActiveSketch, Tool},
     field::{self, Expected, ExpressionError},
@@ -154,6 +155,50 @@ pub fn length_text(unit: Units, millimetres: f64) -> String {
     unit.show(Quantity::length(sketch_tools::rounded_for_display(
         millimetres,
     )))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum StepError {
+    #[error("The sketch has no line, arc or spline whose end could be blended")]
+    NoEnds,
+    #[error("The sketch has no corner where two lines, arcs or elliptical arcs meet")]
+    NothingToRound,
+    #[error("The sketch has no curve to trim")]
+    NothingToTrim,
+    #[error("The sketch has no line, arc, elliptical arc or open spline to extend")]
+    NothingToExtend,
+    #[error("Nothing in the view can be picked")]
+    NothingToPick,
+}
+
+impl Reason for StepError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum HighlightNeeded {
+    #[error(
+        "Highlight the end of a line, arc or spline first, with Highlight the next item in the view"
+    )]
+    End,
+    #[error("Highlight a point first, with Highlight the next item in the view")]
+    Point,
+    #[error("Highlight a corner first, with Highlight the next item in the view")]
+    Corner,
+    #[error("Highlight a line or an axis first, with Highlight the next item in the view")]
+    Line,
+    #[error("Highlight a line, circle or arc first, with Highlight the next item in the view")]
+    Curve,
+    #[error("Highlight a piece or an end first, with Highlight the next item in the view")]
+    Target,
+}
+
+impl Reason for HighlightNeeded {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -546,7 +591,7 @@ impl Modifying {
         }
     }
 
-    pub fn steppable(&self, sketch: &Sketch) -> Result<(), &'static str> {
+    pub fn steppable(&self, sketch: &Sketch) -> Result<(), StepError> {
         match &self.state {
             State::Mirror(mirroring) => mirroring.steppable(),
             State::Pattern(patterning) => patterning.steppable(),
@@ -570,7 +615,7 @@ impl Modifying {
         }
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match &self.state {
             State::Mirror(mirroring) => mirroring.highlight_needed(),
             State::Pattern(patterning) => patterning.highlight_needed(),

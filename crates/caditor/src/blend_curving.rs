@@ -8,7 +8,7 @@ use crate::{
     drawing::Preview,
     editing::Tool,
     model::Model,
-    modifying::{Hint, Outcome, Prompt},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, StepError},
     snap::{self, Pointer, Screen},
     trimming::{self, SketchGone, capitalized},
 };
@@ -17,9 +17,6 @@ pub const TRANSACTION: &str = "Draw blend curve";
 pub const PROMPT: &str = "Click near the end of a line, arc or spline to blend from";
 pub const SECOND_PROMPT: &str = "Click near the end of another curve to blend to";
 const PICK_KEYS: &str = "Esc: back to Select";
-const NOTHING_HIGHLIGHTED: &str =
-    "Highlight the end of a line, arc or spline first, with Highlight the next item in the view";
-const NO_ENDS: &str = "The sketch has no line, arc or spline whose end could be blended";
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum BlendCurvingError {
@@ -196,9 +193,9 @@ impl BlendCurving {
         Ok(drawn)
     }
 
-    pub fn steppable(&self, sketch: &Sketch) -> Result<(), &'static str> {
+    pub fn steppable(&self, sketch: &Sketch) -> Result<(), StepError> {
         if ends(sketch).is_empty() {
-            Err(NO_ENDS)
+            Err(StepError::NoEnds)
         } else {
             Ok(())
         }
@@ -227,10 +224,10 @@ impl BlendCurving {
         self.refresh(sketch);
     }
 
-    pub fn highlight_needed(&self) -> Result<(), &'static str> {
+    pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
         match self.highlight {
             Some(_) => Ok(()),
-            None => Err(NOTHING_HIGHLIGHTED),
+            None => Err(HighlightNeeded::End),
         }
     }
 

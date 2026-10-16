@@ -311,7 +311,9 @@ fn the_open_ends_and_redundant_selections_are_palette_commands_saying_when_there
     assert_eq!(Some(selected(&harness)), ends);
 
     run_from_palette(&mut harness, "select the redundant constraints");
-    assert!(harness.shows_containing(sketch_status::NOTHING_REDUNDANT));
+    assert!(
+        harness.shows_containing(&sketch_status::StatusSelectError::NothingRedundant.to_string())
+    );
 }
 
 #[test]

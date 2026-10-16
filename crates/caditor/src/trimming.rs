@@ -10,14 +10,12 @@ use crate::{
     editing::{ActiveSketch, Tool},
     feature_tree::count,
     model::Model,
+    modifying::StepError,
     sketch_tools,
     snap::{self, Pointer, Screen},
 };
 
 const CARRIER_TOLERANCE: f64 = 1e-7;
-const NOTHING_TO_TRIM: &str = "The sketch has no curve to trim";
-const NOTHING_TO_EXTEND: &str =
-    "The sketch has no line, arc, elliptical arc or open spline to extend";
 pub const TRIM_PROMPT: &str = "Click a piece of a curve to trim it away, or drag across pieces";
 pub const EXTEND_PROMPT: &str =
     "Click near the end of a line, arc, elliptical arc or spline to extend it";
@@ -162,17 +160,17 @@ impl Trimming {
         self.highlight.as_ref().or(self.hover.as_ref())
     }
 
-    pub fn steppable(&self, sketch: &Sketch) -> Result<(), &'static str> {
+    pub fn steppable(&self, sketch: &Sketch) -> Result<(), StepError> {
         let Some((_, tool)) = self.context else {
-            return Err(NOTHING_TO_TRIM);
+            return Err(StepError::NothingToTrim);
         };
         let offered = sketch
             .entities()
             .any(|(_, entity)| is_trimmable(entity) && (tool == Tool::Trim || has_ends(entity)));
         match (offered, tool) {
             (true, _) => Ok(()),
-            (false, Tool::Extend) => Err(NOTHING_TO_EXTEND),
-            (false, _) => Err(NOTHING_TO_TRIM),
+            (false, Tool::Extend) => Err(StepError::NothingToExtend),
+            (false, _) => Err(StepError::NothingToTrim),
         }
     }
 

@@ -26,6 +26,14 @@ pub const NOT_PASTING: &str = "Nothing is being pasted";
 pub const STOPPED: &str = "Stopped pasting. Nothing was added.";
 const CRASHED: &str = "Nothing was pasted: finding the faces and edges the copies pick failed \
                        unexpectedly. Your model is safe.";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum PasteStartError {
+    #[error("{}", STILL_PASTING)]
+    StillPasting,
+    #[error("{}", CRASHED)]
+    Crashed,
+}
+
 #[cfg(test)]
 const PATIENCE: Duration = Duration::from_secs(60);
 
@@ -114,9 +122,9 @@ impl Pastes {
         request: PasteRequest,
         target: PasteTarget<'_>,
         wake: Waker,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), PasteStartError> {
         if self.running.is_some() {
-            return Err(STILL_PASTING);
+            return Err(PasteStartError::StillPasting);
         }
         let request = Arc::new(request);
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -161,7 +169,7 @@ impl Pastes {
         };
         if let Err(error) = queued {
             log::warn!("could not start pasting: {error}");
-            return Err(CRASHED);
+            return Err(PasteStartError::Crashed);
         }
         self.running = Some(Running {
             request,

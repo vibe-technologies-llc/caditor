@@ -98,7 +98,7 @@ fn drawing_symmetrically_mirrors_each_shape_about_the_chosen_line_in_its_own_tra
     let before = harness.sketch(feature).clone();
 
     run_from_palette(&mut harness, "draw symmetrically");
-    assert!(harness.shows_containing(symmetric_drawing::NO_LINE_SELECTED));
+    assert!(harness.shows_containing(&symmetric_drawing::NoLineSelected.to_string()));
     assert!(!harness.workspace.viewport.draws_symmetrically());
 
     harness.select(entity_pickables(feature, &[axis]));

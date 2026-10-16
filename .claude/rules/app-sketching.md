@@ -237,10 +237,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `Command::ChainArc` toggles `Arcing::Toggled`, and the Tangent arc command (T) with the Line tool
   holding a point runs it instead of switching tools (`ViewportState::arc_on_tangent_arc_key`, before
   the sketch bar takes the command); `Drawing::chain_arc` gates it, refused with
-  `NOTHING_TO_ARC_FROM`. A drawn arc, a dragged arc's release, taking back or stepping back return to
+  `ChainArcError::NothingToArcFrom`. A drawn arc, a dragged arc's release, taking back or stepping back return to
   lines.
 - Draw symmetrically about the selected line (`Command::DrawSymmetrically`, `symmetric_drawing.rs`)
-  takes the one line or axis selected (`symmetric_drawing::chosen_line`, `NO_LINE_SELECTED`
+  takes the one line or axis selected (`symmetric_drawing::chosen_line`, `NoLineSelected`
   otherwise), keeps it in `ViewportState::symmetry` for that sketch; run again it turns off, and it
   turns off itself when the sketch is no longer edited or the line no longer resolves (`Mirror::of`,
   worked out each frame in `track_drawing`). While on, `Drawing::draw_about` makes `Drawing::click` and
@@ -755,7 +755,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Command::SelectOpenEnds`: selects their points and frames them, `ViewportState::fit_requested`)
   and redundant Select the redundant constraints (`Command::SelectRedundant`: selects each
   `Redundancy::constraint`, ready for Delete); both are sketch-scope commands refused in words without
-  a solved sketch or with none (`sketch_status::NOT_SOLVED`, `NO_OPEN_ENDS`, `NOTHING_REDUNDANT`).
+  a solved sketch or with none (`sketch_status::StatusSelectError`).
   Other statuses and the points-beyond count stay plain. In the tree card the selecting pills act only
   for the edited sketch, through `PanelState::sketch_command`, which the app triggers before the
   viewport runs its commands.

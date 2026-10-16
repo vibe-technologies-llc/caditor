@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, Outline, ProjectionSource,
@@ -10,8 +10,15 @@ use caditor_kernel::{EdgeId, EdgeReference, FaceId};
 use caditor_sketch::{Entity, EntityId};
 
 use crate::{
-    bodies, body_selection::face_boundary, datum_tools, display::Displayed, editing::ActiveSketch,
-    model::Model, selection::Pickable, visibility,
+    bodies,
+    body_selection::face_boundary,
+    commands::Reason,
+    datum_tools,
+    display::Displayed,
+    editing::ActiveSketch,
+    model::Model,
+    selection::{Axis, Pickable},
+    visibility,
 };
 
 pub type Projected = (ProjectionSource, Outline);
@@ -82,8 +89,8 @@ pub enum ProjectionError {
     ReferenceNotProjected,
     #[error("Only datum axes and points can be projected; intersect a datum plane instead")]
     DatumNotProjected,
-    #[error("The {axis} has no direction")]
-    AxisWithoutDirection { axis: &'static str },
+    #[error("The {} has no direction", .axis.name())]
+    AxisWithoutDirection { axis: Axis },
     #[error("That axis cannot be projected into this sketch")]
     AxisNotProjectable,
     #[error(
@@ -113,8 +120,20 @@ pub enum ProjectionError {
 }
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
-pub const NO_SKETCH_TO_PROJECT: &str = "Highlight a curve of another sketch with the Project tool, \
-                                        or choose one other sketch in the feature tree";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "Highlight a curve of another sketch with the Project tool, or choose one other sketch in \
+     the feature tree"
+)]
+pub struct NoSketchToProject;
+
+impl Reason for NoSketchToProject {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 pub const ALREADY_INTERSECTED: &str = "That cut is already drawn in this sketch";
 pub const NO_FACE_HIGHLIGHTED: &str =
     "Choose the Intersect tool and highlight a face of a body first";
@@ -235,7 +254,7 @@ pub fn sketch_to_project(
     active: ActiveSketch,
     highlighted: Option<Pickable>,
     chosen_rows: &[FeatureId],
-) -> Result<FeatureId, &'static str> {
+) -> Result<FeatureId, NoSketchToProject> {
     let from_view = highlighted
         .filter(|_| active.tool.projects() && !active.tool.intersects())
         .and_then(|pickable| match pickable {
@@ -255,7 +274,7 @@ pub fn sketch_to_project(
         {
             Ok(*row)
         }
-        _ => Err(NO_SKETCH_TO_PROJECT),
+        _ => Err(NoSketchToProject),
     }
 }
 
@@ -517,7 +536,7 @@ pub fn projections_of(
             let principal = axis.principal();
             let ray = principal
                 .ray()
-                .ok_or(ProjectionError::AxisWithoutDirection { axis: axis.name() })?;
+                .ok_or(ProjectionError::AxisWithoutDirection { axis })?;
             let reach = axis_reach(model, &ray, plane);
             vec![(
                 ProjectionSource::PrincipalAxis {
