@@ -4,6 +4,11 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
+- [high · easy] `cargo deny check advisories` fails: RUSTSEC-2026-0370, 0371 and 0372 mark
+  `zvariant`, `zbus_names` and `zvariant_derive` unmaintained (merged into `zbus` 6), and they come
+  in only through `egui-winit` → `accesskit_winit` → `accesskit_unix` 0.24 → `atspi` → `zbus` 5,
+  with no newer `accesskit_unix` published. Ignore them in `deny.toml` with that reason, as
+  `ttf-parser` is, and drop the ignores once `accesskit_unix` moves to `zbus` 6.
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

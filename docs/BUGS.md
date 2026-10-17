@@ -17,6 +17,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
   mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
   is `Invalid(VoidOutside)`, with no test pinning it.
+- [medium · medium] `IntersectionCurve` refinement keeps a segment it could not split: `midpoint`
+  answers `None`, which `refine_traced` takes as close enough, when the true point lies within
+  `LINEAR_RESOLUTION` of an end, when `refine_on_plane` fails, and at `MAX_REFINE_DEPTH` or
+  `MAX_NODES`, so a Hermite segment straying more than `INTERSECTION_TOLERANCE` from its surfaces is
+  kept and found only by validation, as `EdgeOffSurface` on the solid. Telling a segment within
+  tolerance from one that could not be refined, and refusing the latter, would name the curve
+  instead; whether it causes the extruded spline's `EdgeOffSurface` against a torus above is
+  unchecked.
 - [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
   bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
   1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,
@@ -24,10 +32,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `Invalid(VertexOffCurve)` (offsets of 1e-6 to 1e-4 alone, as in
   `boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, all combine), and an extruded plug
   flush with a plate 1.1e-6 to 2e-6 off its bore's axis is `Open` (the UI test of a failing
-  combine's place uses it), though 3e-6 and more combine. Pooling points within the resolution of each other
-  transitively, or snapping faces within the resolution onto each other before imprinting, would
-  close it; whichever is chosen, the band where offsets are snapped or refused is still to be
-  documented.
+  combine's place uses it), though 3e-6 and more combine. Pooling points within the resolution of
+  each other transitively (`Pool::insert` in `boolean/imprint.rs` joins each to the nearest earlier
+  one alone), or snapping faces within the resolution onto each other before imprinting, would close
+  it; whichever is chosen, the band where offsets are snapped or refused is still to be documented.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
@@ -52,6 +60,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be split first. No test pins them; a sweep of chamfered boxes against the cavity's convex
   planes (as `boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly` builds them)
   finds them.
+- [low · easy] `Plan::merge_coincident_vertices` is not transitive: each vertex merges into the
+  lowest earlier vertex within `LINEAR_RESOLUTION`, but `cells` keeps every raw id and endpoints are
+  remapped by one lookup, so when B merged into A and C lies within the resolution of B but not of
+  A, C's edges land on B, which stays a live vertex beside A, and a corner reached through B and C
+  is split in two. Following `representative` to its root, or keeping only representatives in
+  `cells`, would close it; the choice decides whether chains spread over more than the resolution
+  merge at all. A vertex in two shells' member sets also has its representative overwritten by the
+  later shell while the remap is global. No test pins either.
 - [low · hard] Two faces side by side that the shell's thickness both closes up (a narrow chamfer
   cone below a narrow lid cone) are refused as `ClosesBesideClosing`: their joints would need the
   offset of the next face that survives, found across a run of dropped bands whose ridges meet
@@ -173,6 +189,25 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
+
+## Mesh import
+
+- [high · easy] A crafted text STL or OBJ exhausts memory before any limit: `read_text_stl` and
+  `read_obj` (`import/mesh.rs`) push every vertex and fanned triangle with no budget, unlike 3MF's
+  `MAX_PLACED_VERTICES` and `MAX_PLACED_TRIANGLES`, and only `read_file`'s 2 GiB cap bounds the
+  input. An OBJ face line turns each 2-byte index into a 24-byte triangle, so a 2 GiB file asks for
+  about 24 GiB before `faceted_solids` (which copies it again welding) can refuse it, and neither
+  loop calls `check_interrupt`, so Cancel cannot stop it. Charge both against the 3MF limits as
+  `ModelTooManyElements` and poll the interrupt as the 3MF reader does.
+
+## MCP server
+
+- [medium · easy] `caditor mcp` writes an OBJ's material library without checking it against
+  `--folder`: `Library::beside` (`export/obj.rs`) takes `part.mtl` beside the checked `part.obj`,
+  and `write_atomically` follows a link there, so a dangling `part.mtl` link planted in an allowed
+  folder (a cloned repository) creates a file outside every allowed folder; an existing target is
+  replaced only when it starts with `# caditor ` (`replaceable`). The export should go without
+  colours when the library path is a link, as `files::allowed` refuses a link for the main file.
 
 ## Viewer
 
