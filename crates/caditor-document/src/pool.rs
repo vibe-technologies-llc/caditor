@@ -149,6 +149,10 @@ impl Queue {
                 .count()
     }
 
+    fn has_idle_worker(&self) -> bool {
+        self.started > 0 && self.idle > 0
+    }
+
     fn take(&mut self) -> Option<Task> {
         if let Some((index, job)) = self.queued.pop_first() {
             self.running.insert(index);
@@ -330,7 +334,7 @@ impl<'scope> Pool<'_, 'scope> {
     pub(crate) fn claim(&self, index: usize) -> Claim {
         let mut queue = self.work.queue.lock();
         if queue.queued.contains_key(&index) {
-            if queue.started > 0 {
+            if queue.has_idle_worker() {
                 return Claim::Pending;
             }
             queue.queued.remove(&index);
@@ -396,5 +400,28 @@ impl Drop for Closing<'_> {
         queue.meshes.retain(|meshing| meshing.running);
         drop(queue);
         self.0.ready.notify_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_queued_job_is_left_to_a_worker_only_while_one_is_idle() {
+        let mut queue = Queue {
+            started: 4,
+            ..Queue::default()
+        };
+
+        assert!(!queue.has_idle_worker());
+
+        queue.idle = 1;
+
+        assert!(queue.has_idle_worker());
+
+        queue.started = 0;
+
+        assert!(!queue.has_idle_worker());
     }
 }

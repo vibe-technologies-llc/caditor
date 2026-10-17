@@ -111,11 +111,3 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   lines the `FROZEN` and `STIFF` solves spend about 410 million work units failing before reaching
   spends 92 million (`reach_tests.rs`); the reaching step's sparse factorisations could stand in
   for their CGLS steps.
-
-## Recompute
-
-- [medium · easy] The walk waits idle on a feature the lookahead queued but no worker has started:
-  `Pool::claim` answers `Pending` whenever any worker has started, and `Pool::wait` wakes only when
-  an evaluation lands, so with every worker meshing a settled body (`Pool::mesh`) the walk pays the
-  rest of that mesh before its own feature starts. When no worker is idle, `claim` could take the
-  queued job back and the walk evaluate it inline.
