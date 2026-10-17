@@ -23,92 +23,104 @@ pub const COPY_DETAILS: &str = "Copy details";
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FrameLimit {
     Unlimited,
-    Fps30,
-    Fps60,
-    Fps120,
-    Fps144,
+    Fps(u32),
     #[default]
     Display,
 }
 
 impl FrameLimit {
-    pub const ALL: [Self; 6] = [
-        Self::Unlimited,
-        Self::Fps30,
-        Self::Fps60,
-        Self::Fps120,
-        Self::Fps144,
-        Self::Display,
-    ];
+    pub const MIN_FPS: u32 = 1;
+    pub const MAX_FPS: u32 = 1000;
+    pub const DEFAULT_FPS: u32 = 60;
 
-    fn rate(self) -> Option<u32> {
+    pub fn fps(rate: u32) -> Self {
+        Self::Fps(rate.clamp(Self::MIN_FPS, Self::MAX_FPS))
+    }
+
+    pub fn rate(self) -> Option<u32> {
         match self {
-            Self::Fps30 => Some(30),
-            Self::Fps60 => Some(60),
-            Self::Fps120 => Some(120),
-            Self::Fps144 => Some(144),
+            Self::Fps(rate) => Some(rate),
             Self::Unlimited | Self::Display => None,
         }
     }
 
     pub fn label(self) -> String {
-        match (self, self.rate()) {
-            (_, Some(rate)) => format!("{rate} fps"),
-            (Self::Display, None) => "Match the display".to_owned(),
-            (_, None) => "No limit".to_owned(),
+        match self {
+            Self::Fps(rate) => format!("{rate} fps"),
+            Self::Display | Self::Unlimited => self.mode_label().to_owned(),
         }
     }
 
+    pub fn mode_label(self) -> &'static str {
+        match self {
+            Self::Display => "Match the display",
+            Self::Unlimited => "No limit",
+            Self::Fps(_) => "Fixed rate",
+        }
+    }
+
+    pub fn same_mode(self, other: Self) -> bool {
+        std::mem::discriminant(&self) == std::mem::discriminant(&other)
+    }
+
+    pub fn modes() -> [Self; 3] {
+        [Self::Display, Self::Unlimited, Self::Fps(Self::DEFAULT_FPS)]
+    }
+
     fn key(self) -> String {
-        match (self, self.rate()) {
-            (_, Some(rate)) => rate.to_string(),
-            (Self::Display, None) => "display".to_owned(),
-            (_, None) => "unlimited".to_owned(),
+        match self {
+            Self::Fps(rate) => rate.to_string(),
+            Self::Display => "display".to_owned(),
+            Self::Unlimited => "unlimited".to_owned(),
         }
     }
 
     fn from_key(key: &str) -> Option<Self> {
-        if let Some(named) = Self::ALL.into_iter().find(|limit| limit.key() == key) {
-            return Some(named);
+        match key {
+            "display" => Some(Self::Display),
+            "unlimited" => Some(Self::Unlimited),
+            _ => {
+                let asked = key
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|rate| rate.is_finite())?;
+                let clamped = asked
+                    .round()
+                    .clamp(f64::from(Self::MIN_FPS), f64::from(Self::MAX_FPS));
+                Some(Self::fps(clamped as u32))
+            }
         }
-        let asked = key
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|rate| rate.is_finite())?;
-        Self::ALL
-            .into_iter()
-            .filter_map(|limit| Some((limit, f64::from(limit.rate()?))))
-            .min_by(|(_, a), (_, b)| (a - asked).abs().total_cmp(&(b - asked).abs()))
-            .map(|(limit, _)| limit)
     }
 
     pub fn interval(self, vsync: bool, display_rate: Option<f64>) -> Option<Duration> {
-        let rate = match (self, self.rate()) {
-            (_, Some(rate)) => f64::from(rate),
-            (Self::Display, None) if !vsync => usable_rate(display_rate)?,
-            (_, None) => return None,
+        if vsync {
+            return None;
+        }
+        let rate = match self {
+            Self::Fps(rate) => f64::from(rate),
+            Self::Display => usable_rate(display_rate)?,
+            Self::Unlimited => return None,
         };
         Some(Duration::from_secs_f64(rate.recip()))
     }
 
     fn hover(self, display_rate: Option<f64>) -> String {
-        match (self, self.rate()) {
-            (_, Some(rate)) => format!(
-                "Draw at most {rate} frames a second while the view moves; a lower limit saves \
-                 power and keeps laptops cooler"
-            ),
-            (Self::Display, None) => match usable_rate(display_rate) {
+        match self {
+            Self::Fps(_) => "Draw at most this many frames a second while the view moves; a \
+                             lower limit saves power and keeps laptops cooler"
+                .to_owned(),
+            Self::Display => match usable_rate(display_rate) {
                 Some(rate) => format!(
                     "Draw at most as many frames a second as the display shows ({rate:.0} Hz)"
                 ),
                 None => "Draw at most as many frames a second as the display shows. Its rate is \
-                         not known here, so only vsync limits it"
+                         not known here, so nothing limits it"
                     .to_owned(),
             },
-            (_, None) => {
-                "Draw as often as possible while the view moves; with vsync on, the display still \
-                 sets the pace"
+            Self::Unlimited => {
+                "Draw as often as possible while the view moves, for the least delay after a \
+                 mouse move"
                     .to_owned()
             }
         }
@@ -475,24 +487,59 @@ fn display(
                     preferences::change(command, PreferenceChange::Vsync(vsync));
                 }
             });
+            let waiting = graphics.vsync || !vsync_optional;
+            let waiting_hover = "Turn off Wait for the display to choose a frame rate";
             widgets::property(ui, "Frame rate", |ui| {
-                widgets::combo("frame-rate", graphics.frame_limit.label())
-                    .hover(graphics.frame_limit.hover(hardware.refresh_rate))
-                    .show(ui, |ui| {
-                        for limit in FrameLimit::ALL {
-                            let chosen = widgets::menu_option(
-                                ui,
-                                graphics.frame_limit == limit,
-                                &limit.label(),
-                            )
-                            .on_hover_text(limit.hover(hardware.refresh_rate))
-                            .clicked();
-                            if chosen && graphics.frame_limit != limit {
-                                preferences::change(command, PreferenceChange::FrameLimit(limit));
+                ui.add_enabled_ui(!waiting, |ui| {
+                    widgets::combo("frame-rate", graphics.frame_limit.mode_label())
+                        .hover(graphics.frame_limit.hover(hardware.refresh_rate))
+                        .show(ui, |ui| {
+                            for mode in FrameLimit::modes() {
+                                let current = graphics.frame_limit;
+                                let chosen = widgets::menu_option(
+                                    ui,
+                                    current.same_mode(mode),
+                                    mode.mode_label(),
+                                )
+                                .on_hover_text(mode.hover(hardware.refresh_rate))
+                                .clicked();
+                                if chosen && !current.same_mode(mode) {
+                                    preferences::change(
+                                        command,
+                                        PreferenceChange::FrameLimit(mode),
+                                    );
+                                }
                             }
-                        }
-                    });
+                        });
+                })
+                .response
+                .on_disabled_hover_text(waiting_hover);
             });
+            if let Some(current) = graphics.frame_limit.rate() {
+                widgets::property(ui, "Frames a second", |ui| {
+                    let mut rate = current;
+                    let response = ui
+                        .add_enabled_ui(!waiting, |ui| {
+                            widgets::slider(
+                                ui,
+                                egui::Slider::new(
+                                    &mut rate,
+                                    FrameLimit::MIN_FPS..=FrameLimit::MAX_FPS,
+                                )
+                                .logarithmic(true)
+                                .suffix(" fps"),
+                            )
+                        })
+                        .inner;
+                    widgets::tie_to_caption(ui, &response);
+                    let make = |rate| PreferenceChange::FrameLimit(FrameLimit::fps(rate));
+                    if response.drag_stopped() || (response.changed() && !response.dragged()) {
+                        preferences::change(command, make(rate));
+                    } else if response.changed() {
+                        *command = Some(PreferencesCommand::Preview(make(rate)));
+                    }
+                });
+            }
         },
     );
 }
@@ -640,7 +687,7 @@ mod tests {
         let read = Graphics::from_settings(&raw);
 
         assert!(!read.vsync);
-        assert_eq!(read.frame_limit, FrameLimit::Fps60);
+        assert_eq!(read.frame_limit, FrameLimit::Fps(75));
         assert_eq!(read.msaa, Msaa::X8);
         assert_eq!(read.shading, Shading::Enhanced);
         assert_eq!(read.curves, CurveQuality::Coarse);
@@ -650,7 +697,7 @@ mod tests {
 
         let mut written = Settings::default();
         read.write(&mut written);
-        assert_eq!(written.text(FRAME_LIMIT_KEY), Some("60"));
+        assert_eq!(written.text(FRAME_LIMIT_KEY), Some("75"));
         assert_eq!(written.number(MSAA_KEY), Some(8.0));
         assert_eq!(written.text(ADAPTER_KEY), Some("performance"));
         assert_eq!(Graphics::from_settings(&written), read);
@@ -669,10 +716,15 @@ mod tests {
         assert_eq!(odd.adapter, AdapterPreference::Auto);
 
         let mut numeric = Settings::default();
-        numeric.set_number(FRAME_LIMIT_KEY, 1000.0);
+        numeric.set_number(FRAME_LIMIT_KEY, 5000.0);
         assert_eq!(
             Graphics::from_settings(&numeric).frame_limit,
-            FrameLimit::Fps144
+            FrameLimit::Fps(FrameLimit::MAX_FPS)
+        );
+        numeric.set_number(FRAME_LIMIT_KEY, 0.0);
+        assert_eq!(
+            Graphics::from_settings(&numeric).frame_limit,
+            FrameLimit::Fps(FrameLimit::MIN_FPS)
         );
         assert_eq!(
             Graphics::from_settings(&Settings::default()),
@@ -721,13 +773,18 @@ mod tests {
     }
 
     #[test]
-    fn frame_limits_become_intervals_and_matching_the_display_leaves_vsync_to_pace() {
+    fn frame_limits_become_intervals_and_waiting_for_the_display_leaves_vsync_to_pace() {
         let sixtieth = Duration::from_secs_f64(1.0 / 60.0);
 
         assert_eq!(FrameLimit::Unlimited.interval(false, Some(60.0)), None);
+        assert_eq!(FrameLimit::Fps(60).interval(true, Some(144.0)), None);
         assert_eq!(
-            FrameLimit::Fps60.interval(true, Some(144.0)),
+            FrameLimit::Fps(60).interval(false, Some(144.0)),
             Some(sixtieth)
+        );
+        assert_eq!(
+            FrameLimit::Fps(75).interval(false, None),
+            Some(Duration::from_secs_f64(1.0 / 75.0))
         );
         assert_eq!(FrameLimit::Display.interval(true, Some(60.0)), None);
         assert_eq!(

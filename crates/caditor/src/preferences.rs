@@ -1313,7 +1313,7 @@ mod tests {
     fn graphics_preferences_are_stored_beside_the_others_and_restored_by_their_tab() {
         let mut preferences = Preferences::from_settings(Settings::default());
         preferences.apply(PreferenceChange::Vsync(false));
-        preferences.apply(PreferenceChange::FrameLimit(FrameLimit::Fps120));
+        preferences.apply(PreferenceChange::FrameLimit(FrameLimit::Fps(120)));
         preferences.apply(PreferenceChange::Msaa(Msaa::X8));
         preferences.apply(PreferenceChange::Shading(Shading::Enhanced));
         preferences.apply(PreferenceChange::CurveQuality(CurveQuality::Coarse));

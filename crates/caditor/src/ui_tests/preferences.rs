@@ -387,22 +387,21 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
     harness.click("2×");
     harness.click("Enhanced");
     harness.click("Match the display");
-    harness.click("120 fps");
+    assert_eq!(
+        harness.workspace.preferences.graphics.frame_limit,
+        FrameLimit::Display
+    );
     let graphics = harness.workspace.preferences.graphics;
     assert_eq!(graphics.msaa, Msaa::X2);
     assert_eq!(graphics.shading, Shading::Enhanced);
-    assert_eq!(graphics.frame_limit, FrameLimit::Fps120);
+    assert_eq!(graphics.frame_limit, FrameLimit::Display);
     assert_eq!(graphics.render().msaa, Msaa::X2);
-    assert_eq!(
-        graphics.frame_interval(&harness.workspace.hardware),
-        Some(Duration::from_secs_f64(1.0 / 120.0))
-    );
+    assert_eq!(graphics.frame_interval(&harness.workspace.hardware), None);
     let config = dir.path().join("config");
     harness.wait_until("the graphics settings are saved", |_| {
         let saved = caditor_file::Settings::load(&config);
         saved.number("graphics.msaa") == Some(2.0)
             && saved.text("graphics.shading") == Some("enhanced")
-            && saved.text("graphics.frame_limit") == Some("120")
     });
 
     harness.click("Restore defaults");
@@ -422,8 +421,50 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
     assert_eq!(harness.workspace.preferences.graphics, graphics);
     assert!(!harness.shows("This tab is back to its defaults."));
     harness.wait_until("the undone settings are saved", |_| {
-        caditor_file::Settings::load(&config).text("graphics.frame_limit") == Some("120")
+        caditor_file::Settings::load(&config).number("graphics.msaa") == Some(2.0)
     });
+}
+
+#[test]
+fn the_frame_rate_is_free_to_choose_only_while_not_waiting_for_the_display() {
+    let mut harness = Harness::new();
+    harness.workspace.hardware = Hardware {
+        adapter: Some(GraphicsInfo {
+            vsync_optional: true,
+            ..test_adapter()
+        }),
+        refresh_rate: Some(60.0),
+    };
+    open_preferences(&mut harness);
+    harness.click("Graphics");
+
+    assert!(harness.workspace.preferences.graphics.vsync);
+    harness.click("Match the display");
+    assert!(!harness.shows("Fixed rate"));
+    assert_eq!(
+        harness.workspace.preferences.graphics.frame_limit,
+        FrameLimit::Display
+    );
+
+    harness.click("Wait for the display");
+    assert!(!harness.workspace.preferences.graphics.vsync);
+    harness.workspace.hardware.adapter = Some(GraphicsInfo {
+        vsync_optional: true,
+        vsync: false,
+        ..test_adapter()
+    });
+    harness.click("Match the display");
+    harness.click("Fixed rate");
+    let graphics = harness.workspace.preferences.graphics;
+    assert_eq!(
+        graphics.frame_limit,
+        FrameLimit::Fps(FrameLimit::DEFAULT_FPS)
+    );
+    assert_eq!(
+        graphics.frame_interval(&harness.workspace.hardware),
+        Some(Duration::from_secs_f64(1.0 / 60.0))
+    );
+    assert!(harness.shows("Frames a second"));
 }
 
 #[test]

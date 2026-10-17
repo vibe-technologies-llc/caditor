@@ -206,9 +206,11 @@ paths:
   `resume_uploading`; `app-look.md`). Every request goes through `Session::request_redraw`, never
   straight to the window. Animated widgets (`widgets::spinner`) and progress readouts repaint on a
   timer (`request_repaint_after`), never every frame; the text caret does not blink.
-- `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or for
-  Match the display's refresh rate only while vsync is off (`Fifo` already paces); none when
-  unlimited or unknown. An early request is scheduled for the next slot (`next_repaint`, which
+- `FramePacer` (`graphics.rs`) holds requests to the frame limit: `FrameLimit` is Match the display
+  (the default), No limit or Fixed rate (`Fps`, any whole rate from `MIN_FPS` to `MAX_FPS`, set with
+  a logarithmic slider, stored as the number and read clamped and rounded). The interval exists only
+  while vsync is off (`Fifo` already paces), so Frame rate is disabled with the reason while Wait
+  for the display is on; none when unlimited or the display rate is unknown. An early request is scheduled for the next slot (`next_repaint`, which
   `about_to_wait` turns into `ControlFlow::WaitUntil`). The first frame after an idle spell is never
   delayed.
 

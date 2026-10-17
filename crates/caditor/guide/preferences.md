@@ -141,6 +141,10 @@ Vsync, a frame-rate limit, anti-aliasing, shading and how smooth curved faces ar
 graphics adapter to prefer. An option the adapter cannot do is shown disabled with the reason. The
 tab ends with the adapter's details and a button to copy them for a bug report.
 
+Frame rate is Match the display, No limit or Fixed rate, which shows a slider for any rate from 1 to
+1000 frames a second. While Wait for the display is on, the display sets the pace and Frame rate is
+shown disabled; turn Wait for the display off to choose one.
+
 The adapter preference is Auto, Power saving or Performance. Auto, the default, picks the most
 powerful graphics card on a computer without a battery and the integrated graphics on a laptop,
 and a line under it says what it chose and why, for example "Auto: high performance, this computer
