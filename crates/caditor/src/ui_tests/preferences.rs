@@ -386,15 +386,10 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
 
     harness.click("2×");
     harness.click("Enhanced");
-    harness.click("Match the display");
-    assert_eq!(
-        harness.workspace.preferences.graphics.frame_limit,
-        FrameLimit::Display
-    );
     let graphics = harness.workspace.preferences.graphics;
     assert_eq!(graphics.msaa, Msaa::X2);
     assert_eq!(graphics.shading, Shading::Enhanced);
-    assert_eq!(graphics.frame_limit, FrameLimit::Display);
+    assert_eq!(graphics.frame_limit, FrameLimit::Unlimited);
     assert_eq!(graphics.render().msaa, Msaa::X2);
     assert_eq!(graphics.frame_interval(&harness.workspace.hardware), None);
     let config = dir.path().join("config");
@@ -426,34 +421,21 @@ fn graphics_options_apply_at_once_are_saved_and_what_the_adapter_lacks_says_why(
 }
 
 #[test]
-fn the_frame_rate_is_free_to_choose_only_while_not_waiting_for_the_display() {
+fn the_frame_rate_is_free_to_choose_with_or_without_waiting_for_the_display() {
     let mut harness = Harness::new();
     harness.workspace.hardware = Hardware {
-        adapter: Some(GraphicsInfo {
-            vsync_optional: true,
-            ..test_adapter()
-        }),
+        adapter: Some(test_adapter()),
         refresh_rate: Some(60.0),
     };
     open_preferences(&mut harness);
     harness.click("Graphics");
 
     assert!(harness.workspace.preferences.graphics.vsync);
-    harness.click("Match the display");
-    assert!(!harness.shows("Fixed rate"));
     assert_eq!(
         harness.workspace.preferences.graphics.frame_limit,
-        FrameLimit::Display
+        FrameLimit::Unlimited
     );
-
-    harness.click("Wait for the display");
-    assert!(!harness.workspace.preferences.graphics.vsync);
-    harness.workspace.hardware.adapter = Some(GraphicsInfo {
-        vsync_optional: true,
-        vsync: false,
-        ..test_adapter()
-    });
-    harness.click("Match the display");
+    harness.click("No limit");
     harness.click("Fixed rate");
     let graphics = harness.workspace.preferences.graphics;
     assert_eq!(

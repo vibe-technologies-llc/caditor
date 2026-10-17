@@ -22,9 +22,9 @@ pub const COPY_DETAILS: &str = "Copy details";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FrameLimit {
+    #[default]
     Unlimited,
     Fps(u32),
-    #[default]
     Display,
 }
 
@@ -94,13 +94,10 @@ impl FrameLimit {
     }
 
     pub fn interval(self, vsync: bool, display_rate: Option<f64>) -> Option<Duration> {
-        if vsync {
-            return None;
-        }
         let rate = match self {
             Self::Fps(rate) => f64::from(rate),
-            Self::Display => usable_rate(display_rate)?,
-            Self::Unlimited => return None,
+            Self::Display if !vsync => usable_rate(display_rate)?,
+            Self::Display | Self::Unlimited => return None,
         };
         Some(Duration::from_secs_f64(rate.recip()))
     }
@@ -119,8 +116,8 @@ impl FrameLimit {
                     .to_owned(),
             },
             Self::Unlimited => {
-                "Draw as often as possible while the view moves, for the least delay after a \
-                 mouse move"
+                "Draw as often as possible while the view moves; with vsync on, the display still \
+                 sets the pace"
                     .to_owned()
             }
         }
@@ -487,50 +484,34 @@ fn display(
                     preferences::change(command, PreferenceChange::Vsync(vsync));
                 }
             });
-            let waiting = graphics.vsync || !vsync_optional;
-            let waiting_hover = "Turn off Wait for the display to choose a frame rate";
             widgets::property(ui, "Frame rate", |ui| {
-                ui.add_enabled_ui(!waiting, |ui| {
-                    widgets::combo("frame-rate", graphics.frame_limit.mode_label())
-                        .hover(graphics.frame_limit.hover(hardware.refresh_rate))
-                        .show(ui, |ui| {
-                            for mode in FrameLimit::modes() {
-                                let current = graphics.frame_limit;
-                                let chosen = widgets::menu_option(
-                                    ui,
-                                    current.same_mode(mode),
-                                    mode.mode_label(),
-                                )
-                                .on_hover_text(mode.hover(hardware.refresh_rate))
-                                .clicked();
-                                if chosen && !current.same_mode(mode) {
-                                    preferences::change(
-                                        command,
-                                        PreferenceChange::FrameLimit(mode),
-                                    );
-                                }
+                widgets::combo("frame-rate", graphics.frame_limit.mode_label())
+                    .hover(graphics.frame_limit.hover(hardware.refresh_rate))
+                    .show(ui, |ui| {
+                        for mode in FrameLimit::modes() {
+                            let current = graphics.frame_limit;
+                            let chosen = widgets::menu_option(
+                                ui,
+                                current.same_mode(mode),
+                                mode.mode_label(),
+                            )
+                            .on_hover_text(mode.hover(hardware.refresh_rate))
+                            .clicked();
+                            if chosen && !current.same_mode(mode) {
+                                preferences::change(command, PreferenceChange::FrameLimit(mode));
                             }
-                        });
-                })
-                .response
-                .on_disabled_hover_text(waiting_hover);
+                        }
+                    });
             });
             if let Some(current) = graphics.frame_limit.rate() {
                 widgets::property(ui, "Frames a second", |ui| {
                     let mut rate = current;
-                    let response = ui
-                        .add_enabled_ui(!waiting, |ui| {
-                            widgets::slider(
-                                ui,
-                                egui::Slider::new(
-                                    &mut rate,
-                                    FrameLimit::MIN_FPS..=FrameLimit::MAX_FPS,
-                                )
-                                .logarithmic(true)
-                                .suffix(" fps"),
-                            )
-                        })
-                        .inner;
+                    let response = widgets::slider(
+                        ui,
+                        egui::Slider::new(&mut rate, FrameLimit::MIN_FPS..=FrameLimit::MAX_FPS)
+                            .logarithmic(true)
+                            .suffix(" fps"),
+                    );
                     widgets::tie_to_caption(ui, &response);
                     let make = |rate| PreferenceChange::FrameLimit(FrameLimit::fps(rate));
                     if response.drag_stopped() || (response.changed() && !response.dragged()) {
@@ -709,7 +690,7 @@ mod tests {
         odd.set_text(CURVE_QUALITY_KEY, "exact");
         odd.set_text(ADAPTER_KEY, "fastest");
         let odd = Graphics::from_settings(&odd);
-        assert_eq!(odd.frame_limit, FrameLimit::Display);
+        assert_eq!(odd.frame_limit, FrameLimit::Unlimited);
         assert_eq!(odd.msaa, Msaa::X2);
         assert_eq!(odd.shading, Shading::Enhanced);
         assert_eq!(odd.curves, CurveQuality::Smooth);
@@ -773,11 +754,14 @@ mod tests {
     }
 
     #[test]
-    fn frame_limits_become_intervals_and_waiting_for_the_display_leaves_vsync_to_pace() {
+    fn frame_limits_become_intervals_and_matching_the_display_leaves_vsync_to_pace() {
         let sixtieth = Duration::from_secs_f64(1.0 / 60.0);
 
         assert_eq!(FrameLimit::Unlimited.interval(false, Some(60.0)), None);
-        assert_eq!(FrameLimit::Fps(60).interval(true, Some(144.0)), None);
+        assert_eq!(
+            FrameLimit::Fps(60).interval(true, Some(144.0)),
+            Some(sixtieth)
+        );
         assert_eq!(
             FrameLimit::Fps(60).interval(false, Some(144.0)),
             Some(sixtieth)
