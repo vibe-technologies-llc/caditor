@@ -275,8 +275,8 @@ paths:
     with a look name a material `<index>_<material or body>` (whitespace as `_`) from a `.mtl` of
     the same stem written first, `Kd` the colour; when the `.obj` then fails to write, the
     previous `.mtl` is put back (removed if there was none), so a library and mesh never mismatch;
-    an existing `.mtl` not starting with caditor's header is never replaced and the OBJ goes
-    without colours.
+    an existing `.mtl` not starting with caditor's header, or a link of any kind (dangling
+    ones included), is never replaced and the OBJ goes without colours.
   - Binary glTF (`.glb`): one node and mesh per body, f32 positions in metres with Y up (`x, z, -y`
     of the model's, keeping winding) with the bounds glTF requires, no normals (flat); a body with a
     look gets a material named like its 3MF base, colour as linear `baseColorFactor`.

@@ -1,6 +1,6 @@
 use std::{
     fmt::{self, Write},
-    fs::File,
+    fs::{self, File},
     io::{self, Read},
     path::{Path, PathBuf},
 };
@@ -30,6 +30,10 @@ impl Library {
 }
 
 fn replaceable(path: &Path) -> bool {
+    let is_link = fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_symlink());
+    if is_link {
+        return false;
+    }
     match File::open(path) {
         Ok(file) => {
             let mut start = Vec::with_capacity(OWN_HEADER.len());

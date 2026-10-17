@@ -823,6 +823,35 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn an_obj_goes_without_colours_when_its_material_library_is_a_link() {
+    let dir = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.obj");
+    let target = elsewhere.path().join("planted.mtl");
+    std::os::unix::fs::symlink(&target, dir.path().join("part.mtl")).unwrap();
+    let coloured = [ExportBody {
+        name: "Block",
+        solid: &block,
+        look: Some(Look {
+            colour: Rgb::new(10, 20, 30),
+            opacity: None,
+            material: None,
+        }),
+        group: None,
+        threads: &[],
+        faces: &[],
+    }];
+
+    export_obj(&path, &coloured);
+    let obj = std::fs::read_to_string(&path).unwrap();
+
+    assert!(!target.exists());
+    assert!(!obj.contains("mtllib") && !obj.contains("usemtl"));
+}
+
 fn coloured_block(solid: &Solid, colour: Rgb) -> [ExportBody<'_>; 1] {
     [ExportBody {
         name: "Block",

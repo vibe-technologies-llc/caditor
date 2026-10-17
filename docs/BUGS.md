@@ -190,15 +190,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   is refused even where the face's own region is clear: fit over the region the face uses.
 
 
-## MCP server
-
-- [medium · easy] `caditor mcp` writes an OBJ's material library without checking it against
-  `--folder`: `Library::beside` (`export/obj.rs`) takes `part.mtl` beside the checked `part.obj`,
-  and `write_atomically` follows a link there, so a dangling `part.mtl` link planted in an allowed
-  folder (a cloned repository) creates a file outside every allowed folder; an existing target is
-  replaced only when it starts with `# caditor ` (`replaceable`). The export should go without
-  colours when the library path is a link, as `files::allowed` refuses a link for the main file.
-
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
