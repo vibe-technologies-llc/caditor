@@ -323,6 +323,11 @@ pub enum Command {
     HideTips,
     ShowStartCard,
     Welcome,
+    Home,
+    Cloud,
+    CloudSignIn,
+    CloudSignOut,
+    CloudRefresh,
     Guide,
     About,
     Messages,
@@ -685,6 +690,11 @@ plain_commands! {
     Preferences,
     KeyboardShortcuts,
     Welcome,
+    Home,
+    Cloud,
+    CloudSignIn,
+    CloudSignOut,
+    CloudRefresh,
     Guide,
     About,
     Messages,
@@ -1259,6 +1269,11 @@ impl Command {
             Self::HideTips => "help.hide_tips",
             Self::ShowStartCard => "help.show_start_card",
             Self::Welcome => "help.welcome",
+            Self::Home => "file.home",
+            Self::Cloud => "file.cloud",
+            Self::CloudSignIn => "file.cloud_sign_in",
+            Self::CloudSignOut => "file.cloud_sign_out",
+            Self::CloudRefresh => "file.cloud_refresh",
             Self::Guide => "help.guide",
             Self::About => "help.about",
             Self::Messages => "help.messages",
@@ -1549,6 +1564,11 @@ impl Command {
             Self::HideTips => "Hide tips",
             Self::ShowStartCard => "Show the start card",
             Self::Welcome => "Welcome and samples…",
+            Self::Home => "Home",
+            Self::Cloud => "Cloud projects…",
+            Self::CloudSignIn => "Sign in to Fusion 360",
+            Self::CloudSignOut => "Sign out of Fusion 360",
+            Self::CloudRefresh => "Refresh cloud projects",
             Self::Guide => "User guide",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
@@ -1635,6 +1655,13 @@ impl Command {
             Self::KeyboardShortcuts => &["keymap", "keys", "bindings", "hotkeys"],
             Self::Guide => &["help", "manual", "documentation"],
             Self::Messages => &["log", "notifications", "errors", "history"],
+            Self::Home => &["start", "welcome", "recent files", "projects", "samples"],
+            Self::Cloud => &[
+                "fusion", "autodesk", "import", "account", "online", "manage", "opt out",
+            ],
+            Self::CloudSignIn => &["login", "log in", "autodesk", "account", "cloud"],
+            Self::CloudSignOut => &["logout", "log out", "autodesk", "account", "cloud"],
+            Self::CloudRefresh => &["reload", "projects", "fusion", "cloud"],
             Self::ToggleProjection | Self::AutomaticProjection => {
                 &["perspective", "orthographic", "parallel"]
             }
@@ -1723,7 +1750,12 @@ impl Command {
             | Self::RecoverUnsaved
             | Self::CancelExport
             | Self::CancelImageExport
-            | Self::CancelImport => Category::File,
+            | Self::CancelImport
+            | Self::Home
+            | Self::Cloud
+            | Self::CloudSignIn
+            | Self::CloudSignOut
+            | Self::CloudRefresh => Category::File,
             Self::Welcome
             | Self::Guide
             | Self::About
@@ -2271,6 +2303,11 @@ impl Command {
             | Self::HideTips
             | Self::ShowStartCard
             | Self::Welcome
+            | Self::Home
+            | Self::Cloud
+            | Self::CloudSignIn
+            | Self::CloudSignOut
+            | Self::CloudRefresh
             | Self::About
             | Self::Messages
             | Self::Mate

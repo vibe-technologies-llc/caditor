@@ -30,7 +30,8 @@ allow = [
     "Zlib"
 ]
 exceptions = [
-    { crate = "libfuzzer-sys", allow = ["NCSA"] }
+    { crate = "libfuzzer-sys", allow = ["NCSA"] },
+    { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] }
 ]
 
 [bans]

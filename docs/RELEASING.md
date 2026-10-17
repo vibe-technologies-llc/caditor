@@ -120,6 +120,22 @@ per platform, WiX and the AppImage runtime), in `.github/versions.env` and
 by commit in the workflows. `.github/bump-pins.sh` raises them all to their latest releases with
 fresh checksums; commit its diff once CI passes on it.
 
+## The Autodesk app
+
+Fusion 360 import (`.claude/rules/cloud.md`) signs in through an app registered with Autodesk
+Platform Services, whose client ID a release carries. Register it once, as the project:
+
+1. On aps.autodesk.com create an app of the public-client kind (Desktop, Mobile, Single-Page
+   App), which uses PKCE and has no client secret, and enable the Data Management and Model
+   Derivative APIs.
+2. Give it the callback `http://localhost:49617/callback` (`cloud::CALLBACK_PORT`), exactly.
+3. Store its client ID as the repository variable `CADITOR_AUTODESK_CLIENT_ID`; the release
+   workflow passes it to both builds, which compile it in (`cloud::BUILT_IN_CLIENT_ID`). A build
+   without it still runs: Sign in is disabled with a message naming Preferences, where a user can
+   type any app's client ID.
+
+A client ID is public by design (it is sent in every sign-in URL); never add a client secret.
+
 ## Making a release
 
 1. On an up-to-date `master`, run the checks:

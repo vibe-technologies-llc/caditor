@@ -9,6 +9,7 @@ pub enum Section {
     FeatureTree,
     VersionHistory,
     Exports,
+    Cloud,
     Keyboard,
     Tips,
     SavingOnWindows,
@@ -29,7 +30,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::Units,
         Self::Numbers,
         Self::Files,
@@ -37,6 +38,7 @@ impl Section {
         Self::FeatureTree,
         Self::VersionHistory,
         Self::Exports,
+        Self::Cloud,
         Self::Keyboard,
         Self::Tips,
         Self::SavingOnWindows,
@@ -65,6 +67,7 @@ impl Section {
             | Self::FeatureTree
             | Self::VersionHistory
             | Self::Exports
+            | Self::Cloud
             | Self::Keyboard
             | Self::Tips
             | Self::SavingOnWindows => PreferencesTab::General,
@@ -92,6 +95,7 @@ impl Section {
             Self::FeatureTree => "feature-tree",
             Self::VersionHistory => "version-history",
             Self::Exports => "exports",
+            Self::Cloud => "cloud",
             Self::Keyboard => "keyboard",
             Self::Tips => "tips",
             Self::SavingOnWindows => "saving-on-windows",
@@ -121,6 +125,7 @@ impl Section {
             Self::FeatureTree => "Feature tree",
             Self::VersionHistory => "Version history",
             Self::Exports => "Exports",
+            Self::Cloud => "Cloud",
             Self::Keyboard => "Keyboard",
             Self::Tips => "Tips",
             Self::SavingOnWindows => "Saving on Windows",
@@ -167,6 +172,8 @@ impl Section {
                 "start",
                 "start card",
                 "empty model",
+                "home",
+                "home screen",
             ],
             Self::NewModels => &["start from", "template", "new model"],
             Self::FeatureTree => &[
@@ -188,6 +195,19 @@ impl Section {
             Self::Exports => &[
                 "export", "remember", "folder", "format", "stl", "3mf", "step", "dxf", "svg",
                 "image",
+            ],
+            Self::Cloud => &[
+                "fusion",
+                "fusion 360",
+                "autodesk",
+                "sign in",
+                "projects",
+                "import",
+                "home",
+                "turn off",
+                "opt out",
+                "client id",
+                "account",
             ],
             Self::Keyboard => &["shortcuts", "keys", "keymap"],
             Self::Tips => &["getting started", "show tips", "hints"],
@@ -328,7 +348,10 @@ impl Section {
     }
 
     pub fn is_resettable(self) -> bool {
-        !matches!(self, Self::Keyboard | Self::Tips | Self::SavingOnWindows)
+        !matches!(
+            self,
+            Self::Cloud | Self::Keyboard | Self::Tips | Self::SavingOnWindows
+        )
     }
 
     pub fn is_default(self, preferences: &Preferences) -> bool {
@@ -348,6 +371,7 @@ impl Section {
                 to.startup = from.startup;
                 to.recent_listed = from.recent_listed;
                 to.onboarding.start_card = from.onboarding.start_card;
+                to.onboarding.home = from.onboarding.home;
             }
             Self::NewModels => to.default_template.clone_from(&from.default_template),
             Self::FeatureTree => {
@@ -361,7 +385,7 @@ impl Section {
                     to.exports.clone_from(&from.exports);
                 }
             }
-            Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
+            Self::Cloud | Self::Keyboard | Self::Tips | Self::SavingOnWindows => {}
             Self::Theme => to.appearance.theme = from.appearance.theme.clone(),
             Self::Colours => {
                 to.appearance.accent = from.appearance.accent;

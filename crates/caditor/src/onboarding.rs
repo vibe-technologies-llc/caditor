@@ -27,6 +27,7 @@ const HINTS_KEY: &str = "onboarding.hints";
 const DISMISSED_KEY: &str = "onboarding.dismissed_hints";
 const DEFENDER_KEY: &str = "onboarding.defender_reminded";
 const START_CARD_KEY: &str = "onboarding.start_card";
+const HOME_KEY: &str = "onboarding.home";
 const TIP_TITLE: &str = "Tip";
 const DISMISS_TIP: &str = "Dismiss the tip";
 const RECENT_TITLE: &str = "Recent files";
@@ -117,6 +118,7 @@ pub struct Onboarding {
     pub dismissed: BTreeSet<Hint>,
     pub defender_reminded: bool,
     pub start_card: bool,
+    pub home: bool,
 }
 
 impl Default for Onboarding {
@@ -127,6 +129,7 @@ impl Default for Onboarding {
             dismissed: BTreeSet::new(),
             defender_reminded: false,
             start_card: true,
+            home: true,
         }
     }
 }
@@ -144,6 +147,7 @@ impl Onboarding {
                 .collect(),
             defender_reminded: settings.flag(DEFENDER_KEY).unwrap_or(false),
             start_card: settings.flag(START_CARD_KEY).unwrap_or(true),
+            home: settings.flag(HOME_KEY).unwrap_or(true),
         }
     }
 
@@ -152,6 +156,7 @@ impl Onboarding {
         settings.set_flag(HINTS_KEY, self.hints);
         settings.set_flag(DEFENDER_KEY, self.defender_reminded);
         settings.set_flag(START_CARD_KEY, self.start_card);
+        settings.set_flag(HOME_KEY, self.home);
         let known: Vec<String> = self
             .dismissed
             .iter()
@@ -174,6 +179,7 @@ impl Onboarding {
             dismissed: BTreeSet::new(),
             defender_reminded: true,
             start_card: true,
+            home: true,
         }
     }
 }
@@ -439,7 +445,7 @@ pub fn folder_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn sample_icon(sample: Sample) -> &'static str {
+pub fn sample_icon(sample: Sample) -> &'static str {
     match sample {
         Sample::Plate => icons::command(Command::DatumPlane),
         Sample::Spool => icons::command(Command::Revolve),

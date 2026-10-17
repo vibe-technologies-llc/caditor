@@ -399,6 +399,7 @@ fn general(
     feature_tree(ui, shown, command);
     version_history(ui, shown, command);
     exports(ui, shown, command);
+    cloud(ui, shown, command);
     keyboard(ui, shown, command);
     tips(ui, shown, command);
     if defender::ON_WINDOWS {
@@ -431,7 +432,78 @@ fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
                 command,
             );
         });
+        widgets::property(ui, "Home", |ui| {
+            toggle(
+                ui,
+                preferences.onboarding.home,
+                SHOW_HOME,
+                "The page with your recent files, samples and cloud projects that opens over the \
+                 3D view when caditor starts empty; Home in the File menu brings it back at any \
+                 time",
+                PreferenceChange::ShowHome,
+                command,
+            );
+        });
     });
+}
+
+fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
+    let cloud = &shown.preferences.cloud;
+    let note = "Signing in lets Home and File › Cloud list your Fusion 360 designs and import one \
+                with a click. caditor only contacts Autodesk after you sign in, and turning this \
+                off stops every request, hides every cloud button and signs you out.";
+    section(ui, shown, Section::Cloud, Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Fusion 360", |ui| {
+            toggle(
+                ui,
+                cloud.enabled,
+                USE_CLOUD,
+                "Off hides cloud projects everywhere, makes no network request and forgets the \
+                 sign-in",
+                PreferenceChange::CloudEnabled,
+                command,
+            );
+        });
+        ui.add_enabled_ui(cloud.enabled, |ui| {
+            widgets::property(ui, "On Home", |ui| {
+                toggle(
+                    ui,
+                    cloud.on_home,
+                    CLOUD_ON_HOME,
+                    "Off keeps cloud projects to File › Cloud and the palette",
+                    PreferenceChange::CloudOnHome,
+                    command,
+                );
+            });
+            widgets::property(ui, "Autodesk app", |ui| {
+                client_id_field(ui, &cloud.fusion_client_id, command);
+            });
+        });
+    });
+}
+
+fn client_id_field(ui: &mut Ui, stored: &str, command: &mut Option<PreferencesCommand>) {
+    let draft_id = Id::unique(CLIENT_ID_FIELD);
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .unwrap_or_else(|| stored.to_owned());
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique(CLIENT_ID_FIELD_EDIT))
+                .hint_text(CLIENT_ID_HINT)
+                .desired_width(f32::INFINITY),
+        )
+    })
+    .on_hover_text(CLIENT_ID_HOVER);
+    if response.lost_focus() {
+        ui.data_mut(|data| data.remove_temp::<String>(draft_id));
+        if text.trim() != stored {
+            change(command, PreferenceChange::FusionClientId(text));
+        }
+    } else if response.has_focus() || response.changed() {
+        ui.data_mut(|data| data.insert_temp(draft_id, text));
+    }
 }
 
 fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
@@ -716,6 +788,14 @@ fn tips(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>
 }
 
 pub const SHOW_START_CARD: &str = "Show the start card on empty models";
+pub const SHOW_HOME: &str = "Show Home when caditor starts";
+pub const USE_CLOUD: &str = "Use cloud services";
+pub const CLOUD_ON_HOME: &str = "Show cloud projects on Home";
+pub const CLIENT_ID_FIELD: &str = "preferences-cloud-client-id-draft";
+pub const CLIENT_ID_FIELD_EDIT: &str = "preferences-cloud-client-id";
+const CLIENT_ID_HINT: &str = "The Autodesk app caditor was built with";
+const CLIENT_ID_HOVER: &str = "The client ID of the Autodesk Platform Services app to sign in \
+                               with. Leave empty to use the one this build of caditor carries.";
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";

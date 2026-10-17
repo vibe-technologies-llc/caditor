@@ -23,7 +23,8 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
 - **Starting and recent files**: whether caditor starts with a new model or opens the last model
   you had, and how many models Open recent lists (3, 5 or 10). Unsaved work offered for
   recovery, or a file named on the [command line](command-line), comes first. **Show the start
-  card on empty models** brings back the [start card](start) after Don't show this again.
+  card on empty models** brings back the [start card](start) after Don't show this again, and
+  **Show Home when caditor starts** decides whether [Home](cloud) opens first.
 - **New models**: the [template](templates) a new model starts from.
 - **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it, and
   **New bodies from separate pieces**: whether a new extrusion, revolve or sweep of shapes that do
@@ -35,6 +36,10 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
 - **Exports**: whether the export dialogs keep their format, options and folder between sessions
   (the default) or only until caditor closes, and **Forget remembered choices**, after which the
   next session's dialogs start from caditor's defaults. See [exporting](exporting).
+- **Cloud**: whether [cloud services](cloud) are used at all (turn them off here to hide every
+  cloud button, sign out and make no cloud request), whether projects show on Home, and the
+  Autodesk app to sign in with when the build carries none. Restore defaults never turns cloud
+  services back on.
 - **Keyboard**: the shortcut editor; see [working from the keyboard](keyboard).
 - **Tips**: show tips in the view, and bring back dismissed ones.
 - **Saving on Windows**, on Windows only: shows again the reminder about

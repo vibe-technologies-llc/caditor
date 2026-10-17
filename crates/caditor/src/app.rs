@@ -1,5 +1,6 @@
 use std::{
     cell::OnceCell,
+    collections::VecDeque,
     panic::{self, AssertUnwindSafe},
     path::PathBuf,
     sync::Arc,
@@ -7,11 +8,13 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
+use caditor_cloud::Service;
 use caditor_render::{
     Background, FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
     WindowTarget,
 };
 use egui_winit::accesskit_winit;
+use jiff::Timestamp;
 use parking_lot::Mutex;
 use winit::{
     application::ApplicationHandler,
@@ -28,6 +31,8 @@ use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, Skin, Skins},
     backdrop::Backdrop,
     body_selection, canvas,
+    cloud::{Cloud, CloudCommand, CloudServices, Refusal},
+    cloud_dialog::{self, CloudDialog, DialogView},
     comb::CombTool,
     comb_panel,
     commands::{self, Clipboard, Command, CommandFrame, Declined, Offer, Situation},
@@ -43,6 +48,7 @@ use crate::{
     graphics::{FramePacer, Hardware},
     guide::{self, SidePanel},
     guide_panel::{self, Guide},
+    home::{self, Home, HomeView},
     image_export::{ReadPixels, RenderedRows},
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
@@ -71,7 +77,8 @@ use crate::{
     parameter_table,
     preferences::{
         self, Appearance, ExportMemory, PreferenceChange, Preferences, PreferencesCommand,
-        PreferencesTab, PreferencesView, Restored, StartingToggles, TitleBar, TooltipDelay,
+        PreferencesTab, PreferencesView, Restored, StartingToggles, Startup, TitleBar,
+        TooltipDelay,
     },
     queued::{self, Rerun},
     reference_picking::{self, Slot},
@@ -173,6 +180,9 @@ pub struct Workspace {
     pub shortcut_editor: Option<ShortcutEditor>,
     pub restored: Option<Restored>,
     pub welcome_open: bool,
+    pub home: Home,
+    pub cloud: Cloud,
+    pub cloud_dialog: Option<CloudDialog>,
     pub about_open: bool,
     pub messages_open: bool,
     pub undo_history_open: bool,
@@ -221,6 +231,7 @@ impl Workspace {
 
     pub fn with_preferences(preferences: Preferences) -> Self {
         let welcome_open = !preferences.onboarding.welcomed;
+        let cloud = Cloud::new(&preferences.cloud, CloudServices::without_files());
         let mut viewport = ViewportState::new();
         viewport.set_navigation(preferences.navigation);
         viewport.set_view_details(preferences.view_details);
@@ -240,6 +251,9 @@ impl Workspace {
             shortcut_editor: None,
             restored: None,
             welcome_open,
+            home: Home::default(),
+            cloud,
+            cloud_dialog: None,
             about_open: false,
             messages_open: false,
             undo_history_open: false,
@@ -288,6 +302,8 @@ impl Workspace {
         self.palette = Palette::with_recent(self.preferences.palette_recent.clone());
         self.restored = None;
         self.welcome_open = false;
+        self.home.close();
+        self.cloud_dialog = None;
         self.about_open = false;
         self.messages_open = false;
         self.undo_history_open = false;
@@ -344,6 +360,7 @@ impl Workspace {
 
     fn follow_preferences(&mut self, model: &mut Model, started_with: StartingToggles) {
         apply_preferences(model, &self.preferences);
+        self.cloud.configure(&self.preferences.cloud);
         self.viewport.set_navigation(self.preferences.navigation);
         self.viewport
             .set_view_details(self.preferences.view_details);
@@ -388,6 +405,13 @@ impl Workspace {
                     files.store_settings(self.preferences.settings());
                 }
             }
+            PreferencesCommand::ShowHome => self.home.open(model),
+            PreferencesCommand::ShowCloud(project) => {
+                if self.preferences.cloud.enabled {
+                    self.cloud_dialog = Some(CloudDialog::at(project));
+                }
+            }
+            PreferencesCommand::CloseCloud => self.cloud_dialog = None,
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
             PreferencesCommand::ShowMessages => self.messages_open = true,
@@ -546,6 +570,8 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     workspace.sync(model);
+    actions.extend(workspace.cloud.poll());
+    workspace.home.follow(model, &workspace.editing);
     workspace.principal_listed = visibility::take_listing(ui.ctx());
     completion::publish(ui.ctx(), model);
     if model.is_checking_constraints() {
@@ -568,6 +594,7 @@ pub fn show(
     let modal_open = workspace.preferences_open
         || workspace.shortcut_editor.is_some()
         || workspace.welcome_open
+        || workspace.cloud_dialog.is_some()
         || workspace.about_open
         || workspace.messages_open
         || workspace.undo_history_open
@@ -594,6 +621,9 @@ pub fn show(
         shortcut_editor,
         restored,
         welcome_open,
+        home,
+        cloud,
+        cloud_dialog,
         about_open,
         messages_open,
         undo_history_open,
@@ -684,6 +714,7 @@ pub fn show(
         offers: last_offers,
         chrome,
         toggles,
+        cloud: cloud.is_enabled(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -1017,12 +1048,30 @@ pub fn show(
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     viewport.set_start_card(preferences.onboarding.start_card);
+    viewport.cover(home.is_open());
     canvas::set_contrast(ui.ctx(), contrast);
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     viewport.set_grid(canvas::grid(ui.ctx()));
     viewport.set_default_body(canvas::body_colour(ui.ctx()));
     let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    if home.is_open()
+        && let Some(area) = viewport.rect()
+    {
+        let view = HomeView {
+            files,
+            cloud,
+            now: Timestamp::now(),
+        };
+        let escaped = !dialog_open && ui.input(|input| input.key_pressed(egui::Key::Escape));
+        let choices = home::show(ui.ctx(), area, &view);
+        if escaped {
+            home.close();
+        }
+        for choice in choices {
+            home_chosen(choice, home, deferred_commands, actions);
+        }
+    }
     completion::forget_taken_click(ui.ctx());
     if viewport.selection().generation() != selection_before && !viewport.selection().is_empty() {
         panels.selected = None;
@@ -1040,6 +1089,26 @@ pub fn show(
     let open_shortcuts = commands.available(Command::KeyboardShortcuts);
     if commands.available(Command::Welcome) {
         actions.push(Action::Preferences(PreferencesCommand::ShowWelcome));
+    }
+    if commands.available(Command::Home) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowHome));
+    }
+    let cloud_on = if cloud.is_enabled() {
+        Ok(())
+    } else {
+        Err(Refusal::Off)
+    };
+    if commands.invoke(Command::Cloud, &cloud_on) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowCloud(None)));
+    }
+    if commands.invoke(Command::CloudSignIn, &cloud.can_sign_in(Service::Fusion)) {
+        actions.push(Action::Cloud(CloudCommand::SignIn(Service::Fusion)));
+    }
+    if commands.invoke(Command::CloudSignOut, &cloud.is_signed_in(Service::Fusion)) {
+        actions.push(Action::Cloud(CloudCommand::SignOut(Service::Fusion)));
+    }
+    if commands.invoke(Command::CloudRefresh, &cloud.is_signed_in(Service::Fusion)) {
+        actions.push(Action::Cloud(CloudCommand::Refresh(Service::Fusion)));
     }
     if commands.available(Command::About) {
         actions.push(Action::Preferences(PreferencesCommand::ShowAbout));
@@ -1246,6 +1315,27 @@ pub fn show(
                 }
             }
         }
+        if let Some(state) = cloud_dialog {
+            let view = DialogView {
+                cloud,
+                preferences: &preferences.cloud,
+                now: Timestamp::now(),
+            };
+            for outcome in cloud_dialog::dialog(ui.ctx(), &view, state) {
+                match outcome {
+                    cloud_dialog::Outcome::Close => {
+                        actions.push(Action::Preferences(PreferencesCommand::CloseCloud));
+                    }
+                    cloud_dialog::Outcome::Cloud(command) => actions.push(Action::Cloud(command)),
+                    cloud_dialog::Outcome::Change(change) => {
+                        actions.push(Action::Preferences(PreferencesCommand::Change(change)));
+                    }
+                    cloud_dialog::Outcome::Preferences => {
+                        actions.push(Action::Preferences(PreferencesCommand::Show));
+                    }
+                }
+            }
+        }
         if *messages_open && messages::dialog(ui.ctx(), model) {
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));
         }
@@ -1353,6 +1443,56 @@ fn guide_commands(
     let detail = page.map(|page| format!("Opens “{}”", page.title()));
     if commands.invoke_detailed(Command::Guide, detail, &Ok::<(), String>(())) {
         guide.toggle_at(page);
+    }
+}
+
+fn home_chosen(
+    choice: home::Choice,
+    home: &mut Home,
+    deferred_commands: &mut Vec<Command>,
+    actions: &mut Vec<Action>,
+) {
+    use home::Choice;
+
+    let leaves = !matches!(
+        choice,
+        Choice::ClearRecent
+            | Choice::Cloud(_)
+            | Choice::ManageCloud(_)
+            | Choice::Preferences
+            | Choice::TurnOffCloud
+    );
+    match choice {
+        Choice::Close => {}
+        Choice::Start(command) => deferred_commands.push(command),
+        Choice::Open => actions.push(Action::File(FileCommand::Open)),
+        Choice::OpenRecent(path) => actions.push(Action::File(FileCommand::OpenPath(path))),
+        Choice::ClearRecent => actions.push(Action::File(FileCommand::ClearRecent)),
+        Choice::Sample(sample) => actions.push(Action::File(FileCommand::OpenSample(sample))),
+        Choice::Cloud(command) => actions.push(Action::Cloud(command)),
+        Choice::ManageCloud(project) => {
+            actions.push(Action::Preferences(PreferencesCommand::ShowCloud(project)));
+        }
+        Choice::Preferences => actions.push(Action::Preferences(PreferencesCommand::Show)),
+        Choice::TurnOffCloud => {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::CloudEnabled(false),
+            )));
+            actions.push(Action::Inform(Notice::info(
+                "Cloud features are off. Preferences › General › Cloud turns them back on.",
+            )));
+        }
+        Choice::HideAtStart => {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::ShowHome(false),
+            )));
+            actions.push(Action::Inform(Notice::info(
+                "Home no longer opens when caditor starts. File › Home brings it back.",
+            )));
+        }
+    }
+    if leaves {
+        home.close();
     }
 }
 
@@ -1548,8 +1688,10 @@ pub fn perform(
 ) -> bool {
     let since = model.undo_mark();
     let notice_before = model.notice().cloned();
-    for action in actions {
+    let mut queue = VecDeque::from(actions);
+    while let Some(action) = queue.pop_front() {
         match action {
+            Action::Cloud(command) => queue.extend(workspace.cloud.run(command)),
             Action::File(command) => files.perform(command, model),
             Action::Editing(EditingCommand::SetMode(mode))
                 if let Some(reason) = workspace.viewport.refuses_mode(mode) =>
@@ -1689,6 +1831,7 @@ pub struct App {
     fatal_error: Option<anyhow::Error>,
     proxy: EventLoopProxy<AppEvent>,
     startup_check: StartupCheck,
+    opened_a_file: bool,
 }
 
 impl App {
@@ -1701,6 +1844,7 @@ impl App {
     ) -> Self {
         apply_preferences(&mut model, &preferences);
         files.settings_loaded(preferences.settings());
+        let opened_a_file = open.is_some();
         files.start(open, &mut model);
         Self {
             model,
@@ -1710,6 +1854,7 @@ impl App {
             fatal_error: None,
             proxy,
             startup_check: StartupCheck::from_environment(),
+            opened_a_file,
         }
     }
 
@@ -1735,7 +1880,22 @@ impl ApplicationHandler<AppEvent> for App {
         let preferences = self.preferences.clone();
         let title = window_title(&self.model);
         match Session::open(event_loop, &title, preferences, self.proxy.clone()) {
-            Ok(session) => self.session = Some(session),
+            Ok(mut session) => {
+                session.workspace.cloud = Cloud::new(
+                    &self.preferences.cloud,
+                    CloudServices {
+                        make_waker: waker_factory(self.proxy.clone()),
+                        state_dir: caditor_file::state_dir(),
+                    },
+                );
+                let wanted = self.preferences.onboarding.home
+                    && self.preferences.startup == Startup::EmptyModel
+                    && !self.opened_a_file;
+                if wanted {
+                    session.workspace.home.request();
+                }
+                self.session = Some(session);
+            }
             Err(error) => {
                 self.fatal_error = Some(error);
                 event_loop.exit();

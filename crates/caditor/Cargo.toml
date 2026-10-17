@@ -12,6 +12,7 @@ workspace = true
 fuzzing = ["caditor-file/fuzzing"]
 
 [dependencies]
+caditor-cloud.workspace = true
 caditor-document.workspace = true
 caditor-expression.workspace = true
 caditor-file.workspace = true
@@ -51,5 +52,6 @@ rfd.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+caditor-cloud = { workspace = true, features = ["test-support"] }
 caditor-file = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

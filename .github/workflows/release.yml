@@ -54,6 +54,8 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Build the release archive
+        env:
+          CADITOR_AUTODESK_CLIENT_ID: ${{ vars.CADITOR_AUTODESK_CLIENT_ID }}
         run: packaging/build-release.sh
 
       - name: Install a virtual display and software graphics drivers
@@ -130,6 +132,8 @@ jobs:
 
       - name: Build the release installer
         shell: pwsh
+        env:
+          CADITOR_AUTODESK_CLIENT_ID: ${{ vars.CADITOR_AUTODESK_CLIENT_ID }}
         run: packaging/windows/build-release.ps1
 
       - name: Install, upgrade and uninstall the installer

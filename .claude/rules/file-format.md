@@ -526,7 +526,9 @@ Sketch entities:
 - Write a temporary sibling, fsync, rename over the target, fsync the directory (a failed
   directory fsync is logged, not a failed save). On Windows the rename is `ReplaceFileW` with no
   directory fsync (`windows.md`). Permissions, group and extended attributes (ACLs too) are kept;
-  the temporary is owner-only until applied. A symbolic link is followed.
+  the temporary is owner-only until applied, and a new file gets the umask's mode.
+  `write_privately` is the same write for secrets (the cloud sign-in): a new or replaced file is
+  owner-only. A symbolic link is followed.
 - Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`. After each write, those next to the
   file are removed when from an earlier boot of this machine, or from this boot with their process
   gone; other machines' saves on a shared folder are left alone. The recovery-directory scan

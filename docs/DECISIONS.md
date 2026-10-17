@@ -29,6 +29,12 @@ decision recorded in `docs/` before work starts.
 
 ## Open questions
 
+- [high · easy] The Fusion 360 import has no Autodesk app behind it yet: release builds carry no
+  client ID, so Sign in is disabled until someone registers an Autodesk Platform Services app for
+  the project (`RELEASING.md`, The Autodesk app) and sets `CADITOR_AUTODESK_CLIENT_ID`, or a user
+  types their own in Preferences. Decide who registers it and under which Autodesk account, whether
+  the fixed callback port 49617 is acceptable, and whether the team-hub administrator step
+  (`.claude/rules/cloud.md`) needs a page of its own in the guide.
 - [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
   running app listens on for MCP clients (a local socket or named pipe per user, or streamable
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once

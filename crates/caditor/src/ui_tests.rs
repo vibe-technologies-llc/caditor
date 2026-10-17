@@ -91,6 +91,7 @@ mod hole_feet;
 mod hole_highlights;
 mod hole_place_handles;
 mod holes;
+mod home;
 mod image_handles;
 mod import_costs;
 mod import_jobs;

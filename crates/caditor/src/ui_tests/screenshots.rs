@@ -419,6 +419,8 @@ fn screenshots() {
         beyond_scene(&mut beyond, &gpu, &out, look);
         drop(beyond);
 
+        cloud_scenes(&gpu, &out, look);
+
         let dir = TempDir::new().expect("a temporary directory");
         let mut moving = Harness::styled(look, dir.path(), false);
         move_scene(&mut moving, &gpu, &out, look);
@@ -655,6 +657,27 @@ fn screenshots() {
         dialog_scenes(&gpu, &out, look);
         file_scenes(&gpu, &out, look);
     }
+}
+
+fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
+    let dir = TempDir::new().expect("a temporary directory");
+    let provider = super::home::fusion_provider(b"");
+    let mut harness = Harness::styled(look, dir.path(), false);
+    super::home::attach(&mut harness, dir.path(), &provider);
+    super::home::open_home(&mut harness);
+    shoot(&mut harness, gpu, out, "home-advert", look);
+    super::home::sign_in(&mut harness);
+    harness.wait_until("the designs are listed", |harness| {
+        harness.shows("Frame") && harness.shows("Arm")
+    });
+    shoot(&mut harness, gpu, out, "home-signed-in", look);
+    harness.workspace.home.close();
+    harness.perform(Action::Preferences(PreferencesCommand::ShowCloud(None)));
+    harness.frame();
+    harness.frame();
+    harness.click("Bikes");
+    harness.wait_until("the designs are listed", |harness| harness.shows("Wheels"));
+    shoot(&mut harness, gpu, out, "cloud-manager", look);
 }
 
 fn file_scenes(gpu: &Gpu, out: &Path, look: Look) {

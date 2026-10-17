@@ -24,6 +24,7 @@ use parking_lot::Mutex;
 use crate::{
     bodies::{self, ShownCut},
     body_picks,
+    cloud::CloudCommand,
     commands::Reason,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
@@ -98,6 +99,7 @@ pub enum Action {
     File(FileCommand),
     Editing(EditingCommand),
     Preferences(PreferencesCommand),
+    Cloud(CloudCommand),
     Filter(SelectionFilter),
 }
 
@@ -1209,6 +1211,10 @@ impl Model {
             }
             Action::Preferences(command) => {
                 log::warn!("{command:?} reached the model instead of the preferences");
+                Ok(None)
+            }
+            Action::Cloud(command) => {
+                log::warn!("{command:?} reached the model instead of the cloud service");
                 Ok(None)
             }
             Action::Filter(filter) => {

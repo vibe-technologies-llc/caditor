@@ -98,6 +98,7 @@ const NOT_IMPORTING: &str = "No import is running";
 const HISTORY_AND_DETAILS: &str = "Versions and details";
 const IMPORT_MENU: &str = "Import";
 const EXPORT_MENU: &str = "Export";
+const CLOUD_MENU: &str = "Cloud";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const NOT_FOUND: &str = "(not found)";
 pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was last exported to, \
@@ -3830,7 +3831,7 @@ fn canonical_location(path: &Path) -> PathBuf {
 pub fn menu(
     ui: &mut Ui,
     model: &Model,
-    (files, editing): (&Files, &SketchEditing),
+    (files, editing, cloud): (&Files, &SketchEditing, bool),
     entries: &mut MenuEntries<'_>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
@@ -3852,6 +3853,8 @@ pub fn menu(
     let again = files.export_again_name(model);
     let revertible = model.saved_version().map(|_| ());
     let file_menu = menu_bar::top_menu(ui, "File", |ui| {
+        entries.item(ui, Command::Home);
+        ui.separator();
         entries.item(ui, Command::New);
         templates::menu(ui, files, entries, actions);
         entries.item(ui, Command::Open);
@@ -3901,6 +3904,19 @@ pub fn menu(
             entries.hinted(ui, Command::Import, IMPORT_HINT);
             entries.hinted(ui, Command::ImportParameters, parameters::IMPORT_HINT);
         });
+        if cloud {
+            menu_bar::submenu(ui, icons::command(Command::Cloud), CLOUD_MENU, |ui| {
+                entries.items(
+                    ui,
+                    [
+                        Command::Cloud,
+                        Command::CloudSignIn,
+                        Command::CloudSignOut,
+                        Command::CloudRefresh,
+                    ],
+                );
+            });
+        }
         menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
             entries.item(ui, Command::Export);
             let title = entries.detail(Command::ExportAgain).map_or_else(
@@ -4050,6 +4066,11 @@ pub fn menu(
         Command::KeyboardShortcuts,
         Command::ExportSketch,
         Command::ExportFace,
+        Command::Home,
+        Command::Cloud,
+        Command::CloudSignIn,
+        Command::CloudSignOut,
+        Command::CloudRefresh,
     ] {
         if chosen.contains(&command) {
             commands.trigger(command);

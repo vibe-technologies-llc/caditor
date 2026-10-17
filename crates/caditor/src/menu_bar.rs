@@ -165,6 +165,7 @@ pub struct MenuContext<'a> {
     pub offers: &'a [Offer],
     pub chrome: Chrome,
     pub toggles: ToggleStates,
+    pub cloud: bool,
 }
 
 pub fn show(
@@ -192,7 +193,7 @@ pub fn show(
                 files::menu(
                     ui,
                     model,
-                    (context.files, context.editing),
+                    (context.files, context.editing, context.cloud),
                     &mut entries,
                     commands,
                     actions,

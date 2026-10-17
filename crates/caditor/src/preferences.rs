@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use caditor_cloud::ProjectId;
 use caditor_document::Rgb;
 use caditor_file::{Retention, Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
@@ -7,15 +8,17 @@ use egui::KeyboardShortcut;
 
 #[cfg(test)]
 pub use self::dialog::{
-    AUTOMATIC_GRID, BODY_SELECTOR, CLEAR_SEARCH, CUSTOM_BODY, CUSTOM_GRID, DEFAULT_BODY,
-    GRID_SELECTOR, NEW_BODIES_CAPTION, SEARCH_FIELD, SHOW_START_CARD, accent_name,
-    body_swatch_name, custom_grid_name, reset_name, theme_card_id, view_name,
+    AUTOMATIC_GRID, BODY_SELECTOR, CLEAR_SEARCH, CLIENT_ID_FIELD_EDIT, CLOUD_ON_HOME, CUSTOM_BODY,
+    CUSTOM_GRID, DEFAULT_BODY, GRID_SELECTOR, NEW_BODIES_CAPTION, SEARCH_FIELD, SHOW_START_CARD,
+    USE_CLOUD, accent_name, body_swatch_name, custom_grid_name, reset_name, theme_card_id,
+    view_name,
 };
 pub use self::{
     choices::{
         Choice, DoubleClick, ExportMemory, FieldOfView, NewBodies, OrbitAround, RecentListed,
         Startup, TooltipDelay, Transitions, ZoomToward,
     },
+    cloud::CloudPreferences,
     dialog::{PreferencesView, Shown, change, choice, dialog, pick, section},
     sections::Section,
 };
@@ -93,6 +96,7 @@ const RECENT_COLOURS_KEY: &str = "body.recent_colours";
 pub const RECENT_COLOURS_LIMIT: usize = 6;
 
 mod choices;
+mod cloud;
 mod dialog;
 mod motion;
 mod sections;
@@ -502,6 +506,7 @@ pub struct Preferences {
     pub lighting: Lighting,
     pub backdrop: Option<PathBuf>,
     pub onboarding: Onboarding,
+    pub cloud: CloudPreferences,
     pub keymap: Keymap,
     pub window: WindowPlacement,
     pub panels: PanelLayout,
@@ -578,6 +583,10 @@ pub enum PreferenceChange {
     DismissHint(Hint),
     ShowHints(bool),
     ShowStartCard(bool),
+    ShowHome(bool),
+    CloudEnabled(bool),
+    CloudOnHome(bool),
+    FusionClientId(String),
     RestoreHints,
     DefenderReminded,
     RecentColour(Rgb),
@@ -593,6 +602,9 @@ pub enum PreferencesCommand {
     HideShortcuts,
     ShowWelcome,
     CloseWelcome,
+    ShowHome,
+    ShowCloud(Option<ProjectId>),
+    CloseCloud,
     ShowAbout,
     CloseAbout,
     ShowMessages,
@@ -775,6 +787,7 @@ impl Preferences {
             lighting: Lighting::from_settings(&raw),
             backdrop: backdrop::read(&raw),
             onboarding: Onboarding::from_settings(&raw),
+            cloud: CloudPreferences::from_settings(&raw),
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
             panels: PanelLayout::from_settings(&raw),
@@ -828,6 +841,7 @@ impl Preferences {
         backdrop::write(self.backdrop.as_deref(), &mut settings);
         self.keymap.write(&self.loaded_keymap, &mut settings);
         self.onboarding.write(&mut settings);
+        self.cloud.write(&mut settings);
         self.window.write(&mut settings);
         self.panels.write(&mut settings);
         templates::write_default_template(self.default_template.as_deref(), &mut settings);
@@ -939,6 +953,10 @@ impl Preferences {
             }
             PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
             PreferenceChange::ShowStartCard(shown) => self.onboarding.start_card = shown,
+            PreferenceChange::ShowHome(shown) => self.onboarding.home = shown,
+            PreferenceChange::CloudEnabled(enabled) => self.cloud.enabled = enabled,
+            PreferenceChange::CloudOnHome(shown) => self.cloud.on_home = shown,
+            PreferenceChange::FusionClientId(id) => self.cloud.fusion_client_id = id,
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {

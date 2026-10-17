@@ -502,6 +502,7 @@ pub struct ViewportState {
     display_button: Option<Response>,
     display_area: Rect,
     start_card: StartCard,
+    covered: bool,
     refusal: Option<RefusalNote>,
     hover_delay: HoverDelay,
     orbit_mark: Option<OrbitMark>,
@@ -773,6 +774,7 @@ impl ViewportState {
             display_button: None,
             display_area: Rect::NOTHING,
             start_card: StartCard::default(),
+            covered: false,
             refusal: None,
             hover_delay: HoverDelay::default(),
             orbit_mark: None,
@@ -973,6 +975,10 @@ impl ViewportState {
         } else {
             self.set_style(style);
         }
+    }
+
+    pub fn cover(&mut self, covered: bool) {
+        self.covered = covered;
     }
 
     pub fn set_start_card(&mut self, enabled: bool) {
@@ -5646,6 +5652,7 @@ impl ViewportState {
         key_hints: &KeyHints,
     ) -> Option<Rect> {
         let shown = is_blank(model, editing)
+            && !self.covered
             && self.primary.is_none()
             && self.start_card.shown_in(model.session());
         if !shown {

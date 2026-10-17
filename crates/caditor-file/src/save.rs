@@ -448,6 +448,21 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     replace_atomically(path, |file| file.write_all(contents))
 }
 
+pub fn write_privately(path: &Path, contents: &[u8]) -> io::Result<()> {
+    replace_checked_as(
+        path,
+        Privacy::OwnerOnly,
+        |file| file.write_all(contents),
+        |_| Ok(()),
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Privacy {
+    AsTheTargetWas,
+    OwnerOnly,
+}
+
 pub(crate) fn replace_atomically(
     path: &Path,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
@@ -460,10 +475,19 @@ fn replace_checked(
     fill: impl FnOnce(&mut File) -> io::Result<()>,
     check: impl FnOnce(&File) -> io::Result<()>,
 ) -> io::Result<()> {
+    replace_checked_as(path, Privacy::AsTheTargetWas, fill, check)
+}
+
+fn replace_checked_as(
+    path: &Path,
+    privacy: Privacy,
+    fill: impl FnOnce(&mut File) -> io::Result<()>,
+    check: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<()> {
     let target = resolve_links(path)?;
     ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
-    let written = write_and_sync(&temporary, &target, fill, check)
+    let written = write_and_sync(&temporary, &target, privacy, fill, check)
         .and_then(|()| os::replace(&temporary, &target));
     if written.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -611,6 +635,7 @@ impl Host<'_> {
 fn write_and_sync(
     temporary: &Path,
     target: &Path,
+    privacy: Privacy,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
     check: impl FnOnce(&File) -> io::Result<()>,
 ) -> io::Result<()> {
@@ -619,14 +644,19 @@ fn write_and_sync(
             let file = os::private(OpenOptions::new().read(true).write(true).create_new(true))
                 .open(temporary)?;
             os::take_ownership_and_attributes(&file, target, &existing);
-            file.set_permissions(existing.permissions())?;
+            if privacy == Privacy::AsTheTargetWas {
+                file.set_permissions(existing.permissions())?;
+            }
             file
         }
-        Err(_) => OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(temporary)?,
+        Err(_) => {
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create_new(true);
+            if privacy == Privacy::OwnerOnly {
+                os::private(&mut options);
+            }
+            options.open(temporary)?
+        }
     };
     fill(&mut file)?;
     file.sync_all()?;
@@ -836,6 +866,30 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_write_makes_a_new_file_and_replaces_an_old_one_readable_by_its_owner_alone() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = dir.path().join("secret.json");
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        write_privately(&target, b"first").unwrap();
+
+        assert_eq!(mode(&target), 0o600);
+
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+        write_privately(&target, b"second").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"second");
+        assert_eq!(mode(&target), 0o600);
+
+        write_atomically(&dir.path().join("plain.txt"), b"x").unwrap();
+
+        assert_ne!(mode(&dir.path().join("plain.txt")) & 0o044, 0);
     }
 
     #[test]

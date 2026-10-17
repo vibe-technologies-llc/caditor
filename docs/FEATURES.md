@@ -208,6 +208,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · hard] Onshape: the `Provider` abstraction (`.claude/rules/cloud.md`) was built for a
+  second service. Onshape needs its own `onshape.rs` mapping documents, workspaces and elements
+  onto the cloud vocabulary, OAuth with its authorisation server, its STEP translation, and an arm
+  in `Cloud::provider`, a `Service` variant and a card in the Cloud projects window.
+- [low · medium] The cloud sign-in is kept in an owner-only file in the state directory; the
+  operating system's keyring (the Secret Service over `zbus` on Linux, the Credential Manager on
+  Windows) would hold it better.
+- [low · medium] Cloud tiles and Recent files are names only: a Fusion design's thumbnail (the Model
+  Derivative thumbnail) and a model's own picture would make Home recognisable at a glance.
+- [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
+  chosen version, other file kinds in a project folder (uploaded STEP, mesh and DXF files, which
+  need no conversion), and sending a model back to the cloud are not offered.
+- [low · easy] The hub Home lists (the team hub first) is not remembered between sessions.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a

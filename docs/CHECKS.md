@@ -10,3 +10,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   hole, extrusion, chamfer and section panel tests, the PNG export test) takes over 0.55 s. What is
   left is the app's own unoptimised frames and the recompute and meshing of the bodies the tests
   build; re-measure the whole UI suite and list the tests still over half a second.
+- [high · medium · blocked by: the Autodesk app (`DECISIONS.md`)] The Fusion 360 calls follow
+  Autodesk's published documentation and are tested against JSON of the shapes it describes
+  (`caditor-cloud`'s `fusion/tests.rs`), never against Autodesk's servers with a registered app.
+  With one, run once a sign-in, a team hub with several projects, a nested folder, a conversion
+  and a download of a large design, and keep any shape that differs as a test.

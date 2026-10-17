@@ -1,0 +1,295 @@
+use std::{
+    fs::{self, File},
+    io::{BufWriter, Write},
+    panic::{AssertUnwindSafe, catch_unwind},
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+    },
+    thread,
+    time::{Duration, Instant},
+};
+
+use caditor_cloud::{
+    Account, Client, Conversion, Design, Error, Folder, FolderRef, Listener, Project, ProjectId,
+    Provider, Service, Session, Transport, Workspace, WorkspaceId,
+};
+use parking_lot::Mutex;
+
+use super::{
+    downloads::{self, KEPT_DESIGNS, Usage},
+    failure::Failure,
+    state::Stage,
+    store::SessionStore,
+};
+use crate::{browser::OpenError, model::Waker};
+
+const SIGN_IN_PATIENCE: Duration = Duration::from_secs(5 * 60);
+const CONVERSION_PATIENCE: Duration = Duration::from_secs(10 * 60);
+const POLL_EVERY: Duration = Duration::from_secs(2);
+const STOP_CHECK: Duration = Duration::from_millis(100);
+const PROGRESS_EVERY: Duration = Duration::from_millis(120);
+
+pub type Opener = Arc<dyn Fn(&str) -> Result<(), OpenError> + Send + Sync>;
+
+pub enum Loaded {
+    Account(Result<Account, Arc<Failure>>),
+    Workspaces(Result<Vec<Workspace>, Arc<Failure>>),
+    Projects(WorkspaceId, Result<Vec<Project>, Arc<Failure>>),
+    Root(ProjectId, Result<Folder, Arc<Failure>>),
+    Folder(FolderRef, Result<Folder, Arc<Failure>>),
+}
+
+pub enum Event {
+    Restored {
+        service: Service,
+        outcome: Result<Option<Session>, Failure>,
+    },
+    SignInUrl {
+        service: Service,
+        attempt: u64,
+        url: String,
+    },
+    SignedIn {
+        service: Service,
+        attempt: u64,
+        outcome: Result<Session, Failure>,
+    },
+    Loaded {
+        service: Service,
+        generation: u64,
+        loaded: Loaded,
+    },
+    Progress {
+        service: Service,
+        generation: u64,
+        import: u64,
+        stage: Stage,
+    },
+    Imported {
+        service: Service,
+        generation: u64,
+        import: u64,
+        outcome: Result<PathBuf, Failure>,
+    },
+    Left,
+    Measured(Result<Usage, Failure>),
+    Cleared(Result<(), Failure>),
+}
+
+#[derive(Clone)]
+pub struct Courier {
+    sender: Sender<Event>,
+    waker: Arc<Mutex<Waker>>,
+}
+
+impl Courier {
+    pub fn new(sender: Sender<Event>, waker: Waker) -> Self {
+        Self {
+            sender,
+            waker: Arc::new(Mutex::new(waker)),
+        }
+    }
+
+    pub fn send(&self, event: Event) {
+        if self.sender.send(event).is_ok() {
+            (self.waker.lock())();
+        }
+    }
+
+    pub fn spawn<T: Send + 'static>(
+        &self,
+        service: Service,
+        work: impl FnOnce() -> Result<T, Failure> + Send + 'static,
+        event: impl Fn(Result<T, Failure>) -> Event + Send + Sync + 'static,
+    ) {
+        let event = Arc::new(event);
+        let courier = self.clone();
+        let on_thread = Arc::clone(&event);
+        let spawned = thread::Builder::new()
+            .name("cloud".to_owned())
+            .spawn(move || {
+                let result =
+                    catch_unwind(AssertUnwindSafe(work)).unwrap_or(Err(Failure::Crashed(service)));
+                courier.send(on_thread(result));
+            });
+        if let Err(error) = spawned {
+            log::warn!("could not start a cloud job: {error}");
+            self.send(event(Err(Failure::Spawn(error.kind()))));
+        }
+    }
+}
+
+pub struct SignInJob {
+    pub service: Service,
+    pub attempt: u64,
+    pub provider: Arc<dyn Provider>,
+    pub transport: Arc<dyn Transport>,
+    pub store: Option<SessionStore>,
+    pub opener: Opener,
+    pub port: u16,
+    pub stop: Arc<AtomicBool>,
+    pub courier: Courier,
+}
+
+impl SignInJob {
+    pub fn run(self) {
+        let service = self.service;
+        let attempt = self.attempt;
+        let courier = self.courier.clone();
+        let outcome = catch_unwind(AssertUnwindSafe(|| self.sign_in()))
+            .unwrap_or(Err(Failure::Crashed(service)));
+        courier.send(Event::SignedIn {
+            service,
+            attempt,
+            outcome,
+        });
+    }
+
+    fn sign_in(&self) -> Result<Session, Failure> {
+        let listener = Listener::bind(self.port)?;
+        let sign_in = self.provider.start_sign_in(&listener.redirect())?;
+        self.courier.send(Event::SignInUrl {
+            service: self.service,
+            attempt: self.attempt,
+            url: sign_in.url.clone(),
+        });
+        if let Err(error) = (self.opener)(&sign_in.url) {
+            log::warn!("the browser did not open by itself: {error}");
+        }
+        let callback = listener.wait(&self.stop, SIGN_IN_PATIENCE)?;
+        let session =
+            caditor_cloud::finish_sign_in(&*self.provider, &*self.transport, &sign_in, &callback)?;
+        if let Some(store) = &self.store
+            && let Err(error) = store.save(&session)
+        {
+            log::warn!("the sign-in could not be kept for the next start: {error}");
+        }
+        Ok(session)
+    }
+}
+
+pub fn restore(store: &SessionStore) -> Result<Option<Session>, Failure> {
+    store.load().map_err(|error| Failure::Save(error.kind()))
+}
+
+pub fn sign_out(client: &Client, store: Option<&SessionStore>) {
+    if let Err(error) = client.revoke() {
+        log::info!("the sign-in could not be revoked at the service: {error}");
+    }
+    forget(store);
+}
+
+pub fn forget(store: Option<&SessionStore>) {
+    if let Some(store) = store
+        && let Err(error) = store.forget()
+    {
+        log::warn!("the saved sign-in could not be removed: {error}");
+    }
+}
+
+pub struct ImportJob {
+    pub service: Service,
+    pub generation: u64,
+    pub id: u64,
+    pub client: Arc<Client>,
+    pub design: Design,
+    pub dir: PathBuf,
+    pub stop: Arc<AtomicBool>,
+    pub courier: Courier,
+}
+
+impl ImportJob {
+    pub fn run(&self) -> Result<PathBuf, Failure> {
+        let service = self.service;
+        let translation = self.client.start_conversion(&self.design)?;
+        let deadline = Instant::now() + CONVERSION_PATIENCE;
+        let download = loop {
+            self.check_stopped()?;
+            match self.client.poll_conversion(&translation)? {
+                Conversion::Ready(download) => break download,
+                Conversion::Working { percent } => self.report(Stage::Converting(percent)),
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::ConversionTimedOut { service }.into());
+            }
+            self.pause(POLL_EVERY)?;
+        };
+        let target = downloads::path_for(&self.dir, &self.design);
+        let temporary = downloads::temporary_for(&target);
+        let outcome = self.download(&download, &temporary, &target);
+        if outcome.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        outcome?;
+        if let Err(error) = downloads::prune(&self.dir, KEPT_DESIGNS) {
+            log::warn!("old downloaded designs could not be tidied: {error}");
+        }
+        Ok(target)
+    }
+
+    fn download(
+        &self,
+        download: &caditor_cloud::Download,
+        temporary: &std::path::Path,
+        target: &std::path::Path,
+    ) -> Result<(), Failure> {
+        let save = |error: std::io::Error| Failure::Save(error.kind());
+        if let Some(folder) = target.parent() {
+            fs::create_dir_all(folder).map_err(save)?;
+        }
+        let mut writer = BufWriter::new(File::create(temporary).map_err(save)?);
+        let mut last = None::<Instant>;
+        let mut progress = |received: u64, total: Option<u64>| {
+            if last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) {
+                last = Some(Instant::now());
+                self.report(Stage::Downloading { received, total });
+            }
+            !self.stop.load(Ordering::Relaxed)
+        };
+        self.client.fetch(download, &mut writer, &mut progress)?;
+        writer.flush().map_err(save)?;
+        let file = writer
+            .into_inner()
+            .map_err(|error| save(error.into_error()))?;
+        file.sync_all().map_err(save)?;
+        drop(file);
+        fs::rename(temporary, target).map_err(save)
+    }
+
+    fn report(&self, stage: Stage) {
+        self.courier.send(Event::Progress {
+            service: self.service,
+            generation: self.generation,
+            import: self.id,
+            stage,
+        });
+    }
+
+    fn check_stopped(&self) -> Result<(), Failure> {
+        if self.stop.load(Ordering::Relaxed) {
+            Err(Error::Stopped.into())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn pause(&self, total: Duration) -> Result<(), Failure> {
+        let until = Instant::now() + total;
+        while Instant::now() < until {
+            self.check_stopped()?;
+            thread::sleep(STOP_CHECK);
+        }
+        Ok(())
+    }
+}
+
+pub fn measure(dir: &std::path::Path) -> Result<Usage, Failure> {
+    downloads::usage(dir).map_err(|error| Failure::Save(error.kind()))
+}
+
+pub fn clear(dir: &std::path::Path) -> Result<(), Failure> {
+    downloads::clear(dir).map_err(|error| Failure::Save(error.kind()))
+}

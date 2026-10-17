@@ -88,7 +88,7 @@ pub use crate::{
     },
     save::{
         KeepVersionError, SaveError, SaveOptions, Saved, encode, save, save_with, set_version_kept,
-        write_atomically,
+        write_atomically, write_privately,
     },
     settings::{Settings, SettingsError, config_dir},
     storage::{

@@ -24,6 +24,7 @@ unreachable = "deny"
 unwrap_used = "deny"
 
 [workspace.dependencies]
+caditor-cloud.path = "crates/caditor-cloud"
 caditor-document.path = "crates/caditor-document"
 caditor-expression.path = "crates/caditor-expression"
 caditor-file.path = "crates/caditor-file"
@@ -55,6 +56,7 @@ env_logger = {
     features = ["auto-color", "humantime"]
 }
 glam = "0.34.1"
+graviola = "0.4.1"
 half = { version = "2.7.1", default-features = false }
 image = {
     version = "0.25.10",
@@ -77,6 +79,7 @@ png = "0.18.1"
 pollster = "1.0.1"
 raw-window-handle = "0.6.2"
 rayon-core = "1.13.0"
+rustls-graviola = "0.4.0"
 rfd = { version = "0.17.2", default-features = false }
 roxmltree = { version = "0.21.1", default-features = false, features = ["std"] }
 rustix = { version = "1.1.5", default-features = false }
@@ -88,6 +91,11 @@ spade = "2.15.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tiff = { version = "0.11.3", default-features = false }
+ureq = {
+    version = "3.4.2",
+    default-features = false,
+    features = ["rustls-no-provider", "rustls-webpki-roots"]
+}
 wayland-client = "0.31.15"
 wayland-protocols = {
     version = "0.32.13",

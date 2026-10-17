@@ -87,6 +87,7 @@ pub enum Page {
     Saving,
     VersionHistory,
     Importing,
+    Cloud,
     Exporting,
     Templates,
     WindowsDefender,
@@ -172,6 +173,7 @@ all_variants!(
     Saving,
     VersionHistory,
     Importing,
+    Cloud,
     Exporting,
     Templates,
     WindowsDefender,
@@ -303,6 +305,7 @@ impl Page {
             Self::Saving => "saving",
             Self::VersionHistory => "version-history",
             Self::Importing => "importing",
+            Self::Cloud => "cloud",
             Self::Exporting => "exporting",
             Self::Templates => "templates",
             Self::WindowsDefender => "windows-defender",
@@ -394,6 +397,7 @@ impl Page {
             Self::Saving => include_str!("../guide/saving.md"),
             Self::VersionHistory => include_str!("../guide/version-history.md"),
             Self::Importing => include_str!("../guide/importing.md"),
+            Self::Cloud => include_str!("../guide/cloud.md"),
             Self::Exporting => include_str!("../guide/exporting.md"),
             Self::Templates => include_str!("../guide/templates.md"),
             Self::WindowsDefender => include_str!("../guide/windows-defender.md"),
@@ -479,6 +483,7 @@ impl Page {
             Self::Saving
             | Self::VersionHistory
             | Self::Importing
+            | Self::Cloud
             | Self::Exporting
             | Self::Templates
             | Self::WindowsDefender

@@ -5,7 +5,9 @@ it and from values you can change at any time. Change a value and everything aft
 
 ## A first part
 
-An empty model shows a start card in the view: **Start with a sketch**, **Start with a box**
+When caditor starts empty it opens [Home](cloud), a page with the same starts, your recent files,
+your Fusion 360 projects and the samples; {command:file.home} brings it back. Closing it shows
+the model's own start card. An empty model shows a start card in the view: **Start with a sketch**, **Start with a box**
 ([primitives](primitives)) or **Import a file…** ([importing](importing)). Its close button hides
 it for this model; tick **Don't show this again** before closing it or choosing a start to stop it
 appearing on empty models. {command:help.show_start_card} brings it back for the model you are in,
