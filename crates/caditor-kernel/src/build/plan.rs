@@ -41,6 +41,28 @@ fn neighbour_cells((x, y, z): VertexCell) -> impl Iterator<Item = VertexCell> {
     })
 }
 
+fn root_of(parents: &mut [usize], mut item: usize) -> usize {
+    while let Some(parent) = parents.get(item).copied() {
+        if parent == item {
+            break;
+        }
+        let grandparent = parents.get(parent).copied().unwrap_or(parent);
+        if let Some(slot) = parents.get_mut(item) {
+            *slot = grandparent;
+        }
+        item = grandparent;
+    }
+    item
+}
+
+fn join_under_lowest(parents: &mut [usize], a: usize, b: usize) {
+    let (a, b) = (root_of(parents, a), root_of(parents, b));
+    let (low, high) = (a.min(b), a.max(b));
+    if let Some(slot) = parents.get_mut(high) {
+        *slot = low;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub(crate) enum PlanError {
     #[error("the planned solid refers to a vertex, edge or face it does not contain")]
@@ -305,40 +327,26 @@ impl Plan {
 
     fn shells(&self) -> Vec<Vec<usize>> {
         let mut root: Vec<usize> = (0..self.faces.len()).collect();
-        let find = |root: &mut [usize], mut item: usize| {
-            while let Some(parent) = root.get(item).copied() {
-                if parent == item {
-                    break;
-                }
-                let grandparent = root.get(parent).copied().unwrap_or(parent);
-                if let Some(slot) = root.get_mut(item) {
-                    *slot = grandparent;
-                }
-                item = grandparent;
-            }
-            item
-        };
         for list in self.users() {
             let mut faces = list.iter().map(|(face, _)| *face);
             let Some(first) = faces.next() else {
                 continue;
             };
             for other in faces {
-                let (a, b) = (find(&mut root, first), find(&mut root, other));
-                let (low, high) = (a.min(b), a.max(b));
-                if let Some(slot) = root.get_mut(high) {
-                    *slot = low;
-                }
+                join_under_lowest(&mut root, first, other);
             }
         }
         let mut shells: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for face in 0..self.faces.len() {
-            shells.entry(find(&mut root, face)).or_default().push(face);
+            shells
+                .entry(root_of(&mut root, face))
+                .or_default()
+                .push(face);
         }
         shells.into_values().collect()
     }
 
-    fn merge_coincident_vertices(&mut self) {
+    pub(super) fn merge_coincident_vertices(&mut self) {
         let shells = self.shells();
         let mut shell_of_face = vec![usize::MAX; self.faces.len()];
         for (shell, faces) in shells.iter().enumerate() {
@@ -373,19 +381,24 @@ impl Plan {
                     .filter(|(other, _)| other.distance(point) <= LINEAR_RESOLUTION)
                     .map(|(_, id)| *id)
                     .min();
-                if let (Some(earlier), Some(slot)) = (earlier, representative.get_mut(vertex)) {
-                    *slot = earlier;
+                if let Some(earlier) = earlier {
+                    join_under_lowest(&mut representative, vertex, earlier);
                 }
                 cells.entry(cell).or_default().push((point, vertex));
             }
         }
         for edge in &mut self.edges {
-            edge.start = representative
-                .get(edge.start)
-                .copied()
-                .unwrap_or(edge.start);
-            edge.end = representative.get(edge.end).copied().unwrap_or(edge.end);
+            edge.start = root_of(&mut representative, edge.start);
+            edge.end = root_of(&mut representative, edge.end);
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn edge_ends(&self) -> Vec<(usize, usize)> {
+        self.edges
+            .iter()
+            .map(|edge| (edge.start, edge.end))
+            .collect()
     }
 
     fn labels_of(&self, faces: &[usize]) -> Vec<u64> {

@@ -1679,3 +1679,31 @@ fn a_nearly_flat_revolved_cone_around_a_hole_meshes_without_reaching_into_the_ho
         );
     }
 }
+
+#[test]
+fn vertices_chained_within_the_resolution_merge_into_one() {
+    let step = 0.8 * LINEAR_RESOLUTION;
+    let mut plan = Plan::default();
+    let chain = [0.0, step, 2.0 * step].map(|x| plan.vertex(Point3::new(x, 0.0, 0.0)));
+    let far = plan.vertex(Point3::new(1.0, 1.0, 0.0));
+    let edges = chain.map(|vertex| plan.line(vertex, far, EdgeName::NONE).unwrap());
+    let frame = Plane::with_x_axis(Point3::new(0.0, 0.0, 0.0), Vector3::Z, Vector3::X).unwrap();
+    plan.face(PlanFace {
+        surface: PlaneSurface::new(frame).unwrap().into(),
+        sense: Sense::Same,
+        name: FaceName::NONE,
+        origin: None,
+        loops: vec![
+            edges
+                .map(|edge| PlanCoedge::new(edge, Sense::Same))
+                .to_vec(),
+        ],
+    });
+
+    plan.merge_coincident_vertices();
+
+    assert_eq!(
+        plan.edge_ends(),
+        vec![(chain[0], far), (chain[0], far), (chain[0], far)]
+    );
+}

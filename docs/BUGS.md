@@ -60,14 +60,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be split first. No test pins them; a sweep of chamfered boxes against the cavity's convex
   planes (as `boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly` builds them)
   finds them.
-- [low · easy] `Plan::merge_coincident_vertices` is not transitive: each vertex merges into the
-  lowest earlier vertex within `LINEAR_RESOLUTION`, but `cells` keeps every raw id and endpoints are
-  remapped by one lookup, so when B merged into A and C lies within the resolution of B but not of
-  A, C's edges land on B, which stays a live vertex beside A, and a corner reached through B and C
-  is split in two. Following `representative` to its root, or keeping only representatives in
-  `cells`, would close it; the choice decides whether chains spread over more than the resolution
-  merge at all. A vertex in two shells' member sets also has its representative overwritten by the
-  later shell while the remap is global. No test pins either.
 - [low · hard] Two faces side by side that the shell's thickness both closes up (a narrow chamfer
   cone below a narrow lid cone) are refused as `ClosesBesideClosing`: their joints would need the
   offset of the next face that survives, found across a run of dropped bands whose ridges meet
