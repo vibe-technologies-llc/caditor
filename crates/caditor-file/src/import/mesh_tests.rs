@@ -220,6 +220,42 @@ fn damaged_and_open_meshes_are_refused_in_words() {
     ));
 }
 
+#[test]
+fn an_obj_face_fanning_into_more_triangles_than_the_limit_is_refused_before_its_triangles_are_made()
+{
+    let corners = "1 ".repeat(MAX_MODEL_ELEMENTS + 3);
+    let text = format!("v 0 0 0\nf {corners}\n");
+
+    assert_eq!(
+        parse_mesh(text.as_bytes(), MeshFormat::Obj, "a.obj", "a").map(|_| ()),
+        Err(ImportError::ModelTooManyElements)
+    );
+}
+
+#[test]
+fn a_text_stl_with_more_vertices_than_the_limit_is_refused() {
+    let vertices = "vertex 0 0 0\n".repeat(MAX_MODEL_ELEMENTS + 1);
+    let text = format!("solid a\nfacet normal 0 0 1\nouter loop\n{vertices}");
+
+    assert_eq!(
+        parse_mesh(text.as_bytes(), MeshFormat::Stl, "a.stl", "a").map(|_| ()),
+        Err(ImportError::ModelTooManyElements)
+    );
+}
+
+#[test]
+fn cancelling_stops_a_text_obj_between_lines() {
+    let text = "v 0 0 0\n".repeat(10_000);
+
+    assert_eq!(
+        interruptible(CancelToken::new(|| true).interrupt(), || {
+            parse_mesh(text.as_bytes(), MeshFormat::Obj, "a.obj", "a")
+        })
+        .map(|_| ()),
+        Err(ImportError::Cancelled)
+    );
+}
+
 fn model_package(model: &str) -> Vec<u8> {
     archive(&[ZipEntry {
         name: "3D/3dmodel.model",

@@ -205,7 +205,7 @@ pub enum ImportError {
     #[error("it is not a readable {} mesh", .0.name())]
     DamagedMesh(MeshFormat),
     #[error(
-        "its 3D model holds more than {} elements, more than caditor reads from one 3MF; reduce \
+        "its 3D model holds more than {} elements, more than caditor reads from one mesh file; reduce \
          its triangles in a mesh editor first",
         mesh::MAX_MODEL_ELEMENTS
     )]

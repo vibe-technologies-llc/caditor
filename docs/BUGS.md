@@ -190,16 +190,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   is refused even where the face's own region is clear: fit over the region the face uses.
 
 
-## Mesh import
-
-- [high · easy] A crafted text STL or OBJ exhausts memory before any limit: `read_text_stl` and
-  `read_obj` (`import/mesh.rs`) push every vertex and fanned triangle with no budget, unlike 3MF's
-  `MAX_PLACED_VERTICES` and `MAX_PLACED_TRIANGLES`, and only `read_file`'s 2 GiB cap bounds the
-  input. An OBJ face line turns each 2-byte index into a 24-byte triangle, so a 2 GiB file asks for
-  about 24 GiB before `faceted_solids` (which copies it again welding) can refuse it, and neither
-  loop calls `check_interrupt`, so Cancel cannot stop it. Charge both against the 3MF limits as
-  `ModelTooManyElements` and poll the interrupt as the 3MF reader does.
-
 ## MCP server
 
 - [medium · easy] `caditor mcp` writes an OBJ's material library without checking it against

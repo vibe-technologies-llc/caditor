@@ -239,6 +239,9 @@ paths:
   placed object polls the kernel interrupt. An object reached again while its own components are
   being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
   damage.
+- Text STL and OBJ are charged the same way: vertices and triangles each against `MAX_MODEL_ELEMENTS`
+  (`ModelTooManyElements`), an OBJ face counted before its fan is made, and the kernel interrupt is
+  polled every `LINES_BETWEEN_INTERRUPT_POLLS` lines, so Cancel stops a crafted file's parse.
 - STL and OBJ have no units (`import/mesh_unit.rs`). `UnitReading` on `ModelImport::unit` (none for
   3MF and STEP) says which `MeshUnit` (micrometres, millimetres, centimetres, metres) scaled the
   positions to millimetres before `faceted_solids` runs, so its tolerances see the real size, and

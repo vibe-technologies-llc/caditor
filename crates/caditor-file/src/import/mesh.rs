@@ -34,6 +34,7 @@ pub(super) const MAX_PLACED_OBJECTS: usize = MAX_EXPANDED_OBJECTS;
 pub(super) const MAX_PLACED_VERTICES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_PLACED_TRIANGLES: usize = MAX_MODEL_ELEMENTS;
 pub(super) const MAX_MODEL_ELEMENTS: usize = 4_000_000;
+const LINES_BETWEEN_INTERRUPT_POLLS: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeshFormat {
@@ -103,10 +104,9 @@ pub fn parse_mesh_in(
     name: &str,
     chosen: Option<MeshUnit>,
 ) -> Result<ModelImport, ImportError> {
-    let damaged = ImportError::DamagedMesh(format);
     let mesh = match format {
-        MeshFormat::Stl => read_stl(bytes).ok_or(damaged)?,
-        MeshFormat::Obj => read_obj(bytes).ok_or(damaged)?,
+        MeshFormat::Stl => read_stl(bytes)?,
+        MeshFormat::Obj => read_obj(bytes)?,
         MeshFormat::ThreeMf => read_three_mf(bytes)?,
     };
     let unit = (format != MeshFormat::ThreeMf).then(|| UnitReading::of(&mesh, chosen));
@@ -220,7 +220,7 @@ fn repair_notes(repairs: &MeshRepairs) -> Vec<String> {
     notes
 }
 
-fn read_stl(bytes: &[u8]) -> Option<TriangleMesh> {
+fn read_stl(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let count = bytes
         .get(STL_HEADER..STL_HEADER + 4)
         .and_then(|count| <[u8; 4]>::try_from(count).ok())
@@ -233,14 +233,22 @@ fn read_stl(bytes: &[u8]) -> Option<TriangleMesh> {
             == Some(bytes.len())
     });
     if binary {
-        return read_binary_stl(bytes, count?);
+        return count
+            .and_then(|count| read_binary_stl(bytes, count))
+            .ok_or_else(|| damaged(MeshFormat::Stl));
     }
-    let text = std::str::from_utf8(bytes).ok()?;
+    let text = std::str::from_utf8(bytes).map_err(|_| damaged(MeshFormat::Stl))?;
     if text.trim_start().starts_with("solid") {
         read_text_stl(text)
     } else {
-        read_binary_stl(bytes, count?)
+        count
+            .and_then(|count| read_binary_stl(bytes, count))
+            .ok_or_else(|| damaged(MeshFormat::Stl))
     }
+}
+
+fn damaged(format: MeshFormat) -> ImportError {
+    ImportError::DamagedMesh(format)
 }
 
 fn read_binary_stl(bytes: &[u8], count: usize) -> Option<TriangleMesh> {
@@ -262,18 +270,38 @@ fn read_binary_stl(bytes: &[u8], count: usize) -> Option<TriangleMesh> {
     (!mesh.triangles.is_empty()).then_some(mesh)
 }
 
-fn read_text_stl(text: &str) -> Option<TriangleMesh> {
+fn poll_between_lines(line: usize) -> Result<(), ImportError> {
+    if line.is_multiple_of(LINES_BETWEEN_INTERRUPT_POLLS) {
+        check_interrupt().map_err(|Interrupted| ImportError::Cancelled)?;
+    }
+    Ok(())
+}
+
+fn within_budget(vertices: usize, triangles: usize) -> Result<(), ImportError> {
+    if vertices > MAX_PLACED_VERTICES || triangles > MAX_PLACED_TRIANGLES {
+        return Err(ImportError::ModelTooManyElements);
+    }
+    Ok(())
+}
+
+fn read_text_stl(text: &str) -> Result<TriangleMesh, ImportError> {
     let mut mesh = TriangleMesh::default();
     let mut corners = Vec::with_capacity(3);
-    for line in text.lines() {
+    for (line_number, line) in text.lines().enumerate() {
+        poll_between_lines(line_number)?;
+
         let mut words = line.split_whitespace();
         match words.next() {
             Some("vertex") => {
-                let values: Vec<f64> = words.map(str::parse).collect::<Result<_, _>>().ok()?;
+                let values: Vec<f64> = words
+                    .map(str::parse)
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| damaged(MeshFormat::Stl))?;
                 let [x, y, z] = values.as_slice() else {
-                    return None;
+                    return Err(damaged(MeshFormat::Stl));
                 };
                 corners.push(Point3::new(*x, *y, *z));
+                within_budget(mesh.positions.len() + corners.len(), mesh.triangles.len())?;
             }
             Some("endloop") => {
                 let start = mesh.positions.len();
@@ -282,17 +310,23 @@ fn read_text_stl(text: &str) -> Option<TriangleMesh> {
                 for fan in 1..added.saturating_sub(1) {
                     mesh.triangles.push([start, start + fan, start + fan + 1]);
                 }
+                within_budget(mesh.positions.len(), mesh.triangles.len())?;
             }
             _ => {}
         }
     }
-    (!mesh.triangles.is_empty()).then_some(mesh)
+    if mesh.triangles.is_empty() {
+        return Err(damaged(MeshFormat::Stl));
+    }
+    Ok(mesh)
 }
 
-fn read_obj(bytes: &[u8]) -> Option<TriangleMesh> {
+fn read_obj(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let text = String::from_utf8_lossy(bytes);
     let mut mesh = TriangleMesh::default();
-    for line in text.lines() {
+    for (line_number, line) in text.lines().enumerate() {
+        poll_between_lines(line_number)?;
+
         let mut words = line.split_whitespace();
         match words.next() {
             Some("v") => {
@@ -300,14 +334,18 @@ fn read_obj(bytes: &[u8]) -> Option<TriangleMesh> {
                     .take(3)
                     .map(str::parse)
                     .collect::<Result<_, _>>()
-                    .ok()?;
+                    .map_err(|_| damaged(MeshFormat::Obj))?;
                 let [x, y, z] = values.as_slice() else {
-                    return None;
+                    return Err(damaged(MeshFormat::Obj));
                 };
                 mesh.positions.push(Point3::new(*x, *y, *z));
+                within_budget(mesh.positions.len(), mesh.triangles.len())?;
             }
             Some("f") => {
                 let count = mesh.positions.len();
+                let fanned = words.clone().count().saturating_sub(2);
+                within_budget(count, mesh.triangles.len().saturating_add(fanned))?;
+
                 let corners: Vec<usize> = words
                     .map(|word| {
                         let index: i64 = word.split('/').next()?.parse().ok()?;
@@ -320,8 +358,11 @@ fn read_obj(bytes: &[u8]) -> Option<TriangleMesh> {
                             .ok()
                             .filter(|index| *index < count)
                     })
-                    .collect::<Option<_>>()?;
-                let (first, rest) = corners.split_first()?;
+                    .collect::<Option<_>>()
+                    .ok_or_else(|| damaged(MeshFormat::Obj))?;
+                let (first, rest) = corners
+                    .split_first()
+                    .ok_or_else(|| damaged(MeshFormat::Obj))?;
                 for pair in rest.windows(2) {
                     if let [b, c] = pair {
                         mesh.triangles.push([*first, *b, *c]);
@@ -331,7 +372,10 @@ fn read_obj(bytes: &[u8]) -> Option<TriangleMesh> {
             _ => {}
         }
     }
-    (!mesh.triangles.is_empty()).then_some(mesh)
+    if mesh.triangles.is_empty() {
+        return Err(damaged(MeshFormat::Obj));
+    }
+    Ok(mesh)
 }
 
 #[derive(Clone, Copy)]
