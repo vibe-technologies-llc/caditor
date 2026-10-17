@@ -19,7 +19,7 @@ impl Subject {
         match self {
             Self::Token => "the sign-in",
             Self::Account => "the account",
-            Self::Workspaces => "the list of hubs",
+            Self::Workspaces => "the list of workspaces",
             Self::Projects => "the list of projects",
             Self::Folder => "the folder",
             Self::Design => "the design",
@@ -35,7 +35,7 @@ pub enum Error {
     Transport(#[from] TransportError),
     #[error("The sign-in has ended. Sign in again.")]
     SignedOut,
-    #[error("{service} did not allow this. The hub may not have allowed caditor yet.")]
+    #[error("{service} did not allow this. The hub or team may not have allowed caditor yet.")]
     Forbidden { service: Service },
     #[error("{} was not found. It may have been moved or deleted.", .subject.describe())]
     NotFound { subject: Subject },

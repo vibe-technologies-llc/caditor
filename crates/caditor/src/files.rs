@@ -3912,6 +3912,8 @@ pub fn menu(
                         Command::Cloud,
                         Command::CloudSignIn,
                         Command::CloudSignOut,
+                        Command::OnshapeSignIn,
+                        Command::OnshapeSignOut,
                         Command::CloudRefresh,
                     ],
                 );
@@ -4070,6 +4072,8 @@ pub fn menu(
         Command::Cloud,
         Command::CloudSignIn,
         Command::CloudSignOut,
+        Command::OnshapeSignIn,
+        Command::OnshapeSignOut,
         Command::CloudRefresh,
     ] {
         if chosen.contains(&command) {

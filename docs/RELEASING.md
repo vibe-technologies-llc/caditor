@@ -136,6 +136,22 @@ Platform Services, whose client ID a release carries. Register it once, as the p
 
 A client ID is public by design (it is sent in every sign-in URL); never add a client secret.
 
+## The Onshape app
+
+Onshape import signs in through an OAuth application registered on Onshape's developer portal
+(dev-portal.onshape.com), whose client ID a release carries:
+
+1. Create an OAuth application of the public kind, with the permissions to read documents and
+   profile information and to write (asking Onshape to translate a document needs it).
+2. Give it the redirect URL `http://localhost:49617/callback` (`cloud::CALLBACK_PORT`), exactly.
+3. Store its client ID as the repository variable `CADITOR_ONSHAPE_CLIENT_ID`; the release workflow
+   passes it to both builds. A build without it still runs: Sign in to Onshape is disabled with a
+   message naming Preferences, where a user can type any application's client ID.
+
+Alternatively commit the ID as `DEFAULT_ONSHAPE_CLIENT_ID` (and the Autodesk one as
+`DEFAULT_AUTODESK_CLIENT_ID`) in `crates/caditor/src/cloud.rs`, which is what builds without the
+variables use. Never add a client secret.
+
 ## Making a release
 
 1. On an up-to-date `master`, run the checks:

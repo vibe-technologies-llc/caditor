@@ -20,7 +20,7 @@ paths:
   palette commands refused with `Refusal::Off` naming how to turn it back on, no thread, no
   request. It also revokes and forgets a saved sign-in (`Cloud::configure`). `Section::Cloud` is not
   resettable, so Restore defaults never turns it back on.
-- caditor contacts Autodesk only after the user clicks Sign in; a saved sign-in makes requests
+- caditor contacts a service only after the user clicks Sign in to it; a saved sign-in makes requests
   from the next start on, nothing else does (`Cloud::start_restoring` reads one small file).
   `cloud.on_home` keeps the cloud off Home while it stays in the manager and the palette.
 - Home itself is `onboarding.home` (Preferences › General › Starting and recent files, or Home's
@@ -37,9 +37,11 @@ a `Transport`; the app never speaks a service's protocol itself.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
   `folder`, and the conversion trio `start_conversion`, `poll_conversion`, `fetch`. A service is
-  one variant of `Service` (`service.rs`) and one `Provider`; adding Onshape is that variant, an
-  `onshape.rs` mapping its documents, workspaces and STEP translation onto this vocabulary, and
-  one arm in `Cloud::provider`. Nothing above `Cloud` names Fusion except Home's copy.
+  one variant of `Service` (`service.rs`, which also holds the words that differ: `company`,
+  `app_name`, `project_name`, `has_workspaces`) and one `Provider`: a new service is that variant, a
+  module mapping its projects, workspaces and STEP translation onto this vocabulary, one arm in
+  `Cloud::provider` and its copy in Home's `Wording`. `rest.rs` holds what Fusion and Onshape share:
+  the status-to-`Error` mapping, JSON reading, the bearer `get` and the token exchange.
 - `Transport` (`transport.rs`) is `send` (a bounded JSON answer) and `fetch` (a streamed body into a
   sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
@@ -74,14 +76,36 @@ convert a design needs; caditor never changes a design).
 - The app registered with Autodesk is a deployment fact, not code: a public-client app with the
   Data Management and Model Derivative APIs and the callback
   `http://localhost:49617/callback` (`CALLBACK_PORT`). Its client ID reaches a build as
-  `CADITOR_AUTODESK_CLIENT_ID` (`BUILT_IN_CLIENT_ID`, the release workflow) or a user types it in
-  Preferences (`cloud.fusion.client_id`, which wins). Without either, Sign in is disabled and says
+  `CADITOR_AUTODESK_CLIENT_ID` (the release workflow) or `DEFAULT_AUTODESK_CLIENT_ID`
+  (`cloud::built_in_client_id`, empty until the project's app is registered) or a user types it in
+  Preferences (`cloud.fusion.client_id`, which wins). Without any, Sign in is disabled and says
   so, naming Preferences. Team hubs may need their administrator to allow the app; a refused hub
   says so (`Error::Forbidden`).
 
+## Onshape (`onshape.rs`)
+
+A public client by intent: OAuth 2 authorisation code with PKCE (S256), no client secret and no
+`scope` parameter (an Onshape application's permissions are set at registration), against
+`oauth.onshape.com`. Onshape's documentation shows only confidential clients and never mentions
+PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md`).
+
+- Account: `users/sessioninfo` (name, else email). Revoking is not sent: Onshape documents none, and
+  the user ends a grant in their Onshape account, so sign-out only forgets the session.
+- One synthetic `Workspace` ("Your documents", `Service::has_workspaces` false hides it in the UI).
+  Projects are the account's documents from `/documents`, newest first, following `next` only inside
+  `cad.onshape.com`, at most `MAX_PAGES` pages. A project's root is its default workspace's Part
+  Studios and assemblies (`/documents/d/{did}/w/{wid}/elements`), no folders. A `DesignId` is
+  `<partstudios|assemblies>/<workspace>/<element>`, since the translation endpoint needs all three.
+- Import: a `translations` request with `formatName: STEP` and `storeInDocument: false` (the
+  document is never changed), `Translation::source` being `<document>/<translation>`, polled until
+  `requestState` is `DONE` with a `resultExternalDataIds` entry, then
+  `/documents/d/{did}/externaldata/{id}` streamed.
+- The client ID reaches a build as `CADITOR_ONSHAPE_CLIENT_ID` or `DEFAULT_ONSHAPE_CLIENT_ID`, or a
+  user types it in Preferences (`cloud.onshape.client_id`, which wins), as for Autodesk.
+
 ## The app service (`cloud.rs`)
 
-- `Cloud` lives in `Workspace`, one `Connection` per `Service` with a typed `Link`: `Off`,
+- `Cloud` lives in `Workspace`, one `Connection` per `Service` (Fusion 360, Onshape) with a typed `Link`: `Off`,
   `Starting`, `SignedOut`, `SigningIn`, `Linked`. `Linked` holds `Load<T>`s (`Idle`, `Loading`,
   `Ready`, `Failed`) for the account, hubs, projects and each folder, plus the running `Import`.
   The UI reads `&Cloud` and returns `CloudCommand`s as `Action::Cloud`; `app::perform` runs them
@@ -116,22 +140,24 @@ convert a design needs; caditor never changes a design).
   (`Home::follow`: session, revision, a sketch being edited or a plane chosen). While it is open
   the start card stays away (`ViewportState::cover`). Tests never open it by default.
 - Order: header, starts (New sketch primary, box, import, open), Recent files (the history, tiles
-  from `Files::recent`), Fusion 360, samples, footer. Signed out, Fusion 360 is the advert card:
-  what it does, three honest lines about what it sends, Sign in (or the no-app callout), Cloud
-  projects… and Turn off cloud features. Signed in, a header with hub and account (Sign out, Cloud
+  from `Files::recent`), Fusion 360, Onshape, samples, footer. Signed out, a service is an advert
+  card: what it does, three honest lines about what it sends, Sign in (or the no-app callout); the
+  first advert shown also holds Cloud projects… and Turn off cloud features. Signed in, a header with hub and account (Sign out, Cloud
   projects…, Refresh) and a line per project, `PROJECT_ROWS_ON_HOME` of them, each loading its root
   only once drawn (`LoadProject`), with the newest designs as tiles that import on a click and
   `N more…` going to the manager. Tiles are disabled while an import runs, and the import's
   progress, failure and Cancel sit at the head of the section.
 - The manager (`Command::Cloud`, File › Cloud) is the window for everything outside Home:
-  accounts (state pill, Sign in, Cancel, Sign out, Refresh, the last failure), a hub combo, a
-  project list beside a folder browser with breadcrumbs and an Import per design, the downloaded
+  accounts (state pill, Sign in, Cancel, Sign out, Refresh, the last failure), then per signed-in
+  service a hub combo (only where `Service::has_workspaces`), a project list beside a folder
+  browser with breadcrumbs and an Import per design (`CloudDialog` keeps one browser per service), the downloaded
   designs (count, size, Clear), Show cloud projects on Home, and Turn off cloud features at the
   footer's far left. A cloud turned off shows one callout and Turn on cloud services.
 - Shared parts are `cloud_parts.rs`: tiles on `raised` over the page's `panel`, relative times
   ("Edited 3 days ago"), SI sizes, the import status. Every control is a widget-kit one, named for
   screen readers, and every cloud action is a palette command (`Home`, `Cloud`, `CloudSignIn`,
-  `CloudSignOut`, `CloudRefresh`) refused with a reason when it cannot run.
+  `CloudSignOut`, `OnshapeSignIn`, `OnshapeSignOut`, `CloudRefresh`, which refreshes every signed-in
+  service) refused with a reason when it cannot run.
 
 ## Dependencies
 
@@ -141,7 +167,7 @@ that crate alone in `deny.toml`. No dependency builds C.
 
 ## Tests
 
-`caditor-cloud` tests every provider call against Autodesk-shaped JSON through
+`caditor-cloud` tests every provider call against Autodesk- and Onshape-shaped JSON through
 `ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket and the client's
 refresh and retry. `ui_tests/home.rs` drives the app with a `FakeProvider` through a real loopback
 sign-in: the page, its order, one-click import into a model, failure and Try again, restart,

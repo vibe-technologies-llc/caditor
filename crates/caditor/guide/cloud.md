@@ -8,7 +8,7 @@ any time. From top to bottom it holds:
 
 - the ways to start: a sketch, a box, an import, or opening a model;
 - your recent files, newest first;
-- your Fusion 360 projects, when cloud services are on;
+- your Fusion 360 and Onshape projects, when cloud services are on;
 - the samples, to see how a model is built.
 
 A click on any of them does it and takes Home away; so does Escape, its close button, or changing
@@ -36,34 +36,43 @@ and clears them.
 If a team hub says Autodesk did not allow caditor, its administrator may need to allow the app in
 the hub's settings. Your own personal hub needs nothing.
 
+## Onshape documents
+
+Home shows Onshape below Fusion 360. {command:file.onshape_sign_in} opens Onshape's own sign-in
+page in your browser, and the line under your recent files is then one line per document, with its
+Part Studios and assemblies as tiles. **One click imports one**: Onshape exports it to a STEP file,
+caditor downloads it, and it comes in as an [imported body](imported-bodies) like any STEP file.
+caditor asks Onshape to export only what you click and never changes your documents; signing out
+only forgets the sign-in on this computer, and you end the permission itself in your Onshape account.
+
 ## The Cloud projects window
 
 {command:file.cloud} (File › Cloud) opens the window for everything that does not fit on Home:
 
 - **Accounts**: whether you are signed in, Sign in, Cancel while the browser is awaited, Sign out
   and Refresh.
-- **Projects**: the hub to list (the team hub first), a list of its projects and, beside it, the
-  folders and designs of the one you choose, with a breadcrumb to go back up and an Import button
-  on each design.
+- **Projects**: for each signed-in service, the hub to list (Fusion 360: the team hub first), a list
+  of its projects or documents and, beside it, the folders and designs of the one you choose, with
+  a breadcrumb to go back up and an Import button on each design.
 - **Downloaded designs**: how many STEP files are kept, how large they are, and Clear.
 - **Cloud features**: whether projects show on Home, and Turn off cloud features.
 
 Every command has a name in the command palette: Home, Cloud projects, Sign in to Fusion 360, Sign
-out of Fusion 360 and Refresh cloud projects.
+out of Fusion 360, Sign in to Onshape, Sign out of Onshape and Refresh cloud projects.
 
 ## Turning it off
 
 Cloud services are optional. **Turn off cloud features** on Home, in the Cloud projects window, or
 under Preferences › General › Cloud hides every cloud button, makes no request to any cloud service,
-signs you out (revoking the sign-in at Autodesk) and forgets it. The same switch turns it back on,
+signs you out (revoking the sign-in where the service allows it) and forgets it. The same switch turns it back on,
 and Restore defaults never does. While you are signed out, caditor contacts Autodesk only when you
 press Sign in.
 
 ## When it does not work
 
-- *This build has no Fusion 360 app registered.* Sign in needs an Autodesk app; builds from
-  Autodesk-registered releases carry one, and you can type your own app's client ID under
-  Preferences › General › Cloud.
+- *This build has no Fusion 360 app registered* (or no Onshape app). Sign in needs an app registered
+  with the service; builds from releases that carry one work at once, and you can type your own
+  app's client ID under Preferences › General › Cloud.
 - *caditor could not listen for the browser.* Another program holds the local port the sign-in
   returns to; close it and try again.
 - *Autodesk is taking too long.* A very large design can take several minutes to convert; Try

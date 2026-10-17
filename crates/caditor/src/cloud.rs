@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Client, Design, FolderRef, Fusion, Network, ProjectId, Provider, Service, Session, Transport,
-    WorkspaceId,
+    Client, Design, FolderRef, Fusion, Network, Onshape, ProjectId, Provider, Service, Session,
+    Transport, WorkspaceId,
 };
 
 use crate::{
@@ -43,8 +43,20 @@ use self::{
 };
 
 pub const CALLBACK_PORT: u16 = 49617;
-pub const BUILT_IN_CLIENT_ID: Option<&str> = option_env!("CADITOR_AUTODESK_CLIENT_ID");
+const DEFAULT_AUTODESK_CLIENT_ID: &str = "";
+const DEFAULT_ONSHAPE_CLIENT_ID: &str = "";
 pub const PROJECT_ROWS_ON_HOME: usize = 6;
+
+pub fn built_in_client_id(service: Service) -> &'static str {
+    match service {
+        Service::Fusion => {
+            option_env!("CADITOR_AUTODESK_CLIENT_ID").unwrap_or(DEFAULT_AUTODESK_CLIENT_ID)
+        }
+        Service::Onshape => {
+            option_env!("CADITOR_ONSHAPE_CLIENT_ID").unwrap_or(DEFAULT_ONSHAPE_CLIENT_ID)
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
@@ -56,6 +68,8 @@ pub enum Refusal {
     SigningIn(Service),
     #[error("Sign in to {0} first, from Home or File › Cloud.")]
     NotSignedIn(Service),
+    #[error("Sign in to a cloud service first, from Home or File › Cloud.")]
+    NotSignedInAnywhere,
     #[error(
         "This build of caditor has no {0} app registered. Enter one in Preferences › General › Cloud."
     )]
@@ -99,7 +113,7 @@ pub struct Cloud {
     next_attempt: u64,
     next_import: u64,
     restoring: bool,
-    built_in_client_id: Option<String>,
+    use_built_in_client_ids: bool,
     pub downloads: Downloads,
 }
 
@@ -141,14 +155,14 @@ impl Cloud {
             next_attempt: 0,
             next_import: 0,
             restoring: false,
-            built_in_client_id: BUILT_IN_CLIENT_ID.map(str::to_owned),
+            use_built_in_client_ids: true,
             downloads,
         }
     }
 
     #[cfg(test)]
     pub fn without_built_in_client_id(mut self) -> Self {
-        self.built_in_client_id = None;
+        self.use_built_in_client_ids = false;
         self
     }
 
@@ -192,10 +206,10 @@ impl Cloud {
         }
     }
 
-    pub fn client_id(&self) -> Option<String> {
-        let own = self.preferences.fusion_client_id.trim();
-        let chosen = if own.is_empty() {
-            self.built_in_client_id.as_deref().map_or("", str::trim)
+    pub fn client_id(&self, service: Service) -> Option<String> {
+        let own = self.preferences.client_id(service);
+        let chosen = if own.is_empty() && self.use_built_in_client_ids {
+            built_in_client_id(service).trim()
         } else {
             own
         };
@@ -211,11 +225,22 @@ impl Cloud {
             Some(Link::SigningIn(_)) => return Err(Refusal::SigningIn(service)),
             _ => {}
         }
-        if self.pinned_backend || self.client_id().is_some() {
+        if self.pinned_backend || self.client_id(service).is_some() {
             Ok(())
         } else {
             Err(Refusal::NoClientId(service))
         }
+    }
+
+    pub fn any_signed_in(&self) -> Result<(), Refusal> {
+        if !self.preferences.enabled {
+            return Err(Refusal::Off);
+        }
+        Service::ALL
+            .into_iter()
+            .any(|service| self.linked(service).is_some())
+            .then_some(())
+            .ok_or(Refusal::NotSignedInAnywhere)
     }
 
     pub fn is_signed_in(&self, service: Service) -> Result<(), Refusal> {
@@ -243,15 +268,16 @@ impl Cloud {
             }
             self.restoring = false;
         }
-        if before.fusion_client_id.trim() != preferences.fusion_client_id.trim() {
-            if !self.pinned_backend {
-                self.providers.clear();
+        for service in Service::ALL {
+            if before.client_id(service) == preferences.client_id(service) {
+                continue;
             }
-            for service in Service::ALL {
-                if self.linked(service).is_some() || self.is_signing_in(service) {
-                    self.leave(service, false);
-                    self.set_link(service, Link::SignedOut);
-                }
+            if !self.pinned_backend {
+                self.providers.remove(&service);
+            }
+            if self.linked(service).is_some() || self.is_signing_in(service) {
+                self.leave(service, false);
+                self.set_link(service, Link::SignedOut);
             }
         }
     }
@@ -329,9 +355,10 @@ impl Cloud {
         if let Some(provider) = self.providers.get(&service) {
             return Arc::clone(provider);
         }
-        let client_id = self.client_id().unwrap_or_default();
+        let client_id = self.client_id(service).unwrap_or_default();
         let provider: Arc<dyn Provider> = match service {
             Service::Fusion => Arc::new(Fusion::new(client_id)),
+            Service::Onshape => Arc::new(Onshape::new(client_id)),
         };
         self.providers.insert(service, Arc::clone(&provider));
         provider

@@ -200,6 +200,7 @@ impl Section {
                 "fusion",
                 "fusion 360",
                 "autodesk",
+                "onshape",
                 "sign in",
                 "projects",
                 "import",

@@ -719,6 +719,65 @@ fn a_build_without_an_autodesk_app_says_so_and_points_to_preferences() {
 }
 
 #[test]
+fn onshape_is_advertised_under_fusion_and_names_its_own_missing_app() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = without_app(dir.path());
+    open_home(&mut harness);
+    harness.frame();
+
+    assert!(harness.shows(home::ADVERT_TITLE));
+    assert!(harness.shows(home::ONSHAPE_ADVERT_TITLE));
+    assert!(harness.shows_containing("One click has Onshape export a Part Studio"));
+    for point in home::ONSHAPE_ADVERT_POINTS {
+        assert!(harness.shows_containing(point), "{point}");
+    }
+    assert!(harness.shows(home::ONSHAPE_SIGN_IN));
+    assert!(harness.shows_containing("has no Onshape app registered"));
+    assert!(top_of(&harness, home::ADVERT_TITLE) < top_of(&harness, home::ONSHAPE_ADVERT_TITLE));
+    assert!(top_of(&harness, home::ONSHAPE_ADVERT_TITLE) < top_of(&harness, home::SAMPLES_TITLE));
+    let turn_offs = harness
+        .texts
+        .iter()
+        .filter(|(shown, _)| shown == home::TURN_OFF)
+        .count();
+    assert_eq!(turn_offs, 1);
+    assert!(matches!(
+        harness.workspace.cloud.can_sign_in(Service::Onshape),
+        Err(Refusal::NoClientId(Service::Onshape))
+    ));
+}
+
+#[test]
+fn an_onshape_client_id_enables_its_sign_in_and_leaves_fusion_alone() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = without_app(dir.path());
+    let mut cloud = harness.workspace.preferences.cloud.clone();
+    cloud.onshape_client_id = " onshape-id ".to_owned();
+
+    harness.workspace.cloud.configure(&cloud);
+
+    assert!(
+        harness
+            .workspace
+            .cloud
+            .can_sign_in(Service::Onshape)
+            .is_ok()
+    );
+    assert!(matches!(
+        harness.workspace.cloud.can_sign_in(Service::Fusion),
+        Err(Refusal::NoClientId(Service::Fusion))
+    ));
+    assert_eq!(
+        harness
+            .workspace
+            .cloud
+            .client_id(Service::Onshape)
+            .as_deref(),
+        Some("onshape-id")
+    );
+}
+
+#[test]
 fn the_manager_signs_in_browses_folders_and_imports() {
     let dir = TempDir::new().unwrap();
     let step = plate_step();
@@ -888,6 +947,8 @@ fn every_cloud_command_is_in_the_palette_and_refused_with_a_reason_when_off() {
         Command::Cloud,
         Command::CloudSignIn,
         Command::CloudSignOut,
+        Command::OnshapeSignIn,
+        Command::OnshapeSignOut,
         Command::CloudRefresh,
     ] {
         assert!(Command::all().any(|known| known == command), "{command:?}");

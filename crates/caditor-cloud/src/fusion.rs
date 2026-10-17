@@ -12,6 +12,7 @@ use crate::{
     error::{Error, Subject},
     pkce::{self, Verifier},
     provider::{Callback, Provider, Redirect, SignIn},
+    rest::{self, Token, checked},
     service::Service,
     session::Session,
     transport::{Body, Request, Response, Transport},
@@ -33,7 +34,6 @@ const PERSONAL_HUB: &str = "hubs:autodesk.a360:PersonalHub";
 const STEP_OUTPUT: &str = "step";
 const STEP_ROLE: &str = "step";
 const MAX_PAGES: usize = 20;
-const DEFAULT_LIFETIME_SECONDS: u64 = 3600;
 
 pub struct Fusion {
     client_id: String,
@@ -46,30 +46,6 @@ impl Fusion {
         }
     }
 
-    fn checked(&self, response: Response, subject: Subject) -> Result<Response, Error> {
-        match response.status {
-            200..=299 => Ok(response),
-            401 => Err(Error::SignedOut),
-            403 => Err(Error::Forbidden { service: SERVICE }),
-            404 => Err(Error::NotFound { subject }),
-            429 => Err(Error::RateLimited {
-                service: SERVICE,
-                retry_after_seconds: response.retry_after_seconds,
-            }),
-            status => Err(Error::Refused {
-                service: SERVICE,
-                status,
-            }),
-        }
-    }
-
-    fn read<T: DeserializeOwned>(&self, response: &Response, subject: Subject) -> Result<T, Error> {
-        serde_json::from_slice(&response.body).map_err(|_| Error::Unreadable {
-            service: SERVICE,
-            subject,
-        })
-    }
-
     fn get<T: DeserializeOwned>(
         &self,
         net: &dyn Transport,
@@ -77,9 +53,7 @@ impl Fusion {
         url: String,
         subject: Subject,
     ) -> Result<T, Error> {
-        let request = Request::get(url).with_bearer(&session.access_token);
-        let response = self.checked(net.send(&request)?, subject)?;
-        self.read(&response, subject)
+        rest::get(SERVICE, net, session, url, subject)
     }
 
     fn pages<T>(
@@ -108,21 +82,7 @@ impl Fusion {
     }
 
     fn token(&self, net: &dyn Transport, fields: &[(&str, &str)]) -> Result<Token, Error> {
-        let request = Request::post(TOKEN.to_owned(), Body::Form(form(fields)));
-        let response = net.send(&request)?;
-        if matches!(response.status, 400 | 401) {
-            return Err(Error::SignedOut);
-        }
-        let response = self.checked(response, Subject::Token)?;
-        self.read(&response, Subject::Token)
-    }
-
-    fn session_from(&self, token: Token, previous: Option<&str>, now: u64) -> Session {
-        Session {
-            access_token: token.access_token,
-            refresh_token: token.refresh_token.or_else(|| previous.map(str::to_owned)),
-            expires_at: now.saturating_add(token.expires_in.unwrap_or(DEFAULT_LIFETIME_SECONDS)),
-        }
+        rest::token(SERVICE, net, TOKEN, fields)
     }
 
     fn version_urn(
@@ -215,7 +175,7 @@ impl Provider for Fusion {
                 ("code_verifier", sign_in.verifier.as_str()),
             ],
         )?;
-        Ok(self.session_from(token, None, now))
+        Ok(token.into_session(None, now))
     }
 
     fn refresh(&self, net: &dyn Transport, session: &Session, now: u64) -> Result<Session, Error> {
@@ -231,7 +191,7 @@ impl Provider for Fusion {
                 ("scope", SCOPES),
             ],
         )?;
-        Ok(self.session_from(token, Some(refresh), now))
+        Ok(token.into_session(Some(refresh), now))
     }
 
     fn revoke(&self, net: &dyn Transport, session: &Session) -> Result<(), Error> {
@@ -245,7 +205,7 @@ impl Provider for Fusion {
             ("client_id", &self.client_id),
         ]);
         let request = Request::post(REVOKE.to_owned(), Body::Form(fields));
-        self.checked(net.send(&request)?, Subject::Token)?;
+        checked(SERVICE, net.send(&request)?, Subject::Token)?;
         Ok(())
     }
 
@@ -340,7 +300,7 @@ impl Provider for Fusion {
         });
         let request = Request::post(format!("{DERIVATIVE_API}/job"), Body::Json(job.to_string()))
             .with_bearer(&session.access_token);
-        self.checked(net.send(&request)?, Subject::Translation)?;
+        checked(SERVICE, net.send(&request)?, Subject::Translation)?;
         Ok(Translation { source })
     }
 
@@ -398,12 +358,12 @@ impl Provider for Fusion {
         );
         let request = Request::get(url).with_bearer(&session.access_token);
         let fetched = net.fetch(&request, sink, progress)?;
-        let checked = Response {
+        let answer = Response {
             status: fetched.status,
             body: Vec::new(),
             retry_after_seconds: fetched.retry_after_seconds,
         };
-        self.checked(checked, Subject::Download)?;
+        checked(SERVICE, answer, Subject::Download)?;
         Ok(fetched.bytes)
     }
 }
@@ -420,13 +380,6 @@ fn percent_of(progress: Option<&str>) -> Option<u8> {
 enum Entry {
     Folder(FolderEntry),
     Design(Design),
-}
-
-#[derive(Deserialize)]
-struct Token {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: Option<u64>,
 }
 
 #[derive(Deserialize)]

@@ -1,6 +1,7 @@
+use caditor_cloud::Service;
 use caditor_document::Rgb;
 use caditor_file::Retention;
-use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
+use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText, vec2};
 
 use super::{
     Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour, NewBodies,
@@ -449,11 +450,11 @@ fn starting(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComm
 
 fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
     let cloud = &shown.preferences.cloud;
-    let note = "Signing in lets Home and File › Cloud list your Fusion 360 designs and import one \
-                with a click. caditor only contacts Autodesk after you sign in, and turning this \
-                off stops every request, hides every cloud button and signs you out.";
+    let note = "Signing in lets Home and File › Cloud list your Fusion 360 and Onshape designs \
+                and import one with a click. caditor contacts a service only after you sign in \
+                to it; turning this off stops every request and signs you out.";
     section(ui, shown, Section::Cloud, Some(note.to_owned()), |ui| {
-        widgets::property(ui, "Fusion 360", |ui| {
+        widgets::property(ui, "Cloud services", |ui| {
             toggle(
                 ui,
                 cloud.enabled,
@@ -475,31 +476,53 @@ fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
                     command,
                 );
             });
-            widgets::property(ui, "Autodesk app", |ui| {
-                client_id_field(ui, &cloud.fusion_client_id, command);
+            widgets::property(ui, "Own apps", |ui| {
+                ui.horizontal(|ui| {
+                    let width = ((ui.available_width() - ui.spacing().item_spacing.x)
+                        / Service::ALL.len() as f32)
+                        .max(0.0);
+                    for service in Service::ALL {
+                        ui.allocate_ui(vec2(width, 0.0), |ui| {
+                            client_id_field(ui, service, cloud.client_id(service), command);
+                        });
+                    }
+                });
             });
         });
     });
 }
 
-fn client_id_field(ui: &mut Ui, stored: &str, command: &mut Option<PreferencesCommand>) {
-    let draft_id = Id::unique(CLIENT_ID_FIELD);
+fn client_id_field(
+    ui: &mut Ui,
+    service: Service,
+    stored: &str,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let (draft_key, edit_key) = match service {
+        Service::Fusion => (CLIENT_ID_FIELD, CLIENT_ID_FIELD_EDIT),
+        Service::Onshape => (ONSHAPE_CLIENT_ID_FIELD, ONSHAPE_CLIENT_ID_FIELD_EDIT),
+    };
+    let draft_id = Id::unique(draft_key);
     let mut text = ui
         .data(|data| data.get_temp::<String>(draft_id))
         .unwrap_or_else(|| stored.to_owned());
     let response = widgets::text_field(ui, |ui| {
         ui.add(
             TextEdit::singleline(&mut text)
-                .id(Id::unique(CLIENT_ID_FIELD_EDIT))
-                .hint_text(CLIENT_ID_HINT)
+                .id(Id::unique(edit_key))
+                .hint_text(format!("{} app ID", service.company()))
                 .desired_width(f32::INFINITY),
         )
     })
-    .on_hover_text(CLIENT_ID_HOVER);
+    .on_hover_text(format!(
+        "The client ID of the {} app to sign in with. Leave empty to use the one this build of \
+         caditor carries.",
+        service.company()
+    ));
     if response.lost_focus() {
         ui.data_mut(|data| data.remove_temp::<String>(draft_id));
         if text.trim() != stored {
-            change(command, PreferenceChange::FusionClientId(text));
+            change(command, PreferenceChange::ClientId(service, text));
         }
     } else if response.has_focus() || response.changed() {
         ui.data_mut(|data| data.insert_temp(draft_id, text));
@@ -793,9 +816,8 @@ pub const USE_CLOUD: &str = "Use cloud services";
 pub const CLOUD_ON_HOME: &str = "Show cloud projects on Home";
 pub const CLIENT_ID_FIELD: &str = "preferences-cloud-client-id-draft";
 pub const CLIENT_ID_FIELD_EDIT: &str = "preferences-cloud-client-id";
-const CLIENT_ID_HINT: &str = "The Autodesk app caditor was built with";
-const CLIENT_ID_HOVER: &str = "The client ID of the Autodesk Platform Services app to sign in \
-                               with. Leave empty to use the one this build of caditor carries.";
+pub const ONSHAPE_CLIENT_ID_FIELD: &str = "preferences-cloud-onshape-client-id-draft";
+pub const ONSHAPE_CLIENT_ID_FIELD_EDIT: &str = "preferences-cloud-onshape-client-id";
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";

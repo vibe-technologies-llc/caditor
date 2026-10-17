@@ -29,12 +29,19 @@ decision recorded in `docs/` before work starts.
 
 ## Open questions
 
-- [high · easy] The Fusion 360 import has no Autodesk app behind it yet: release builds carry no
-  client ID, so Sign in is disabled until someone registers an Autodesk Platform Services app for
-  the project (`RELEASING.md`, The Autodesk app) and sets `CADITOR_AUTODESK_CLIENT_ID`, or a user
-  types their own in Preferences. Decide who registers it and under which Autodesk account, whether
-  the fixed callback port 49617 is acceptable, and whether the team-hub administrator step
-  (`.claude/rules/cloud.md`) needs a page of its own in the guide.
+- [high · easy] The Fusion 360 and Onshape imports have no app behind them yet: the built-in client
+  IDs (`DEFAULT_AUTODESK_CLIENT_ID` and `DEFAULT_ONSHAPE_CLIENT_ID` in `cloud.rs`, overridden at
+  build time by `CADITOR_AUTODESK_CLIENT_ID` and `CADITOR_ONSHAPE_CLIENT_ID`) are empty, so Sign in
+  is disabled until someone registers an Autodesk Platform Services app and an Onshape OAuth
+  application for the project (`RELEASING.md`) and fills them in, or a user types their own in
+  Preferences. Decide who registers them and under which accounts, whether the fixed callback port
+  49617 is acceptable, and whether the team-hub administrator step (`.claude/rules/cloud.md`) needs
+  a page of its own in the guide.
+- [high · medium] Onshape's OAuth documentation shows only confidential clients (a `client_secret`
+  on the token and refresh requests) and does not mention PKCE, and no live handshake has been run:
+  `onshape.rs` signs in with PKCE and no secret, as Fusion does. Register the application, try it,
+  and if Onshape refuses a secretless exchange decide between API keys typed in Preferences and a
+  small token-exchange service; a secret is never shipped in the binary.
 - [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
   running app listens on for MCP clients (a local socket or named pipe per user, or streamable
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once

@@ -151,7 +151,7 @@ paths:
   text uses the names the UI uses.
 - Home (`home.rs`, `cloud.md`) is a page over the view that opens at startup on an empty model
   (`onboarding.home`, Preferences › General › Starting and recent files) and from File › Home: the
-  starts, Recent files (`Files::recent`), the opt-out Fusion 360 section, the samples. It closes on
+  starts, Recent files (`Files::recent`), the opt-out Fusion 360 and Onshape sections, the samples. It closes on
   any choice, Escape or a change of the model underneath, and the start card stays away while it
   is open.
 - The start card on an empty model (`app-input.md`) is `onboarding.start_card` (on by default),

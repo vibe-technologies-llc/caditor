@@ -1,7 +1,7 @@
 use caditor_cloud::Service;
 use egui::{
     Align, CornerRadius, FontId, Frame, Label, Layout, RichText, Sense, Stroke, StrokeKind,
-    TextWrapMode, Ui, UiBuilder, vec2,
+    TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
 };
 use jiff::Timestamp;
 
@@ -100,7 +100,10 @@ pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
             .selectable(false),
         );
         widgets::decorative(&child, &glyph);
-        child.vertical(|ui| {
+        let text_height =
+            2.0 * child.text_style_height(&TextStyle::Body) + child.spacing().item_spacing.y;
+        let text_size = vec2(child.available_width(), text_height);
+        child.allocate_ui_with_layout(text_size, Layout::top_down(Align::Min), |ui| {
             ui.add(Label::new(widgets::strong(tile.title)).selectable(false));
             ui.add(Label::new(widgets::muted(tile.detail, ui)).selectable(false));
         });

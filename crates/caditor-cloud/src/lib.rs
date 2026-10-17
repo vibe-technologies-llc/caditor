@@ -7,8 +7,10 @@ pub mod fake;
 mod fusion;
 mod loopback;
 mod network;
+mod onshape;
 mod pkce;
 mod provider;
+mod rest;
 mod service;
 mod session;
 mod transport;
@@ -23,6 +25,7 @@ pub use crate::{
     fusion::Fusion,
     loopback::{CALLBACK_PATH, Listener},
     network::Network,
+    onshape::Onshape,
     provider::{Callback, Provider, Redirect, SignIn},
     service::Service,
     session::{Session, now_seconds},

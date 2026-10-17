@@ -1101,14 +1101,27 @@ pub fn show(
     if commands.invoke(Command::Cloud, &cloud_on) {
         actions.push(Action::Preferences(PreferencesCommand::ShowCloud(None)));
     }
-    if commands.invoke(Command::CloudSignIn, &cloud.can_sign_in(Service::Fusion)) {
-        actions.push(Action::Cloud(CloudCommand::SignIn(Service::Fusion)));
+    for (sign_in, sign_out, service) in [
+        (Command::CloudSignIn, Command::CloudSignOut, Service::Fusion),
+        (
+            Command::OnshapeSignIn,
+            Command::OnshapeSignOut,
+            Service::Onshape,
+        ),
+    ] {
+        if commands.invoke(sign_in, &cloud.can_sign_in(service)) {
+            actions.push(Action::Cloud(CloudCommand::SignIn(service)));
+        }
+        if commands.invoke(sign_out, &cloud.is_signed_in(service)) {
+            actions.push(Action::Cloud(CloudCommand::SignOut(service)));
+        }
     }
-    if commands.invoke(Command::CloudSignOut, &cloud.is_signed_in(Service::Fusion)) {
-        actions.push(Action::Cloud(CloudCommand::SignOut(Service::Fusion)));
-    }
-    if commands.invoke(Command::CloudRefresh, &cloud.is_signed_in(Service::Fusion)) {
-        actions.push(Action::Cloud(CloudCommand::Refresh(Service::Fusion)));
+    if commands.invoke(Command::CloudRefresh, &cloud.any_signed_in()) {
+        for service in Service::ALL {
+            if cloud.is_signed_in(service).is_ok() {
+                actions.push(Action::Cloud(CloudCommand::Refresh(service)));
+            }
+        }
     }
     if commands.available(Command::About) {
         actions.push(Action::Preferences(PreferencesCommand::ShowAbout));

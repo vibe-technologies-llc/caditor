@@ -327,6 +327,8 @@ pub enum Command {
     Cloud,
     CloudSignIn,
     CloudSignOut,
+    OnshapeSignIn,
+    OnshapeSignOut,
     CloudRefresh,
     Guide,
     About,
@@ -694,6 +696,8 @@ plain_commands! {
     Cloud,
     CloudSignIn,
     CloudSignOut,
+    OnshapeSignIn,
+    OnshapeSignOut,
     CloudRefresh,
     Guide,
     About,
@@ -1273,6 +1277,8 @@ impl Command {
             Self::Cloud => "file.cloud",
             Self::CloudSignIn => "file.cloud_sign_in",
             Self::CloudSignOut => "file.cloud_sign_out",
+            Self::OnshapeSignIn => "file.onshape_sign_in",
+            Self::OnshapeSignOut => "file.onshape_sign_out",
             Self::CloudRefresh => "file.cloud_refresh",
             Self::Guide => "help.guide",
             Self::About => "help.about",
@@ -1568,6 +1574,8 @@ impl Command {
             Self::Cloud => "Cloud projects…",
             Self::CloudSignIn => "Sign in to Fusion 360",
             Self::CloudSignOut => "Sign out of Fusion 360",
+            Self::OnshapeSignIn => "Sign in to Onshape",
+            Self::OnshapeSignOut => "Sign out of Onshape",
             Self::CloudRefresh => "Refresh cloud projects",
             Self::Guide => "User guide",
             Self::About => "About caditor",
@@ -1657,11 +1665,20 @@ impl Command {
             Self::Messages => &["log", "notifications", "errors", "history"],
             Self::Home => &["start", "welcome", "recent files", "projects", "samples"],
             Self::Cloud => &[
-                "fusion", "autodesk", "import", "account", "online", "manage", "opt out",
+                "fusion", "autodesk", "onshape", "import", "account", "online", "manage", "opt out",
             ],
             Self::CloudSignIn => &["login", "log in", "autodesk", "account", "cloud"],
             Self::CloudSignOut => &["logout", "log out", "autodesk", "account", "cloud"],
-            Self::CloudRefresh => &["reload", "projects", "fusion", "cloud"],
+            Self::OnshapeSignIn => &["login", "log in", "account", "cloud", "documents"],
+            Self::OnshapeSignOut => &["logout", "log out", "account", "cloud", "documents"],
+            Self::CloudRefresh => &[
+                "reload",
+                "projects",
+                "documents",
+                "fusion",
+                "onshape",
+                "cloud",
+            ],
             Self::ToggleProjection | Self::AutomaticProjection => {
                 &["perspective", "orthographic", "parallel"]
             }
@@ -1755,6 +1772,8 @@ impl Command {
             | Self::Cloud
             | Self::CloudSignIn
             | Self::CloudSignOut
+            | Self::OnshapeSignIn
+            | Self::OnshapeSignOut
             | Self::CloudRefresh => Category::File,
             Self::Welcome
             | Self::Guide
@@ -2307,6 +2326,8 @@ impl Command {
             | Self::Cloud
             | Self::CloudSignIn
             | Self::CloudSignOut
+            | Self::OnshapeSignIn
+            | Self::OnshapeSignOut
             | Self::CloudRefresh
             | Self::About
             | Self::Messages

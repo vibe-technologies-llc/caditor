@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use caditor_cloud::ProjectId;
+use caditor_cloud::{ProjectId, Service};
 use caditor_document::Rgb;
 use caditor_file::{Retention, Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
@@ -586,7 +586,7 @@ pub enum PreferenceChange {
     ShowHome(bool),
     CloudEnabled(bool),
     CloudOnHome(bool),
-    FusionClientId(String),
+    ClientId(Service, String),
     RestoreHints,
     DefenderReminded,
     RecentColour(Rgb),
@@ -603,7 +603,7 @@ pub enum PreferencesCommand {
     ShowWelcome,
     CloseWelcome,
     ShowHome,
-    ShowCloud(Option<ProjectId>),
+    ShowCloud(Option<(Service, ProjectId)>),
     CloseCloud,
     ShowAbout,
     CloseAbout,
@@ -956,7 +956,7 @@ impl Preferences {
             PreferenceChange::ShowHome(shown) => self.onboarding.home = shown,
             PreferenceChange::CloudEnabled(enabled) => self.cloud.enabled = enabled,
             PreferenceChange::CloudOnHome(shown) => self.cloud.on_home = shown,
-            PreferenceChange::FusionClientId(id) => self.cloud.fusion_client_id = id,
+            PreferenceChange::ClientId(service, id) => self.cloud.set_client_id(service, id),
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {

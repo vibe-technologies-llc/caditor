@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use caditor_cloud::{FolderRef, Project, ProjectId, Service};
 use egui::{Label, ScrollArea, Sides, Ui};
 use jiff::Timestamp;
@@ -37,24 +39,32 @@ struct Crumb {
 }
 
 #[derive(Debug, Default)]
-pub struct CloudDialog {
+struct Browser {
     project: Option<ProjectId>,
     trail: Vec<Crumb>,
 }
 
-impl CloudDialog {
-    pub fn at(project: Option<ProjectId>) -> Self {
-        Self {
-            project,
-            trail: Vec::new(),
-        }
-    }
-
+impl Browser {
     fn choose(&mut self, project: ProjectId) {
         if self.project.as_ref() != Some(&project) {
             self.project = Some(project);
             self.trail.clear();
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct CloudDialog {
+    browsers: BTreeMap<Service, Browser>,
+}
+
+impl CloudDialog {
+    pub fn at(project: Option<(Service, ProjectId)>) -> Self {
+        let mut dialog = Self::default();
+        if let Some((service, project)) = project {
+            dialog.browsers.entry(service).or_default().choose(project);
+        }
+        dialog
     }
 }
 
@@ -78,9 +88,12 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
         widgets::dialog_body(ui, |ui| {
             if view.cloud.is_enabled() {
                 accounts(ui, view, &mut outcomes);
-                if let Some(linked) = view.cloud.linked(Service::Fusion) {
-                    ui.add_space(SPACE_L);
-                    projects(ui, view, Service::Fusion, linked, state, &mut outcomes);
+                for service in Service::ALL {
+                    if let Some(linked) = view.cloud.linked(service) {
+                        ui.add_space(SPACE_L);
+                        let browser = state.browsers.entry(service).or_default();
+                        projects(ui, view, service, linked, browser, &mut outcomes);
+                    }
                 }
                 ui.add_space(SPACE_L);
                 downloads(ui, &view.cloud.downloads, &mut outcomes);
@@ -158,7 +171,10 @@ fn account_buttons(
             let button = widgets::primary_button(ui, SIGN_IN);
             let response = ui
                 .add_enabled(allowed.is_ok(), button)
-                .on_hover_text("Opens Autodesk's sign-in page in your browser");
+                .on_hover_text(format!(
+                    "Opens {}'s sign-in page in your browser",
+                    service.company()
+                ));
             let reason = allowed.err().map(|refusal| refusal.to_string());
             if response
                 .on_disabled_hover_text(reason.unwrap_or_default())
@@ -207,7 +223,10 @@ fn account_details(
         },
         Link::SigningIn(signing) => {
             ui.add(Label::new(widgets::muted(
-                "Finish signing in on Autodesk's page in your browser.",
+                format!(
+                    "Finish signing in on {}'s page in your browser.",
+                    service.company()
+                ),
                 ui,
             )));
             if let Some(url) = &signing.url {
@@ -225,7 +244,11 @@ fn account_details(
                 )));
             } else {
                 ui.add(Label::new(widgets::muted(
-                    "Sign in to list your Fusion projects and import a design with one click.",
+                    format!(
+                        "Sign in to list your {} {}s and import a design with one click.",
+                        service.name(),
+                        service.project_name()
+                    ),
                     ui,
                 )));
             }
@@ -251,10 +274,14 @@ fn projects(
     view: &DialogView<'_>,
     service: Service,
     linked: &Linked,
-    state: &mut CloudDialog,
+    state: &mut Browser,
     outcomes: &mut Vec<Outcome>,
 ) {
-    ui.label(widgets::section_title("Projects"));
+    ui.label(widgets::section_title(&format!(
+        "{} {}s",
+        service.name(),
+        service.project_name()
+    )));
     ui.add_space(SPACE_S);
     if let Some(command) = cloud_parts::import_status(ui, service, linked) {
         outcomes.push(Outcome::Cloud(command));
@@ -277,7 +304,10 @@ fn projects(
             }
         }
         Load::Ready(projects) if projects.is_empty() => {
-            ui.label(widgets::muted("This hub has no projects yet.", ui));
+            ui.label(widgets::muted(
+                format!("No {}s to list yet.", service.project_name()),
+                ui,
+            ));
         }
         Load::Ready(projects) => {
             ui.horizontal_top(|ui| {
@@ -294,7 +324,11 @@ fn projects(
 }
 
 fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Outcome>) {
-    let Some(workspaces) = linked.workspaces.ready() else {
+    let Some(workspaces) = linked
+        .workspaces
+        .ready()
+        .filter(|_| service.has_workspaces())
+    else {
         return;
     };
     let current = linked
@@ -303,7 +337,7 @@ fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Ou
     ui.horizontal(|ui| {
         ui.label(HUB);
         widgets::combo(("cloud-hub", service.id()), current)
-            .hover("The Fusion team or personal hub whose projects are listed")
+            .hover("The team or personal hub whose projects are listed")
             .show(ui, |ui| {
                 for workspace in workspaces {
                     let chosen = linked.workspace.as_ref() == Some(&workspace.id);
@@ -318,7 +352,7 @@ fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Ou
     });
 }
 
-fn project_list(ui: &mut Ui, projects: &[Project], state: &mut CloudDialog) {
+fn project_list(ui: &mut Ui, projects: &[Project], state: &mut Browser) {
     ScrollArea::vertical()
         .id_salt("cloud projects")
         .max_height(LIST_HEIGHT)
@@ -339,7 +373,7 @@ fn contents(
     service: Service,
     linked: &Linked,
     projects: &[Project],
-    state: &mut CloudDialog,
+    state: &mut Browser,
     outcomes: &mut Vec<Outcome>,
 ) {
     let Some(project) = state
@@ -409,7 +443,7 @@ fn contents(
     }
 }
 
-fn breadcrumbs(ui: &mut Ui, project: &Project, state: &mut CloudDialog) {
+fn breadcrumbs(ui: &mut Ui, project: &Project, state: &mut Browser) {
     ui.horizontal_wrapped(|ui| {
         let at_root = state.trail.is_empty();
         if at_root {
