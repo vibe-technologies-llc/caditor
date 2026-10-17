@@ -27,7 +27,9 @@ paths:
   rounding. An arc whose circle passes the axis but which stays clear of it by more than the
   tolerance (`nearest_to_axis`) is an exact spindle `Torus` (so a shell or offset face can move a
   rim fillet); one ending on the axis, or a circle centred behind it, is the `Revolution` of its
-  rational arc. A profile right of the axis is revolved about the reversed axis. Lines on the axis
+  rational arc. A line whose ends differ in height by at most `FLAT` is a plane, any steeper one a
+  `Cone`, which therefore accepts slopes down to `MIN_FLAT_ANGLE` off square so no line falls between
+  the two. A profile right of the axis is revolved about the reversed axis. Lines on the axis
   become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes become
   void shells). Extrusion and revolution faces get exact straight pcurves; the rest are fitted.
 - The start cap is the one at the extent's start (the sketch plane for `one_side`) whichever way

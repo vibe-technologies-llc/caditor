@@ -1601,6 +1601,30 @@ fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_work() 
 }
 
 #[test]
+fn a_profile_line_a_hair_off_square_to_the_axis_revolves_and_meshes() {
+    for tilt in [1e-9, 4.5e-8, 5e-7, 9e-7, 1e-4] {
+        let corners = [
+            (1.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 5.0),
+            (1.0, 5.0 + 19.0 * tilt),
+        ];
+        let curves: Vec<ProfileCurve> = (0..corners.len())
+            .map(|index| {
+                let next = corners.get((index + 1) % corners.len()).unwrap();
+                line(index as u64 + 1, *corners.get(index).unwrap(), *next)
+            })
+            .collect();
+
+        let solid = revolve(&Plane::XY, &regions(&curves), y_axis(), full(), FEATURE).unwrap();
+        let mesh = solid.display_mesh(&MeshQuality::COARSE);
+
+        assert_eq!(solid.validate(), Ok(()), "tilt {tilt}");
+        assert!(mesh.is_ok(), "tilt {tilt}");
+    }
+}
+
+#[test]
 fn a_nearly_flat_revolved_cone_around_a_hole_meshes_without_reaching_into_the_hole() {
     let hole = 1.0;
     let corners = [

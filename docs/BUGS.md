@@ -62,11 +62,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   spline intersected with a frustum leaves two tangent edges at one vertex, the end parting bisects
   them down to 1e-7, and the mesh then uses one edge twice in the same direction
   (`assert_watertight` fails on it).
-- [low · easy] A revolved profile line off square to its axis by about 4.5e-8 to 1e-6 rad is past
-  `revolve`'s `FLAT` height test (0.5 µm between its ends, `build/revolve.rs`), so it is made a
-  cone, but under `MIN_CONE_ANGLE` (1e-6, `surface/elementary.rs`), so the revolve fails with a
-  raw `ConeAngle` instead of a flat face. `FLAT` should be an angle agreeing with `MIN_CONE_ANGLE`,
-  taking such a line as flat.
 
 
 ## Modelling

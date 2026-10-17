@@ -9,10 +9,11 @@ use crate::{
         SurfaceDerivatives,
         projection::{AXIS_EPSILON, periodic_near},
     },
-    tolerance::MAX_SIZE,
+    tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
 };
 
 const MIN_CONE_ANGLE: f64 = 1e-6;
+const MIN_FLAT_ANGLE: f64 = 0.25 * LINEAR_RESOLUTION / MAX_SIZE;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlaneSurface {
@@ -156,7 +157,7 @@ impl Cone {
         if radius > MAX_SIZE {
             return Err(GeometryError::BeyondMaximum(radius));
         }
-        if half_angle.abs() < MIN_CONE_ANGLE || half_angle.abs() > FRAC_PI_2 - MIN_CONE_ANGLE {
+        if half_angle.abs() < MIN_CONE_ANGLE || half_angle.abs() > FRAC_PI_2 - MIN_FLAT_ANGLE {
             return Err(GeometryError::ConeAngle(half_angle));
         }
         Ok(Self {
