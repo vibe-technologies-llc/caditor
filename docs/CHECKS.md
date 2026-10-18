@@ -4,14 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [high · medium] Two tests of a combine failing at a named place have lost their failing case,
-  since snapping now combines what they built: `caditor-document`'s
-  `combine_tests::a_combine_failing_where_faces_nearly_touch_names_them_and_where` (red since the
-  face snapping) and the UI tests using `combine_nearly_touching_blocks` (a plug at (10, 5.0000015),
-  now inside the sideways snap's reach). The one remaining case near the reach, a plug 2.5e-6 to
-  3e-5 off its bore's axis away from its seams (`BUGS.md`), fails as `Invalid(LoopOrientation)`
-  with no place; giving that failure a place and moving both tests onto it would restore them.
-
 - [low · medium] Slow tests to keep an eye on: with egui, its glyph stack and the PNG encoder built
   optimised in the dev profile (`dependencies.md`) a UI test takes a few tenths of a second, and
   none of the ten that took over a second (the screen-reader test, the shortcut reset tests, the

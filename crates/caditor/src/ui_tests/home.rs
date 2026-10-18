@@ -1660,6 +1660,9 @@ fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
     ));
     assert!(outgoing_files(dir.path()).is_empty());
 
+    harness.wait_until("the folder is listed again", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
     harness.click(cloud_dialog::SEND_HERE);
     harness.wait_until("the model is sent again", |_| {
         provider.received().len() == 2
