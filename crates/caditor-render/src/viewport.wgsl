@@ -71,6 +71,9 @@ struct MeshPlacement {
 @group(2) @binding(5) var environment_map: texture_2d<f32>;
 @group(2) @binding(6) var environment_irradiance: texture_2d<f32>;
 @group(2) @binding(7) var environment_sampler: sampler;
+@group(2) @binding(8) var peeled_once: texture_2d<u32>;
+@group(2) @binding(9) var peeled_twice: texture_2d<u32>;
+@group(2) @binding(10) var previous_layer: texture_2d<u32>;
 @group(3) @binding(0) var occlusion_map: texture_2d<f32>;
 @group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
 @group(1) @binding(8) var surface_texels: texture_2d<u32>;
@@ -677,6 +680,21 @@ fn fs_shadow(in: Varyings) -> LitTexel {
     return LitTexel(vec4<f32>(albedo, facing), vec4<f32>(normal * 0.5 + 0.5, 1.0), bitcast<u32>(in.position.z));
 }
 
+@fragment
+fn fs_peel(in: Varyings) -> @location(0) u32 {
+    if is_cut(in) {
+        discard;
+    }
+    let held = textureLoad(previous_layer, vec2<i32>(in.position.xy), 0).r;
+    if held != 0u {
+        let separation = view.exposure_shadow.w / length(view.relative_from_light[2].xyz);
+        if in.position.z <= bitcast<f32>(held) + separation {
+            discard;
+        }
+    }
+    return bitcast<u32>(in.position.z);
+}
+
 struct SilhouetteStyle {
     offset_width: vec4<f32>,
     color: vec4<f32>,
@@ -992,6 +1010,7 @@ const SHADOW_TAPS: i32 = 1;
 const BOUNCE_SAMPLES: i32 = 24;
 const BOUNCE_BLOCK_STEPS: i32 = 4;
 const BOUNCE_BLOCK_LIFTS: f32 = 2.0;
+const BOUNCE_LAYERS: i32 = 3;
 const GOLDEN_ANGLE: f32 = 2.39996323;
 const SHADOW_DEPTH_BIAS: f32 = 0.0005;
 const ENVIRONMENT_BRDF_LOW: vec4<f32> = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
@@ -1268,6 +1287,16 @@ fn light_point(relative: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5, light.z);
 }
 
+fn lit_layer(layer: i32, texel: vec2<i32>) -> u32 {
+    if layer == 0 {
+        return textureLoad(lit_depth, texel, 0).r;
+    }
+    if layer == 1 {
+        return textureLoad(peeled_once, texel, 0).r;
+    }
+    return textureLoad(peeled_twice, texel, 0).r;
+}
+
 fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
     let to = light_point(source + source_normal * ray.lift);
     let size = vec2<f32>(textureDimensions(lit_depth));
@@ -1278,13 +1307,16 @@ fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, r
         if any(along.xy < vec2<f32>(0.0)) || any(along.xy >= vec2<f32>(1.0)) {
             continue;
         }
-        let stored = textureLoad(lit_depth, clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last), 0).r;
-        if stored == 0u {
-            continue;
-        }
-        let behind = (along.z - bitcast<f32>(stored)) * ray.depth_span;
-        if behind > nearest_behind && behind < reach {
-            return true;
+        let texel = clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last);
+        for (var layer = 0; layer < BOUNCE_LAYERS; layer++) {
+            let stored = lit_layer(layer, texel);
+            if stored == 0u {
+                continue;
+            }
+            let behind = (along.z - bitcast<f32>(stored)) * ray.depth_span;
+            if behind > nearest_behind && behind < reach {
+                return true;
+            }
         }
     }
     return false;

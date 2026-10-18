@@ -5477,6 +5477,57 @@ fn a_thin_wall_between_a_red_wall_and_the_floor_stops_the_light_it_would_bounce_
 }
 
 #[test]
+fn a_wall_the_sun_does_not_light_still_stops_the_light_it_would_bounce_there() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let cube = Arc::new(box_mesh(10.0));
+    let panel = Arc::new(cuboid_mesh(Vector3::new(0.25, 30.0, 5.5)));
+    let canopy = Arc::new(cuboid_mesh(Vector3::new(8.0, 20.0, 0.3)));
+    let white = Color::from_rgb8(220, 220, 220);
+    let red = Color::from_rgb8(220, 30, 30);
+    let dark = Color::from_rgb8(20, 20, 20);
+    let wall = RigidTransform::translation(Vector3::new(-20.0, 0.0, 10.0));
+    let between = RigidTransform::translation(Vector3::new(-8.0, 0.0, 5.5));
+    let above = RigidTransform::translation(Vector3::new(17.23, 0.0, 42.6));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-6.0, -2.0, 0.0)];
+    let scene_with = |bounce: f32, shaded_wall: bool| Scene {
+        meshes: [
+            Some(finished_mesh(&floor, white, MATTE, None)),
+            Some(finished_mesh(&cube, red, MATTE, wall)),
+            Some(finished_mesh(&canopy, white, MATTE, above)),
+            shaded_wall.then(|| finished_mesh(&panel, dark, MATTE, between)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+    let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+    let tint = |shaded_wall: bool| {
+        let plain = rendered_pixels(&scene_with(0.0, shaded_wall), &view, &spots)?;
+        let bounced = rendered_pixels(&scene_with(4.0, shaded_wall), &view, &spots)?;
+        Some((warmth(bounced[0]) - warmth(plain[0]), plain, bounced))
+    };
+
+    let Some((open, open_plain, open_bounced)) = tint(false) else {
+        return;
+    };
+    let (walled, walled_plain, walled_bounced) = tint(true).unwrap();
+
+    assert!(open > 10, "{open_plain:?} {open_bounced:?}");
+    assert!(
+        walled * 2 < open,
+        "{open_plain:?} {open_bounced:?} {walled_plain:?} {walled_bounced:?}"
+    );
+}
+
+#[test]
 fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_both() {
     let cube = Arc::new(box_mesh(20.0));
     let steel = Color::from_rgb8(150, 155, 160);

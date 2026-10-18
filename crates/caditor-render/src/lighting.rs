@@ -15,6 +15,9 @@ pub const SHADOW_MAP_SIDE: u32 = 2048;
 const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const BOUNCE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const LIT_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
+pub(crate) const PEEL_LAYERS: usize = 2;
+const PEELED_BINDING: u32 = 8;
+const PREVIOUS_LAYER_BINDING: u32 = 10;
 const BOUNCE_REACH: f64 = 0.12;
 const NEAREST_BOUNCE_SHARE: f64 = 0.01;
 const BOUNCE_SAMPLES: f64 = 24.0;
@@ -311,7 +314,11 @@ impl LightUniform {
     }
 
     pub(crate) fn needs_light_pass(&self) -> bool {
-        self.exposure_shadow[1] > 0.0 || self.bounce[0] > 0.0
+        self.exposure_shadow[1] > 0.0 || self.bounces()
+    }
+
+    pub(crate) fn bounces(&self) -> bool {
+        self.bounce[0] > 0.0
     }
 
     pub(crate) fn write(&self, bytes: &mut impl Pack) {
@@ -357,6 +364,7 @@ fn exposure_scale(stops: f32) -> f32 {
 
 pub(crate) struct LightPass {
     layout: wgpu::BindGroupLayout,
+    peel_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     environment_sampler: wgpu::Sampler,
     stand_in_targets: LightTargets,
@@ -365,6 +373,7 @@ pub(crate) struct LightPass {
     environment: Option<BoundEnvironment>,
     refused_environment: Option<Arc<Environment>>,
     bind_group: wgpu::BindGroup,
+    peel_groups: Option<Vec<wgpu::BindGroup>>,
     refused: bool,
 }
 
@@ -378,11 +387,17 @@ struct LightTargets {
     albedo: wgpu::TextureView,
     normals: wgpu::TextureView,
     lit_depth: wgpu::TextureView,
+    peeled: Vec<wgpu::TextureView>,
+    peel_depth: wgpu::TextureView,
 }
 
 impl LightTargets {
     fn new(device: &wgpu::Device, side: u32) -> Self {
         Self {
+            peeled: (0..PEEL_LAYERS)
+                .map(|_| light_texture(device, "peeled depth", side, LIT_DEPTH_FORMAT))
+                .collect(),
+            peel_depth: light_texture(device, "peel depth", side, SHADOW_FORMAT),
             depth: light_texture(device, "shadow map", side, SHADOW_FORMAT),
             albedo: light_texture(device, "lit albedo", side, BOUNCE_FORMAT),
             normals: light_texture(device, "lit normals", side, BOUNCE_FORMAT),
@@ -435,7 +450,16 @@ impl LightPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                bounce_entry(PEELED_BINDING, wgpu::TextureSampleType::Uint),
+                bounce_entry(PEELED_BINDING + 1, wgpu::TextureSampleType::Uint),
             ],
+        });
+        let peel_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("previous layer"),
+            entries: &[bounce_entry(
+                PREVIOUS_LAYER_BINDING,
+                wgpu::TextureSampleType::Uint,
+            )],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow map"),
@@ -446,12 +470,12 @@ impl LightPass {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        Self::with_layout(device, layout, sampler)
+        Self::with_layout(device, (layout, peel_layout), sampler)
     }
 
     fn with_layout(
         device: &wgpu::Device,
-        layout: wgpu::BindGroupLayout,
+        (layout, peel_layout): (wgpu::BindGroupLayout, wgpu::BindGroupLayout),
         sampler: wgpu::Sampler,
     ) -> Self {
         let environment_sampler = environment_textures::sampler(device);
@@ -465,6 +489,7 @@ impl LightPass {
         );
         Self {
             layout,
+            peel_layout,
             sampler,
             environment_sampler,
             stand_in_targets,
@@ -473,16 +498,25 @@ impl LightPass {
             environment: None,
             refused_environment: None,
             bind_group,
+            peel_groups: None,
             refused: false,
         }
     }
 
     pub(crate) fn sibling(&self, device: &wgpu::Device) -> Self {
-        Self::with_layout(device, self.layout.clone(), self.sampler.clone())
+        Self::with_layout(
+            device,
+            (self.layout.clone(), self.peel_layout.clone()),
+            self.sampler.clone(),
+        )
     }
 
     pub(crate) fn layout(&self) -> &wgpu::BindGroupLayout {
         &self.layout
+    }
+
+    pub(crate) fn peel_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.peel_layout
     }
 
     fn rebind(&mut self, device: &wgpu::Device) {
@@ -510,6 +544,7 @@ impl LightPass {
         let (targets, error) = gpu::scoped(device, || LightTargets::new(device, side));
         match error {
             None => {
+                self.peel_groups = Some(peel_groups(device, &self.peel_layout, &targets));
                 self.targets = Some(targets);
                 self.rebind(device);
                 LightPassReady::Ready
@@ -622,6 +657,59 @@ impl LightPass {
             ..Default::default()
         }))
     }
+
+    pub(crate) fn begin_peel_pass<'a>(
+        &'a self,
+        encoder: &'a mut wgpu::CommandEncoder,
+        layer: usize,
+    ) -> Option<(wgpu::RenderPass<'a>, &'a wgpu::BindGroup)> {
+        let targets = self.targets.as_ref()?;
+        let previous = self.peel_groups.as_ref()?.get(layer)?;
+        let peeled = targets.peeled.get(layer)?;
+        let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("peeled depth"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: peeled,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &targets.peel_depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(FARTHEST_SHADOW_DEPTH),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        Some((pass, previous))
+    }
+}
+
+fn peel_groups(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    targets: &LightTargets,
+) -> Vec<wgpu::BindGroup> {
+    std::iter::once(&targets.lit_depth)
+        .chain(&targets.peeled)
+        .take(PEEL_LAYERS)
+        .map(|previous| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("previous layer"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: PREVIOUS_LAYER_BINDING,
+                    resource: wgpu::BindingResource::TextureView(previous),
+                }],
+            })
+        })
+        .collect()
 }
 
 fn bounce_entry(binding: u32, sample_type: wgpu::TextureSampleType) -> wgpu::BindGroupLayoutEntry {
@@ -703,7 +791,54 @@ fn bind_group(
                 binding: 7,
                 resource: wgpu::BindingResource::Sampler(environment_sampler),
             },
-        ],
+        ]
+        .into_iter()
+        .chain(
+            targets
+                .peeled
+                .iter()
+                .zip(PEELED_BINDING..)
+                .map(|(peeled, binding)| wgpu::BindGroupEntry {
+                    binding,
+                    resource: wgpu::BindingResource::TextureView(peeled),
+                }),
+        )
+        .collect::<Vec<_>>(),
+    })
+}
+
+pub(crate) fn peel_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("peeled depth"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_shadow"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers,
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: SHADOW_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_peel"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState::from(LIT_DEPTH_FORMAT))],
+        }),
+        multiview_mask: None,
+        cache: None,
     })
 }
 

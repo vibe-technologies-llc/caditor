@@ -12,8 +12,8 @@ use crate::{
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     kept::{KeptView, Shown, ViewCopy},
     lighting::{
-        EnvironmentBound, Ground, LightFrame, LightPass, LightPassReady, LightUniform,
-        shadow_pipeline,
+        EnvironmentBound, Ground, LightFrame, LightPass, LightPassReady, LightUniform, PEEL_LAYERS,
+        peel_pipeline, shadow_pipeline,
     },
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
@@ -253,6 +253,7 @@ struct Pipelines {
     pictures_behind: wgpu::RenderPipeline,
     pictures_in_front: wgpu::RenderPipeline,
     shadows: wgpu::RenderPipeline,
+    peels: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     surfaces: wgpu::RenderPipeline,
     occlusion: wgpu::RenderPipeline,
@@ -1207,6 +1208,7 @@ impl ViewportRenderer {
             silhouette: silhouettes.layout(),
             picture: pictures.layout(),
             shadow: light_pass.layout(),
+            peel: light_pass.peel_layout(),
             occlusion: occlusion.layouts(),
         };
 
@@ -1294,6 +1296,7 @@ impl ViewportRenderer {
                 silhouette: self.silhouettes.layout(),
                 picture: self.pictures.layout(),
                 shadow: self.light_pass.layout(),
+                peel: self.light_pass.peel_layout(),
                 occlusion: self.occlusion.layouts(),
             };
             Pipelines::new(
@@ -1761,6 +1764,18 @@ impl ViewportRenderer {
         };
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw_all(&mut pass, &self.pipelines.shadows);
+        drop(pass);
+        if !self.light.bounces() {
+            return;
+        }
+        for layer in 0..PEEL_LAYERS {
+            let Some((mut pass, previous)) = self.light_pass.begin_peel_pass(encoder, layer) else {
+                return;
+            };
+            pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
+            pass.set_bind_group(2, previous, &[]);
+            self.meshes.draw_all(&mut pass, &self.pipelines.peels);
+        }
     }
 
     fn draw_occlusion(
@@ -2455,6 +2470,7 @@ struct Layouts<'a> {
     silhouette: &'a wgpu::BindGroupLayout,
     picture: &'a wgpu::BindGroupLayout,
     shadow: &'a wgpu::BindGroupLayout,
+    peel: &'a wgpu::BindGroupLayout,
     occlusion: &'a OcclusionLayouts,
 }
 
@@ -2491,6 +2507,10 @@ impl Pipelines {
                 Some(layouts.shadow),
                 Some(&layouts.occlusion.shading),
             ],
+        );
+        let peel_pipeline_layout = pipeline_layout(
+            "peeled depth",
+            &[Some(layouts.view), Some(layouts.mesh), Some(layouts.peel)],
         );
         let sky_pipeline_layout =
             pipeline_layout("sky", &[Some(layouts.view), None, Some(layouts.shadow)]);
@@ -2764,6 +2784,7 @@ impl Pipelines {
             pictures_behind: picture("pictures behind", wgpu::CompareFunction::GreaterEqual),
             pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
             shadows: shadow_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
+            peels: peel_pipeline(device, &module, &peel_pipeline_layout, &meshes),
             sky: build_pipeline(
                 device,
                 &PipelineSpec {
