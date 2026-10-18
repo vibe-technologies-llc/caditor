@@ -54,12 +54,22 @@ paths:
   to their left (inward, so a positive angle draws in) by `tan(angle)` times the height from the
   sketch plane clamped into the extent: one-sided extrusions taper from the profile as drawn, ones
   spanning the sketch plane taper both ways (two side faces per piece, middle ring shared). Lines
-  sweep planes, arcs and circles cones about their own centre; corners are re-met at each level
-  (`profile::offset_strands`), straight where both pieces are lines or tangent, else an
+  sweep planes, arcs and circles cones about their own centre; a spline, ellipse or elliptical arc
+  (`profile::Course`) sweeps a ruled `BSplineSurface` between two cubic rows through its exact
+  offset at the segment's two heights (`taper_bent.rs`, nodes graded to `ROW_TOLERANCE`), long
+  enough at either end to hold the corner where a ray carries it past the curve's end (a drawn-out
+  taper at a convex corner); each ring edge is the course's fitted spline at its level, its
+  sense its own, since a curve cut at one level is not reversed at another. Corners are re-met at
+  each level (`profile::offset_courses`), straight where both pieces are lines or tangent, else an
   `IntersectionCurve` through `JOINT_SAMPLES` levels. Below `STRAIGHT_TAPER` it is `extrude`.
-  Errors: splines and ellipses `TaperedUnsupportedCurve`, a slanted end `TaperedTiltedEnd`,
-  `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, a piece used up, an arc shrunk to nothing,
-  corners no longer meeting, a loop turned over or loops crossing at a cap `TaperCloses`.
+  Errors: a loop that is one whole spline or ellipse `TaperedUnsupportedCurve`, a slanted end
+  `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, a piece used up, an arc
+  shrunk to nothing, corners no longer meeting, a loop turned over or loops crossing at a cap
+  `TaperCloses`.
+- `extrude_flared(plane, regions, extent, flank, feature)` is the same sweep with the profile
+  drawing in by `1 / tan(flank)` per unit of height, so the sides lean `flank` from the sketch
+  plane instead of from its normal: a draft of a thin wall's broad faces, where the angle is
+  small. `flank` below `MIN_FLANK_DEGREES` or not under a right angle is `FlankOutOfRange`.
 - `wrap_regions(plane, regions, surface, feature)` (`wrap.rs`) wraps a plane's regions onto a
   cylinder or cone by its unrolled form, for a split face's tool; other surfaces are
   `NotUnrollable`, a plane not running along the axis `AcrossAxis`. Distance along the axis becomes

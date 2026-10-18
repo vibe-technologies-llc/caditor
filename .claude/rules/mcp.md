@@ -127,8 +127,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   sketches or `{sketch, inside}` single regions (hidden as the tool hides them; an `end` point
   as `places::point` takes it, `"off"` clearing it, refused with `closed`; `closed`, and a `start_weight` or `end_weight` above 0
   leaving that end square, 0 freeing it), coils (two of turns, pitch and height as a
-  `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`; a web's `draft` and
-  `ends`) and
+  `CoilLength`), ribs (square to a face's sketch, facing the body by `rib_tools::facing_body`; a rib's or web's `draft` and
+  a web's `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
   needing curves of a sketch), delete face, move face (`add_move_face`: a signed `distance`

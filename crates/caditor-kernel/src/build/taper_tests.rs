@@ -239,6 +239,132 @@ fn a_taper_closing_the_profile_before_the_end_is_refused() {
     assert_eq!(error, SweepError::TaperCloses { entities: vec![1] });
 }
 
+fn drawn_length(curve: &ProfileCurve) -> f64 {
+    let (path, range) = curve.curve().unwrap();
+    path.length(range)
+}
+
+fn tapered_prism_volume(area: f64, perimeter: f64, corners: f64, height: f64, angle: f64) -> f64 {
+    let slope = angle.tan();
+    area * height - perimeter * slope * height * height / 2.0
+        + corners * slope * slope * height.powi(3) / 3.0
+}
+
+#[test]
+fn a_tapered_half_ellipse_follows_its_curve_with_the_chord() {
+    let curves = vec![
+        ProfileCurve::elliptical_arc(
+            1,
+            Point2::ZERO,
+            Vector2::new(4.0, 0.0),
+            2.0,
+            (Point2::new(4.0, 0.0), Point2::new(-4.0, 0.0)),
+        ),
+        line(2, (-4.0, 0.0), (4.0, 0.0)),
+    ];
+    let half = regions(&curves);
+    let angle = 5.0_f64.to_radians();
+
+    let solid = extrude_tapered(
+        &Plane::XY,
+        &half,
+        LinearExtent::one_side(1.5).unwrap(),
+        angle,
+        FEATURE,
+    )
+    .unwrap();
+
+    let perimeter = drawn_length(&curves[0]) + 8.0;
+    let expected = tapered_prism_volume(PI * 4.0, perimeter, 2.0, 1.5, angle);
+    assert_near(volume(&solid), expected);
+    assert!(
+        solid
+            .faces()
+            .any(|(_, face)| matches!(face.surface(), Surface::BSpline(_)))
+    );
+}
+
+#[test]
+fn a_tapered_spline_closed_by_a_line_widens_when_drawn_out() {
+    let curves = vec![
+        spline(1, &[(0.0, 0.0), (2.0, 5.0), (6.0, 5.0), (8.0, 0.0)]),
+        line(2, (8.0, 0.0), (0.0, 0.0)),
+    ];
+    let bump = regions(&curves);
+    let angle = 2.0_f64.to_radians();
+    let extent = LinearExtent::one_side(2.0).unwrap();
+
+    let narrowing = extrude_tapered(&Plane::XY, &bump, extent, angle, FEATURE).unwrap();
+    let widening = extrude_tapered(&Plane::XY, &bump, extent, -angle, FEATURE).unwrap();
+
+    let area = bump[0].area();
+    let perimeter = drawn_length(&curves[0]) + 8.0;
+    let corners = 2.0 * (0.5 * 0.9_f64).tan().recip();
+    let expected = |angle: f64| tapered_prism_volume(area, perimeter, corners, 2.0, angle);
+    assert!((volume(&narrowing) - expected(angle)).abs() < 5e-3 * expected(0.0));
+    assert!((volume(&widening) - expected(-angle)).abs() < 5e-3 * expected(0.0));
+}
+
+#[test]
+fn a_taper_between_a_spline_and_an_ellipse_arc_meeting_at_corners_is_valid() {
+    let curves = vec![
+        spline(1, &[(0.0, 0.0), (3.0, 5.0), (8.0, 0.0)]),
+        ProfileCurve::elliptical_arc(
+            2,
+            Point2::new(4.0, 0.0),
+            Vector2::new(4.0, 0.0),
+            3.0,
+            (Point2::new(8.0, 0.0), Point2::new(0.0, 0.0)),
+        ),
+    ];
+    let lens = regions(&curves);
+
+    let solid = extrude_tapered(
+        &Plane::XY,
+        &lens,
+        LinearExtent::one_side(1.0).unwrap(),
+        3.0_f64.to_radians(),
+        FEATURE,
+    )
+    .unwrap();
+
+    let plain = extrude(
+        &Plane::XY,
+        &lens,
+        LinearExtent::one_side(1.0).unwrap(),
+        FEATURE,
+    )
+    .unwrap();
+    let (tapered, straight) = (volume(&solid), volume(&plain));
+    assert!(tapered < straight && tapered > 0.9 * straight);
+}
+
+#[test]
+fn a_flared_square_leans_its_sides_by_the_flank_from_the_sketch() {
+    let square = regions(&rectangle(1, (-5.0, -5.0), (5.0, 5.0)));
+    let flank = 60.0_f64.to_radians();
+    let extent = LinearExtent::new(1.0, 1.6).unwrap();
+
+    let solid = extrude_flared(&Plane::XY, &square, extent, flank, FEATURE).unwrap();
+
+    let top = 10.0 - 2.0 * 0.6 / flank.tan();
+    assert_near(volume(&solid), frustum(0.6, 100.0, top * top));
+    assert_eq!(solid.faces().count(), 6);
+}
+
+#[test]
+fn a_flank_flatter_than_a_tenth_of_a_degree_or_upright_is_refused() {
+    let square = regions(&rectangle(1, (-5.0, -5.0), (5.0, 5.0)));
+    let extent = LinearExtent::one_side(1.0).unwrap();
+
+    for flank in [0.05_f64, 90.0, -3.0] {
+        assert_eq!(
+            extrude_flared(&Plane::XY, &square, extent, flank.to_radians(), FEATURE),
+            Err(SweepError::FlankOutOfRange)
+        );
+    }
+}
+
 #[test]
 fn a_taper_refuses_splines_tilted_ends_and_steep_angles() {
     let blob = regions(&[spline(

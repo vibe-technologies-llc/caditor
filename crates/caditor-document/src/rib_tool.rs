@@ -8,14 +8,17 @@ use caditor_kernel::{
     BooleanError, BooleanOperation, FaceName, FaceOrigin, Interval, LINEAR_RESOLUTION,
     LinearExtent, PieceBound, PieceId, PointClass, Profile, ProfileCurve, ProfileError,
     ProfileShape, RayCrossing, Region, Solid, SweepError, TessellationError, WallError, WallSide,
-    boolean, extrude, extrude_tapered, wall_regions,
+    boolean, extrude, extrude_flared, extrude_tapered, wall_regions,
 };
 
 use crate::split::{End, Perimeter, SweptError, chain, curve_links, heights};
 
 pub const START_RUN: u64 = 1 << 62;
 pub const END_RUN: u64 = 1 << 61;
+pub const FRONT_FLANK: u64 = 1 << 60;
+pub const BACK_FLANK: u64 = 1 << 59;
 const RUNS: u64 = START_RUN | END_RUN;
+const FLANKS: u64 = FRONT_FLANK | BACK_FLANK;
 const PERIMETER_ENTITIES: [u64; 5] = [
     u64::MAX - 20,
     u64::MAX - 21,
@@ -27,6 +30,13 @@ const SEED_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const SEED_REACH: f64 = 0.05;
 const SEED_SHARE: f64 = 0.25;
 const ARC_GAP_DEGREES: f64 = 2.0;
+const RIM_REACH: f64 = 4.0;
+const RIM_SLACK: f64 = 4.0;
+const FLANK_SAMPLES: usize = 64;
+const FLANK_DEPTH_SCALES: [f64; 4] = [1.0, 0.5, 0.25, 0.125];
+const FLANK_TOLERANCE: f64 = 1e-5;
+const FLANK_SAFETY: f64 = 1.1;
+const FLANK_SLACK: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum RibSide {
@@ -51,11 +61,19 @@ pub enum RibEnds {
 }
 
 pub fn run_curve(entity: u64) -> u64 {
-    entity & !RUNS
+    if PERIMETER_ENTITIES.contains(&entity) {
+        entity
+    } else {
+        entity & !(RUNS | FLANKS)
+    }
 }
 
 pub fn is_run(entity: u64) -> bool {
     entity & RUNS != 0 && !PERIMETER_ENTITIES.contains(&entity)
+}
+
+pub fn is_flank(entity: u64) -> bool {
+    entity & FLANKS != 0 && !PERIMETER_ENTITIES.contains(&entity)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +100,8 @@ pub(crate) enum RibError {
     RunsPastEnd { entity: u64 },
     #[error("the rib runs on past the body beyond its sketch")]
     RunsPastDepth { entities: Vec<u64> },
+    #[error("the rib runs on past the end of its drafted faces")]
+    RunsPastFlank { entities: Vec<u64> },
     #[error("the rib runs on past the body")]
     RunsPast { entities: Vec<u64> },
     #[error("the wall could not be drawn: {0}")]
@@ -110,6 +130,8 @@ pub(crate) struct RibInput<'a> {
 }
 
 struct Frame {
+    footprint: Vec<Point2>,
+    circle: (Point2, f64),
     bounds: Aabb2,
     reach: f64,
     low: f64,
@@ -125,6 +147,11 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
         bounds.union(chain.bounds.expanded(heights.margin))
     });
     let frame = Frame {
+        footprint: footprint(input.body, &input.plane),
+        circle: (
+            bounds.center(),
+            RIM_REACH * bounds.size().length() + RIM_SLACK,
+        ),
         reach: bounds.size().length() + heights.margin,
         bounds,
         low: heights.low,
@@ -151,6 +178,46 @@ pub(crate) fn rib_tools(input: &RibInput<'_>) -> Result<Vec<Solid>, RibError> {
         }
     }
     Ok(built.into_iter().flatten().flatten().collect())
+}
+
+fn footprint(body: &Solid, plane: &Plane) -> Vec<Point2> {
+    body.bounding_box()
+        .map(|bounds| {
+            bounds
+                .corners()
+                .iter()
+                .map(|corner| {
+                    let offset = *corner - plane.origin();
+                    Point2::new(offset.dot(plane.x_axis()), offset.dot(plane.y_axis()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn flank_depth(frame: &Frame, chain: &RibChain) -> f64 {
+    let along: Vec<Point2> = chain
+        .curves
+        .iter()
+        .filter_map(|curve| curve.curve().ok())
+        .flat_map(|(path, range): (_, Interval)| {
+            (0..=FLANK_SAMPLES)
+                .map(|step| path.point(range.at(step as f64 / FLANK_SAMPLES as f64)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let reach = frame
+        .footprint
+        .iter()
+        .map(|corner| {
+            along
+                .iter()
+                .map(|point| point.distance(*corner))
+                .fold(f64::INFINITY, f64::min)
+        })
+        .filter(|distance| distance.is_finite())
+        .fold(0.0, f64::max);
+    reach * FLANK_SAFETY + FLANK_SLACK
 }
 
 pub(crate) struct RibChain {
@@ -440,6 +507,7 @@ fn seeds_in(regions: &[Region], curves: &[ProfileCurve], reaches: &[f64]) -> Vec
 }
 
 enum Escape {
+    Flank { low: f64, high: f64 },
     Ends { names: Vec<(FaceName, u64)> },
     Depth { far: FaceOrigin },
     Perimeter,
@@ -453,7 +521,7 @@ fn chain_tools(
 ) -> Result<Vec<Solid>, RibError> {
     let (slab, seeds, escapes) = match input.direction {
         RibDirection::Square => web_slab(input, frame, chain)?,
-        RibDirection::Parallel => rib_slab(input, frame, chain)?,
+        RibDirection::Parallel => flanked_slab(input, frame, chain)?,
     };
     let entities = chain.entities();
     let blocking: Vec<&Solid> = std::iter::once(input.body)
@@ -492,6 +560,21 @@ fn chain_tools(
         .collect();
     if kept.is_empty() {
         return Err(RibError::Inside { entities });
+    }
+    for escape in &escapes {
+        if let Escape::Flank { low, high } = escape {
+            let outside = kept.iter().any(|lump| {
+                lump.bounding_box().is_some_and(|bounds| {
+                    bounds.corners().iter().any(|corner| {
+                        let height = (*corner - input.plane.origin()).dot(input.plane.normal());
+                        height >= *high - FLANK_TOLERANCE || height <= *low + FLANK_TOLERANCE
+                    })
+                })
+            });
+            if outside {
+                return Err(RibError::RunsPastFlank { entities });
+            }
+        }
     }
     for lump in &kept {
         let origins: Vec<(FaceName, Option<FaceOrigin>)> = lump
@@ -534,6 +617,7 @@ fn escaped(
             }
             Ok(())
         }
+        Escape::Flank { .. } => Ok(()),
         Escape::Perimeter => {
             let past = origins.iter().any(|(_, origin)| {
                 matches!(origin, Some(FaceOrigin::Side { entity, .. }) if PERIMETER_ENTITIES.contains(entity))
@@ -714,34 +798,21 @@ fn web_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Sla
     ))
 }
 
-fn rib_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Slab, RibError> {
-    let thickness = input.thickness;
-    let bounds = &frame.bounds;
-    let perimeter = Perimeter::new(bounds);
-    let entities = chain.entities();
-    let degenerate = || RibError::Degenerate {
-        entities: entities.clone(),
-    };
-    let start = perimeter
-        .exit(bounds, &chain.start)
-        .ok_or_else(degenerate)?;
-    let finish = perimeter
-        .exit(bounds, &chain.finish)
-        .ok_or_else(degenerate)?;
-    let corners = perimeter.walk(finish, start, !input.reversed);
-    let (mut curves, _) = carried_on(chain, start.1, finish.1);
-    let around = corners
+fn rim_closed(
+    curves: &[ProfileCurve],
+    rim: &[ProfileCurve],
+    mark: u64,
+    crosses: impl Fn() -> RibError,
+) -> Result<Vec<Region>, RibError> {
+    let marked: Vec<ProfileCurve> = curves
         .iter()
-        .copied()
-        .zip(corners.iter().copied().skip(1))
-        .filter(|(from, to)| from.distance(*to) > LINEAR_RESOLUTION);
-    for (entity, (from, to)) in PERIMETER_ENTITIES.iter().zip(around) {
-        curves.push(ProfileCurve::line(*entity, from, to));
-    }
-    let crosses = || RibError::CrossesItself {
-        entities: entities.clone(),
-    };
-    let profile = Profile::new(&curves).map_err(|error| match error {
+        .map(|curve| ProfileCurve {
+            entity: curve.entity | mark,
+            ..curve.clone()
+        })
+        .chain(rim.iter().cloned())
+        .collect();
+    let profile = Profile::new(&marked).map_err(|error| match error {
         ProfileError::NoClosedProfile { .. } => crosses(),
         other => RibError::Profile(other),
     })?;
@@ -749,25 +820,145 @@ fn rib_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Sla
     if regions.len() != 1 {
         return Err(crosses());
     }
-    let (extent, middle) = match input.side {
-        RibSide::OneSide => (LinearExtent::new(0.0, thickness), 0.5 * thickness),
-        RibSide::OtherSide => (LinearExtent::new(-thickness, 0.0), -0.5 * thickness),
-        RibSide::Symmetric => (LinearExtent::symmetric(thickness), 0.0),
+    Ok(regions.to_vec())
+}
+
+fn rectangular_rim(
+    input: &RibInput<'_>,
+    bounds: &Aabb2,
+    chain: &RibChain,
+) -> Option<(Point2, Point2, Vec<ProfileCurve>)> {
+    let perimeter = Perimeter::new(bounds);
+    let start = perimeter.exit(bounds, &chain.start)?;
+    let finish = perimeter.exit(bounds, &chain.finish)?;
+    let corners = perimeter.walk(finish, start, !input.reversed);
+    let rim = PERIMETER_ENTITIES
+        .iter()
+        .zip(
+            corners
+                .iter()
+                .copied()
+                .zip(corners.iter().copied().skip(1))
+                .filter(|(from, to)| from.distance(*to) > LINEAR_RESOLUTION),
+        )
+        .map(|(entity, (from, to))| ProfileCurve::line(*entity, from, to))
+        .collect();
+    Some((start.1, finish.1, rim))
+}
+
+fn circular_rim(
+    input: &RibInput<'_>,
+    frame: &Frame,
+    chain: &RibChain,
+) -> Option<(Point2, Point2, Vec<ProfileCurve>)> {
+    let (centre, radius) = frame.circle;
+    let exit = |end: &End| -> Option<Point2> {
+        let gap = end.point - centre;
+        let along = gap.dot(end.outward);
+        let beyond = gap.length_squared() - radius * radius;
+        let discriminant = along * along - beyond;
+        (discriminant >= 0.0).then(|| end.point + end.outward * (discriminant.sqrt() - along))
     };
-    let slab = extrude(
-        &input.plane,
-        regions,
-        extent.map_err(RibError::Sweep)?,
-        input.feature,
-    )
-    .map_err(RibError::Sweep)?;
-    let depth = seed_depth(thickness);
+    let (start, finish) = (exit(&chain.start)?, exit(&chain.finish)?);
+    let arc = if input.reversed {
+        ProfileCurve::arc(PERIMETER_ENTITIES[0], centre, start, finish)
+    } else {
+        ProfileCurve::arc(PERIMETER_ENTITIES[0], centre, finish, start)
+    };
+    Some((start, finish, vec![arc]))
+}
+
+fn flanked_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Slab, RibError> {
+    let scales: &[f64] = if input.draft > 0.0 {
+        &FLANK_DEPTH_SCALES
+    } else {
+        &[1.0]
+    };
+    let mut attempts = scales.iter();
+    loop {
+        let Some(scale) = attempts.next() else {
+            return rib_slab(input, frame, chain, 1.0);
+        };
+        match rib_slab(input, frame, chain, *scale) {
+            Err(RibError::Sweep(SweepError::TaperCloses { .. })) if attempts.len() > 0 => {}
+            other => return other,
+        }
+    }
+}
+
+fn rib_slab(
+    input: &RibInput<'_>,
+    frame: &Frame,
+    chain: &RibChain,
+    scale: f64,
+) -> Result<Slab, RibError> {
+    let thickness = input.thickness;
+    let bounds = &frame.bounds;
+    let entities = chain.entities();
+    let degenerate = || RibError::Degenerate {
+        entities: entities.clone(),
+    };
+    let (start, finish, rim) = if input.draft > 0.0 {
+        circular_rim(input, frame, chain).ok_or_else(degenerate)?
+    } else {
+        rectangular_rim(input, bounds, chain).ok_or_else(degenerate)?
+    };
+    let (curves, _) = carried_on(chain, start, finish);
+    let crosses = || RibError::CrossesItself {
+        entities: entities.clone(),
+    };
+    let regions = rim_closed(&curves, &rim, 0, crosses)?;
+    let (low, high, middle) = match input.side {
+        RibSide::OneSide => (0.0, thickness, 0.5 * thickness),
+        RibSide::OtherSide => (-thickness, 0.0, -0.5 * thickness),
+        RibSide::Symmetric => (-0.5 * thickness, 0.5 * thickness, 0.0),
+    };
+    let extent = LinearExtent::new(low, high).map_err(RibError::Sweep)?;
+    let mut slab =
+        extrude(&input.plane, &regions, extent, input.feature).map_err(RibError::Sweep)?;
+    if input.draft > 0.0 {
+        let depth = flank_depth(frame, chain) * scale;
+        let rise = depth * input.draft.tan();
+        let flanks = [
+            (input.side != RibSide::OtherSide).then_some((FRONT_FLANK, high, high + rise)),
+            (input.side != RibSide::OneSide).then_some((BACK_FLANK, low, low - rise)),
+        ];
+        for (mark, from, to) in flanks.into_iter().flatten() {
+            let flank_regions = rim_closed(&curves, &rim, mark, crosses)?;
+            let flank = extrude_flared(
+                &input.plane,
+                &flank_regions,
+                LinearExtent::new(from, to).map_err(RibError::Sweep)?,
+                input.draft,
+                input.feature,
+            )
+            .map_err(RibError::Sweep)?;
+            slab = boolean(&slab, &flank, BooleanOperation::Union).map_err(RibError::Boolean)?;
+        }
+    }
+    let seed_depth = seed_depth(thickness);
     let normal = input.plane.normal();
-    let seeds = seeds_in(regions, &chain.curves, &[depth, -depth])
+    let seeds = seeds_in(&regions, &chain.curves, &[seed_depth, -seed_depth])
         .into_iter()
         .map(|point| input.plane.to_world(point) + normal * middle)
         .collect();
-    Ok((slab, seeds, vec![Escape::Perimeter]))
+    let mut escapes = vec![Escape::Perimeter];
+    if input.draft > 0.0 {
+        let rise = flank_depth(frame, chain) * scale * input.draft.tan();
+        escapes.push(Escape::Flank {
+            low: if input.side == RibSide::OneSide {
+                f64::NEG_INFINITY
+            } else {
+                low - rise
+            },
+            high: if input.side == RibSide::OtherSide {
+                f64::INFINITY
+            } else {
+                high + rise
+            },
+        });
+    }
+    Ok((slab, seeds, escapes))
 }
 
 pub(crate) fn facing_body(

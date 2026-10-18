@@ -611,9 +611,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Panel (`rib_panel.rs`): Sketch (combo of the sketches above, those not `is_rib_path` refused in
   words), Body (bodies before it), Direction (Parallel to sketch, Square to sketch, segmented),
   Thickness (keyed `("rib-field", feature, "thickness")`), Side (One side, Other side, Symmetric,
-  each hover saying which side for the direction), for a web only Draft (`DRAFT`, keyed
-  `("rib-field", feature, "draft")`, `Rule::RibDraft`: 0° up to below `MAX_RIB_DRAFT_DEGREES`) and
-  Free ends (`ENDS`: Straight on, Round the arc, segmented, `rib_tools::with_ends`), and a reverse
+  each hover saying which side for the direction), Draft (`DRAFT`, either direction, keyed
+  `("rib-field", feature, "draft")`, `Rule::RibDraft`: 0° up to below `MAX_RIB_DRAFT_DEGREES`) and,
+  for a web only, Free ends (`ENDS`: Straight on, Round the arc, segmented, `rib_tools::with_ends`), and a reverse
   checkbox worded for the direction
   (`REVERSE_FILL`, `REVERSE_DIRECTION`). It is not `modifies_body`, so the view shows the ribbed
   body while it is open. Reverse direction flips `reversed`. Its value arrow is

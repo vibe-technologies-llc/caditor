@@ -302,8 +302,10 @@ fn chain_region(
             OffsetFailure::Folds(..) => WallError::Folds { entities: named },
         }
     };
-    let left_side = offset_courses(&strands, chain.closed, left, tolerance).map_err(failure)?;
-    let right_side = offset_courses(&strands, chain.closed, -right, tolerance).map_err(failure)?;
+    let left_side =
+        offset_courses(&strands, chain.closed, left, None, tolerance).map_err(failure)?;
+    let right_side =
+        offset_courses(&strands, chain.closed, -right, None, tolerance).map_err(failure)?;
     let right_pieces = right_side
         .iter()
         .zip(&linked)

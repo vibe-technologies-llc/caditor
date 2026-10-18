@@ -67,7 +67,8 @@ sketch from the panel's **Sketch** list does the same.
 **Start** begins at the sketch plane, an offset from it, or another face or plane (a face you
 select or click, or a plane picked from the **Starts at** list), and the
 distance arrows stand at the ends measured from there. **Taper** angles the sides inward or
-outward.
+outward; a region made of one whole closed spline or ellipse cannot take one, but any outline
+of several pieces can.
 
 **Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
 edge, sketch line or axis you select, measuring the distance along it.

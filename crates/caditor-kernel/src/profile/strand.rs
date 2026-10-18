@@ -87,10 +87,6 @@ impl Strand {
         }
     }
 
-    pub fn of_piece(piece: &Piece) -> Option<Self> {
-        Self::of_curve(piece.curve(), piece.range(), piece.is_reversed())
-    }
-
     pub fn is_line(&self) -> bool {
         matches!(self, Self::Line { .. })
     }
@@ -402,11 +398,6 @@ pub(crate) fn is_smooth_turn(leaving: Vector2, entering: Vector2) -> bool {
     leaving.perp_dot(entering).abs() <= SMOOTH_TURN
 }
 
-pub(crate) fn is_smooth(before: &Strand, after: &Strand) -> bool {
-    let (leaving, entering) = (before.end_tangent(), after.start_tangent());
-    is_smooth_turn(leaving, entering) && leaving.dot(entering) > 0.0
-}
-
 pub(crate) fn offset_strands(
     strands: &[Strand],
     closed: bool,
@@ -470,21 +461,6 @@ pub(crate) fn offset_strands(
         }
     }
     Ok(trimmed)
-}
-
-pub(crate) fn polygon(strands: &[Strand]) -> Vec<Point2> {
-    let mut points: Vec<Point2> = Vec::new();
-    for strand in strands {
-        let mut sampled = strand.points();
-        if !points.is_empty() && !sampled.is_empty() {
-            sampled.remove(0);
-        }
-        points.extend(sampled);
-    }
-    if points.len() > 1 && points.first() == points.last() {
-        points.pop();
-    }
-    points
 }
 
 pub(crate) fn signed_area(polygon: &[Point2]) -> f64 {

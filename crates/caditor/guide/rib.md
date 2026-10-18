@@ -43,10 +43,12 @@ body starts square to its sketch.
 - **Side**: **One side**, **Other side** or **Symmetric**. A rib parallel to its sketch is thick
   in front of the sketch (the way its normal points), behind it, or half each way. A web is thick
   to the left of its curves walked from their first end, to the right, or half each way.
-- **Draft** (a web only) tilts the web's sides so that it widens by that angle toward the body, as
-  a moulded part needs to leave its mould. It takes units and expressions from 0° up to below 30°;
-  the thickness is the web's width at the sketch. A web along a spline or an elliptical arc takes
-  no draft.
+- **Draft** tilts the rib's broad faces so that it widens by that angle toward the body, as a
+  moulded part needs to leave its mould. It takes units and expressions from 0° up to below 30°;
+  the thickness is the rib's width at the sketch's curves, along lines, arcs, splines and
+  elliptical arcs alike. A rib parallel to its sketch takes a draft of 0.1° or more (a smaller one
+  is refused, 0° is none); of a rib thick to one side only, the face in the sketch plane stays
+  flat and only the other face leans.
 - **Free ends** (a web only): **Straight on** runs the free ends on along their last direction;
   **Round the arc** carries the free end of an arc on round its circle until it meets the body,
   while a line's end still runs on straight.
@@ -74,8 +76,9 @@ The rib fails alone, with the body before it kept, and says why:
   through, fixed in the sketch;
 - a web thicker than the bend of an arc, spline or ellipse allows, or one running into itself
   (carried round its arcs, carry its ends on straight instead);
-- a draft below 0° or of 30° or more, or a draft so steep that the bend of an arc closes up before
-  the web reaches the body: make the draft smaller.
+- a draft below 0° or of 30° or more, a draft of a rib parallel to its sketch under 0.1°, or a
+  draft so steep that the bend of a curve closes up before the rib reaches the body: change the
+  draft, or make it smaller.
 
 The rib's faces are named after it and the curves that made it ("Rib 1 side from Line 2", "Rib 1
 top face", "Rib 1 side carried on from Arc 3"), so later fillets and references keep hold of them

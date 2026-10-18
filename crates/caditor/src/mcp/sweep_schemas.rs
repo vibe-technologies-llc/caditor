@@ -300,7 +300,7 @@ pub fn rib() -> Value {
             "thickness": amount("The rib's thickness, 2 mm by default"),
             "side": choice(&["symmetric", "one_side", "other_side"], "Which side of the curves the thickness lies"),
             "direction": choice(&["parallel", "square"], "Grow within the sketch plane or square to it"),
-            "draft": amount("A web's draft, such as \"1 deg\": it widens by it toward the body; ignored parallel to the sketch"),
+            "draft": amount("A rib's or web's draft, such as \"1 deg\": it widens by it toward the body; a rib parallel to the sketch takes at least 0.1 deg"),
             "ends": choice(&["straight", "round_arcs"], "A web's free arc ends run on straight (the default) or round their circles"),
             "reversed": flag("Grow towards the other side"),
             "name": name()

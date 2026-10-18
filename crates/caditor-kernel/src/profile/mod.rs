@@ -3,6 +3,7 @@ mod course;
 mod culprits;
 mod error;
 mod geometry;
+mod grading;
 mod intersect;
 mod reference;
 mod region;
@@ -20,13 +21,15 @@ use std::collections::BTreeSet;
 
 use caditor_geometry::{Aabb2, Point2, Vector2};
 
-pub(crate) use self::strand::{
-    OffsetFailure, Strand, is_smooth, offset_strands, polygon, polygons_cross, signed_area,
-};
 use self::{
     arrangement::Arrangement,
     culprits::culprits,
     region::{base_keys, lumps, shared_keys, with_keys},
+};
+pub(crate) use self::{
+    course::{Bend, Course, offset_courses, outline_of},
+    grading::graded,
+    strand::{OffsetFailure, Strand, is_smooth_turn, polygons_cross, signed_area},
 };
 pub use self::{
     error::{Neighbour, OpenEnd, ProfileError},

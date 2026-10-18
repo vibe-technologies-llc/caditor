@@ -5,6 +5,7 @@ mod reach;
 mod revolve;
 mod sweep;
 mod taper;
+mod taper_bent;
 #[cfg(test)]
 mod taper_tests;
 #[cfg(test)]
@@ -34,7 +35,7 @@ pub use self::{
         PipeShape, PipeStand, SweepOrientation, SweepShape, WindingAxis, pipe, pipe_stand, sweep,
         sweep_shaped,
     },
-    taper::{MAX_TAPER_DEGREES, extrude_tapered},
+    taper::{MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered},
     wrap::{WrapError, wrap_regions},
     wrap_cut::wrap_chain,
 };
@@ -109,7 +110,11 @@ pub enum SweepError {
     OnAxis,
     #[error("a taper must stay below {MAX_TAPER_DEGREES}°")]
     TaperTooSteep,
-    #[error("{} cannot be tapered; only lines, arcs and circles can", curves(.entities))]
+    #[error(
+        "a flank must lean at least {MIN_FLANK_DEGREES}° from the sketch and less than a right angle"
+    )]
+    FlankOutOfRange,
+    #[error("{} closes on itself as a whole spline or ellipse, which cannot be tapered", curves(.entities))]
     TaperedUnsupportedCurve { entities: Vec<u64> },
     #[error("a tapered extrusion needs both ends parallel to the sketch")]
     TaperedTiltedEnd,
@@ -160,6 +165,7 @@ impl SweepError {
             | Self::DegenerateAxis
             | Self::OnAxis
             | Self::TaperTooSteep
+            | Self::FlankOutOfRange
             | Self::TaperedTiltedEnd
             | Self::Unassembled
             | Self::Geometry(_)

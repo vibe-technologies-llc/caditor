@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, FaceOrigin, Solid, SweepError, WallError, boolean,
+    BooleanError, BooleanOperation, FaceOrigin, MIN_FLANK_DEGREES, Solid, SweepError, WallError,
+    boolean,
 };
 use caditor_sketch::{EntityId, Sketch};
 
@@ -14,7 +15,7 @@ use crate::{
     recompute::{CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     rib_tool::{
         RibDirection, RibEnds, RibError, RibInput, RibSide, ThicknessStand, chains, facing_body,
-        is_run, rib_tools, run_curve, thickness_stand,
+        is_flank, is_run, rib_tools, run_curve, thickness_stand,
     },
     solid::{SolidResult, profile_curves},
     sweep::capital,
@@ -117,6 +118,9 @@ pub(crate) fn face_words(document: &Document, rib: &Rib, origin: FaceOrigin) -> 
             )
     };
     match (origin, rib.direction) {
+        (FaceOrigin::Side { entity, .. }, _) if is_flank(entity) => {
+            format!("drafted face along {}", curve(entity))
+        }
         (FaceOrigin::Side { entity, .. }, _) if is_run(entity) => {
             format!("side carried on from {}", curve(entity))
         }
@@ -231,13 +235,6 @@ impl Words<'_> {
                 curves: self.curves(&entities),
                 direction,
             }),
-            RibError::Sweep(SweepError::TaperedUnsupportedCurve { entities }) => {
-                self.in_sketch(RibCause::DraftUnsupported {
-                    sketch,
-                    name,
-                    curves: self.drawn(&entities),
-                })
-            }
             RibError::Wall(WallError::TooThick { entities }) => self.own(RibCause::ThickBend {
                 name,
                 curves: self.curves(&entities),
@@ -248,6 +245,11 @@ impl Words<'_> {
                 self.own(RibCause::ArcsCross { name })
             }
             RibError::Wall(WallError::CrossesItself) => self.own(RibCause::Crosses { name }),
+            RibError::RunsPastFlank { entities } => self.own(RibCause::DraftCloses {
+                name,
+                curves: self.drawn(&entities),
+                body,
+            }),
             RibError::Sweep(SweepError::TaperCloses { entities }) if !entities.is_empty() => self
                 .own(RibCause::DraftCloses {
                     name,
@@ -264,7 +266,11 @@ impl Words<'_> {
     }
 }
 
-fn draft(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure> {
+fn draft(
+    context: &Context<'_>,
+    expression: &Expression,
+    direction: RibDirection,
+) -> Result<f64, Failure> {
     let degrees = context.value_as(expression, "draft angle", Dimension::ANGLE)?;
     let shape = context.shape();
     if degrees < 0.0 {
@@ -274,6 +280,11 @@ fn draft(context: &Context<'_>, expression: &Expression) -> Result<f64, Failure>
     }
     if degrees >= MAX_RIB_DRAFT_DEGREES {
         return Err(context.error(RibCause::DraftSteep {
+            shape: shape.to_owned(),
+        }));
+    }
+    if direction == RibDirection::Parallel && degrees > 0.0 && degrees < MIN_FLANK_DEGREES {
+        return Err(context.error(RibCause::DraftShallow {
             shape: shape.to_owned(),
         }));
     }
@@ -310,10 +321,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context::new(feature, inputs, RIB_SHAPE);
     let thickness = context.size(&definition.thickness, "thickness")?;
-    let draft = match definition.direction {
-        RibDirection::Square => draft(&context, &definition.draft)?,
-        RibDirection::Parallel => 0.0,
-    };
+    let draft = draft(&context, &definition.draft, definition.direction)?;
     let sketch = sketch_of(inputs, feature, definition.sketch)?;
     let body = inputs
         .body(definition.body)
@@ -475,11 +483,6 @@ pub(crate) enum RibCause {
         curves: String,
         direction: RibDirection,
     },
-    DraftUnsupported {
-        sketch: String,
-        name: String,
-        curves: String,
-    },
     ThickBend {
         name: String,
         curves: String,
@@ -508,6 +511,9 @@ pub(crate) enum RibCause {
         shape: String,
     },
     DraftSteep {
+        shape: String,
+    },
+    DraftShallow {
         shape: String,
     },
     SketchFailed {
@@ -582,14 +588,6 @@ impl RibCause {
                 "On the side it fills, {name} is not closed off by faces of {body}: from {curves} \
                  it would run on past the body."
             ),
-            Self::DraftUnsupported {
-                sketch,
-                name,
-                curves,
-            } => format!(
-                "With a draft, {sketch} cannot give {name} a web along {curves}; a draft follows \
-                 only lines and arcs."
-            ),
             Self::ThickBend { name, curves } => {
                 format!("{name} is too thick for the bend of {curves}.")
             }
@@ -598,8 +596,8 @@ impl RibCause {
             }
             Self::Crosses { name } => format!("Thickened, {name} runs into itself."),
             Self::DraftCloses { name, curves, body } => format!(
-                "With its draft, {name} widens until the bend of {curves} closes up before the \
-                 web has run past {body}."
+                "With its draft, {name} widens until the bend of {curves} closes up before it \
+                 has run past {body}."
             ),
             Self::Unbuilt { name, body } => {
                 format!("{name} cannot be built where it meets {body}.")
@@ -614,6 +612,9 @@ impl RibCause {
             }
             Self::DraftSteep { shape } => {
                 format!("The draft of the {shape} is {MAX_RIB_DRAFT_DEGREES}° or steeper.")
+            }
+            Self::DraftShallow { shape } => {
+                format!("The draft of the {shape} is under {MIN_FLANK_DEGREES}°.")
             }
             Self::SketchFailed { feature, name } => {
                 format!("{feature} uses {name}, which has an error.")
@@ -664,9 +665,6 @@ impl RibCause {
             Self::RunsPastDepth { .. } => {
                 "Reverse its direction, or move the curves over the body.".to_owned()
             }
-            Self::DraftUnsupported { .. } => {
-                "Draw the web with lines and arcs, or set the draft to 0°.".to_owned()
-            }
             Self::ThickBend { .. } => "Make the rib thinner or the bend gentler.".to_owned(),
             Self::ArcsCross { .. } => {
                 "Carry its ends on straight instead, or draw the arcs so that, carried on round \
@@ -686,12 +684,16 @@ impl RibCause {
             }
             Self::Uncombined { trouble, .. } => trouble.remedy(),
             Self::DraftNegative { .. } => format!(
-                "Enter a draft angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°; the web \
+                "Enter a draft angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°; the rib \
                  widens by it toward the body."
             ),
             Self::DraftSteep { .. } => {
                 format!("Enter a draft angle from 0° up to below {MAX_RIB_DRAFT_DEGREES}°.")
             }
+            Self::DraftShallow { .. } => format!(
+                "Enter a draft angle of 0° for none, or from {MIN_FLANK_DEGREES}° up to below \
+                 {MAX_RIB_DRAFT_DEGREES}°."
+            ),
             Self::SketchFailed { name, .. } => format!("Fix {name} first."),
         }
     }

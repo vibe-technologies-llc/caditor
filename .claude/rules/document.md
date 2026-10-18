@@ -709,10 +709,24 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   steeper fails on the rib) are its expressions (parameters, inlining; model scale reaches the
   thickness, a length). A web's draft
   tapers its wall outward away from the sketch (`extrude_tapered` by minus the draft), so it widens
-  toward the body, and fails in words on a spline or ellipse (`SweepError::TaperedUnsupportedCurve`); `RibEnds` says whether a web's free arc ends run on straight (`Straight`) or
-  round their circles (`RoundArcs`). A rib parallel to its sketch keeps both but ignores them
-  (`Rib::is_drafted` says whether the draft is a literal zero). The sketch is in
-  `reference_sketches` and `features()`.
+  toward the body; lines, arcs, splines and ellipses all take it (a wall's edges along a spline
+  are fitted splines the taper sweeps as ruled surfaces, two splines meeting at a corner are
+  mitred, `kernel-profile.md`). A rib parallel to its sketch takes it too, as flanks: its
+  thickness is its width at the free edge (the sketch's curves) and its broad faces lean the draft
+  from the sketch plane, widening toward the body (`Rib::is_drafted` says whether the draft is a
+  literal zero); a drafted rib's region is closed by one big circle round the whole sketch and
+  body instead of the bounding rectangle (so no short rim edge is drawn in to nothing), the flat
+  slab keeps its thickness and a flank (`extrude_flared`, from the slab's face up to the depth the
+  farthest corner of the body's box lies from the curves, so it is cut by the body) is united to
+  each face that leans: both for `Symmetric`, the front for `OneSide`, the back for `OtherSide`
+  (a one-sided rib's other face stays in the sketch plane). The flank's faces carry the curve's
+  entity marked `FRONT_FLANK` or `BACK_FLANK` (`is_flank`, read as "drafted face along"), so they
+  are named apart from the edge face. A flank whose bend closes up (`TaperCloses`) is tried again
+  at half, a quarter and an eighth of the depth; a kept lump reaching the flank's far cap is
+  `RunsPastFlank`, as is `DraftCloses` in words. A rib's draft above 0 and under
+  `MIN_FLANK_DEGREES` is `DraftShallow`. `RibEnds` says whether a web's free arc ends run on
+  straight (`Straight`) or round their circles (`RoundArcs`); a rib parallel to its sketch keeps
+  `ends` but ignores it. The sketch is in `reference_sketches` and `features()`.
 - `rib_tool::rib_tools` builds a generous tool per chain and keeps only what lies between the drawn
   curves and the body. Chains (`rib_tool::chains`) come from the curve ends shared at each point
   (`split::curve_links`): at a point where several ends meet, the two running straightest through

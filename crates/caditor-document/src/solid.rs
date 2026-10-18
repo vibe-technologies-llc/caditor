@@ -1732,7 +1732,10 @@ pub(crate) fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepErr
             at: (!entities.is_empty()).then(|| context.curves(entities)),
             shape,
         }),
-        SweepError::Unassembled | SweepError::Geometry(_) | SweepError::Invalid { .. } => {
+        SweepError::Unassembled
+        | SweepError::FlankOutOfRange
+        | SweepError::Geometry(_)
+        | SweepError::Invalid { .. } => {
             log::warn!("{} could not be built: {error}", context.feature.name);
             context.error(SolidCause::Unbuilt { shape, sketch })
         }

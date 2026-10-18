@@ -64,10 +64,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Draft angle on existing faces: a fixed angle from a plane, a split at a parting
   line with an angle on each side, and an angle per face, following tangent faces as one chain. Move
   face now tilts faces about an axis with their neighbours following, which a draft can build on.
-- [low · medium] A web (`rib.rs`) along a spline or ellipse takes no draft (`extrude_tapered`
-  refuses them) and two such curves meeting at a sharp corner are `Apart`, and a rib parallel to
-  its sketch takes no draft and runs its free arc ends on only along their tangent (both are a
-  web's alone).
+- [low · medium] A rib parallel to its sketch runs its free arc ends on only along their tangent
+  (`RibEnds::RoundArcs` is a web's alone).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

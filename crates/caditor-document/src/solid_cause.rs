@@ -480,8 +480,9 @@ impl SolidCause {
                 "The {shape} of the region of {sketch} bounded by {curves} could not be built."
             ),
             Self::TaperUnsupported { sketch, curves } => format!(
-                "In {sketch}, {curves} cannot be tapered; a taper follows only lines, arcs and \
-                 circles."
+                "In {sketch}, {curves} is a whole spline or ellipse closing on itself, which \
+                 cannot be tapered; a taper follows its open pieces only when something else \
+                 closes the outline."
             ),
             Self::TaperTilted {
                 shape,
@@ -744,7 +745,9 @@ impl SolidCause {
                 format!("Change {which} in {sketch}, or leave that region out.")
             }
             Self::TaperUnsupported { sketch, .. } => {
-                format!("Draw it with lines and arcs in {sketch}, or set the taper to 0°.")
+                format!(
+                    "Split it in {sketch} or close an outline of other curves, or set the taper to 0°."
+                )
             }
             Self::TaperTilted { .. } => {
                 "Enter a distance, choose a parallel face or plane, or set the taper to 0°."

@@ -618,8 +618,11 @@ fn a_web_s_arc_whose_circle_never_meets_the_body_fails_naming_it() {
     assert!(error.remedy().contains("straight"), "{}", error.remedy());
 }
 
+const HYPOTENUSE_DISTANCE_AT_X10: f64 = (24.0 * 35.0 - 5.0 * 25.0) / 43.011626335213144;
+
 #[test]
-fn a_rib_parallel_to_its_sketch_leaves_its_draft_aside() {
+fn a_rib_parallel_to_its_sketch_thickens_toward_the_body_by_its_draft() {
+    let angle = 5.0_f64.to_radians();
     let model = ribbed(middle_sketch(), |rib| {
         rib.reversed = true;
         rib.draft = length("5 deg");
@@ -628,11 +631,59 @@ fn a_rib_parallel_to_its_sketch_leaves_its_draft_aside() {
     let evaluation = evaluate(&model.document);
 
     assert_eq!(evaluation.failed_count(), 0);
-    assert_volume(
-        &evaluation,
-        model.body,
-        BOX_VOLUME + 0.5 * 35.0 * 25.0 * 4.0,
+    let area = 0.5 * 35.0 * 25.0;
+    let altitude = 35.0 * 25.0 / 35.0_f64.hypot(25.0);
+    let expected = BOX_VOLUME + 4.0 * area + 2.0 * angle.tan() * area * altitude / 3.0;
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - expected).abs() < 2e-3 * (expected - BOX_VOLUME),
+        "{found} {expected}"
     );
+    let solid = evaluation.body(model.body).unwrap();
+    let half = 2.0 + HYPOTENUSE_DISTANCE_AT_X10 * angle.tan();
+    for side in [-1.0, 1.0] {
+        assert_eq!(
+            solid.classify_point(Point3::new(10.0, 30.0 + side * (half - 0.1), 6.0)),
+            PointClass::Inside
+        );
+        assert_eq!(
+            solid.classify_point(Point3::new(10.0, 30.0 + side * (half + 0.1), 6.0)),
+            PointClass::Outside
+        );
+    }
+}
+
+#[test]
+fn a_one_sided_rib_drafts_only_its_free_face_and_a_flat_draft_fails_in_words() {
+    let model = ribbed(middle_sketch(), |rib| {
+        rib.reversed = true;
+        rib.side = RibSide::OneSide;
+        rib.draft = length("4 deg");
+    });
+    let evaluation = evaluate(&model.document);
+    assert_eq!(evaluation.failed_count(), 0);
+    let solid = evaluation.body(model.body).unwrap();
+    let front = 30.0 - (4.0 + HYPOTENUSE_DISTANCE_AT_X10 * 4.0_f64.to_radians().tan());
+    for (y, class) in [
+        (30.05, PointClass::Outside),
+        (29.9, PointClass::Inside),
+        (front + 0.1, PointClass::Inside),
+        (front - 0.1, PointClass::Outside),
+    ] {
+        assert_eq!(
+            solid.classify_point(Point3::new(10.0, y, 6.0)),
+            class,
+            "{y}"
+        );
+    }
+
+    let flat = ribbed(middle_sketch(), |rib| {
+        rib.reversed = true;
+        rib.draft = length("0.05 deg");
+    });
+    let error = failure(&evaluate(&flat.document), flat.rib);
+    assert!(error.reason().contains("under"), "{}", error.reason());
+    assert_eq!(error.fix, Some(FixTarget::Feature(flat.rib)));
 }
 
 fn run_to_walls(from: Point2, outward: Vector2) -> f64 {
@@ -734,7 +785,7 @@ fn a_web_along_a_spline_runs_its_ends_on_and_reads_by_its_curve() {
 }
 
 #[test]
-fn a_web_along_a_spline_with_a_draft_fails_saying_only_lines_and_arcs_take_one() {
+fn a_web_along_a_spline_takes_a_draft_and_widens_toward_the_floor() {
     let mut sketch = Sketch::new(top_plane());
     sketch.add_spline(&[
         Point2::new(30.0, 20.0),
@@ -742,17 +793,57 @@ fn a_web_along_a_spline_with_a_draft_fails_saying_only_lines_and_arcs_take_one()
         Point2::new(60.0, 20.0),
         Point2::new(75.0, 40.0),
     ]);
+    let path = path_inside_box(&sketch);
     let model = ribbed(sketch, |rib| {
         web(rib);
+        rib.draft = length("2 deg");
+    });
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let plain = 4.0 * 25.0 * path;
+    let widening = path * 25.0 * 25.0 * 2.0_f64.to_radians().tan();
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - BOX_VOLUME - plain - widening).abs() < 0.03 * (plain + widening),
+        "{found}"
+    );
+    assert!(found > BOX_VOLUME + plain);
+}
+
+#[test]
+fn a_drafted_rib_along_a_spline_is_thicker_than_the_same_rib_without_a_draft() {
+    let plane =
+        Plane::with_x_axis(Point3::new(0.0, 30.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap();
+    let curve = || {
+        let mut sketch = Sketch::new(plane);
+        sketch.add_spline(&[
+            Point2::new(12.0, 28.0),
+            Point2::new(20.0, 22.0),
+            Point2::new(28.0, 17.0),
+            Point2::new(36.0, 8.0),
+        ]);
+        sketch
+    };
+    let straight = ribbed(curve(), |rib| rib.reversed = true);
+    let drafted = ribbed(curve(), |rib| {
+        rib.reversed = true;
         rib.draft = length("3 deg");
     });
 
-    let error = failure(&evaluate(&model.document), model.rib);
+    let (flat, leaning) = (evaluate(&straight.document), evaluate(&drafted.document));
 
+    if flat.failed_count() != 0 {
+        panic!("flat {}", failure(&flat, straight.rib).reason());
+    }
+    if leaning.failed_count() != 0 {
+        panic!("leaning {}", failure(&leaning, drafted.rib).reason());
+    }
+    let plain = volume(&flat, straight.body) - BOX_VOLUME;
+    let extra = volume(&leaning, drafted.body) - BOX_VOLUME - plain;
     assert!(
-        error.reason().contains("only lines and arcs"),
-        "{}",
-        error.reason()
+        extra > 0.02 * plain && extra < 0.5 * plain,
+        "{extra} {plain}"
     );
-    assert!(error.remedy().contains("draft"), "{}", error.remedy());
 }

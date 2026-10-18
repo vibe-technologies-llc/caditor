@@ -103,7 +103,7 @@ pub enum RuleError {
          rises"
     )]
     CoilTaperOutside { limit: f64 },
-    #[error("Enter an angle from 0° up to below {below}°; the web widens by it toward the body")]
+    #[error("Enter an angle from 0° up to below {below}°; the rib widens by it toward the body")]
     RibDraftOutside { below: f64 },
 }
 

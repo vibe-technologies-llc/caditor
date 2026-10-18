@@ -90,17 +90,25 @@ paths:
   with bounds no arrangement makes, so faces are named stably whichever way the chain is drawn:
   the entity's right side `(Start, End)`, left `(End, Start)`, cap at its start `(Start, Start)`
   and end `(End, End)`. Too thick a wall, corners that no longer meet, a turned-over loop or walls
-  crossing each other (`CrossesItself`) are refused. The regions extrude and revolve like any
-  other, and taper when made of lines and arcs.
+  crossing each other (`CrossesItself`) are refused. The regions extrude, revolve and taper like any
+  other, splines and ellipses included.
 - A chain holding a spline, ellipse or elliptical arc offsets through `Course` (`course.rs`): a
-  `Strand` or a `Bent` curve (its source and a signed offset, exact: a point moved along the
-  curve's left normal), and a `Fitted` point list once trimmed. A chain of strands alone goes
-  through `offset_strands` unchanged. A bent curve whose offset would pass `STRETCH_FLOOR` of its
-  length or fold back (`1 - offset * curvature`) is `Shrinks`. Joints: tangent ones need no
-  trimming; a sharp one between a curve and a strand is the root of the offset curve's signed
-  distance to the strand's moved carrier nearest the corner, or the end tangent's ray meeting that
-  carrier (`bent_meeting`), the curve cut there; two curves meeting sharply are `Apart`. An offset
-  curve, trimmed or not, becomes a cubic interpolating spline through exact offset points, doubled
-  from `FIRST_FIT_SPANS` until it strays from the offset by at most `FIT_TOLERANCE` of the curve's
-  reach (at most `MAX_FIT_SPANS`); a side at zero offset keeps the original curve. A whole ellipse
-  is a closed chain of one curve, its ring sides closed fitted splines.
+  `Strand` or a `Bent` curve (its source, a signed offset and its reach, exact: a point moved along
+  the curve's left normal, continued straight along the end tangent beyond fractions 0 and 1), and
+  a `Trimmed` one once cut (its two `Cut`s: a fraction, which runs past 0 or 1 by the length of
+  the tangent ray used, and the point). A chain of strands alone goes through `offset_strands`
+  unchanged. A bent curve whose offset would pass `STRETCH_FLOOR` of its length or fold back
+  (`1 - offset * curvature`) is `Shrinks`. Joints: tangent ones need no trimming; a sharp one
+  between a curve and a strand is the root of the offset curve's signed distance to the strand's
+  moved carrier nearest the corner (the aim), or the end tangent's ray meeting that carrier
+  (`bent_meeting`); between two curves it is the crossing of their offsets found by Newton from
+  the segment crossings of their sampled offsets, or of the two end tangent rays
+  (`bent_crossing`), nearest the aim; none is `Apart`. `Course::curve` turns a course into a
+  cubic interpolating spline through exact offset points: nodes (`graded`, `grading.rs`) start
+  uniform over the cut's fractions with the junctions 0 and 1 among them and halve every interval
+  whose midpoint strays from the exact offset by more than `FIT_TOLERANCE` of the curve's reach
+  (at most `FIT_CEILING`), so the curvature jump where a ray meets the curve is graded in and
+  the spline is within a tenth of a micrometre of the face it bounds; a side at zero offset keeps
+  the original curve. Cutting is lazy (a `Trimmed` fits only when its curve is asked for), which
+  keeps the joint samples of a taper cheap. A whole ellipse is a closed chain of one curve, its
+  ring sides closed fitted splines.

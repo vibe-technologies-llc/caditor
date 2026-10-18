@@ -360,19 +360,105 @@ fn a_spline_meeting_a_line_or_an_arc_smoothly_or_at_a_corner_keeps_its_wall_whol
 }
 
 #[test]
-fn a_curve_wall_too_thick_for_its_bend_or_meeting_another_curve_sharply_says_so() {
+fn a_curve_wall_too_thick_for_its_bend_says_so() {
     let whole = ProfileCurve::ellipse(6, Point2::ZERO, Vector2::new(4.0, 0.0), 2.0);
     assert!(matches!(
         wall_regions(std::slice::from_ref(&whole), 3.0, WallSide::Inside),
         Err(WallError::TooThick { entities }) if entities == vec![6]
     ));
+}
 
+#[test]
+fn two_curves_meeting_at_a_corner_keep_one_mitered_wall() {
     let first = spline(1, &[(0.0, 0.0), (4.0, 3.0), (8.0, 0.0)]);
-    let second = spline(2, &[(8.0, 0.0), (9.0, 4.0), (8.0, 8.0)]);
-    assert_eq!(
-        wall_regions(&[first, second], 1.0, WallSide::Centred),
-        Err(WallError::Apart {
-            entities: vec![1, 2]
-        })
-    );
+    let second = spline(2, &[(8.0, 0.0), (11.0, 5.0), (16.0, 6.0)]);
+    let length = drawn_length(&first) + drawn_length(&second);
+
+    let wall = wall_regions(&[first.clone(), second.clone()], 1.0, WallSide::Centred).unwrap();
+
+    assert_eq!(wall.len(), 1);
+    assert!((area(&wall) - length).abs() < 0.03 * length);
+    assert!(wall[0].contains(Point2::new(8.0, 0.0)));
+    assert!(wall[0].contains(Point2::new(4.0, 1.5)));
+    assert!(wall[0].contains(Point2::new(11.5, 4.0)));
+    let solid = extrude(
+        &Plane::XY,
+        &wall,
+        LinearExtent::one_side(2.0).unwrap(),
+        FEATURE,
+    )
+    .unwrap();
+    assert_near(volume(&solid), 2.0 * area(&wall));
+
+    for side in [WallSide::Inside, WallSide::Outside] {
+        let one_side = wall_regions(&[first.clone(), second.clone()], 1.0, side).unwrap();
+
+        assert_eq!(one_side.len(), 1);
+        assert!((area(&one_side) - length).abs() < 0.03 * length);
+    }
+
+    let ellipse_arc_then_spline = wall_regions(
+        &[
+            ProfileCurve::elliptical_arc(
+                3,
+                Point2::new(0.0, 4.0),
+                Vector2::new(6.0, 0.0),
+                4.0,
+                (Point2::new(0.0, 0.0), Point2::new(6.0, 4.0)),
+            ),
+            spline(4, &[(6.0, 4.0), (10.0, 9.0), (16.0, 10.0)]),
+        ],
+        1.0,
+        WallSide::Centred,
+    )
+    .unwrap();
+    assert_eq!(ellipse_arc_then_spline.len(), 1);
+}
+
+#[test]
+fn two_curves_folding_back_on_each_other_are_refused() {
+    let first = spline(1, &[(0.0, 0.0), (4.0, 3.0), (8.0, 0.0)]);
+    let second = spline(2, &[(8.0, 0.0), (4.0, 3.2), (0.0, 0.2)]);
+
+    assert!(wall_regions(&[first, second], 1.0, WallSide::Centred).is_err());
+}
+
+#[test]
+fn a_drafted_wall_along_a_spline_or_an_ellipse_arc_widens_with_its_height() {
+    let chains = [
+        vec![spline(1, &[(0.0, 0.0), (4.0, 3.0), (8.0, 0.0)])],
+        vec![ProfileCurve::elliptical_arc(
+            2,
+            Point2::new(1.0, 2.0),
+            Vector2::new(8.0, 0.0),
+            4.0,
+            (Point2::new(9.0, 2.0), Point2::new(-7.0, 2.0)),
+        )],
+        vec![
+            spline(3, &[(0.0, 0.0), (4.0, 3.0), (8.0, 0.0)]),
+            spline(4, &[(8.0, 0.0), (11.0, 5.0), (16.0, 6.0)]),
+        ],
+    ];
+    for chain in chains {
+        let length: f64 = chain.iter().map(drawn_length).sum();
+        let wall = wall_regions(&chain, 1.0, WallSide::Centred).unwrap();
+        let angle = 2.0_f64.to_radians();
+        let height = 2.0;
+
+        let solid = extrude_tapered(
+            &Plane::XY,
+            &wall,
+            LinearExtent::one_side(height).unwrap(),
+            -angle,
+            FEATURE,
+        )
+        .unwrap();
+
+        let perimeter = 2.0 * length + 2.0;
+        let slope = angle.tan();
+        let expected = area(&wall) * height
+            + perimeter * slope * height * height / 2.0
+            + 4.0 * slope * slope * height.powi(3) / 3.0;
+        assert!((volume(&solid) - expected).abs() < 0.01 * expected);
+    }
 }

@@ -227,7 +227,7 @@ fn a_web_s_draft_typed_in_its_panel_widens_it_toward_the_floor_and_undoes_in_one
     let drafted_volume = harness.body_volume(body);
     harness.type_into_field(draft, "30 deg");
     let refused = harness
-        .shows("Enter an angle from 0° up to below 30°; the web widens by it toward the body");
+        .shows("Enter an angle from 0° up to below 30°; the rib widens by it toward the body");
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
     harness.key(Key::Z, Modifiers::COMMAND);
@@ -263,12 +263,12 @@ fn a_web_s_free_ends_chosen_in_its_panel_carry_on_round_its_arcs_and_the_choice_
 }
 
 #[test]
-fn a_rib_parallel_to_its_sketch_offers_no_draft_or_free_ends() {
+fn a_rib_parallel_to_its_sketch_offers_a_draft_but_no_free_ends() {
     let mut harness = Harness::new();
     let (_, _) = open_web(&mut harness);
 
     choose(&mut harness, "Square to sketch", "Parallel to sketch");
 
-    assert!(!harness.shows(rib_panel::DRAFT));
+    assert!(harness.shows(rib_panel::DRAFT));
     assert!(!harness.shows(rib_panel::ENDS));
 }

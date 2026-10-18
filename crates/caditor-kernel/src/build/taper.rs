@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, f64::consts::FRAC_PI_2};
 
 use caditor_geometry::{Aabb2, Plane, Point2, Point3};
 
@@ -8,14 +8,15 @@ use crate::{
         extrude::{Level, extrude, offset_plane, settled},
         lift,
         plan::{Plan, PlanCoedge, PlanFace, outward_sense},
+        taper_bent::{Rung, offset_surface},
     },
     curve::{Curve, IntersectionCurve},
     error::GeometryError,
     interrupt,
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{
-        OffsetFailure, Piece, Region, Strand, is_smooth, offset_strands, polygon, polygons_cross,
-        signed_area,
+        Course, OffsetFailure, Piece, Region, Strand, is_smooth_turn, offset_courses, outline_of,
+        polygons_cross, signed_area,
     },
     sense::Sense,
     surface::{Cone, PlaneSurface, Surface},
@@ -25,8 +26,14 @@ use crate::{
 
 const STRAIGHT_TAPER: f64 = 1e-5;
 pub const MAX_TAPER_DEGREES: f64 = 89.0;
+pub const MIN_FLANK_DEGREES: f64 = 0.1;
 const JOINT_SAMPLES: usize = 12;
 const RELATIVE_TOLERANCE: f64 = 1e-7;
+
+fn is_smooth(before: &Course, after: &Course) -> bool {
+    let (leaving, entering) = (before.end_tangent(), after.start_tangent());
+    is_smooth_turn(leaving, entering) && leaving.dot(entering) > 0.0
+}
 
 struct Taper {
     reference: f64,
@@ -53,7 +60,7 @@ impl Sweep<'_> {
         self.plane.to_world(point) + self.plane.normal() * height
     }
 
-    fn offset(&self, profile_loop: &TaperedLoop, height: f64) -> Result<Vec<Strand>, SweepError> {
+    fn offset(&self, profile_loop: &TaperedLoop, height: f64) -> Result<Vec<Course>, SweepError> {
         self.offset_near(profile_loop, height, None)
     }
 
@@ -61,10 +68,10 @@ impl Sweep<'_> {
         &self,
         profile_loop: &TaperedLoop,
         height: f64,
-        aims: Option<&[Strand]>,
-    ) -> Result<Vec<Strand>, SweepError> {
-        offset_strands(
-            &profile_loop.strands,
+        aims: Option<&[Course]>,
+    ) -> Result<Vec<Course>, SweepError> {
+        offset_courses(
+            &profile_loop.courses,
             true,
             self.taper.inset(height),
             aims,
@@ -83,7 +90,33 @@ impl Sweep<'_> {
         }
     }
 
-    fn surface(&self, strand: &Strand, going: f64) -> Result<Surface, SweepError> {
+    fn surface(
+        &self,
+        course: &Course,
+        going: f64,
+        segment: usize,
+        trimmed: [&Course; 2],
+    ) -> Result<Surface, SweepError> {
+        match course {
+            Course::Plain(strand) => self.strand_surface(strand, going),
+            Course::Bent { bend, .. } => {
+                let rung = |index: usize| {
+                    let height = self.levels.get(index).copied().unwrap_or_default();
+                    Rung {
+                        height,
+                        inset: self.taper.inset(height),
+                    }
+                };
+                let rungs = [rung(segment), rung(segment + 1)];
+                let [low, high] = trimmed.map(Course::overrun);
+                let overrun = [low[0].max(high[0]), low[1].max(high[1])];
+                offset_surface(self.plane, bend, rungs, overrun)
+            }
+            Course::Trimmed(_) => Err(SweepError::Unassembled),
+        }
+    }
+
+    fn strand_surface(&self, strand: &Strand, going: f64) -> Result<Surface, SweepError> {
         let normal = self.plane.normal();
         let zero_direction = SweepError::Geometry(GeometryError::ZeroDirection);
         match *strand {
@@ -120,7 +153,7 @@ impl Sweep<'_> {
 
 struct TaperedLoop {
     pieces: Vec<Piece>,
-    strands: Vec<Strand>,
+    courses: Vec<Course>,
 }
 
 impl TaperedLoop {
@@ -149,20 +182,14 @@ fn tapered_loops(regions: &[Region]) -> Result<Vec<Vec<TaperedLoop>>, SweepError
             region
                 .loops()
                 .map(|profile_loop| {
-                    let strands = profile_loop
-                        .pieces()
-                        .iter()
-                        .filter_map(|piece| {
-                            let strand = Strand::of_piece(piece);
-                            if strand.is_none() {
-                                unsupported.insert(piece.entity());
-                            }
-                            strand
-                        })
-                        .collect();
+                    let courses: Vec<Course> =
+                        profile_loop.pieces().iter().map(Course::of_piece).collect();
+                    if let [Course::Bent { .. }] = courses.as_slice() {
+                        unsupported.extend(profile_loop.pieces().iter().map(Piece::entity));
+                    }
                     TaperedLoop {
                         pieces: profile_loop.pieces().to_vec(),
-                        strands,
+                        courses,
                     }
                 })
                 .collect()
@@ -211,6 +238,32 @@ pub fn extrude_tapered(
     if angle.abs().to_degrees() >= MAX_TAPER_DEGREES {
         return Err(SweepError::TaperTooSteep);
     }
+    tapered(plane, regions, extent, angle.tan(), feature)
+}
+
+pub fn extrude_flared(
+    plane: &Plane,
+    regions: &[Region],
+    extent: LinearExtent,
+    flank: f64,
+    feature: u64,
+) -> Result<Solid, SweepError> {
+    if !flank.is_finite() {
+        return Err(SweepError::NonFinite);
+    }
+    if flank.to_degrees() < MIN_FLANK_DEGREES || flank >= FRAC_PI_2 {
+        return Err(SweepError::FlankOutOfRange);
+    }
+    tapered(plane, regions, extent, flank.tan().recip(), feature)
+}
+
+fn tapered(
+    plane: &Plane,
+    regions: &[Region],
+    extent: LinearExtent,
+    rate: f64,
+    feature: u64,
+) -> Result<Solid, SweepError> {
     if regions.is_empty() {
         return Err(SweepError::NoRegions);
     }
@@ -239,15 +292,12 @@ pub fn extrude_tapered(
     let sweep = Sweep {
         plane,
         levels,
-        taper: Taper {
-            reference,
-            rate: angle.tan(),
-        },
+        taper: Taper { reference, rate },
         feature,
         end_segment: if start_is_low { segments - 1 } else { 0 },
         tolerance: (size * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION),
     };
-    let offsets: Vec<Vec<Vec<Vec<Strand>>>> = loops
+    let offsets: Vec<Vec<Vec<Vec<Course>>>> = loops
         .iter()
         .map(|region_loops| {
             region_loops
@@ -318,18 +368,18 @@ pub fn extrude_tapered(
 fn check_caps(
     sweep: &Sweep<'_>,
     loops: &[Vec<TaperedLoop>],
-    offsets: &[Vec<Vec<Vec<Strand>>>],
+    offsets: &[Vec<Vec<Vec<Course>>>],
 ) -> Result<(), SweepError> {
     let last = sweep.levels.len() - 1;
     for level in [0, last] {
         let mut polygons = Vec::new();
         for (region_loops, region_offsets) in loops.iter().zip(offsets) {
             for (profile_loop, at_levels) in region_loops.iter().zip(region_offsets) {
-                let Some(strands) = at_levels.get(level) else {
+                let Some(courses) = at_levels.get(level) else {
                     continue;
                 };
-                let moved = polygon(strands);
-                let original = signed_area(&polygon(&profile_loop.strands));
+                let moved = outline_of(courses);
+                let original = signed_area(&outline_of(&profile_loop.courses));
                 let area = signed_area(&moved);
                 let tiny = sweep.tolerance * sweep.tolerance;
                 if area.abs() <= tiny || area.signum() != original.signum() {
@@ -353,10 +403,10 @@ fn tapered_loop(
     plan: &mut Plan,
     sweep: &Sweep<'_>,
     profile_loop: &TaperedLoop,
-    at_levels: &[Vec<Strand>],
+    at_levels: &[Vec<Course>],
     (low_cap, high_cap): (FaceName, FaceName),
 ) -> Result<(Vec<PlanCoedge>, Vec<PlanCoedge>), SweepError> {
-    let count = profile_loop.strands.len();
+    let count = profile_loop.courses.len();
     let segments = sweep.levels.len() - 1;
     let wrap = |index: usize| index % count.max(1);
     let names: Vec<Vec<FaceName>> = (0..segments)
@@ -384,10 +434,10 @@ fn tapered_loop(
     let vertices: Vec<Vec<usize>> = at_levels
         .iter()
         .zip(&sweep.levels)
-        .map(|(strands, height)| {
-            strands
+        .map(|(courses, height)| {
+            courses
                 .iter()
-                .map(|strand| plan.vertex(sweep.point(strand.start(), *height)))
+                .map(|course| plan.vertex(sweep.point(course.start(), *height)))
                 .collect()
         })
         .collect();
@@ -399,11 +449,11 @@ fn tapered_loop(
             .ok_or(SweepError::Unassembled)
     };
     let mut rings: Vec<Vec<(usize, Sense)>> = Vec::with_capacity(at_levels.len());
-    for (level, (strands, height)) in at_levels.iter().zip(&sweep.levels).enumerate() {
+    for (level, (courses, height)) in at_levels.iter().zip(&sweep.levels).enumerate() {
         let level_plane = offset_plane(sweep.plane, *height)?;
         let mut ring = Vec::with_capacity(count);
-        for (index, strand) in strands.iter().enumerate() {
-            let (curve, range, reversed) = strand.curve()?;
+        for (index, course) in courses.iter().enumerate() {
+            let (curve, range, reversed) = course.curve()?;
             let (from, to) = (vertex(level, index)?, vertex(level, index + 1)?);
             let edge_name = if level == 0 {
                 EdgeName::between(name(0, index), low_cap)
@@ -439,10 +489,22 @@ fn tapered_loop(
     for segment in 0..segments {
         interrupt::check()?;
         let going = sweep.going(segment);
+        let (Some(low_courses), Some(high_courses)) =
+            (at_levels.get(segment), at_levels.get(segment + 1))
+        else {
+            return Err(SweepError::Unassembled);
+        };
         let surfaces: Vec<Surface> = profile_loop
-            .strands
+            .courses
             .iter()
-            .map(|strand| sweep.surface(strand, going))
+            .enumerate()
+            .map(|(index, course)| {
+                let (Some(low), Some(high)) = (low_courses.get(index), high_courses.get(index))
+                else {
+                    return Err(SweepError::Unassembled);
+                };
+                sweep.surface(course, going, segment, [low, high])
+            })
             .collect::<Result<_, _>>()?;
         let samples = joint_samples(sweep, profile_loop, at_levels, segment)?;
         let mut verticals = Vec::with_capacity(count);
@@ -451,8 +513,8 @@ fn tapered_loop(
             let edge_name = EdgeName::between(name(segment, before), name(segment, joint));
             let ends = (vertex(segment, joint)?, vertex(segment + 1, joint)?);
             let (Some(leaving), Some(entering)) = (
-                profile_loop.strands.get(before),
-                profile_loop.strands.get(joint),
+                profile_loop.courses.get(before),
+                profile_loop.courses.get(joint),
             ) else {
                 return Err(SweepError::Unassembled);
             };
@@ -464,10 +526,10 @@ fn tapered_loop(
             } else {
                 let points: Vec<Point3> = samples
                     .iter()
-                    .filter_map(|(height, strands)| {
-                        strands
+                    .filter_map(|(height, courses)| {
+                        courses
                             .get(joint)
-                            .map(|strand| sweep.point(strand.start(), *height))
+                            .map(|course| sweep.point(course.start(), *height))
                     })
                     .collect();
                 let (Some(first), Some(second)) = (surfaces.get(before), surfaces.get(joint))
@@ -482,18 +544,14 @@ fn tapered_loop(
             };
             verticals.push(edge);
         }
-        let (Some(low_strands), Some(high_strands)) =
-            (at_levels.get(segment), at_levels.get(segment + 1))
-        else {
-            return Err(SweepError::Unassembled);
-        };
+        let (low_strands, high_strands) = (low_courses, high_courses);
         let (low_height, high_height) = (
             sweep.levels.get(segment).copied().unwrap_or_default(),
             sweep.levels.get(segment + 1).copied().unwrap_or_default(),
         );
         for (index, (piece, surface)) in profile_loop.pieces.iter().zip(surfaces).enumerate() {
             let (bottom, travel) = ring(segment, index)?;
-            let (top, _) = ring(segment + 1, index)?;
+            let (top, top_travel) = ring(segment + 1, index)?;
             let entering = verticals
                 .get(index)
                 .copied()
@@ -503,7 +561,7 @@ fn tapered_loop(
                 .copied()
                 .ok_or(SweepError::Unassembled)?;
             let (Some(original), Some(low_strand), Some(high_strand)) = (
-                profile_loop.strands.get(index),
+                profile_loop.courses.get(index),
                 low_strands.get(index),
                 high_strands.get(index),
             ) else {
@@ -525,7 +583,7 @@ fn tapered_loop(
                 loops: vec![vec![
                     PlanCoedge::new(bottom, travel),
                     PlanCoedge::new(leaving, Sense::Same),
-                    PlanCoedge::new(top, travel.reversed()),
+                    PlanCoedge::new(top, top_travel.reversed()),
                     PlanCoedge::new(entering, Sense::Reversed),
                 ]],
             });
@@ -544,15 +602,15 @@ fn tapered_loop(
 fn joint_samples(
     sweep: &Sweep<'_>,
     profile_loop: &TaperedLoop,
-    at_levels: &[Vec<Strand>],
+    at_levels: &[Vec<Course>],
     segment: usize,
-) -> Result<Vec<(f64, Vec<Strand>)>, SweepError> {
-    let count = profile_loop.strands.len();
+) -> Result<Vec<(f64, Vec<Course>)>, SweepError> {
+    let count = profile_loop.courses.len();
     let curved = (0..count).any(|joint| {
         let before = (joint + count - 1) % count;
         match (
-            profile_loop.strands.get(before),
-            profile_loop.strands.get(joint),
+            profile_loop.courses.get(before),
+            profile_loop.courses.get(joint),
         ) {
             (Some(leaving), Some(entering)) => {
                 count > 1
@@ -577,9 +635,9 @@ fn joint_samples(
     samples.push((low, first.clone()));
     for step in 1..JOINT_SAMPLES {
         let height = low + (high - low) * step as f64 / JOINT_SAMPLES as f64;
-        let aims = samples.last().map(|(_, strands)| strands.as_slice());
-        let strands = sweep.offset_near(profile_loop, height, aims)?;
-        samples.push((height, strands));
+        let aims = samples.last().map(|(_, courses)| courses.as_slice());
+        let courses = sweep.offset_near(profile_loop, height, aims)?;
+        samples.push((height, courses));
     }
     samples.push((high, last.clone()));
     Ok(samples)
