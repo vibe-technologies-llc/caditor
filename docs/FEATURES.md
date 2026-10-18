@@ -208,10 +208,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · medium] Onshape lists every document the account can see, newest first, as one flat list:
-  no team or company scopes, shared-with-me or public filters, folders, versions or branches (the
-  default workspace of a document is exported), and drawings, blobs and Part Studio parts are not
-  offered, only whole Part Studios and assemblies.
+- [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
+  by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
+  web client's own `globaltreenodes` endpoints, which are not part of the published API.
+  Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
+  assemblies.
 - [low · medium] The cloud sign-in is kept in an owner-only file in the state directory; the
   operating system's keyring (the Secret Service over `zbus` on Linux, the Credential Manager on
   Windows) would hold it better.

@@ -91,11 +91,25 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
 
 - Account: `users/sessioninfo` (name, else email). Revoking is not sent: Onshape documents none, and
   the user ends a grant in their Onshape account, so sign-out only forgets the session.
-- One synthetic `Workspace` ("Your documents", `Service::has_workspaces` false hides it in the UI).
-  Projects are the account's documents from `/documents`, newest first, following `next` only inside
-  `cad.onshape.com`, at most `MAX_PAGES` pages. A project's root is its default workspace's Part
-  Studios and assemblies (`/documents/d/{did}/w/{wid}/elements`), no folders. A `DesignId` is
-  `<partstudios|assemblies>/<workspace>/<element>`, since the translation endpoint needs all three.
+- `Workspace`s are the views of the documents (`Service::has_workspaces`, the UI calls them a
+  "view" by `Service::workspace_noun`), `onshape/scope.rs` `Scope`: My documents (`filter=0`, the
+  first, `WorkspaceKind::Personal`), Recently opened (5, in Onshape's own order), Shared with me
+  (2), one per company from `/companies` (7, `owner`, `ownerType=1`), one per team from `/teams`
+  (9, `owner`) and Public documents (4). A refused or unreadable company or team list leaves
+  those views out; a lost sign-in or a rate limit still fails. Projects are the view's documents
+  from `/documents`, newest first except Recently opened, following `next` only inside
+  `https://cad.onshape.com/api/`, at most `MAX_PAGES` pages; only `jsonType` document nodes
+  (absent, `document`, `document-summary`) count, so a folder, label or project node in a listing is
+  never a document.
+- A project's root is its default workspace's Part Studios and assemblies
+  (`/documents/d/{did}/w/{wid}/elements`), then sub-folders for its other branches
+  (`/documents/d/{did}/workspaces`, "Branch X", by name) and its versions
+  (`/documents/d/{did}/versions?limit=50`, "Version X", newest `createdAt` first). A
+  `FolderId` is `w/<id>` or `v/<id>` (`Place`), and `folder` lists that place's elements
+  (`.../{w|v}/{id}/elements`), no deeper. A failing branch or version list leaves them out of the
+  root, never the designs. A `DesignId` is `<partstudios|assemblies>/<w|v>/<id>/<element>`,
+  since the translation endpoint needs all of them. Drawings, blobs and Part Studio parts are
+  not offered.
 - Import: a `translations` request with `formatName: STEP` and `storeInDocument: false` (the
   document is never changed), `Translation::source` being `<document>/<translation>`, polled until
   `requestState` is `DONE` with a `resultExternalDataIds` entry, then

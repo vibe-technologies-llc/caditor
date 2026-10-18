@@ -27,7 +27,6 @@ pub const OFF_NOTE: &str =
     "Cloud services are turned off, so caditor makes no cloud request and shows no cloud project.";
 pub const SHOW_ON_HOME: &str = "Show cloud projects on Home";
 pub const CHOOSE_A_PROJECT: &str = "Choose a project to see its designs.";
-pub const HUB: &str = "Hub";
 pub const OPEN_PREFERENCES: &str = "Open preferences";
 const LIST_HEIGHT: f32 = 300.0;
 const PROJECT_LIST_WIDTH: f32 = 180.0;
@@ -331,13 +330,18 @@ fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Ou
     else {
         return;
     };
-    let current = linked
-        .chosen_workspace()
-        .map_or("Choose a hub", |workspace| workspace.name.as_str());
+    let noun = service.workspace_noun();
+    let current = linked.chosen_workspace().map_or_else(
+        || format!("Choose a {noun}"),
+        |workspace| workspace.name.clone(),
+    );
     ui.horizontal(|ui| {
-        ui.label(HUB);
+        ui.label(capitalised(noun));
         widgets::combo(("cloud-hub", service.id()), current)
-            .hover("The team or personal hub whose projects are listed")
+            .hover(format!(
+                "The {noun} whose {}s are listed",
+                service.project_name()
+            ))
             .show(ui, |ui| {
                 for workspace in workspaces {
                     let chosen = linked.workspace.as_ref() == Some(&workspace.id);
@@ -350,6 +354,14 @@ fn hub_row(ui: &mut Ui, service: Service, linked: &Linked, outcomes: &mut Vec<Ou
                 }
             });
     });
+}
+
+fn capitalised(word: &str) -> String {
+    let mut letters = word.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
 }
 
 fn project_list(ui: &mut Ui, projects: &[Project], state: &mut Browser) {

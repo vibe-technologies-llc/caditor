@@ -42,8 +42,12 @@ Home shows Onshape below Fusion 360. {command:file.onshape_sign_in} opens Onshap
 page in your browser, and the line under your recent files is then one line per document, with its
 Part Studios and assemblies as tiles. **One click imports one**: Onshape exports it to a STEP file,
 caditor downloads it, and it comes in as an [imported body](imported-bodies) like any STEP file.
-caditor asks Onshape to export only what you click and never changes your documents; signing out
-only forgets the sign-in on this computer, and you end the permission itself in your Onshape account.
+The **View** list in the Cloud projects window chooses which documents are listed: yours, the ones
+you opened recently, the ones shared with you, those of your companies and teams, and public ones.
+In that window a document's other branches and its versions appear as folders beside the tiles of
+its main workspace, so you can import a Part Studio as it was at a version. caditor asks Onshape
+to export only what you click and never changes your documents; signing out only forgets the
+sign-in on this computer, and you end the permission itself in your Onshape account.
 
 ## The Cloud projects window
 

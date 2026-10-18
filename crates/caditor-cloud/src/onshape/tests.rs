@@ -1,5 +1,10 @@
 use super::*;
-use crate::{encoding::query_pairs, fake::ScriptedTransport, transport::Method};
+use crate::{
+    catalogue::{DesignId, FolderId},
+    encoding::query_pairs,
+    fake::ScriptedTransport,
+    transport::Method,
+};
 
 const NOW: u64 = 1_000;
 
@@ -38,7 +43,7 @@ fn field(pairs: &[(String, String)], name: &str) -> Option<String> {
 fn project() -> Project {
     Project {
         id: ProjectId::new("doc1"),
-        workspace: WorkspaceId::new(DOCUMENTS),
+        workspace: WorkspaceId::new(Scope::Mine.id()),
         name: "Bracket".to_owned(),
     }
 }
@@ -53,7 +58,11 @@ fn design(id: &str) -> Design {
 }
 
 fn first_page() -> String {
-    format!("{API}/documents?sortColumn=modifiedAt&sortOrder=desc&limit={DOCUMENT_PAGE}")
+    format!("{API}/documents?filter=0&sortColumn=modifiedAt&sortOrder=desc&limit={DOCUMENT_PAGE}")
+}
+
+fn mine() -> WorkspaceId {
+    WorkspaceId::new(Scope::Mine.id())
 }
 
 #[test]
@@ -209,19 +218,146 @@ fn the_account_is_the_session_info_name_then_the_email() {
 }
 
 #[test]
-fn there_is_one_workspace_of_documents() {
-    let net = ScriptedTransport::new();
+fn the_scopes_are_the_account_views_then_its_companies_and_teams() {
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &format!("{API}/companies"),
+            200,
+            r#"{"items":[{"id":"c1","name":"Acme"}]}"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/teams"),
+            200,
+            r#"{"items":[{"id":"t1","name":"Robotics","jsonType":"team"}],"next":null}"#,
+        );
 
     let workspaces = onshape().workspaces(&net, &session()).unwrap();
 
-    assert_eq!(workspaces.len(), 1);
-    assert_eq!(workspaces[0].id.as_str(), DOCUMENTS);
+    let listed: Vec<_> = workspaces
+        .iter()
+        .map(|workspace| (workspace.id.as_str(), workspace.name.as_str()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("documents", "My documents"),
+            ("recent", "Recently opened"),
+            ("shared", "Shared with me"),
+            ("company/c1", "Acme (company)"),
+            ("team/t1", "Robotics (team)"),
+            ("public", "Public documents"),
+        ]
+    );
+    assert_eq!(workspaces[0].kind, WorkspaceKind::Personal);
+    assert!(
+        net.requests()
+            .iter()
+            .all(|request| request.bearer.as_deref() == Some("access-1"))
+    );
+}
+
+#[test]
+fn an_account_without_company_or_team_access_still_lists_its_own_scopes() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &format!("{API}/companies"), 403, "")
+        .route(Method::Get, &format!("{API}/teams"), 500, "");
+
+    let workspaces = onshape().workspaces(&net, &session()).unwrap();
+
+    let ids: Vec<_> = workspaces
+        .iter()
+        .map(|workspace| workspace.id.as_str())
+        .collect();
+    assert_eq!(ids, ["documents", "recent", "shared", "public"]);
+}
+
+#[test]
+fn a_lost_sign_in_while_listing_scopes_is_not_hidden() {
+    let net = ScriptedTransport::new().route(Method::Get, &format!("{API}/companies"), 401, "");
+
+    assert!(matches!(
+        onshape().workspaces(&net, &session()),
+        Err(Error::SignedOut)
+    ));
+}
+
+#[test]
+fn each_scope_asks_for_its_documents_with_the_documented_filter() {
+    let cases = [
+        (
+            Scope::Shared,
+            "filter=2&sortColumn=modifiedAt&sortOrder=desc",
+        ),
+        (
+            Scope::Public,
+            "filter=4&sortColumn=modifiedAt&sortOrder=desc",
+        ),
+        (Scope::Recent, "filter=5"),
+        (
+            Scope::Company("c 1".to_owned()),
+            "filter=7&owner=c%201&ownerType=1&sortColumn=modifiedAt&sortOrder=desc",
+        ),
+        (
+            Scope::Team("t1".to_owned()),
+            "filter=9&owner=t1&sortColumn=modifiedAt&sortOrder=desc",
+        ),
+    ];
+    for (scope, query) in cases {
+        let url = format!("{API}/documents?{query}&limit={DOCUMENT_PAGE}");
+        let net = ScriptedTransport::new().route(
+            Method::Get,
+            &url,
+            200,
+            r#"{"items":[{"id":"d1","name":"Bracket"}]}"#,
+        );
+
+        let projects = onshape()
+            .projects(&net, &session(), &WorkspaceId::new(scope.id()))
+            .unwrap();
+
+        assert_eq!(projects.len(), 1, "{url}");
+        assert_eq!(projects[0].workspace.as_str(), scope.id());
+    }
+}
+
+#[test]
+fn a_scope_that_is_not_ours_is_not_found() {
+    let net = ScriptedTransport::new();
+
+    for id in ["", "folder/f1", "team/", "company", "teams/t1"] {
+        assert!(matches!(
+            onshape().projects(&net, &session(), &WorkspaceId::new(id)),
+            Err(Error::NotFound { .. })
+        ));
+    }
     assert!(net.requests().is_empty());
 }
 
 #[test]
+fn only_documents_are_projects_when_a_listing_holds_folders_and_labels() {
+    let net = ScriptedTransport::new().route(
+        Method::Get,
+        &first_page(),
+        200,
+        r#"{"items":[
+            {"id":"f1","name":"Brackets","jsonType":"folder","resourceType":"folder","isContainer":true},
+            {"id":"d1","name":"Bracket","jsonType":"document-summary","resourceType":"document"},
+            {"id":"l1","name":"Draft","jsonType":"label"},
+            {"id":"d2","name":"Gear","jsonType":"document"}
+        ]}"#,
+    );
+
+    let projects = onshape().projects(&net, &session(), &mine()).unwrap();
+
+    let ids: Vec<_> = projects.iter().map(|project| project.id.as_str()).collect();
+    assert_eq!(ids, ["d1", "d2"]);
+}
+
+#[test]
 fn documents_are_the_projects_and_paging_follows_next_inside_onshape() {
-    let second = format!("{API}/documents?offset=20&limit=20");
+    let second = format!("{API}/documents?filter=0&offset=20&limit=20");
     let net = ScriptedTransport::new()
         .route(
             Method::Get,
@@ -239,7 +375,7 @@ fn documents_are_the_projects_and_paging_follows_next_inside_onshape() {
         );
 
     let projects = onshape()
-        .projects(&net, &session(), &WorkspaceId::new(DOCUMENTS))
+        .projects(&net, &session(), &WorkspaceId::new(Scope::Mine.id()))
         .unwrap();
 
     let names: Vec<_> = projects
@@ -270,6 +406,18 @@ fn a_document_lists_its_part_studios_and_assemblies_from_its_default_workspace()
                 {"id":"e3","name":"Whole bike","elementType":"ASSEMBLY"},
                 {"id":"e4","name":"scan.step","elementType":"BLOB"}
             ]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/workspaces"),
+            200,
+            r#"[{"id":"ws9","name":"Main"}]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/versions?limit={VERSION_LIMIT}"),
+            200,
+            "[]",
         );
 
     let root = onshape().root(&net, &session(), &project()).unwrap();
@@ -283,8 +431,8 @@ fn a_document_lists_its_part_studios_and_assemblies_from_its_default_workspace()
     assert_eq!(
         designs,
         [
-            ("Frame", "partstudios/ws9/e1"),
-            ("Whole bike", "assemblies/ws9/e3"),
+            ("Frame", "partstudios/w/ws9/e1"),
+            ("Whole bike", "assemblies/w/ws9/e3"),
         ]
     );
     assert!(
@@ -292,6 +440,172 @@ fn a_document_lists_its_part_studios_and_assemblies_from_its_default_workspace()
             .iter()
             .all(|design| design.project.as_str() == "doc1")
     );
+}
+
+#[test]
+fn a_document_offers_its_other_branches_and_its_versions_newest_first() {
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &format!("{API}/documents/doc1"),
+            200,
+            r#"{"id":"doc1","defaultWorkspace":{"id":"ws9"}}"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/w/ws9/elements"),
+            200,
+            r#"[{"id":"e1","name":"Frame","elementType":"PARTSTUDIO"}]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/workspaces"),
+            200,
+            r#"[
+                {"id":"ws9","name":"Main","documentId":"doc1","type":"workspace"},
+                {"id":"ws3","name":"Lighter frame","documentId":"doc1"},
+                {"id":"ws2","name":"Alloy","documentId":"doc1"}
+            ]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/versions?limit={VERSION_LIMIT}"),
+            200,
+            r#"[
+                {"id":"v1","name":"Start","createdAt":"2024-01-02T10:00:00.000Z"},
+                {"id":"v3","name":"Release 2","createdAt":"2024-06-01T08:30:00.000Z"},
+                {"id":"v2","name":"Release 1","createdAt":"2024-03-15T12:00:00.000Z"}
+            ]"#,
+        );
+
+    let root = onshape().root(&net, &session(), &project()).unwrap();
+
+    let folders: Vec<_> = root
+        .folders
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.reference.folder.as_str()))
+        .collect();
+    assert_eq!(
+        folders,
+        [
+            ("Branch Alloy", "w/ws2"),
+            ("Branch Lighter frame", "w/ws3"),
+            ("Version Release 2", "v/v3"),
+            ("Version Release 1", "v/v2"),
+            ("Version Start", "v/v1"),
+        ]
+    );
+    assert!(
+        root.folders
+            .iter()
+            .all(|entry| entry.reference.project.as_str() == "doc1")
+    );
+    assert_eq!(root.designs.len(), 1);
+}
+
+#[test]
+fn a_branch_and_a_version_list_their_own_elements_and_import_from_them() {
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/w/ws3/elements"),
+            200,
+            r#"[{"id":"e1","name":"Frame","elementType":"PARTSTUDIO"}]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/v/v3/elements"),
+            200,
+            r#"[
+                {"id":"e7","name":"Rig","elementType":"ASSEMBLY"},
+                {"id":"e2","name":"Frame","elementType":"PARTSTUDIO"},
+                {"id":"e8","name":"Sheet","elementType":"DRAWING"}
+            ]"#,
+        )
+        .route(
+            Method::Post,
+            &format!("{API}/assemblies/d/doc1/v/v3/e/e7/translations"),
+            200,
+            r#"{"id":"tr9"}"#,
+        );
+    let reference = |folder: &str| FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: FolderId::new(folder),
+    };
+
+    let branch = onshape()
+        .folder(&net, &session(), &reference("w/ws3"))
+        .unwrap();
+    let version = onshape()
+        .folder(&net, &session(), &reference("v/v3"))
+        .unwrap();
+
+    assert!(branch.folders.is_empty() && version.folders.is_empty());
+    assert_eq!(branch.designs[0].id.as_str(), "partstudios/w/ws3/e1");
+    let ids: Vec<_> = version
+        .designs
+        .iter()
+        .map(|design| design.id.as_str())
+        .collect();
+    assert_eq!(ids, ["partstudios/v/v3/e2", "assemblies/v/v3/e7"]);
+
+    let translation = onshape()
+        .start_conversion(&net, &session(), &version.designs[1])
+        .unwrap();
+    assert_eq!(translation.source, "doc1/tr9");
+}
+
+#[test]
+fn a_folder_that_is_not_ours_is_not_found() {
+    let net = ScriptedTransport::new();
+
+    for folder in ["", "ws3", "x/ws3", "w/", "w/a/b"] {
+        let reference = FolderRef {
+            project: ProjectId::new("doc1"),
+            folder: FolderId::new(folder),
+        };
+        assert!(matches!(
+            onshape().folder(&net, &session(), &reference),
+            Err(Error::NotFound {
+                subject: Subject::Folder
+            })
+        ));
+    }
+    assert!(net.requests().is_empty());
+}
+
+#[test]
+fn a_document_still_lists_its_designs_when_branches_and_versions_are_refused() {
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &format!("{API}/documents/doc1"),
+            200,
+            r#"{"id":"doc1","defaultWorkspace":{"id":"ws9"}}"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/w/ws9/elements"),
+            200,
+            r#"[{"id":"e1","name":"Frame","elementType":"PARTSTUDIO"}]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/workspaces"),
+            403,
+            "",
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/versions?limit={VERSION_LIMIT}"),
+            200,
+            "not json",
+        );
+
+    let root = onshape().root(&net, &session(), &project()).unwrap();
+
+    assert!(root.folders.is_empty());
+    assert_eq!(root.designs.len(), 1);
 }
 
 #[test]
@@ -316,7 +630,7 @@ fn starting_a_conversion_asks_for_step_kept_outside_the_document() {
     );
 
     let translation = onshape()
-        .start_conversion(&net, &session(), &design("partstudios/ws9/e1"))
+        .start_conversion(&net, &session(), &design("partstudios/w/ws9/e1"))
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr1");
@@ -336,7 +650,7 @@ fn an_assembly_converts_through_its_own_endpoint() {
     let net = ScriptedTransport::new().route(Method::Post, &url, 200, r#"{"id":"tr2"}"#);
 
     let translation = onshape()
-        .start_conversion(&net, &session(), &design("assemblies/ws9/e3"))
+        .start_conversion(&net, &session(), &design("assemblies/w/ws9/e3"))
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr2");
@@ -349,9 +663,11 @@ fn a_design_id_that_is_not_ours_is_not_found() {
     for id in [
         "",
         "e1",
-        "partstudios/ws9",
-        "folders/ws9/e1",
-        "partstudios/ws9/e1/x",
+        "partstudios/w/ws9",
+        "partstudios/ws9/e1",
+        "folders/w/ws9/e1",
+        "partstudios/x/ws9/e1",
+        "partstudios/w/ws9/e1/x",
     ] {
         assert!(matches!(
             onshape().start_conversion(&net, &session(), &design(id)),
@@ -486,7 +802,7 @@ fn the_status_codes_of_a_listing_map_to_typed_errors() {
     for (status, expected) in [(401, "signed out"), (429, "rate limited"), (500, "refused")] {
         let net = ScriptedTransport::new().route(Method::Get, &url, status, "");
         let error = onshape()
-            .projects(&net, &session(), &WorkspaceId::new(DOCUMENTS))
+            .projects(&net, &session(), &WorkspaceId::new(Scope::Mine.id()))
             .unwrap_err();
         let kind = match error {
             Error::SignedOut => "signed out",

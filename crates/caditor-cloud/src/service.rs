@@ -49,7 +49,14 @@ impl Service {
     pub fn has_workspaces(self) -> bool {
         match self {
             Self::Fusion => true,
-            Self::Onshape => false,
+            Self::Onshape => true,
+        }
+    }
+
+    pub fn workspace_noun(self) -> &'static str {
+        match self {
+            Self::Fusion => "hub",
+            Self::Onshape => "view",
         }
     }
 

@@ -561,7 +561,12 @@ fn linked_section(
         ui.add_space(SPACE_S);
     }
     if let Some(failure) = linked.workspaces.failure()
-        && cloud_parts::failure_callout(ui, Tone::Error, "Could not list your hubs.", failure)
+        && cloud_parts::failure_callout(
+            ui,
+            Tone::Error,
+            &format!("Could not list your {}s.", service.workspace_noun()),
+            failure,
+        )
     {
         choices.push(Choice::Cloud(CloudCommand::Refresh(service)));
         return;

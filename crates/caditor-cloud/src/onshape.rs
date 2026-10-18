@@ -1,11 +1,13 @@
 use std::io::Write;
 
+use jiff::Timestamp;
 use serde::Deserialize;
 use serde_json::json;
 
+use self::scope::{DesignPlace, ElementKind, Place, Scope};
 use crate::{
     catalogue::{
-        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Project, ProjectId,
+        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Project, ProjectId,
         Translation, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{form, percent_encode},
@@ -18,13 +20,16 @@ use crate::{
     transport::{Body, Request, Response, Transport},
 };
 
+mod scope;
+
 const SERVICE: Service = Service::Onshape;
 const API: &str = "https://cad.onshape.com/api/v10";
 const AUTHORIZE: &str = "https://oauth.onshape.com/oauth/authorize";
 const TOKEN: &str = "https://oauth.onshape.com/oauth/token";
+const API_PREFIX: &str = "https://cad.onshape.com/api/";
 const DOCUMENT_PAGE: usize = 20;
+const VERSION_LIMIT: usize = 50;
 const MAX_PAGES: usize = 20;
-const DOCUMENTS: &str = "documents";
 const STEP_FORMAT: &str = "STEP";
 const DONE: &str = "DONE";
 const FAILED: &str = "FAILED";
@@ -63,6 +68,158 @@ impl Onshape {
         let url = format!("{API}/documents/{}", percent_encode(project.as_str()));
         let document: DocumentDetail = self.get(net, session, url, Subject::Folder)?;
         Ok(document.default_workspace.id)
+    }
+
+    fn designs(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        document: &ProjectId,
+        place: &Place,
+    ) -> Result<Vec<Design>, Error> {
+        let url = format!(
+            "{API}/documents/d/{}/{}/elements",
+            percent_encode(document.as_str()),
+            place.path()
+        );
+        let elements: Vec<Element> = self.get(net, session, url, Subject::Folder)?;
+        let mut folder = Folder {
+            folders: Vec::new(),
+            designs: elements
+                .iter()
+                .filter_map(|element| element.design(document, place))
+                .collect(),
+        };
+        folder.newest_first();
+        Ok(folder.designs)
+    }
+
+    fn branches(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        project: &Project,
+        default: &str,
+    ) -> Result<Vec<FolderEntry>, Error> {
+        let url = format!(
+            "{API}/documents/d/{}/workspaces",
+            percent_encode(project.id.as_str())
+        );
+        let branches: Vec<Branch> = self.get(net, session, url, Subject::Folder)?;
+        let mut entries: Vec<_> = branches
+            .into_iter()
+            .filter(|branch| branch.id != default)
+            .map(|branch| {
+                let place = Place::workspace(&branch.id);
+                (
+                    branch.label(),
+                    FolderEntry {
+                        reference: FolderRef {
+                            project: project.id.clone(),
+                            folder: place.folder_id(),
+                        },
+                        name: format!("Branch {}", branch.label()),
+                    },
+                )
+            })
+            .collect();
+        entries.sort_by(|first, second| first.0.cmp(&second.0));
+        Ok(entries.into_iter().map(|(_, entry)| entry).collect())
+    }
+
+    fn versions(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        project: &Project,
+    ) -> Result<Vec<FolderEntry>, Error> {
+        let url = format!(
+            "{API}/documents/d/{}/versions?limit={VERSION_LIMIT}",
+            percent_encode(project.id.as_str())
+        );
+        let mut versions: Vec<Version> = self.get(net, session, url, Subject::Folder)?;
+        versions.sort_by_key(|version| std::cmp::Reverse(version.created()));
+        Ok(versions
+            .into_iter()
+            .map(|version| FolderEntry {
+                reference: FolderRef {
+                    project: project.id.clone(),
+                    folder: Place::version(&version.id).folder_id(),
+                },
+                name: format!("Version {}", version.label()),
+            })
+            .collect())
+    }
+
+    fn listed(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        first: String,
+        subject: Subject,
+    ) -> Result<Vec<Listed>, Error> {
+        let mut found = Vec::new();
+        let mut next = Some(first);
+        for _ in 0..MAX_PAGES {
+            let Some(url) = next.take() else {
+                break;
+            };
+            let page: Page = self.get(net, session, url, subject)?;
+            found.extend(page.items);
+            next = page.next.filter(|link| link.starts_with(API_PREFIX));
+        }
+        Ok(found)
+    }
+
+    fn scopes(&self, net: &dyn Transport, session: &Session) -> Result<Vec<Workspace>, Error> {
+        let fixed = |scope: Scope, name: &str| Workspace {
+            id: WorkspaceId::new(scope.id()),
+            name: name.to_owned(),
+            kind: if scope == Scope::Mine {
+                WorkspaceKind::Personal
+            } else {
+                WorkspaceKind::Other
+            },
+        };
+        let companies = optional(self.listed(
+            net,
+            session,
+            format!("{API}/companies"),
+            Subject::Workspaces,
+        ))?;
+        let teams =
+            optional(self.listed(net, session, format!("{API}/teams"), Subject::Workspaces))?;
+        let mut scopes = vec![
+            fixed(Scope::Mine, "My documents"),
+            fixed(Scope::Recent, "Recently opened"),
+            fixed(Scope::Shared, "Shared with me"),
+        ];
+        scopes.extend(companies.into_iter().map(|company| {
+            fixed(
+                Scope::Company(company.id),
+                &format!("{} (company)", company.name.as_deref().unwrap_or("Company")),
+            )
+        }));
+        scopes.extend(teams.into_iter().map(|team| {
+            fixed(
+                Scope::Team(team.id),
+                &format!("{} (team)", team.name.as_deref().unwrap_or("Team")),
+            )
+        }));
+        scopes.push(fixed(Scope::Public, "Public documents"));
+        Ok(scopes)
+    }
+}
+
+fn optional<T: Default>(result: Result<T, Error>) -> Result<T, Error> {
+    match result {
+        Err(
+            Error::Forbidden { .. }
+            | Error::NotFound { .. }
+            | Error::Refused { .. }
+            | Error::Unreadable { .. },
+        ) => Ok(T::default()),
+        other => other,
     }
 }
 
@@ -140,16 +297,8 @@ impl Provider for Onshape {
         })
     }
 
-    fn workspaces(
-        &self,
-        _net: &dyn Transport,
-        _session: &Session,
-    ) -> Result<Vec<Workspace>, Error> {
-        Ok(vec![Workspace {
-            id: WorkspaceId::new(DOCUMENTS),
-            name: "Your documents".to_owned(),
-            kind: WorkspaceKind::Personal,
-        }])
+    fn workspaces(&self, net: &dyn Transport, session: &Session) -> Result<Vec<Workspace>, Error> {
+        self.scopes(net, session)
     }
 
     fn projects(
@@ -158,26 +307,31 @@ impl Provider for Onshape {
         session: &Session,
         workspace: &WorkspaceId,
     ) -> Result<Vec<Project>, Error> {
-        let mut found = Vec::new();
-        let mut next = Some(format!(
-            "{API}/documents?sortColumn=modifiedAt&sortOrder=desc&limit={DOCUMENT_PAGE}"
-        ));
-        for _ in 0..MAX_PAGES {
-            let Some(url) = next.take() else {
-                break;
-            };
-            let page: DocumentPage = self.get(net, session, url, Subject::Projects)?;
-            found.extend(page.items.into_iter().map(|document| {
+        let scope = Scope::parse(workspace.as_str()).ok_or(Error::NotFound {
+            subject: Subject::Projects,
+        })?;
+        let order = if scope.is_ordered_by_server() {
+            String::new()
+        } else {
+            "&sortColumn=modifiedAt&sortOrder=desc".to_owned()
+        };
+        let first = format!(
+            "{API}/documents?{}{order}&limit={DOCUMENT_PAGE}",
+            scope.query()
+        );
+        Ok(self
+            .listed(net, session, first, Subject::Projects)?
+            .into_iter()
+            .filter(Listed::is_document)
+            .map(|document| {
                 let name = document.title();
                 Project {
                     id: ProjectId::new(document.id),
                     workspace: workspace.clone(),
                     name,
                 }
-            }));
-            next = page.next.filter(|link| link.starts_with(API));
-        }
-        Ok(found)
+            })
+            .collect())
     }
 
     fn root(
@@ -186,31 +340,26 @@ impl Provider for Onshape {
         session: &Session,
         project: &Project,
     ) -> Result<Folder, Error> {
-        let workspace = self.default_workspace(net, session, &project.id)?;
-        let url = format!(
-            "{API}/documents/d/{}/w/{}/elements",
-            percent_encode(project.id.as_str()),
-            percent_encode(&workspace)
-        );
-        let elements: Vec<Element> = self.get(net, session, url, Subject::Folder)?;
-        let mut folder = Folder {
-            folders: Vec::new(),
-            designs: elements
-                .iter()
-                .filter_map(|element| element.design(&project.id, &workspace))
-                .collect(),
-        };
-        folder.newest_first();
-        Ok(folder)
+        let default = self.default_workspace(net, session, &project.id)?;
+        let designs = self.designs(net, session, &project.id, &Place::workspace(&default))?;
+        let mut folders = optional(self.branches(net, session, project, &default))?;
+        folders.extend(optional(self.versions(net, session, project))?);
+        Ok(Folder { folders, designs })
     }
 
     fn folder(
         &self,
-        _net: &dyn Transport,
-        _session: &Session,
-        _folder: &FolderRef,
+        net: &dyn Transport,
+        session: &Session,
+        folder: &FolderRef,
     ) -> Result<Folder, Error> {
-        Ok(Folder::default())
+        let place = Place::from_folder_id(&folder.folder).ok_or(Error::NotFound {
+            subject: Subject::Folder,
+        })?;
+        Ok(Folder {
+            folders: Vec::new(),
+            designs: self.designs(net, session, &folder.project, &place)?,
+        })
     }
 
     fn start_conversion(
@@ -223,11 +372,11 @@ impl Provider for Onshape {
             subject: Subject::Design,
         })?;
         let url = format!(
-            "{API}/{}/d/{}/w/{}/e/{}/translations",
+            "{API}/{}/d/{}/{}/e/{}/translations",
             place.kind.path(),
             percent_encode(design.project.as_str()),
-            percent_encode(place.workspace),
-            percent_encode(place.element)
+            place.place.path(),
+            percent_encode(&place.element)
         );
         let job = json!({ "formatName": STEP_FORMAT, "storeInDocument": false });
         let request =
@@ -296,59 +445,6 @@ impl Provider for Onshape {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ElementKind {
-    PartStudio,
-    Assembly,
-}
-
-impl ElementKind {
-    fn from_type(text: &str) -> Option<Self> {
-        match text {
-            "PARTSTUDIO" => Some(Self::PartStudio),
-            "ASSEMBLY" => Some(Self::Assembly),
-            _ => None,
-        }
-    }
-
-    fn path(self) -> &'static str {
-        match self {
-            Self::PartStudio => "partstudios",
-            Self::Assembly => "assemblies",
-        }
-    }
-
-    fn from_path(text: &str) -> Option<Self> {
-        [Self::PartStudio, Self::Assembly]
-            .into_iter()
-            .find(|kind| kind.path() == text)
-    }
-}
-
-struct DesignPlace<'a> {
-    kind: ElementKind,
-    workspace: &'a str,
-    element: &'a str,
-}
-
-impl<'a> DesignPlace<'a> {
-    fn encode(kind: ElementKind, workspace: &str, element: &str) -> DesignId {
-        DesignId::new(format!("{}/{workspace}/{element}", kind.path()))
-    }
-
-    fn parse(id: &'a DesignId) -> Option<Self> {
-        let mut parts = id.as_str().split('/');
-        let kind = ElementKind::from_path(parts.next()?)?;
-        let workspace = parts.next()?;
-        let element = parts.next()?;
-        (parts.next().is_none() && !workspace.is_empty() && !element.is_empty()).then_some(Self {
-            kind,
-            workspace,
-            element,
-        })
-    }
-}
-
 #[derive(Deserialize)]
 struct SessionInfo {
     name: Option<String>,
@@ -367,26 +463,37 @@ impl SessionInfo {
 }
 
 #[derive(Deserialize)]
-struct DocumentPage {
+struct Page {
     #[serde(default)]
-    items: Vec<DocumentSummary>,
+    items: Vec<Listed>,
     next: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct DocumentSummary {
+struct Listed {
     id: String,
     name: Option<String>,
+    #[serde(rename = "jsonType")]
+    json_type: Option<String>,
 }
 
-impl DocumentSummary {
-    fn title(&self) -> String {
-        self.name
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map_or_else(|| "Untitled".to_owned(), str::to_owned)
+impl Listed {
+    fn is_document(&self) -> bool {
+        matches!(
+            self.json_type.as_deref(),
+            None | Some("document" | "document-summary" | "document-summary-search")
+        )
     }
+
+    fn title(&self) -> String {
+        label(self.name.as_deref(), "Untitled")
+    }
+}
+
+fn label(name: Option<&str>, fallback: &str) -> String {
+    name.map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map_or_else(|| fallback.to_owned(), str::to_owned)
 }
 
 #[derive(Deserialize)]
@@ -409,20 +516,44 @@ struct Element {
 }
 
 impl Element {
-    fn design(&self, document: &ProjectId, workspace: &str) -> Option<Design> {
+    fn design(&self, document: &ProjectId, place: &Place) -> Option<Design> {
         let kind = ElementKind::from_type(self.element_type.as_deref()?)?;
-        let name = self
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map_or_else(|| "Untitled".to_owned(), str::to_owned);
         Some(Design {
-            id: DesignPlace::encode(kind, workspace, &self.id),
+            id: DesignPlace::encode(kind, place, &self.id),
             project: document.clone(),
-            name,
+            name: label(self.name.as_deref(), "Untitled"),
             modified: None,
         })
+    }
+}
+
+#[derive(Deserialize)]
+struct Branch {
+    id: String,
+    name: Option<String>,
+}
+
+impl Branch {
+    fn label(&self) -> String {
+        label(self.name.as_deref(), "Untitled")
+    }
+}
+
+#[derive(Deserialize)]
+struct Version {
+    id: String,
+    name: Option<String>,
+    #[serde(rename = "createdAt")]
+    created_at: Option<String>,
+}
+
+impl Version {
+    fn label(&self) -> String {
+        label(self.name.as_deref(), "Untitled")
+    }
+
+    fn created(&self) -> Option<Timestamp> {
+        self.created_at.as_deref()?.parse().ok()
     }
 }
 
