@@ -10,7 +10,10 @@ use crate::{
     coordinates::angle_between,
     error::GeometryError,
     interrupt,
-    intersect::solve::{Contact, contact_direction, refine_on_plane},
+    intersect::{
+        IntersectionError, RefineStop,
+        solve::{Contact, contact_direction, refine_on_plane},
+    },
     interval::Interval,
     numeric::integrate,
     shared::SharedBuffer,
@@ -28,6 +31,7 @@ const TOUCHING_ITERATIONS: usize = 12;
 const TOUCHING_GAP: f64 = LINEAR_RESOLUTION;
 const SEED_GAP: f64 = 1e-3 * LINEAR_RESOLUTION;
 const MIN_INDEXED_SEGMENTS: usize = 16;
+const PROBE_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntersectionNode {
@@ -189,7 +193,7 @@ impl IntersectionCurve {
         surfaces: [Surface; 2],
         contacts: &[Contact],
         closed: bool,
-    ) -> Option<Self> {
+    ) -> Result<Self, IntersectionError> {
         Self::traced(surfaces, contacts, closed, Touching::Refuse)
     }
 
@@ -198,7 +202,7 @@ impl IntersectionCurve {
         contacts: &[Contact],
         closed: bool,
         touching: Touching,
-    ) -> Option<Self> {
+    ) -> Result<Self, IntersectionError> {
         let traced = {
             let pair = {
                 let [a, b] = &surfaces;
@@ -247,7 +251,7 @@ impl IntersectionCurve {
             });
         }
         nodes.dedup_by(|b, a| b.parameter <= a.parameter);
-        Self::new(surfaces, nodes, closed).ok()
+        Ok(Self::new(surfaces, nodes, closed)?)
     }
 
     pub fn through(surfaces: [Surface; 2], points: &[Point3], closed: bool) -> Option<Self> {
@@ -278,7 +282,7 @@ impl IntersectionCurve {
         {
             *last = first;
         }
-        Self::traced(surfaces, &contacts, closed, Touching::Follow)
+        Self::traced(surfaces, &contacts, closed, Touching::Follow).ok()
     }
 
     pub fn surfaces(&self) -> &[Surface; 2] {
@@ -724,9 +728,9 @@ fn refine_traced(
     surfaces: [&Surface; 2],
     traced: &[Traced],
     touching: Touching,
-) -> Option<Vec<Traced>> {
+) -> Result<Vec<Traced>, IntersectionError> {
     let Some(first) = traced.first() else {
-        return Some(Vec::new());
+        return Ok(Vec::new());
     };
     let mut refined = vec![*first];
     for pair in traced.windows(2) {
@@ -735,37 +739,103 @@ fn refine_traced(
         };
         let mut pending = vec![(*start, *end, 0usize)];
         while let Some((low, high, depth)) = pending.pop() {
-            interrupt::check().ok()?;
-            let split = (depth < MAX_REFINE_DEPTH && refined.len() + pending.len() < MAX_NODES)
-                .then(|| midpoint(surfaces, &low, &high, touching))
-                .flatten();
-            match split {
-                Some(middle) => {
+            interrupt::check()?;
+            let (probes, cause) = match assess(surfaces, &low, &high, touching) {
+                Assessment::Fits => {
+                    refined.push(high);
+                    continue;
+                }
+                Assessment::Split { probes, .. } if depth >= MAX_REFINE_DEPTH => {
+                    (probes, RefineStop::TooDeep(MAX_REFINE_DEPTH))
+                }
+                Assessment::Split { probes, .. } if refined.len() + pending.len() >= MAX_NODES => {
+                    (probes, RefineStop::TooManyNodes(MAX_NODES))
+                }
+                Assessment::Split { middle, .. } => {
                     pending.push((middle, high, depth + 1));
                     pending.push((low, middle, depth + 1));
+                    continue;
                 }
-                None => refined.push(high),
+                Assessment::Stuck { probes, cause } => (probes, cause),
+            };
+            let (point, distance) = farthest_stray(surfaces, &probes);
+            if distance > INTERSECTION_TOLERANCE || distance.is_nan() {
+                return Err(IntersectionError::Unrefined {
+                    point,
+                    distance,
+                    cause,
+                });
+            }
+            refined.push(high);
+        }
+    }
+    Ok(refined)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Probe {
+    guess: Point3,
+    normal: Option<Vector3>,
+    hint: [Point2; 2],
+}
+
+impl Probe {
+    fn stray(&self, surfaces: [&Surface; 2]) -> f64 {
+        surfaces
+            .iter()
+            .zip(self.hint)
+            .map(|(surface, hint)| {
+                let foot = surface.point_at(surface.project(self.guess, Some(hint)));
+                foot.distance(self.guess)
+            })
+            .fold(0.0, f64::max)
+    }
+
+    fn solve(&self, surfaces: [&Surface; 2], touching: Touching) -> Option<Contact> {
+        let normal = self.normal?;
+        let solved = refine_on_plane(surfaces, self.hint, self.guess, normal);
+        match touching {
+            Touching::Refuse => solved,
+            Touching::Follow => {
+                solved.or_else(|| touching_contact(surfaces, self.hint, self.guess))
             }
         }
     }
-    Some(refined)
+
+    fn deviation(&self, surfaces: [&Surface; 2], touching: Touching) -> f64 {
+        self.solve(surfaces, touching).map_or_else(
+            || self.stray(surfaces),
+            |contact| contact.point.distance(self.guess),
+        )
+    }
 }
 
-fn midpoint(
-    surfaces: [&Surface; 2],
-    low: &Traced,
-    high: &Traced,
-    touching: Touching,
-) -> Option<Traced> {
-    let span = arc_estimate(
-        low.contact.point,
-        low.tangent,
-        high.contact.point,
-        high.tangent,
-    );
-    if span <= 2.0 * LINEAR_RESOLUTION {
-        return None;
-    }
+fn farthest_stray(surfaces: [&Surface; 2], probes: &[Probe]) -> (Point3, f64) {
+    probes
+        .iter()
+        .map(|probe| (probe.guess, probe.stray(surfaces)))
+        .fold((Point3::ZERO, 0.0), |farthest, candidate| {
+            if candidate.1 > farthest.1 || candidate.1.is_nan() {
+                candidate
+            } else {
+                farthest
+            }
+        })
+}
+
+enum Assessment {
+    Fits,
+    Split {
+        middle: Traced,
+        probes: [Probe; 3],
+    },
+    Stuck {
+        probes: [Probe; 3],
+        cause: RefineStop,
+    },
+}
+
+fn probes(surfaces: [&Surface; 2], low: &Traced, high: &Traced, span: f64) -> [Probe; 3] {
     let as_node = |item: &Traced, parameter: f64| IntersectionNode {
         parameter,
         point: item.contact.point,
@@ -773,32 +843,51 @@ fn midpoint(
         uv: item.contact.uv,
     };
     let (start, end) = (as_node(low, 0.0), as_node(high, span));
-    let [guess, derivative, _] = hermite(&start, &end, 0.5 * span);
-    let turn = angle_between(low.tangent, high.tangent);
     let [a0, a1] = low.contact.uv;
     let [b0, b1] = high.contact.uv;
     let [first, second] = surfaces;
-    let hint = [
-        first.project(guess, Some(a0.lerp(b0, 0.5))),
-        second.project(guess, Some(a1.lerp(b1, 0.5))),
-    ];
-    let [first_hint, second_hint] = hint;
-    let normal = derivative
-        .try_normalize()
-        .or_else(|| (high.contact.point - low.contact.point).try_normalize())?;
-    let contact = match touching {
-        Touching::Refuse => refine_on_plane(surfaces, hint, guess, normal)?,
-        Touching::Follow => refine_on_plane(surfaces, hint, guess, normal)
-            .or_else(|| touching_contact(surfaces, hint, guess))?,
+    let chord = (high.contact.point - low.contact.point).try_normalize();
+    PROBE_FRACTIONS.map(|fraction| {
+        let [guess, derivative, _] = hermite(&start, &end, fraction * span);
+        Probe {
+            guess,
+            normal: derivative.try_normalize().or(chord),
+            hint: [
+                first.project(guess, Some(a0.lerp(b0, fraction))),
+                second.project(guess, Some(a1.lerp(b1, fraction))),
+            ],
+        }
+    })
+}
+
+fn assess(surfaces: [&Surface; 2], low: &Traced, high: &Traced, touching: Touching) -> Assessment {
+    let span = arc_estimate(
+        low.contact.point,
+        low.tangent,
+        high.contact.point,
+        high.tangent,
+    );
+    if span <= 2.0 * LINEAR_RESOLUTION {
+        return Assessment::Fits;
+    }
+    let probes = probes(surfaces, low, high, span);
+    let stuck = |cause: RefineStop| Assessment::Stuck { probes, cause };
+    let [before, middle, after] = probes;
+    let (Some(normal), Some(contact)) = (middle.normal, middle.solve(surfaces, touching)) else {
+        return stuck(RefineStop::Unsolved);
     };
-    let deviation = contact.point.distance(guess);
-    if deviation <= INTERSECTION_TOLERANCE && turn <= MAX_SEGMENT_TURN {
-        return None;
+    let fits = angle_between(low.tangent, high.tangent) <= MAX_SEGMENT_TURN
+        && contact.point.distance(middle.guess) <= INTERSECTION_TOLERANCE
+        && [before, after]
+            .iter()
+            .all(|probe| probe.deviation(surfaces, touching) <= INTERSECTION_TOLERANCE);
+    if fits {
+        return Assessment::Fits;
     }
     let between = (contact.point - low.contact.point).length() > LINEAR_RESOLUTION
         && (high.contact.point - contact.point).length() > LINEAR_RESOLUTION;
     if !between {
-        return None;
+        return stuck(RefineStop::AtEnd);
     }
     let tangent = contact_direction(surfaces, &contact)
         .filter(|(_, sine)| *sine > 1e-9)
@@ -808,18 +897,23 @@ fn midpoint(
     } else {
         tangent
     };
+    let [first, second] = surfaces;
+    let [first_hint, second_hint] = middle.hint;
     let [first_uv, second_uv] = contact.uv;
     let continuous = [
         continuous_uv(first, first_uv, first_hint),
         continuous_uv(second, second_uv, second_hint),
     ];
-    Some(Traced {
-        contact: Contact {
-            uv: continuous,
-            ..contact
+    Assessment::Split {
+        middle: Traced {
+            contact: Contact {
+                uv: continuous,
+                ..contact
+            },
+            tangent,
         },
-        tangent,
-    })
+        probes,
+    }
 }
 
 fn continuous_uv(surface: &Surface, uv: Point2, hint: Point2) -> Point2 {

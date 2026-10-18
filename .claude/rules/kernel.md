@@ -89,9 +89,16 @@ paths:
   the seed polyline (`polyline_length_up_to`, polling every `SEEDS_PER_POLL` seeds), shortest chord
   first, each capped by the shortest so far.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries, within
-  `INTERSECTION_TOLERANCE`. `IntersectionCurve::through` rebuilds one from rough points (an
-  imported edge off its faces) and is the only path that follows surfaces that merely touch (a
-  tangent fillet edge).
+  `INTERSECTION_TOLERANCE`. Building one halves each Hermite segment at the point on both surfaces
+  across its middle until the points across its middle and quarters lie within the tolerance and its
+  tangents turn at most `MAX_SEGMENT_TURN`; the middle alone passed a segment bowing to opposite
+  sides of it, found only by validation as `EdgeOffSurface`. A segment that cannot be halved (no
+  point across its middle, that point at one of its ends, `MAX_REFINE_DEPTH` or `MAX_NODES`) is kept
+  only when those three points lie within the tolerance of both surfaces, else building fails as
+  `IntersectionError::Unrefined` with the farthest point, its distance and the `RefineStop`.
+  Segments within twice `LINEAR_RESOLUTION` are kept. `IntersectionCurve::through` rebuilds one from
+  rough points (an imported edge off its faces) and is the only path that follows surfaces that
+  merely touch (a tangent fillet edge).
 - A spline surface whose first and last rows or columns meet is periodic there (C0 suffices). A row
   collapsed to a point is a pole; a column cannot be, so importers transpose and flip the face.
   Singularities are always `Pole`s (sphere poles, cone apex, a revolution profile ending on its

@@ -337,6 +337,87 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
 }
 
 #[test]
+fn contacts_with_no_intersection_curve_between_them_are_refused_where_it_strays() {
+    use crate::{
+        IntersectionCurve,
+        intersect::{IntersectionError, RefineStop, solve::Contact},
+        surface::{Cylinder, PlaneSurface, Surface},
+        tolerance::INTERSECTION_TOLERANCE,
+    };
+
+    let upright: Surface = Cylinder::new(Plane::XY, 1.0).unwrap().into();
+    let wall: Surface =
+        PlaneSurface::new(Plane::new(Point3::new(0.5, 0.0, 0.0), Vector3::X).unwrap())
+            .unwrap()
+            .into();
+    let side = 0.75_f64.sqrt();
+    let contacts = [side, -side].map(|y| {
+        let point = Point3::new(0.5, y, 0.0);
+        Contact {
+            uv: [upright.project(point, None), wall.project(point, None)],
+            point,
+        }
+    });
+
+    let refused =
+        IntersectionCurve::from_contacts([upright.clone(), wall.clone()], &contacts, false);
+
+    let Err(IntersectionError::Unrefined {
+        point,
+        distance,
+        cause,
+    }) = refused
+    else {
+        panic!("{refused:?}");
+    };
+    assert_eq!(cause, RefineStop::Unsolved);
+    assert!(distance > INTERSECTION_TOLERANCE);
+    assert!(
+        (upright.distance(point) - distance).abs() < 1e-9
+            || (wall.distance(point) - distance).abs() < 1e-9
+    );
+    assert!(point.y.abs() < side);
+}
+
+#[test]
+fn an_intersection_segment_fitting_at_its_middle_but_not_its_quarters_is_split() {
+    use crate::{
+        IntersectionCurve,
+        intersect::solve::Contact,
+        surface::{Cylinder, PlaneSurface, Surface},
+        tolerance::INTERSECTION_TOLERANCE,
+    };
+
+    let upright: Surface = Cylinder::new(Plane::XY, 2.0).unwrap().into();
+    let slant: Surface =
+        PlaneSurface::new(Plane::new(Point3::ZERO, Vector3::new(0.0, 1.0, 1.0)).unwrap())
+            .unwrap()
+            .into();
+    let contacts = [0.9_f64, 1.11].map(|angle| {
+        let point = Point3::new(2.0 * angle.cos(), 2.0 * angle.sin(), -2.0 * angle.sin());
+        Contact {
+            uv: [upright.project(point, None), slant.project(point, None)],
+            point,
+        }
+    });
+
+    let curve =
+        IntersectionCurve::from_contacts([upright.clone(), slant.clone()], &contacts, false)
+            .unwrap();
+
+    let domain = curve.domain();
+    let off = |fraction: f64| {
+        let point = curve.point(domain.at(fraction));
+        upright.distance(point).max(slant.distance(point))
+    };
+    let farthest = (0..=200)
+        .map(|step| off(step as f64 / 200.0))
+        .fold(0.0, f64::max);
+    assert!(curve.nodes().len() > 2);
+    assert!(farthest <= INTERSECTION_TOLERANCE, "{farthest:e}");
+}
+
+#[test]
 fn lengths_up_to_a_cap_and_comparisons_agree_with_the_length() {
     for (curve, range) in curves() {
         let length = curve.length(range);
