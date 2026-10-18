@@ -26,7 +26,7 @@ use crate::{
     datum::{self, DatumResult},
     delete_face,
     document::{Document, Feature, FeatureId, FeatureKind},
-    emboss,
+    draft, emboss,
     failure::{Cause, Expected, SketchCause, Upstream},
     healing::{self, Healing},
     helix::{self, HelixResult},
@@ -128,6 +128,7 @@ pub enum MissingInput {
     Regions { sketch: FeatureId },
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
+    FacesToDraft { body: FeatureId },
     FacesToDelete { body: FeatureId },
     FacesToEmboss { body: FeatureId },
     SketchToEmboss { body: FeatureId },
@@ -143,6 +144,7 @@ impl MissingInput {
             Self::Regions { .. } => "Waiting for regions",
             Self::Edges { .. } => "Waiting for edges",
             Self::FacesToMove { .. }
+            | Self::FacesToDraft { .. }
             | Self::FacesToDelete { .. }
             | Self::FacesToEmboss { .. }
             | Self::FacesToSplit { .. } => "Waiting for faces",
@@ -176,6 +178,9 @@ impl MissingInput {
             }
             Self::FacesToMove { body } => {
                 format!("Choose the faces of the body of {} to move.", name(body))
+            }
+            Self::FacesToDraft { body } => {
+                format!("Choose the faces of the body of {} to draft.", name(body))
             }
             Self::FacesToDelete { body } => {
                 format!("Choose the faces of the body of {} to delete.", name(body))
@@ -1923,6 +1928,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::MoveFace(definition) => {
                 move_face::evaluate(feature, definition, inputs, cancel)
             }
+            FeatureKind::Draft(definition) => draft::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Primitive(definition) => {
                 primitive::evaluate(feature, definition, inputs, cancel)

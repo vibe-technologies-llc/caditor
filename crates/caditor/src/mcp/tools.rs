@@ -75,6 +75,7 @@ pub enum Tool {
     AddDeleteFace,
     AddEmboss,
     AddMoveFace,
+    AddDraft,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -138,6 +139,7 @@ all_variants!(
     AddDeleteFace,
     AddEmboss,
     AddMoveFace,
+    AddDraft,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -292,6 +294,7 @@ impl Tool {
             Self::AddDeleteFace => "add_delete_face",
             Self::AddEmboss => "add_emboss",
             Self::AddMoveFace => "add_move_face",
+            Self::AddDraft => "add_draft",
             Self::AddSplit => "add_split",
             Self::AddScale => "add_scale",
             Self::AddDatumPoint => "add_datum_point",
@@ -357,6 +360,7 @@ impl Tool {
             Self::AddDeleteFace => "Delete face",
             Self::AddEmboss => "Emboss or deboss",
             Self::AddMoveFace => "Move face",
+            Self::AddDraft => "Draft",
             Self::AddSplit => "Split body",
             Self::AddScale => "Scale body",
             Self::AddDatumPoint => "Datum point",
@@ -590,6 +594,9 @@ impl Tool {
             Self::AddMoveFace => {
                 "Shifts faces of a body along a direction and tilts them about an axis, the faces around them extending or trimming to follow, as on an imported body with no history. One undo step."
             }
+            Self::AddDraft => {
+                "Tilts flat faces of a body about the line where each meets the neutral plane, so each makes the draft angle with the pull direction (the neutral plane's normal, reversed by flipped), the faces around them following; beyond splits the faces at the neutral plane and drafts the part beyond it at an angle of its own. One undo step."
+            }
             Self::AddSplit => {
                 "Splits a body in two along a plane, a sketch's curves or another body; flipped swaps which side is kept first. One undo step."
             }
@@ -649,6 +656,7 @@ impl Tool {
             | Self::AddDeleteFace
             | Self::AddEmboss
             | Self::AddMoveFace
+            | Self::AddDraft
             | Self::AddSplit
             | Self::AddScale
             | Self::AddDatumPoint
@@ -846,6 +854,7 @@ impl Tool {
             Self::AddDeleteFace => sweep_schemas::delete_face(),
             Self::AddEmboss => sweep_schemas::emboss(),
             Self::AddMoveFace => sweep_schemas::move_face(),
+            Self::AddDraft => sweep_schemas::draft(),
             Self::AddSplit => sweep_schemas::split(),
             Self::AddScale => sweep_schemas::scale(),
             Self::AddDatumPoint => datum_schemas::datum_point(),
@@ -932,6 +941,7 @@ impl Tool {
             Self::AddDeleteFace => Call::AddDeleteFace(self.arguments(arguments)?),
             Self::AddEmboss => Call::AddEmboss(self.arguments(arguments)?),
             Self::AddMoveFace => Call::AddMoveFace(self.arguments(arguments)?),
+            Self::AddDraft => Call::AddDraft(self.arguments(arguments)?),
             Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
             Self::AddScale => Call::AddScale(self.arguments(arguments)?),
             Self::AddDatumPoint => Call::AddDatumPoint(self.arguments(arguments)?),
@@ -1004,6 +1014,7 @@ pub enum Call {
     AddDeleteFace(reshaping::FaceDeleting),
     AddEmboss(reshaping::Embossing),
     AddMoveFace(reshaping::FaceMoving),
+    AddDraft(reshaping::FaceDrafting),
     AddSplit(reshaping::Splitting),
     AddScale(reshaping::Scaling),
     AddDatumPoint(datums::DatumPointing),
@@ -1075,6 +1086,7 @@ impl Call {
             Self::AddDeleteFace(deleting) => reshaping::delete_face(session, work, deleting),
             Self::AddEmboss(embossing) => reshaping::emboss(session, work, embossing),
             Self::AddMoveFace(moving) => reshaping::move_face(session, work, moving),
+            Self::AddDraft(drafting) => reshaping::draft(session, work, drafting),
             Self::AddSplit(splitting) => reshaping::split(session, work, splitting),
             Self::AddScale(scaling) => reshaping::scale(session, work, scaling),
             Self::AddDatumPoint(pointing) => datums::datum_point(session, work, pointing),

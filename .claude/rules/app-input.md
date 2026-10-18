@@ -210,7 +210,8 @@ paths:
   refused and queued next frame. A button or item blocked for any other reason stays disabled. The shell's own-thickness click in the view (`shell_tools::own_thickness_click`, a
   shell input with no shape yet) queues `Rerun::OwnThickness` naming the feature and the clicked
   `Pickable`, which `app::run_due` replays through the same click only while the feature's
-  own-thickness picking is still active.
+  own-thickness picking is still active; the draft's own-angle click (`draft_tools::own_angle_click`)
+  queues `Rerun::OwnAngle` the same way.
 - `Model` keeps one `queued::Queue`: a newer queued action replaces it. It is held only while what
   it waits for runs (`Model::awaits`: a recompute, or a constraint trial); otherwise the refusal is
   a warning notice saying what to do first (`Queued::refusal`). It carries the session and

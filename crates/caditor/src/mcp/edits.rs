@@ -6,8 +6,8 @@ use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
 use crate::{
-    blend_tools, coil_tools, combine_tools, datum_tools, delete_face_tools, emboss_tools,
-    helix_tools, hole_tools, loft_tools, mate_tools,
+    blend_tools, coil_tools, combine_tools, datum_tools, delete_face_tools, draft_tools,
+    emboss_tools, helix_tools, hole_tools, loft_tools, mate_tools,
     mcp::{
         curves, datums,
         features::{self, Built},
@@ -137,6 +137,7 @@ pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
         FeatureKind::DeleteFace(_) => Tool::AddDeleteFace,
         FeatureKind::Emboss(_) => Tool::AddEmboss,
         FeatureKind::MoveFace(_) => Tool::AddMoveFace,
+        FeatureKind::Draft(_) => Tool::AddDraft,
         FeatureKind::Split(_) => Tool::AddSplit,
         FeatureKind::Scale(_) => Tool::AddScale,
         FeatureKind::Sketch(_)
@@ -264,6 +265,9 @@ fn rebuilt(
         FeatureKind::MoveFace(base) => {
             reshaping::move_face_built(session, work, decoded(tool, values)?, Some(base))?
         }
+        FeatureKind::Draft(base) => {
+            reshaping::draft_built(session, work, decoded(tool, values)?, Some(base))?
+        }
         FeatureKind::Split(base) => {
             reshaping::split_built(session, work, decoded(tool, values)?, Some(base))?
         }
@@ -304,6 +308,7 @@ fn edit_transaction(
         FeatureKind::DeleteFace(deletion) => delete_face_tools::edit(document, feature, deletion),
         FeatureKind::Emboss(emboss) => emboss_tools::edit(document, feature, emboss),
         FeatureKind::MoveFace(moving) => move_face_tools::edit(document, feature, moving),
+        FeatureKind::Draft(draft) => draft_tools::edit(document, feature, draft),
         FeatureKind::Split(split) => split_tools::edit(document, feature, split),
         FeatureKind::Scale(scale) => scale_tools::edit(document, feature, scale),
         FeatureKind::Mate(mate) => mate_tools::edit(document, feature, mate),

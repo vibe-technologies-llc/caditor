@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 52] = [
+const KEPT: [(&str, &str); 53] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -110,6 +110,10 @@ const KEPT: [(&str, &str); 52] = [
     (
         "model-1/document.caditor",
         "d6f719b47c939f742905bc3c7764a6b115222984bdb00759edacc6872588d630",
+    ),
+    (
+        "model-1/drafts.caditor",
+        "dcb865f43993e3a12a35e0ac8abecded8dc91ac2fc081c2da43674d7e0f0d10d",
     ),
     (
         "model-1/embossed-faces.caditor",
@@ -854,6 +858,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&deleted_faces(), "Deleted faces"),
         ),
         (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
+        (model("drafts"), saved(&drafts(), "Drafts")),
         (
             model("embossed-faces"),
             saved(&embossed_faces(), "Embossed faces"),
@@ -2551,6 +2556,47 @@ fn embossed_faces() -> Document {
             sketch: None,
             depth: Expression::parse_stored("2 mm").unwrap(),
             form: EmbossForm::Raised,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn drafts() -> Document {
+    use caditor_document::{Draft, FaceAngle, FaceAttachment, PlaneReference, PrincipalPlane};
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let mut transaction = document.transaction("Draft");
+    transaction.add_feature(
+        "Draft",
+        FeatureKind::Draft(Draft {
+            body: base,
+            faces: vec![end_cap(0xbeef), end_cap(0xfeed)],
+            neutral: PlaneReference::Principal(PrincipalPlane::Xy),
+            angle: Expression::parse_stored("3 deg").unwrap(),
+            flipped: false,
+            tangent: false,
+            beyond: None,
+            own: Vec::new(),
+        }),
+    );
+    transaction.add_feature(
+        "Draft both ways from a face",
+        FeatureKind::Draft(Draft {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            neutral: PlaneReference::Face(FaceAttachment {
+                body: base,
+                face: end_cap(0xd00d),
+            }),
+            angle: Expression::parse_stored("2 deg").unwrap(),
+            flipped: true,
+            tangent: true,
+            beyond: Some(Expression::parse_stored("5 deg").unwrap()),
+            own: vec![FaceAngle {
+                face: end_cap(0xfade),
+                angle: Expression::parse_stored("6 deg").unwrap(),
+            }],
         }),
     );
     document.apply(transaction.finish()).unwrap();

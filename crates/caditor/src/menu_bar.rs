@@ -47,6 +47,7 @@ const MODEL_SHAPING: [&[Command]; 1] = [&[
     Command::DeleteFace,
     Command::Emboss,
     Command::MoveFace,
+    Command::Draft,
     Command::SplitFace,
     Command::Combine,
 ]];

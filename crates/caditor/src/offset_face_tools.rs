@@ -28,6 +28,7 @@ pub const TITLE: &str = "Offset face";
 pub enum FacePurpose {
     Move,
     Delete,
+    Draft,
 }
 
 impl Display for FacePurpose {
@@ -35,6 +36,7 @@ impl Display for FacePurpose {
         formatter.write_str(match self {
             Self::Move => "move",
             Self::Delete => "delete",
+            Self::Draft => "draft",
         })
     }
 }

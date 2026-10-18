@@ -4764,6 +4764,96 @@ fn an_unreadable_embossed_face_is_left_plain_and_reported() {
     assert!(restored.kind.emboss().unwrap().faces.is_empty());
 }
 
+fn draft_model() -> (Document, FeatureId) {
+    use caditor_document::{Draft, FaceAngle, PlaneReference, PrincipalPlane};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let side = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Draft");
+    let draft = transaction.add_feature(
+        "Draft 1",
+        FeatureKind::Draft(Draft {
+            body: base,
+            faces: vec![side],
+            neutral: PlaneReference::Principal(PrincipalPlane::Xz),
+            angle: Expression::parse_stored("3 deg").unwrap(),
+            flipped: true,
+            tangent: true,
+            beyond: Some(Expression::parse_stored("5 deg").unwrap()),
+            own: vec![FaceAngle {
+                face: FaceReference::new(
+                    FaceName::from_digest(0xfeed),
+                    Some(FaceOrigin::EndCap { feature: 1 }),
+                    [FaceName::from_digest(2)],
+                ),
+                angle: Expression::parse_stored("7 deg").unwrap(),
+            }],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, draft)
+}
+
+#[test]
+fn a_draft_is_saved_and_loaded_as_a_record_of_its_own() {
+    let (document, draft) = draft_model();
+    let text = encode(&document).unwrap();
+    assert!(
+        text.contains(
+            "\"draft\":{\"angle\":\"3 deg\",\"beyond\":\"5 deg\",\"body\":1,\"faces\":[{\"face\":\
+             \"0000000000000000000000000000beef\",\"neighbours\":[\"00000000000000000000000000000002\"],\
+             \"origin\":{\"end_cap\":{\"feature\":1}}}],\"flipped\":true,\"neutral\":{\"principal\":\
+             \"xz\"},\"own\":[{\"angle\":\"7 deg\",\"face\":{\"face\":\
+             \"0000000000000000000000000000feed\",\"neighbours\":[\
+             \"00000000000000000000000000000002\"],\"origin\":{\"end_cap\":{\"feature\":1}}}}],\
+             \"tangent\":true}"
+        ),
+        "{text}"
+    );
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(draft).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: draft, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
+    use caditor_document::{PlaneReference, PrincipalPlane};
+    let (document, draft) = draft_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("0000000000000000000000000000beef", "not a digest", 1)
+        .replacen("0000000000000000000000000000feed", "not a digest", 1)
+        .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"xw\"}", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "Some faces drafted by “Draft 1” could not be read and were left as they stand.",
+            "The neutral plane of “Draft 1” could not be read, so it drafts from the XY plane.",
+            "Some faces given their own angle by “Draft 1” could not be read and were left as \
+             they stand."
+        ]
+    );
+    let restored = loaded.document.feature(draft).unwrap();
+    let restored = restored.kind.draft().unwrap();
+    assert!(restored.faces.is_empty());
+    assert!(restored.own.is_empty());
+    assert_eq!(
+        restored.neutral,
+        PlaneReference::Principal(PrincipalPlane::Xy)
+    );
+}
+
 fn moving_model() -> (Document, FeatureId) {
     use caditor_document::{AxisReference, MoveFace, PrincipalAxis};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

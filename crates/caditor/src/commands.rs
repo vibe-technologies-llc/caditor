@@ -151,6 +151,7 @@ pub enum Command {
     DeleteFace,
     Emboss,
     MoveFace,
+    Draft,
     SplitFace,
     Combine,
     Move,
@@ -370,6 +371,7 @@ impl Command {
                 | Self::DeleteFace
                 | Self::Emboss
                 | Self::MoveFace
+                | Self::Draft
                 | Self::SplitFace
                 | Self::Combine
                 | Self::Move
@@ -802,6 +804,7 @@ plain_commands! {
     DeleteFace,
     Emboss,
     MoveFace,
+    Draft,
     SplitFace,
     Combine,
     Move,
@@ -1104,6 +1107,7 @@ impl Command {
             Self::DeleteFace => "model.delete_face",
             Self::Emboss => "model.emboss",
             Self::MoveFace => "model.move_face",
+            Self::Draft => "model.draft",
             Self::SplitFace => "model.split_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
@@ -1413,6 +1417,7 @@ impl Command {
             Self::DeleteFace => "Delete face",
             Self::Emboss => "Emboss or deboss",
             Self::MoveFace => "Move face",
+            Self::Draft => "Draft",
             Self::SplitFace => "Split face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
@@ -1667,6 +1672,15 @@ impl Command {
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
+            Self::Draft => &[
+                "draft angle",
+                "taper faces",
+                "mould release",
+                "mold release",
+                "parting line",
+                "neutral plane",
+                "pull direction",
+            ],
             Self::MoveFace => &[
                 "tilt face",
                 "rotate face",
@@ -1946,6 +1960,7 @@ impl Command {
             | Self::DeleteFace
             | Self::Emboss
             | Self::MoveFace
+            | Self::Draft
             | Self::SplitFace
             | Self::Combine
             | Self::Move
@@ -2219,6 +2234,7 @@ impl Command {
             Self::DeleteFace => vec![alt_shift(Key::Q)],
             Self::Emboss => vec![alt_shift(Key::Y)],
             Self::MoveFace => vec![alt_shift(Key::J)],
+            Self::Draft => Vec::new(),
             Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],

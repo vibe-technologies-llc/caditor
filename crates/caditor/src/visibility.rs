@@ -81,6 +81,7 @@ pub fn can_hide(feature: &Feature) -> bool {
         | FeatureKind::DeleteFace(_)
         | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
+        | FeatureKind::Draft(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)

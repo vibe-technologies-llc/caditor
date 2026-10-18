@@ -753,6 +753,7 @@ impl Rescaler {
             | FeatureKind::Split(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Draft(_)
             | FeatureKind::Remove(_)
             | FeatureKind::Measurement(_) => {}
         }
@@ -1262,6 +1263,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         },
         FeatureKind::Mate(mate) => mate_anchored(mate),
         FeatureKind::Mirror(mirror) => vec![Anchored::Plane(&mut mirror.plane)],
+        FeatureKind::Draft(draft) => vec![Anchored::Plane(&mut draft.neutral)],
         FeatureKind::Split(split) => split
             .along
             .plane_mut()

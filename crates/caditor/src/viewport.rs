@@ -36,6 +36,7 @@ use crate::{
     display::Displayed,
     display_picker,
     display_style::DisplayStyle,
+    draft_tools,
     drag_solver::DragCommand,
     drawing::{self, Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -6202,6 +6203,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::MoveFace(_)) => {
             in_view("Click faces to move them, and again to leave one out")
         }
+        Some(FeatureKind::Draft(_)) => {
+            in_view("Click faces to draft them, and again to leave one out")
+        }
         Some(FeatureKind::DeleteFace(_)) => {
             in_view("Click faces to delete them, and again to keep one")
         }
@@ -6596,6 +6600,15 @@ fn pick_action(
         );
     }
     if let Some(picking) = editing.picking()
+        && picking.slot == Slot::DraftOwnAngle
+    {
+        return Some(
+            pickable
+                .map(|pickable| draft_tools::own_angle_click(model, picking.feature, pickable))
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(picking) = editing.picking()
         && picking.slot == Slot::HoleAdd
     {
         return Some(
@@ -6646,6 +6659,7 @@ fn pick_action(
                 Some(FeatureKind::MoveFace(_)) => {
                     move_face_tools::toggle_face(model, feature, face)
                 }
+                Some(FeatureKind::Draft(_)) => draft_tools::toggle_face(model, feature, face),
                 Some(FeatureKind::Emboss(_)) => emboss_tools::toggle_face(model, feature, face),
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)

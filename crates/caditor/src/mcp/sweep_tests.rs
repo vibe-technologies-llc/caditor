@@ -329,6 +329,58 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
     client.finish();
 }
 
+fn drafted_block(sides: [f64; 4]) -> f64 {
+    let [east, west, north, south] = sides.map(|degrees: f64| degrees.to_radians().tan());
+    let area = |z: f64| (10.0 - (east + west) * z) * (10.0 - (north + south) * z);
+    10.0 / 6.0 * (area(0.0) + 4.0 * area(5.0) + area(10.0))
+}
+
+#[test]
+fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
+    let faces = faces_of(&mut client, &block);
+    let wall = |normal: [f64; 3]| {
+        faces
+            .iter()
+            .find(|face| face["normal"] == json!(normal))
+            .unwrap()["face"]
+            .clone()
+    };
+    let east = wall([1.0, 0.0, 0.0]);
+    let others = [
+        wall([-1.0, 0.0, 0.0]),
+        wall([0.0, 1.0, 0.0]),
+        wall([0.0, -1.0, 0.0]),
+    ];
+
+    let drafted = added(
+        &mut client,
+        "add_draft",
+        json!({ "body": block, "faces": [east, others[0], others[1], others[2]], "angle": 5 }),
+    );
+    assert!(close(total_volume(&mut client), drafted_block([5.0; 4])));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({
+            "feature": drafted,
+            "faces": others,
+            "own_angles": [{ "face": east, "angle": "10 deg" }]
+        }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        drafted_block([10.0, 5.0, 5.0, 5.0])
+    ));
+
+    let refused = client.tool_error("add_draft", json!({ "body": block, "faces": [] }));
+    assert!(refused.contains("faces to draft"), "{refused}");
+    client.finish();
+}
+
 fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3], Value) {
     let faces = faces_of(client, body);
     let rim = faces

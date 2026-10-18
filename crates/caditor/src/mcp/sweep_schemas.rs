@@ -390,6 +390,41 @@ pub fn move_face() -> Value {
     )
 }
 
+pub fn draft() -> Value {
+    object(
+        json!({
+            "body": reference("The body, by id or name"),
+            "faces": keys("Flat face keys from list_faces"),
+            "angle": amount("The angle each face makes with the pull direction, narrowing the body toward it; negative widens it. 3 deg by default"),
+            "neutral": {
+                "description": "The plane the faces keep their place on, as a plane: XY, XZ or YZ, a flat face {body, face}, a datum plane {datum} or {frame, plane}; by default the flat face beside the first face chosen, or the principal plane across it",
+                "anyOf": [plane()]
+            },
+            "flipped": flag("Pull the other way, against the neutral plane's normal; by default the pull leaves the neutral plane toward the faces"),
+            "tangent": flag("Draft the faces joining the chosen ones smoothly too"),
+            "beyond": {
+                "description": "Split the faces at the neutral plane and draft the part beyond it at this angle, narrowing the body the other way; \"off\" (the default) drafts each face whole",
+                "anyOf": [{ "type": "string", "enum": ["off"] }, amount("The angle beyond the neutral plane")]
+            },
+            "own_angles": {
+                "type": "array",
+                "description": "Flat faces drafted at an angle of their own instead of the draft angle (beyond the neutral plane they keep the angle beyond): replaces the earlier list, and [] drafts every face at the draft angle",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "face": { "type": "string", "description": "A face key from list_faces" },
+                        "angle": amount("That face's draft angle")
+                    },
+                    "required": ["face", "angle"],
+                    "additionalProperties": false
+                }
+            },
+            "name": name()
+        }),
+        &["body"],
+    )
+}
+
 pub fn split() -> Value {
     object(
         json!({

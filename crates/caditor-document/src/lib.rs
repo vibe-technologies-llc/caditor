@@ -14,6 +14,7 @@ mod delete_face;
 mod dependencies;
 mod describe;
 mod document;
+mod draft;
 mod edge_run;
 mod edit;
 mod editor;
@@ -131,6 +132,7 @@ pub use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, ParameterUser,
         RollbackBar, TreeRow,
     },
+    draft::{Draft, FaceAngle, default_neutral, flipped_toward},
     edit::{
         Edit, EditError, MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, Touched, Transaction,
         TransactionBuilder,
@@ -282,6 +284,8 @@ mod datum_point_tests;
 mod datum_tests;
 #[cfg(test)]
 mod delete_face_tests;
+#[cfg(test)]
+mod draft_tests;
 #[cfg(test)]
 mod emboss_tests;
 #[cfg(test)]

@@ -4,7 +4,7 @@ use caditor_geometry::RigidTransform;
 use thiserror::Error;
 
 use super::{
-    OFFSET_TOLERANCE, Offsets, ShellError,
+    Carried, OFFSET_TOLERANCE, Offsets, ShellError,
     collapse::loop_edges,
     inner::{Naming, inner_solid},
 };
@@ -80,7 +80,17 @@ pub fn move_faces(
     faces: &[FaceId],
     motion: &RigidTransform,
 ) -> Result<Solid, MoveError> {
-    carried(solid, faces, motion).or_else(|error| {
+    move_each(
+        solid,
+        &[Carried {
+            faces,
+            motion: *motion,
+        }],
+    )
+}
+
+pub(super) fn move_each(solid: &Solid, groups: &[Carried<'_>]) -> Result<Solid, MoveError> {
+    carried(solid, groups).or_else(|error| {
         interrupt::check()?;
         Err(error)
     })
@@ -104,18 +114,21 @@ fn travel(solid: &Solid, faces: &[FaceId], motion: &RigidTransform) -> f64 {
         .fold(0.0, f64::max)
 }
 
-fn carried(solid: &Solid, faces: &[FaceId], motion: &RigidTransform) -> Result<Solid, MoveError> {
-    if faces.is_empty() {
+fn carried(solid: &Solid, groups: &[Carried<'_>]) -> Result<Solid, MoveError> {
+    if groups.iter().all(|group| group.faces.is_empty()) {
         return Err(MoveError::NothingToMove);
     }
-    for face in faces {
+    for face in groups.iter().flat_map(|group| group.faces) {
         solid.face(*face).ok_or(MoveError::MissingFace(*face))?;
     }
-    let reach = travel(solid, faces, motion);
+    let reach = groups
+        .iter()
+        .map(|group| travel(solid, group.faces, &group.motion))
+        .fold(0.0, f64::max);
     if !reach.is_finite() || reach <= LINEAR_RESOLUTION {
         return Err(MoveError::Unmoved);
     }
-    let offsets = Offsets::rigid(solid, faces, *motion, reach.max(OFFSET_TOLERANCE));
+    let offsets = Offsets::rigid(solid, groups, reach.max(OFFSET_TOLERANCE));
     let inner = inner_solid(&offsets, Naming::Kept)?;
     if let Some(face) = inner.dropped.iter().next() {
         return Err(MoveError::Vanishes(*face));

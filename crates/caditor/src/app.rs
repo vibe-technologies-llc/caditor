@@ -38,7 +38,7 @@ use crate::{
     commands::{self, Clipboard, Command, CommandFrame, Declined, Offer, Situation},
     completion,
     configurations::{self, ConfigurationsDraft},
-    constraint_trial, defender, drawing_export, drop_target,
+    constraint_trial, defender, draft_tools, drawing_export, drop_target,
     editing::{self, EditingCommand, SketchEditing, Tool},
     feature_tree,
     file_drops::FileDrops,
@@ -1825,6 +1825,16 @@ fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {
                 picking.feature == feature && picking.slot == Slot::ShellOwnThickness
             }) {
                 for action in shell_tools::own_thickness_click(model, feature, pickable) {
+                    model.perform(action);
+                }
+            }
+        }
+        Rerun::OwnAngle { feature, pickable } => {
+            let picking = workspace.editing.picking();
+            if picking.is_some_and(|picking| {
+                picking.feature == feature && picking.slot == Slot::DraftOwnAngle
+            }) {
+                for action in draft_tools::own_angle_click(model, feature, pickable) {
                     model.perform(action);
                 }
             }

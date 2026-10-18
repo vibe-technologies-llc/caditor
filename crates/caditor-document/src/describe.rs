@@ -1,4 +1,6 @@
-use caditor_kernel::{EdgeId, FaceId, FaceOrigin, Solid};
+use std::collections::BTreeSet;
+
+use caditor_kernel::{EdgeId, FaceId, FaceOrigin, Solid, VertexId};
 use caditor_sketch::EntityId;
 
 use crate::{
@@ -141,6 +143,35 @@ pub fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
         .collect();
     faces.dedup();
     faces
+}
+
+pub(crate) fn describe_face(document: &Document, solid: &Solid, face: FaceId) -> String {
+    describe_origin(document, solid.face(face).and_then(|face| face.origin()))
+}
+
+pub(crate) fn describe_faces(document: &Document, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::with_capacity(faces.len());
+    for face in faces {
+        let name = describe_face(document, solid, *face);
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+pub(crate) fn describe_corner(document: &Document, solid: &Solid, vertex: VertexId) -> String {
+    let faces: BTreeSet<FaceId> = solid
+        .edges()
+        .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
+        .flat_map(|(id, _)| edge_faces(solid, id))
+        .collect();
+    let faces: Vec<FaceId> = faces.into_iter().collect();
+    match describe_faces(document, solid, &faces).as_slice() {
+        [] => "one of its corners".to_owned(),
+        [only] => format!("the corner of {only}"),
+        [rest @ .., last] => format!("the corner where {} and {last} meet", rest.join(", ")),
+    }
 }
 
 pub fn describe_edge(document: &Document, solid: &Solid, edge: EdgeId) -> String {

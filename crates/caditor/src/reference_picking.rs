@@ -5,7 +5,7 @@ use egui::{Context, Id};
 use crate::{
     coil_tools,
     datum_panel::{self, FramePart},
-    datum_tools,
+    datum_tools, draft_tools,
     editing::EditingCommand,
     emboss_tools, helix_tools, hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
     mate_tools::{self, MatePart},
@@ -54,6 +54,7 @@ pub enum Slot {
     MoveAxis,
     MoveFaceDirection,
     MoveFaceAxis,
+    DraftNeutral,
     PrimitivePlace,
     CoilAxis,
     HelixAxis,
@@ -70,6 +71,7 @@ pub enum Slot {
     HoleConcentric(EntityId),
     HoleAdd,
     ShellOwnThickness,
+    DraftOwnAngle,
     SweepPath,
     LoftProfiles,
     LoftEnd,
@@ -81,7 +83,11 @@ impl Slot {
     pub fn keeps_choosing(self) -> bool {
         matches!(
             self,
-            Self::SweepPath | Self::LoftProfiles | Self::ShellOwnThickness | Self::HoleAdd
+            Self::SweepPath
+                | Self::LoftProfiles
+                | Self::ShellOwnThickness
+                | Self::DraftOwnAngle
+                | Self::HoleAdd
         )
     }
 
@@ -104,6 +110,7 @@ impl Slot {
             | Self::MoveAxis
             | Self::MoveFaceDirection
             | Self::MoveFaceAxis
+            | Self::DraftNeutral
             | Self::PrimitivePlace
             | Self::CoilAxis
             | Self::HelixAxis
@@ -122,6 +129,7 @@ impl Slot {
             | Self::ImageCalibration
             | Self::HoleAdd
             | Self::ShellOwnThickness
+            | Self::DraftOwnAngle
             | Self::ThreadFace
             | Self::SweepPath
             | Self::LoftProfiles
@@ -246,8 +254,14 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
              stop"
                 .to_owned()
         }
+        Slot::DraftOwnAngle => {
+            "Click a flat face to give it its own draft angle or the draft's again, or press \
+             Escape to stop"
+                .to_owned()
+        }
         Slot::MoveFaceDirection => format!("Click {AXIS} to shift the faces along"),
         Slot::MoveFaceAxis => format!("Click {AXIS} to tilt the faces about"),
+        Slot::DraftNeutral => "Click a plane or flat face to draft from".to_owned(),
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
                                     along"
             .to_owned(),
@@ -410,6 +424,8 @@ pub enum ChangeError {
     #[error(transparent)]
     MoveFace(#[from] move_face_tools::MoveFaceError),
     #[error(transparent)]
+    Draft(#[from] draft_tools::DraftToolError),
+    #[error(transparent)]
     Pattern(#[from] pattern_tools::PatternToolError),
     #[error(transparent)]
     Pipe(#[from] pipe_tools::PipeError),
@@ -496,6 +512,12 @@ pub fn change(
         }
         (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
             shell_tools::own_thickness_change(model, selection, feature).map_err(ChangeError::from)
+        }
+        (Slot::DraftNeutral, FeatureKind::Draft(draft)) => {
+            draft_tools::plane_change(model, selection, feature, draft).map_err(ChangeError::from)
+        }
+        (Slot::DraftOwnAngle, FeatureKind::Draft(_)) => {
+            draft_tools::own_angle_change(model, selection, feature).map_err(ChangeError::from)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror).map_err(ChangeError::from)

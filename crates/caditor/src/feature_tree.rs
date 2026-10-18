@@ -24,7 +24,7 @@ use crate::{
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
     commands::{Command, CommandFrame, Reason},
-    completion, datum_panel, delete_face_panel,
+    completion, datum_panel, delete_face_panel, draft_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
     emboss_panel, feature_clipboard, feature_fields,
@@ -399,6 +399,9 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::DeleteFace(_) => &["delete", "face", "remove", "defeature", "heal", "fill"],
         FeatureKind::Emboss(_) => &["emboss", "deboss", "engrave", "text", "relief", "label"],
         FeatureKind::MoveFace(_) => &["move", "face", "tilt", "shift", "push", "pull", "hole"],
+        FeatureKind::Draft(_) => &[
+            "draft", "taper", "angle", "mould", "mold", "neutral", "pull",
+        ],
         FeatureKind::SplitFace(_) => &["split", "face", "part line", "imprint", "divide"],
         FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
             PrimitiveKind::Box => &["box", "block", "cube", "primitive"],
@@ -1155,6 +1158,21 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Draft(draft) => {
+            draft_panel::show(
+                ui,
+                &draft_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    draft,
+                    opened: row.edited,
+                },
+                &mut state.reference_rows,
+                actions,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::MoveFace(moving) => {
             move_face_panel::show(
                 ui,
@@ -1348,6 +1366,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::DeleteFace(_)
         | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
+        | FeatureKind::Draft(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
@@ -1482,6 +1501,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::DeleteFace(_)
             | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
+            | FeatureKind::Draft(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
@@ -1512,6 +1532,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::DeleteFace(_)
             | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
+            | FeatureKind::Draft(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
@@ -3105,6 +3126,7 @@ fn waiting(
             MissingInput::Regions { .. }
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }
+            | MissingInput::FacesToDraft { .. }
             | MissingInput::FacesToDelete { .. }
             | MissingInput::FacesToEmboss { .. }
             | MissingInput::SketchToEmboss { .. }
