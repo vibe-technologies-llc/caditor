@@ -27,7 +27,10 @@ paths:
   parameter; a closed curve's wrap point is reported once. `tangent` flags touches (no sign change,
   or parallel tangent). Clusters of roots closer than the resolution collapse to one tangent
   point, except a cluster with exactly one distinct root (a sign change) is a crossing at that
-  root, so a grazing crossing is met where it crosses. Branches shorter than `MIN_BRANCH_LENGTH`
+  root, so a grazing crossing is met where it crosses. A curve-surface cluster holding a range end
+  within the resolution of the surface and a single crossing farther than the resolution from it
+  (a circle running within the resolution of a wall from its seam to where it crosses it) reports
+  both, the end as a touch. Branches shorter than `MIN_BRANCH_LENGTH`
   are dropped.
 - Every search is budgeted; exhausting one is `IntersectionError::TooComplex`.
 
