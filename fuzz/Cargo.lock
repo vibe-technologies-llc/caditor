@@ -653,6 +653,7 @@ dependencies = [
  "caditor-file",
  "caditor-geometry",
  "caditor-kernel",
+ "caditor-lettering",
  "caditor-render",
  "caditor-sketch",
  "caditor-wayland",
@@ -703,6 +704,7 @@ dependencies = [
  "caditor-expression",
  "caditor-geometry",
  "caditor-kernel",
+ "caditor-lettering",
  "caditor-sketch",
  "caditor-zstd",
  "log",
@@ -727,6 +729,7 @@ dependencies = [
  "caditor-expression",
  "caditor-geometry",
  "caditor-kernel",
+ "caditor-lettering",
  "caditor-sketch",
  "caditor-step",
  "caditor-windows",
@@ -741,7 +744,6 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_json",
- "skrifa 0.48.0",
  "thiserror 2.0.21",
  "xattr",
  "xxhash-rust",
@@ -776,6 +778,17 @@ version = "0.1.0"
 dependencies = [
  "caditor-geometry",
  "spade",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "caditor-lettering"
+version = "0.1.0"
+dependencies = [
+ "caditor-geometry",
+ "caditor-kernel",
+ "parking_lot",
+ "skrifa 0.48.0",
  "thiserror 2.0.21",
 ]
 

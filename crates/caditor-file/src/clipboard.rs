@@ -5,13 +5,13 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{ClipError, EntityId, Sketch, SketchClip};
+use caditor_sketch::{ClipError, EntityId, Sketch, SketchClip, Text};
 use serde::{Deserialize, Serialize};
 
 use crate::format::{
     ConstraintRecord, EntityRecord, FeatureRecord, Lenient, SketchRecord, Unreadable,
     constraint_record, entity_record, feature_record, plane_record, restore_feature,
-    restore_sketch,
+    restore_sketch, text_entity_record,
 };
 
 pub const CLIPBOARD_HEADER: &str = "caditor clipboard";
@@ -148,6 +148,11 @@ pub fn sketch_clipboard_text(
             .map(|(id, entity)| {
                 Lenient::Read(entity_record(id, entity, holder.is_construction(id), None))
             })
+            .chain(
+                holder
+                    .texts()
+                    .map(|(id, text)| Lenient::Read(text_entity_record(id, text))),
+            )
             .collect(),
         constraints: holder
             .constraints()
@@ -206,9 +211,33 @@ pub fn read_sketch_clipboard(
             }
         }
     }
+    let texts: Vec<(EntityId, Text)> = sketch
+        .texts()
+        .map(|(id, text)| (id, text.clone()))
+        .collect();
+    for (id, text) in texts {
+        let height = parameters.carry(&text.height, target, origin);
+        let angle = parameters.carry(&text.angle, target, origin);
+        match (height, angle) {
+            (Ok(height), Ok(angle)) => {
+                inlined += height.inlined + angle.inlined;
+                let carried = Text {
+                    height: height.expression,
+                    angle: angle.expression,
+                    ..text
+                };
+                sketch.replace_text(id, carried).map_err(ClipError::from)?;
+            }
+            (Err(error), _) | (_, Err(error)) => {
+                sketch.remove_text(id).map_err(ClipError::from)?;
+                notes.push(format!("A text was left out because {error}."));
+            }
+        }
+    }
     let items: Vec<EntityId> = sketch
         .entities()
         .map(|(id, _)| id)
+        .chain(sketch.texts().map(|(id, _)| id))
         .filter(|id| !id.is_reference())
         .collect();
     let clip = sketch

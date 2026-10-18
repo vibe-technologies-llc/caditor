@@ -8,7 +8,7 @@ use caditor_document::{
     BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureKind,
     FeatureResult, FeatureState, PrincipalAxis, PrincipalGeometry, ReferenceImage, RegionChoice,
     RevolveAxis, Rgb, SketchRegion, SketchResult, SolidFeature, SolidResult, body_parts,
-    datum_outline, displayed_axis, displayed_frame, placed_threads,
+    datum_outline, displayed_axis, displayed_frame, placed_text, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -923,6 +923,21 @@ fn sketch_shapes(
                 control_polygon: control_polygon(sketch, entity, kind),
             })
         })
+        .chain(sketch.texts().filter_map(|(id, text)| {
+            let placed = placed_text(sketch, id)?;
+            Some(SketchShape {
+                entity: id,
+                state: states.state(text.anchor),
+                outline: Outline::Curve(
+                    placed
+                        .polylines(faceting)
+                        .iter()
+                        .flat_map(|letter| curve_segments(plane, letter, false))
+                        .collect(),
+                ),
+                control_polygon: Vec::new(),
+            })
+        }))
         .collect()
 }
 

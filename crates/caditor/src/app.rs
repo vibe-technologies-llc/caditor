@@ -96,6 +96,7 @@ use crate::{
     sketch_toolbar, sketch_tools,
     startup_check::StartupCheck,
     status_bar::{self, StatusContext},
+    text_panel,
     themes::{Look, Resolved, Theme, UserThemes},
     tidy_panel,
     tidying::Tidying,
@@ -851,6 +852,7 @@ pub fn show(
         + usize::from(lighting.open)
         + usize::from(tidying.feature().is_some())
         + usize::from(gearing_open(editing))
+        + usize::from(texting_open(editing))
         + usize::from(section.open)
         + usize::from(guide.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
@@ -1029,6 +1031,21 @@ pub fn show(
             ui,
             &context,
             viewport.gear_settings(),
+            room,
+        ));
+    }
+    if let Some(feature) = editing.feature().filter(|_| texting_open(editing)) {
+        let selected = sketch_tools::selected_entities(viewport.selection(), feature);
+        let context = text_panel::Context {
+            model,
+            feature,
+            sketch: editing::edited_sketch(model.document(), feature),
+            selected: &selected,
+        };
+        actions.extend(text_panel::show(
+            ui,
+            &context,
+            viewport.text_settings(),
             room,
         ));
     }
@@ -1403,6 +1420,12 @@ fn gearing_open(editing: &SketchEditing) -> bool {
     editing
         .active()
         .is_some_and(|active| active.tool == Tool::Gear)
+}
+
+fn texting_open(editing: &SketchEditing) -> bool {
+    editing
+        .active()
+        .is_some_and(|active| active.tool == Tool::Text)
 }
 
 struct GuideBasis<'a> {

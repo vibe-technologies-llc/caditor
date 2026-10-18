@@ -181,6 +181,7 @@ mod sketch_shapes;
 mod sketch_snapping;
 mod sketch_symmetry;
 mod sketch_tangent_circles;
+mod sketch_texts;
 mod sketch_tidying;
 mod sketch_tracking;
 mod sketch_transform;

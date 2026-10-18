@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Text};
 
 use crate::{
     attachment::SketchFeature,
@@ -33,6 +33,17 @@ impl TransactionBuilder<'_> {
             split_from: None,
         });
         id
+    }
+
+    pub fn add_sketch_text(&mut self, feature: FeatureId, text: Text) -> EntityId {
+        let id = EntityId::from_raw(self.allocate_sketch_id(feature));
+        self.edits.push(Edit::AddSketchText { feature, id, text });
+        id
+    }
+
+    pub fn set_sketch_text(&mut self, feature: FeatureId, id: EntityId, text: Text) -> &mut Self {
+        self.edits.push(Edit::SetSketchText { feature, id, text });
+        self
     }
 
     pub fn add_sketch_constraint(
@@ -116,6 +127,7 @@ impl TransactionBuilder<'_> {
             }
             None => Removal {
                 constraints: constraints.into_iter().collect(),
+                texts: Vec::new(),
                 entities: entities.into_iter().collect(),
             }
             .edits(feature),
@@ -263,6 +275,7 @@ impl TransactionBuilder<'_> {
 
 struct Removal {
     constraints: Vec<ConstraintId>,
+    texts: Vec<EntityId>,
     entities: Vec<EntityId>,
 }
 
@@ -272,6 +285,9 @@ impl Removal {
         entities: impl IntoIterator<Item = EntityId>,
         constraints: impl IntoIterator<Item = ConstraintId>,
     ) -> Self {
+        let (texts, entities): (Vec<EntityId>, Vec<EntityId>) = entities
+            .into_iter()
+            .partition(|id| sketch.text(*id).is_some());
         let mut entity_users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for (user, entity) in sketch.entities() {
             for point in entity.points() {
@@ -294,6 +310,26 @@ impl Removal {
                 pending.extend(entity_users.get(&id).into_iter().flatten());
             }
         }
+        let mut doomed_texts: BTreeSet<EntityId> = texts.into_iter().collect();
+        doomed_texts.extend(
+            sketch
+                .texts()
+                .filter(|(_, text)| doomed_entities.contains(&text.anchor))
+                .map(|(id, _)| id),
+        );
+        let lone_anchors: Vec<EntityId> = doomed_texts
+            .iter()
+            .filter_map(|id| sketch.text(*id))
+            .map(|text| text.anchor)
+            .filter(|anchor| {
+                !entity_users.contains_key(anchor)
+                    && sketch
+                        .texts_using(*anchor)
+                        .iter()
+                        .all(|user| doomed_texts.contains(user))
+            })
+            .collect();
+        doomed_entities.extend(lone_anchors);
         let mut doomed_constraints: BTreeSet<ConstraintId> = constraints
             .into_iter()
             .filter(|id| sketch.constraint(*id).is_some())
@@ -310,6 +346,7 @@ impl Removal {
             doomed_entities.into_iter().partition(uses_points);
         Self {
             constraints: doomed_constraints.into_iter().collect(),
+            texts: doomed_texts.into_iter().collect(),
             entities: curves.into_iter().chain(points).collect(),
         }
     }
@@ -319,11 +356,15 @@ impl Removal {
             .constraints
             .into_iter()
             .map(|id| Edit::RemoveSketchConstraint { feature, id });
+        let texts = self
+            .texts
+            .into_iter()
+            .map(|id| Edit::RemoveSketchText { feature, id });
         let entities = self
             .entities
             .into_iter()
             .map(|id| Edit::RemoveSketchEntity { feature, id });
-        constraints.chain(entities).collect()
+        constraints.chain(texts).chain(entities).collect()
     }
 }
 
@@ -336,8 +377,11 @@ struct AddedEntity {
 
 struct Reshape {
     removed_constraints: Vec<ConstraintId>,
+    removed_texts: Vec<EntityId>,
     removed_entities: Vec<EntityId>,
     added_entities: Vec<AddedEntity>,
+    added_texts: Vec<(EntityId, Text)>,
+    changed_texts: Vec<(EntityId, Text)>,
     changed_entities: Vec<(EntityId, Entity)>,
     construction: Vec<(EntityId, bool)>,
     added_constraints: Vec<(ConstraintId, Constraint, bool, Option<Vector2>)>,
@@ -456,10 +500,33 @@ impl Reshape {
             })
             .map(|(id, _)| (id, after.label_offset(id)))
             .collect();
+        let kept_text = |id: EntityId, text: &Text| {
+            !replaced.contains(&text.anchor)
+                && after
+                    .text(id)
+                    .is_some_and(|kept| kept.anchor == text.anchor)
+        };
+        let removed_texts = before
+            .texts()
+            .filter(|(id, text)| !kept_text(*id, text))
+            .map(|(id, _)| id)
+            .collect();
+        let (changed_texts, added_texts) = after
+            .texts()
+            .filter(|(id, text)| before.text(*id) != Some(*text))
+            .map(|(id, text)| (id, text.clone()))
+            .partition(|(id, _)| {
+                before
+                    .text(*id)
+                    .is_some_and(|previous| kept_text(*id, previous))
+            });
         Self {
             removed_constraints,
+            removed_texts,
             removed_entities: removed_curves.into_iter().chain(removed_points).collect(),
             added_entities: added_points.into_iter().chain(added_curves).collect(),
+            added_texts,
+            changed_texts,
             changed_entities,
             construction,
             added_constraints,
@@ -473,10 +540,22 @@ impl Reshape {
             .removed_constraints
             .into_iter()
             .map(|id| Edit::RemoveSketchConstraint { feature, id });
+        let removed_texts = self
+            .removed_texts
+            .into_iter()
+            .map(|id| Edit::RemoveSketchText { feature, id });
         let removed_entities = self
             .removed_entities
             .into_iter()
             .map(|id| Edit::RemoveSketchEntity { feature, id });
+        let added_texts = self
+            .added_texts
+            .into_iter()
+            .map(|(id, text)| Edit::AddSketchText { feature, id, text });
+        let changed_texts = self
+            .changed_texts
+            .into_iter()
+            .map(|(id, text)| Edit::SetSketchText { feature, id, text });
         let added_entities = self
             .added_entities
             .into_iter()
@@ -532,8 +611,11 @@ impl Reshape {
                 offset,
             });
         removed_constraints
+            .chain(removed_texts)
             .chain(removed_entities)
             .chain(added_entities)
+            .chain(added_texts)
+            .chain(changed_texts)
             .chain(changed_entities)
             .chain(construction)
             .chain(added_constraints)
@@ -788,6 +870,56 @@ impl Document {
         Ok(Edit::RemoveSketchConstraint { feature, id })
     }
 
+    pub(super) fn add_sketch_text(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        text: Text,
+    ) -> Result<Edit, EditError> {
+        self.check_text_references(feature, &text)?;
+        let (name, sketch) = self.sketch_mut(feature)?;
+        sketch
+            .insert_text(id, text)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::RemoveSketchText { feature, id })
+    }
+
+    pub(super) fn remove_sketch_text(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+    ) -> Result<Edit, EditError> {
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let text = sketch
+            .remove_text(id)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::AddSketchText { feature, id, text })
+    }
+
+    pub(super) fn set_sketch_text(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        text: Text,
+    ) -> Result<Edit, EditError> {
+        self.check_text_references(feature, &text)?;
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let previous = sketch
+            .replace_text(id, text)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::SetSketchText {
+            feature,
+            id,
+            text: previous,
+        })
+    }
+
+    fn check_text_references(&self, feature: FeatureId, text: &Text) -> Result<(), EditError> {
+        self.check_references(&text.height)?;
+        self.check_references(&text.angle)?;
+        self.check_sketch_reads(feature, text.parameters())
+    }
+
     pub(super) fn set_sketch_constraint_active(
         &mut self,
         feature: FeatureId,
@@ -886,6 +1018,7 @@ fn users_of(sketch: &Sketch, entity: EntityId) -> Vec<String> {
     let entities = sketch
         .entities_using(entity)
         .into_iter()
+        .chain(sketch.texts_using(entity))
         .map(|user| sketch.entity_label(user));
     let constraints = sketch
         .constraints_using(entity)

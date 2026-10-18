@@ -74,7 +74,10 @@ impl Generator {
             | Edit::AddSketchConstraint { .. }
             | Edit::RemoveSketchConstraint { .. }
             | Edit::SetSketchConstraintActive { .. }
-            | Edit::SetSketchLabel { .. } => Self::Sketch,
+            | Edit::SetSketchLabel { .. }
+            | Edit::AddSketchText { .. }
+            | Edit::RemoveSketchText { .. }
+            | Edit::SetSketchText { .. } => Self::Sketch,
             Edit::SetModelProperties { .. }
             | Edit::SetSavedViews { .. }
             | Edit::SetSelectionSets { .. }

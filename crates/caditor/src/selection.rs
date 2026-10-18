@@ -435,7 +435,7 @@ impl Pickable {
                         if entity.is_reference() {
                             editing == Some(feature)
                         } else {
-                            sketch.entity(entity).is_some()
+                            sketch.entity(entity).is_some() || sketch.text(entity).is_some()
                         }
                     });
                 let shown = editing == Some(feature)

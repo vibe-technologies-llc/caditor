@@ -20,6 +20,7 @@ use crate::{
         numeric::Component,
         spline::not_joined,
     },
+    text::TextSize,
 };
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,7 @@ pub(crate) struct System {
     pub hidden: BTreeMap<EntityId, Vec<usize>>,
     pub targets: BTreeMap<ConstraintId, Vec<usize>>,
     pub rhos: BTreeMap<EntityId, f64>,
+    pub text_sizes: BTreeMap<EntityId, TextSize>,
 }
 
 impl System {
@@ -109,6 +111,7 @@ impl System {
                     _ => None,
                 })
                 .collect(),
+            text_sizes: dimensions.texts().clone(),
         };
         system.add_splines(sketch)?;
         system.entity_variables = sketch

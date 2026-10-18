@@ -11,7 +11,9 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind, Text,
+};
 use tempfile::TempDir;
 
 use super::{
@@ -2053,6 +2055,55 @@ fn a_spline_with_knots_of_its_own_round_trips_and_older_readers_report_it() {
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     assert!(older.issues.join(" ").contains("(spline_knotx)"));
+}
+
+#[test]
+fn sketch_texts_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Texts");
+    let size = transaction.add_parameter("size", transaction.parse("6 mm").unwrap());
+    let sketch = transaction.add_feature("Label", FeatureKind::from(Sketch::new(Plane::XY)));
+    let anchor = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(1.0, 2.0)));
+    let text = transaction.add_sketch_text(
+        sketch,
+        Text {
+            anchor,
+            content: "Größe 8".to_owned(),
+            height: Expression::Parameter(size),
+            angle: Expression::Measure(30.0, Unit::Degree),
+            bold: true,
+            italic: false,
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"text\":{", "\"texx\":{"));
+    let damaged = decode_text(&written.replace("\"30 deg\"", "\"30 ((\""));
+    let held = damaged
+        .document
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.text(text))
+        .cloned()
+        .unwrap();
+
+    assert!(written.contains("\"bold\":true"), "{written}");
+    assert!(!written.contains("\"italic\""), "{written}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        older.issues.join(" ").contains("(texx)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        damaged.issues.join(" ").contains("the angle of Text"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(held.angle, Expression::Measure(0.0, Unit::Degree));
 }
 
 #[test]

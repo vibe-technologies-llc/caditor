@@ -1,18 +1,35 @@
 use caditor_geometry::Point2;
 use caditor_kernel::{Piece, Profile, ProfileCurve, Selection};
 
-use crate::import::svg::path::Outline;
-
 const SAMPLES_PER_CURVE: usize = 32;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Segment {
+pub enum Segment {
     Line(Point2, Point2),
     Bezier(Vec<Point2>),
 }
 
 impl Segment {
-    fn profile_curve(&self, entity: u64) -> ProfileCurve {
+    pub fn mapped(&self, map: impl Fn(Point2) -> Point2) -> Self {
+        match self {
+            Self::Line(start, end) => Self::Line(map(*start), map(*end)),
+            Self::Bezier(points) => Self::Bezier(points.iter().copied().map(map).collect()),
+        }
+    }
+
+    pub fn sampled(&self, steps: usize) -> Vec<Point2> {
+        match self {
+            Self::Line(start, end) => vec![*start, *end],
+            Self::Bezier(points) => {
+                let steps = steps.max(1);
+                (0..=steps)
+                    .map(|step| bezier_point(points, step as f64 / steps as f64))
+                    .collect()
+            }
+        }
+    }
+
+    pub fn profile_curve(&self, entity: u64) -> ProfileCurve {
         match self {
             Self::Line(start, end) => ProfileCurve::line(entity, *start, *end),
             Self::Bezier(points) => {
@@ -23,28 +40,17 @@ impl Segment {
         }
     }
 
-    fn polyline(&self) -> Vec<Point2> {
+    fn is_drawn(&self) -> bool {
         match self {
-            Self::Line(start, end) => vec![*start, *end],
-            Self::Bezier(points) => (0..=SAMPLES_PER_CURVE)
-                .map(|step| bezier_point(points, step as f64 / SAMPLES_PER_CURVE as f64))
-                .collect(),
+            Self::Line(start, end) => start != end,
+            Self::Bezier(points) => points
+                .first()
+                .is_some_and(|first| points.iter().any(|point| point != first)),
         }
     }
 }
 
-pub(super) fn traced(segments: &[Segment]) -> Outline {
-    let mut outline = Outline::default();
-    for segment in segments {
-        match segment {
-            Segment::Line(start, end) => outline.line(*start, *end),
-            Segment::Bezier(points) => outline.bezier(points),
-        }
-    }
-    outline
-}
-
-pub(super) fn merged(segments: &[Segment]) -> Option<Outline> {
+pub fn merged(segments: &[Segment]) -> Option<Vec<Segment>> {
     let curves: Vec<ProfileCurve> = segments
         .iter()
         .zip(0_u64..)
@@ -61,7 +67,7 @@ pub(super) fn merged(segments: &[Segment]) -> Option<Outline> {
         return None;
     }
     let lumps = profile.select(&Selection::Regions(filled)).ok()?;
-    let mut outline = Outline::default();
+    let mut outline = Vec::new();
     for lump in &lumps {
         for profile_loop in lump.loops() {
             trace_loop(profile_loop.pieces(), segments, &mut outline)?;
@@ -70,13 +76,13 @@ pub(super) fn merged(segments: &[Segment]) -> Option<Outline> {
     Some(outline)
 }
 
-fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Outline) -> Option<()> {
+fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Vec<Segment>) -> Option<()> {
     let junctions: Vec<Point2> = pieces.iter().map(Piece::start).collect();
     let ends = junctions.iter().cycle().skip(1);
     for ((piece, start), end) in pieces.iter().zip(&junctions).zip(ends) {
         let segment = segments.get(usize::try_from(piece.entity()).ok()?)?;
-        match segment {
-            Segment::Line(..) => outline.line(*start, *end),
+        let traced = match segment {
+            Segment::Line(..) => Segment::Line(*start, *end),
             Segment::Bezier(points) => {
                 let range = piece.range();
                 let mut part = restricted(points, range.start(), range.end());
@@ -89,8 +95,11 @@ fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Outline) -> 
                 if let Some(last) = part.last_mut() {
                     *last = *end;
                 }
-                outline.bezier(&part);
+                Segment::Bezier(part)
             }
+        };
+        if traced.is_drawn() {
+            outline.push(traced);
         }
     }
     Some(())
@@ -99,7 +108,7 @@ fn trace_loop(pieces: &[Piece], segments: &[Segment], outline: &mut Outline) -> 
 fn winding(segments: &[Segment], point: Point2) -> i32 {
     let mut winding = 0;
     for segment in segments {
-        let polyline = segment.polyline();
+        let polyline = segment.sampled(SAMPLES_PER_CURVE);
         for (from, to) in polyline.iter().zip(polyline.iter().skip(1)) {
             let side = (*to - *from).perp_dot(point - *from);
             if from.y <= point.y && to.y > point.y && side > 0.0 {

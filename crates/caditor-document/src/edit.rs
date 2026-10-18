@@ -7,7 +7,7 @@ use std::{
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError, Text};
 
 use crate::{
     attachment::SketchAttachment,
@@ -192,6 +192,20 @@ pub enum Edit {
         id: ConstraintId,
         offset: Option<Vector2>,
     },
+    AddSketchText {
+        feature: FeatureId,
+        id: EntityId,
+        text: Text,
+    },
+    RemoveSketchText {
+        feature: FeatureId,
+        id: EntityId,
+    },
+    SetSketchText {
+        feature: FeatureId,
+        id: EntityId,
+        text: Text,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,7 +285,10 @@ impl Transaction {
                 | Edit::RemoveSketchEntity { feature, id }
                 | Edit::SetSketchEntity { feature, id, .. }
                 | Edit::SetSketchConstruction { feature, id, .. }
-                | Edit::SetSketchProjection { feature, id, .. } => {
+                | Edit::SetSketchProjection { feature, id, .. }
+                | Edit::AddSketchText { feature, id, .. }
+                | Edit::RemoveSketchText { feature, id }
+                | Edit::SetSketchText { feature, id, .. } => {
                     touched.features.insert(*feature);
                     touched.entities.insert((*feature, *id));
                 }
@@ -340,6 +357,9 @@ impl Transaction {
                     entity.heap_size()
                 }
                 Edit::AddSketchConstraint { constraint, .. } => constraint.heap_size(),
+                Edit::AddSketchText { text, .. } | Edit::SetSketchText { text, .. } => {
+                    text.heap_size()
+                }
                 Edit::RemoveParameter { .. }
                 | Edit::MoveParameter { .. }
                 | Edit::RemoveFeature { .. }
@@ -356,6 +376,7 @@ impl Transaction {
                 | Edit::SetSketchProjection { .. }
                 | Edit::SetSketchConstraintActive { .. }
                 | Edit::SetSketchLabel { .. }
+                | Edit::RemoveSketchText { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
             .sum();
@@ -984,6 +1005,9 @@ impl Document {
                 id,
                 offset,
             } => self.set_sketch_label(feature, id, offset),
+            Edit::AddSketchText { feature, id, text } => self.add_sketch_text(feature, id, text),
+            Edit::RemoveSketchText { feature, id } => self.remove_sketch_text(feature, id),
+            Edit::SetSketchText { feature, id, text } => self.set_sketch_text(feature, id, text),
         }
     }
 

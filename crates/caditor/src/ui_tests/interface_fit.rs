@@ -28,7 +28,7 @@ fn sketch_bar_buttons() -> Vec<String> {
             !sketch_toolbar::ARC_TOOLS.contains(tool)
                 && !sketch_toolbar::CURVE_TOOLS.contains(tool)
                 && !sketch_toolbar::OFF_RIBBON.contains(tool)
-                && *tool != Tool::Gear
+                && !matches!(tool, Tool::Gear | Tool::Text)
         })
         .map(Tool::label)
         .chain(

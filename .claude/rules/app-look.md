@@ -44,9 +44,10 @@ paths:
 
 ## Fonts, icons and theme
 
-- Inter (variable, `assets/fonts`) is registered at weights 400, 500 and 600 through its `wght` axis
-  as the proportional, `medium` and `semibold` families. Its italic face is embedded only for SVG
-  text import (`file-import-export.md`); the interface has no italic. Phosphor icons have their own
+- Inter (variable, `assets/fonts`, embedded once by `caditor-lettering` and taken from there by
+  `fonts.rs`) is registered at weights 400, 500 and 600 through its `wght` axis as the
+  proportional, `medium` and `semibold` families. Its italic face serves only SVG text import and
+  sketch text (`lettering.md`); the interface has no italic. Phosphor icons have their own
   `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon per
   command, tool, constraint and feature kind. Fonts install on the first frame, which draws nothing.
 - Text in other scripts falls back to fonts installed on the system, never bundled ones.

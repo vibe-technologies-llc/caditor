@@ -28,6 +28,7 @@ mod spacing;
 mod split;
 mod tangent_circle;
 mod target;
+mod text;
 mod trim;
 
 pub use crate::{
@@ -62,5 +63,6 @@ pub use crate::{
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
     target::{EllipseEnd, PointTarget, Quadrant},
+    text::{MAX_TEXT_CHARS, Text, TextError, TextSize, letter_curve},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

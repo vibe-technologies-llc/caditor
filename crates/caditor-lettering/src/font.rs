@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, rc::Rc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_geometry::Point2;
 use skrifa::{
     FontRef, GlyphId, MetadataProvider, OutlineGlyphCollection, Tag,
     instance::{Location, LocationRef, Size},
-    metrics::GlyphMetrics,
+    metrics::{GlyphMetrics, Metrics},
     outline::{DrawSettings, OutlinePen},
     raw::{
         TableProvider,
@@ -12,10 +12,7 @@ use skrifa::{
     },
 };
 
-use crate::import::svg::{
-    overlap::{Segment, merged, traced},
-    path::Outline,
-};
+use crate::overlap::{Segment, merged};
 
 const WEIGHT_AXIS: Tag = Tag::new(b"wght");
 const KERNING: Tag = Tag::new(b"kern");
@@ -23,7 +20,7 @@ const LATIN: Tag = Tag::new(b"latn");
 const DEFAULT_SCRIPT: Tag = Tag::new(b"DFLT");
 const MISSING: GlyphId = GlyphId::NOTDEF;
 
-pub(super) struct Typeface<'f> {
+pub struct Typeface<'f> {
     upright: Cut<'f>,
     italic: Option<Cut<'f>>,
 }
@@ -36,11 +33,11 @@ struct Cut<'f> {
     weights: Option<(f64, f64)>,
     kerning: Vec<u16>,
     locations: BTreeMap<u16, Location>,
-    outlines: BTreeMap<(u16, GlyphId), Rc<Outline>>,
+    outlines: BTreeMap<(u16, GlyphId), Arc<[Segment]>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Instance {
+pub struct Instance {
     weight: u16,
     italic: bool,
 }
@@ -83,7 +80,7 @@ impl<'f> Typeface<'f> {
         self.cut(instance.italic).kerning(first, second)
     }
 
-    pub fn outline(&mut self, instance: Instance, glyph: GlyphId) -> Rc<Outline> {
+    pub fn outline(&mut self, instance: Instance, glyph: GlyphId) -> Arc<[Segment]> {
         self.cut_mut(instance.italic)
             .outline(instance.weight, glyph)
     }
@@ -91,6 +88,10 @@ impl<'f> Typeface<'f> {
     pub fn curve_count(&mut self, instance: Instance, glyph: GlyphId) -> usize {
         self.cut_mut(instance.italic)
             .curve_count(instance.weight, glyph)
+    }
+
+    pub fn cap_height(&mut self, instance: Instance) -> Option<f64> {
+        self.cut_mut(instance.italic).cap_height(instance.weight)
     }
 
     fn cut(&self, italic: bool) -> &Cut<'f> {
@@ -183,21 +184,30 @@ impl<'f> Cut<'f> {
             .map_or(0.0, f64::from)
     }
 
-    fn outline(&mut self, weight: u16, glyph: GlyphId) -> Rc<Outline> {
+    fn outline(&mut self, weight: u16, glyph: GlyphId) -> Arc<[Segment]> {
         if let Some(outline) = self.outlines.get(&(weight, glyph)) {
-            return Rc::clone(outline);
+            return Arc::clone(outline);
         }
         let segments = self.segments(weight, glyph);
-        let outline = Rc::new(merged(&segments).unwrap_or_else(|| traced(&segments)));
-        self.outlines.insert((weight, glyph), Rc::clone(&outline));
+        let outline: Arc<[Segment]> = merged(&segments).unwrap_or(segments).into();
+        self.outlines.insert((weight, glyph), Arc::clone(&outline));
         outline
     }
 
     fn curve_count(&mut self, weight: u16, glyph: GlyphId) -> usize {
         match self.outlines.get(&(weight, glyph)) {
-            Some(outline) => outline.shapes.len(),
+            Some(outline) => outline.len(),
             None => self.segments(weight, glyph).len(),
         }
+    }
+
+    fn cap_height(&mut self, weight: u16) -> Option<f64> {
+        let font = self.font.clone();
+        let location = self.location(weight);
+        Metrics::new(&font, Size::unscaled(), location)
+            .cap_height
+            .map(f64::from)
+            .filter(|height| height.is_finite() && *height > 0.0)
     }
 
     fn segments(&mut self, weight: u16, glyph: GlyphId) -> Vec<Segment> {

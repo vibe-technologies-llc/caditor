@@ -45,6 +45,7 @@ pub enum Tool {
     CircularPattern,
     TangentCircle,
     Gear,
+    Text,
     Fillet,
     Chamfer,
     Project,
@@ -53,7 +54,7 @@ pub enum Tool {
     BlendCurve,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Conic, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Gear, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Conic, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Gear, Text, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -80,6 +81,7 @@ impl Tool {
             Self::CircularPattern => "Circular pattern",
             Self::TangentCircle => "Tangent circle",
             Self::Gear => "Spur gear",
+            Self::Text => "Text",
             Self::Fillet => "Sketch fillet",
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
@@ -165,6 +167,10 @@ impl Tool {
                 "Draw the outline of an involute spur gear from its module, teeth and pressure \
                  angle, with its pitch, base, root and tip circles, ready to extrude"
             }
+            Self::Text => {
+                "Write a line of text in Inter at a point, with a height, an angle, bold and \
+                 italic; its letters are closed regions ready to extrude, and it stays editable"
+            }
             Self::Fillet => {
                 "Round the corner where two lines, arcs or elliptical arcs meet, or where two of \
                  them or circles cross or would meet, with an arc tangent to both"
@@ -204,6 +210,7 @@ impl Tool {
             | Self::CircularPattern
             | Self::TangentCircle
             | Self::Gear
+            | Self::Text
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
@@ -243,6 +250,7 @@ impl Tool {
                 | Self::CircularPattern
                 | Self::TangentCircle
                 | Self::Gear
+                | Self::Text
                 | Self::Fillet
                 | Self::Chamfer
                 | Self::BlendCurve

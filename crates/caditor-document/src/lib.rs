@@ -27,6 +27,7 @@ mod hole;
 mod hole_standard;
 mod import;
 mod inlining;
+mod lettering;
 mod loft;
 mod lookahead;
 mod mate;
@@ -142,6 +143,7 @@ pub use crate::{
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
+    lettering::{PlacedLetter, PlacedText, lettered_at, placed_text},
     loft::{LOFT_SHAPE, Loft, LoftSection, skin_name as loft_skin_name},
     mate::{
         AngleMate, AngleSides, AxisMate, FaceAxisMate, FaceMate, FaceOnRound, FacePair,
@@ -365,6 +367,8 @@ mod start_tests;
 mod sweep_tests;
 #[cfg(test)]
 mod taper_tests;
+#[cfg(test)]
+mod text_tests;
 #[cfg(test)]
 mod thread_tests;
 #[cfg(test)]

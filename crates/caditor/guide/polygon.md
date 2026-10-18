@@ -14,4 +14,5 @@ point field, such as `8 sides`. Holding Shift while drawing and moving the point
 the count too; release Shift to carry on. The count is kept for the next polygon.
 
 The corner menu of the Polygon button also holds [Spur gear](gear), which draws the outline of a
-gear, a pair of meshing gears or a roller chain sprocket.
+gear, a pair of meshing gears or a roller chain sprocket, and [Text](text), which writes a line of
+letters ready to extrude.

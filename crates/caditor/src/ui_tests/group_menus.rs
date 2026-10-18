@@ -382,6 +382,7 @@ fn the_sketch_menus_list_every_command_of_their_kind_the_buttonless_ones_include
                 Command::SketchTool(Tool::ThreePointArc),
                 Command::SketchTool(Tool::Conic),
                 Command::SketchTool(Tool::Gear),
+                Command::SketchTool(Tool::Text),
                 Command::ShapeMode(ShapeMode::Rectangle(RectangleMode::ThreePoints)),
                 Command::ChainArc,
                 Command::DrawSymmetrically,

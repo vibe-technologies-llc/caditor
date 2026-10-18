@@ -1,12 +1,11 @@
 use caditor_geometry::{Point2, Vector2};
-use skrifa::GlyphId;
+use caditor_lettering::{GlyphId, Instance, Typeface};
 
 use crate::import::{
     ImportError, MAX_READ_CURVES,
     svg::{
         Context, MAX_NAMED_ELEMENTS, MAX_NESTING, Walker, XLINK_NAMESPACE,
-        font::{Instance, Typeface},
-        path::path_outline,
+        path::{path_outline, traced},
         shapes::{Axis, outline_of},
         style::Inherited,
         syntax::{Length, Matrix, numbers, transform_list},
@@ -257,7 +256,7 @@ impl<'a, 't> Walker<'a, 't> {
                 self.beyond_the_limit = self.beyond_the_limit.saturating_add(count);
                 continue;
             }
-            let outline = typeface.outline(placed.instance, glyph);
+            let outline = traced(&typeface.outline(placed.instance, glyph));
             let matrix = Matrix::scale(placed.scale * placed.stretch, -placed.scale)
                 .then(&Matrix::rotation(placed.rotate))
                 .then(&Matrix::translation(placed.at.x, placed.at.y))

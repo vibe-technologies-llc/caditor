@@ -1639,6 +1639,35 @@ fn a_sketch_ellipse_exports_to_a_dxf_ellipse_that_reads_back_exactly() {
 }
 
 #[test]
+fn sketch_text_exports_as_its_letter_outlines_without_its_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let anchor = sketch.add_point(Point2::new(2.0, 1.0));
+    sketch
+        .add_text(caditor_sketch::Text {
+            anchor,
+            content: "HI".to_owned(),
+            height: caditor_expression::Expression::Measure(
+                10.0,
+                caditor_expression::Unit::Millimetre,
+            ),
+            angle: caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
+            bold: false,
+            italic: false,
+        })
+        .unwrap();
+
+    let (figure, exported) = Figure::of_sketch(&sketch, Construction::LeftOut);
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+    let bounds = figure.bounds().unwrap();
+
+    assert_eq!(exported.points, 0);
+    assert!(exported.curves > 8, "{exported:?}");
+    assert_eq!(drawing.curves.len(), exported.curves);
+    assert!((bounds.min().y - 1.0).abs() < 0.2, "{bounds:?}");
+    assert!((bounds.max().y - 11.0).abs() < 0.3, "{bounds:?}");
+}
+
+#[test]
 fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction() {
     let sketch = drawn_sketch();
 

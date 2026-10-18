@@ -8,6 +8,7 @@ use crate::{
     entity::Entity,
     id::{ConstraintId, EntityId},
     sketch::{Sketch, SketchError},
+    text::Text,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +16,7 @@ pub struct SketchClip {
     entities: BTreeMap<EntityId, Entity>,
     construction: BTreeSet<EntityId>,
     constraints: Vec<(Constraint, bool)>,
+    texts: Vec<Text>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -41,11 +43,16 @@ impl SketchClip {
         self.constraints.len()
     }
 
+    pub fn text_count(&self) -> usize {
+        self.texts.len()
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         self.constraints
             .iter()
             .filter_map(|(constraint, _)| constraint.dimension())
             .flat_map(|value| value.parameters())
+            .chain(self.texts.iter().flat_map(Text::parameters))
             .collect()
     }
 
@@ -79,7 +86,12 @@ impl SketchClip {
     }
 
     fn lone_points(&self) -> impl Iterator<Item = EntityId> + '_ {
-        let used: BTreeSet<EntityId> = self.entities.values().flat_map(Entity::points).collect();
+        let used: BTreeSet<EntityId> = self
+            .entities
+            .values()
+            .flat_map(Entity::points)
+            .chain(self.texts.iter().map(|text| text.anchor))
+            .collect();
         self.entities
             .iter()
             .filter(move |(id, entity)| matches!(entity, Entity::Point(_)) && !used.contains(id))
@@ -90,7 +102,15 @@ impl SketchClip {
 impl Sketch {
     pub fn clip(&self, items: &[EntityId]) -> Result<SketchClip, ClipError> {
         let mut entities = BTreeMap::new();
+        let mut texts = Vec::new();
         for item in items.iter().filter(|item| !item.is_reference()) {
+            if let Some(text) = self.text(*item)
+                && let Some(anchor) = self.entity(text.anchor)
+            {
+                entities.insert(text.anchor, anchor.clone());
+                texts.push(text.clone());
+                continue;
+            }
             let Some(entity) = self.entity(*item) else {
                 continue;
             };
@@ -123,6 +143,7 @@ impl Sketch {
             entities,
             construction,
             constraints,
+            texts,
         })
     }
 
@@ -188,6 +209,13 @@ impl Sketch {
                 working.set_active(id, false)?;
             }
         }
+        for text in &clip.texts {
+            let id = working.add_text(Text {
+                anchor: rename(&renamed, text.anchor),
+                ..text.clone()
+            })?;
+            curves.push(id);
+        }
         *self = working;
         let lone = clip.lone_points().map(|point| rename(&renamed, point));
         Ok(curves.into_iter().chain(lone).collect())
@@ -200,6 +228,39 @@ mod tests {
     use caditor_geometry::Plane;
 
     use super::*;
+
+    #[test]
+    fn a_copied_text_is_pasted_on_a_copy_of_its_point() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let anchor = sketch.add_point(Point2::new(1.0, 2.0));
+        let text = sketch
+            .add_text(Text {
+                anchor,
+                content: "Lid".to_owned(),
+                height: Expression::Measure(4.0, Unit::Millimetre),
+                angle: Expression::Measure(0.0, Unit::Degree),
+                bold: true,
+                italic: false,
+            })
+            .unwrap();
+
+        let clip = sketch.clip(&[text]).unwrap();
+        let pasted = sketch.paste(&clip, Vector2::new(10.0, 0.0)).unwrap();
+        let copies: Vec<EntityId> = pasted
+            .iter()
+            .copied()
+            .filter(|id| sketch.text(*id).is_some())
+            .collect();
+        let copy = sketch.text(copies[0]).unwrap();
+
+        assert_eq!(clip.text_count(), 1);
+        assert_eq!(clip.lone_point_count(), 0);
+        assert_eq!(copies.len(), 1);
+        assert_eq!(copy.content, "Lid");
+        assert!(copy.bold);
+        assert_ne!(copy.anchor, anchor);
+        assert_eq!(sketch.point(copy.anchor), Some(Point2::new(11.0, 2.0)));
+    }
 
     fn ends(sketch: &Sketch, line: EntityId) -> (EntityId, EntityId) {
         match sketch.entity(line) {

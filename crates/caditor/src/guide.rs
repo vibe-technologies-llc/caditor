@@ -43,6 +43,7 @@ pub enum Page {
     SketchPatterns,
     TangentCircle,
     Gear,
+    Text,
     SketchFillet,
     ProjectAndIntersect,
     BlendCurve,
@@ -129,6 +130,7 @@ all_variants!(
     SketchPatterns,
     TangentCircle,
     Gear,
+    Text,
     SketchFillet,
     ProjectAndIntersect,
     BlendCurve,
@@ -261,6 +263,7 @@ impl Page {
             Self::SketchPatterns => "sketch-patterns",
             Self::TangentCircle => "tangent-circle",
             Self::Gear => "gear",
+            Self::Text => "text",
             Self::SketchFillet => "sketch-fillet",
             Self::ProjectAndIntersect => "project-and-intersect",
             Self::BlendCurve => "blend-curve",
@@ -353,6 +356,7 @@ impl Page {
             Self::SketchPatterns => include_str!("../guide/sketch-patterns.md"),
             Self::TangentCircle => include_str!("../guide/tangent-circle.md"),
             Self::Gear => include_str!("../guide/gear.md"),
+            Self::Text => include_str!("../guide/text.md"),
             Self::SketchFillet => include_str!("../guide/sketch-fillet.md"),
             Self::ProjectAndIntersect => include_str!("../guide/project-and-intersect.md"),
             Self::BlendCurve => include_str!("../guide/blend-curve.md"),
@@ -441,6 +445,7 @@ impl Page {
             | Self::SketchPatterns
             | Self::TangentCircle
             | Self::Gear
+            | Self::Text
             | Self::SketchFillet
             | Self::ProjectAndIntersect
             | Self::BlendCurve => Chapter::SketchTools,
@@ -512,6 +517,7 @@ impl Page {
             Tool::RectangularPattern | Tool::CircularPattern => Self::SketchPatterns,
             Tool::TangentCircle => Self::TangentCircle,
             Tool::Gear => Self::Gear,
+            Tool::Text => Self::Text,
             Tool::Fillet | Tool::Chamfer => Self::SketchFillet,
             Tool::Project | Tool::Intersect => Self::ProjectAndIntersect,
             Tool::Dimension => Self::Dimensions,

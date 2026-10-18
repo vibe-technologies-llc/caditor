@@ -16,6 +16,7 @@ use crate::{
         straight_spline,
     },
     target::{PointTarget, listed},
+    text::{Text, TextError, TextSize, letter_curve_text, same_text_bits},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<BSpline> {
@@ -159,6 +160,14 @@ pub enum SketchError {
     PointAsConstruction { entity: EntityId, label: String },
     #[error("{label} cannot be a piece split from itself")]
     SplitFromItself { entity: EntityId, label: String },
+    #[error("{label} cannot be drawn: {reason}")]
+    Text {
+        text: EntityId,
+        label: String,
+        reason: TextError,
+    },
+    #[error("{0}")]
+    InvalidText(TextError),
     #[error("{label} is {level}, so a {kind} cannot be measured from it")]
     RunsAlong {
         entity: EntityId,
@@ -171,9 +180,18 @@ pub enum SketchError {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DimensionValues {
     values: BTreeMap<ConstraintId, f64>,
+    texts: BTreeMap<EntityId, TextSize>,
 }
 
 impl DimensionValues {
+    pub fn text(&self, text: EntityId) -> Option<TextSize> {
+        self.texts.get(&text).copied()
+    }
+
+    pub(crate) fn texts(&self) -> &BTreeMap<EntityId, TextSize> {
+        &self.texts
+    }
+
     pub fn dimension(&self, constraint: ConstraintId) -> Option<f64> {
         self.values.get(&constraint).copied()
     }
@@ -209,6 +227,8 @@ pub struct Sketch {
     construction: BTreeSet<EntityId>,
     projected: BTreeSet<EntityId>,
     split_from: BTreeMap<EntityId, EntityId>,
+    texts: BTreeMap<EntityId, Text>,
+    text_sizes: BTreeMap<EntityId, TextSize>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
@@ -224,6 +244,8 @@ impl Sketch {
             construction: BTreeSet::new(),
             projected: BTreeSet::new(),
             split_from: BTreeMap::new(),
+            texts: BTreeMap::new(),
+            text_sizes: BTreeMap::new(),
             uses: BTreeMap::new(),
             next_id: 0,
         }
@@ -239,6 +261,8 @@ impl Sketch {
             construction,
             projected,
             split_from,
+            texts,
+            text_sizes,
             uses,
             next_id: _,
         } = self;
@@ -255,6 +279,9 @@ impl Sketch {
             + construction.len() * size_of::<EntityId>()
             + projected.len() * size_of::<EntityId>()
             + split_from.len() * 2 * size_of::<EntityId>()
+            + texts.len() * (size_of::<EntityId>() + size_of::<Text>())
+            + texts.values().map(Text::heap_size).sum::<usize>()
+            + text_sizes.len() * (size_of::<EntityId>() + size_of::<TextSize>())
             + uses.len() * (size_of::<EntityId>() + size_of::<usize>())
     }
 
@@ -284,7 +311,11 @@ impl Sketch {
         }
         match self.entities.get(&id) {
             Some(entity) => format!("{} {id}", entity.kind_name()),
-            None => format!("Missing entity {id}"),
+            None if self.texts.contains_key(&id) => format!("Text {id}"),
+            None => match self.text_of_letter_curve(id.raw()) {
+                Some(text) => format!("Text {text}"),
+                None => format!("Missing entity {id}"),
+            },
         }
     }
 
@@ -757,6 +788,7 @@ impl Sketch {
             .values()
             .filter_map(Constraint::dimension)
             .flat_map(Expression::parameters)
+            .chain(self.texts.values().flat_map(Text::parameters))
             .collect()
     }
 
@@ -765,6 +797,7 @@ impl Sketch {
             .values()
             .filter_map(Constraint::dimension)
             .any(|expression| expression.uses(parameter))
+            || self.texts.values().any(|text| text.uses(parameter))
     }
 
     pub fn same_geometry(&self, other: &Self) -> bool {
@@ -773,6 +806,98 @@ impl Sketch {
             && self.construction == other.construction
             && self.projected == other.projected
             && self.split_from == other.split_from
+            && self.texts == other.texts
+            && self.text_sizes == other.text_sizes
+    }
+
+    pub fn texts(&self) -> impl ExactSizeIterator<Item = (EntityId, &Text)> {
+        self.texts.iter().map(|(id, text)| (*id, text))
+    }
+
+    pub fn text(&self, id: EntityId) -> Option<&Text> {
+        self.texts.get(&id)
+    }
+
+    pub fn texts_using(&self, point: EntityId) -> Vec<EntityId> {
+        self.texts
+            .iter()
+            .filter(|(_, text)| text.anchor == point)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    pub fn text_size(&self, id: EntityId) -> Option<TextSize> {
+        self.text_sizes
+            .get(&id)
+            .copied()
+            .or_else(|| self.texts.get(&id)?.literal_size())
+    }
+
+    pub fn text_of_letter_curve(&self, raw: u64) -> Option<EntityId> {
+        let bits = letter_curve_text(raw)?;
+        self.texts
+            .keys()
+            .copied()
+            .find(|text| same_text_bits(*text, bits))
+    }
+
+    pub fn add_text(&mut self, text: Text) -> Result<EntityId, SketchError> {
+        self.check_text(&text)?;
+        let id = EntityId::from_raw(self.allocate());
+        self.count_uses(&[text.anchor], true);
+        self.texts.insert(id, text);
+        Ok(id)
+    }
+
+    pub fn insert_text(&mut self, id: EntityId, text: Text) -> Result<(), SketchError> {
+        self.check_new_id(id.raw())?;
+        self.check_text(&text)?;
+        self.count_uses(&[text.anchor], true);
+        self.texts.insert(id, text);
+        self.reserve_ids_below(id.raw().saturating_add(1));
+        Ok(())
+    }
+
+    pub fn remove_text(&mut self, id: EntityId) -> Result<Text, SketchError> {
+        let removed = self
+            .texts
+            .remove(&id)
+            .ok_or(SketchError::NoSuchEntity(id))?;
+        self.text_sizes.remove(&id);
+        self.count_uses(&[removed.anchor], false);
+        Ok(removed)
+    }
+
+    pub fn replace_text(&mut self, id: EntityId, text: Text) -> Result<Text, SketchError> {
+        let current = self.texts.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
+        if current.anchor != text.anchor {
+            return Err(SketchError::ChangesStructure {
+                entity: id,
+                label: self.entity_label(id),
+            });
+        }
+        self.check_text(&text)?;
+        self.text_sizes.remove(&id);
+        self.texts
+            .insert(id, text)
+            .ok_or(SketchError::NoSuchEntity(id))
+    }
+
+    fn check_text(&self, text: &Text) -> Result<(), SketchError> {
+        match self.entities.get(&text.anchor) {
+            Some(Entity::Point(_)) => {}
+            Some(_) => return Err(SketchError::NotAPoint(text.anchor)),
+            None => return Err(SketchError::MissingEntity(text.anchor)),
+        }
+        Text::check_content(&text.content).map_err(SketchError::InvalidText)
+    }
+
+    pub(crate) fn set_text_sizes(&mut self, sizes: &BTreeMap<EntityId, TextSize>) {
+        self.text_sizes = sizes
+            .iter()
+            .filter(|(id, _)| self.texts.contains_key(id))
+            .map(|(id, size)| (*id, *size))
+            .collect();
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
@@ -1326,8 +1451,12 @@ impl Sketch {
     }
 
     pub fn free_points(&self) -> Vec<EntityId> {
-        let referenced: BTreeSet<EntityId> =
-            self.entities.values().flat_map(Entity::points).collect();
+        let referenced: BTreeSet<EntityId> = self
+            .entities
+            .values()
+            .flat_map(Entity::points)
+            .chain(self.texts.values().map(|text| text.anchor))
+            .collect();
         self.entities
             .iter()
             .filter(|(id, entity)| {
@@ -1351,11 +1480,13 @@ impl Sketch {
             rays.contains(curve)
                 && matches!(self.entities.get(curve), Some(Entity::Line { end, .. }) if *end == point)
         };
+        let anchors: BTreeSet<EntityId> = self.texts.values().map(|text| text.anchor).collect();
         self.entities
             .iter()
             .filter(|(id, entity)| {
                 matches!(entity, Entity::Point(_))
                     && !self.construction.contains(id)
+                    && !anchors.contains(id)
                     && users
                         .get(id)
                         .is_none_or(|curves| curves.iter().all(|curve| ends_a_ray(**id, curve)))
@@ -1568,6 +1699,7 @@ impl Sketch {
             .values()
             .flat_map(Entity::points)
             .chain(self.constraints.values().flat_map(Constraint::entities))
+            .chain(self.texts.values().map(|text| text.anchor))
             .collect();
         fresh.count_uses(&used, true);
         fresh.uses
@@ -1594,7 +1726,16 @@ impl Sketch {
             constraint.check_dimension_value(value).map_err(failed)?;
             values.insert(id, value);
         }
-        Ok(DimensionValues { values })
+        let mut texts = BTreeMap::new();
+        for (id, text) in &self.texts {
+            let size = text.size(value_of).map_err(|reason| SketchError::Text {
+                text: *id,
+                label: self.entity_label(*id),
+                reason,
+            })?;
+            texts.insert(*id, size);
+        }
+        Ok(DimensionValues { values, texts })
     }
 
     pub(crate) fn role(&self, id: EntityId) -> Option<Role> {
@@ -1656,6 +1797,7 @@ impl Sketch {
             return Err(SketchError::ReservedId(raw));
         }
         let taken = self.entities.contains_key(&EntityId::from_raw(raw))
+            || self.texts.contains_key(&EntityId::from_raw(raw))
             || self.constraints.contains_key(&ConstraintId::from_raw(raw));
         if taken {
             return Err(SketchError::DuplicateId(raw));

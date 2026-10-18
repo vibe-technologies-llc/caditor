@@ -980,7 +980,9 @@ impl Menus<'_> {
             let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
                 .into_iter()
                 .filter(|tool| !tool.dimensions())
-                .partition(|tool| *tool == Tool::Select || *tool == Tool::Gear || tool.draws());
+                .partition(|tool| {
+                    matches!(tool, Tool::Select | Tool::Gear | Tool::Text) || tool.draws()
+                });
             submenu(ui, icons::tool(Tool::Line), "Drawing tools", |ui| {
                 self.items(ui, drawing.into_iter().map(Command::SketchTool));
                 ui.separator();
