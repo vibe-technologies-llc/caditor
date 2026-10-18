@@ -9,12 +9,12 @@ use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, DeleteFace, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
-    FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
-    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
-    MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    DatumPoint, DeleteFace, EdgeGroup, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft,
+    LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace,
+    Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces,
+    Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
     PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
     SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 51] = [
+const KEPT: [(&str, &str); 52] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -110,6 +110,10 @@ const KEPT: [(&str, &str); 51] = [
     (
         "model-1/document.caditor",
         "d6f719b47c939f742905bc3c7764a6b115222984bdb00759edacc6872588d630",
+    ),
+    (
+        "model-1/embossed-faces.caditor",
+        "cc4a8b402d64629be2a45e51e2287d29947cb6ddd376d7bc14d2c60d6a5a250e",
     ),
     (
         "model-1/extents.caditor",
@@ -850,6 +854,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&deleted_faces(), "Deleted faces"),
         ),
         (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
+        (
+            model("embossed-faces"),
+            saved(&embossed_faces(), "Embossed faces"),
+        ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
@@ -2500,6 +2508,49 @@ fn deleted_faces() -> Document {
         FeatureKind::DeleteFace(DeleteFace {
             body: base,
             faces: vec![end_cap(0xbeef), end_cap(0xcafe)],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn embossed_faces() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let mut transaction = document.transaction("Emboss");
+    transaction.add_feature(
+        "Raised text",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xbeef)],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("0.5 mm").unwrap(),
+            form: EmbossForm::Raised,
+        }),
+    );
+    transaction.add_feature(
+        "Recessed text",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xcafe), end_cap(0xbeef)],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("1 mm").unwrap(),
+            form: EmbossForm::Recessed,
+        }),
+    );
+    transaction.add_feature(
+        "Unfinished emboss",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: Vec::new(),
+            sketch: None,
+            depth: Expression::parse_stored("2 mm").unwrap(),
+            form: EmbossForm::Raised,
         }),
     );
     document.apply(transaction.finish()).unwrap();

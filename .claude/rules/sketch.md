@@ -341,9 +341,16 @@ relative to the extent.
     else a point on the cutter (an axis included). End points no curve uses are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
     shared with another curve, coincident with another point or fixed is refused.
-- Offset (`offset.rs`): `offset_chain` orders the chosen lines and arcs into one open or closed
-  chain (splines, branches and separate chains refused), walked from a free end so `Side` means the
-  same on the working copy. `Chain::outline` joins offset curves: smooth joints meet, line corners
+- Offset (`offset.rs`): `offset_chains` splits the chosen curves into chains and takes any number
+  of them, ordering each run of lines and arcs joined end to end into one open or closed chain
+  (walked from a free end so `Side` means the same on the working copy), a circle into a chain of
+  its own, and an ellipse, elliptical arc or spline into a chain of its own (below); branches are
+  refused, and so is an ellipse or spline with an end touching another chosen curve
+  (`NotInChain`). `offset_chain` is the same for exactly one chain (`SeveralChains` otherwise).
+  `offset_each` offsets every chain in one pass on a working copy that replaces the sketch only
+  when all succeed, each chain to the side its closure names (`offset` gives them all one `Side`,
+  `offset_both_sides` runs every chain both ways), so one undoable step and one refusal naming the
+  first chain that fails. `Chain::outline` joins offset curves: smooth joints meet, line corners
   meet sharp, a convex corner with an arc gets a round arc about the original corner, a concave one
   is trimmed where the carriers cross.
   - A closing notch or tab is dropped (`Chain::settle`, repeated until nothing more drops): an arc
@@ -367,6 +374,12 @@ relative to the extent.
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. A closed chain's closing `Coincident` is added last, so the
     one relation a loop repeats is never a whole redundant constraint.
+  - The free ends of an open chain are held (`hold_free_ends`): the offset's first and last end
+    point lies on the normal of the original end, a `Perpendicular through` (`OnDirection` with
+    `square`) the original end for a line and a `Parallel through` the arc's centre along a
+    construction radius to the original end for an arc, so the distance alone fixes the copy and
+    the sketch gains no degree of freedom from the copy. A closed chain and the both-sides outline
+    have no free end, a circle needs none.
   - `offset_both_sides` (`Chain::both_sides`, `Caps` of `Round` or `Flat`): a closed chain gets the
     two one-sided outlines; an open chain becomes one closed outline (`Chain::capped`): left
     outline, cap round the end point, right outline reversed, cap round the start point, the start
@@ -374,7 +387,7 @@ relative to the extent.
     joined by `Tangent` to both sides; a flat cap is a line through the end point (`Coincident`)
     `Perpendicular` to the end curve (square to a line, through an arc's centre), joined sharp.
     Either adds no freedom or redundancy. Caps crossing the outline are `CrossesItself`; an open
-    elliptical arc (offsets are free splines) is `CapsOnSpline`. The outline is profile geometry
+    elliptical arc or open spline (offsets are free splines) is `CapsOnSpline`. The outline is profile geometry
     even round a construction chain.
 - Mirror (`mirror.rs`): points on the mirror line are shared, others copied with `Symmetric` to the
   original; arcs and elliptical arcs swap ends to stay counter-clockwise; circles and ellipses add
@@ -428,14 +441,20 @@ relative to the extent.
   `Equal` holds them. Extend carries an elliptical arc's end round its ellipse to the nearest
   crossing beyond it (`reach_around_ellipse`, `Reach::AroundEllipse`); a whole ellipse is `Closed`
   and cannot be split or broken.
-- An ellipse or elliptical arc selected alone offsets as a fit-point spline (`offset/around.rs`;
-  `Chain::follows` is false), its fit points the exact offset at even parameter steps, doubled from
-  `FIRST_FIT_POINTS` (a share for an arc) until the centripetal spline strays from the offset by at
-  most `FIT_TOLERANCE` of the ellipse's reach (at most `MAX_FIT_POINTS`); closed for a whole
-  ellipse, open end to end for an arc. Inward past the tightest bend is `Collapses`. The spline has
-  no constraint to the ellipse (none could hold along its length) and the app says it will not
-  follow; an ellipse chosen with other curves is `EllipseNotOffsettable`. `Sketch::curve_crossings`
-  gives where a spline or ellipse crosses another curve.
+- An ellipse, elliptical arc or spline offsets as a fit-point spline (`offset/around.rs`, `Free`;
+  `Chain::follows` is false), its fit points the exact offset at even parameter steps (the
+  curve's parameter for an ellipse, the spline's parameter span for a spline), doubled from
+  `FIRST_FIT_POINTS` (a share for an arc; four per control point for a spline, at most
+  `MAX_FIT_POINTS`) until the centripetal spline strays from the offset by at most `FIT_TOLERANCE`
+  of the curve's reach (at most `MAX_FIT_POINTS`); closed for a whole ellipse or a closed spline,
+  open end to end otherwise. Inward past the tightest bend (sampled signed curvature times the
+  distance reaching one, `collapses_under`) is `Collapses`; a spline whose fitted offset crosses
+  itself (sampled segments properly crossing, `crosses_itself`) is `CrossesItself`. The spline has
+  no constraint to the original (none could hold along its length), so it adds its fit points'
+  degrees of freedom and the app says it will not follow; an open spline's free ends are not held.
+  A spline of any kind (fit or control point) is read as its curve. Such a curve chosen with a
+  chain it touches is `NotInChain`; beside chains it does not touch it is offset with them.
+  `Sketch::curve_crossings` gives where a spline or ellipse crosses another curve.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines, arcs or elliptical arcs end, kept by
   one of its points. `rounding` refuses a radius whose touching point would not lie on a curve
   short of its far end (`TooLarge`). Between lines and arcs the centre is where their offset

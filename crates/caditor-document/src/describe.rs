@@ -85,6 +85,16 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         FaceOrigin::Side { entity, .. } if let Some(pipe) = feature.kind.pipe() => {
             format!("{name} {}", pipe::side_name(pipe.shape, entity))
         }
+        FaceOrigin::StartCap { .. } | FaceOrigin::EndCap { .. }
+            if let Some(emboss) = feature.kind.emboss() =>
+        {
+            let part = if emboss.form.is_raised() {
+                "top"
+            } else {
+                "floor"
+            };
+            format!("{name} {part}")
+        }
         FaceOrigin::Side { entity, .. } if feature.kind.thread().is_some() => {
             format!("{name} {}", thread::part_name(entity))
         }
@@ -101,6 +111,7 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
                     let loft = feature.kind.loft()?;
                     loft.profiles.first().map(|section| section.sketch)
                 })
+                .or_else(|| feature.kind.emboss()?.sketch)
                 .and_then(|sketch| document.feature(sketch))
                 .and_then(|sketch| sketch.kind.sketch())
                 .map_or_else(

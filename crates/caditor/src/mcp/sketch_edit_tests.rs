@@ -364,6 +364,25 @@ fn offsetting_runs_a_chain_inward_or_round_both_sides_of_a_line() {
         }),
     );
     let slot_area = extruded_area(&mut client, &slot);
+
+    let pair = new_sketch(&mut client);
+    let lines = draw(
+        &mut client,
+        &pair,
+        json!([
+            { "kind": "line", "from": [0, 0], "to": [20, 0] },
+            { "kind": "line", "from": [0, 30], "to": [20, 30] }
+        ]),
+    );
+    let both = modify(
+        &mut client,
+        &pair,
+        json!({
+            "operation": "offset", "curves": [lines[0]["id"], lines[1]["id"]],
+            "distance": "3 mm", "toward": [10, 15]
+        }),
+    );
+    let pair_shown = described(&mut client, &pair);
     client.finish();
 
     assert_eq!(inward["change"], "Offset curves");
@@ -389,6 +408,15 @@ fn offsetting_runs_a_chain_inward_or_round_both_sides_of_a_line() {
     assert_eq!(of_kind(&undone, "line").len(), 4);
     assert_eq!(around["change"], "Offset curves to both sides");
     assert_area(slot_area, 20.0 * 2.0 + PI);
+    assert_eq!(both["change"], "Offset curves");
+    assert_eq!(count_of(&both, "offset_curves"), 2);
+    let heights: Vec<f64> = of_kind(&pair_shown, "line")
+        .into_iter()
+        .map(|line| ends(&pair_shown, &line["id"]).0[1])
+        .collect();
+    for expected in [0.0, 3.0, 27.0, 30.0] {
+        assert!(heights.iter().any(|y| close(*y, expected)), "{heights:?}");
+    }
 }
 
 #[test]

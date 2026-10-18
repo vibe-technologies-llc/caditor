@@ -1,7 +1,9 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{Caps, Constraint, ConstraintId, Entity, EntityId, OffsetError, Side, Sketch, Solved};
+use crate::{
+    Caps, Constraint, ConstraintId, Entity, EntityId, OffsetError, Side, Sketch, Solved, SplineKind,
+};
 
 const EXACT: f64 = 1e-7;
 
@@ -521,7 +523,7 @@ fn an_offset_that_shrinks_an_arc_to_nothing_or_crosses_itself_is_refused() {
 }
 
 #[test]
-fn only_one_chain_of_lines_arcs_or_a_circle_can_be_offset() {
+fn offset_chain_takes_exactly_one_chain_and_offset_chains_any_number() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let other = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
@@ -538,12 +540,13 @@ fn only_one_chain_of_lines_arcs_or_a_circle_can_be_offset() {
         sketch.offset_chain(&[line, circle]),
         Err(OffsetError::SeveralChains { count: 2 })
     );
+    assert!(sketch.offset_chain(&[spline]).is_ok());
     assert_eq!(
-        sketch.offset_chain(&[spline]).unwrap_err().to_string(),
-        format!(
-            "{} cannot be offset; only lines, arcs and circles can",
-            sketch.entity_label(spline)
-        )
+        sketch
+            .offset_chains(&[line, other, circle, spline])
+            .unwrap()
+            .len(),
+        4
     );
     assert_eq!(
         sketch.offset_chain(&[line, branch, fork]),
@@ -831,7 +834,7 @@ fn an_ellipse_is_offset_either_way_as_a_closed_fit_point_spline_within_tolerance
 }
 
 #[test]
-fn an_elliptical_arc_is_offset_as_an_open_spline_and_an_ellipse_in_a_chain_is_refused() {
+fn an_elliptical_arc_is_offset_as_an_open_spline_and_refused_in_a_chain() {
     let mut sketch = Sketch::new(Plane::XY);
     let arc = sketch.add_elliptical_arc(
         Point2::ZERO,
@@ -844,8 +847,11 @@ fn an_elliptical_arc_is_offset_as_an_open_spline_and_an_ellipse_in_a_chain_is_re
 
     assert_eq!(sketch.offset_chain_through(arc), vec![arc]);
     let refused = sketch.offset_chain(&[arc, line]).unwrap_err();
-    assert!(matches!(refused, OffsetError::EllipseNotOffsettable { .. }));
-    assert!(refused.to_string().contains("on its own"), "{refused}");
+    assert!(matches!(refused, OffsetError::NotInChain { .. }));
+    assert!(
+        refused.to_string().contains("on its own or beside"),
+        "{refused}"
+    );
 
     let made = sketch.offset(&[arc], Side::Right, 1.5, mm(1.5)).unwrap();
     let [spline] = made.as_slice() else {
@@ -1674,4 +1680,297 @@ fn an_inward_offset_closing_a_tab_between_edges_at_different_heights_steps_besid
         Point2::new(14.0, 20.0),
         stepped.sides[6],
     );
+}
+
+fn distance_to_spline(sketch: &Sketch, spline: EntityId, point: Point2) -> f64 {
+    let curve = sketch.spline(spline).unwrap();
+    (0..=4000)
+        .map(|index| curve.point_at(f64::from(index) / 4000.0).distance(point))
+        .fold(f64::INFINITY, f64::min)
+}
+
+fn assert_spline_beside_spline(sketch: &Sketch, copy: EntityId, original: EntityId, distance: f64) {
+    let curve = sketch.spline(copy).unwrap();
+    for index in 0..=100 {
+        let point = curve.point_at(f64::from(index) / 100.0);
+        let gap = distance_to_spline(sketch, original, point);
+        assert!((gap - distance).abs() < 2e-3, "{gap} at {point}");
+    }
+}
+
+fn arch(sketch: &mut Sketch) -> EntityId {
+    sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 12.0),
+            Point2::new(25.0, 14.0),
+            Point2::new(40.0, 4.0),
+            Point2::new(50.0, 0.0),
+        ],
+        SplineKind::fit(false),
+    )
+}
+
+#[test]
+fn an_open_spline_is_offset_to_either_side_as_a_fit_point_spline_within_tolerance() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let chain = sketch.offset_chain(&[spline]).unwrap();
+
+    assert!(!chain.follows());
+    assert!(!chain.is_closed());
+    assert_eq!(chain.default_side(), Side::Left);
+    assert_eq!(chain.side_of(Point2::new(25.0, 30.0)), Side::Left);
+    assert_eq!(chain.side_of(Point2::new(25.0, 2.0)), Side::Right);
+
+    for (side, distance) in [(Side::Left, 2.0), (Side::Right, 1.5)] {
+        let mut copy = sketch.clone();
+        let freedom = solve(&copy).solution.degrees_of_freedom();
+
+        let made = copy
+            .offset(&[spline], side, distance, mm(distance))
+            .unwrap();
+
+        let [offset] = made.as_slice() else {
+            panic!("expected one spline, found {made:?}");
+        };
+        assert!(matches!(
+            copy.entity(*offset),
+            Some(Entity::Spline { kind, .. }) if !kind.is_closed()
+        ));
+        assert_spline_beside_spline(&copy, *offset, spline, distance);
+        assert_clean(&solve(&copy));
+        assert!(solve(&copy).solution.degrees_of_freedom() > freedom);
+    }
+}
+
+#[test]
+fn a_closed_spline_is_offset_as_a_closed_spline_and_a_tight_bend_refuses() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(20.0, -4.0),
+            Point2::new(30.0, 10.0),
+            Point2::new(10.0, 20.0),
+            Point2::new(-5.0, 10.0),
+        ],
+        SplineKind::fit(true),
+    );
+    let chain = sketch.offset_chain(&[spline]).unwrap();
+    assert!(chain.is_closed());
+    let outside = chain.side_of(Point2::new(60.0, 60.0));
+    let inside = outside.other();
+
+    let made = sketch.offset(&[spline], outside, 3.0, mm(3.0)).unwrap();
+
+    let [offset] = made.as_slice() else {
+        panic!("expected one spline, found {made:?}");
+    };
+    assert!(matches!(
+        sketch.entity(*offset),
+        Some(Entity::Spline { kind, .. }) if kind.is_closed()
+    ));
+    assert_spline_beside_spline(&sketch, *offset, spline, 3.0);
+
+    let before = sketch.clone();
+    let refused = sketch.offset(&[spline], inside, 12.0, mm(12.0));
+    assert!(
+        matches!(
+            refused,
+            Err(OffsetError::Collapses { .. } | OffsetError::CrossesItself)
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(sketch, before);
+}
+
+#[test]
+fn a_spline_beside_other_chains_is_offset_with_them_but_not_when_it_touches_one() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(50.0, -10.0));
+    let touching = sketch.add_line(Point2::new(50.0, 0.0), Point2::new(60.0, 0.0));
+    let spline_end = match sketch.entity(spline) {
+        Some(Entity::Spline { points, .. }) => points[4],
+        other => panic!("expected a spline, found {other:?}"),
+    };
+    let (touch_start, _) = ends(&sketch, touching);
+
+    let chains = sketch.offset_chains(&[spline, line]).unwrap();
+    assert_eq!(chains.len(), 2);
+
+    sketch
+        .add_constraint(Constraint::Coincident(spline_end, touch_start))
+        .unwrap();
+    let refused = sketch.offset_chains(&[spline, touching]).unwrap_err();
+    assert!(matches!(refused, OffsetError::NotInChain { entity, .. } if entity == spline));
+    assert!(
+        refused
+            .to_string()
+            .contains("beside curves it does not touch")
+    );
+}
+
+#[test]
+fn a_spline_that_would_cross_itself_when_offset_is_refused() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 1.0),
+            Point2::new(20.0, 0.0),
+            Point2::new(10.0, -0.5),
+            Point2::new(0.0, 0.5),
+        ],
+        SplineKind::fit(false),
+    );
+    let chain = sketch.offset_chain(&[spline]).unwrap();
+
+    let refused = [Side::Left, Side::Right]
+        .into_iter()
+        .map(|side| chain.outline(side, 3.0))
+        .find(Result::is_err);
+
+    assert!(refused.is_some());
+}
+
+#[test]
+fn several_chains_are_offset_in_one_step_each_to_its_own_side_keeping_every_freedom() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let path = bent_path(&mut sketch);
+    let circle = sketch.add_circle(Point2::new(-30.0, 0.0), 5.0);
+    let lone = sketch.add_line(Point2::new(60.0, 0.0), Point2::new(60.0, 20.0));
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(70.0, 0.0),
+            Point2::new(80.0, 10.0),
+            Point2::new(90.0, 0.0),
+        ],
+        SplineKind::fit(false),
+    );
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let curves: Vec<EntityId> = path.iter().copied().chain([circle, lone, spline]).collect();
+
+    let chains = sketch.offset_chains(&curves).unwrap();
+    assert_eq!(chains.len(), 4);
+
+    let made = sketch
+        .offset_each(&curves, 2.0, mm(2.0), |chain| chain.default_side())
+        .unwrap();
+
+    assert_eq!(made.len(), 4 + 1 + 1 + 1);
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    let fitted = made
+        .iter()
+        .find_map(|copy| match sketch.entity(*copy) {
+            Some(Entity::Spline { points, .. }) => Some(points.len()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom + 2 * fitted);
+    let copy = made
+        .iter()
+        .find(|copy| {
+            matches!(sketch.entity(**copy), Some(Entity::Line { .. }))
+                && distance_to_line(&sketch, line_at(&sketch, **copy).0, lone) > 1.0
+        })
+        .copied();
+    assert!(copy.is_some());
+}
+
+#[test]
+fn offsetting_several_chains_that_fail_leaves_the_sketch_as_it_was() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let circle = sketch.add_circle(Point2::new(30.0, 0.0), 3.0);
+    let inside = sketch
+        .offset_chain(&[circle])
+        .unwrap()
+        .side_of(Point2::new(30.0, 0.0));
+    let before = sketch.clone();
+
+    let refused = sketch.offset_each(&[line, circle], 4.0, mm(4.0), |chain| {
+        if chain.is_closed() {
+            inside
+        } else {
+            Side::Left
+        }
+    });
+
+    assert!(matches!(refused, Err(OffsetError::Collapses { .. })));
+    assert_eq!(sketch, before);
+}
+
+#[test]
+fn the_free_ends_of_an_open_chain_stay_on_the_normals_of_its_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let path = bent_path(&mut sketch);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let chain = sketch.offset_chain(&path).unwrap();
+    let side = chain.side_of(Point2::new(10.0, 10.0));
+
+    let copies = sketch.offset(&path, side, 3.0, mm(3.0)).unwrap();
+
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+
+    let first = &copies[0];
+    let last = &copies[copies.len() - 1];
+    let (first_start, _) = line_at(&sketch, *first);
+    let (_, last_end) = line_at(&sketch, *last);
+    assert!(first_start.x.abs() < EXACT, "{first_start}");
+    assert!((first_start.y.abs() - 3.0).abs() < EXACT, "{first_start}");
+    let (original_start, original_end) = line_at(&sketch, path[3]);
+    let direction = (original_end - original_start).normalize();
+    assert!(
+        (last_end - original_end).normalize().dot(direction).abs() < EXACT,
+        "{last_end}"
+    );
+    assert!((last_end.distance(original_end) - 3.0).abs() < EXACT);
+}
+
+#[test]
+fn an_open_chain_ending_in_an_arc_holds_that_end_on_the_arcs_radius() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-20.0, 0.0), Point2::new(0.0, 0.0));
+    let arc = sketch.add_arc(
+        Point2::new(0.0, 10.0),
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+    );
+    let (_, line_end) = ends(&sketch, line);
+    let (arc_start, arc_end) = ends(&sketch, arc);
+    sketch
+        .add_constraint(Constraint::Coincident(line_end, arc_start))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Tangent(line, arc))
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let outside = sketch
+        .offset_chain(&[line, arc])
+        .unwrap()
+        .side_of(Point2::new(20.0, 0.0));
+
+    let copies = sketch.offset(&[line, arc], outside, 2.0, mm(2.0)).unwrap();
+
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    let copy_end = match sketch.entity(copies[1]) {
+        Some(Entity::Arc { end, .. }) => *end,
+        other => panic!("expected an arc, found {other:?}"),
+    };
+    let found = solved.geometry.point(copy_end).unwrap();
+    let source = solved.geometry.point(arc_end).unwrap();
+    assert!(
+        (found.distance(Point2::new(10.0, 10.0)) - 2.0).abs() < EXACT,
+        "{found}"
+    );
+    assert!(found.distance(source) > 1.9);
+    let center = Point2::new(0.0, 10.0);
+    assert!((source - center).normalize().perp_dot(found - center).abs() < EXACT);
 }

@@ -1,5 +1,5 @@
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Constraint, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
 use super::{
@@ -70,6 +70,16 @@ fn offset_by_a_typed_distance_needs_no_pointer_and_a_negative_one_goes_the_other
     let circle_label = sketch.entity_label(circle);
     let spline = sketch.add_spline(&[Point2::new(30.0, 0.0), Point2::new(40.0, 10.0)]);
     let spline_label = sketch.entity_label(spline);
+    let tail = sketch.add_line(Point2::new(40.0, 10.0), Point2::new(50.0, 10.0));
+    let (Some(Entity::Spline { points, .. }), Some(Entity::Line { start, .. })) =
+        (sketch.entity(spline), sketch.entity(tail))
+    else {
+        panic!("a spline and a line");
+    };
+    let (spline_end, tail_start) = (points[1], *start);
+    sketch
+        .add_constraint(Constraint::Coincident(spline_end, tail_start))
+        .unwrap();
     let feature = edit_free_sketch(&mut harness, sketch);
 
     harness.select(entity_pickables(feature, &[circle]));
@@ -96,14 +106,42 @@ fn offset_by_a_typed_distance_needs_no_pointer_and_a_negative_one_goes_the_other
     harness.frame();
     assert_eq!(radii_of_circles(harness.sketch(feature)).len(), 3);
 
-    harness.select(entity_pickables(feature, &[spline]));
+    harness.select(entity_pickables(feature, &[spline, tail]));
     harness.frame();
     assert!(harness.shows(&format!(
-        "{spline_label} cannot be offset; only lines, arcs and circles can"
+        "{spline_label} can only be offset on its own or beside curves it does not touch: its \
+         offset is a spline, which does not join a chain"
     )));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     assert_eq!(harness.tool(), Some(Tool::Select));
+}
+
+#[test]
+fn offset_takes_several_chains_at_once_each_to_the_pointers_side_in_one_undoable_step() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    let second = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(20.0, 30.0));
+    let circle = sketch.add_circle(Point2::new(60.0, 10.0), 5.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.select(entity_pickables(feature, &[first, second, circle]));
+    harness.use_tool(Key::W);
+    harness.point_at(Point2::new(10.0, 15.0));
+    assert!(harness.shows("Offset 3 curves by 15 mm"));
+    harness.click_at(Point2::new(10.0, 15.0));
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 4);
+    assert_eq!(entities_of_kind(sketch, "Circle").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Distance").len(), 3);
+    assert_eq!(harness.model.undo_label(), Some(offsetting::TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
 }
 
 #[test]

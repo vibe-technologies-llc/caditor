@@ -1058,6 +1058,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)

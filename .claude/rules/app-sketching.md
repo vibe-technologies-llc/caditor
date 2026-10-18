@@ -371,9 +371,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Trim's primary drag is a trim path: every piece the path crosses is trimmed on release in crossing
   order as one transaction, each found again by its middle on whichever curve now carries it after
   earlier splits. Extend ignores drags.
-- Offset works on the selected chain; with none, a click on a curve selects its chain. The pointer's
-  side and distance choose side and distance, previewed live; an ellipse's words end
-  `offsetting::FREE_SPLINE`, since its offset spline does not follow it (`sketch.md`). `OffsetMode`
+- Offset works on the selected chains (`Sketch::offset_chains`, any number); with none, a click on a
+  curve selects its chain. The pointer's side (per chain) and the distance to the nearest chain
+  choose side and distance, previewed live for every chain, a typed negative value flipping every
+  side, committed by `Sketch::offset_each` as one transaction; the words of an offset that
+  includes an ellipse or spline end `offsetting::FREE_SPLINE` (several chains: that the splines
+  among them will not follow), since its offset spline does not follow it (`sketch.md`). `OffsetMode`
   (one side, both sides with round ends, both with flat ends): the both ways put the distance on each
   side (pointer side irrelevant, a negative typed value its magnitude) as one "Offset curves to both
   sides" transaction (`Sketch::offset_both_sides`). Mirror copies the selection about the line or axis

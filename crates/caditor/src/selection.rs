@@ -387,6 +387,8 @@ impl Pickable {
                     format!("{described}: click to move it with {owner} or leave it out")
                 } else if kind.is_some_and(|kind| kind.delete_face().is_some()) {
                     format!("{described}: click to delete it with {owner} or keep it")
+                } else if kind.is_some_and(|kind| kind.emboss().is_some()) {
+                    format!("{described}: click to emboss it with {owner} or leave it out")
                 } else if kind.is_some_and(|kind| kind.split_face().is_some()) {
                     format!("{described}: click to split it with {owner} or leave it out")
                 } else {

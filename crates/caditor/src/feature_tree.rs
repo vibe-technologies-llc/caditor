@@ -27,7 +27,7 @@ use crate::{
     completion, datum_panel, delete_face_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
-    feature_clipboard, feature_fields,
+    emboss_panel, feature_clipboard, feature_fields,
     feature_groups::{self, GroupError},
     field::{self, DimensionTarget},
     files::FileCommand,
@@ -397,6 +397,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Shell(_) => &["shell", "hollow"],
         FeatureKind::OffsetFace(_) => &["offset", "face", "press", "pull", "move face"],
         FeatureKind::DeleteFace(_) => &["delete", "face", "remove", "defeature", "heal", "fill"],
+        FeatureKind::Emboss(_) => &["emboss", "deboss", "engrave", "text", "relief", "label"],
         FeatureKind::MoveFace(_) => &["move", "face", "tilt", "shift", "push", "pull", "hole"],
         FeatureKind::SplitFace(_) => &["split", "face", "part line", "imprint", "divide"],
         FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
@@ -1169,6 +1170,21 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Emboss(emboss) => {
+            emboss_panel::show(
+                ui,
+                &emboss_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    emboss,
+                    opened: row.edited,
+                },
+                &mut state.reference_rows,
+                actions,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::DeleteFace(deletion) => {
             delete_face_panel::show(
                 ui,
@@ -1330,6 +1346,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::DeleteFace(_)
+        | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
@@ -1463,6 +1480,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
@@ -1492,6 +1510,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
@@ -3087,6 +3106,8 @@ fn waiting(
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }
             | MissingInput::FacesToDelete { .. }
+            | MissingInput::FacesToEmboss { .. }
+            | MissingInput::SketchToEmboss { .. }
             | MissingInput::FacesToSplit { .. } => EditingCommand::OpenSolid(id),
         };
         let button =

@@ -748,6 +748,7 @@ pub fn wrap_chain(
     let wrapping = Wrapping {
         seam: window.seam(),
         least_radius: least_radius(&wrap, [low, high].into_iter())?,
+        band: None,
     };
     wrapped(&wrap, &regions, &wrapping, feature)
 }

@@ -87,8 +87,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [low · hard] Emboss or deboss sketch text, or any sketch profile, onto a face, flat or curved
-  (wrapped around it), raised or recessed by a depth.
+- [low · medium] Emboss raises or recesses every closed outline of a sketch on flat faces of one
+  plane and on faces of one cylinder or cone, but cannot choose which regions of the sketch, has no
+  drag arrow for its depth, gives the walls no draft, is not repeated by a pattern or mirror of
+  features, and refuses a sphere or other doubly curved face (wrapping onto one needs the chosen
+  projection of the wrapped split above). Its depth on a cone is measured square to the slope.
 - [low · hard · blocked by: draft angle (above)] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
@@ -119,9 +122,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   approximately possible); and a point can be inserted keeping the shape only in an open control
   spline of four points or more, not in a closed one (it needs a closed spline with knots of its
   own), a conic or one of fewer points.
-- [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
-  along their curves and cannot offset splines; a sketch fillet cannot round a spline (the
-  corner would need a centre rolled along the spline's offset and the spline cut at the touching
+- [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
+  along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is
   refitted through its remaining points rather than kept exactly, and one cannot be split or broken
   at a point (its knots follow its points, so no fit spline holds the piece).
@@ -132,12 +134,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
   points and directions and the constraints that mean something there (coincident, horizontal and
   vertical in space, parallel, perpendicular, distance, fix).
-- [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
-  holding it would need a constraint keeping each fit point on the ellipse's normal at its own
-  parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would
-  put a dimension on each), a new constraint kind with its solver form, file record and glyph.
-  An ellipse also cannot be offset within a chain of lines and arcs, whose joints would need the
-  spline to meet them.
+- [low · hard] The offset of an ellipse, elliptical arc or spline is a free fit-point spline that
+  does not follow the original: holding it would need a constraint keeping each fit point on the
+  original's normal at its own parameter (a `Distance` from the curve lets every fit point slide
+  along the offset and would put a dimension on each), a new constraint kind with its solver form,
+  file record and glyph; the free ends of an open spline's offset slide along it for the same
+  reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
+  need the spline to meet them.
 - [low · medium] A gear pair and a sprocket (`sketch.md`, Spur gears) are drawn once: their
   curves are free sketch geometry, not tied to the values in the Spur gear panel, so changing the
   module, teeth or a parameter they use means deleting them and drawing them again. A single gear

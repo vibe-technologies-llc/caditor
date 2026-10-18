@@ -131,7 +131,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
-  needing curves of a sketch), delete face, move face (`add_move_face`: a signed `distance`
+  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, a `depth` and a `form` of `raise` or
+  `recess`), move face (`add_move_face`: a signed `distance`
   along `direction`, `"normal"` or an axis as `places::axis` takes it, and an `angle` about `axis`,
   `"none"` or an axis; an edit keeps what it is not given), split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
@@ -201,7 +202,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   shown positions, as `trimming::working`) through `reshape_sketch`, settled first, with the
   sketch crate's operations and the app tools' labels: trim (pieces found again by their middle on
   whichever curve carries them, `trimming::carrier`, as a trim path), extend (by the end point or a
-  position by it), offset (a chain, `whole_chain` as a click takes it, side by `toward` or the
+  position by it), offset (any number of chains, `whole_chain` as a click takes it, each side by `toward` or its
   default, a negative distance the other side, `both_sides` with round or flat caps), mirror,
   rectangular and circular patterns (`patterning::turned`, `square_to`), fillet and chamfer of
   corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build

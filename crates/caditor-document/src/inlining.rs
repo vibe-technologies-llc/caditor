@@ -199,6 +199,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::MoveFace(moving) => moving.expressions_mut().into(),
         FeatureKind::DeleteFace(_) => Vec::new(),
+        FeatureKind::Emboss(emboss) => vec![&mut emboss.depth],
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
         FeatureKind::Loft(loft) => loft.expressions_mut(),

@@ -43,6 +43,10 @@ pub enum WrapError {
     AcrossAxis,
     #[error("the curves reach past the apex of the cone")]
     PastApex,
+    #[error("the wrapped solid would reach the axis of the surface")]
+    ReachesAxis,
+    #[error("the thickness to wrap is not a positive length")]
+    UnusableBand,
     #[error("the outlines reach {turns} times round the surface")]
     BeyondFullTurn { turns: f64 },
     #[error("the curves are not one open chain")]
@@ -335,9 +339,35 @@ struct Caps {
     names: (FaceName, FaceName),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WrapBand {
+    inward: f64,
+    outward: f64,
+}
+
+impl WrapBand {
+    pub fn new(inward: f64, outward: f64) -> Result<Self, WrapError> {
+        let usable = |distance: f64| distance.is_finite() && distance > 0.0;
+        if usable(inward) && usable(outward) {
+            Ok(Self { inward, outward })
+        } else {
+            Err(WrapError::UnusableBand)
+        }
+    }
+
+    pub fn inward(self) -> f64 {
+        self.inward
+    }
+
+    pub fn outward(self) -> f64 {
+        self.outward
+    }
+}
+
 pub(super) struct Wrapping {
     pub(super) seam: f64,
     pub(super) least_radius: f64,
+    pub(super) band: Option<WrapBand>,
 }
 
 fn region_points(regions: &[Region]) -> Vec<Point2> {
@@ -375,6 +405,16 @@ pub fn wrap_regions(
     surface: &Surface,
     feature: u64,
 ) -> Result<Solid, WrapError> {
+    wrap_regions_within(plane, regions, surface, None, feature)
+}
+
+pub fn wrap_regions_within(
+    plane: &Plane,
+    regions: &[Region],
+    surface: &Surface,
+    band: Option<WrapBand>,
+    feature: u64,
+) -> Result<Solid, WrapError> {
     if regions.is_empty() {
         return Err(WrapError::NoRegions);
     }
@@ -394,9 +434,13 @@ pub fn wrap_regions(
             turns: (last - first) / TAU,
         });
     }
+    if band.is_some_and(|band| least - band.inward() * wrap.cos <= LINEAR_RESOLUTION) {
+        return Err(WrapError::ReachesAxis);
+    }
     let wrapping = Wrapping {
         seam: 0.5 * (first + last) + PI,
         least_radius: least,
+        band,
     };
     wrapped(&wrap, regions, &wrapping, feature)
 }
@@ -407,11 +451,17 @@ pub(super) fn wrapped(
     wrapping: &Wrapping,
     feature: u64,
 ) -> Result<Solid, WrapError> {
-    let band = wrap.band(wrapping.least_radius);
+    let (inner, outer) = match wrapping.band {
+        Some(band) => (-band.inward(), band.outward()),
+        None => {
+            let band = wrap.band(wrapping.least_radius);
+            (-band, band)
+        }
+    };
     let (low, high) = if wrap.up_is_outward() {
-        (-band, band)
+        (inner, outer)
     } else {
-        (band, -band)
+        (outer, inner)
     };
     let cap_sense = |offset: f64| {
         if offset > 0.0 {

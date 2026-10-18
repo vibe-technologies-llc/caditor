@@ -499,7 +499,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ### Solid (`solid.rs`)
 
 - A sketch's profile curves (`solid::profile_curves`, used by regions, extrude, revolve, walls,
-  ribs, splits) are its non-construction curves and the letters of its texts (`lettering.rs`):
+  ribs, splits, emboss) are its non-construction curves and the letters of its texts (`lettering.rs`):
   `placed_text` lays a text out with `caditor-lettering` at its anchor in the solved geometry,
   scaled by its height (cap height) and turned by its angle, each Bézier and line a `ProfileCurve`
   named `letter_curve` (`sketch.md`), so letters become regions and holes like drawn outlines and
@@ -1202,6 +1202,39 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   crossing itself or closing round to the same edge; the sketch's with the fix on the sketch.
 - A tool crossing none of the chosen faces fails naming the plane, curve or body; splitting along
   its own body, a sketch's problems and kernel failures (`trouble.rs`) fail it alone.
+
+### Emboss (`emboss.rs`)
+
+- `Emboss { body, faces, sketch, depth, form }` raises (`EmbossForm::Raised`) or sinks
+  (`Recessed`) every closed outline of its sketch (`Selection::EvenDepth` of `solid::profile_curves`,
+  so a letter's counter stays open and curves enclosing nothing are ignored) on the chosen faces by
+  `depth`, a length above zero (an expression, scaled with the model). `faces` are `FaceReference`s
+  resolved as a split face's (pieces accepted, lost or tied fails); none waits as
+  `MissingInput::FacesToEmboss`, no `sketch` as `SketchToEmboss`. It modifies its body
+  (`modifies_body`, state before kept); its sketch is in `features()` and `reference_sketches`, its
+  faces' origins among `origin_features`, healing visits the faces ("its embossed face").
+- The material is one tool body, joined to the body (raised) or cut from it (recessed), and a union or
+  difference of it is the whole result; its faces are named from the feature as an extrusion's are
+  (`FaceName::side` of the sketch entity, a top `end_cap`/`start_cap` of the region), so later
+  features hold the letters' tops and floors. `describe_origin` words them "<emboss> top" (raised) or
+  "floor" (recessed) and "<emboss> side from <curve>". The tool spans from `EMBED` (0.01 mm) on the
+  other side of the face to `depth` on the chosen one, so it crosses the face rather than lying on it.
+  - Flat faces (all `face_plane`s in one plane, `tolerance::same_plane`): the sketch must be parallel
+    to the plane (`NotParallel`); the tool is kernel `extrude` of the regions between the heights
+    that put the face plane at 0, whatever plane the sketch lies in.
+  - Faces of one cylinder or cone (`wrapping_surface`, shared with split face, so a sphere, faces of
+    several surfaces and `NotAlongAxis` fail as its wrap does): the tool is `wrap_regions_within` with a
+    `WrapBand` of `depth` towards the side the material goes and `EMBED` the other, `inward` and
+    `outward` swapped for a concave face (a bore, sense reversed) so Raise always leaves the body. A
+    depth leaving no radius (`WrapError::ReachesAxis`) is `TooDeep`.
+- Before joining, kernel `split_faces` of the chosen faces along the tool must divide them, and no
+  piece inside the tool (`FaceName::split(feature, name, Inside)`) may border a face that is not
+  chosen (`reaching_edge`): an outline reaching or crossing the edge of a face, or a hole in it, is
+  `RunsOff` naming sketch and face, and one touching none is `Misses`. Boolean failures go through
+  `trouble.rs` ("Move its curves"); a recess leaving nothing is `LeavesNothing`.
+- Wrapped outlines and their errors are those of split face (`document.md`, Split face): outlines
+  reaching round more than once, past a cone's apex and a sketch plane across the axis are worded
+  with the fix on the sketch.
 
 ### Remove (`removal.rs`)
 
