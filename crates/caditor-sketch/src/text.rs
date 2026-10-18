@@ -7,8 +7,9 @@ use crate::{constraint::MAX_LENGTH, id::EntityId};
 pub const MAX_TEXT_CHARS: usize = 200;
 pub const LINE_BREAK: char = '\n';
 
-const LETTER_CURVES: u64 = 1 << 63;
-const TEXT_BITS: u32 = 40;
+pub(crate) const LETTER_CURVES: u64 = 1 << 63;
+pub(crate) const GEAR_CURVES: u64 = 1 << 62;
+pub(crate) const TEXT_BITS: u32 = 39;
 const LETTER_BITS: u32 = 11;
 const SEGMENT_BITS: u32 = 12;
 
@@ -133,7 +134,7 @@ pub fn letter_curve(text: EntityId, letter: usize, segment: usize) -> Option<u64
 }
 
 pub(crate) fn letter_curve_text(raw: u64) -> Option<u64> {
-    (raw & LETTER_CURVES != 0 && !EntityId::from_raw(raw).is_reference())
+    (raw & LETTER_CURVES != 0 && raw & GEAR_CURVES == 0 && !EntityId::from_raw(raw).is_reference())
         .then_some((raw & !LETTER_CURVES) >> (LETTER_BITS + SEGMENT_BITS))
 }
 

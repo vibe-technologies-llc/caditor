@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Text};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Gear, Sketch, SketchError, Text};
 
 use crate::{
     attachment::SketchFeature,
@@ -43,6 +43,17 @@ impl TransactionBuilder<'_> {
 
     pub fn set_sketch_text(&mut self, feature: FeatureId, id: EntityId, text: Text) -> &mut Self {
         self.edits.push(Edit::SetSketchText { feature, id, text });
+        self
+    }
+
+    pub fn add_sketch_gear(&mut self, feature: FeatureId, gear: Gear) -> EntityId {
+        let id = EntityId::from_raw(self.allocate_sketch_id(feature));
+        self.edits.push(Edit::AddSketchGear { feature, id, gear });
+        id
+    }
+
+    pub fn set_sketch_gear(&mut self, feature: FeatureId, id: EntityId, gear: Gear) -> &mut Self {
+        self.edits.push(Edit::SetSketchGear { feature, id, gear });
         self
     }
 
@@ -128,6 +139,7 @@ impl TransactionBuilder<'_> {
             None => Removal {
                 constraints: constraints.into_iter().collect(),
                 texts: Vec::new(),
+                gears: Vec::new(),
                 entities: entities.into_iter().collect(),
             }
             .edits(feature),
@@ -276,6 +288,7 @@ impl TransactionBuilder<'_> {
 struct Removal {
     constraints: Vec<ConstraintId>,
     texts: Vec<EntityId>,
+    gears: Vec<EntityId>,
     entities: Vec<EntityId>,
 }
 
@@ -288,6 +301,9 @@ impl Removal {
         let (texts, entities): (Vec<EntityId>, Vec<EntityId>) = entities
             .into_iter()
             .partition(|id| sketch.text(*id).is_some());
+        let (gears, entities): (Vec<EntityId>, Vec<EntityId>) = entities
+            .into_iter()
+            .partition(|id| sketch.gear(*id).is_some());
         let mut entity_users: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for (user, entity) in sketch.entities() {
             for point in entity.points() {
@@ -317,19 +333,36 @@ impl Removal {
                 .filter(|(_, text)| doomed_entities.contains(&text.anchor))
                 .map(|(id, _)| id),
         );
-        let lone_anchors: Vec<EntityId> = doomed_texts
+        let mut doomed_gears: BTreeSet<EntityId> = gears.into_iter().collect();
+        doomed_gears.extend(
+            sketch
+                .gears()
+                .filter(|(_, gear)| doomed_entities.contains(&gear.centre))
+                .map(|(id, _)| id),
+        );
+        let lone_points: Vec<EntityId> = doomed_texts
             .iter()
             .filter_map(|id| sketch.text(*id))
             .map(|text| text.anchor)
-            .filter(|anchor| {
-                !entity_users.contains_key(anchor)
+            .chain(
+                doomed_gears
+                    .iter()
+                    .filter_map(|id| sketch.gear(*id))
+                    .map(|gear| gear.centre),
+            )
+            .filter(|point| {
+                !entity_users.contains_key(point)
                     && sketch
-                        .texts_using(*anchor)
+                        .texts_using(*point)
                         .iter()
                         .all(|user| doomed_texts.contains(user))
+                    && sketch
+                        .gears_using(*point)
+                        .iter()
+                        .all(|user| doomed_gears.contains(user))
             })
             .collect();
-        doomed_entities.extend(lone_anchors);
+        doomed_entities.extend(lone_points);
         let mut doomed_constraints: BTreeSet<ConstraintId> = constraints
             .into_iter()
             .filter(|id| sketch.constraint(*id).is_some())
@@ -347,6 +380,7 @@ impl Removal {
         Self {
             constraints: doomed_constraints.into_iter().collect(),
             texts: doomed_texts.into_iter().collect(),
+            gears: doomed_gears.into_iter().collect(),
             entities: curves.into_iter().chain(points).collect(),
         }
     }
@@ -360,11 +394,19 @@ impl Removal {
             .texts
             .into_iter()
             .map(|id| Edit::RemoveSketchText { feature, id });
+        let gears = self
+            .gears
+            .into_iter()
+            .map(|id| Edit::RemoveSketchGear { feature, id });
         let entities = self
             .entities
             .into_iter()
             .map(|id| Edit::RemoveSketchEntity { feature, id });
-        constraints.chain(texts).chain(entities).collect()
+        constraints
+            .chain(texts)
+            .chain(gears)
+            .chain(entities)
+            .collect()
     }
 }
 
@@ -378,10 +420,13 @@ struct AddedEntity {
 struct Reshape {
     removed_constraints: Vec<ConstraintId>,
     removed_texts: Vec<EntityId>,
+    removed_gears: Vec<EntityId>,
     removed_entities: Vec<EntityId>,
     added_entities: Vec<AddedEntity>,
     added_texts: Vec<(EntityId, Text)>,
     changed_texts: Vec<(EntityId, Text)>,
+    added_gears: Vec<(EntityId, Gear)>,
+    changed_gears: Vec<(EntityId, Gear)>,
     changed_entities: Vec<(EntityId, Entity)>,
     construction: Vec<(EntityId, bool)>,
     added_constraints: Vec<(ConstraintId, Constraint, bool, Option<Vector2>)>,
@@ -520,13 +565,36 @@ impl Reshape {
                     .text(*id)
                     .is_some_and(|previous| kept_text(*id, previous))
             });
+        let kept_gear = |id: EntityId, gear: &Gear| {
+            !replaced.contains(&gear.centre)
+                && after
+                    .gear(id)
+                    .is_some_and(|kept| kept.centre == gear.centre)
+        };
+        let removed_gears = before
+            .gears()
+            .filter(|(id, gear)| !kept_gear(*id, gear))
+            .map(|(id, _)| id)
+            .collect();
+        let (changed_gears, added_gears) = after
+            .gears()
+            .filter(|(id, gear)| before.gear(*id) != Some(*gear))
+            .map(|(id, gear)| (id, gear.clone()))
+            .partition(|(id, _)| {
+                before
+                    .gear(*id)
+                    .is_some_and(|previous| kept_gear(*id, previous))
+            });
         Self {
             removed_constraints,
             removed_texts,
+            removed_gears,
             removed_entities: removed_curves.into_iter().chain(removed_points).collect(),
             added_entities: added_points.into_iter().chain(added_curves).collect(),
             added_texts,
             changed_texts,
+            added_gears,
+            changed_gears,
             changed_entities,
             construction,
             added_constraints,
@@ -544,10 +612,22 @@ impl Reshape {
             .removed_texts
             .into_iter()
             .map(|id| Edit::RemoveSketchText { feature, id });
+        let removed_gears = self
+            .removed_gears
+            .into_iter()
+            .map(|id| Edit::RemoveSketchGear { feature, id });
         let removed_entities = self
             .removed_entities
             .into_iter()
             .map(|id| Edit::RemoveSketchEntity { feature, id });
+        let added_gears = self
+            .added_gears
+            .into_iter()
+            .map(|(id, gear)| Edit::AddSketchGear { feature, id, gear });
+        let changed_gears = self
+            .changed_gears
+            .into_iter()
+            .map(|(id, gear)| Edit::SetSketchGear { feature, id, gear });
         let added_texts = self
             .added_texts
             .into_iter()
@@ -612,10 +692,13 @@ impl Reshape {
             });
         removed_constraints
             .chain(removed_texts)
+            .chain(removed_gears)
             .chain(removed_entities)
             .chain(added_entities)
             .chain(added_texts)
             .chain(changed_texts)
+            .chain(added_gears)
+            .chain(changed_gears)
             .chain(changed_entities)
             .chain(construction)
             .chain(added_constraints)
@@ -914,6 +997,57 @@ impl Document {
         })
     }
 
+    pub(super) fn add_sketch_gear(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        gear: Gear,
+    ) -> Result<Edit, EditError> {
+        self.check_gear_references(feature, &gear)?;
+        let (name, sketch) = self.sketch_mut(feature)?;
+        sketch
+            .insert_gear(id, gear)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::RemoveSketchGear { feature, id })
+    }
+
+    pub(super) fn remove_sketch_gear(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+    ) -> Result<Edit, EditError> {
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let gear = sketch
+            .remove_gear(id)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::AddSketchGear { feature, id, gear })
+    }
+
+    pub(super) fn set_sketch_gear(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        gear: Gear,
+    ) -> Result<Edit, EditError> {
+        self.check_gear_references(feature, &gear)?;
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let previous = sketch
+            .replace_gear(id, gear)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::SetSketchGear {
+            feature,
+            id,
+            gear: previous,
+        })
+    }
+
+    fn check_gear_references(&self, feature: FeatureId, gear: &Gear) -> Result<(), EditError> {
+        for expression in gear.expressions() {
+            self.check_references(expression)?;
+        }
+        self.check_sketch_reads(feature, gear.parameters())
+    }
+
     fn check_text_references(&self, feature: FeatureId, text: &Text) -> Result<(), EditError> {
         self.check_references(&text.height)?;
         self.check_references(&text.angle)?;
@@ -1019,6 +1153,7 @@ fn users_of(sketch: &Sketch, entity: EntityId) -> Vec<String> {
         .entities_using(entity)
         .into_iter()
         .chain(sketch.texts_using(entity))
+        .chain(sketch.gears_using(entity))
         .map(|user| sketch.entity_label(user));
     let constraints = sketch
         .constraints_using(entity)

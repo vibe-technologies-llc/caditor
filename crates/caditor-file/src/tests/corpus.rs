@@ -25,7 +25,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::{Text, TextAlign};
+use caditor_sketch::{Gear, Text, TextAlign};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 49] = [
+const KEPT: [(&str, &str); 51] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -62,6 +62,10 @@ const KEPT: [(&str, &str); 49] = [
     (
         "journal-1/every-edit.journal",
         "d5f3ffe41fdaf1a24552095ee7a8335337340fd0f9da665a39f0930f793cba29",
+    ),
+    (
+        "journal-1/gears.journal",
+        "4d52613675f7574742c9822a2110b70ffdfd87aa9c9560bd06a5a487ec92e81b",
     ),
     (
         "journal-1/piece-stand-ins.journal",
@@ -114,6 +118,10 @@ const KEPT: [(&str, &str); 49] = [
     (
         "model-1/faces.caditor",
         "37c964744927f008ee9f4c449e6ac47935ae79f7f64aac3138bbe00b2b0a7831",
+    ),
+    (
+        "model-1/gears.caditor",
+        "159ba946083ad16f8b6dc70f5c8404ce4f6b3e56ba56f5e318a458eac896cd73",
     ),
     (
         "model-1/helices.caditor",
@@ -787,6 +795,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&spline_knots(), "Spline knots"),
         ),
         (model("texts"), saved(&texts().0, "Texts")),
+        (model("gears"), saved(&gears().0, "Gears")),
         (
             model("text-layouts"),
             saved(&text_layouts(), "Text layouts"),
@@ -872,6 +881,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
         (journal("reference-images"), reference_image_journal()),
         (journal("texts"), texts_journal()),
+        (journal("gears"), gears_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1150,6 +1160,98 @@ fn text_layouts() -> Document {
     }
     document.apply(transaction.finish()).unwrap();
     document
+}
+
+fn gear_of(centre: EntityId, teeth: Expression) -> Gear {
+    Gear {
+        centre,
+        module: Expression::Measure(2.0, Unit::Millimetre),
+        teeth,
+        pressure_angle: Expression::Measure(20.0, Unit::Degree),
+        profile_shift: Expression::Number(0.0),
+        root_fillet: Expression::Measure(0.5, Unit::Millimetre),
+        bore: Expression::Measure(8.0, Unit::Millimetre),
+        turn: Expression::Measure(0.0, Unit::Degree),
+    }
+}
+
+fn gears() -> (Document, FeatureId, EntityId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Gears");
+    let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
+    let sketch = transaction.add_feature("Wheels", FeatureKind::from(Sketch::new(Plane::XY)));
+    let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
+    let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 0.0)));
+    transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+    let plain = transaction.add_sketch_gear(sketch, gear_of(first, Expression::Number(20.0)));
+    transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            module: Expression::Measure(1.5, Unit::Millimetre),
+            profile_shift: Expression::Number(0.2),
+            bore: Expression::Measure(0.0, Unit::Millimetre),
+            turn: Expression::Measure(7.5, Unit::Degree),
+            ..gear_of(second, Expression::Parameter(count))
+        },
+    );
+    transaction.add_feature(
+        "Wheel body",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::Measure(3.0, Unit::Millimetre), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, sketch, plain)
+}
+
+fn gears_journal() -> Vec<u8> {
+    let (base, sketch, plain) = gears();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut addition = base.transaction("Draw spur gear");
+    let centre = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 50.0)));
+    addition.add_sketch_gear(sketch, gear_of(centre, Expression::Number(30.0)));
+    session.apply(addition.finish());
+    let edited = session.editor.document().clone();
+    let held = edited
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(plain))
+        .cloned()
+        .unwrap();
+    let mut change = edited.transaction("Edit spur gear");
+    change.set_sketch_gear(
+        sketch,
+        plain,
+        Gear {
+            teeth: Expression::Number(22.0),
+            ..held
+        },
+    );
+    session.apply(change.finish());
+    let changed = session.editor.document().clone();
+    let mut removal = changed.transaction("Delete gear");
+    removal.remove_sketch_items(sketch, [plain], []);
+    session.apply(removal.finish());
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Gears")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/gears.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn texts_journal() -> Vec<u8> {

@@ -10,6 +10,7 @@ use caditor_geometry::{Point2, Vector2};
 use crate::{
     constraint::Constraint,
     entity::{Entity, Role},
+    gear::GearValues,
     id::{ConstraintId, EntityId, Reference},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
@@ -43,6 +44,7 @@ pub(crate) struct System {
     pub targets: BTreeMap<ConstraintId, Vec<usize>>,
     pub rhos: BTreeMap<EntityId, f64>,
     pub text_sizes: BTreeMap<EntityId, TextSize>,
+    pub gear_values: BTreeMap<EntityId, GearValues>,
 }
 
 impl System {
@@ -112,6 +114,7 @@ impl System {
                 })
                 .collect(),
             text_sizes: dimensions.texts().clone(),
+            gear_values: dimensions.gears().clone(),
         };
         system.add_splines(sketch)?;
         system.entity_variables = sketch

@@ -1981,6 +1981,17 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
             })
             .fixing(fix)
         }
+        SketchError::Gear { label, reason, .. } => {
+            let fix = match reason.failed_parameter() {
+                Some(id) => FixTarget::Parameter(id),
+                None => FixTarget::Feature(feature),
+            };
+            FeatureError::new(SketchCause::Gear {
+                label: label.clone(),
+                error: reason.clone(),
+            })
+            .fixing(fix)
+        }
         _ => FeatureError::new(SketchCause::Unevaluable {
             error: error.clone(),
         }),

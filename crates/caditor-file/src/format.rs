@@ -38,7 +38,7 @@ use caditor_kernel::{
     SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{
-    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, Gear,
     PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text, TextAlign,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -1997,6 +1997,19 @@ pub(crate) enum EntityKindRecord {
         end: u64,
     },
     Text(TextRecord),
+    Gear(GearRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct GearRecord {
+    pub centre: u64,
+    pub module: String,
+    pub teeth: String,
+    pub pressure_angle: String,
+    pub profile_shift: String,
+    pub root_fillet: String,
+    pub bore: String,
+    pub turn: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2050,8 +2063,11 @@ impl From<TextAlignRecord> for TextAlign {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 const DEFAULT_TEXT_HEIGHT: f64 = 5.0;
+const DEFAULT_GEAR_MODULE: f64 = 2.0;
+const DEFAULT_GEAR_TEETH: f64 = 20.0;
+const DEFAULT_PRESSURE_ANGLE: f64 = 20.0;
 
-const ENTITY_KINDS: [&str; 16] = [
+const ENTITY_KINDS: [&str; 17] = [
     "point",
     "line",
     "circle",
@@ -2068,6 +2084,7 @@ const ENTITY_KINDS: [&str; 16] = [
     "ellipse",
     "elliptical_arc",
     "text",
+    "gear",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2495,6 +2512,20 @@ pub(crate) enum EditRecord {
         feature: u64,
         id: u64,
         text: TextRecord,
+    },
+    AddSketchGear {
+        feature: u64,
+        id: u64,
+        gear: GearRecord,
+    },
+    RemoveSketchGear {
+        feature: u64,
+        id: u64,
+    },
+    SetSketchGear {
+        feature: u64,
+        id: u64,
+        gear: GearRecord,
     },
 }
 
@@ -5074,6 +5105,11 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
                     .texts()
                     .map(|(id, text)| Lenient::Read(text_entity_record(id, text))),
             )
+            .chain(
+                sketch
+                    .gears()
+                    .map(|(id, gear)| Lenient::Read(gear_entity_record(id, gear))),
+            )
             .collect(),
         constraints: sketch
             .constraints()
@@ -5266,6 +5302,42 @@ pub(crate) fn text_entity_record(id: EntityId, text: &Text) -> EntityRecord {
         split_from: None,
         kind: EntityKindRecord::Text(text_record(text)),
     }
+}
+
+pub(crate) fn gear_entity_record(id: EntityId, gear: &Gear) -> EntityRecord {
+    EntityRecord {
+        id: id.raw(),
+        construction: false,
+        split_from: None,
+        kind: EntityKindRecord::Gear(gear_record(gear)),
+    }
+}
+
+fn gear_record(gear: &Gear) -> GearRecord {
+    GearRecord {
+        centre: gear.centre.raw(),
+        module: gear.module.to_stored_text(),
+        teeth: gear.teeth.to_stored_text(),
+        pressure_angle: gear.pressure_angle.to_stored_text(),
+        profile_shift: gear.profile_shift.to_stored_text(),
+        root_fillet: gear.root_fillet.to_stored_text(),
+        bore: gear.bore.to_stored_text(),
+        turn: gear.turn.to_stored_text(),
+    }
+}
+
+fn restore_gear(record: &GearRecord) -> Option<Gear> {
+    let parse = |text: &str| Expression::parse_stored(text).ok();
+    Some(Gear {
+        centre: EntityId::from_raw(record.centre),
+        module: parse(&record.module)?,
+        teeth: parse(&record.teeth)?,
+        pressure_angle: parse(&record.pressure_angle)?,
+        profile_shift: parse(&record.profile_shift)?,
+        root_fillet: parse(&record.root_fillet)?,
+        bore: parse(&record.bore)?,
+        turn: parse(&record.turn)?,
+    })
 }
 
 fn text_record(text: &Text) -> TextRecord {
@@ -5755,6 +5827,20 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             id: id.raw(),
         },
+        Edit::AddSketchGear { feature, id, gear } => EditRecord::AddSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+            gear: gear_record(gear),
+        },
+        Edit::RemoveSketchGear { feature, id } => EditRecord::RemoveSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+        },
+        Edit::SetSketchGear { feature, id, gear } => EditRecord::SetSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+            gear: gear_record(gear),
+        },
         Edit::AddSketchText { feature, id, text } => EditRecord::AddSketchText {
             feature: feature.raw(),
             id: id.raw(),
@@ -6028,6 +6114,20 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
             feature: FeatureId::from_raw(feature),
             id: ConstraintId::from_raw(id),
+        },
+        EditRecord::AddSketchGear { feature, id, gear } => Edit::AddSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_gear(&gear)?,
+        },
+        EditRecord::RemoveSketchGear { feature, id } => Edit::RemoveSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+        },
+        EditRecord::SetSketchGear { feature, id, gear } => Edit::SetSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_gear(&gear)?,
         },
         EditRecord::AddSketchText { feature, id, text } => Edit::AddSketchText {
             feature: FeatureId::from_raw(feature),
@@ -9272,6 +9372,9 @@ pub(crate) fn restore_sketch(
     let (texts, readable): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Text(_)));
+    let (gears, readable): (Vec<_>, Vec<_>) = readable
+        .into_iter()
+        .partition(|entity| matches!(entity.kind, EntityKindRecord::Gear(_)));
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
@@ -9310,6 +9413,12 @@ pub(crate) fn restore_sketch(
         }
     }
 
+    for record in gears {
+        if let EntityKindRecord::Gear(gear) = &record.kind {
+            restore_sketch_gear(&mut sketch, record.id, gear, feature, issues);
+        }
+    }
+
     for constraint in &record.constraints {
         match constraint {
             Lenient::Read(record) => restore_constraint(&mut sketch, record, feature, issues),
@@ -9323,6 +9432,64 @@ pub(crate) fn restore_sketch(
     }
     sketch.reserve_ids_below(record.next_id);
     sketch
+}
+
+fn restore_sketch_gear(
+    sketch: &mut Sketch,
+    id: u64,
+    record: &GearRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) {
+    let label = format!("Gear {id}");
+    let mut value = |name: &str, stored: &str, fallback: Expression| {
+        Expression::parse_stored(stored).unwrap_or_else(|_| {
+            issues.push(format!(
+                "In “{feature}”, the {name} of {label} could not be read, so it was set to a \
+                 standard value."
+            ));
+            fallback
+        })
+    };
+    let gear = Gear {
+        centre: EntityId::from_raw(record.centre),
+        module: value(
+            "module",
+            &record.module,
+            Expression::Measure(DEFAULT_GEAR_MODULE, Unit::Millimetre),
+        ),
+        teeth: value(
+            "number of teeth",
+            &record.teeth,
+            Expression::Number(DEFAULT_GEAR_TEETH),
+        ),
+        pressure_angle: value(
+            "pressure angle",
+            &record.pressure_angle,
+            Expression::Measure(DEFAULT_PRESSURE_ANGLE, Unit::Degree),
+        ),
+        profile_shift: value(
+            "profile shift",
+            &record.profile_shift,
+            Expression::Number(0.0),
+        ),
+        root_fillet: value(
+            "root fillet",
+            &record.root_fillet,
+            Expression::Measure(0.0, Unit::Millimetre),
+        ),
+        bore: value(
+            "bore",
+            &record.bore,
+            Expression::Measure(0.0, Unit::Millimetre),
+        ),
+        turn: value("turn", &record.turn, Expression::Measure(0.0, Unit::Degree)),
+    };
+    if let Err(error) = sketch.insert_gear(EntityId::from_raw(id), gear) {
+        issues.push(format!(
+            "In “{feature}”, {label} was left out because {error}."
+        ));
+    }
 }
 
 fn restore_sketch_text(
@@ -9460,7 +9627,7 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
             start: entity(*start),
             end: entity(*end),
         },
-        EntityKindRecord::Text(_) => return None,
+        EntityKindRecord::Text(_) | EntityKindRecord::Gear(_) => return None,
     })
 }
 

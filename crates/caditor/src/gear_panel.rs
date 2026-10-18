@@ -1,11 +1,11 @@
-use caditor_document::FeatureId;
+use caditor_document::{FeatureId, Transaction};
 use caditor_sketch::{ChainSize, EntityId, GearCentre, Sketch};
 use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
-    gearing::{self, FieldProblem, GearField, GearKind, GearSettings, Part},
+    gearing::{self, FieldProblem, GearField, GearKind, GearSettings, GearingError, Part},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -21,6 +21,10 @@ pub const DESCRIPTION: &str = "Choose what to draw and set its values, then clic
                                where its centre goes, or draw it at the selected point or the \
                                origin. Every value takes units and expressions using your \
                                parameters.";
+pub const EDITING: &str = "Change the selected gear's values, then update it. Its centre stays \
+                           where it is and keeps its constraints. A gear drawn here follows \
+                           later changes to the parameters its values use.";
+pub const NEW_GEAR: &str = "Draw a new gear instead";
 pub const CHAIN: &str = "Chain";
 pub const CHAIN_ABOUT: &str = "The ISO 606 roller chain the sprocket is cut for: its pitch and \
                                roller diameter set the teeth";
@@ -43,6 +47,19 @@ pub fn draw_label(sketch: Option<&Sketch>, centre: Option<EntityId>) -> String {
     format!("Draw at {words}")
 }
 
+pub fn update_label(sketch: Option<&Sketch>, gear: EntityId) -> String {
+    let name = sketch.map_or_else(
+        || format!("Gear {gear}"),
+        |sketch| sketch.entity_label(gear),
+    );
+    format!("Update {name}")
+}
+
+enum Pressed {
+    Primary,
+    NewGear,
+}
+
 pub struct Context<'a> {
     pub model: &'a Model,
     pub feature: FeatureId,
@@ -57,11 +74,16 @@ pub fn show(
     room: f32,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
+    settings.load(context.model, context.sketch);
     let evaluation = settings.evaluate(context.model);
+    let editing = settings.editing();
     let centre = context
         .sketch
         .and_then(|sketch| gearing::lone_point(sketch, context.selected));
-    let label = draw_label(context.sketch, centre);
+    let label = match editing {
+        Some(gear) => update_label(context.sketch, gear),
+        None => draw_label(context.sketch, centre),
+    };
     let header = PanelTitle {
         glyph: icons::tool(Tool::Gear),
         title: TITLE,
@@ -75,17 +97,31 @@ pub fn show(
         &header,
         |_| {},
         |ui| {
-            let draw = widgets::panel_footer(ui, PANEL.id, |ui| {
+            let pressed = widgets::panel_footer(ui, PANEL.id, |ui| {
                 widgets::footer(ui, |ui| {
-                    ui.add_enabled(evaluation.part.is_ok(), widgets::primary_button(ui, &label))
-                        .clicked()
+                    let primary = ui
+                        .add_enabled(evaluation.part.is_ok(), widgets::primary_button(ui, &label))
+                        .clicked();
+                    let new_gear = editing.is_some() && ui.add(widgets::button(NEW_GEAR)).clicked();
+                    match (primary, new_gear) {
+                        (true, _) => Some(Pressed::Primary),
+                        (false, true) => Some(Pressed::NewGear),
+                        (false, false) => None,
+                    }
                 })
             });
             widgets::panel_scroll(ui, PANEL.id, |ui| {
-                wrapped(ui, widgets::muted(DESCRIPTION, ui));
+                let about = if editing.is_some() {
+                    EDITING
+                } else {
+                    DESCRIPTION
+                };
+                wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
-                kinds(ui, settings);
-                ui.add_space(SPACE_S);
+                if editing.is_none() {
+                    kinds(ui, settings);
+                    ui.add_space(SPACE_S);
+                }
                 fields(ui, settings, &evaluation.problems, context.model.units());
                 ui.add_space(SPACE_M);
                 match &evaluation.part {
@@ -95,24 +131,41 @@ pub fn show(
                     }
                 }
             });
-            draw
+            pressed
         },
     );
     if panel.closed {
         actions.push(Action::Editing(EditingCommand::SetTool(Tool::Select)));
     }
-    if panel.inner
-        && let Ok(part) = &evaluation.part
-    {
-        let centre = GearCentre::Point(centre.unwrap_or(EntityId::ORIGIN));
-        actions.push(
-            match gearing::draw(context.model, context.feature, part, centre) {
-                Ok(transaction) => Action::Apply(transaction),
-                Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
-            },
-        );
+    match (panel.inner, &evaluation.part, editing) {
+        (Some(Pressed::NewGear), ..) => settings.stop_editing(),
+        (Some(Pressed::Primary), Ok(Part::Gear(spur)), Some(gear)) => {
+            actions.push(applied(gearing::update(
+                context.model,
+                context.feature,
+                gear,
+                spur,
+            )));
+        }
+        (Some(Pressed::Primary), Ok(part), None) => {
+            let centre = GearCentre::Point(centre.unwrap_or(EntityId::ORIGIN));
+            actions.push(applied(gearing::draw(
+                context.model,
+                context.feature,
+                part,
+                centre,
+            )));
+        }
+        (Some(Pressed::Primary), ..) | (None, ..) => {}
     }
     actions
+}
+
+fn applied(outcome: Result<Transaction, GearingError>) -> Action {
+    match outcome {
+        Ok(transaction) => Action::Apply(transaction),
+        Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
+    }
 }
 
 fn kinds(ui: &mut Ui, settings: &mut GearSettings) {
@@ -185,8 +238,8 @@ fn circles(ui: &mut Ui, part: &Part, unit: Units) {
     wrapped(ui, widgets::muted(CIRCLES, ui));
     ui.add_space(SPACE_S);
     let rows: Vec<(&str, f64)> = match part {
-        Part::Gear(gear) => {
-            let circles = gear.circles();
+        Part::Gear(spur) => {
+            let circles = spur.values.circles();
             vec![
                 ("Pitch diameter", 2.0 * circles.pitch),
                 ("Tip diameter", 2.0 * circles.tip),

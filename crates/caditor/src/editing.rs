@@ -164,8 +164,9 @@ impl Tool {
                  typed radius, kept tangent as they change"
             }
             Self::Gear => {
-                "Draw the outline of an involute spur gear from its module, teeth and pressure \
-                 angle, with its pitch, base, root and tip circles, ready to extrude"
+                "Draw an involute spur gear from its module, teeth and pressure angle, with its \
+                 pitch, base, root and tip circles, ready to extrude; it stays editable and \
+                 follows its parameters"
             }
             Self::Text => {
                 "Write text in Inter, one or several lines, at a point, with a height, an \

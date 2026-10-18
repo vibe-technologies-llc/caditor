@@ -485,6 +485,15 @@ Sketch entities:
   `set_sketch_entity` holding a `text` kind is refused as unreadable. The corpus holds them in
   `texts.caditor`, `texts.journal` and, with line breaks and alignment, `text-layouts.caditor`.
 
+- A stored gear (`sketch.md`, Gear) is an entity record of kind `gear` (`GearRecord`: `centre` and
+  the stored texts `module`, `teeth`, `pressure_angle`, `profile_shift`, `root_fillet`, `bore` and
+  `turn`), so a reader not knowing it reports a kind from a newer version and keeps the centre
+  point. Loading restores gears after the texts and before the constraints; a value that cannot be
+  read loads as 2 mm, 20 teeth, 20°, no shift, no fillet, no bore or no turn, reported, and a gear
+  the sketch refuses is left out. Journal: `add_sketch_gear` and `set_sketch_gear` (`feature`, `id`,
+  `gear`) and `remove_sketch_gear` (`feature`, `id`). Sketches written before it keep the free
+  curves a gear was drawn as. The corpus holds them in `gears.caditor` and `gears.journal`.
+
 ## Loading
 
 - Every file caditor reads goes through `read.rs`: regular files only, at most `MAX_FILE_SIZE`;
@@ -612,7 +621,7 @@ Sketch entities:
 - Sketch geometry is written from a scratch sketch the clip is pasted into and read back through
   `restore_sketch` and `Sketch::clip`, so loading's checks apply; dimensions whose parameters
   cannot be carried are left out with a note, and so is a text whose height or angle cannot be
-  (its anchor point stays). The payload names the sketch it was copied from, so
+  (its anchor point stays) or a gear with any expression that cannot (its centre stays). The payload names the sketch it was copied from, so
   pasting into it again can shift the copy.
 - Reading refuses in words (`ClipboardError`): text without the header (`Foreign`), another or
   unknown kind, a newer version, damaged JSON, nothing usable, text over `MAX_CLIPBOARD_TEXT`. The

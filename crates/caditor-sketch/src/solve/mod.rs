@@ -431,6 +431,7 @@ impl Sketch {
             geometry.set_rho(*conic, *rho);
         }
         geometry.set_text_sizes(&system.text_sizes);
+        geometry.set_gear_values(&system.gear_values);
         geometry
     }
 }

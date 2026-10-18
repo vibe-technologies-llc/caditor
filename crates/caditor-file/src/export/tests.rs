@@ -1710,6 +1710,56 @@ fn multi_line_aligned_sketch_text_exports_below_and_about_its_point() {
 }
 
 #[test]
+fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_its_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = sketch.add_point(Point2::new(5.0, 4.0));
+    sketch
+        .add_parametric_gear(caditor_sketch::Gear {
+            centre,
+            module: caditor_expression::Expression::Measure(
+                2.0,
+                caditor_expression::Unit::Millimetre,
+            ),
+            teeth: caditor_expression::Expression::Number(20.0),
+            pressure_angle: caditor_expression::Expression::Measure(
+                20.0,
+                caditor_expression::Unit::Degree,
+            ),
+            profile_shift: caditor_expression::Expression::Number(0.0),
+            root_fillet: caditor_expression::Expression::Measure(
+                0.5,
+                caditor_expression::Unit::Millimetre,
+            ),
+            bore: caditor_expression::Expression::Measure(
+                8.0,
+                caditor_expression::Unit::Millimetre,
+            ),
+            turn: caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
+        })
+        .unwrap();
+    let solved = sketch
+        .solve(
+            &|_| Err(caditor_expression::EvalError::ParameterMissing),
+            &|| false,
+        )
+        .unwrap()
+        .geometry;
+
+    let (figure, exported) = Figure::of_sketch(&solved, Construction::OnLayer);
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+    let bounds = figure.bounds().unwrap();
+
+    assert_eq!(exported.points, 0);
+    assert_eq!(exported.construction, 4);
+    assert_eq!(exported.curves, 20 * 8 + 1);
+    assert_eq!(
+        drawing.curves.len(),
+        exported.curves + exported.construction
+    );
+    assert!((bounds.max().x - 5.0 - 22.0).abs() < 0.05, "{bounds:?}");
+}
+
+#[test]
 fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction() {
     let sketch = drawn_sketch();
 
