@@ -405,6 +405,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CloudSignIn | Command::OnshapeSignIn => phosphor::SIGN_IN,
         Command::CloudSignOut | Command::OnshapeSignOut => phosphor::SIGN_OUT,
         Command::CloudRefresh => phosphor::ARROWS_CLOCKWISE,
+        Command::CloudSend => phosphor::CLOUD_ARROW_UP,
         Command::Guide => GUIDE,
         Command::About => phosphor::INFO,
         Command::Messages => phosphor::CHAT_TEXT,

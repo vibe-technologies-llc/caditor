@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -11,8 +11,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Client, Design, FolderRef, Fusion, Network, Onshape, ProjectId, Provider, Service, Session,
-    Transport, WorkspaceId,
+    Client, Design, FolderRef, Fusion, Network, Onshape, ProjectId, Provider, SendOutcome, Service,
+    Session, Transport, WorkspaceId,
 };
 
 use crate::{
@@ -35,13 +35,13 @@ pub use self::{
     failure::Failure,
     jobs::Opener,
     state::{
-        CloudCommand, Connection, Downloads, Import, ImportItem, Link, Linked, Load, SigningIn,
-        Stage, first_workspace,
+        CloudCommand, Connection, Destination, Downloads, Import, ImportItem, Link, Linked, Load,
+        Send, SendStage, Shipment, SigningIn, Stage, first_workspace,
     },
     thumbnails::Thumbnail,
 };
 use self::{
-    jobs::{Courier, Event, ImportJob, Loaded, SignInJob},
+    jobs::{Courier, Event, ImportJob, Loaded, SendJob, SignInJob},
     keyring::Keyring,
     store::SessionStore,
     thumbnails::{AT_ONCE, ThumbnailCache},
@@ -53,6 +53,10 @@ pub const CALLBACK_PORT: u16 = 49617;
 const DEFAULT_AUTODESK_CLIENT_ID: &str = "";
 const DEFAULT_ONSHAPE_CLIENT_ID: &str = "";
 pub const PROJECT_ROWS_ON_HOME: usize = 6;
+
+pub fn outgoing_dir(state_dir: &Path) -> PathBuf {
+    SessionStore::outgoing_dir(state_dir)
+}
 
 pub fn built_in_client_id(service: Service) -> &'static str {
     match service {
@@ -83,6 +87,14 @@ pub enum Refusal {
     NoClientId(Service),
     #[error("Another design is still being imported from {0}.")]
     Importing(Service),
+    #[error("Another model is still being sent to {0}.")]
+    Sending(Service),
+    #[error(
+        "Sign in to Fusion 360 first, from Home or File › Cloud. Onshape cannot receive files yet."
+    )]
+    NothingToSendTo,
+    #[error("{0} cannot receive files yet.")]
+    CannotReceive(Service),
 }
 
 impl Reason for Refusal {
@@ -262,6 +274,17 @@ impl Cloud {
             .ok_or(Refusal::NotSignedInAnywhere)
     }
 
+    pub fn can_send_anywhere(&self) -> Result<(), Refusal> {
+        if !self.preferences.enabled {
+            return Err(Refusal::Off);
+        }
+        Service::ALL
+            .into_iter()
+            .any(|service| service.receives_files() && self.linked(service).is_some())
+            .then_some(())
+            .ok_or(Refusal::NothingToSendTo)
+    }
+
     pub fn is_signed_in(&self, service: Service) -> Result<(), Refusal> {
         if !self.preferences.enabled {
             return Err(Refusal::Off);
@@ -358,6 +381,18 @@ impl Cloud {
                 self.start_import(service, ImportItem::Upload(upload), &mut actions)
             }
             CloudCommand::CancelImport(service) => self.cancel_import(service),
+            CloudCommand::Send(shipment) => self.start_send(shipment, &mut actions),
+            CloudCommand::CancelSend(service) => self.cancel_send(service),
+            CloudCommand::DismissSend(service) => {
+                if let Some(linked) = self.linked_mut(service)
+                    && linked
+                        .sending
+                        .as_ref()
+                        .is_some_and(|send| !send.is_running())
+                {
+                    linked.sending = None;
+                }
+            }
             CloudCommand::DismissImport(service) => {
                 if let Some(linked) = self.linked_mut(service)
                     && linked
@@ -453,6 +488,9 @@ impl Cloud {
             Link::Linked(linked) => {
                 linked.import.iter().for_each(|import| {
                     import.stop.store(true, Ordering::Relaxed);
+                });
+                linked.sending.iter().for_each(|send| {
+                    send.stop.store(true, Ordering::Relaxed);
                 });
                 Some(Arc::clone(&linked.client))
             }
@@ -855,6 +893,61 @@ impl Cloud {
         );
     }
 
+    fn start_send(&mut self, shipment: Shipment, actions: &mut Vec<Action>) {
+        let service = shipment.destination.service;
+        let generation = self.generation(service);
+        let courier = self.courier.clone();
+        self.next_import += 1;
+        let id = self.next_import;
+        let refused = |refusal: Refusal| Action::Inform(Notice::warning(refusal.to_string()));
+        if !service.receives_files() {
+            actions.push(refused(Refusal::CannotReceive(service)));
+            return;
+        }
+        let Some(linked) = self.linked_mut(service) else {
+            actions.push(refused(Refusal::NotSignedIn(service)));
+            return;
+        };
+        if linked.is_sending() {
+            actions.push(refused(Refusal::Sending(service)));
+            return;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        linked.sending = Some(Send {
+            id,
+            shipment: shipment.clone(),
+            stage: SendStage::Starting,
+            stop: Arc::clone(&stop),
+        });
+        let job = SendJob {
+            service,
+            generation,
+            id,
+            client: Arc::clone(&linked.client),
+            shipment,
+            stop,
+            courier: courier.clone(),
+        };
+        courier.spawn(
+            service,
+            move || job.run(),
+            move |outcome| Event::Delivered {
+                service,
+                generation,
+                send: id,
+                outcome,
+            },
+        );
+    }
+
+    fn cancel_send(&mut self, service: Service) {
+        if let Some(linked) = self.linked_mut(service)
+            && let Some(send) = linked.sending.take()
+        {
+            send.stop.store(true, Ordering::Relaxed);
+        }
+    }
+
     fn cancel_import(&mut self, service: Service) {
         if let Some(linked) = self.linked_mut(service)
             && let Some(import) = linked.import.take()
@@ -950,6 +1043,31 @@ impl Cloud {
                     self.imported(service, import, outcome, actions);
                 }
             }
+            Event::SendProgress {
+                service,
+                generation,
+                send,
+                stage,
+            } => {
+                if generation == self.generation(service)
+                    && let Some(linked) = self.linked_mut(service)
+                    && let Some(current) = linked.sending.as_mut()
+                    && current.id == send
+                    && current.is_running()
+                {
+                    current.stage = stage;
+                }
+            }
+            Event::Delivered {
+                service,
+                generation,
+                send,
+                outcome,
+            } => {
+                if generation == self.generation(service) {
+                    self.delivered(service, send, outcome, actions);
+                }
+            }
             Event::Left => {}
             Event::Measured(outcome) => {
                 self.downloads.measuring = false;
@@ -1041,6 +1159,50 @@ impl Cloud {
         }
     }
 
+    fn delivered(
+        &mut self,
+        service: Service,
+        send: u64,
+        outcome: Result<caditor_cloud::Sent, Failure>,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(linked) = self.linked_mut(service) else {
+            return;
+        };
+        let Some(current) = linked.sending.as_ref().filter(|current| current.id == send) else {
+            return;
+        };
+        let shipment = current.shipment.clone();
+        let name = shipment.name.clone();
+        match outcome {
+            Ok(sent) => {
+                linked.sending = None;
+                linked.folders.remove(&shipment.destination.folder);
+                linked.roots.remove(&shipment.destination.folder.project);
+                actions.push(Action::Inform(Notice::success(delivery_words(
+                    service, &shipment, &sent,
+                ))));
+            }
+            Err(failure) if failure.is_stop() => linked.sending = None,
+            Err(failure) if failure.is_sign_in_needed() => {
+                self.leave(service, false);
+                actions.push(Action::Inform(Notice::warning(format!(
+                    "Your {service} sign-in has ended, so “{name}” was not sent. Sign in again \
+                     from Home or File › Cloud."
+                ))));
+            }
+            Err(failure) => {
+                let failure = Arc::new(failure);
+                if let Some(current) = linked.sending.as_mut() {
+                    current.stage = SendStage::Failed(Arc::clone(&failure));
+                }
+                actions.push(Action::Inform(Notice::warning(format!(
+                    "Could not send “{name}” to {service}. {failure}"
+                ))));
+            }
+        }
+    }
+
     fn imported(
         &mut self,
         service: Service,
@@ -1086,6 +1248,26 @@ impl Cloud {
                 ))));
             }
         }
+    }
+}
+
+fn delivery_words(service: Service, shipment: &Shipment, sent: &caditor_cloud::Sent) -> String {
+    let folder = &shipment.destination.folder_name;
+    match sent.outcome {
+        SendOutcome::Created => format!(
+            "Sent “{}” to {service}, in “{folder}”, as a new file.",
+            sent.name
+        ),
+        SendOutcome::NewVersion {
+            number: Some(number),
+        } => format!(
+            "Sent “{}” to {service}, in “{folder}”, as version {number} of the file of that name.",
+            sent.name
+        ),
+        SendOutcome::NewVersion { number: None } => format!(
+            "Sent “{}” to {service}, in “{folder}”, as a new version of the file of that name.",
+            sent.name
+        ),
     }
 }
 

@@ -7,7 +7,7 @@ use jiff::Timestamp;
 
 use crate::{
     appearance::{self, BORDER_WIDTH, CARD_RADIUS, SPACE_L, SPACE_S},
-    cloud::{CloudCommand, Failure, Link, Linked, Stage},
+    cloud::{CloudCommand, Destination, Failure, Link, Linked, SendStage, Stage},
     fonts, icons,
     widgets::{self, Tone},
 };
@@ -26,6 +26,14 @@ const YESTERDAY_ENDS: i64 = 2 * DAY - 1;
 pub const TRY_AGAIN: &str = "Try again";
 pub const DISMISS: &str = "Dismiss";
 pub const CANCEL_IMPORT_HOVER: &str = "Stop this import; nothing is added to the model";
+pub const CANCEL_SEND_HOVER: &str = "Stop sending; nothing is added to the folder";
+pub const CANCEL_PREPARING_HOVER: &str = "Stop preparing the file; nothing is sent";
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SendChoice {
+    Cloud(CloudCommand),
+    Again(Destination),
+}
 
 pub fn upload_icon(format: UploadFormat) -> &'static str {
     if format.is_drawing() {
@@ -281,6 +289,50 @@ pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<C
         .wrapping()
         .show(ui)
         .then_some(CloudCommand::CancelImport(service))
+}
+
+pub fn send_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<SendChoice> {
+    let send = linked.sending.as_ref()?;
+    let name = &send.shipment.name;
+    let words = match &send.stage {
+        SendStage::Failed(failure) => {
+            let summary = format!("Could not send “{name}” to {service}.");
+            let mut choice = None;
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.add(Label::new(format!("{summary} {failure}")).wrap());
+                ui.horizontal(|ui| {
+                    if ui.add(widgets::button(TRY_AGAIN)).clicked() {
+                        choice = Some(SendChoice::Again(send.shipment.destination.clone()));
+                    }
+                    if ui.add(widgets::button(DISMISS)).clicked() {
+                        choice = Some(SendChoice::Cloud(CloudCommand::DismissSend(service)));
+                    }
+                });
+            });
+            return choice;
+        }
+        SendStage::Starting => format!("Asking {service} for a place to put “{name}”…"),
+        SendStage::Uploading {
+            sent,
+            total: Some(total),
+        } if sent >= total => format!("Finishing “{name}” on {service}…"),
+        SendStage::Uploading {
+            sent,
+            total: Some(total),
+        } => format!(
+            "Sending “{name}” to {service}… {} of {}",
+            size_text(*sent),
+            size_text(*total)
+        ),
+        SendStage::Uploading { sent, total: None } => {
+            format!("Sending “{name}” to {service}… {}", size_text(*sent))
+        }
+    };
+    widgets::progress(words)
+        .cancel(CANCEL_SEND_HOVER)
+        .wrapping()
+        .show(ui)
+        .then_some(SendChoice::Cloud(CloudCommand::CancelSend(service)))
 }
 
 #[cfg(test)]

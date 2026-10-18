@@ -606,6 +606,7 @@ pub enum PreferencesCommand {
     CloseWelcome,
     ShowHome,
     ShowCloud(Option<(Service, ProjectId)>),
+    ShowCloudToSend,
     CloseCloud,
     ShowAbout,
     CloseAbout,

@@ -7,8 +7,8 @@ use serde_json::json;
 use crate::{
     catalogue::{
         Account, Conversion, Design, DesignId, Download, Folder, FolderEntry, FolderId, FolderRef,
-        Project, ProjectId, Translation, Upload, UploadFormat, UploadId, Version, VersionId,
-        Workspace, WorkspaceId, WorkspaceKind,
+        Outgoing, Project, ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat,
+        UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{base64_url, form, percent_encode},
     error::{Error, Subject},
@@ -30,7 +30,7 @@ const PROJECT_API: &str = "https://developer.api.autodesk.com/project/v1";
 const DATA_API: &str = "https://developer.api.autodesk.com/data/v1";
 const STORAGE_API: &str = "https://developer.api.autodesk.com/oss/v2";
 const DERIVATIVE_API: &str = "https://developer.api.autodesk.com/modelderivative/v2/designdata";
-const SCOPES: &str = "data:read data:write user-profile:read";
+const SCOPES: &str = "data:read data:write data:create user-profile:read";
 const FUSION_DESIGN: &str = "items:autodesk.fusion360:Design";
 const TEAM_HUB: &str = "hubs:autodesk.core:Hub";
 const PERSONAL_HUB: &str = "hubs:autodesk.a360:PersonalHub";
@@ -40,6 +40,12 @@ const THUMBNAIL_SIDE: u32 = 200;
 const MAX_PAGES: usize = 20;
 const STORAGE_OBJECT_PREFIX: &str = "urn:adsk.objects:os.object:";
 const DOWNLOAD_LINK_MINUTES: u32 = 10;
+const UPLOAD_LINK_MINUTES: u32 = 60;
+const PART_BYTES: usize = 5 << 20;
+const FILE_ITEM: &str = "items:autodesk.core:File";
+const FILE_VERSION: &str = "versions:autodesk.core:File";
+const EXTENSION_VERSION: &str = "1.0";
+const FIRST_VERSION: &str = "1";
 
 pub struct Fusion {
     client_id: String,
@@ -146,6 +152,229 @@ impl Fusion {
             .ok_or(Error::NoStoredFile { service: SERVICE })
     }
 
+    fn existing_item(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        folder: &FolderRef,
+        name: &str,
+    ) -> Result<Option<String>, Error> {
+        let url = format!(
+            "{DATA_API}/projects/{}/folders/{}/contents",
+            percent_encode(folder.project.as_str()),
+            percent_encode(folder.folder.as_str())
+        );
+        let wanted = name.trim();
+        let found = self.pages(net, session, url, Subject::Folder, |page| {
+            page.data
+                .iter()
+                .filter(|resource| {
+                    resource.kind == "items"
+                        && resource.extension() != Some(FUSION_DESIGN)
+                        && resource.title().eq_ignore_ascii_case(wanted)
+                })
+                .map(|resource| resource.id.clone())
+                .collect()
+        })?;
+        Ok(found.into_iter().next())
+    }
+
+    fn create_storage(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        folder: &FolderRef,
+        name: &str,
+    ) -> Result<String, Error> {
+        let body = json!({
+            "jsonapi": { "version": "1.0" },
+            "data": {
+                "type": "objects",
+                "attributes": { "name": name },
+                "relationships": {
+                    "target": { "data": { "type": "folders", "id": folder.folder.as_str() } }
+                }
+            }
+        });
+        let url = format!(
+            "{DATA_API}/projects/{}/storage",
+            percent_encode(folder.project.as_str())
+        );
+        let created: Created = self.write(net, session, url, body, Subject::Storage, name)?;
+        Ok(created.data.id)
+    }
+
+    fn upload_bytes(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        storage: &str,
+        bytes: &[u8],
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<(), Error> {
+        let (bucket, object) = storage
+            .strip_prefix(STORAGE_OBJECT_PREFIX)
+            .and_then(|location| location.split_once('/'))
+            .filter(|(bucket, object)| !bucket.is_empty() && !object.is_empty())
+            .ok_or(Error::Unreadable {
+                service: SERVICE,
+                subject: Subject::Storage,
+            })?;
+        let address = format!(
+            "{STORAGE_API}/buckets/{}/objects/{}/signeds3upload",
+            percent_encode(bucket),
+            percent_encode(object)
+        );
+        let parts: Vec<&[u8]> = if bytes.is_empty() {
+            vec![bytes]
+        } else {
+            bytes.chunks(PART_BYTES).collect()
+        };
+        let signed: SignedUpload = self.get(
+            net,
+            session,
+            format!(
+                "{address}?parts={}&firstPart=1&minutesExpiration={UPLOAD_LINK_MINUTES}",
+                parts.len()
+            ),
+            Subject::SignedUpload,
+        )?;
+        let unreadable = Error::Unreadable {
+            service: SERVICE,
+            subject: Subject::SignedUpload,
+        };
+        if signed.urls.len() != parts.len()
+            || signed.urls.iter().any(|link| !link.starts_with("https://"))
+        {
+            return Err(unreadable);
+        }
+        let total = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let mut sent = 0_u64;
+        if !progress(sent, Some(total)) {
+            return Err(Error::Stopped);
+        }
+        for (part, link) in parts.iter().zip(signed.urls) {
+            let request = Request::put(link, Body::Bytes(part.to_vec()));
+            let response = net.send(&request)?;
+            if !response.is_success() {
+                return Err(Error::UploadIncomplete { service: SERVICE });
+            }
+            sent = sent.saturating_add(u64::try_from(part.len()).unwrap_or(u64::MAX));
+            if !progress(sent, Some(total)) {
+                return Err(Error::Stopped);
+            }
+        }
+        let finish = Request::post(
+            address,
+            Body::Json(json!({ "uploadKey": signed.upload_key }).to_string()),
+        )
+        .with_bearer(&session.access_token);
+        let answer = net.send(&finish)?;
+        if !answer.is_success() {
+            return Err(Error::UploadIncomplete { service: SERVICE });
+        }
+        Ok(())
+    }
+
+    fn create_item(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        folder: &FolderRef,
+        name: &str,
+        storage: &str,
+    ) -> Result<SendOutcome, Error> {
+        let body = json!({
+            "jsonapi": { "version": "1.0" },
+            "data": {
+                "type": "items",
+                "attributes": {
+                    "displayName": name,
+                    "extension": { "type": FILE_ITEM, "version": EXTENSION_VERSION }
+                },
+                "relationships": {
+                    "tip": { "data": { "type": "versions", "id": FIRST_VERSION } },
+                    "parent": { "data": { "type": "folders", "id": folder.folder.as_str() } }
+                }
+            },
+            "included": [{
+                "type": "versions",
+                "id": FIRST_VERSION,
+                "attributes": {
+                    "name": name,
+                    "extension": { "type": FILE_VERSION, "version": EXTENSION_VERSION }
+                },
+                "relationships": {
+                    "storage": { "data": { "type": "objects", "id": storage } }
+                }
+            }]
+        });
+        let url = format!(
+            "{DATA_API}/projects/{}/items",
+            percent_encode(folder.project.as_str())
+        );
+        self.write::<Created>(net, session, url, body, Subject::Item, name)?;
+        Ok(SendOutcome::Created)
+    }
+
+    fn create_version(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        folder: &FolderRef,
+        name: &str,
+        item: &str,
+        storage: &str,
+    ) -> Result<SendOutcome, Error> {
+        let body = json!({
+            "jsonapi": { "version": "1.0" },
+            "data": {
+                "type": "versions",
+                "attributes": {
+                    "name": name,
+                    "extension": { "type": FILE_VERSION, "version": EXTENSION_VERSION }
+                },
+                "relationships": {
+                    "item": { "data": { "type": "items", "id": item } },
+                    "storage": { "data": { "type": "objects", "id": storage } }
+                }
+            }
+        });
+        let url = format!(
+            "{DATA_API}/projects/{}/versions",
+            percent_encode(folder.project.as_str())
+        );
+        let created: Created = self.write(net, session, url, body, Subject::Item, name)?;
+        Ok(SendOutcome::NewVersion {
+            number: created.data.attributes.version_number,
+        })
+    }
+
+    fn write<T: DeserializeOwned>(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        url: String,
+        body: serde_json::Value,
+        subject: Subject,
+        name: &str,
+    ) -> Result<T, Error> {
+        let request =
+            Request::post(url, Body::JsonApi(body.to_string())).with_bearer(&session.access_token);
+        let response = net.send(&request)?;
+        let response = match response.status {
+            403 => return Err(Error::SendForbidden { service: SERVICE }),
+            409 => {
+                return Err(Error::NameTaken {
+                    service: SERVICE,
+                    name: name.to_owned(),
+                });
+            }
+            _ => checked(SERVICE, response, subject)?,
+        };
+        rest::read(SERVICE, &response, subject)
+    }
+
     fn contents(
         &self,
         net: &dyn Transport,
@@ -164,7 +393,10 @@ impl Fusion {
                 .filter_map(|resource| resource.entry(&project))
                 .collect()
         })?;
-        let mut contents = Folder::default();
+        let mut contents = Folder {
+            place: Some(folder.clone()),
+            ..Folder::default()
+        };
         for part in parts {
             match part {
                 Entry::Folder(entry) => contents.folders.push(entry),
@@ -235,7 +467,6 @@ impl Provider for Fusion {
                 ("grant_type", "refresh_token"),
                 ("client_id", &self.client_id),
                 ("refresh_token", refresh),
-                ("scope", SCOPES),
             ],
         )?;
         Ok(token.into_session(Some(refresh), now))
@@ -428,6 +659,29 @@ impl Provider for Fusion {
         Ok(fetched.bytes)
     }
 
+    fn send(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Sent, Error> {
+        let name = outgoing.name.trim();
+        let existing = self.existing_item(net, session, outgoing.folder, name)?;
+        let storage = self.create_storage(net, session, outgoing.folder, name)?;
+        self.upload_bytes(net, session, &storage, outgoing.bytes, progress)?;
+        let outcome = match existing {
+            Some(item) => {
+                self.create_version(net, session, outgoing.folder, name, &item, &storage)?
+            }
+            None => self.create_item(net, session, outgoing.folder, name, &storage)?,
+        };
+        Ok(Sent {
+            name: name.to_owned(),
+            outcome,
+        })
+    }
+
     fn thumbnail(
         &self,
         net: &dyn Transport,
@@ -556,6 +810,19 @@ struct StoredRelationships {
 #[derive(Deserialize)]
 struct StoredLocation {
     data: Option<Identified>,
+}
+
+#[derive(Deserialize)]
+struct Created {
+    data: Resource,
+}
+
+#[derive(Deserialize)]
+struct SignedUpload {
+    #[serde(rename = "uploadKey")]
+    upload_key: String,
+    #[serde(default)]
+    urls: Vec<String>,
 }
 
 #[derive(Deserialize)]

@@ -35,6 +35,7 @@ use egui::{ColorImage, Ui};
 use parking_lot::Mutex;
 
 use self::{
+    cloud_send::CloudSending,
     configurations::{ConfigurationFileCommand, ConfigurationImportDraft},
     dialogs::{
         changed_on_disk, closing, confirm_replace, finishing_exports, guard, opening, recovery,
@@ -48,6 +49,7 @@ use self::{
 };
 use crate::{
     bodies::{self, FaceKey},
+    cloud::Destination,
     commands::{Command, CommandFrame, Reason, RecentSlot},
     configuration_export::ConfigurationFile,
     drawing_export::{
@@ -81,6 +83,7 @@ use crate::{
     widgets::{self, MenuEntry, Tone},
 };
 
+pub mod cloud_send;
 pub mod configurations;
 mod dialogs;
 pub mod parameters;
@@ -202,6 +205,7 @@ pub enum FileCommand {
     ExportAgain,
     OpenInSlicer,
     FindSlicer,
+    SendToCloud(Destination),
     CancelOpen,
     CancelImport,
     CancelPick,
@@ -811,6 +815,11 @@ enum Event {
         result: Result<Installation, FindError>,
     },
     SlicerSearchFailed,
+    CloudSendPrepared {
+        session: u64,
+        destination: Destination,
+        folder: Result<PathBuf, io::ErrorKind>,
+    },
     SlicerReady {
         session: u64,
         chosen: Option<PathBuf>,
@@ -1142,6 +1151,7 @@ pub struct Files {
     recent_pictures: RecentPictures,
     own_threads_running: Arc<AtomicUsize>,
     slicing: Slicing,
+    cloud_sending: CloudSending,
 }
 
 impl Files {
@@ -1207,6 +1217,7 @@ impl Files {
             recent_pictures: RecentPictures::default(),
             own_threads_running: Arc::default(),
             slicing: Slicing::default(),
+            cloud_sending: CloudSending::default(),
         }
     }
 
@@ -1585,6 +1596,7 @@ impl Files {
             FileCommand::ExportAgain => self.export_again(model),
             FileCommand::OpenInSlicer => self.open_in_slicer(model),
             FileCommand::FindSlicer => self.find_slicer(),
+            FileCommand::SendToCloud(destination) => self.send_to_cloud(destination, model),
             FileCommand::KeepDrawingConstruction(keep) => {
                 self.drawing_construction = if keep {
                     Construction::OnLayer
@@ -2145,16 +2157,27 @@ impl Files {
                     last.written = written;
                 }
                 let slicer = self.sent_to_slicer(&path);
+                let cloud = self.sent_to_cloud(&path);
                 let wrote = !report.written(&path).is_empty();
                 let notice = self.exporter.reported(&path, report);
-                let notice = match slicer {
-                    Some(installation) if wrote => self.open_exported(&installation, &path, notice),
+                let notice = match (slicer, cloud) {
+                    (Some(installation), _) if wrote => {
+                        self.open_exported(&installation, &path, notice)
+                    }
+                    (_, Some(destination)) => {
+                        self.exported_for_cloud(destination, &path, wrote, notice)
+                    }
                     _ => notice,
                 };
                 model.set_notice(notice);
             }
             Event::SlicerFound { chosen, result } => self.slicer_found(chosen, result),
             Event::SlicerSearchFailed => log::error!("looking for the slicer failed"),
+            Event::CloudSendPrepared {
+                session,
+                destination,
+                folder,
+            } => self.cloud_send_prepared(session, destination, folder, model),
             Event::SlicerReady {
                 session,
                 chosen,
@@ -3970,6 +3993,8 @@ pub fn menu(
                         Command::CloudRefresh,
                     ],
                 );
+                ui.separator();
+                entries.hinted(ui, Command::CloudSend, cloud_send::HINT);
             });
         }
         menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
@@ -4134,6 +4159,7 @@ pub fn menu(
         Command::OnshapeSignIn,
         Command::OnshapeSignOut,
         Command::CloudRefresh,
+        Command::CloudSend,
     ] {
         if chosen.contains(&command) {
             commands.trigger(command);

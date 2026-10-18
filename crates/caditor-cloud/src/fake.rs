@@ -8,8 +8,9 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Project, ProjectId,
-        Translation, Upload, UploadId, Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Outgoing, Project,
+        ProjectId, SendOutcome, Sent, Translation, Upload, UploadId, Version, Workspace,
+        WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -161,6 +162,14 @@ pub enum Step {
     Fetch,
     Thumbnail,
     Versions,
+    Send,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Received {
+    pub folder: FolderRef,
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 type Failure = fn() -> Error;
@@ -175,6 +184,7 @@ pub struct FakeProvider {
     thumbnails: BTreeMap<DesignId, Vec<u8>>,
     stored: BTreeMap<UploadId, Vec<u8>>,
     versions: BTreeMap<DesignId, Vec<Version>>,
+    received: Mutex<Vec<Received>>,
     working_polls: usize,
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
@@ -199,6 +209,7 @@ impl FakeProvider {
             thumbnails: BTreeMap::new(),
             stored: BTreeMap::new(),
             versions: BTreeMap::new(),
+            received: Mutex::new(Vec::new()),
             working_polls: 0,
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
@@ -259,6 +270,38 @@ impl FakeProvider {
 
     pub fn recover(&self, step: Step) {
         self.failures.lock().retain(|(failing, _)| *failing != step);
+    }
+
+    pub fn received(&self) -> Vec<Received> {
+        self.received.lock().clone()
+    }
+
+    fn listed(&self, folder: &FolderRef, name: &str) -> bool {
+        self.folders
+            .get(folder)
+            .into_iter()
+            .chain(
+                self.roots
+                    .values()
+                    .filter(|root| root.place.as_ref() == Some(folder)),
+            )
+            .any(|contents| {
+                contents
+                    .uploads
+                    .iter()
+                    .any(|upload| upload.name.eq_ignore_ascii_case(name))
+            })
+    }
+
+    fn versions_so_far(&self, folder: &FolderRef, name: &str) -> u32 {
+        let earlier = self
+            .received
+            .lock()
+            .iter()
+            .filter(|sent| sent.folder == *folder && sent.name.eq_ignore_ascii_case(name))
+            .count();
+        let earlier = u32::try_from(earlier).unwrap_or(u32::MAX);
+        earlier.saturating_add(u32::from(self.listed(folder, name)))
     }
 
     pub fn calls(&self) -> Vec<String> {
@@ -376,7 +419,9 @@ impl Provider for FakeProvider {
         folder: &FolderRef,
     ) -> Result<Folder, Error> {
         self.enter(Step::Folder, format!("folder {}", folder.folder.as_str()))?;
-        Ok(self.folders.get(folder).cloned().unwrap_or_default())
+        let mut contents = self.folders.get(folder).cloned().unwrap_or_default();
+        contents.place = Some(folder.clone());
+        Ok(contents)
     }
 
     fn versions(
@@ -460,6 +505,42 @@ impl Provider for FakeProvider {
             return Err(Error::Stopped);
         }
         Ok(length)
+    }
+
+    fn send(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Sent, Error> {
+        self.enter(
+            Step::Send,
+            format!("send {} {}", outgoing.folder.folder.as_str(), outgoing.name),
+        )?;
+        let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+        for sent in [0, total / 2, total] {
+            if !progress(sent, Some(total)) {
+                return Err(Error::Stopped);
+            }
+        }
+        let so_far = self.versions_so_far(outgoing.folder, outgoing.name);
+        let outcome = if so_far == 0 {
+            SendOutcome::Created
+        } else {
+            SendOutcome::NewVersion {
+                number: Some(so_far + 1),
+            }
+        };
+        self.received.lock().push(Received {
+            folder: outgoing.folder.clone(),
+            name: outgoing.name.to_owned(),
+            bytes: outgoing.bytes.to_vec(),
+        });
+        Ok(Sent {
+            name: outgoing.name.to_owned(),
+            outcome,
+        })
     }
 
     fn thumbnail(

@@ -1013,3 +1013,421 @@ fn a_chosen_version_is_converted_instead_of_the_newest_and_the_tip_is_not_asked(
     let sent: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(sent["input"]["urn"], translation.source.as_str());
 }
+
+const STORAGE_ID: &str = "urn:adsk.objects:os.object:wip.dm.prod/7c1e-aa.step";
+fn top() -> FolderRef {
+    FolderRef {
+        project: ProjectId::new("a.proj"),
+        folder: FolderId::new("urn:f:top"),
+    }
+}
+
+fn storage_url() -> String {
+    format!("{DATA_API}/projects/a.proj/storage")
+}
+
+fn signed_upload_base() -> String {
+    format!("{STORAGE_API}/buckets/wip.dm.prod/objects/7c1e-aa.step/signeds3upload")
+}
+
+fn signed_upload_url(parts: usize) -> String {
+    format!(
+        "{}?parts={parts}&firstPart=1&minutesExpiration=60",
+        signed_upload_base()
+    )
+}
+
+fn storage_body() -> String {
+    format!(
+        r#"{{"jsonapi":{{"version":"1.0"}},"data":{{"type":"objects","id":"{STORAGE_ID}",
+        "relationships":{{"target":{{"data":{{"type":"folders","id":"urn:f:top"}}}}}}}}}}"#
+    )
+}
+
+fn upload_links(count: usize) -> String {
+    let links: Vec<String> = (1..=count)
+        .map(|part| {
+            format!("\"https://signed.example.invalid/wip.dm.prod/7c1e-aa.step?part={part}\"")
+        })
+        .collect();
+    format!(
+        r#"{{"uploadKey":"key-1","uploadExpiration":"2030-01-01T00:00:00Z","urls":[{}]}}"#,
+        links.join(",")
+    )
+}
+
+fn part_url(part: usize) -> String {
+    format!("https://signed.example.invalid/wip.dm.prod/7c1e-aa.step?part={part}")
+}
+
+const EMPTY_FOLDER: &str = r#"{"data":[
+    {"type":"folders","id":"urn:f:sub","attributes":{"displayName":"Parts"}},
+    {"type":"items","id":"urn:i:other","attributes":{"displayName":"Other.step","extension":{"type":"items:autodesk.core:File"}}},
+    {"type":"items","id":"urn:i:frame","attributes":{"displayName":"Plate","extension":{"type":"items:autodesk.fusion360:Design"}}}
+]}"#;
+
+const HOLDING_FOLDER: &str = r#"{"data":[
+    {"type":"items","id":"urn:i:plate","attributes":{"displayName":"plate.STEP","extension":{"type":"items:autodesk.core:File"}}}
+]}"#;
+
+fn sending_net(contents: &str, parts: usize) -> ScriptedTransport {
+    sending_net_with_links(contents, parts, &upload_links(parts))
+}
+
+fn sending_net_with_links(contents: &str, parts: usize, links: &str) -> ScriptedTransport {
+    ScriptedTransport::new()
+        .route(Method::Get, &folder_url("urn%3Af%3Atop"), 200, contents)
+        .route(Method::Post, &storage_url(), 201, &storage_body())
+        .route(Method::Get, &signed_upload_url(parts), 200, links)
+        .route(Method::Post, &signed_upload_base(), 200, r#"{"size":1}"#)
+}
+
+fn json_of(request: &Request) -> serde_json::Value {
+    match &request.body {
+        Body::JsonApi(text) | Body::Json(text) => serde_json::from_str(text).unwrap(),
+        other => panic!("expected JSON, found {other:?}"),
+    }
+}
+
+#[test]
+fn a_new_file_gets_a_storage_object_a_signed_upload_and_a_first_version_item() {
+    let items = format!("{DATA_API}/projects/a.proj/items");
+    let net = sending_net(EMPTY_FOLDER, 1)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(
+            Method::Post,
+            &items,
+            201,
+            r#"{"data":{"type":"items","id":"urn:i:made"},"included":[{"type":"versions","id":"urn:v:1","attributes":{"versionNumber":1}}]}"#,
+        );
+    let top = top();
+    let mut seen = Vec::new();
+
+    let sent = fusion()
+        .send(
+            &net,
+            &session(),
+            &Outgoing {
+                folder: &top,
+                name: " plate.step ",
+                bytes: b"ISO-10303-21;",
+            },
+            &mut |sent, total| {
+                seen.push((sent, total));
+                true
+            },
+        )
+        .unwrap();
+
+    assert_eq!(sent.name, "plate.step");
+    assert_eq!(sent.outcome, SendOutcome::Created);
+    assert_eq!(seen, vec![(0, Some(13)), (13, Some(13))]);
+    let requests = net.requests();
+    let urls: Vec<_> = requests
+        .iter()
+        .map(|request| (request.method, request.url.as_str()))
+        .collect();
+    assert_eq!(
+        urls,
+        vec![
+            (Method::Get, folder_url("urn%3Af%3Atop").as_str()),
+            (Method::Post, storage_url().as_str()),
+            (Method::Get, signed_upload_url(1).as_str()),
+            (Method::Put, part_url(1).as_str()),
+            (Method::Post, signed_upload_base().as_str()),
+            (Method::Post, items.as_str()),
+        ]
+    );
+    assert!(
+        requests
+            .iter()
+            .filter(|request| request.method != Method::Put)
+            .all(|request| request.bearer.as_deref() == Some("access-1"))
+    );
+    assert_eq!(requests.get(3).unwrap().bearer, None);
+    assert_eq!(
+        requests.get(3).unwrap().body,
+        Body::Bytes(b"ISO-10303-21;".to_vec())
+    );
+    assert!(matches!(requests.get(1).unwrap().body, Body::JsonApi(_)));
+    assert!(matches!(requests.get(5).unwrap().body, Body::JsonApi(_)));
+
+    let storage = json_of(requests.get(1).unwrap());
+    assert_eq!(storage["data"]["type"], "objects");
+    assert_eq!(storage["data"]["attributes"]["name"], "plate.step");
+    assert_eq!(
+        storage["data"]["relationships"]["target"]["data"]["id"],
+        "urn:f:top"
+    );
+    assert_eq!(json_of(requests.get(4).unwrap())["uploadKey"], "key-1");
+
+    let item = json_of(requests.get(5).unwrap());
+    assert_eq!(item["data"]["type"], "items");
+    assert_eq!(item["data"]["attributes"]["displayName"], "plate.step");
+    assert_eq!(
+        item["data"]["attributes"]["extension"]["type"],
+        "items:autodesk.core:File"
+    );
+    assert_eq!(
+        item["data"]["relationships"]["parent"]["data"]["id"],
+        "urn:f:top"
+    );
+    assert_eq!(item["data"]["relationships"]["tip"]["data"]["id"], "1");
+    assert_eq!(item["included"][0]["id"], "1");
+    assert_eq!(
+        item["included"][0]["attributes"]["extension"]["type"],
+        "versions:autodesk.core:File"
+    );
+    assert_eq!(
+        item["included"][0]["relationships"]["storage"]["data"]["id"],
+        STORAGE_ID
+    );
+}
+
+#[test]
+fn a_file_of_that_name_already_in_the_folder_gets_a_new_version_instead() {
+    let versions = format!("{DATA_API}/projects/a.proj/versions");
+    let net = sending_net(HOLDING_FOLDER, 1)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(
+            Method::Post,
+            &versions,
+            201,
+            r#"{"data":{"type":"versions","id":"urn:v:3","attributes":{"name":"Plate.step","versionNumber":3}}}"#,
+        );
+    let top = top();
+
+    let sent = fusion()
+        .send(
+            &net,
+            &session(),
+            &Outgoing {
+                folder: &top,
+                name: "Plate.step",
+                bytes: b"x",
+            },
+            &mut |_, _| true,
+        )
+        .unwrap();
+
+    assert_eq!(sent.outcome, SendOutcome::NewVersion { number: Some(3) });
+    let requests = net.requests();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.url != format!("{DATA_API}/projects/a.proj/items"))
+    );
+    let version = json_of(requests.last().unwrap());
+    assert_eq!(version["data"]["type"], "versions");
+    assert_eq!(
+        version["data"]["attributes"]["extension"]["type"],
+        "versions:autodesk.core:File"
+    );
+    assert_eq!(
+        version["data"]["relationships"]["item"]["data"]["id"],
+        "urn:i:plate"
+    );
+    assert_eq!(
+        version["data"]["relationships"]["item"]["data"]["type"],
+        "items"
+    );
+    assert_eq!(
+        version["data"]["relationships"]["storage"]["data"]["id"],
+        STORAGE_ID
+    );
+}
+
+#[test]
+fn a_large_file_goes_up_in_parts_of_at_least_five_mebibytes_with_progress_after_each() {
+    let items = format!("{DATA_API}/projects/a.proj/items");
+    let bytes = vec![7_u8; 2 * PART_BYTES + 10];
+    let net = sending_net(EMPTY_FOLDER, 3)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(Method::Put, &part_url(2), 200, "")
+        .route(Method::Put, &part_url(3), 200, "")
+        .route(
+            Method::Post,
+            &items,
+            201,
+            r#"{"data":{"type":"items","id":"urn:i:made"}}"#,
+        );
+    let top = top();
+    let mut seen = Vec::new();
+
+    fusion()
+        .send(
+            &net,
+            &session(),
+            &Outgoing {
+                folder: &top,
+                name: "big.step",
+                bytes: &bytes,
+            },
+            &mut |sent, _| {
+                seen.push(sent);
+                true
+            },
+        )
+        .unwrap();
+
+    let total = u64::try_from(bytes.len()).unwrap();
+    let part = u64::try_from(PART_BYTES).unwrap();
+    assert_eq!(seen, vec![0, part, 2 * part, total]);
+    let sizes: Vec<usize> = net
+        .requests()
+        .iter()
+        .filter(|request| request.method == Method::Put)
+        .map(|request| match &request.body {
+            Body::Bytes(part) => part.len(),
+            other => panic!("expected bytes, found {other:?}"),
+        })
+        .collect();
+    assert_eq!(sizes, vec![PART_BYTES, PART_BYTES, 10]);
+}
+
+#[test]
+fn stopping_before_the_first_part_sends_no_bytes_and_makes_no_item() {
+    let net = sending_net(EMPTY_FOLDER, 1);
+    let top = top();
+
+    let result = fusion().send(
+        &net,
+        &session(),
+        &Outgoing {
+            folder: &top,
+            name: "plate.step",
+            bytes: b"x",
+        },
+        &mut |_, _| false,
+    );
+
+    assert!(matches!(result, Err(Error::Stopped)));
+    assert!(
+        net.requests()
+            .iter()
+            .all(|request| request.method != Method::Put
+                && !request.url.ends_with("/items")
+                && request.url != signed_upload_base())
+    );
+}
+
+fn send_once(net: &ScriptedTransport) -> Result<Sent, Error> {
+    let top = top();
+    fusion().send(
+        net,
+        &session(),
+        &Outgoing {
+            folder: &top,
+            name: "plate.step",
+            bytes: b"x",
+        },
+        &mut |_, _| true,
+    )
+}
+
+#[test]
+fn a_folder_the_user_may_not_write_to_is_refused_in_words_before_any_bytes_go() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &folder_url("urn%3Af%3Atop"), 200, EMPTY_FOLDER)
+        .route(Method::Post, &storage_url(), 403, "{}");
+
+    let result = send_once(&net);
+
+    assert!(matches!(result, Err(Error::SendForbidden { .. })));
+    assert!(
+        net.requests()
+            .iter()
+            .all(|request| request.method != Method::Put)
+    );
+}
+
+#[test]
+fn a_name_autodesk_will_not_reuse_is_reported_as_taken() {
+    let items = format!("{DATA_API}/projects/a.proj/items");
+    let net = sending_net(EMPTY_FOLDER, 1)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(Method::Post, &items, 409, "{}");
+
+    let result = send_once(&net);
+
+    assert!(matches!(
+        result,
+        Err(Error::NameTaken { name, .. }) if name == "plate.step"
+    ));
+}
+
+#[test]
+fn a_part_the_storage_refuses_is_an_incomplete_upload_and_no_item_is_made() {
+    let net = sending_net(EMPTY_FOLDER, 1).route(Method::Put, &part_url(1), 403, "<Error/>");
+
+    let result = send_once(&net);
+
+    assert!(matches!(result, Err(Error::UploadIncomplete { .. })));
+    assert!(
+        net.requests()
+            .iter()
+            .all(|request| request.url != signed_upload_base())
+    );
+}
+
+#[test]
+fn a_signed_upload_with_the_wrong_number_of_links_or_a_plain_http_link_is_unreadable() {
+    let wrong_count = sending_net_with_links(EMPTY_FOLDER, 1, &upload_links(2));
+    assert!(matches!(
+        send_once(&wrong_count),
+        Err(Error::Unreadable {
+            subject: Subject::SignedUpload,
+            ..
+        })
+    ));
+
+    let plain = sending_net_with_links(
+        EMPTY_FOLDER,
+        1,
+        r#"{"uploadKey":"k","urls":["http://signed.example.invalid/x"]}"#,
+    );
+    assert!(matches!(
+        send_once(&plain),
+        Err(Error::Unreadable {
+            subject: Subject::SignedUpload,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn an_expired_sign_in_while_sending_means_signing_in_again() {
+    let net = ScriptedTransport::new().route(Method::Get, &folder_url("urn%3Af%3Atop"), 401, "{}");
+
+    assert!(matches!(send_once(&net), Err(Error::SignedOut)));
+}
+
+#[test]
+fn a_folder_lists_where_files_can_be_put() {
+    let net = ScriptedTransport::new().route(
+        Method::Get,
+        &folder_url("urn%3Af%3Atop"),
+        200,
+        EMPTY_FOLDER,
+    );
+
+    let folder = fusion().folder(&net, &session(), &top()).unwrap();
+
+    assert_eq!(folder.place, Some(top()));
+}
+
+#[test]
+fn the_sign_in_asks_for_the_scope_that_creates_storage_and_a_refresh_names_none() {
+    assert!(SCOPES.split(' ').any(|scope| scope == "data:create"));
+
+    let net = ScriptedTransport::new().route(
+        Method::Post,
+        TOKEN,
+        200,
+        r#"{"access_token":"fresh","expires_in":600}"#,
+    );
+    fusion().refresh(&net, &session(), NOW).unwrap();
+
+    let pairs = form_of(net.requests().first().unwrap());
+    assert_eq!(field(&pairs, "scope"), None);
+}

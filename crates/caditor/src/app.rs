@@ -412,6 +412,11 @@ impl Workspace {
                     self.cloud_dialog = Some(CloudDialog::at(project));
                 }
             }
+            PreferencesCommand::ShowCloudToSend => {
+                if self.preferences.cloud.enabled {
+                    self.cloud_dialog = Some(CloudDialog::choosing_where_to_send());
+                }
+            }
             PreferencesCommand::CloseCloud => self.cloud_dialog = None,
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
@@ -1102,6 +1107,9 @@ pub fn show(
     if commands.invoke(Command::Cloud, &cloud_on) {
         actions.push(Action::Preferences(PreferencesCommand::ShowCloud(None)));
     }
+    if commands.invoke(Command::CloudSend, &cloud.can_send_anywhere()) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowCloudToSend));
+    }
     for (sign_in, sign_out, service) in [
         (Command::CloudSignIn, Command::CloudSignOut, Service::Fusion),
         (
@@ -1334,6 +1342,11 @@ pub fn show(
                 cloud,
                 preferences: &preferences.cloud,
                 now: Timestamp::now(),
+                sending: cloud_dialog::SendView {
+                    name: files.cloud_send_name(model),
+                    availability: files.cloud_send_availability(model),
+                    preparing: files.preparing_cloud_send(),
+                },
             };
             for outcome in cloud_dialog::dialog(ui.ctx(), &view, state) {
                 match outcome {
@@ -1341,6 +1354,7 @@ pub fn show(
                         actions.push(Action::Preferences(PreferencesCommand::CloseCloud));
                     }
                     cloud_dialog::Outcome::Cloud(command) => actions.push(Action::Cloud(command)),
+                    cloud_dialog::Outcome::File(command) => actions.push(Action::File(command)),
                     cloud_dialog::Outcome::Change(change) => {
                         actions.push(Action::Preferences(PreferencesCommand::Change(change)));
                     }
@@ -1707,6 +1721,9 @@ pub fn perform(
     let since = model.undo_mark();
     let notice_before = model.notice().cloned();
     let mut queue = VecDeque::from(actions);
+    if let Some(shipment) = files.take_cloud_shipment() {
+        queue.push_back(Action::Cloud(CloudCommand::Send(shipment)));
+    }
     while let Some(action) = queue.pop_front() {
         match action {
             Action::Cloud(command) => queue.extend(workspace.cloud.run(command)),

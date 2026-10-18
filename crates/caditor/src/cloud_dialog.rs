@@ -1,14 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_cloud::{Design, DesignId, FolderRef, Project, ProjectId, Service, Upload};
+use caditor_cloud::{Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Upload};
 use egui::{Label, ScrollArea, Sides, Ui};
 use jiff::Timestamp;
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S},
-    cloud::{Cloud, CloudCommand, Downloads, Link, Linked, Load, Refusal},
-    cloud_parts,
+    cloud::{Cloud, CloudCommand, Destination, Downloads, Link, Linked, Load, Refusal},
+    cloud_parts::{self, SendChoice},
     commands::Command,
+    export::ExportCommand,
+    files::{FileCommand, cloud_send::CloudSendRefusal},
     icons,
     preferences::{CloudPreferences, PreferenceChange},
     widgets::{self, DialogWidth, Tone},
@@ -28,6 +30,9 @@ pub const TURN_ON: &str = "Turn on cloud services";
 pub const OFF_NOTE: &str =
     "Cloud services are turned off, so caditor makes no cloud request and shows no cloud project.";
 pub const SHOW_ON_HOME: &str = "Show cloud projects on Home";
+pub const SEND_HERE: &str = "Send the model here";
+pub const CHOOSE_A_FOLDER_TO_SEND: &str =
+    "Open a folder of a project, then press Send the model here.";
 pub const CHOOSE_A_PROJECT: &str = "Choose a project to see its designs.";
 pub const OPEN_PREFERENCES: &str = "Open preferences";
 const LIST_HEIGHT: f32 = 300.0;
@@ -58,9 +63,17 @@ impl Browser {
 #[derive(Debug, Default)]
 pub struct CloudDialog {
     browsers: BTreeMap<Service, Browser>,
+    choosing: bool,
 }
 
 impl CloudDialog {
+    pub fn choosing_where_to_send() -> Self {
+        Self {
+            choosing: true,
+            ..Self::default()
+        }
+    }
+
     pub fn at(project: Option<(Service, ProjectId)>) -> Self {
         let mut dialog = Self::default();
         if let Some((service, project)) = project {
@@ -74,14 +87,22 @@ impl CloudDialog {
 pub enum Outcome {
     Close,
     Cloud(CloudCommand),
+    File(FileCommand),
     Change(PreferenceChange),
     Preferences,
+}
+
+pub struct SendView<'a> {
+    pub name: String,
+    pub availability: Result<(), CloudSendRefusal>,
+    pub preparing: Option<&'a Destination>,
 }
 
 pub struct DialogView<'a> {
     pub cloud: &'a Cloud,
     pub preferences: &'a CloudPreferences,
     pub now: Timestamp,
+    pub sending: SendView<'a>,
 }
 
 pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialog) -> Vec<Outcome> {
@@ -89,12 +110,25 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
     let response = widgets::dialog(ctx, "cloud", TITLE, DialogWidth::Wide, |ui| {
         widgets::dialog_body(ui, |ui| {
             if view.cloud.is_enabled() {
+                if state.choosing {
+                    widgets::callout(ui, Tone::Info, |ui| {
+                        ui.add(Label::new(CHOOSE_A_FOLDER_TO_SEND).wrap());
+                    });
+                    ui.add_space(SPACE_L);
+                }
                 accounts(ui, view, &mut outcomes);
                 for service in Service::ALL {
                     if let Some(linked) = view.cloud.linked(service) {
                         ui.add_space(SPACE_L);
                         let browser = state.browsers.entry(service).or_default();
-                        projects(ui, view, service, linked, browser, &mut outcomes);
+                        projects(
+                            ui,
+                            view,
+                            service,
+                            linked,
+                            (browser, state.choosing),
+                            &mut outcomes,
+                        );
                     }
                 }
                 ui.add_space(SPACE_L);
@@ -133,6 +167,12 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
     });
     let closing = response.should_close();
     outcomes.extend(response.inner);
+    if outcomes
+        .iter()
+        .any(|outcome| matches!(outcome, Outcome::File(FileCommand::SendToCloud(_))))
+    {
+        state.choosing = false;
+    }
     if closing {
         outcomes.push(Outcome::Close);
     }
@@ -276,7 +316,7 @@ fn projects(
     view: &DialogView<'_>,
     service: Service,
     linked: &Linked,
-    state: &mut Browser,
+    (state, choosing): (&mut Browser, bool),
     outcomes: &mut Vec<Outcome>,
 ) {
     ui.label(widgets::section_title(&format!(
@@ -287,6 +327,34 @@ fn projects(
     ui.add_space(SPACE_S);
     if let Some(command) = cloud_parts::import_status(ui, service, linked) {
         outcomes.push(Outcome::Cloud(command));
+        ui.add_space(SPACE_S);
+    }
+    if let Some(destination) = view
+        .sending
+        .preparing
+        .filter(|destination| destination.service == service)
+    {
+        let words = format!(
+            "Preparing “{}” to send to {service}, in “{}”…",
+            view.sending.name, destination.folder_name
+        );
+        let stop = widgets::progress(words)
+            .cancel(cloud_parts::CANCEL_PREPARING_HOVER)
+            .wrapping()
+            .show(ui);
+        if stop {
+            outcomes.push(Outcome::File(FileCommand::Export(ExportCommand::Cancel)));
+        }
+        ui.add_space(SPACE_S);
+    }
+    match cloud_parts::send_status(ui, service, linked) {
+        Some(SendChoice::Cloud(command)) => outcomes.push(Outcome::Cloud(command)),
+        Some(SendChoice::Again(destination)) => {
+            outcomes.push(Outcome::File(FileCommand::SendToCloud(destination)));
+        }
+        None => {}
+    }
+    if linked.sending.is_some() {
         ui.add_space(SPACE_S);
     }
     hub_row(ui, service, linked, outcomes);
@@ -318,7 +386,15 @@ fn projects(
                     project_list(ui, projects, state);
                 });
                 ui.vertical(|ui| {
-                    contents(ui, view, service, linked, projects, state, outcomes);
+                    contents(
+                        ui,
+                        view,
+                        service,
+                        linked,
+                        projects,
+                        (state, choosing),
+                        outcomes,
+                    );
                 });
             });
         }
@@ -388,7 +464,7 @@ fn contents(
     service: Service,
     linked: &Linked,
     projects: &[Project],
-    state: &mut Browser,
+    (state, choosing): (&mut Browser, bool),
     outcomes: &mut Vec<Outcome>,
 ) {
     let Some(project) = state
@@ -430,6 +506,20 @@ fn contents(
             }
         }
         Load::Ready(folder) => {
+            if service.receives_files() {
+                let folder_name = state
+                    .trail
+                    .last()
+                    .map_or_else(|| project.name.clone(), |crumb| crumb.name.clone());
+                send_row(
+                    ui,
+                    view,
+                    service,
+                    linked,
+                    (folder, &folder_name, choosing),
+                    outcomes,
+                );
+            }
             ScrollArea::vertical()
                 .id_salt("cloud designs")
                 .max_height(LIST_HEIGHT)
@@ -470,6 +560,53 @@ fn contents(
                 });
         }
     }
+}
+
+fn send_row(
+    ui: &mut Ui,
+    view: &DialogView<'_>,
+    service: Service,
+    linked: &Linked,
+    (folder, folder_name, choosing): (&Folder, &str, bool),
+    outcomes: &mut Vec<Outcome>,
+) {
+    let busy = linked.is_sending() || view.sending.preparing.is_some();
+    let reason = match (&folder.place, busy, &view.sending.availability) {
+        (None, _, _) => Some(
+            "Open one of the project's folders first; files go inside a folder, not beside \
+             the folders at the top"
+                .to_owned(),
+        ),
+        (_, true, _) => {
+            Some("Another model is being sent; wait for it or cancel it first".to_owned())
+        }
+        (_, _, Err(refusal)) => Some(format!("{refusal}.")),
+        _ => None,
+    };
+    let hover = format!(
+        "Export the bodies chosen for export as STEP and add “{}” to this folder of {service}, \
+         or as a new version if a file of that name is already there",
+        view.sending.name
+    );
+    let enabled = reason.is_none();
+    let response = if choosing {
+        ui.add_enabled(enabled, widgets::primary_button(ui, SEND_HERE))
+    } else {
+        ui.add_enabled(enabled, widgets::button(SEND_HERE))
+    };
+    let response = response
+        .on_hover_text(hover)
+        .on_disabled_hover_text(reason.unwrap_or_default());
+    if response.clicked()
+        && let Some(place) = &folder.place
+    {
+        outcomes.push(Outcome::File(FileCommand::SendToCloud(Destination {
+            service,
+            folder: place.clone(),
+            folder_name: folder_name.to_owned(),
+        })));
+    }
+    ui.add_space(SPACE_S);
 }
 
 fn breadcrumbs(ui: &mut Ui, project: &Project, state: &mut Browser) {

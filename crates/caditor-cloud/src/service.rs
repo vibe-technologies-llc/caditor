@@ -60,6 +60,13 @@ impl Service {
         }
     }
 
+    pub fn receives_files(self) -> bool {
+        match self {
+            Self::Fusion => true,
+            Self::Onshape => false,
+        }
+    }
+
     pub fn workspace_noun(self) -> &'static str {
         match self {
             Self::Fusion => "hub",

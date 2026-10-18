@@ -5,8 +5,9 @@ use std::{
 };
 
 use ureq::{
-    Agent,
+    Agent, RequestBuilder,
     tls::{TlsConfig, TlsProvider},
+    typestate::WithBody,
 };
 
 use crate::transport::{Body, Fetched, Method, Request, Response, Transport, TransportError};
@@ -15,6 +16,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_ANSWER_BYTES: u64 = 16 << 20;
 const COPY_CHUNK: usize = 64 << 10;
 const MAX_REDIRECTS: u32 = 5;
@@ -22,6 +24,7 @@ const MAX_REDIRECTS: u32 = 5;
 pub struct Network {
     answers: Agent,
     downloads: Agent,
+    uploads: Agent,
 }
 
 impl Network {
@@ -30,7 +33,7 @@ impl Network {
             .provider(TlsProvider::Rustls)
             .unversioned_rustls_crypto_provider(Arc::new(rustls_graviola::default_provider()))
             .build();
-        let agent = |body_timeout: Duration| {
+        let agent = |body_timeout: Duration, send_timeout: Option<Duration>| {
             Agent::config_builder()
                 .tls_config(tls.clone())
                 .https_only(true)
@@ -39,13 +42,15 @@ impl Network {
                 .timeout_connect(Some(CONNECT_TIMEOUT))
                 .timeout_recv_response(Some(RESPONSE_TIMEOUT))
                 .timeout_recv_body(Some(body_timeout))
+                .timeout_send_body(send_timeout)
                 .user_agent(concat!("caditor/", env!("CARGO_PKG_VERSION")))
                 .build()
                 .new_agent()
         };
         Self {
-            answers: agent(ANSWER_TIMEOUT),
-            downloads: agent(DOWNLOAD_TIMEOUT),
+            answers: agent(ANSWER_TIMEOUT, None),
+            downloads: agent(DOWNLOAD_TIMEOUT, None),
+            uploads: agent(ANSWER_TIMEOUT, Some(UPLOAD_TIMEOUT)),
         }
     }
 
@@ -54,30 +59,38 @@ impl Network {
         request: &Request,
     ) -> Result<ureq::http::Response<ureq::Body>, TransportError> {
         let outcome = match request.method {
-            Method::Get => {
-                let mut builder = agent.get(&request.url);
-                if let Some(token) = &request.bearer {
-                    builder = builder.header("Authorization", format!("Bearer {token}"));
-                }
-                builder.call()
-            }
-            Method::Post => {
-                let mut builder = agent.post(&request.url);
-                if let Some(token) = &request.bearer {
-                    builder = builder.header("Authorization", format!("Bearer {token}"));
-                }
-                match &request.body {
-                    Body::Empty => builder.send_empty(),
-                    Body::Form(text) => builder
-                        .header("Content-Type", "application/x-www-form-urlencoded")
-                        .send(text.as_str()),
-                    Body::Json(text) => builder
-                        .header("Content-Type", "application/json")
-                        .send(text.as_str()),
-                }
-            }
+            Method::Get => authorised(agent.get(&request.url), request).call(),
+            Method::Post => with_body(agent.post(&request.url), request),
+            Method::Put => with_body(agent.put(&request.url), request),
         };
         outcome.map_err(classify)
+    }
+}
+
+fn authorised<B>(builder: RequestBuilder<B>, request: &Request) -> RequestBuilder<B> {
+    match &request.bearer {
+        Some(token) => builder.header("Authorization", format!("Bearer {token}")),
+        None => builder,
+    }
+}
+
+fn with_body(
+    builder: RequestBuilder<WithBody>,
+    request: &Request,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+    let builder = authorised(builder, request);
+    match &request.body {
+        Body::Empty => builder.send_empty(),
+        Body::Form(text) => builder
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send(text.as_str()),
+        Body::Json(text) => builder
+            .header("Content-Type", "application/json")
+            .send(text.as_str()),
+        Body::JsonApi(text) => builder
+            .header("Content-Type", "application/vnd.api+json")
+            .send(text.as_str()),
+        Body::Bytes(bytes) => builder.send(bytes.as_slice()),
     }
 }
 
@@ -119,7 +132,11 @@ fn classify(error: ureq::Error) -> TransportError {
 
 impl Transport for Network {
     fn send(&self, request: &Request) -> Result<Response, TransportError> {
-        let mut response = Self::call(&self.answers, request)?;
+        let agent = match request.method {
+            Method::Put => &self.uploads,
+            Method::Get | Method::Post => &self.answers,
+        };
+        let mut response = Self::call(agent, request)?;
         let status = response.status().as_u16();
         let retry_after_seconds = retry_after(&response);
         let body = response

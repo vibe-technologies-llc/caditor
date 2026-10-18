@@ -213,9 +213,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
   Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
   assemblies.
-- [low · medium] Sending a model back to the cloud is not offered: Home and the Cloud projects window
-  only import (a design or version of Fusion 360, an uploaded STEP, mesh, DXF or SVG file), and
-  Onshape lists neither uploaded files nor versions beyond its version folders.
+- [low · medium] Onshape can neither receive a model nor list uploaded files or versions beyond its
+  version folders: sending (`cloud.md`) is Fusion 360 only, as STEP, of the bodies chosen for
+  export, into an opened folder, and Onshape answers `Error::SendUnsupported`. Its upload would be
+  a blob element or a Part Studio import in a document.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees the first `BOUNCE_LAYERS`

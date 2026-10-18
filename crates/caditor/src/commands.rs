@@ -331,6 +331,7 @@ pub enum Command {
     OnshapeSignIn,
     OnshapeSignOut,
     CloudRefresh,
+    CloudSend,
     Guide,
     About,
     Messages,
@@ -701,6 +702,7 @@ plain_commands! {
     OnshapeSignIn,
     OnshapeSignOut,
     CloudRefresh,
+    CloudSend,
     Guide,
     About,
     Messages,
@@ -1283,6 +1285,7 @@ impl Command {
             Self::OnshapeSignIn => "file.onshape_sign_in",
             Self::OnshapeSignOut => "file.onshape_sign_out",
             Self::CloudRefresh => "file.cloud_refresh",
+            Self::CloudSend => "file.cloud_send",
             Self::Guide => "help.guide",
             Self::About => "help.about",
             Self::Messages => "help.messages",
@@ -1581,6 +1584,7 @@ impl Command {
             Self::OnshapeSignIn => "Sign in to Onshape",
             Self::OnshapeSignOut => "Sign out of Onshape",
             Self::CloudRefresh => "Refresh cloud projects",
+            Self::CloudSend => "Send model to the cloud…",
             Self::Guide => "User guide",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
@@ -1682,6 +1686,9 @@ impl Command {
                 "fusion",
                 "onshape",
                 "cloud",
+            ],
+            Self::CloudSend => &[
+                "upload", "fusion", "autodesk", "step", "push", "share", "cloud",
             ],
             Self::ToggleProjection | Self::AutomaticProjection => {
                 &["perspective", "orthographic", "parallel"]
@@ -1786,7 +1793,8 @@ impl Command {
             | Self::CloudSignOut
             | Self::OnshapeSignIn
             | Self::OnshapeSignOut
-            | Self::CloudRefresh => Category::File,
+            | Self::CloudRefresh
+            | Self::CloudSend => Category::File,
             Self::Welcome
             | Self::Guide
             | Self::About
@@ -2342,6 +2350,7 @@ impl Command {
             | Self::OnshapeSignIn
             | Self::OnshapeSignOut
             | Self::CloudRefresh
+            | Self::CloudSend
             | Self::About
             | Self::Messages
             | Self::Mate

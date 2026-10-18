@@ -15,6 +15,9 @@ pub enum Subject {
     Thumbnail,
     Upload,
     StoredFile,
+    Storage,
+    SignedUpload,
+    Item,
 }
 
 impl Subject {
@@ -31,6 +34,9 @@ impl Subject {
             Self::Thumbnail => "the picture of the design",
             Self::Upload => "the uploaded file",
             Self::StoredFile => "the download address of the file",
+            Self::Storage => "the place to put the file",
+            Self::SignedUpload => "the upload address of the file",
+            Self::Item => "the file in the folder",
         }
     }
 }
@@ -76,6 +82,21 @@ pub enum Error {
     NoStepFile { service: Service },
     #[error("{service} holds no file for this item that caditor can download.")]
     NoStoredFile { service: Service },
+    #[error(
+        "{service} does not let caditor add files to this folder. Ask for permission to edit it, \
+         or choose another folder. If you were signed in before sending files was added, sign out \
+         and in again."
+    )]
+    SendForbidden { service: Service },
+    #[error(
+        "{service} already holds something named “{name}” in this folder that caditor cannot \
+         add a version to. Rename the model or choose another folder."
+    )]
+    NameTaken { service: Service, name: String },
+    #[error("Sending a model to {service} is not available yet.")]
+    SendUnsupported { service: Service },
+    #[error("{service} did not take every part of the file. Try again.")]
+    UploadIncomplete { service: Service },
     #[error("The file could not be written: {0}.")]
     Write(io::ErrorKind),
 }

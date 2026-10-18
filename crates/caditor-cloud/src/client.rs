@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Project, Translation, Upload,
-        Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Project, Sent,
+        Translation, Upload, Version, Workspace, WorkspaceId,
     },
     error::Error,
     provider::{Callback, Provider, SignIn},
@@ -142,6 +142,16 @@ impl Client {
         let session = self.fresh()?;
         self.provider
             .fetch_upload(&*self.transport, &session, upload, sink, progress)
+    }
+
+    pub fn send(
+        &self,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Sent, Error> {
+        let session = self.fresh()?;
+        self.provider
+            .send(&*self.transport, &session, outgoing, progress)
     }
 
     fn fresh(&self) -> Result<Session, Error> {
@@ -351,5 +361,36 @@ mod tests {
             client.thumbnail(&design).unwrap(),
             Some(b"picture".to_vec())
         );
+    }
+
+    #[test]
+    fn a_send_goes_through_the_refreshing_session_and_reports_what_the_provider_did() {
+        let top = crate::catalogue::FolderRef {
+            project: crate::catalogue::ProjectId::new("p"),
+            folder: crate::catalogue::FolderId::new("f"),
+        };
+        let provider = Arc::new(FakeProvider::new());
+        let client = client(&provider, session(clock() + 30, true));
+        let mut seen = Vec::new();
+
+        let sent = client
+            .send(
+                &crate::catalogue::Outgoing {
+                    folder: &top,
+                    name: "plate.step",
+                    bytes: b"abcd",
+                },
+                &mut |sent, total| {
+                    seen.push((sent, total));
+                    true
+                },
+            )
+            .unwrap();
+
+        assert_eq!(refreshes(&provider), 1);
+        assert_eq!(sent.outcome, crate::catalogue::SendOutcome::Created);
+        assert_eq!(seen, vec![(0, Some(4)), (2, Some(4)), (4, Some(4))]);
+        assert_eq!(provider.received().len(), 1);
+        assert_eq!(provider.calls().last().unwrap(), "send f plate.step");
     }
 }

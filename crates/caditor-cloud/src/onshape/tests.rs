@@ -813,3 +813,33 @@ fn the_status_codes_of_a_listing_map_to_typed_errors() {
         assert_eq!(kind, expected);
     }
 }
+
+#[test]
+fn sending_a_model_is_refused_as_unsupported_without_any_request() {
+    let net = ScriptedTransport::new();
+    let place = FolderRef {
+        project: ProjectId::new("doc"),
+        folder: crate::catalogue::FolderId::new("w/main"),
+    };
+
+    let result = onshape().send(
+        &net,
+        &session(),
+        &Outgoing {
+            folder: &place,
+            name: "plate.step",
+            bytes: b"x",
+        },
+        &mut |_, _| true,
+    );
+
+    assert!(matches!(
+        result,
+        Err(Error::SendUnsupported {
+            service: Service::Onshape
+        })
+    ));
+    assert!(net.requests().is_empty());
+    assert!(!Service::Onshape.receives_files());
+    assert!(Service::Fusion.receives_files());
+}

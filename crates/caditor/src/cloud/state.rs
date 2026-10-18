@@ -117,6 +117,41 @@ impl ImportItem {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Destination {
+    pub service: Service,
+    pub folder: FolderRef,
+    pub folder_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shipment {
+    pub destination: Destination,
+    pub name: String,
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub enum SendStage {
+    Starting,
+    Uploading { sent: u64, total: Option<u64> },
+    Failed(Arc<Failure>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Send {
+    pub id: u64,
+    pub shipment: Shipment,
+    pub stage: SendStage,
+    pub(super) stop: Arc<AtomicBool>,
+}
+
+impl Send {
+    pub fn is_running(&self) -> bool {
+        !matches!(self.stage, SendStage::Failed(_))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Import {
     pub id: u64,
@@ -148,6 +183,7 @@ pub struct Linked {
     pub(super) thumbnails: BTreeMap<DesignId, Load<Option<Arc<Thumbnail>>>>,
     pub(super) versions: BTreeMap<DesignId, Load<Vec<Version>>>,
     pub import: Option<Import>,
+    pub sending: Option<Send>,
 }
 
 impl Linked {
@@ -163,6 +199,7 @@ impl Linked {
             thumbnails: BTreeMap::new(),
             versions: BTreeMap::new(),
             import: None,
+            sending: None,
         }
     }
 
@@ -205,6 +242,10 @@ impl Linked {
 
     pub fn is_importing(&self) -> bool {
         self.import.as_ref().is_some_and(Import::is_running)
+    }
+
+    pub fn is_sending(&self) -> bool {
+        self.sending.as_ref().is_some_and(Send::is_running)
     }
 }
 
@@ -251,6 +292,9 @@ pub enum CloudCommand {
     ReloadVersions(Service, Design),
     CancelImport(Service),
     DismissImport(Service),
+    Send(Shipment),
+    CancelSend(Service),
+    DismissSend(Service),
     MeasureDownloads,
     ClearDownloads,
 }

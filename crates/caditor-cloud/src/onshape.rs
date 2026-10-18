@@ -7,8 +7,9 @@ use serde_json::json;
 use self::scope::{DesignPlace, ElementKind, Place, Scope};
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Project, ProjectId,
-        Translation, Upload, Version as DesignVersion, Workspace, WorkspaceId, WorkspaceKind,
+        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Project,
+        ProjectId, Sent, Translation, Upload, Version as DesignVersion, Workspace, WorkspaceId,
+        WorkspaceKind,
     },
     encoding::{form, percent_encode},
     error::{Error, Subject},
@@ -347,7 +348,7 @@ impl Provider for Onshape {
         Ok(Folder {
             folders,
             designs,
-            uploads: Vec::new(),
+            ..Folder::default()
         })
     }
 
@@ -456,6 +457,16 @@ impl Provider for Onshape {
         };
         checked(SERVICE, answer, Subject::Download)?;
         Ok(fetched.bytes)
+    }
+
+    fn send(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _outgoing: &Outgoing<'_>,
+        _progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Sent, Error> {
+        Err(Error::SendUnsupported { service: SERVICE })
     }
 
     fn fetch_upload(

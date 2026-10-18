@@ -63,6 +63,10 @@ impl SessionStore {
         state_dir.join(FOLDER).join("downloads")
     }
 
+    pub fn outgoing_dir(state_dir: &Path) -> PathBuf {
+        state_dir.join(FOLDER).join("outgoing")
+    }
+
     pub fn load(&self) -> io::Result<Option<Session>> {
         if let Some(session) = self.load_file()? {
             return Ok(Some(session));

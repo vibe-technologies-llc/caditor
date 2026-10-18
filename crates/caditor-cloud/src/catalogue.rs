@@ -135,6 +135,7 @@ impl Upload {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Folder {
+    pub place: Option<FolderRef>,
     pub folders: Vec<FolderEntry>,
     pub designs: Vec<Design>,
     pub uploads: Vec<Upload>,
@@ -187,4 +188,23 @@ pub struct Download {
 pub enum Conversion {
     Working { percent: Option<u8> },
     Ready(Download),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Outgoing<'a> {
+    pub folder: &'a FolderRef,
+    pub name: &'a str,
+    pub bytes: &'a [u8],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOutcome {
+    Created,
+    NewVersion { number: Option<u32> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    pub name: String,
+    pub outcome: SendOutcome,
 }

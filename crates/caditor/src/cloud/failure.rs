@@ -16,6 +16,8 @@ pub enum Failure {
     NoDownloadFolder,
     #[error("caditor could not save the downloaded design: {0}.")]
     Save(io::ErrorKind),
+    #[error("caditor could not read the exported file it was to send: {0}. Try sending again.")]
+    Read(io::ErrorKind),
 }
 
 impl Failure {

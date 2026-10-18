@@ -13,15 +13,16 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Project,
-    ProjectId, Provider, Service, Session, Transport, Version, Workspace, WorkspaceId,
+    Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Outgoing,
+    Project, ProjectId, Provider, Sent, Service, Session, Transport, Version, Workspace,
+    WorkspaceId,
 };
 use parking_lot::Mutex;
 
 use super::{
     downloads::{self, KEPT_DESIGNS, Usage},
     failure::Failure,
-    state::{ImportItem, Stage},
+    state::{ImportItem, SendStage, Shipment, Stage},
     store::SessionStore,
     thumbnails::{self, Thumbnail},
 };
@@ -76,6 +77,18 @@ pub enum Event {
         generation: u64,
         import: u64,
         outcome: Result<PathBuf, Failure>,
+    },
+    SendProgress {
+        service: Service,
+        generation: u64,
+        send: u64,
+        stage: SendStage,
+    },
+    Delivered {
+        service: Service,
+        generation: u64,
+        send: u64,
+        outcome: Result<Sent, Failure>,
     },
     Left,
     Measured(Result<Usage, Failure>),
@@ -336,6 +349,53 @@ impl ImportJob {
             thread::sleep(STOP_CHECK);
         }
         Ok(())
+    }
+}
+
+pub struct SendJob {
+    pub service: Service,
+    pub generation: u64,
+    pub id: u64,
+    pub client: Arc<Client>,
+    pub shipment: Shipment,
+    pub stop: Arc<AtomicBool>,
+    pub courier: Courier,
+}
+
+impl SendJob {
+    pub fn run(&self) -> Result<Sent, Failure> {
+        let outcome = self.deliver();
+        if let Err(error) = fs::remove_file(&self.shipment.file) {
+            log::info!("the exported file could not be removed after sending: {error}");
+        }
+        outcome
+    }
+
+    fn deliver(&self) -> Result<Sent, Failure> {
+        if self.stop.load(Ordering::Relaxed) {
+            return Err(Error::Stopped.into());
+        }
+        let bytes = fs::read(&self.shipment.file).map_err(|error| Failure::Read(error.kind()))?;
+        let outgoing = Outgoing {
+            folder: &self.shipment.destination.folder,
+            name: &self.shipment.name,
+            bytes: &bytes,
+        };
+        let mut last = None::<Instant>;
+        let mut progress = |sent: u64, total: Option<u64>| {
+            let finished = total == Some(sent);
+            if finished || last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) {
+                last = Some(Instant::now());
+                self.courier.send(Event::SendProgress {
+                    service: self.service,
+                    generation: self.generation,
+                    send: self.id,
+                    stage: SendStage::Uploading { sent, total },
+                });
+            }
+            !self.stop.load(Ordering::Relaxed)
+        };
+        Ok(self.client.send(&outgoing, &mut progress)?)
     }
 }
 

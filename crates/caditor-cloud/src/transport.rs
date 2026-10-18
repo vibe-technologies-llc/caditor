@@ -4,13 +4,28 @@ use std::io::Write;
 pub enum Method {
     Get,
     Post,
+    Put,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Body {
     Empty,
     Form(String),
     Json(String),
+    JsonApi(String),
+    Bytes(Vec<u8>),
+}
+
+impl std::fmt::Debug for Body {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("Empty"),
+            Self::Form(text) => formatter.debug_tuple("Form").field(text).finish(),
+            Self::Json(text) => formatter.debug_tuple("Json").field(text).finish(),
+            Self::JsonApi(text) => formatter.debug_tuple("JsonApi").field(text).finish(),
+            Self::Bytes(bytes) => write!(formatter, "Bytes({} bytes)", bytes.len()),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -34,6 +49,15 @@ impl Request {
     pub fn post(url: String, body: Body) -> Self {
         Self {
             method: Method::Post,
+            url,
+            bearer: None,
+            body,
+        }
+    }
+
+    pub fn put(url: String, body: Body) -> Self {
+        Self {
+            method: Method::Put,
             url,
             bearer: None,
             body,

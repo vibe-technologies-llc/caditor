@@ -1400,6 +1400,7 @@ fn every_cloud_command_is_in_the_palette_and_refused_with_a_reason_when_off() {
         Command::OnshapeSignIn,
         Command::OnshapeSignOut,
         Command::CloudRefresh,
+        Command::CloudSend,
     ] {
         assert!(Command::all().any(|known| known == command), "{command:?}");
         assert!(!command.title().is_empty());
@@ -1577,4 +1578,214 @@ fn a_save_whose_picture_never_gets_drawn_still_saves_without_one() {
         Vec::<String>::new()
     );
     assert!(harness.model.notice().is_none());
+}
+
+fn top_folder() -> FolderRef {
+    FolderRef {
+        project: ProjectId::new("p1"),
+        folder: FolderId::new("top"),
+    }
+}
+
+fn sendable_provider(place: Option<FolderRef>, uploads: Vec<Upload>) -> Arc<FakeProvider> {
+    let hub = WorkspaceId::new("hub");
+    Arc::new(
+        FakeProvider::new()
+            .workspace(Workspace {
+                id: hub.clone(),
+                name: "Studio".to_owned(),
+                kind: WorkspaceKind::Team,
+            })
+            .project(
+                Project {
+                    id: ProjectId::new("p1"),
+                    workspace: hub,
+                    name: "Parts".to_owned(),
+                },
+                Folder {
+                    place,
+                    uploads,
+                    ..Folder::default()
+                },
+            ),
+    )
+}
+
+fn open_parts_to_send(harness: &mut Harness) {
+    run_from_palette(harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click(cloud_dialog::SIGN_IN);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
+}
+
+fn outgoing_files(dir: &Path) -> Vec<String> {
+    let root = dir.join("state").join("cloud").join("outgoing");
+    fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+#[test]
+fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_parts_to_send(&mut harness);
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+    harness.wait_until("the sending ends", |harness| {
+        harness
+            .workspace
+            .cloud
+            .linked(Service::Fusion)
+            .is_some_and(|linked| linked.sending.is_none())
+    });
+
+    let first = provider.received().remove(0);
+    assert_eq!(first.folder, top_folder());
+    assert!(first.name.ends_with(".step"));
+    assert!(first.bytes.starts_with(b"ISO-10303-21"));
+    assert!(harness.model.notice().is_some_and(
+        |notice| notice.text.starts_with("Sent “") && notice.text.ends_with("as a new file.")
+    ));
+    assert!(outgoing_files(dir.path()).is_empty());
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the model is sent again", |_| {
+        provider.received().len() == 2
+    });
+    harness.wait_until("the second notice is shown", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("as version 2"))
+    });
+
+    assert!(outgoing_files(dir.path()).is_empty());
+    assert!(
+        provider
+            .calls()
+            .iter()
+            .any(|call| call == &format!("send top {}", first.name))
+    );
+}
+
+#[test]
+fn a_failed_send_says_why_and_try_again_sends_once_it_works() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let provider =
+        Arc::new(
+            Arc::into_inner(provider)
+                .unwrap()
+                .failing(Step::Send, || Error::SendForbidden {
+                    service: Service::Fusion,
+                }),
+        );
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_parts_to_send(&mut harness);
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the failure is shown", |harness| {
+        harness.shows_containing("does not let caditor add files to this folder")
+    });
+
+    assert!(harness.shows(cloud_parts::TRY_AGAIN));
+    assert!(provider.received().is_empty());
+    assert!(outgoing_files(dir.path()).is_empty());
+
+    provider.recover(Step::Send);
+    harness.click(cloud_parts::TRY_AGAIN);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+    harness.wait_until("the failure is gone", |harness| {
+        !harness.shows(cloud_parts::TRY_AGAIN)
+    });
+}
+
+#[test]
+fn nothing_is_sent_without_a_body_or_from_a_project_top_that_holds_several_folders() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_parts_to_send(&mut harness);
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.frame();
+    harness.frame();
+
+    assert!(provider.received().is_empty());
+    assert!(!provider.calls().iter().any(|call| call.starts_with("send")));
+
+    let several = sendable_provider(None, Vec::new());
+    let other = TempDir::new().unwrap();
+    let mut harness = with_cloud(other.path(), &several);
+    extruded_plate(&mut harness);
+    open_parts_to_send(&mut harness);
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.frame();
+    harness.frame();
+
+    assert!(several.received().is_empty());
+}
+
+#[test]
+fn sending_from_the_palette_opens_the_manager_to_choose_a_folder_and_needs_a_sign_in() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let mut harness = with_cloud(dir.path(), &provider);
+
+    run_from_palette(&mut harness, "Send model to the cloud");
+    harness.frame();
+
+    assert!(harness.workspace.cloud_dialog.is_none());
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("Sign in to Fusion 360 first"))
+    );
+
+    open_home(&mut harness);
+    sign_in(&mut harness);
+    run_from_palette(&mut harness, "Send model to the cloud");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.cloud_dialog.is_some());
+    assert!(harness.shows(cloud_dialog::CHOOSE_A_FOLDER_TO_SEND));
+}
+
+#[test]
+fn with_cloud_off_sending_is_refused_and_no_request_is_made() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let mut harness = with_cloud(dir.path(), &provider);
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::CloudEnabled(false),
+    )));
+    harness.frame();
+
+    run_from_palette(&mut harness, "Send model to the cloud");
+    harness.frame();
+
+    assert!(harness.workspace.cloud_dialog.is_none());
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("Cloud services are turned off"))
+    );
+    assert!(provider.calls().is_empty());
 }

@@ -5,6 +5,7 @@ paths:
   - "crates/caditor/src/cloud/**"
   - "crates/caditor/src/cloud_dialog.rs"
   - "crates/caditor/src/cloud_parts.rs"
+  - "crates/caditor/src/files/cloud_send.rs"
   - "crates/caditor/src/home.rs"
   - "crates/caditor/src/browser.rs"
   - "crates/caditor/src/ui_tests/home.rs"
@@ -35,13 +36,19 @@ a `Transport`; the app never speaks a service's protocol itself.
   `FolderRef`, `Folder` (sub-folders, `Design`s a service converts, and `Upload`s it stores as they
   are, each with an `UploadFormat` told from its file name: STEP, STL, OBJ, 3MF, DXF, SVG),
   `Version` (a design's saved version, `number` and time), `Translation` and `Download`, whose
-  strings only their provider reads. Ids are newtypes, never positional.
+  strings only their provider reads. A `Folder` also names its `place`, the `FolderRef` a file can be
+  put in (a Fusion folder's own; none for a project top that lists several folders, and for every
+  Onshape place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name and
+  a `SendOutcome`, `Created` or `NewVersion { number }`) what came of it. Ids are newtypes, never
+  positional.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
   `folder`, `versions` (a design's saved versions, newest first; none for a service whose versions
   are folders), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
   `poll_conversion`, `fetch`, `fetch_upload` (an `Upload` streamed as it is stored, with no
-  conversion) and `thumbnail`
+  conversion), `send` (an `Outgoing` into a folder, with progress and stop; Fusion 360 implements
+  it, Onshape answers `Error::SendUnsupported`, and `Service::receives_files` tells the UI) and
+  `thumbnail`
   (a design's picture as the bytes the service sent, `Ok(None)` when it has none; the default is
   none, so a service without one implements nothing). A service is one variant of `Service`
   (`service.rs`, which also holds the words that differ: `company`, `app_name`, `project_name`,
@@ -50,10 +57,11 @@ a `Transport`; the app never speaks a service's protocol itself.
   `Cloud::provider` and its copy in Home's `Wording`. `rest.rs` holds what Fusion and Onshape share:
   the status-to-`Error` mapping, JSON reading, the bearer `get` and the token exchange.
 - `Transport` (`transport.rs`) is `send` (a bounded answer body, JSON or a
-  picture's bytes) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
+  picture's bytes; a request is a GET, POST or PUT whose body is empty, a form, JSON, JSON:API
+  (`application/vnd.api+json`) or bytes) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
   `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, separate timeouts
-  for answers and downloads, a `caditor/<version>` User-Agent and nothing else identifying.
+  for answers, downloads and PUT uploads (which also wait for the body to go out), a `caditor/<version>` User-Agent and nothing else identifying.
 - `Client` (`client.rs`) holds a provider, a transport and the `Session`: it refreshes an
   expiring session once under a lock (so two jobs never spend one refresh token twice), retries a
   call once after a 401 and then says `Error::SignedOut`, and hands each renewed session to a
@@ -69,8 +77,11 @@ a `Transport`; the app never speaks a service's protocol itself.
 ## Fusion 360 (`fusion.rs`)
 
 Autodesk Platform Services. A public client: OAuth v2 authorisation code with PKCE (S256), no
-client secret, scopes `data:read data:write user-profile:read` (write is what asking Autodesk to
-convert a design needs; caditor never changes a design).
+client secret, scopes `data:read data:write data:create user-profile:read` (write is what asking
+Autodesk to convert a design needs, create and write what sending a model needs; caditor never
+changes a design). A refresh names no `scope`, so it keeps the grant's own, which is how a sign-in
+made before `data:create` was added goes on working for everything but sending (Autodesk answers
+403, worded as `Error::SendForbidden`, which says to ask for edit access or sign in again).
 
 - Account: the OIDC `userinfo`. Hubs, projects and folders: Data Management (`/project/v1`,
   `/data/v1`), following `links.next` only inside `developer.api.autodesk.com`, at most
@@ -91,6 +102,22 @@ convert a design needs; caditor never changes a design).
   minutes) with the bearer, and streams that link without the bearer. A missing or malformed
   storage object, or a link absent or not https, is `Error::NoStoredFile`. No Model Derivative job
   is made.
+- Sending (`Provider::send`) follows Autodesk's Data Management upload flow for a file that is not
+  a Fusion design (`items:autodesk.core:File`), in order: the folder's contents are read for an item
+  of the same display name (case-insensitive, a Fusion design never counts); `POST
+  /data/v1/projects/{id}/storage` (JSON:API, the folder as `target`) makes the storage object
+  `urn:adsk.objects:os.object:<bucket>/<object>`;
+  `GET /oss/v2/buckets/{bucket}/objects/{object}/signeds3upload?parts=N&firstPart=1&minutesExpiration=60`
+  gives an `uploadKey` and N https links; each part (`PART_BYTES`, 5 MiB, the last may be
+  smaller) is PUT to its link without the bearer, with progress reported before the first part and
+  after each; `POST` to the same `signeds3upload` with `{"uploadKey"}` completes the object; then
+  `POST …/items` with the first version (`included`, storage as its relationship) makes the file,
+  or `POST …/versions` with the existing `item` and the storage makes a new version of it. A 403
+  is `SendForbidden`, a 409 `NameTaken` (a name Autodesk will not reuse), a part the storage
+  refuses or a completion that fails `UploadIncomplete`, a link count that is not the part count or
+  a non-https link `Unreadable`. Progress returning false stops it with `Error::Stopped` before
+  the completion, so no item is made and the storage object it leaves behind is never listed. The
+  flow is tested only against the documented JSON shapes, like the rest of this module.
 - The app registered with Autodesk is a deployment fact, not code: a public-client app with the
   Data Management and Model Derivative APIs and the callback
   `http://localhost:49617/callback` (`CALLBACK_PORT`). Its client ID reaches a build as
@@ -134,6 +161,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `/documents/d/{did}/externaldata/{id}` streamed.
 - The client ID reaches a build as `CADITOR_ONSHAPE_CLIENT_ID` or `DEFAULT_ONSHAPE_CLIENT_ID`, or a
   user types it in Preferences (`cloud.onshape.client_id`, which wins), as for Autodesk.
+- Sending is not implemented (`Error::SendUnsupported`, no request); `docs/FEATURES.md` holds what
+  it would take.
 
 ## The app service (`cloud.rs`)
 
@@ -181,6 +210,22 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   extension picks STEP, mesh or drawing import; report, placement, one change per body, Reload
   import from its file); a refused drop leaves the file where it is. A file is named after its
   item so the body is.
+- Sending is one job (`SendJob`) of a `Shipment` (a `Destination` of service, folder and the
+  folder's name for words, the file name and the exported STEP file), run at most one at a time per
+  service (`Linked::sending`, `Send` with `SendStage`: `Starting`, `Uploading`, `Failed`). The job
+  reads the file, `Client::send`s it with progress throttled like a download's, and removes the
+  file whatever came of it; Cancel stops it between parts. On success the destination folder and the
+  project's root are dropped from `Linked` so the manager lists the new file, and a notice says
+  whether it is a new file or version N; a sign-in that has ended signs the connection out with a
+  notice; any other failure stays as `SendStage::Failed` with Try again, which exports again. The
+  model reaches the job through `files/cloud_send.rs`: `FileCommand::SendToCloud(Destination)` is
+  refused as opening in the slicer is (`CloudSendRefusal`: no body, all left out, an export
+  running, a recompute running, already preparing, no state folder), clears and makes
+  `<state>/cloud/outgoing/` on a job, exports the bodies chosen for export as STEP there with the
+  ordinary exporter (so its cancel, its left-out rules and its notices apply; a left-out body means
+  nothing is sent), and hands the file to `app::perform` through `Files::take_cloud_shipment`,
+  which runs `CloudCommand::Send`. `Cloud::can_send_anywhere` (cloud on, a signed-in service with
+  `receives_files`) gates the `CloudSend` command.
 - A design's versions (`Linked::versions`, `Load<Vec<Version>>` per `DesignId`) load only when the
   user opens them in the manager (`LoadVersions`; `ReloadVersions` after a failure) and are
   dropped by Refresh and by choosing another hub.
@@ -232,14 +277,19 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `Service::has_design_versions` (rows of version number, time and Import, the newest marked) and
   the uploaded files after the designs with an icon for their kind (`cloud_parts::upload_icon`:
   a cube for STEP, a polygon for meshes, a vector drawing for DXF and SVG) and an Import
-  (`CloudDialog` keeps one browser per service, with the designs whose versions are open), the downloaded
+  (`CloudDialog` keeps one browser per service, with the designs whose versions are open), in a
+  folder of a service that `receives_files` a Send the model here button (primary while the dialog
+  was opened by the `CloudSend` command, which also shows a callout; disabled with the reason when
+  the folder has no `place`, a send is running or `CloudSendRefusal` applies) with the send's
+  progress, Cancel, failure and Try again at the head of the section (`cloud_parts::send_status`),
+  a Cancel for the preparing export, the downloaded
   designs (count, size, Clear), Show cloud projects on Home, and Turn off cloud features at the
   footer's far left. A cloud turned off shows one callout and Turn on cloud services.
 - Shared parts are `cloud_parts.rs`: tiles on `raised` over the page's `panel`, relative times
   ("Edited 3 days ago"), SI sizes, the import status. Every control is a widget-kit one, named for
   screen readers, and every cloud action is a palette command (`Home`, `Cloud`, `CloudSignIn`,
   `CloudSignOut`, `OnshapeSignIn`, `OnshapeSignOut`, `CloudRefresh`, which refreshes every signed-in
-  service) refused with a reason when it cannot run.
+  service, and `CloudSend`, which opens the manager to choose a folder; File › Cloud lists it) refused with a reason when it cannot run.
 
 ## The keyring (`cloud/keyring.rs`)
 
@@ -281,6 +331,8 @@ dependency builds C.
 `caditor-cloud` tests every provider call against Autodesk- and Onshape-shaped JSON through
 `ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket and the client's
 refresh and retry. `ui_tests/home.rs` drives the app with a `FakeProvider` through a real loopback
-sign-in: the page, its order, one-click import into a model, failure and Try again, restart,
-sign-out, opt-out (no call reaches the provider), the manager and Preferences. The live handshake
+sign-in: the page, its order, one-click import into a model, failure and Try again, sending a model
+(a new file, then a new version, nothing sent without a body or from a project top, a refusal and
+Try again, the palette command, opt-out), restart, sign-out, opt-out (no call reaches the
+provider), the manager and Preferences. The live handshake
 with Autodesk's hosts is not part of any test; a run needs a registered app.
