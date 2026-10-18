@@ -209,6 +209,10 @@ pub(crate) struct DetachedConstraint {
 }
 
 impl DetachedConstraint {
+    pub(crate) fn with_constraint(self, constraint: Constraint) -> Self {
+        Self { constraint, ..self }
+    }
+
     pub(crate) fn with_entity_replaced(self, from: EntityId, to: EntityId) -> Self {
         Self {
             constraint: self.constraint.with_entity_replaced(from, to),

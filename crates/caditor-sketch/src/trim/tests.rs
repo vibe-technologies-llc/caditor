@@ -1201,3 +1201,84 @@ fn an_end_held_only_by_an_inactive_fix_or_coincident_is_extended() {
     assert_eq!(sketch.check_free_end(line, end), Ok(()));
     assert!(sketch.extend(line, Point2::new(4.0, 0.0)).is_ok());
 }
+
+fn held_middle_of(sketch: &mut Sketch, line: EntityId, at: Point2) -> (EntityId, ConstraintId) {
+    let middle = sketch.add_point(at);
+    let held = sketch
+        .add_constraint(Constraint::Midpoint {
+            point: middle,
+            curve: line,
+        })
+        .unwrap();
+    (middle, held)
+}
+
+#[test]
+fn trimming_the_end_of_a_line_leaves_its_midpoint_a_point_on_what_remains() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (middle, held) = held_middle_of(&mut sketch, line, Point2::new(15.0, 0.0));
+    vertical(&mut sketch, 20.0);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(25.0, 0.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    assert_eq!(
+        sketch.constraint(held),
+        Some(&Constraint::Coincident(middle, line))
+    );
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn trimming_away_the_part_holding_a_midpoint_frees_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let (middle, _) = held_middle_of(&mut sketch, line, Point2::new(15.0, 0.0));
+    vertical(&mut sketch, 10.0);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(25.0, 0.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    assert!(sketch.constraints_using(middle).is_empty());
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_midpoint_on_the_far_piece_of_a_trimmed_line_moves_to_that_piece() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (middle, held) = held_middle_of(&mut sketch, line, Point2::new(20.0, 0.0));
+    vertical(&mut sketch, 10.0);
+    vertical(&mut sketch, 15.0);
+
+    let Trimmed::Split { piece } = sketch.trim(line, Point2::new(12.0, 0.0)).unwrap() else {
+        panic!("the line splits");
+    };
+
+    assert_eq!(
+        sketch.constraint(held),
+        Some(&Constraint::Coincident(middle, piece))
+    );
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn extending_a_line_keeps_its_midpoint_as_a_point_on_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let (middle, held) = held_middle_of(&mut sketch, line, Point2::new(5.0, 0.0));
+    vertical(&mut sketch, 20.0);
+
+    sketch.extend(line, Point2::new(9.0, 0.0)).unwrap();
+
+    assert_eq!(
+        sketch.constraint(held),
+        Some(&Constraint::Coincident(middle, line))
+    );
+    assert_solves_in_place(&sketch);
+}

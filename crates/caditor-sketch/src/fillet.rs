@@ -941,6 +941,8 @@ impl Sketch {
         touches: [Point2; 2],
     ) -> Result<[EntityId; 2], SketchError> {
         let kept = corner.point;
+        let [first, second] = corner.curves;
+        let equal = self.detach_equal_lines(first, second)?;
         let mut shortened = [kept; 2];
         for (((curve, end), touch), slot) in corner
             .curves
@@ -1017,6 +1019,7 @@ impl Sketch {
                 self.merge_point(end, kept)?;
             }
         }
+        self.restore_equal_lines(first, second, equal)?;
         Ok(shortened)
     }
 
