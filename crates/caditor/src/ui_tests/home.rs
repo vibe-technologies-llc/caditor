@@ -13,7 +13,9 @@ use caditor_cloud::{
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
-use caditor_file::{Preview, PreviewSlot, SaveOptions, Settings, read_preview, save_with};
+use caditor_file::{
+    Preview, PreviewSlot, RecentFiles, SaveOptions, Settings, read_preview, save_with,
+};
 use egui::{Key, Modifiers, accesskit::Role};
 use jiff::Timestamp;
 use tempfile::TempDir;
@@ -1544,6 +1546,10 @@ fn saving_stores_a_small_picture_of_the_bodies_and_home_shows_it_next_time() {
     assert!(harness.model.notice().is_none());
     let closing = harness.model.close().unwrap();
     assert!(closing.wait(FILE_TIMEOUT));
+    let state = dir.path().join("state");
+    harness.wait_until("the saved model is remembered", |_| {
+        !RecentFiles::load(&state).paths().is_empty()
+    });
     drop(harness);
 
     let mut restarted = with_cloud(dir.path(), &fusion_provider(b""));
