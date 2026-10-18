@@ -12,7 +12,7 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind, Text,
+    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind, Text, TextAlign,
 };
 use tempfile::TempDir;
 
@@ -2073,6 +2073,19 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
             angle: Expression::Measure(30.0, Unit::Degree),
             bold: true,
             italic: false,
+            align: TextAlign::Left,
+        },
+    );
+    let lined = transaction.add_sketch_text(
+        sketch,
+        Text {
+            anchor,
+            content: "Top\nBottom line".to_owned(),
+            height: Expression::Measure(4.0, Unit::Millimetre),
+            angle: Expression::Measure(0.0, Unit::Degree),
+            bold: false,
+            italic: false,
+            align: TextAlign::Centre,
         },
     );
     document.apply(transaction.finish()).unwrap();
@@ -2104,6 +2117,38 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
         damaged.issues
     );
     assert_eq!(held.angle, Expression::Measure(0.0, Unit::Degree));
+    assert_eq!(held.align, TextAlign::Left);
+    assert_eq!(
+        written.matches("\"align\":\"centre\"").count(),
+        1,
+        "{written}"
+    );
+    assert!(!written.contains("\"align\":\"left\""), "{written}");
+    assert_eq!(
+        loaded
+            .document
+            .feature(sketch)
+            .and_then(|feature| feature.kind.sketch())
+            .and_then(|drawn| drawn.text(lined))
+            .map(|text| (text.content.as_str(), text.align)),
+        Some(("Top\nBottom line", TextAlign::Centre))
+    );
+}
+
+#[test]
+fn a_text_record_without_an_alignment_reads_as_left_aligned() {
+    let record: crate::format::TextRecord = serde_json::from_str(
+        "{\"anchor\":3,\"content\":\"Old\",\"height\":\"5 mm\",\"angle\":\"0 deg\"}",
+    )
+    .unwrap();
+    let centred: crate::format::TextRecord = serde_json::from_str(
+        "{\"anchor\":3,\"content\":\"New\",\"height\":\"5 mm\",\"angle\":\"0 deg\",\
+         \"align\":\"right\"}",
+    )
+    .unwrap();
+
+    assert_eq!(TextAlign::from(record.align), TextAlign::Left);
+    assert_eq!(TextAlign::from(centred.align), TextAlign::Right);
 }
 
 #[test]

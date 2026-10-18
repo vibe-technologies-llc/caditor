@@ -419,11 +419,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   origin; Space or Enter on a highlighted point draws there. One "Draw spur gear", "Draw gear pair" or
   "Draw sprocket" transaction (`Part::transaction`).
 - Text (`Tool::Text`, `texting.rs`; Polygon's corner menu, the palette's "Write or edit sketch
-  text") writes a line of text (`sketch.md`, Text). While active the Text panel (`text_panel.rs`,
-  a right-hand panel closing back to Select) holds Text, Height and Angle fields and Bold and
+  text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
+  (`text_panel.rs`, a right-hand panel closing back to Select) holds a multi-line Text field
+  (Enter starts a line; `\r` from a paste is normalised to `\n` when evaluated), Height and Angle
+  fields, an Align segmented control (Left, Centre, Right: `widgets::segmented`) and Bold and
   Italic checkboxes, kept in `Modifying` (`TextSettings`) while caditor runs; Height and Angle are
   `patterning::quantity` fields kept as typed expressions, Text is checked by
-  `Text::check_content`, and the panel names letters Inter lacks in a warning callout. Placing
+  `Text::check_content`, labels show a text's lines joined by " / ", and the panel names letters Inter lacks in a warning callout. Placing
   works as the gear's does: the letters preview on the point under the pointer (origin included) or
   where it is, a click writes there (a new point when free, a new point `Coincident` with the origin
   there), Enter or the panel's primary button writes at the one selected point, else the origin. One

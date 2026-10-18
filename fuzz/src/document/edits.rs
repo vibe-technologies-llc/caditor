@@ -8,7 +8,7 @@ use caditor_document::{
     SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
-use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch, Text};
+use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch, Text, TextAlign};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::{
@@ -435,6 +435,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             angle: scene.turn(input)?,
             bold: input.arbitrary()?,
             italic: input.arbitrary()?,
+            align: *input.choose(&[TextAlign::Left, TextAlign::Centre, TextAlign::Right])?,
         })
     };
     let label = |input: &mut Unstructured| -> Result<Option<Vector2>> {

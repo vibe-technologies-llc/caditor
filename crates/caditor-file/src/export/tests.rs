@@ -11,7 +11,7 @@ use std::{
 use caditor_document::{CancelToken, ModelProperties, ThreadSide};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceId, LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
-use caditor_sketch::Sketch;
+use caditor_sketch::{Sketch, TextAlign};
 use tempfile::TempDir;
 
 use super::{
@@ -1653,6 +1653,7 @@ fn sketch_text_exports_as_its_letter_outlines_without_its_point() {
             angle: caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
             bold: false,
             italic: false,
+            align: TextAlign::Left,
         })
         .unwrap();
 
@@ -1665,6 +1666,47 @@ fn sketch_text_exports_as_its_letter_outlines_without_its_point() {
     assert_eq!(drawing.curves.len(), exported.curves);
     assert!((bounds.min().y - 1.0).abs() < 0.2, "{bounds:?}");
     assert!((bounds.max().y - 11.0).abs() < 0.3, "{bounds:?}");
+}
+
+#[test]
+fn multi_line_aligned_sketch_text_exports_below_and_about_its_point() {
+    let sketch_with = |align| {
+        let mut sketch = Sketch::new(Plane::XY);
+        let anchor = sketch.add_point(Point2::new(50.0, 0.0));
+        sketch
+            .add_text(caditor_sketch::Text {
+                anchor,
+                content: "HH\nHH".to_owned(),
+                height: caditor_expression::Expression::Measure(
+                    10.0,
+                    caditor_expression::Unit::Millimetre,
+                ),
+                angle: caditor_expression::Expression::Measure(
+                    0.0,
+                    caditor_expression::Unit::Degree,
+                ),
+                bold: false,
+                italic: false,
+                align,
+            })
+            .unwrap();
+        Figure::of_sketch(&sketch, Construction::LeftOut)
+            .0
+            .bounds()
+            .unwrap()
+    };
+
+    let left = sketch_with(TextAlign::Left);
+    let centred = sketch_with(TextAlign::Centre);
+    let right = sketch_with(TextAlign::Right);
+
+    assert!(left.min().y < -10.0, "{left:?}");
+    assert!(left.min().x > 49.0 && left.max().x > 60.0, "{left:?}");
+    assert!(
+        (centred.min().x + centred.max().x - 100.0).abs() < 4.0,
+        "{centred:?}"
+    );
+    assert!(right.max().x < 51.0 && right.min().x < 40.0, "{right:?}");
 }
 
 #[test]

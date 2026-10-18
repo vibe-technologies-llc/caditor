@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, Text};
+use caditor_sketch::{Constraint, Entity, Text, TextAlign};
 
 use super::*;
 
@@ -282,11 +282,12 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     let text = sketch
         .add_text(Text {
             anchor,
-            content: "Vent".to_owned(),
+            content: "Vent\nHole".to_owned(),
             height: Expression::Parameter(size),
             angle: Expression::measure(45.0, Unit::Degree),
             bold: false,
             italic: true,
+            align: TextAlign::Right,
         })
         .unwrap();
     let clip = sketch.clip(&[text]).unwrap();
@@ -309,7 +310,8 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     assert_eq!(same.inlined, 0);
     assert_eq!(elsewhere.inlined, 1);
     assert_eq!(pasted.len(), 1);
-    assert_eq!(pasted[0].content, "Vent");
+    assert_eq!(pasted[0].content, "Vent\nHole");
+    assert_eq!(pasted[0].align, TextAlign::Right);
     assert!(pasted[0].italic);
     assert_eq!(pasted[0].height.to_stored_text(), "7 mm");
     assert_eq!(target.point(pasted[0].anchor), Some(Point2::new(3.0, 1.0)));

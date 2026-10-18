@@ -39,7 +39,7 @@ use caditor_kernel::{
 };
 use caditor_sketch::{
     Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
-    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text,
+    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text, TextAlign,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
@@ -2009,6 +2009,43 @@ pub(crate) struct TextRecord {
     pub bold: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub italic: bool,
+    #[serde(default, skip_serializing_if = "TextAlignRecord::is_left")]
+    pub align: TextAlignRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TextAlignRecord {
+    #[default]
+    Left,
+    Centre,
+    Right,
+}
+
+impl TextAlignRecord {
+    fn is_left(&self) -> bool {
+        *self == Self::Left
+    }
+}
+
+impl From<TextAlign> for TextAlignRecord {
+    fn from(align: TextAlign) -> Self {
+        match align {
+            TextAlign::Left => Self::Left,
+            TextAlign::Centre => Self::Centre,
+            TextAlign::Right => Self::Right,
+        }
+    }
+}
+
+impl From<TextAlignRecord> for TextAlign {
+    fn from(align: TextAlignRecord) -> Self {
+        match align {
+            TextAlignRecord::Left => Self::Left,
+            TextAlignRecord::Centre => Self::Centre,
+            TextAlignRecord::Right => Self::Right,
+        }
+    }
 }
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
@@ -5239,6 +5276,7 @@ fn text_record(text: &Text) -> TextRecord {
         angle: text.angle.to_stored_text(),
         bold: text.bold,
         italic: text.italic,
+        align: text.align.into(),
     }
 }
 
@@ -5250,6 +5288,7 @@ fn restore_text(record: &TextRecord) -> Option<Text> {
         angle: Expression::parse_stored(&record.angle).ok()?,
         bold: record.bold,
         italic: record.italic,
+        align: record.align.into(),
     })
 }
 
@@ -9314,6 +9353,7 @@ fn restore_sketch_text(
         angle,
         bold: record.bold,
         italic: record.italic,
+        align: record.align.into(),
     };
     if let Err(error) = sketch.insert_text(EntityId::from_raw(id), text) {
         issues.push(format!(

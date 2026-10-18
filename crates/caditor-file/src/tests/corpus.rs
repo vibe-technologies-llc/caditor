@@ -25,7 +25,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::Text;
+use caditor_sketch::{Text, TextAlign};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 48] = [
+const KEPT: [(&str, &str); 49] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -238,6 +238,10 @@ const KEPT: [(&str, &str); 48] = [
     (
         "model-1/sweeps.caditor",
         "89008f408c1da375ec6d456157b46c58f8a088794926c1ae8fc334d4b4466519",
+    ),
+    (
+        "model-1/text-layouts.caditor",
+        "cb95a9b077de032d1980e155ccbe40997c1e66d52a945a42d3fa577bbf88f8a1",
     ),
     (
         "model-1/texts.caditor",
@@ -784,6 +788,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (model("texts"), saved(&texts().0, "Texts")),
         (
+            model("text-layouts"),
+            saved(&text_layouts(), "Text layouts"),
+        ),
+        (
             model("projected-datums"),
             saved(&projected_datums(), "Projected datums"),
         ),
@@ -1084,6 +1092,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             angle: Expression::Measure(0.0, Unit::Degree),
             bold: false,
             italic: false,
+            align: TextAlign::Left,
         },
     );
     transaction.add_sketch_text(
@@ -1095,6 +1104,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             angle: Expression::Measure(15.0, Unit::Degree),
             bold: true,
             italic: true,
+            align: TextAlign::Left,
         },
     );
     transaction.add_feature(
@@ -1115,6 +1125,33 @@ fn texts() -> (Document, FeatureId, EntityId) {
     (document, sketch, plain)
 }
 
+fn text_layouts() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Text layouts");
+    let sketch = transaction.add_feature("Plaque", FeatureKind::from(Sketch::new(Plane::XY)));
+    let middle = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 20.0)));
+    let end = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 4.0)));
+    for (anchor, content, align) in [
+        (middle, "Caditor\nPlaque 7", TextAlign::Centre),
+        (end, "Rev A\n\nRight", TextAlign::Right),
+    ] {
+        transaction.add_sketch_text(
+            sketch,
+            Text {
+                anchor,
+                content: content.to_owned(),
+                height: Expression::Measure(4.0, Unit::Millimetre),
+                angle: Expression::Measure(0.0, Unit::Degree),
+                bold: false,
+                italic: false,
+                align,
+            },
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
 fn texts_journal() -> Vec<u8> {
     let (base, sketch, plain) = texts();
     let mut session = Session {
@@ -1132,6 +1169,7 @@ fn texts_journal() -> Vec<u8> {
             angle: Expression::Measure(90.0, Unit::Degree),
             bold: false,
             italic: true,
+            align: TextAlign::Left,
         },
     );
     session.apply(addition.finish());

@@ -103,10 +103,13 @@ paths:
 - Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
   the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
   `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,
-  `MissingEntity`), its content (one line, not blank, at most `MAX_TEXT_CHARS`, no control
-  characters: `InvalidText`), a height and an angle as `Expression`s (length, and angle in degrees
-  from the sketch's x axis) and bold and italic. The anchor counts as a use, so it cannot be removed
-  while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
+  `MissingEntity`), its content (lines separated by `LINE_BREAK`, not blank, at most
+  `MAX_TEXT_CHARS` counting the breaks, no other control characters: `InvalidText`), a height and
+  an angle as `Expression`s (length, and angle in degrees from the sketch's x axis), bold and
+  italic, and a `TextAlign` (`Left`, `Centre` or `Right`, left by default). The anchor is the
+  start, middle or end of the first line's baseline by that alignment, and each following line is
+  set below it, aligned about the same vertical through the anchor (`lettering.md`). The anchor
+  counts as a use, so it cannot be removed while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
   drill at it). `add_text`, `insert_text` (explicit id), `remove_text` and `replace_text` (value
   only; a changed anchor is `ChangesStructure`). The text holds no constraint and adds no freedom:
   the anchor is an ordinary point, constrained and dimensioned like any other.

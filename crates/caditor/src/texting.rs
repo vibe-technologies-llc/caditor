@@ -2,8 +2,8 @@ use caditor_document::{FeatureId, PlacedText, Transaction, lettered_at};
 use caditor_expression::Dimension;
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    Constraint, Dimensioned, Entity, EntityId, Faceting, Sketch, SketchError, Text, TextError,
-    TextSize,
+    Constraint, Dimensioned, Entity, EntityId, Faceting, LINE_BREAK, Sketch, SketchError, Text,
+    TextAlign, TextError, TextSize,
 };
 use thiserror::Error;
 
@@ -21,12 +21,13 @@ use crate::{
 
 pub const TRANSACTION: &str = "Draw text";
 pub const EDIT_TRANSACTION: &str = "Edit text";
-pub const PROMPT: &str =
-    "Click where the text starts, on its baseline: on a point, or anywhere in the sketch";
+pub const PROMPT: &str = "Click where the text is anchored, on the first line's baseline: on a \
+                          point, or anywhere in the sketch";
 pub const EDIT_PROMPT: &str = "Change the text in the Text panel, then update it";
 const KEYS: &str = "Enter: write it at the selected point or the origin   Esc: back to Select";
 const EDIT_KEYS: &str = "Esc: back to Select";
 const MAX_LABEL_CHARS: usize = 24;
+const LINE_SEPARATOR: &str = " / ";
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
     non_negative: false,
@@ -56,10 +57,14 @@ impl TextField {
 
     pub fn about(self) -> &'static str {
         match self {
-            Self::Content => "One line of letters, set in Inter",
+            Self::Content => "Letters set in Inter; Enter starts a new line below",
             Self::Height => "How tall a capital letter stands above the baseline",
             Self::Angle => "How far the baseline turns from the sketch's horizontal axis",
         }
+    }
+
+    pub fn multiline(self) -> bool {
+        self == Self::Content
     }
 
     fn initial(self) -> &'static str {
@@ -85,6 +90,7 @@ pub struct Lettering {
     pub angle: Dimensioned,
     pub bold: bool,
     pub italic: bool,
+    pub align: TextAlign,
 }
 
 impl Lettering {
@@ -96,6 +102,7 @@ impl Lettering {
             angle: self.angle.expression.clone(),
             bold: self.bold,
             italic: self.italic,
+            align: self.align,
         }
     }
 
@@ -157,6 +164,7 @@ pub struct TextSettings {
     texts: [String; 3],
     bold: bool,
     italic: bool,
+    align: TextAlign,
     editing: Option<EntityId>,
     loaded: Option<EntityId>,
     evaluated: Option<Result<Lettering, LetteringProblem>>,
@@ -168,6 +176,7 @@ impl Default for TextSettings {
             texts: TextField::ALL.map(|field| field.initial().to_owned()),
             bold: false,
             italic: false,
+            align: TextAlign::Left,
             editing: None,
             loaded: None,
             evaluated: None,
@@ -190,6 +199,14 @@ impl TextSettings {
 
     pub fn italic_mut(&mut self) -> &mut bool {
         &mut self.italic
+    }
+
+    pub fn align(&self) -> TextAlign {
+        self.align
+    }
+
+    pub fn set_align(&mut self, align: TextAlign) {
+        self.align = align;
     }
 
     pub fn editing(&self) -> Option<EntityId> {
@@ -228,6 +245,7 @@ impl TextSettings {
         ];
         self.bold = text.bold;
         self.italic = text.italic;
+        self.align = text.align;
         self.loaded = Some(editing);
         self.evaluated = None;
     }
@@ -238,7 +256,10 @@ impl TextSettings {
 
     pub fn evaluate(&mut self, model: &Model) -> Evaluation {
         let mut problems = Vec::new();
-        let content = self.text(TextField::Content).to_owned();
+        let content = self
+            .text(TextField::Content)
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
         if let Err(problem) = Text::check_content(&content) {
             problems.push((TextField::Content, FieldProblem::Content(problem)));
         }
@@ -258,6 +279,7 @@ impl TextSettings {
                     angle,
                     bold: self.bold,
                     italic: self.italic,
+                    align: self.align,
                 };
                 TextSize {
                     height: lettering.height.value,
@@ -340,6 +362,7 @@ pub fn update(
 }
 
 pub fn shortened(content: &str) -> String {
+    let content = content.replace(LINE_BREAK, LINE_SEPARATOR);
     let mut shown: String = content.chars().take(MAX_LABEL_CHARS).collect();
     if content.chars().count() > MAX_LABEL_CHARS {
         shown.push('…');
