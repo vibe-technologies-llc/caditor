@@ -1,7 +1,7 @@
 use caditor_cloud::Service;
 use egui::{
-    Align, CornerRadius, FontId, Frame, Label, Layout, RichText, Sense, Stroke, StrokeKind,
-    TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
+    Align, CornerRadius, FontId, Frame, Image, Label, Layout, RichText, Sense, Stroke, StrokeKind,
+    TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, load::SizedTexture, vec2,
 };
 use jiff::Timestamp;
 
@@ -15,6 +15,7 @@ use crate::{
 pub const TILE_HEIGHT: f32 = 60.0;
 pub const TILE_GAP: f32 = 8.0;
 const TILE_ICON_SIZE: f32 = 22.0;
+const TILE_PICTURE_SIDE: f32 = TILE_HEIGHT - 2.0 * SPACE_S;
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
 const DAY: i64 = 24 * HOUR;
@@ -51,6 +52,7 @@ pub struct Tile<'a> {
     pub name: &'a str,
     pub hover: &'a str,
     pub enabled: bool,
+    pub picture: Option<&'a TextureHandle>,
 }
 
 pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
@@ -86,20 +88,33 @@ pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
                 .layout(Layout::left_to_right(Align::Center)),
         );
         child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
-        let glyph_colour = if tile.enabled {
-            tokens.accent_text
-        } else {
-            tokens.text_muted
-        };
-        let glyph = child.add(
-            Label::new(
-                RichText::new(tile.glyph)
-                    .font(FontId::new(TILE_ICON_SIZE, fonts::icons()))
-                    .color(glyph_colour),
-            )
-            .selectable(false),
-        );
-        widgets::decorative(&child, &glyph);
+        match tile.picture {
+            Some(texture) => {
+                let side = vec2(TILE_PICTURE_SIDE, TILE_PICTURE_SIDE);
+                let picture = child.add(
+                    Image::new(SizedTexture::new(texture.id(), side))
+                        .fit_to_exact_size(side)
+                        .corner_radius(CornerRadius::same(CARD_RADIUS / 2)),
+                );
+                widgets::decorative(&child, &picture);
+            }
+            None => {
+                let glyph_colour = if tile.enabled {
+                    tokens.accent_text
+                } else {
+                    tokens.text_muted
+                };
+                let glyph = child.add(
+                    Label::new(
+                        RichText::new(tile.glyph)
+                            .font(FontId::new(TILE_ICON_SIZE, fonts::icons()))
+                            .color(glyph_colour),
+                    )
+                    .selectable(false),
+                );
+                widgets::decorative(&child, &glyph);
+            }
+        }
         let text_height =
             2.0 * child.text_style_height(&TextStyle::Body) + child.spacing().item_spacing.y;
         let text_size = vec2(child.available_width(), text_height);

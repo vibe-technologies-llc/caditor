@@ -213,12 +213,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
   Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
   assemblies.
-- [low · medium] Cloud tiles and Recent files are names only: a Fusion design's thumbnail (the Model
-  Derivative thumbnail) and a model's own picture would make Home recognisable at a glance.
+- [low · medium] Recent files on Home are names only: a model's own picture would make them
+  recognisable at a glance, but the file format stores no preview of a model, so a tile would need
+  either the file loaded and rendered in the background or a new preview record in the format
+  (which `file-format.md` and the recovery journal would then have to cover).
 - [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
   chosen version, other file kinds in a project folder (uploaded STEP, mesh and DXF files, which
   need no conversion), and sending a model back to the cloud are not offered.
-- [low · easy] The hub Home lists (the team hub first) is not remembered between sessions.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a

@@ -12,6 +12,7 @@ pub enum Subject {
     Design,
     Translation,
     Download,
+    Thumbnail,
 }
 
 impl Subject {
@@ -25,6 +26,7 @@ impl Subject {
             Self::Design => "the design",
             Self::Translation => "the conversion",
             Self::Download => "the converted file",
+            Self::Thumbnail => "the picture of the design",
         }
     }
 }

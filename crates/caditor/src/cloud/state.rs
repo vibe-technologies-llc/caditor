@@ -5,11 +5,11 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Design, Folder, FolderRef, Project, ProjectId, Service, Workspace,
+    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Workspace,
     WorkspaceId, WorkspaceKind,
 };
 
-use super::{downloads::Usage, failure::Failure};
+use super::{downloads::Usage, failure::Failure, thumbnails::Thumbnail};
 
 #[derive(Debug, Clone)]
 pub enum Load<T> {
@@ -77,6 +77,7 @@ pub struct Linked {
     pub projects: Load<Vec<Project>>,
     pub(super) roots: BTreeMap<ProjectId, Load<Folder>>,
     pub(super) folders: BTreeMap<FolderRef, Load<Folder>>,
+    pub(super) thumbnails: BTreeMap<DesignId, Load<Option<Arc<Thumbnail>>>>,
     pub import: Option<Import>,
 }
 
@@ -90,6 +91,7 @@ impl Linked {
             projects: Load::Idle,
             roots: BTreeMap::new(),
             folders: BTreeMap::new(),
+            thumbnails: BTreeMap::new(),
             import: None,
         }
     }
@@ -100,6 +102,17 @@ impl Linked {
 
     pub fn folder(&self, folder: &FolderRef) -> &Load<Folder> {
         self.folders.get(folder).unwrap_or(&IDLE_FOLDER)
+    }
+
+    pub fn picture(&self, design: &DesignId) -> Option<&Arc<Thumbnail>> {
+        match self.thumbnails.get(design)? {
+            Load::Ready(picture) => picture.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn wants_picture(&self, design: &DesignId) -> bool {
+        !self.thumbnails.contains_key(design)
     }
 
     pub fn project(&self, id: &ProjectId) -> Option<&Project> {
@@ -153,6 +166,7 @@ pub enum CloudCommand {
     Refresh(Service),
     ChooseWorkspace(Service, WorkspaceId),
     LoadProject(Service, ProjectId),
+    LoadThumbnail(Service, Design),
     ReloadProject(Service, ProjectId),
     OpenFolder(Service, FolderRef),
     ReloadFolder(Service, FolderRef),

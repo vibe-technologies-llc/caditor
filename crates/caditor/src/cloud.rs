@@ -29,9 +29,8 @@ mod jobs;
 mod keyring;
 mod state;
 mod store;
+mod thumbnails;
 
-#[cfg(test)]
-pub use self::keyring::FakeKeyring;
 pub use self::{
     failure::Failure,
     jobs::Opener,
@@ -44,7 +43,10 @@ use self::{
     jobs::{Courier, Event, ImportJob, Loaded, SignInJob},
     keyring::Keyring,
     store::SessionStore,
+    thumbnails::{AT_ONCE, ThumbnailCache},
 };
+#[cfg(test)]
+pub use self::{keyring::FakeKeyring, thumbnails::sample_png};
 
 pub const CALLBACK_PORT: u16 = 49617;
 const DEFAULT_AUTODESK_CLIENT_ID: &str = "";
@@ -324,6 +326,7 @@ impl Cloud {
                 self.choose_workspace(service, workspace);
             }
             CloudCommand::LoadProject(service, project) => self.load_root(service, &project),
+            CloudCommand::LoadThumbnail(service, design) => self.load_thumbnail(service, design),
             CloudCommand::OpenFolder(service, folder) => self.load_folder(service, folder),
             CloudCommand::ReloadProject(service, project) => {
                 if let Some(linked) = self.linked_mut(service) {
@@ -584,6 +587,7 @@ impl Cloud {
         };
         linked.roots.clear();
         linked.folders.clear();
+        linked.thumbnails.clear();
         linked.projects = Load::Idle;
         linked.workspaces = Load::Idle;
         linked.account = Load::Idle;
@@ -599,8 +603,26 @@ impl Cloud {
         linked.workspace = Some(workspace.clone());
         linked.roots.clear();
         linked.folders.clear();
+        linked.thumbnails.clear();
         linked.projects = Load::Idle;
-        self.load_projects(service, workspace);
+        self.load_projects(service, workspace.clone());
+        self.remember_workspace(service, workspace);
+    }
+
+    fn remember_workspace(&mut self, service: Service, workspace: WorkspaceId) {
+        let Some(store) = self.store(service) else {
+            return;
+        };
+        self.courier.spawn(
+            service,
+            move || jobs::remember_hub(&store, &workspace),
+            |outcome| {
+                if let Err(failure) = outcome {
+                    log::warn!("the chosen hub could not be remembered: {failure}");
+                }
+                Event::Left
+            },
+        );
     }
 
     fn load_account(&mut self, service: Service) {
@@ -634,9 +656,10 @@ impl Cloud {
         }
         linked.workspaces = Load::Loading;
         let client = Arc::clone(&linked.client);
+        let store = self.store(service);
         self.courier.spawn(
             service,
-            move || client.workspaces().map_err(Failure::from),
+            move || jobs::list_workspaces(&client, store.as_ref()),
             move |result| Event::Loaded {
                 service,
                 generation,
@@ -685,6 +708,36 @@ impl Cloud {
                 service,
                 generation,
                 loaded: Loaded::Root(id.clone(), result.map_err(Arc::new)),
+            },
+        );
+    }
+
+    fn load_thumbnail(&mut self, service: Service, design: Design) {
+        let generation = self.generation(service);
+        let cache = self
+            .store(service)
+            .map(|store| ThumbnailCache::new(store.thumbnails_dir().to_owned()));
+        let Some(linked) = self.linked_mut(service) else {
+            return;
+        };
+        let loading = linked
+            .thumbnails
+            .values()
+            .filter(|load| load.is_loading())
+            .count();
+        if !linked.wants_picture(&design.id) || loading >= AT_ONCE {
+            return;
+        }
+        linked.thumbnails.insert(design.id.clone(), Load::Loading);
+        let client = Arc::clone(&linked.client);
+        let id = design.id.clone();
+        self.courier.spawn(
+            service,
+            move || thumbnails::load(&client, cache.as_ref(), service, &design),
+            move |result| Event::Loaded {
+                service,
+                generation,
+                loaded: Loaded::Thumbnail(id.clone(), result.map_err(Arc::new)),
             },
         );
     }
@@ -889,7 +942,8 @@ impl Cloud {
             | Loaded::Workspaces(Err(failure))
             | Loaded::Projects(_, Err(failure))
             | Loaded::Root(_, Err(failure))
-            | Loaded::Folder(_, Err(failure)) => Some(Arc::clone(failure)),
+            | Loaded::Folder(_, Err(failure))
+            | Loaded::Thumbnail(_, Err(failure)) => Some(Arc::clone(failure)),
             _ => None,
         };
         if failed
@@ -909,16 +963,17 @@ impl Cloud {
         match loaded {
             Loaded::Account(result) => linked.account = settle(result),
             Loaded::Workspaces(result) => {
-                if let Ok(workspaces) = &result {
-                    let kept = linked
-                        .workspace
-                        .as_ref()
-                        .filter(|id| workspaces.iter().any(|workspace| workspace.id == **id))
-                        .cloned();
-                    choose = kept.or_else(|| {
-                        first_workspace(workspaces).map(|workspace| workspace.id.clone())
-                    });
-                }
+                let result = result.map(|(workspaces, remembered)| {
+                    choose = [linked.workspace.as_ref(), remembered.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .find(|id| workspaces.iter().any(|workspace| workspace.id == **id))
+                        .cloned()
+                        .or_else(|| {
+                            first_workspace(&workspaces).map(|workspace| workspace.id.clone())
+                        });
+                    workspaces
+                });
                 linked.workspaces = settle(result);
             }
             Loaded::Projects(workspace, result) => {
@@ -931,6 +986,9 @@ impl Cloud {
             }
             Loaded::Folder(folder, result) => {
                 linked.folders.insert(folder, settle(result));
+            }
+            Loaded::Thumbnail(design, result) => {
+                linked.thumbnails.insert(design, settle(result));
             }
         }
         if let Some(workspace) = choose {

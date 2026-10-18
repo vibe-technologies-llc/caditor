@@ -33,6 +33,7 @@ const TEAM_HUB: &str = "hubs:autodesk.core:Hub";
 const PERSONAL_HUB: &str = "hubs:autodesk.a360:PersonalHub";
 const STEP_OUTPUT: &str = "step";
 const STEP_ROLE: &str = "step";
+const THUMBNAIL_SIDE: u32 = 200;
 const MAX_PAGES: usize = 20;
 
 pub struct Fusion {
@@ -341,6 +342,25 @@ impl Provider for Fusion {
                 }),
             },
         }
+    }
+
+    fn thumbnail(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let urn = self.version_urn(net, session, design)?;
+        let url = format!(
+            "{DERIVATIVE_API}/{urn}/thumbnail?width={THUMBNAIL_SIDE}&height={THUMBNAIL_SIDE}"
+        );
+        let request = Request::get(url).with_bearer(&session.access_token);
+        let response = net.send(&request)?;
+        if matches!(response.status, 202 | 404) {
+            return Ok(None);
+        }
+        let response = checked(SERVICE, response, Subject::Thumbnail)?;
+        Ok((!response.body.is_empty()).then_some(response.body))
     }
 
     fn fetch(

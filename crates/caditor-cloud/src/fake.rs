@@ -8,8 +8,8 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Project, ProjectId, Translation,
-        Workspace, WorkspaceId,
+        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Project, ProjectId,
+        Translation, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -49,6 +49,17 @@ impl ScriptedTransport {
             Reply::Answer {
                 status,
                 body: body.as_bytes().to_vec(),
+            },
+        )
+    }
+
+    pub fn route_bytes(self, method: Method, url: &str, status: u16, body: &[u8]) -> Self {
+        self.queue(
+            method,
+            url,
+            Reply::Answer {
+                status,
+                body: body.to_vec(),
             },
         )
     }
@@ -148,6 +159,7 @@ pub enum Step {
     Folder,
     Conversion,
     Fetch,
+    Thumbnail,
 }
 
 type Failure = fn() -> Error;
@@ -159,6 +171,7 @@ pub struct FakeProvider {
     roots: BTreeMap<ProjectId, Folder>,
     folders: BTreeMap<FolderRef, Folder>,
     step: Vec<u8>,
+    thumbnails: BTreeMap<DesignId, Vec<u8>>,
     working_polls: usize,
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
@@ -180,6 +193,7 @@ impl FakeProvider {
             roots: BTreeMap::new(),
             folders: BTreeMap::new(),
             step: Vec::new(),
+            thumbnails: BTreeMap::new(),
             working_polls: 0,
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
@@ -210,6 +224,11 @@ impl FakeProvider {
 
     pub fn step_file(mut self, bytes: &[u8]) -> Self {
         self.step = bytes.to_vec();
+        self
+    }
+
+    pub fn thumbnail(mut self, design: DesignId, picture: &[u8]) -> Self {
+        self.thumbnails.insert(design, picture.to_vec());
         self
     }
 
@@ -390,5 +409,15 @@ impl Provider for FakeProvider {
             return Err(Error::Stopped);
         }
         Ok(bytes)
+    }
+
+    fn thumbnail(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        design: &Design,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.enter(Step::Thumbnail, format!("thumbnail {}", design.id.as_str()))?;
+        Ok(self.thumbnails.get(&design.id).cloned())
     }
 }

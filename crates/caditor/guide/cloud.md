@@ -24,7 +24,9 @@ you give it. If no browser opens, Home and the Cloud projects window offer the s
 Once signed in, the line under your recent files is one line per project of your Fusion hub, with
 its newest designs beside it. **One click on a design imports it**: Autodesk converts it to a STEP
 file, caditor downloads that, and it comes in as an [imported body](imported-bodies) like any STEP
-file, with the usual report. The progress and a Cancel button show where the designs are, and in the
+file, with the usual report. A design shows Autodesk's picture of it on its tile once that arrives
+(a design Autodesk has not rendered keeps the icon); the pictures are kept on this computer and
+removed when you sign out. The progress and a Cancel button show where the designs are, and in the
 status bar once the file is being read. If a conversion fails, the page says why and offers Try
 again.
 
@@ -35,6 +37,10 @@ and clears them.
 
 If a team hub says Autodesk did not allow caditor, its administrator may need to allow the app in
 the hub's settings. Your own personal hub needs nothing.
+
+When you have more than one hub, the one you pick in the Cloud projects window is the one Home lists
+from then on, also after restarting caditor; if it is gone, Home goes back to the team hub. Signing
+out forgets the choice.
 
 ## Onshape documents
 

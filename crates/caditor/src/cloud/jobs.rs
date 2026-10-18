@@ -13,8 +13,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Conversion, Design, Error, Folder, FolderRef, Listener, Project, ProjectId,
-    Provider, Service, Session, Transport, Workspace, WorkspaceId,
+    Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Project,
+    ProjectId, Provider, Service, Session, Transport, Workspace, WorkspaceId,
 };
 use parking_lot::Mutex;
 
@@ -23,6 +23,7 @@ use super::{
     failure::Failure,
     state::Stage,
     store::SessionStore,
+    thumbnails::{self, Thumbnail},
 };
 use crate::{browser::OpenError, model::Waker};
 
@@ -36,10 +37,11 @@ pub type Opener = Arc<dyn Fn(&str) -> Result<(), OpenError> + Send + Sync>;
 
 pub enum Loaded {
     Account(Result<Account, Arc<Failure>>),
-    Workspaces(Result<Vec<Workspace>, Arc<Failure>>),
+    Workspaces(Result<(Vec<Workspace>, Option<WorkspaceId>), Arc<Failure>>),
     Projects(WorkspaceId, Result<Vec<Project>, Arc<Failure>>),
     Root(ProjectId, Result<Folder, Arc<Failure>>),
     Folder(FolderRef, Result<Folder, Arc<Failure>>),
+    Thumbnail(DesignId, Result<Option<Arc<Thumbnail>>, Arc<Failure>>),
 }
 
 pub enum Event {
@@ -180,6 +182,31 @@ pub fn sign_out(client: &Client, store: Option<&SessionStore>) {
         log::info!("the sign-in could not be revoked at the service: {error}");
     }
     forget(store);
+    if let Some(store) = store
+        && let Err(error) = store.forget_hub()
+    {
+        log::warn!("the remembered hub could not be removed: {error}");
+    }
+    if let Some(store) = store
+        && let Err(error) = thumbnails::forget(store.thumbnails_dir())
+    {
+        log::warn!("the kept pictures of designs could not be removed: {error}");
+    }
+}
+
+pub fn remember_hub(store: &SessionStore, workspace: &WorkspaceId) -> Result<(), Failure> {
+    store
+        .remember_hub(workspace)
+        .map_err(|error| Failure::Save(error.kind()))
+}
+
+pub fn list_workspaces(
+    client: &Client,
+    store: Option<&SessionStore>,
+) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Failure> {
+    let workspaces = client.workspaces()?;
+    let remembered = store.and_then(SessionStore::remembered_hub);
+    Ok((workspaces, remembered))
 }
 
 pub fn forget(store: Option<&SessionStore>) {

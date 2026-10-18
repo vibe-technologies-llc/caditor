@@ -4,7 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use caditor_cloud::{Service, Session};
+use caditor_cloud::{Service, Session, WorkspaceId};
+use serde::{Deserialize, Serialize};
 
 use super::keyring::{Keyring, KeyringError};
 
@@ -21,8 +22,15 @@ pub enum StoreError {
 #[derive(Clone)]
 pub struct SessionStore {
     path: PathBuf,
+    hub_path: PathBuf,
+    thumbnails_dir: PathBuf,
     service: Service,
     keyring: Arc<dyn Keyring>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RememberedHub {
+    workspace: String,
 }
 
 impl fmt::Debug for SessionStore {
@@ -37,13 +45,18 @@ impl fmt::Debug for SessionStore {
 
 impl SessionStore {
     pub fn in_state_dir(state_dir: &Path, service: Service, keyring: Arc<dyn Keyring>) -> Self {
+        let folder = state_dir.join(FOLDER);
         Self {
-            path: state_dir
-                .join(FOLDER)
-                .join(format!("{}-session.json", service.id())),
+            path: folder.join(format!("{}-session.json", service.id())),
+            hub_path: folder.join(format!("{}-hub.json", service.id())),
+            thumbnails_dir: folder.join("thumbnails").join(service.id()),
             service,
             keyring,
         }
+    }
+
+    pub fn thumbnails_dir(&self) -> &Path {
+        &self.thumbnails_dir
     }
 
     pub fn downloads_dir(state_dir: &Path) -> PathBuf {
@@ -142,10 +155,35 @@ impl SessionStore {
     }
 
     fn remove_file(&self) -> io::Result<()> {
-        match fs::remove_file(&self.path) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
-            _ => Ok(()),
+        remove_if_present(&self.path)
+    }
+
+    pub fn remembered_hub(&self) -> Option<WorkspaceId> {
+        let bytes = fs::read(&self.hub_path).ok()?;
+        let remembered: RememberedHub = serde_json::from_slice(&bytes).ok()?;
+        (!remembered.workspace.is_empty()).then(|| WorkspaceId::new(remembered.workspace))
+    }
+
+    pub fn remember_hub(&self, workspace: &WorkspaceId) -> io::Result<()> {
+        if let Some(folder) = self.hub_path.parent() {
+            fs::create_dir_all(folder)?;
         }
+        let bytes = serde_json::to_vec(&RememberedHub {
+            workspace: workspace.as_str().to_owned(),
+        })
+        .map_err(io::Error::other)?;
+        caditor_file::write_atomically(&self.hub_path, &bytes)
+    }
+
+    pub fn forget_hub(&self) -> io::Result<()> {
+        remove_if_present(&self.hub_path)
+    }
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
     }
 }
 
@@ -332,5 +370,50 @@ mod tests {
 
         let mode = fs::metadata(&store.path).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0);
+    }
+
+    #[test]
+    fn a_remembered_hub_loads_again_and_forgetting_removes_it() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+
+        assert_eq!(store.remembered_hub(), None);
+
+        store.remember_hub(&WorkspaceId::new("hub-2")).unwrap();
+
+        assert_eq!(store.remembered_hub(), Some(WorkspaceId::new("hub-2")));
+
+        store.forget_hub().unwrap();
+        store.forget_hub().unwrap();
+
+        assert_eq!(store.remembered_hub(), None);
+    }
+
+    #[test]
+    fn a_damaged_or_empty_hub_file_is_no_hub() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+        store.remember_hub(&WorkspaceId::new("hub-2")).unwrap();
+
+        fs::write(&store.hub_path, b"not json").unwrap();
+        assert_eq!(store.remembered_hub(), None);
+
+        fs::write(&store.hub_path, br#"{"workspace":""}"#).unwrap();
+        assert_eq!(store.remembered_hub(), None);
+    }
+
+    #[test]
+    fn each_service_remembers_its_own_hub() {
+        let dir = TempDir::new().unwrap();
+        let fusion =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+        let onshape =
+            SessionStore::in_state_dir(dir.path(), Service::Onshape, FakeKeyring::unreachable());
+
+        fusion.remember_hub(&WorkspaceId::new("hub-2")).unwrap();
+
+        assert_eq!(onshape.remembered_hub(), None);
     }
 }
