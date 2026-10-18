@@ -281,7 +281,14 @@ pub(crate) fn patch_bounds(surface: &Surface, bounds: Aabb2) -> Aabb {
             .map(|uv| surface.point_at(uv)),
         )
         .unwrap_or_else(|| Aabb::from_point(Point3::ZERO)),
-        Surface::Cylinder(_) | Surface::Cone(_) => {
+        Surface::Cylinder(_) => {
+            let ring = |v: f64| {
+                let (center, axis, x_axis, radius) = rotational_ring(surface, v);
+                arc_bounds(center, axis, x_axis, radius, u_range)
+            };
+            ring(v_range.start()).union(ring(v_range.end()))
+        }
+        Surface::Cone(_) => {
             rotational_bounds(u_range, v_range, |v| rotational_ring(surface, v), |_| 0.0)
         }
         Surface::Sphere(sphere) => {

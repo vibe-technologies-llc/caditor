@@ -8,7 +8,8 @@ use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, extrude_tapered, revolve},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, line, polls_during},
+    tally,
+    test_support::{arc, line},
     topology::Face,
 };
 
@@ -216,15 +217,15 @@ fn the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round()
     let before = volume(&body);
     let feet = feet_of(&body, &edges);
 
-    let (rounded, rounding_polls) = polls_during(|| run(&body, &edges[..1], fillet(2.0)));
+    let (rounded, rounding_work) = tally::measure(|| run(&body, &edges[..1], fillet(2.0)));
     let rounded_away = before - volume(&rounded);
-    let (chamfered, chamfering_polls) = polls_during(|| run(&body, &edges[..1], chamfer(2.0)));
+    let (chamfered, chamfering_work) = tally::measure(|| run(&body, &edges[..1], chamfer(2.0)));
     let chamfered_away = before - volume(&chamfered);
 
     assert_eq!(edges.len(), 8);
     assert!(
-        2 * rounding_polls <= 3 * chamfering_polls,
-        "rounding the rim polled {rounding_polls} times, chamfering it {chamfering_polls}"
+        4 * rounding_work <= 5 * chamfering_work,
+        "rounding the rim took {rounding_work} units of work, chamfering it {chamfering_work}"
     );
     valid("rounded", &rounded);
     valid("chamfered", &chamfered);

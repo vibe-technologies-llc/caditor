@@ -1,7 +1,10 @@
-use caditor_geometry::Point2;
+use caditor_geometry::{Aabb, Point2};
 
 use crate::{
-    intersect::SurfacePatch, sense::Sense, surface::Surface, tolerance::LINEAR_RESOLUTION,
+    intersect::{SurfacePatch, boxes_overlap},
+    sense::Sense,
+    surface::Surface,
+    tolerance::LINEAR_RESOLUTION,
 };
 
 const SAMPLES: usize = 9;
@@ -41,7 +44,21 @@ fn shared_signs(from: &SurfacePatch, onto: &SurfacePatch) -> Result<Vec<Option<f
     Ok(shared)
 }
 
+fn reaching(from: &SurfacePatch, onto: &SurfacePatch) -> usize {
+    let reach = onto.bounding_box();
+    grid(from)
+        .into_iter()
+        .filter(|uv| {
+            let point = Aabb::from_point(from.surface().point_at(*uv));
+            boxes_overlap(&reach, &point, LINEAR_RESOLUTION)
+        })
+        .count()
+}
+
 pub(super) fn coincident_part(first: &SurfacePatch, second: &SurfacePatch) -> Option<Sense> {
+    if reaching(first, second) + reaching(second, first) < LEAST_SHARED {
+        return None;
+    }
     let onto_first_is_cheaper = sampled_kind(second.surface()) && !sampled_kind(first.surface());
     let (onto_second, onto_first) = if onto_first_is_cheaper {
         let onto_first = shared_signs(second, first).ok()?;

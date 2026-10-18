@@ -16,7 +16,9 @@ paths:
   is an overlap interval; coincident surfaces return `SurfaceIntersection::Coincident(Sense)`.
   Sampled kinds (extrusion, revolution, spline) are also `Coincident` when sharing only part of
   their extent (`surface_surface/overlap.rs`); the grid projected onto the cheaper surface (not a
-  sampled kind) is checked first, as one point lying apart decides.
+  sampled kind) is checked first, as one point lying apart decides. Before any projection, a pair
+  whose grid points within the resolution of the other patch's box number fewer than the four
+  shared points needed is not coincident (`reaching`), since only those can be shared.
 - Clipping (`clip.rs`) does not depend on sample spacing: a piece between two outside samples is
   refined unless a bound on its path misses the patch; ends are then bisected exactly. Guided
   clipping polls `interrupt::check` before every sample and probe; a branch's probes project from
@@ -70,7 +72,12 @@ paths:
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
     scan of the distance for tiny loops. Near-coincident patches prune little, so pairs are
-    budgeted at `MAX_SEED_PAIRS`.
+    budgeted at `MAX_SEED_PAIRS`. A subdivision box is apart from a spline surface when it misses
+    the control hull of every span (`BSplineSurface::hulls_miss`: the hull's box, then the axis
+    across the span's corner diagonals; through the span tree on a large net), from any other
+    surface when its centre's projection lies farther than its half diagonal (a projection onto
+    a spline off its surface is a full seed search). A cylinder patch's box is
+    the union of its two end arcs' boxes, exact for a ruled surface of constant radius.
   - Arrangement points lying on both surfaces (an edge of one solid piercing a face of the other)
     are also seeds (`intersect_surfaces_through`), so a short branch near a patch corner is found
     when no subdivision leaf seeds it; a failing hint is ignored.
@@ -84,7 +91,10 @@ paths:
     a parameter constraint, ahead of the current point, not a pole, turning at most `MAX_TURN`
     and hugging the chord), before the carried projections and halving. Without it a branch
     running off a spline face that spans its whole surface (a loft's) crept up on the domain end
-    through some twenty halved steps, each projecting onto the spline from off its domain.
+    through some twenty halved steps, each projecting onto the spline from off its domain. A
+    branch whose crossing lies within the resolution of its current point is already on the
+    boundary it heads through (an arrangement hint on a patch edge marching outward): the step
+    collapses at once and the branch ends there, rather than halving down to `MIN_STEP`.
   - A step that collapses where the branch runs off a bounded surface ends on the boundary ahead,
     at a pole (a cone apex on the other surface) ends there; otherwise it, and a branch longer than
     the step cap, fails as `Unfollowable`.

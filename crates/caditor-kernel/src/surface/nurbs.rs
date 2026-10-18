@@ -59,6 +59,8 @@ struct Span {
     hull: Aabb,
     u: Interval,
     v: Interval,
+    first_column: usize,
+    first_row: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -902,6 +904,64 @@ impl BSplineSurface {
         self.grid.nearest(point, PROJECTION_SEEDS)
     }
 
+    pub(crate) fn hulls_miss(&self, bounds: &Aabb) -> bool {
+        if !self.spans.spans.is_empty() {
+            return self
+                .spans
+                .tree
+                .overlapping(bounds, 0.0)
+                .into_iter()
+                .filter_map(|index| self.spans.spans.get(index))
+                .all(|span| self.span_misses(span.first_column, span.first_row, bounds));
+        }
+        let columns = knot_spans(&self.u_knots, self.u_degree, self.columns, self.u_domain);
+        let rows = knot_spans(&self.v_knots, self.v_degree, self.rows, self.v_domain);
+        rows.iter().all(|(first_row, _)| {
+            columns
+                .iter()
+                .all(|(first_column, _)| self.span_misses(*first_column, *first_row, bounds))
+        })
+    }
+
+    fn span_points(&self, first_column: usize, first_row: usize) -> impl Iterator<Item = Point3> {
+        (first_row..=first_row + self.v_degree).flat_map(move |row| {
+            (first_column..=first_column + self.u_degree)
+                .filter_map(move |column| self.control_point(column, row))
+        })
+    }
+
+    fn span_misses(&self, first_column: usize, first_row: usize, bounds: &Aabb) -> bool {
+        let Some(hull) = Aabb::from_points(self.span_points(first_column, first_row)) else {
+            return true;
+        };
+        let (low, high) = (hull.min().max(bounds.min()), hull.max().min(bounds.max()));
+        if (high - low).min_element() < 0.0 {
+            return true;
+        }
+        let (last_column, last_row) = (first_column + self.u_degree, first_row + self.v_degree);
+        let corner = |column: usize, row: usize| self.control_point(column, row);
+        let (Some(start), Some(across), Some(along), Some(end)) = (
+            corner(first_column, first_row),
+            corner(last_column, first_row),
+            corner(first_column, last_row),
+            corner(last_column, last_row),
+        ) else {
+            return false;
+        };
+        let Some(normal) = (end - start).cross(across - along).try_normalize() else {
+            return false;
+        };
+        let (near, far) = self
+            .span_points(first_column, first_row)
+            .map(|point| point.dot(normal))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(near, far), height| {
+                (near.min(height), far.max(height))
+            });
+        let middle = bounds.center().dot(normal);
+        let reach = bounds.half_extent().dot(normal.abs());
+        middle - reach > far || middle + reach < near
+    }
+
     pub(crate) fn span_seeds(&self, point: Point3) -> Vec<Point2> {
         let mut holding: Vec<&Span> = self
             .spans
@@ -1066,33 +1126,24 @@ impl BSplineSurface {
     }
 
     fn span_index(&self) -> SpanIndex {
-        let spans_of = |knots: &[f64], degree: usize, count: usize, domain: Interval| {
-            (degree..count)
-                .filter_map(|index| {
-                    let interval = Interval::new(*knots.get(index)?, *knots.get(index + 1)?)?;
-                    let inside = interval.length() > 0.0
-                        && interval.start() >= domain.start()
-                        && interval.end() <= domain.end();
-                    inside.then_some((index - degree..=index, interval))
-                })
-                .collect::<Vec<_>>()
-        };
-        let columns = spans_of(&self.u_knots, self.u_degree, self.columns, self.u_domain);
-        let rows = spans_of(&self.v_knots, self.v_degree, self.rows, self.v_domain);
+        let columns = knot_spans(&self.u_knots, self.u_degree, self.columns, self.u_domain);
+        let rows = knot_spans(&self.v_knots, self.v_degree, self.rows, self.v_domain);
         let sampled_by_grid = |spans: usize| spans * SAMPLES_PER_SPAN <= MAX_GRID_SAMPLES;
         if sampled_by_grid(columns.len()) && sampled_by_grid(rows.len()) {
             return SpanIndex::default();
         }
         let spans: Vec<Span> = rows
             .iter()
-            .flat_map(|(row_range, v)| {
-                columns.iter().filter_map(move |(column_range, u)| {
-                    let hull = Aabb::from_points(row_range.clone().flat_map(|row| {
-                        column_range
-                            .clone()
-                            .filter_map(move |column| self.control_point(column, row))
-                    }))?;
-                    Some(Span { hull, u: *u, v: *v })
+            .flat_map(|(first_row, v)| {
+                columns.iter().filter_map(move |(first_column, u)| {
+                    let hull = Aabb::from_points(self.span_points(*first_column, *first_row))?;
+                    Some(Span {
+                        hull,
+                        u: *u,
+                        v: *v,
+                        first_column: *first_column,
+                        first_row: *first_row,
+                    })
                 })
             })
             .collect();
@@ -1127,6 +1178,23 @@ impl BSplineSurface {
         }
         SampleGrid::new(columns + 1, grid)
     }
+}
+
+fn knot_spans(
+    knots: &[f64],
+    degree: usize,
+    count: usize,
+    domain: Interval,
+) -> Vec<(usize, Interval)> {
+    (degree..count)
+        .filter_map(|index| {
+            let interval = Interval::new(*knots.get(index)?, *knots.get(index + 1)?)?;
+            let inside = interval.length() > 0.0
+                && interval.start() >= domain.start()
+                && interval.end() <= domain.end();
+            inside.then_some((index - degree, interval))
+        })
+        .collect()
 }
 
 fn column_of<const WIDTH: usize>(basis: &Basis<WIDTH>, index: usize) -> [f64; 3] {

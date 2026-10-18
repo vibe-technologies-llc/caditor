@@ -5,13 +5,13 @@ use thiserror::Error;
 
 use crate::{
     coordinates::distance_to_segment,
-    curve::Curve,
+    curve::{BSplineCurve, Curve},
     interrupt::{self, Interrupted},
     interval::Interval,
     parametric::Parametric,
     sense::Sense,
     shared::SharedBuffer,
-    surface::Surface,
+    surface::{Surface, SurfaceSide},
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
 };
 
@@ -20,6 +20,14 @@ const MAX_PCURVE_DEPTH: usize = 30;
 const MAX_PERIOD_FRACTION_PER_STEP: f64 = 0.25;
 const BOW_SHARE: f64 = 0.5;
 const BOW_SAMPLES: [f64; 5] = [0.1, 0.3, 0.5, 0.7, 0.9];
+const SIDE_MATCH: f64 = 1e-3 * LINEAR_RESOLUTION;
+const KNOT_MATCH: f64 = 1e-12;
+const SIDES: [SurfaceSide; 4] = [
+    SurfaceSide::VStart,
+    SurfaceSide::VEnd,
+    SurfaceSide::UStart,
+    SurfaceSide::UEnd,
+];
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum PcurveError {
@@ -212,6 +220,9 @@ pub(crate) fn fit(
     sense: Sense,
     hint: Option<Point2>,
 ) -> Result<Pcurve, PcurveError> {
+    if let Some(pcurve) = along_side(surface, curve, interval, sense) {
+        return Ok(pcurve);
+    }
     let mut parameters = curve.seeds(interval);
     if !sense.is_same() {
         parameters.reverse();
@@ -234,6 +245,75 @@ pub(crate) fn fit(
     let tolerance = shape_tolerance(curve, interval);
     let refined = refine(surface, curve, &samples, tolerance)?;
     Pcurve::new(refined, tolerance)
+}
+
+fn along_side(
+    surface: &Surface,
+    curve: &Curve,
+    interval: Interval,
+    sense: Sense,
+) -> Option<Pcurve> {
+    let (Surface::BSpline(spline), Curve::BSpline(row)) = (surface, curve) else {
+        return None;
+    };
+    if spline.u_period().is_some() || spline.v_period().is_some() {
+        return None;
+    }
+    let domain = row.domain();
+    if interval.start() < domain.start() || interval.end() > domain.end() {
+        return None;
+    }
+    let (u, v) = (spline.u_domain(), spline.v_domain());
+    let (side, pivot) = SIDES.into_iter().find_map(|side| {
+        let edge = spline.side(side)?;
+        if same_spline(row, &edge) {
+            return Some((side, None));
+        }
+        let pivot = edge.domain().start() + edge.domain().end();
+        same_spline(row, &edge.reversed()).then_some((side, Some(pivot)))
+    })?;
+    let uv_at = |parameter: f64| {
+        let along = pivot.map_or(parameter, |pivot| pivot - parameter);
+        match side {
+            SurfaceSide::VStart => Point2::new(along, v.start()),
+            SurfaceSide::VEnd => Point2::new(along, v.end()),
+            SurfaceSide::UStart => Point2::new(u.start(), along),
+            SurfaceSide::UEnd => Point2::new(u.end(), along),
+        }
+    };
+    let sample = |parameter: f64| PcurveSample {
+        parameter,
+        uv: uv_at(parameter),
+    };
+    let (first, last) = (sample(interval.start()), sample(interval.end()));
+    let samples = if sense.is_same() {
+        vec![first, last]
+    } else {
+        vec![last, first]
+    };
+    Pcurve::new(samples, shape_tolerance(curve, interval)).ok()
+}
+
+fn same_spline(a: &BSplineCurve, b: &BSplineCurve) -> bool {
+    let close = |x: f64, y: f64| (x - y).abs() <= KNOT_MATCH * (1.0 + x.abs().max(y.abs()));
+    let weights = |curve: &BSplineCurve, count: usize| -> Vec<f64> {
+        curve
+            .weights()
+            .map_or_else(|| vec![1.0; count], <[f64]>::to_vec)
+    };
+    let count = a.control_points().len();
+    a.degree() == b.degree()
+        && count == b.control_points().len()
+        && a.knots().len() == b.knots().len()
+        && a.knots().iter().zip(b.knots()).all(|(x, y)| close(*x, *y))
+        && a.control_points()
+            .iter()
+            .zip(b.control_points())
+            .all(|(p, q)| p.distance(*q) <= SIDE_MATCH)
+        && weights(a, count)
+            .into_iter()
+            .zip(weights(b, count))
+            .all(|(x, y)| close(x, y))
 }
 
 pub(crate) fn shape_tolerance(curve: &Curve, interval: Interval) -> f64 {

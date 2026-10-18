@@ -438,7 +438,9 @@ paths:
   along the feet take the feet's rows, joints the section's arc, and every other edge (against an
   end face or another lofted fillet) is traced again between its vertices on the new surfaces
   (`IntersectionCurve::through`). The solid is rebuilt through `SolidBuilder` with every pcurve on
-  a changed face or edge refitted, and validated.
+  a changed face or edge refitted (the feet's rows and the joints' arcs are sides of the fillet
+  surface, so their pcurves there are exact straight lines, `kernel.md`), every coedge whose edge,
+  ends and face are unchanged settled, and validated.
 - A fillet's tool is lofted through every 2^k-th section only, the coarsest stride keeping at
   least `FIRST_STATIONS` spans whose rows hold every section within `CHORD_FIT`
   (`chord_segment`), since rounding replaces the chord and the boolean's marching cost follows its

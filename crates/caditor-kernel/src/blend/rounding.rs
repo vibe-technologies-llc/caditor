@@ -663,6 +663,14 @@ struct Changes {
     vertices: Moved,
 }
 
+fn carried(solid: &Solid, edge: EdgeId, changes: &Changes) -> bool {
+    !changes.edges.contains_key(&edge)
+        && solid.edge(edge).is_some_and(|edge| {
+            !changes.vertices.contains_key(&edge.start())
+                && !changes.vertices.contains_key(&edge.end())
+        })
+}
+
 fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
     let mut builder = SolidBuilder::new();
     for (id, vertex) in solid.vertices() {
@@ -720,8 +728,10 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
                 continue;
             }
             let mut with_pcurves = Vec::with_capacity(coedges.len());
+            let mut settled = Vec::with_capacity(coedges.len());
             for (coedge, edge, sense) in coedges {
                 let data = solid.coedge(coedge).ok_or(RoundingError::Unmatched)?;
+                settled.push(carried(solid, edge, changes));
                 let pcurve = match changes.edges.get(&edge) {
                     Some((curve, interval)) => fit_pcurve(
                         &surface,
@@ -735,7 +745,8 @@ fn rebuilt(solid: &Solid, changes: &Changes) -> Result<Solid, RoundingError> {
                 };
                 with_pcurves.push((edge, sense, pcurve));
             }
-            builder.add_loop_with_pcurves(built, with_pcurves)?;
+            let built_loop = builder.add_loop_with_pcurves(built, with_pcurves)?;
+            builder.settle(built_loop, &settled);
         }
     }
     Ok(builder.build()?)

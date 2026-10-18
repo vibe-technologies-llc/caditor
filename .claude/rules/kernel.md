@@ -128,6 +128,11 @@ paths:
   within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
   `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when less
   (never below `LINEAR_RESOLUTION`), so a nearly straight short arc keeps an interior sample.
+- A spline edge that is a side of its face's spline surface (neither direction periodic; same
+  degree and knots, control points within `SIDE_MATCH`, weights alike, either way round) is
+  fitted as the straight pcurve along that side without sampling (`pcurve::along_side`), exact
+  since the side's parameter is the surface's: a loft's rows and a fillet's feet and joint arcs,
+  whose many spans would otherwise each take six seeds and their projections.
 - Geometry data is shared, never copied: pcurve samples, spline knots, control points and weights,
   a spline surface's net and an intersection curve's nodes are `Arc` slices, so cloning is a
   pointer copy and successive solids share what an operation did not change. Anything producing a

@@ -101,6 +101,13 @@ fn signed_distance(surface: &Surface, point: Point3) -> f64 {
     }
 }
 
+fn apart(surface: &Surface, bounds: &Aabb) -> bool {
+    match surface {
+        Surface::BSpline(spline) => spline.hulls_miss(&bounds.expanded(TOLERANCE)),
+        _ => surface.distance(bounds.center()) > bounds.half_extent().length() + TOLERANCE,
+    }
+}
+
 struct Node<'a> {
     patch: SurfacePatch<'a>,
     bounds: Aabb,
@@ -127,8 +134,7 @@ impl<'a> Arena<'a> {
 
     fn push(&mut self, patch: SurfacePatch<'a>) -> usize {
         let bounds = patch.bounding_box();
-        let apart =
-            self.other.distance(bounds.center()) > bounds.half_extent().length() + TOLERANCE;
+        let apart = apart(self.other, &bounds);
         self.nodes.push(Node {
             patch,
             bounds,
@@ -474,7 +480,7 @@ impl<'a> Tracer<'a> {
                 Some(contact) => check(contact),
                 None if !boundary_tried && !self.inside(&ahead) => {
                     boundary_tried = true;
-                    self.boundary_within(current, &ahead, direction)
+                    self.boundary_within(current, &ahead, direction)?
                         .or_else(|| {
                             carried_on_plane(surfaces, guess, predicted, direction).and_then(check)
                         })
@@ -496,16 +502,24 @@ impl<'a> Tracer<'a> {
         current: &Contact,
         ahead: &Contact,
         direction: Vector3,
-    ) -> Option<Step> {
-        let contact = self
+    ) -> Result<Option<Step>, Stalled> {
+        let Some(contact) = self
             .crossing_bound(current, ahead)
-            .filter(|contact| !self.at_pole(contact))?;
+            .filter(|contact| !self.at_pole(contact))
+        else {
+            return Ok(None);
+        };
         let moved = contact.point - current.point;
         let reach = moved.length();
-        if moved.dot(direction) <= TOLERANCE {
-            return None;
+        if reach <= TOLERANCE {
+            return Err(Stalled::Collapsed);
         }
-        let (next, _) = contact_direction(self.surfaces(), &contact)?;
+        if moved.dot(direction) <= TOLERANCE {
+            return Ok(None);
+        }
+        let Some((next, _)) = contact_direction(self.surfaces(), &contact) else {
+            return Ok(None);
+        };
         let next = if next.dot(direction) < 0.0 {
             -next
         } else {
@@ -513,12 +527,12 @@ impl<'a> Tracer<'a> {
         };
         let turn = angle_between(direction, next);
         let follows = turn <= MAX_TURN && self.hugs_chord(current, &contact, direction, reach);
-        follows.then_some(Step {
+        Ok(follows.then_some(Step {
             contact,
             tangent: next,
             turn,
             on_boundary: true,
-        })
+        }))
     }
 
     fn hugs_chord(&self, from: &Contact, to: &Contact, direction: Vector3, step: f64) -> bool {

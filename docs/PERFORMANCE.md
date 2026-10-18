@@ -6,16 +6,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [medium · medium] A lofted blend's boolean is still most of its cost: in release the fillet
-  round the eight-edge rim of a pocket with rounded corners in a cylinder takes about 0.13 s
-  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 80 ms of
-  it the boolean, 38 ms rounding and 16 ms planning; the unoptimised test build of
-  `the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round` takes 9 s. The
-  boolean's time goes to marching the foot curves against the cylinder and walls (seeding projects
-  each subdivision box's centre onto the chord spline, a full seed search as it lies off it) and
-  to coincidence checks between spline patches; rounding's to refitting every pcurve of the fillet
-  faces and validating the rebuilt solid. Classifying a subdivision box against a ruled spline by
-  its control hull rather than a projection would cut the seeding.
 - [medium · hard] A modelled thread is slow to cut and to measure: in release an M4×20 shaft
   threaded its whole length takes 0.7 to 0.9 s (about a third classifying fragments by rays
   through a hundred one-turn flank faces, a third imprinting, a fifth validating the volume) and an
@@ -32,6 +22,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
+- [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
+  the eight-edge rim of a pocket with rounded corners in a cylinder takes about 66 ms
+  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 40 ms of
+  it the boolean, 17 ms rounding and 9 ms planning; the unoptimised test build of
+  `the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round` takes 5 s. About
+  23 ms of the boolean are the chord spline's intersections with the cylinder and walls, half of
+  it seeding (Gauss–Newton solves in each subdivision leaf and the restricted control nets that
+  box the spline's halves), the rest marching and building the intersection curves; fragment
+  selection and splitting take 8 and 4 ms. Rounding's time is mostly validating the rebuilt
+  solid's volumes and refitting the foot rows' pcurves on the cylinder and walls (some 600
+  samples an edge from six seeds a span of the 129-section rows).
 - [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
   points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
   its triangles in twelve: each strip triangulates its core and a reach of about the widest empty
