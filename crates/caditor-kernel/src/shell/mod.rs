@@ -2,6 +2,9 @@ mod collapse;
 mod delete;
 #[cfg(test)]
 mod delete_tests;
+mod draft;
+#[cfg(test)]
+mod draft_tests;
 mod edge;
 mod inner;
 mod moving;
@@ -47,6 +50,7 @@ const SETTLED_RESIDUAL: f64 = 0.01 * LINEAR_RESOLUTION;
 const SNAPPED_RESIDUAL: f64 = 1e-12;
 
 pub use delete::{DeleteError, delete_faces};
+pub use draft::{DraftError, DraftedFace, STEEPEST_DRAFT, draft_faces};
 pub use moving::{MoveError, move_faces};
 pub use offset::{OffsetError, offset_faces};
 pub use walls::{ShellSide, Walls};
@@ -133,10 +137,25 @@ impl From<BooleanError> for ShellError {
     }
 }
 
-struct Rigid {
-    faces: BTreeSet<FaceId>,
+struct Motion {
     forward: RigidTransform,
     back: RigidTransform,
+}
+
+struct Rigid {
+    motions: Vec<Motion>,
+    faces: BTreeMap<FaceId, usize>,
+}
+
+impl Rigid {
+    fn of(&self, face: FaceId) -> Option<usize> {
+        self.faces.get(&face).copied()
+    }
+}
+
+struct Carried<'a> {
+    faces: &'a [FaceId],
+    motion: RigidTransform,
 }
 
 struct Offsets<'a> {
@@ -197,17 +216,25 @@ impl<'a> Offsets<'a> {
         }
     }
 
-    fn rigid(solid: &'a Solid, faces: &[FaceId], forward: RigidTransform, reach: f64) -> Self {
+    fn rigid(solid: &'a Solid, carried: &[Carried<'_>], reach: f64) -> Self {
+        let motions = carried
+            .iter()
+            .map(|group| Motion {
+                forward: group.motion,
+                back: group.motion.inverse(),
+            })
+            .collect();
+        let faces = carried
+            .iter()
+            .enumerate()
+            .flat_map(|(index, group)| group.faces.iter().map(move |face| (*face, index)))
+            .collect();
         Self {
             solid,
             reach,
             settled: SETTLED_RESIDUAL,
             distances: BTreeMap::new(),
-            rigid: Some(Rigid {
-                faces: faces.iter().copied().collect(),
-                forward,
-                back: forward.inverse(),
-            }),
+            rigid: Some(Rigid { motions, faces }),
         }
     }
 
@@ -221,18 +248,19 @@ impl<'a> Offsets<'a> {
         }
     }
 
-    fn motion(&self, face: FaceId) -> Option<&Rigid> {
-        self.rigid
-            .as_ref()
-            .filter(|rigid| rigid.faces.contains(&face))
+    fn motion(&self, face: FaceId) -> Option<&Motion> {
+        let rigid = self.rigid.as_ref()?;
+        rigid.motions.get(rigid.of(face)?)
     }
 
-    fn shared_motion(&self, faces: &[FaceId]) -> Option<&Rigid> {
+    fn shared_motion(&self, faces: &[FaceId]) -> Option<&Motion> {
+        let rigid = self.rigid.as_ref()?;
         let (first, rest) = faces.split_first()?;
-        let rigid = self.motion(*first)?;
+        let index = rigid.of(*first)?;
         rest.iter()
-            .all(|face| rigid.faces.contains(face))
-            .then_some(rigid)
+            .all(|face| rigid.of(*face) == Some(index))
+            .then(|| rigid.motions.get(index))
+            .flatten()
     }
 
     fn is_still(&self, face: FaceId) -> bool {

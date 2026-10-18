@@ -1058,6 +1058,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
             | FeatureKind::MoveFace(_)
+            | FeatureKind::Draft(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)

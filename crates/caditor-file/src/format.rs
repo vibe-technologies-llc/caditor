@@ -11,24 +11,24 @@ use caditor_document::{
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
     CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Document, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate,
-    FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
-    FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
-    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
-    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
-    untwisted, view_name,
+    Document, Draft, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle,
+    FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
+    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
+    Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
+    group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -332,6 +332,7 @@ pub(crate) enum FeatureKindRecord {
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
     MoveFace(Box<MoveFaceRecord>),
+    Draft(Box<DraftRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -904,6 +905,28 @@ pub(crate) struct DeleteFaceRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DraftRecord {
+    pub body: u64,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    pub neutral: Lenient<PlaneReferenceRecord>,
+    pub angle: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tangent: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beyond: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own: Vec<Lenient<FaceAngleRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceAngleRecord {
+    pub face: FaceRecord,
+    pub angle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct MoveFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1057,7 +1080,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 88] = [
+pub(crate) const FEATURE_KINDS: [&str; 89] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1146,6 +1169,7 @@ pub(crate) const FEATURE_KINDS: [&str; 88] = [
     "sweep_shape",
     "loft_ends",
     "move_face",
+    "draft",
 ];
 
 #[derive(Debug, Clone)]
@@ -3363,6 +3387,29 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .collect(),
             }))
         }
+        FeatureKind::Draft(draft) => FeatureKindRecord::Draft(Box::new(DraftRecord {
+            body: draft.body.raw(),
+            faces: draft
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            neutral: Lenient::Read(plane_reference_record(&draft.neutral)),
+            angle: draft.angle.to_stored_text(),
+            flipped: draft.flipped,
+            tangent: draft.tangent,
+            beyond: draft.beyond.as_ref().map(Expression::to_stored_text),
+            own: draft
+                .own
+                .iter()
+                .map(|own| {
+                    Lenient::Read(FaceAngleRecord {
+                        face: face_record(&own.face),
+                        angle: own.angle.to_stored_text(),
+                    })
+                })
+                .collect(),
+        })),
         FeatureKind::MoveFace(moving) => FeatureKindRecord::MoveFace(Box::new(MoveFaceRecord {
             body: moving.body.raw(),
             faces: moving
@@ -6873,6 +6920,7 @@ fn restore_kind(
         FeatureKindRecord::MoveFace(record) => {
             FeatureKind::MoveFace(restore_move_face(record, name, issues))
         }
+        FeatureKindRecord::Draft(record) => FeatureKind::Draft(restore_draft(record, name, issues)),
         FeatureKindRecord::Sweep(record) => {
             FeatureKind::Solid(SolidFeature::Sweep(restore_sweep(record, name, issues)))
         }
@@ -8656,6 +8704,76 @@ fn restore_delete_face(
     DeleteFace {
         body: FeatureId::from_raw(record.body),
         faces,
+    }
+}
+
+fn restore_draft(record: &DraftRecord, feature: &str, issues: &mut Vec<String>) -> Draft {
+    let angle = restore_value(&record.angle, "angle", "0 deg", feature, issues);
+    let beyond = record.beyond.as_ref().map(|beyond| {
+        restore_value(
+            beyond,
+            "angle beyond the neutral plane",
+            "0 deg",
+            feature,
+            issues,
+        )
+    });
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces drafted by “{feature}” could not be read and were left as they stand."
+        ));
+    }
+    let neutral = match &record.neutral {
+        Lenient::Read(plane) => restore_plane_reference(plane),
+        Lenient::Unreadable(_) => None,
+    };
+    let neutral = neutral.unwrap_or_else(|| {
+        issues.push(format!(
+            "The neutral plane of “{feature}” could not be read, so it drafts from the XY plane."
+        ));
+        PlaneReference::Principal(PrincipalPlane::Xy)
+    });
+    let own: Vec<FaceAngle> = record
+        .own
+        .iter()
+        .filter_map(|entry| match entry {
+            Lenient::Read(entry) => Some(FaceAngle {
+                face: restore_face(
+                    &entry.face.face,
+                    entry.face.origin,
+                    entry.face.copy,
+                    &entry.face.neighbours,
+                )?,
+                angle: restore_value(&entry.angle, "own angle", "0 deg", feature, issues),
+            }),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if own.len() < record.own.len() {
+        issues.push(format!(
+            "Some faces given their own angle by “{feature}” could not be read and were left as \
+             they stand."
+        ));
+    }
+    Draft {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        neutral,
+        angle,
+        flipped: record.flipped,
+        tangent: record.tangent,
+        beyond,
+        own,
     }
 }
 

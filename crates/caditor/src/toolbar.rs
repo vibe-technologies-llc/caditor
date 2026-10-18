@@ -7,7 +7,7 @@ use crate::{
     analysis::{AnalysisCommand, Kind},
     blend_panel, blend_tools, coil_tools, combine_tools,
     commands::{Command, CommandFrame, Offer},
-    datum_tools, delete_face_tools,
+    datum_tools, delete_face_tools, draft_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
     files::FileCommand,
@@ -164,6 +164,7 @@ impl Group {
                     Command::OffsetFace,
                     Command::DeleteFace,
                     Command::MoveFace,
+                    Command::Draft,
                     Command::SplitFace,
                     Command::Combine,
                 ],
@@ -350,6 +351,7 @@ fn group_buttons(
             offset_face_offer(model, context, commands, actions);
             delete_face_offer(model, context, commands, actions);
             move_face_offer(model, context, commands, actions);
+            draft_offer(model, context, commands, actions);
             split_face_offer(model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
@@ -920,6 +922,24 @@ fn offset_face_offer(
             model.evaluation(),
             source,
             &Starts::of(model),
+        ));
+    }
+}
+
+fn draft_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.draft;
+    if commands.invoke(Command::Draft, source)
+        && let Ok(source) = source
+    {
+        actions.extend(draft_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
         ));
     }
 }

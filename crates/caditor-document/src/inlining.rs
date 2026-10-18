@@ -183,6 +183,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Shell(shell) => shell.expressions_mut(),
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::MoveFace(moving) => moving.expressions_mut().into(),
+        FeatureKind::Draft(draft) => draft.expressions_mut(),
         FeatureKind::DeleteFace(_) => Vec::new(),
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),

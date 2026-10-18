@@ -1,17 +1,18 @@
 use caditor_document::{
-    AxisReference, DeleteFace, FeatureId, FeatureKind, MoveFace, Scale, Split, SplitAlong,
-    SplitCarry, SplitFace,
+    AxisReference, DeleteFace, Draft, FaceAngle, FeatureId, FeatureKind, MoveFace, Scale, Split,
+    SplitAlong, SplitCarry, SplitFace,
 };
 use caditor_expression::{Dimension, Expression, Unit};
+use caditor_kernel::FaceReference;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    delete_face_tools,
+    delete_face_tools, draft_tools,
     mcp::{
         features::{
-            Amount, Built, FeatureError, added, amount, body_of, face_references, needed, parsed,
-            signed_length, turn,
+            Amount, Built, FeatureError, OffName, added, amount, body_of, face_references, needed,
+            parsed, signed_length, turn,
         },
         places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
@@ -114,6 +115,34 @@ pub struct FaceMoving {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum BeyondAsk {
+    Off(OffName),
+    Angle(Amount),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnAngle {
+    pub face: String,
+    pub angle: Amount,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FaceDrafting {
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub angle: Option<Amount>,
+    pub neutral: Option<PlaneChoice>,
+    pub flipped: Option<bool>,
+    pub tangent: Option<bool>,
+    pub beyond: Option<BeyondAsk>,
+    pub own_angles: Option<Vec<OwnAngle>>,
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Splitting {
@@ -185,9 +214,9 @@ fn kept_along(
 fn faces_of(
     session: &Session,
     body: FeatureId,
-    (asked, kept): (Option<&[String]>, Option<&[caditor_kernel::FaceReference]>),
+    (asked, kept): (Option<&[String]>, Option<&[FaceReference]>),
     verb: &'static str,
-) -> Result<Vec<caditor_kernel::FaceReference>, ToolError> {
+) -> Result<Vec<FaceReference>, ToolError> {
     match (asked, kept) {
         (Some([]), _) | (None, None) => Err(ReshapeError::NoFaces { verb }.into()),
         (Some(keys), _) => face_references(session, body, keys),
@@ -368,6 +397,118 @@ pub fn move_face(
     asked: FaceMoving,
 ) -> Result<Answer, ToolError> {
     let built = move_face_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+pub fn draft_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceDrafting,
+    base: Option<&Draft>,
+) -> Result<Built, ToolError> {
+    let angle = parsed(session, asked.angle.as_ref(), |session, angle| {
+        turn(session, "angle", angle)
+    })?;
+    let beyond = match &asked.beyond {
+        None => base.map(|base| base.beyond.clone()).unwrap_or_default(),
+        Some(BeyondAsk::Off(_)) => None,
+        Some(BeyondAsk::Angle(given)) => Some(turn(session, "beyond", given)?),
+    };
+    let own_angles = asked
+        .own_angles
+        .as_ref()
+        .map(|owns| {
+            owns.iter()
+                .map(|own| turn(session, "own_angles angle", &own.angle))
+                .collect::<Result<Vec<_>, ToolError>>()
+        })
+        .transpose()?;
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let own = match (&asked.own_angles, own_angles) {
+        (Some(owns), Some(angles)) => owns
+            .iter()
+            .zip(angles)
+            .map(|(own, angle)| {
+                let face = face_references(session, body, std::slice::from_ref(&own.face))?;
+                face.into_iter()
+                    .next()
+                    .map(|face| FaceAngle { face, angle })
+                    .ok_or_else(|| {
+                        ToolError::from(references::ReferenceError::NoFace {
+                            body: body_label(session.document(), body),
+                            face: own.face.clone(),
+                        })
+                    })
+            })
+            .collect::<Result<Vec<_>, ToolError>>()?,
+        _ => base.map(|base| base.own.clone()).unwrap_or_default(),
+    };
+    let faces = match (asked.faces.as_deref(), base, own.is_empty()) {
+        (None, None, false) => Vec::new(),
+        _ => faces_of(
+            session,
+            body,
+            (
+                asked.faces.as_deref(),
+                base.map(|base| base.faces.as_slice()),
+            ),
+            "draft",
+        )?,
+    };
+    let (neutral, flipped) = match (&asked.neutral, base) {
+        (Some(choice), _) => {
+            let neutral = places::plane(session.document(), session.evaluation(), choice)?;
+            let chosen: Vec<FaceReference> = faces
+                .iter()
+                .chain(own.iter().map(|own| &own.face))
+                .cloned()
+                .collect();
+            let flipped =
+                draft_tools::flipped_on_shown(session.evaluation(), body, &chosen, &neutral);
+            (neutral, flipped)
+        }
+        (None, Some(base)) => (base.neutral.clone(), base.flipped),
+        (None, None) => {
+            let chosen: Vec<FaceReference> = faces
+                .iter()
+                .chain(own.iter().map(|own| &own.face))
+                .cloned()
+                .collect();
+            draft_tools::default_neutral_on(session.evaluation(), body, &chosen)
+        }
+    };
+    let draft = Draft {
+        body,
+        faces,
+        neutral,
+        angle: angle
+            .or_else(|| base.map(|base| base.angle.clone()))
+            .unwrap_or(Expression::Measure(
+                draft_tools::DEFAULT_ANGLE,
+                Unit::Degree,
+            )),
+        flipped: asked.flipped.unwrap_or(flipped),
+        tangent: asked
+            .tangent
+            .or_else(|| base.map(|base| base.tangent))
+            .unwrap_or(false),
+        beyond,
+        own,
+    };
+    let label = body_label(session.document(), body);
+    Ok(
+        Built::new(FeatureKind::Draft(draft), draft_tools::TITLE, asked.name)
+            .telling("body", json!(label)),
+    )
+}
+
+pub fn draft(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceDrafting,
+) -> Result<Answer, ToolError> {
+    let built = draft_built(session, work, asked, None)?;
     added(session, work, built)
 }
 

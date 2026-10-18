@@ -25,6 +25,8 @@ paths:
   - "crates/caditor/src/delete_face_panel.rs"
   - "crates/caditor/src/move_face_tools.rs"
   - "crates/caditor/src/move_face_panel.rs"
+  - "crates/caditor/src/draft_tools.rs"
+  - "crates/caditor/src/draft_panel.rs"
   - "crates/caditor/src/split_face_tools.rs"
   - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
@@ -89,7 +91,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Move face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Move face, Draft, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
@@ -214,7 +216,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Move face, Split face, Thread, Sweep, and Hole on a face, whose
+  Shell, Offset faces, Delete face, Move face, Draft, Split face, Thread, Sweep, and Hole on a face, whose
   `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
   (`app-input.md`, Queued actions), and runs when the shape arrives.
 
@@ -258,7 +260,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   feature so clicks toggle entries, and while it is open the row shows the prompt and Stop choosing,
   which closes the feature keeping its changes, as Escape does.
 - A slot that goes on choosing after a click (`Slot::keeps_choosing`: the sweep's path, the shell's
-  own thickness faces, Add another hole) and every list row while open show an info pill
+  own thickness faces, the draft's own angle faces, Add another hole) and every list row while open show an info pill
   `KEEPS_CHOOSING` ("Keeps choosing until Esc") beside Stop; a single-click slot has none.
 - Axis references are one row, `feature_fields::axis_row` (Revolve, Pattern, Mate, Move): a combo of
   what the feature can use, with the picker under it, reading None chosen when unset.
@@ -657,8 +659,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   an opened or unoffsettable face refused in a notice. The thickness arrow stands on the first opened
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
-- Hovering a row of the edges, opened, moved, deleted or split faces in an open fillet's, chamfer's,
-  shell's, offset face's, move face's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
+- Hovering a row of the edges, opened, moved, drafted, deleted or split faces in an open fillet's,
+  chamfer's, shell's, offset face's, move face's, draft's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
@@ -685,6 +687,29 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   computed it shows the result as an offset face does (`FaceChoice::Moving`, the moved faces keep
   their keys), a click moving a face or leaving it out (`move_face_tools::toggle_face`); failed or
   pending, the body before it with every face pickable. It draws no drag arrows yet.
+- Draft (no default key; Model menu, palette, the right-click menu's face tools) takes the selected
+  faces of one body (`draft_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`)
+  and creates a `Draft` of `DEFAULT_ANGLE` (3°) from `caditor_document::default_neutral` (the
+  floor beside the first face, pulling toward the faces), which opens: a description, Faces to draft
+  in words with Leave this face out, Draft angle, Own angle, Neutral plane (`plane_selector::combo`
+  of `datum_tools::listed_planes` with the picker on `Slot::DraftNeutral`, any plane or flat face
+  made before it, `draft_tools::plane_change`), Pull direction (the pull in words, `Toward +Z`
+  when along an axis, and Flip the pull direction), Draft the faces tangent to these too, Split
+  the faces at the neutral plane (adding Angle beyond, 3° to start) and Body. Choosing a neutral
+  plane points the pull at the faces again (`draft_tools::neutral_change`, `flipped_toward` on the
+  body before it). Fields are keyed `("draft-angle", caption, feature)`.
+- Own angle lists each face given an angle of its own as a value row captioned with the face
+  (`feature_fields::expression_row_removable`, owned as `draft_panel::own_angle_caption`, keyed
+  `("draft-own-angle", feature, index)`; its remove button gives it the draft angle again, back
+  among the faces). Choose faces starts `Slot::DraftOwnAngle`, which keeps choosing: each click on
+  a flat face of the body (`draft_tools::own_angle_click`, routed before other picking like the
+  shell's own thickness, queued as `Rerun::OwnAngle` while the body has no shape) gives it its own
+  angle (the draft angle to start) or takes it back, one undoable change each, a curved face
+  refused in a notice. A face is in one list at a time: giving it its own angle takes it out of
+  the faces, and a click while the draft is open (`draft_tools::toggle_face`) leaves a face out of
+  either list or adds it to the faces. While open and computed it shows the result as a move face
+  does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
+  colour, `draft_tools::drafted_faces`); failed or pending, the body before it.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it

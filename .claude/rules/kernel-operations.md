@@ -690,6 +690,11 @@ paths:
   back by the inverse (`Offsets::pulled_back`) with the normal carried forward, and the reach is the
   farthest travel. A neighbour must still be one the shell can extend (the edge rebuilding and
   `intersect_surfaces` decide).
+- `move_each(solid, groups)` is the same with a motion per group of faces (`Carried`: faces and
+  their `RigidTransform`; `Offsets::rigid` keeps one `Motion` per group and each face's group in
+  `Rigid`); an edge between faces of two groups is rebuilt or intersected like one between a moved
+  and a still face, since `Offsets::shared_motion` carries an edge's curve only when all its faces
+  share one motion. The reach is the farthest travel of any group. A draft is built on it.
 - Corners touching a moved face start solving from their carried point (`Offsets::carried_with`), so
   a seam vertex of a shifted bore lands on its own side of the circle, not the antipode; hints on a
   moved face are taken on the pulled-back point and seam planes of a moved round face are carried
@@ -703,6 +708,22 @@ paths:
   crossing afterwards `Crosses`. A moved face tangent to a still one (a fillet along it) cannot keep
   the tangency unless it moves along it: shifting a top up with the fillet along its rim works,
   the top alone does not.
+
+# Drafting faces (`shell/draft.rs`)
+
+- `draft_faces(solid, faces, neutral)` tilts each `DraftedFace` (a face and its own angle in
+  radians) about the line where its plane meets the neutral plane, so that it makes that angle
+  with the pull (the neutral plane's normal): the turn is the angle less the face's present angle
+  (`asin` of the outward normal along the pull), about the axis `normal × pull`, so a positive
+  angle leans the outward normal toward the pull and narrows the body that way; a face already at
+  its angle is left out. Only planes are drafted (`NotFlat`); an angle not finite or steeper than
+  `STEEPEST_DRAFT` (89°) is `TooSteep`, a face parallel to the neutral plane `AlongNeutral`, no face
+  `NothingToDraft`, every face at its angle `AlreadyDrafted`, a face listed twice taken once.
+- Faces sharing a plane (normal and offset within the resolutions) and a turn share one motion;
+  the groups go to `move_each`, so neighbours extend or trim as they do for a move and every
+  `MoveError` (wrapped as `DraftError::Move`) and name keeping are a move's. A draft steep enough to
+  fold the body fails there rather than building a bad solid. Splitting at a parting line is the
+  document's (`split_faces` first, `document.md`).
 
 # Delete faces (`shell/delete.rs`)
 

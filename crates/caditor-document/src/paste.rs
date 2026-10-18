@@ -637,6 +637,10 @@ impl FeatureKind {
             Self::Shell(shell) => shell.body = rename(shell.body),
             Self::OffsetFace(offset) => offset.body = rename(offset.body),
             Self::DeleteFace(delete) => delete.body = rename(delete.body),
+            Self::Draft(draft) => {
+                draft.body = rename(draft.body);
+                rename_plane(&mut draft.neutral, rename);
+            }
             Self::MoveFace(moving) => {
                 moving.body = rename(moving.body);
                 for axis in moving.references_mut() {

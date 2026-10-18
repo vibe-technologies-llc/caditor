@@ -70,6 +70,7 @@ mod delete_face;
 mod dialogs;
 mod dimension_labels;
 mod display_styles;
+mod draft;
 mod drawing_import;
 mod exporting;
 mod extrude_from_selection;

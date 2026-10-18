@@ -8,8 +8,8 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
     CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
-    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup,
-    Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, Draft, EdgeGroup,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
     FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
     Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem,
@@ -85,10 +85,11 @@ pub enum Family {
     ReferenceImage,
     DeleteFace,
     MoveFace,
+    Draft,
 }
 
 impl Family {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -117,6 +118,7 @@ impl Family {
         Self::ReferenceImage,
         Self::DeleteFace,
         Self::MoveFace,
+        Self::Draft,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -128,6 +130,7 @@ impl Family {
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::DeleteFace(_) => Self::DeleteFace,
             FeatureKind::MoveFace(_) => Self::MoveFace,
+            FeatureKind::Draft(_) => Self::Draft,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
@@ -205,6 +208,30 @@ pub fn feature_kind(
                 } else {
                     None
                 },
+            })
+        }
+        Family::Draft => {
+            let body = scene.body(input)?;
+            FeatureKind::Draft(Draft {
+                body,
+                faces: scene.faces(input, body)?,
+                neutral: scene.plane(input)?,
+                angle: scene.turn(input)?,
+                flipped: input.arbitrary()?,
+                tangent: input.arbitrary()?,
+                beyond: if input.arbitrary()? {
+                    Some(scene.turn(input)?)
+                } else {
+                    None
+                },
+                own: (0..input.int_in_range(0u8..=2)?)
+                    .map(|_| {
+                        Ok(FaceAngle {
+                            face: scene.face(input, body)?,
+                            angle: scene.turn(input)?,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
             })
         }
         Family::DeleteFace => {

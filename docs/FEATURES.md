@@ -61,9 +61,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [medium · hard] Draft angle on existing faces: a fixed angle from a plane, a split at a parting
-  line with an angle on each side, and an angle per face, following tangent faces as one chain. Move
-  face now tilts faces about an axis with their neighbours following, which a draft can build on.
+- [medium · hard] Draft tilts flat faces only: a round wall (a cylinder drafted into a cone), a
+  cone, a spline or extruded face in a tangent chain is refused (`DraftCause::NotFlat`), since each
+  needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
+  is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
+  (each side drafted from its own hinge) is not offered. The draft has no angle arrow on the model.
 - [low · medium] A web (`rib.rs`) along a spline or ellipse takes no draft (`extrude_tapered`
   refuses them) and two such curves meeting at a sharp corner are `Apart`, and a rib parallel to
   its sketch takes no draft and runs its free arc ends on only along their tangent (both are a
@@ -89,7 +91,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   part can be a face boundary for a draft to start from.
 - [low · hard] Emboss or deboss sketch text, or any sketch profile, onto a face, flat or curved
   (wrapped around it), raised or recessed by a depth.
-- [low · hard · blocked by: draft angle (above)] No plastic-part features:
+- [low · hard] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
 

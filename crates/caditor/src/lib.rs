@@ -54,6 +54,8 @@ mod dimensioning;
 mod display;
 mod display_picker;
 mod display_style;
+mod draft_panel;
+mod draft_tools;
 mod drag_solver;
 mod drawing;
 mod drawing_export;

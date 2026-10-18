@@ -8,7 +8,7 @@ use caditor_kernel::{
 
 use crate::{
     datum::{AxisReference, Resolver, capitalized},
-    describe::{describe_edge, describe_origin, edge_faces},
+    describe::{describe_corner, describe_edge, describe_face, describe_faces},
     document::{Feature, FeatureId},
     failure::{Cause, Chosen, Expected, Near, Unmatched},
     origins,
@@ -177,35 +177,15 @@ impl Context<'_> {
     }
 
     fn describe_face(&self, solid: &Solid, face: FaceId) -> String {
-        describe_origin(
-            self.inputs.document,
-            solid.face(face).and_then(|face| face.origin()),
-        )
+        describe_face(self.inputs.document, solid, face)
     }
 
     fn describe_faces(&self, solid: &Solid, faces: &[FaceId]) -> Vec<String> {
-        let mut names: Vec<String> = Vec::with_capacity(faces.len());
-        for face in faces {
-            let name = self.describe_face(solid, *face);
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
-        names
+        describe_faces(self.inputs.document, solid, faces)
     }
 
     fn describe_corner(&self, solid: &Solid, vertex: VertexId) -> String {
-        let faces: BTreeSet<FaceId> = solid
-            .edges()
-            .filter(|(_, edge)| edge.start() == vertex || edge.end() == vertex)
-            .flat_map(|(id, _)| edge_faces(solid, id))
-            .collect();
-        let faces: Vec<FaceId> = faces.into_iter().collect();
-        match self.describe_faces(solid, &faces).as_slice() {
-            [] => "one of its corners".to_owned(),
-            [only] => format!("the corner of {only}"),
-            [rest @ .., last] => format!("the corner where {} and {last} meet", rest.join(", ")),
-        }
+        describe_corner(self.inputs.document, solid, vertex)
     }
 
     fn shift(&self, solid: &Solid, faces: &[FaceId], distance: f64) -> Result<Vector3, Failure> {

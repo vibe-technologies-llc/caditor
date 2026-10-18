@@ -77,6 +77,10 @@ pub enum Rerun {
         feature: FeatureId,
         pickable: Pickable,
     },
+    OwnAngle {
+        feature: FeatureId,
+        pickable: Pickable,
+    },
 }
 
 #[derive(Debug, Clone)]

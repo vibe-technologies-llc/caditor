@@ -11,6 +11,7 @@ use crate::{
     datum_cause::DatumCause,
     delete_face::DeleteFaceCause,
     document::list_names,
+    draft::DraftCause,
     hole::HoleCause,
     import::ImportCause,
     loft::LoftCause,
@@ -73,6 +74,7 @@ pub(crate) enum Cause {
     DeleteFace(DeleteFaceCause),
     OffsetFace(OffsetFaceCause),
     MoveFace(MoveFaceCause),
+    Draft(DraftCause),
     Shell(ShellCause),
 }
 
@@ -117,6 +119,7 @@ impl Cause {
             Self::DeleteFace(delete) => delete.reason(),
             Self::OffsetFace(offset) => offset.reason(),
             Self::MoveFace(moving) => moving.reason(),
+            Self::Draft(draft) => draft.reason(),
             Self::Shell(shell) => shell.reason(),
         }
     }
@@ -162,6 +165,7 @@ impl Cause {
             Self::DeleteFace(delete) => delete.remedy(),
             Self::OffsetFace(offset) => offset.remedy(),
             Self::MoveFace(moving) => moving.remedy(),
+            Self::Draft(draft) => draft.remedy(),
             Self::Shell(shell) => shell.remedy(),
         }
     }
@@ -521,6 +525,8 @@ pub(crate) enum Chosen {
     Faces,
     FacesToOpen,
     FacesToMove,
+    FacesToDraft,
+    FacesWithOwnAngle,
     FacesToDelete,
     FacesToMirror,
     FacesToSplit,
@@ -533,6 +539,8 @@ impl Chosen {
             Self::Faces => "chosen face",
             Self::FacesToOpen => "face to open",
             Self::FacesToMove => "face to move",
+            Self::FacesToDraft => "face to draft",
+            Self::FacesWithOwnAngle => "face given its own draft angle",
             Self::FacesToDelete => "face to delete",
             Self::FacesToMirror => "face to mirror",
             Self::FacesToSplit => "face to split",
@@ -545,6 +553,8 @@ impl Chosen {
             Self::Faces => "chosen faces",
             Self::FacesToOpen => "faces to open",
             Self::FacesToMove => "faces to move",
+            Self::FacesToDraft => "faces to draft",
+            Self::FacesWithOwnAngle => "faces given their own draft angle",
             Self::FacesToDelete => "faces to delete",
             Self::FacesToMirror => "faces to mirror",
             Self::FacesToSplit => "faces to split",

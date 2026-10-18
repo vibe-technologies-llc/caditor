@@ -29,7 +29,7 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     blend_tools::{self, ChosenEdges},
-    delete_face_tools,
+    delete_face_tools, draft_tools,
     model::Waker,
     move_face_tools, offset_face_tools,
     selection::Pickable,
@@ -746,6 +746,26 @@ impl OpenChoice {
                     references: moving.faces.clone(),
                     opened: move_face_tools::moved_faces(solid, moving),
                     choice: FaceChoice::Moving { tangent: false },
+                },
+            },
+            Some(FeatureKind::Draft(draft)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Moving { tangent },
+                }) if references == draft_tools::references(draft) && tangent == draft.tangent => {
+                    Self::Faces {
+                        references,
+                        opened,
+                        choice: FaceChoice::Moving { tangent },
+                    }
+                }
+                _ => Self::Faces {
+                    references: draft_tools::references(draft),
+                    opened: draft_tools::drafted_faces(solid, draft),
+                    choice: FaceChoice::Moving {
+                        tangent: draft.tangent,
+                    },
                 },
             },
             Some(FeatureKind::DeleteFace(deletion)) => match previous {

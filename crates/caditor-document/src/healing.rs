@@ -250,6 +250,27 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(offset.body, face, &what);
             }
         }
+        FeatureKind::Draft(draft) => {
+            let count = draft.faces.len();
+            for (index, face) in draft.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its drafted face".to_owned()
+                } else {
+                    format!("drafted face {} of {count}", index + 1)
+                };
+                visitor.face(draft.body, face, &what);
+            }
+            let count = draft.own.len();
+            for (index, own) in draft.own.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its face at an angle of its own".to_owned()
+                } else {
+                    format!("face {} of {count} at an angle of its own", index + 1)
+                };
+                visitor.face(draft.body, &mut own.face, &what);
+            }
+            visit_plane(&mut draft.neutral, "its neutral plane", visitor);
+        }
         FeatureKind::MoveFace(moving) => {
             let count = moving.faces.len();
             for (index, face) in moving.faces.iter_mut().enumerate() {
