@@ -2,8 +2,9 @@
 
 {command:sketch.text} writes text into the sketch in Inter, the font caditor carries.
 Its letters are closed outlines, so [Extrude](extrude) raises them from a face or cuts them into
-it like any other profile, their holes (the middle of an `o` or a `B`) left open. Find it in the
-corner menu of the Polygon button, the Sketch menu or {command:palette}.
+it like any other profile, their holes (the middle of an `o` or a `B`) left open; [Emboss](emboss)
+does the same from a face by a depth, and wraps the letters round a cylinder or cone. Find it in
+the corner menu of the Polygon button, the Sketch menu or {command:palette}.
 
 While it is active the Text panel opens with the text's values:
 

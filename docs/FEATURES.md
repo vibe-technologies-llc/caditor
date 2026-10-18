@@ -87,8 +87,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [low · hard] Emboss or deboss sketch text, or any sketch profile, onto a face, flat or curved
-  (wrapped around it), raised or recessed by a depth.
+- [low · medium] Emboss raises or recesses every closed outline of a sketch on flat faces of one
+  plane and on faces of one cylinder or cone, but cannot choose which regions of the sketch, has no
+  drag arrow for its depth, gives the walls no draft, is not repeated by a pattern or mirror of
+  features, and refuses a sphere or other doubly curved face (wrapping onto one needs the chosen
+  projection of the wrapped split above). Its depth on a cone is measured square to the slope.
 - [low · hard · blocked by: draft angle (above)] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.

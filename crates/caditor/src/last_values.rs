@@ -35,6 +35,7 @@ pub enum Remembered {
     RibThickness,
     OffsetDistance,
     LinearSpacing,
+    EmbossDepth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +56,7 @@ impl Sign {
 }
 
 impl Remembered {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::FilletSize,
         Self::ChamferSize,
         Self::ChamferForm,
@@ -74,6 +75,7 @@ impl Remembered {
         Self::RibThickness,
         Self::OffsetDistance,
         Self::LinearSpacing,
+        Self::EmbossDepth,
     ];
 
     fn name(self) -> &'static str {
@@ -96,6 +98,7 @@ impl Remembered {
             Self::RibThickness => "rib_thickness",
             Self::OffsetDistance => "offset_distance",
             Self::LinearSpacing => "linear_spacing",
+            Self::EmbossDepth => "emboss_depth",
         }
     }
 
@@ -120,6 +123,7 @@ impl Remembered {
             | Self::PipeBend
             | Self::RibThickness
             | Self::OffsetDistance
+            | Self::EmbossDepth
             | Self::LinearSpacing => Some(Dimension::LENGTH),
         }
     }
@@ -333,6 +337,8 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
         value(Remembered::RibThickness, &rib.thickness);
     } else if let Some(offset) = kind.offset_face() {
         value(Remembered::OffsetDistance, &offset.distance);
+    } else if let Some(emboss) = kind.emboss() {
+        value(Remembered::EmbossDepth, &emboss.depth);
     } else if let Some(pattern) = kind.pattern() {
         match &pattern.kind {
             PatternKind::Linear { first, .. } => {

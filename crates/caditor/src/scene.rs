@@ -2382,7 +2382,11 @@ impl<'a> Builder<'a> {
         let faces = match &open.choice {
             OpenChoice::Faces {
                 opened,
-                choice: FaceChoice::Moving { .. } | FaceChoice::Deleting | FaceChoice::Splitting,
+                choice:
+                    FaceChoice::Moving { .. }
+                    | FaceChoice::Deleting
+                    | FaceChoice::Embossing
+                    | FaceChoice::Splitting,
                 ..
             } => self.choosable_faces(open.feature, &mesh.faces, opened, color, |_| true),
             OpenChoice::Faces {

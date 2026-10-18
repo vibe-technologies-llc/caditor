@@ -172,3 +172,31 @@ fn an_outline_longer_than_once_round_is_refused() {
 
     assert!(matches!(wrapped, Err(WrapError::BeyondFullTurn { turns }) if turns > 1.0));
 }
+
+#[test]
+fn a_band_reaching_the_axis_or_not_a_length_is_refused() {
+    let (_, cylinder) = wall_of(&rod());
+    let surface = Surface::Cylinder(cylinder);
+    let plane = tangent_plane(RADIUS, Vector3::X);
+    let outline = regions(&rectangle(5, (10.0, -6.0), (20.0, 6.0)));
+
+    let too_deep = WrapBand::new(RADIUS + 1.0, 1.0).unwrap();
+    let reaching = wrap_regions_within(&plane, &outline, &surface, Some(too_deep), TOOL);
+
+    assert_eq!(reaching.err(), Some(WrapError::ReachesAxis));
+    assert_eq!(WrapBand::new(0.0, 1.0), Err(WrapError::UnusableBand));
+    assert_eq!(WrapBand::new(1.0, f64::NAN), Err(WrapError::UnusableBand));
+}
+
+#[test]
+fn a_band_wraps_into_a_valid_solid() {
+    let (_, cylinder) = wall_of(&rod());
+    let surface = Surface::Cylinder(cylinder);
+    let plane = tangent_plane(RADIUS, Vector3::X);
+    let outline = regions(&rectangle(5, (10.0, -6.0), (20.0, 6.0)));
+    let band = WrapBand::new(0.25, 2.0).unwrap();
+
+    let tool = wrap_regions_within(&plane, &outline, &surface, Some(band), TOOL).unwrap();
+
+    assert_eq!(tool.validate(), Ok(()));
+}
