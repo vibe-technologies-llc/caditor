@@ -662,6 +662,33 @@ paths:
   edge is `UnsupportedEdge`; moving the whole tangent chain (`tangent_faces`) keeps every tangency
   (radii grow by the distance).
 
+# Moving faces (`shell/moving.rs`)
+
+- `move_faces(solid, faces, motion)` carries the chosen faces by one `RigidTransform` (a shift, a
+  tilt about an axis, or both) and lets neighbours extend or trim to meet them: valid or a
+  `MoveError` (`Unmoved` when no point of the faces' edges travels past the resolution, sampled at
+  `TRAVEL_SAMPLES` per edge, so a tilt about an axis through a face's only vertex still counts;
+  `NothingToMove`, `MissingFace`, `UnsupportedFace`, `UnsupportedEdge`, `Vanishes`, `Corner`,
+  `EdgeCollapses`, `Invalid`, `Crosses`, `Cancelled`). It is the shell's inner solid with
+  `Offsets::rigid`: the moved faces' surfaces are their own transformed (`Surface::transformed`, so
+  any surface kind moves, splines included), their residual is the original's at the point pulled
+  back by the inverse (`Offsets::pulled_back`) with the normal carried forward, and the reach is the
+  farthest travel. A neighbour must still be one the shell can extend (the edge rebuilding and
+  `intersect_surfaces` decide).
+- Corners touching a moved face start solving from their carried point (`Offsets::carried_with`), so
+  a seam vertex of a shifted bore lands on its own side of the circle, not the antipode; hints on a
+  moved face are taken on the pulled-back point and seam planes of a moved round face are carried
+  with it. An edge with a moved face is first tried as its curve carried by the motion
+  (`edge::carried`): taken when its ends land and it lies on both faces (always when both moved), so
+  a shifted bore keeps exact circles where it meets a still plane; otherwise the shell's rebuilding
+  (a degenerate rebuilt circle falls through rather than failing) and then the surfaces'
+  intersection, so a tilted top meets a round wall in an ellipse. Edge reversal and outline inversion
+  are judged on points pulled back when every face of the edge moved.
+- Faces and edges keep their names (`Naming::Kept`); a face that would vanish is `Vanishes`, faces
+  crossing afterwards `Crosses`. A moved face tangent to a still one (a fillet along it) cannot keep
+  the tangency unless it moves along it: shifting a top up with the fillet along its rim works,
+  the top alone does not.
+
 # Delete faces (`shell/delete.rs`)
 
 - `delete_faces(solid, faces)` removes faces and closes the gap by extending the faces around them:

@@ -12,11 +12,11 @@ use caditor_document::{
     DatumPoint, DeleteFace, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
     FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
-    MatePair, MetricSize, Mirror, ModelProperties, Move, OffsetFace, Outline, ParameterOwner,
-    ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation,
-    PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
-    RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
+    MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace, Outline,
+    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
+    Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
     SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
     ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
 };
@@ -53,7 +53,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 45] = [
+const KEPT: [(&str, &str); 46] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -145,6 +145,10 @@ const KEPT: [(&str, &str); 45] = [
     (
         "model-1/modelled-threads.caditor",
         "f5ea168f759dd3556843b0360ba687d67c7f36d9dd6ff0a93bd5f4eecaeb8957",
+    ),
+    (
+        "model-1/moved-faces.caditor",
+        "ebd12b3472881edb223022fff6e699cbc57718da12f20195d0db58b882779352",
     ),
     (
         "model-1/path-sweeps.caditor",
@@ -818,6 +822,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("deleted-faces"),
             saved(&deleted_faces(), "Deleted faces"),
         ),
+        (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
@@ -2237,6 +2242,39 @@ fn deleted_faces() -> Document {
         FeatureKind::DeleteFace(DeleteFace {
             body: base,
             faces: vec![end_cap(0xbeef), end_cap(0xcafe)],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn moved_faces() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let mut transaction = document.transaction("Move face");
+    transaction.add_feature(
+        "Move face",
+        FeatureKind::MoveFace(MoveFace {
+            body: base,
+            faces: vec![end_cap(0xbeef)],
+            distance: Expression::parse_stored("2 mm").unwrap(),
+            direction: Some(AxisReference::Principal(PrincipalAxis::X)),
+            angle: Expression::parse_stored("5 deg").unwrap(),
+            axis: Some(AxisReference::Edge {
+                body: base,
+                edge: Box::new(edge(0xd00d)),
+            }),
+        }),
+    );
+    transaction.add_feature(
+        "Move face along its normal",
+        FeatureKind::MoveFace(MoveFace {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            distance: Expression::parse_stored("-1 mm").unwrap(),
+            direction: None,
+            angle: Expression::parse_stored("0 deg").unwrap(),
+            axis: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();

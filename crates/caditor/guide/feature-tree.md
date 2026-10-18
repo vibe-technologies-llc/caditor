@@ -88,7 +88,8 @@ it again after a stop.
 - From sketches: [Extrude](extrude), [Revolve](revolve) and [Hole](hole).
 - Ready-made shapes: [Primitives](primitives).
 - Changing a body: [Fillet and chamfer](fillet-and-chamfer), [Shell](shell),
-  [Offset face](offset-face), [Delete face](delete-face) and [Thread](thread).
+  [Offset face](offset-face), [Move face](move-face), [Delete face](delete-face) and
+  [Thread](thread).
 - Several bodies: [Combine](combine), [Split](split), [Move and copy](move-and-copy),
   [Mate](mate), [Mirror](mirror), [Scale](scale) and [Patterns](patterns).
 - Reference geometry: [Datums](datums), [Coordinate systems](coordinate-systems) and

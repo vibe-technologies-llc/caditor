@@ -133,6 +133,8 @@ mod model;
 mod model_dimensions;
 mod model_properties;
 mod modifying;
+mod move_face_panel;
+mod move_face_tools;
 mod move_manipulator;
 mod move_panel;
 mod move_tools;

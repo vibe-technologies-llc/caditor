@@ -20,8 +20,9 @@ use crate::{
         tools::{Answer, Tool, ToolError},
         writing::{apply, with_feature},
     },
-    mirror_tools, move_tools, offset_face_tools, pattern_tools, pipe_tools, primitive_tools,
-    rib_tools, scale_tools, shell_tools, solid_tools, split_face_tools, split_tools, thread_tools,
+    mirror_tools, move_face_tools, move_tools, offset_face_tools, pattern_tools, pipe_tools,
+    primitive_tools, rib_tools, scale_tools, shell_tools, solid_tools, split_face_tools,
+    split_tools, thread_tools,
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -134,6 +135,7 @@ pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
         FeatureKind::Thread(_) => Tool::AddThread,
         FeatureKind::SplitFace(_) => Tool::AddSplitFace,
         FeatureKind::DeleteFace(_) => Tool::AddDeleteFace,
+        FeatureKind::MoveFace(_) => Tool::AddMoveFace,
         FeatureKind::Split(_) => Tool::AddSplit,
         FeatureKind::Scale(_) => Tool::AddScale,
         FeatureKind::Sketch(_)
@@ -255,6 +257,9 @@ fn rebuilt(
         FeatureKind::DeleteFace(base) => {
             reshaping::delete_face_built(session, work, decoded(tool, values)?, Some(base))?
         }
+        FeatureKind::MoveFace(base) => {
+            reshaping::move_face_built(session, work, decoded(tool, values)?, Some(base))?
+        }
         FeatureKind::Split(base) => {
             reshaping::split_built(session, work, decoded(tool, values)?, Some(base))?
         }
@@ -293,6 +298,7 @@ fn edit_transaction(
         FeatureKind::Thread(thread) => thread_tools::edit(document, feature, thread),
         FeatureKind::SplitFace(split) => split_face_tools::edit(document, feature, split),
         FeatureKind::DeleteFace(deletion) => delete_face_tools::edit(document, feature, deletion),
+        FeatureKind::MoveFace(moving) => move_face_tools::edit(document, feature, moving),
         FeatureKind::Split(split) => split_tools::edit(document, feature, split),
         FeatureKind::Scale(scale) => scale_tools::edit(document, feature, scale),
         FeatureKind::Mate(mate) => mate_tools::edit(document, feature, mate),

@@ -381,7 +381,9 @@ impl Pickable {
                     |solid| bodies::describe_face(document, solid, face),
                 );
                 let kind = document.feature(feature).map(|owner| &owner.kind);
-                if kind.is_some_and(|kind| kind.offset_face().is_some()) {
+                if kind
+                    .is_some_and(|kind| kind.offset_face().is_some() || kind.move_face().is_some())
+                {
                     format!("{described}: click to move it with {owner} or leave it out")
                 } else if kind.is_some_and(|kind| kind.delete_face().is_some()) {
                     format!("{described}: click to delete it with {owner} or keep it")

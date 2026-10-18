@@ -31,7 +31,7 @@ use crate::{
     blend_tools::{self, ChosenEdges},
     delete_face_tools,
     model::Waker,
-    offset_face_tools,
+    move_face_tools, offset_face_tools,
     selection::Pickable,
     shell_tools, split_face_tools,
 };
@@ -730,6 +730,22 @@ impl OpenChoice {
                     choice: FaceChoice::Moving {
                         tangent: offset.tangent,
                     },
+                },
+            },
+            Some(FeatureKind::MoveFace(moving)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Moving { tangent: false },
+                }) if references == moving.faces => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Moving { tangent: false },
+                },
+                _ => Self::Faces {
+                    references: moving.faces.clone(),
+                    opened: move_face_tools::moved_faces(solid, moving),
+                    choice: FaceChoice::Moving { tangent: false },
                 },
             },
             Some(FeatureKind::DeleteFace(deletion)) => match previous {

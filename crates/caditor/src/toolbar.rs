@@ -17,7 +17,7 @@ use crate::{
     menu_bar::MenuEntries,
     mirror_tools,
     model::{Action, Model},
-    move_tools,
+    move_face_tools, move_tools,
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
@@ -163,6 +163,7 @@ impl Group {
                     Command::Shell,
                     Command::OffsetFace,
                     Command::DeleteFace,
+                    Command::MoveFace,
                     Command::SplitFace,
                     Command::Combine,
                 ],
@@ -348,6 +349,7 @@ fn group_buttons(
             shell_button(ui, model, context, commands, actions);
             offset_face_offer(model, context, commands, actions);
             delete_face_offer(model, context, commands, actions);
+            move_face_offer(model, context, commands, actions);
             split_face_offer(model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
@@ -918,6 +920,24 @@ fn offset_face_offer(
             model.evaluation(),
             source,
             &Starts::of(model),
+        ));
+    }
+}
+
+fn move_face_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.move_face;
+    if commands.invoke(Command::MoveFace, source)
+        && let Ok(source) = source
+    {
+        actions.extend(move_face_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
         ));
     }
 }

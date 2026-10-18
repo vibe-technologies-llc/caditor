@@ -36,6 +36,7 @@ mod measurement_cause;
 mod mirror;
 mod model_parameters;
 mod model_scale;
+mod move_face;
 mod movement;
 mod offset_face;
 mod origins;
@@ -158,6 +159,7 @@ pub use crate::{
         DisplacedFeature, ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues,
         principal_words,
     },
+    move_face::{MoveFace, flat_normal},
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
     parameter_import::{
@@ -301,6 +303,8 @@ mod model_parameter_tests;
 mod model_scale_tests;
 #[cfg(test)]
 mod modelled_thread_tests;
+#[cfg(test)]
+mod move_face_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]

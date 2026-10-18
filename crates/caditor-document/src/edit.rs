@@ -1122,6 +1122,7 @@ impl Document {
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
+            | (FeatureKind::MoveFace(_), FeatureKind::MoveFace(_))
             | (FeatureKind::DeleteFace(_), FeatureKind::DeleteFace(_))
             | (FeatureKind::SplitFace(_), FeatureKind::SplitFace(_))
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))

@@ -250,6 +250,23 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(offset.body, face, &what);
             }
         }
+        FeatureKind::MoveFace(moving) => {
+            let count = moving.faces.len();
+            for (index, face) in moving.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its moved face".to_owned()
+                } else {
+                    format!("moved face {} of {count}", index + 1)
+                };
+                visitor.face(moving.body, face, &what);
+            }
+            if let Some(direction) = &mut moving.direction {
+                visit_axis(direction, "direction", visitor);
+            }
+            if let Some(axis) = &mut moving.axis {
+                visit_axis(axis, "tilt axis", visitor);
+            }
+        }
         FeatureKind::DeleteFace(delete) => {
             let count = delete.faces.len();
             for (index, face) in delete.faces.iter_mut().enumerate() {

@@ -73,6 +73,7 @@ pub enum Tool {
     AddThread,
     AddSplitFace,
     AddDeleteFace,
+    AddMoveFace,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -134,6 +135,7 @@ all_variants!(
     AddThread,
     AddSplitFace,
     AddDeleteFace,
+    AddMoveFace,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -286,6 +288,7 @@ impl Tool {
             Self::AddThread => "add_thread",
             Self::AddSplitFace => "add_split_face",
             Self::AddDeleteFace => "add_delete_face",
+            Self::AddMoveFace => "add_move_face",
             Self::AddSplit => "add_split",
             Self::AddScale => "add_scale",
             Self::AddDatumPoint => "add_datum_point",
@@ -349,6 +352,7 @@ impl Tool {
             Self::AddThread => "Thread",
             Self::AddSplitFace => "Split face",
             Self::AddDeleteFace => "Delete face",
+            Self::AddMoveFace => "Move face",
             Self::AddSplit => "Split body",
             Self::AddScale => "Scale body",
             Self::AddDatumPoint => "Datum point",
@@ -576,6 +580,9 @@ impl Tool {
             Self::AddDeleteFace => {
                 "Deletes faces of a body and heals the gap the surrounding faces leave. One undo step."
             }
+            Self::AddMoveFace => {
+                "Shifts faces of a body along a direction and tilts them about an axis, the faces around them extending or trimming to follow, as on an imported body with no history. One undo step."
+            }
             Self::AddSplit => {
                 "Splits a body in two along a plane, a sketch's curves or another body; flipped swaps which side is kept first. One undo step."
             }
@@ -633,6 +640,7 @@ impl Tool {
             | Self::AddThread
             | Self::AddSplitFace
             | Self::AddDeleteFace
+            | Self::AddMoveFace
             | Self::AddSplit
             | Self::AddScale
             | Self::AddDatumPoint
@@ -828,6 +836,7 @@ impl Tool {
             Self::AddThread => sweep_schemas::thread(),
             Self::AddSplitFace => sweep_schemas::split_face(),
             Self::AddDeleteFace => sweep_schemas::delete_face(),
+            Self::AddMoveFace => sweep_schemas::move_face(),
             Self::AddSplit => sweep_schemas::split(),
             Self::AddScale => sweep_schemas::scale(),
             Self::AddDatumPoint => datum_schemas::datum_point(),
@@ -912,6 +921,7 @@ impl Tool {
             Self::AddThread => Call::AddThread(self.arguments(arguments)?),
             Self::AddSplitFace => Call::AddSplitFace(self.arguments(arguments)?),
             Self::AddDeleteFace => Call::AddDeleteFace(self.arguments(arguments)?),
+            Self::AddMoveFace => Call::AddMoveFace(self.arguments(arguments)?),
             Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
             Self::AddScale => Call::AddScale(self.arguments(arguments)?),
             Self::AddDatumPoint => Call::AddDatumPoint(self.arguments(arguments)?),
@@ -982,6 +992,7 @@ pub enum Call {
     AddThread(sweeps::Threading),
     AddSplitFace(reshaping::FaceSplitting),
     AddDeleteFace(reshaping::FaceDeleting),
+    AddMoveFace(reshaping::FaceMoving),
     AddSplit(reshaping::Splitting),
     AddScale(reshaping::Scaling),
     AddDatumPoint(datums::DatumPointing),
@@ -1051,6 +1062,7 @@ impl Call {
             Self::AddThread(threading) => sweeps::thread(session, work, threading),
             Self::AddSplitFace(splitting) => reshaping::split_face(session, work, splitting),
             Self::AddDeleteFace(deleting) => reshaping::delete_face(session, work, deleting),
+            Self::AddMoveFace(moving) => reshaping::move_face(session, work, moving),
             Self::AddSplit(splitting) => reshaping::split(session, work, splitting),
             Self::AddScale(scaling) => reshaping::scale(session, work, scaling),
             Self::AddDatumPoint(pointing) => datums::datum_point(session, work, pointing),

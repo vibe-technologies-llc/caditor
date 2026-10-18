@@ -581,6 +581,7 @@ impl Rescaler {
                 }
             }
             FeatureKind::OffsetFace(offset) => self.length(&mut offset.distance, name)?,
+            FeatureKind::MoveFace(moving) => self.length(&mut moving.distance, name)?,
             FeatureKind::Mate(mate) => {
                 for distance in mate.lengths_mut() {
                     self.length(distance, name)?;
@@ -1229,6 +1230,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
             anchored.extend(helix.start_point.iter_mut().map(Anchored::Point));
             anchored
         }
+        FeatureKind::MoveFace(moving) => moving.axis.iter_mut().map(Anchored::Axis).collect(),
         FeatureKind::Move(movement) => match &mut movement.about {
             TurnCentre::Axis(turn) => vec![Anchored::Axis(&mut turn.axis)],
             TurnCentre::Origin | TurnCentre::Body => Vec::new(),

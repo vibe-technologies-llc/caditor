@@ -13,7 +13,7 @@ use caditor_document::{
     FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
     Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem,
-    Measurement, MetricSize, Mirror, Move, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
+    Measurement, MetricSize, Mirror, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
     PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern,
     Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading, ReferenceImage,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide,
@@ -84,10 +84,11 @@ pub enum Family {
     Measurement,
     ReferenceImage,
     DeleteFace,
+    MoveFace,
 }
 
 impl Family {
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -115,6 +116,7 @@ impl Family {
         Self::Measurement,
         Self::ReferenceImage,
         Self::DeleteFace,
+        Self::MoveFace,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -125,6 +127,7 @@ impl Family {
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::DeleteFace(_) => Self::DeleteFace,
+            FeatureKind::MoveFace(_) => Self::MoveFace,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
@@ -183,6 +186,25 @@ pub fn feature_kind(
                 faces: scene.faces(input, body)?,
                 distance: scene.distance(input)?,
                 tangent: input.arbitrary()?,
+            })
+        }
+        Family::MoveFace => {
+            let body = scene.body(input)?;
+            FeatureKind::MoveFace(MoveFace {
+                body,
+                faces: scene.faces(input, body)?,
+                distance: scene.distance(input)?,
+                direction: if input.arbitrary()? {
+                    Some(scene.axis(input)?)
+                } else {
+                    None
+                },
+                angle: scene.turn(input)?,
+                axis: if input.arbitrary()? {
+                    Some(scene.axis(input)?)
+                } else {
+                    None
+                },
             })
         }
         Family::DeleteFace => {

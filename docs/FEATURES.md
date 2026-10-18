@@ -7,14 +7,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · hard] Bodies cannot be edited directly beyond offsetting and deleting faces: no moving,
-  tilting or replacing a face, so a hole in the wrong place or a wall at the wrong angle on an
-  imported STEP body (which has no feature history) still means remodelling it. Delete face closes a
-  gap only from the faces around it: not a face whose sides lie beyond parallel faces (a step's
-  riser), one face of a tangent chain whose ends meet other blends (the chain must go whole), a face with several loops that are not whole loops of the faces around it (a hole
-  breaking out through a side), nor a gap that only faces further away could close. Direct edits
-  become features of their own, named from the faces they move, so they stay parametric and
-  undoable.
+- [high · hard] Bodies cannot be edited directly beyond offsetting, moving, tilting and deleting
+  faces: no replacing a face with another surface (a sketch's extrusion, a datum plane, another
+  body's face), so a face of the wrong shape on an imported STEP body (which has no feature history)
+  still means remodelling it. Move face carries the chosen faces rigidly: a fillet or chamfer along a
+  moved face's edge must be chosen with it (it is not re-blended to the new angle), a moved face that
+  was tangent to one that stays is refused, and it draws no drag arrows for its distance and angle.
+  Delete face closes a gap only from the faces around it: not a face whose sides lie beyond parallel
+  faces (a step's riser), one face of a tangent chain whose ends meet other blends (the chain must go
+  whole), a face with several loops that are not whole loops of the faces around it (a hole breaking
+  out through a side), nor a gap that only faces further away could close.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
@@ -59,6 +61,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
+- [medium · hard] Draft angle on existing faces: a fixed angle from a plane, a split at a parting
+  line with an angle on each side, and an angle per face, following tangent faces as one chain. Move
+  face now tilts faces about an axis with their neighbours following, which a draft can build on.
 - [low · medium] A web (`rib.rs`) along a spline or ellipse takes no draft (`extrude_tapered`
   refuses them) and two such curves meeting at a sharp corner are `Apart`, and a rib parallel to
   its sketch takes no draft and runs its free arc ends on only along their tangent (both are a
@@ -82,9 +87,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
-  on existing faces: a fixed angle from a plane, a split at a parting line with an angle on each
-  side, and an angle per face, following tangent faces as one chain.
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
   text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
   recessed by a depth.

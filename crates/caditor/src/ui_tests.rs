@@ -106,6 +106,7 @@ mod measure;
 mod mesh_units;
 mod model_dimensions;
 mod model_properties_and_views;
+mod move_face;
 mod negative_distances;
 mod notices;
 mod opening_and_saving;

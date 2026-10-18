@@ -149,6 +149,7 @@ pub enum Command {
     Shell,
     OffsetFace,
     DeleteFace,
+    MoveFace,
     SplitFace,
     Combine,
     Move,
@@ -365,6 +366,7 @@ impl Command {
                 | Self::Shell
                 | Self::OffsetFace
                 | Self::DeleteFace
+                | Self::MoveFace
                 | Self::SplitFace
                 | Self::Combine
                 | Self::Move
@@ -794,6 +796,7 @@ plain_commands! {
     Shell,
     OffsetFace,
     DeleteFace,
+    MoveFace,
     SplitFace,
     Combine,
     Move,
@@ -1093,6 +1096,7 @@ impl Command {
             Self::Shell => "model.shell",
             Self::OffsetFace => "model.offset_face",
             Self::DeleteFace => "model.delete_face",
+            Self::MoveFace => "model.move_face",
             Self::SplitFace => "model.split_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
@@ -1398,6 +1402,7 @@ impl Command {
             Self::Shell => "Shell",
             Self::OffsetFace => "Offset face",
             Self::DeleteFace => "Delete face",
+            Self::MoveFace => "Move face",
             Self::SplitFace => "Split face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
@@ -1651,6 +1656,15 @@ impl Command {
             Self::Fillet => &["round", "blend"],
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
+            Self::MoveFace => &[
+                "tilt face",
+                "rotate face",
+                "push pull",
+                "move hole",
+                "relocate hole",
+                "direct edit",
+                "angle a wall",
+            ],
             Self::DeleteFace => &[
                 "remove face",
                 "defeature",
@@ -1905,6 +1919,7 @@ impl Command {
             | Self::Shell
             | Self::OffsetFace
             | Self::DeleteFace
+            | Self::MoveFace
             | Self::SplitFace
             | Self::Combine
             | Self::Move
@@ -2176,6 +2191,7 @@ impl Command {
             Self::Shell => vec![alt(Key::S)],
             Self::OffsetFace => vec![alt(Key::Q)],
             Self::DeleteFace => vec![alt_shift(Key::Q)],
+            Self::MoveFace => vec![alt_shift(Key::J)],
             Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],

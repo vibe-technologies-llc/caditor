@@ -4,6 +4,9 @@ mod delete;
 mod delete_tests;
 mod edge;
 mod inner;
+mod moving;
+#[cfg(test)]
+mod moving_tests;
 mod offset;
 #[cfg(test)]
 mod offset_tests;
@@ -19,7 +22,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -44,6 +47,7 @@ const SETTLED_RESIDUAL: f64 = 0.01 * LINEAR_RESOLUTION;
 const SNAPPED_RESIDUAL: f64 = 1e-12;
 
 pub use delete::{DeleteError, delete_faces};
+pub use moving::{MoveError, move_faces};
 pub use offset::{OffsetError, offset_faces};
 pub use walls::{ShellSide, Walls};
 
@@ -129,11 +133,18 @@ impl From<BooleanError> for ShellError {
     }
 }
 
+struct Rigid {
+    faces: BTreeSet<FaceId>,
+    forward: RigidTransform,
+    back: RigidTransform,
+}
+
 struct Offsets<'a> {
     solid: &'a Solid,
     reach: f64,
     distances: BTreeMap<FaceId, f64>,
     settled: f64,
+    rigid: Option<Rigid>,
 }
 
 impl<'a> Offsets<'a> {
@@ -144,6 +155,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach,
             settled: SETTLED_RESIDUAL,
+            rigid: None,
             distances: solid
                 .faces()
                 .map(|(id, _)| {
@@ -166,6 +178,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach: outward * walls.reach(),
             settled: SETTLED_RESIDUAL,
+            rigid: None,
             distances: solid
                 .faces()
                 .filter(|(id, _)| !open.contains(id))
@@ -179,7 +192,22 @@ impl<'a> Offsets<'a> {
             solid,
             reach: inward.abs(),
             settled: SETTLED_RESIDUAL,
+            rigid: None,
             distances: faces.iter().map(|face| (*face, inward)).collect(),
+        }
+    }
+
+    fn rigid(solid: &'a Solid, faces: &[FaceId], forward: RigidTransform, reach: f64) -> Self {
+        Self {
+            solid,
+            reach,
+            settled: SETTLED_RESIDUAL,
+            distances: BTreeMap::new(),
+            rigid: Some(Rigid {
+                faces: faces.iter().copied().collect(),
+                forward,
+                back: forward.inverse(),
+            }),
         }
     }
 
@@ -189,7 +217,38 @@ impl<'a> Offsets<'a> {
             reach,
             distances: BTreeMap::new(),
             settled: SETTLED_RESIDUAL,
+            rigid: None,
         }
+    }
+
+    fn motion(&self, face: FaceId) -> Option<&Rigid> {
+        self.rigid
+            .as_ref()
+            .filter(|rigid| rigid.faces.contains(&face))
+    }
+
+    fn shared_motion(&self, faces: &[FaceId]) -> Option<&Rigid> {
+        let (first, rest) = faces.split_first()?;
+        let rigid = self.motion(*first)?;
+        rest.iter()
+            .all(|face| rigid.faces.contains(face))
+            .then_some(rigid)
+    }
+
+    fn is_still(&self, face: FaceId) -> bool {
+        self.distance(face) == 0.0 && self.motion(face).is_none()
+    }
+
+    fn carried_with(&self, faces: &BTreeSet<FaceId>, point: Point3) -> Point3 {
+        faces
+            .iter()
+            .find_map(|face| self.motion(*face))
+            .map_or(point, |rigid| rigid.forward.apply_point(point))
+    }
+
+    fn pulled_back(&self, face: FaceId, point: Point3) -> Point3 {
+        self.motion(face)
+            .map_or(point, |rigid| rigid.back.apply_point(point))
     }
 
     fn distance(&self, face: FaceId) -> f64 {
@@ -208,14 +267,24 @@ impl<'a> Offsets<'a> {
     ) -> Option<(f64, Vector3)> {
         let definition = self.solid.face(face)?;
         let surface = definition.surface();
-        let uv = surface.project(point, hint);
+        let local = self.pulled_back(face, point);
+        let uv = surface.project(local, hint);
         let normal = surface.normal(uv.x, uv.y)? * definition.sense().sign();
-        let signed = (point - surface.point_at(uv)).dot(normal);
+        let signed = (local - surface.point_at(uv)).dot(normal);
+        let normal = self
+            .motion(face)
+            .map_or(normal, |rigid| rigid.forward.apply_vector(normal));
         Some((signed + self.distance(face), normal))
     }
 
     fn surface(&self, face: FaceId) -> Result<Surface, ShellError> {
         let definition = self.solid.face(face).ok_or(ShellError::MissingFace(face))?;
+        if let Some(rigid) = self.motion(face) {
+            return definition
+                .surface()
+                .transformed(&rigid.forward)
+                .map_err(|_| ShellError::UnsupportedFace(face));
+        }
         if self.distance(face) == 0.0 {
             return Ok(definition.surface().clone());
         }
@@ -569,6 +638,7 @@ pub(crate) fn snapped(solid: &Solid, inward: BTreeMap<FaceId, f64>) -> Option<So
         reach,
         distances: inward,
         settled: SNAPPED_RESIDUAL,
+        rigid: None,
     };
     inner::inner_solid(&offsets, inner::Naming::Kept)
         .ok()

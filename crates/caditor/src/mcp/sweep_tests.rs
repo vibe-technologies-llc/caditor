@@ -263,6 +263,35 @@ fn bodies_and_faces_are_split_and_faces_deleted() {
     client.finish();
 }
 
+#[test]
+fn faces_are_moved_along_their_normal_or_an_axis() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
+    let top = faces_of(&mut client, &block)
+        .into_iter()
+        .find(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
+        .unwrap();
+
+    let moved = added(
+        &mut client,
+        "add_move_face",
+        json!({ "body": block, "faces": [top["face"]], "distance": 2 }),
+    );
+    assert!(close(total_volume(&mut client), 1200.0));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": moved, "distance": -3, "direction": "Z" }),
+    );
+    assert!(close(total_volume(&mut client), 700.0));
+
+    let refused = client.tool_error("add_move_face", json!({ "body": block, "faces": [] }));
+    assert!(refused.contains("faces to move"), "{refused}");
+    client.finish();
+}
+
 fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3], Value) {
     let faces = faces_of(client, body);
     let rim = faces

@@ -64,6 +64,7 @@ pub enum Page {
     Shell,
     OffsetFace,
     DeleteFace,
+    MoveFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -150,6 +151,7 @@ all_variants!(
     Shell,
     OffsetFace,
     DeleteFace,
+    MoveFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -282,6 +284,7 @@ impl Page {
             Self::Shell => "shell",
             Self::OffsetFace => "offset-face",
             Self::DeleteFace => "delete-face",
+            Self::MoveFace => "move-face",
             Self::Primitives => "primitives",
             Self::Combine => "combine",
             Self::MoveAndCopy => "move-and-copy",
@@ -374,6 +377,7 @@ impl Page {
             Self::Shell => include_str!("../guide/shell.md"),
             Self::OffsetFace => include_str!("../guide/offset-face.md"),
             Self::DeleteFace => include_str!("../guide/delete-face.md"),
+            Self::MoveFace => include_str!("../guide/move-face.md"),
             Self::Primitives => include_str!("../guide/primitives.md"),
             Self::Combine => include_str!("../guide/combine.md"),
             Self::MoveAndCopy => include_str!("../guide/move-and-copy.md"),
@@ -460,6 +464,7 @@ impl Page {
             | Self::Shell
             | Self::OffsetFace
             | Self::DeleteFace
+            | Self::MoveFace
             | Self::Primitives
             | Self::Combine
             | Self::MoveAndCopy
@@ -534,6 +539,7 @@ impl Page {
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::DeleteFace(_) => Self::DeleteFace,
+            FeatureKind::MoveFace(_) => Self::MoveFace,
             FeatureKind::Primitive(_) => Self::Primitives,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::MoveAndCopy,

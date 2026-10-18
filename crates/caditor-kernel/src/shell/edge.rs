@@ -230,9 +230,36 @@ fn untouched(offsets: &Offsets<'_>, edge: &Edge, faces: &[FaceId], ends: (Point3
         edge.curve().point(edge.interval().start()),
         edge.curve().point(edge.interval().end()),
     );
-    faces.iter().all(|face| offsets.distance(*face) == 0.0)
+    faces.iter().all(|face| offsets.is_still(*face))
         && start.distance(ends.0) <= LINEAR_RESOLUTION
         && end.distance(ends.1) <= LINEAR_RESOLUTION
+}
+
+pub(super) fn pulled_back(
+    offsets: &Offsets<'_>,
+    faces: &[FaceId],
+    (from, to): (Point3, Point3),
+) -> (Point3, Point3) {
+    match offsets.shared_motion(faces) {
+        Some(rigid) => (rigid.back.apply_point(from), rigid.back.apply_point(to)),
+        None => (from, to),
+    }
+}
+
+fn carried(
+    offsets: &Offsets<'_>,
+    edge: &Edge,
+    faces: &[FaceId],
+    (from, to): (Point3, Point3),
+) -> Option<(Curve, Interval)> {
+    let rigid = faces.iter().find_map(|face| offsets.motion(*face))?;
+    let curve = edge.curve().transformed(&rigid.forward).ok()?;
+    let interval = edge.interval();
+    let lands = curve.point(interval.start()).distance(from) <= OFFSET_TOLERANCE
+        && curve.point(interval.end()).distance(to) <= OFFSET_TOLERANCE;
+    let on_faces =
+        offsets.shared_motion(faces).is_some() || follows(offsets, faces, &curve, interval);
+    (lands && on_faces).then_some((curve, interval))
 }
 
 pub(super) fn offset_edge(
@@ -245,13 +272,22 @@ pub(super) fn offset_edge(
         .solid
         .edge(source)
         .ok_or(ShellError::UnsupportedEdge(source))?;
-    if !edge.is_closed() && reverses(edge, from, to) {
+    let (back_from, back_to) = pulled_back(offsets, faces, (from, to));
+    if !edge.is_closed() && reverses(edge, back_from, back_to) {
         return Err(ShellError::EdgeCollapses(source));
     }
     if untouched(offsets, edge, faces, (from, to)) {
         return Ok((edge.curve().clone(), edge.interval()));
     }
-    if let Some((curve, interval)) = rebuilt(edge, source, from, to)?
+    if let Some(carried) = carried(offsets, edge, faces, (from, to)) {
+        return Ok(carried);
+    }
+    let moving = faces.iter().any(|face| offsets.motion(*face).is_some());
+    let rebuilt = match rebuilt(edge, source, from, to) {
+        Err(_) if moving => None,
+        rebuilt => rebuilt?,
+    };
+    if let Some((curve, interval)) = rebuilt
         && follows(offsets, faces, &curve, interval)
     {
         return Ok((curve, interval));
