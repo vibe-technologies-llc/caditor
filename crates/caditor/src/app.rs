@@ -83,6 +83,7 @@ use crate::{
     queued::{self, Rerun},
     reference_picking::{self, Slot},
     repeating::{Repeat, Repetition},
+    save_preview::{self, PREVIEW_SIZE},
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
     scene_palette::{Canvas, Contrast},
@@ -1470,6 +1471,7 @@ fn home_chosen(
     let leaves = !matches!(
         choice,
         Choice::ClearRecent
+            | Choice::LoadRecentPicture(_)
             | Choice::Cloud(_)
             | Choice::ManageCloud(_)
             | Choice::Preferences
@@ -1480,6 +1482,9 @@ fn home_chosen(
         Choice::Start(command) => deferred_commands.push(command),
         Choice::Open => actions.push(Action::File(FileCommand::Open)),
         Choice::OpenRecent(path) => actions.push(Action::File(FileCommand::OpenPath(path))),
+        Choice::LoadRecentPicture(path) => {
+            actions.push(Action::File(FileCommand::LoadRecentPicture(path)));
+        }
         Choice::ClearRecent => actions.push(Action::File(FileCommand::ClearRecent)),
         Choice::Sample(sample) => actions.push(Action::File(FileCommand::OpenSample(sample))),
         Choice::Cloud(command) => actions.push(Action::Cloud(command)),
@@ -2433,6 +2438,22 @@ impl Session {
                 }
             };
             files.thumbnail_rendered(rows);
+        }
+        if let Some(drawing) = model.take_preview_job() {
+            let image = self.workspace.viewport.preview(model, PREVIEW_SIZE);
+            match self.renderer.render_image(&ImageRequest {
+                size: PREVIEW_SIZE,
+                view: &image.view,
+                scene: &image.scene,
+                pixels_per_point: image.pixels_per_point,
+                background: Background::Viewport,
+            }) {
+                Ok(bands) => save_preview::finish(drawing, Box::new(RenderedRows(bands))),
+                Err(error) => {
+                    log::info!("the model is saved without a picture: {error}");
+                    drawing.decline();
+                }
+            }
         }
         let preview = files.preview_picture().map(|picture| {
             self.renderer.render_image(&ImageRequest {

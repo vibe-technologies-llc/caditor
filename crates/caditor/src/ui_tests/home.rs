@@ -2,7 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     net::TcpStream,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     thread,
 };
@@ -13,7 +13,7 @@ use caditor_cloud::{
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
-use caditor_file::Settings;
+use caditor_file::{Preview, PreviewSlot, SaveOptions, Settings, read_preview, save_with};
 use egui::{Key, Modifiers, accesskit::Role};
 use jiff::Timestamp;
 use tempfile::TempDir;
@@ -22,7 +22,10 @@ use super::{FILE_TIMEOUT, Harness, extruded_plate, no_wake, run_from_palette, sa
 use crate::{
     app::Workspace as App,
     browser::OpenError,
-    cloud::{Cloud, CloudCommand, CloudServices, FakeKeyring, Link, Opener, Refusal, sample_png},
+    cloud::{
+        Cloud, CloudCommand, CloudServices, FakeKeyring, Link, Opener, Refusal, Thumbnail,
+        sample_png,
+    },
     cloud_dialog, cloud_parts,
     commands::Command,
     export::ExportCommand,
@@ -33,6 +36,8 @@ use crate::{
         CLIENT_ID_FIELD_EDIT, CLOUD_ON_HOME, PreferenceChange, Preferences, PreferencesCommand,
         PreferencesTab, SEARCH_FIELD, USE_CLOUD,
     },
+    samples::Sample,
+    save_preview::PREVIEW_SIZE,
     start_card,
 };
 
@@ -1210,4 +1215,177 @@ fn every_cloud_command_is_in_the_palette_and_refused_with_a_reason_when_off() {
         assert!(Command::all().any(|known| known == command), "{command:?}");
         assert!(!command.title().is_empty());
     }
+}
+
+fn save_with_picture(path: &Path, side: u32) {
+    let (slot, drawing) = PreviewSlot::new();
+    drawing.fill(Preview::from_png(sample_png(side)).unwrap());
+    let options = SaveOptions {
+        preview: Some(&slot),
+        ..SaveOptions::default()
+    };
+    save_with(&sample_document().unwrap(), path, &options).unwrap();
+}
+
+fn remember_models(dir: &Path, paths: &[&Path]) {
+    let mut earlier = Harness::with_directories(Some(dir));
+    for path in paths {
+        earlier.command(FileCommand::OpenPath(path.to_path_buf()));
+        earlier.wait_until("the file is open", |harness| {
+            harness
+                .model
+                .path()
+                .is_some_and(|open| open.file_name() == path.file_name())
+        });
+        assert!(earlier.files.wait_for_jobs(FILE_TIMEOUT));
+    }
+    let closing = earlier.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+}
+
+fn recent_path(harness: &Harness, name: &str) -> PathBuf {
+    harness
+        .files
+        .recent()
+        .iter()
+        .find(|path| path.file_name().is_some_and(|file| file == name))
+        .unwrap_or_else(|| panic!("{name} is not among the recent files"))
+        .clone()
+}
+
+fn picture_shown(harness: &Harness, name: &str) -> bool {
+    harness
+        .files
+        .recent_picture(&recent_path(harness, name))
+        .is_some_and(|picture| picture.is_uploaded())
+}
+
+#[test]
+fn a_recent_model_saved_with_a_picture_shows_it_on_its_tile_and_one_without_keeps_the_icon() {
+    let dir = TempDir::new().unwrap();
+    let pictured = dir.path().join("pictured.caditor");
+    let plain = dir.path().join("plain.caditor");
+    save_with_picture(&pictured, 16);
+    caditor_file::save(&sample_document().unwrap(), &plain, false).unwrap();
+    remember_models(dir.path(), &[&plain, &pictured]);
+    let provider = fusion_provider(b"");
+    let mut harness = with_cloud(dir.path(), &provider);
+    harness.wait_until("the recent files are read", |harness| {
+        harness.files.recent().len() == 2
+    });
+    assert!(
+        harness
+            .files
+            .recent_picture(&recent_path(&harness, "pictured.caditor"))
+            .is_none()
+    );
+
+    open_home(&mut harness);
+
+    harness.wait_until("the picture arrives and is drawn", |harness| {
+        picture_shown(harness, "pictured.caditor")
+    });
+    let plain = recent_path(&harness, "plain.caditor");
+    harness.wait_until("the other file was looked at", |harness| {
+        !harness.files.wants_recent_picture(&plain)
+    });
+    assert!(harness.files.recent_picture(&plain).is_none());
+    assert!(harness.shows("pictured.caditor"));
+    assert!(harness.shows("plain.caditor"));
+
+    harness.click("pictured.caditor");
+
+    harness.wait_until("the model opens", |harness| {
+        harness.model.path().is_some_and(|open| {
+            open.file_name()
+                .is_some_and(|name| name == "pictured.caditor")
+        })
+    });
+}
+
+#[test]
+fn a_picture_that_cannot_be_read_leaves_the_tile_as_it_was() {
+    let dir = TempDir::new().unwrap();
+    let broken = dir.path().join("broken.caditor");
+    save_with_picture(&broken, 16);
+    remember_models(dir.path(), &[&broken]);
+    let mut bytes = fs::read(&broken).unwrap();
+    let at = bytes.len().min(80);
+    bytes[at - 1] ^= 0x55;
+    fs::write(&broken, bytes).unwrap();
+    let provider = fusion_provider(b"");
+    let mut harness = with_cloud(dir.path(), &provider);
+    harness.wait_until("the recent files are read", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    let path = recent_path(&harness, "broken.caditor");
+
+    open_home(&mut harness);
+
+    harness.wait_until("the file was looked at", |harness| {
+        !harness.files.wants_recent_picture(&path)
+    });
+    assert!(harness.files.recent_picture(&path).is_none());
+    assert!(harness.shows("broken.caditor"));
+    assert!(harness.model.notice().is_none());
+}
+
+#[test]
+fn saving_stores_a_small_picture_of_the_bodies_and_home_shows_it_next_time() {
+    let dir = TempDir::new().unwrap();
+    let plate = Sample::Plate.document().unwrap();
+    let mut harness = Harness::starting(Some(dir.path()), plate, App::new());
+    harness.model.draw_previews_on_save();
+    harness.settle();
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path.clone()));
+
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+
+    let picture = read_preview(&path).unwrap().unwrap();
+    let decoded = Thumbnail::from_bytes(picture.png()).unwrap();
+    assert_eq!(
+        decoded.size(),
+        [PREVIEW_SIZE.width as usize, PREVIEW_SIZE.height as usize]
+    );
+    assert!(harness.model.notice().is_none());
+    let closing = harness.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+    drop(harness);
+
+    let mut restarted = with_cloud(dir.path(), &fusion_provider(b""));
+    restarted.wait_until("the saved model is listed", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    open_home(&mut restarted);
+    restarted.wait_until("its picture is drawn", |harness| {
+        picture_shown(harness, "plate.caditor")
+    });
+}
+
+#[test]
+fn a_save_whose_picture_never_gets_drawn_still_saves_without_one() {
+    let dir = TempDir::new().unwrap();
+    let plate = Sample::Plate.document().unwrap();
+    let mut harness = Harness::starting(Some(dir.path()), plate, App::new());
+    harness.model.draw_previews_on_save();
+    harness.settle();
+    harness.renders_held = true;
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path.clone()));
+
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+
+    assert_eq!(read_preview(&path).unwrap(), None);
+    assert_eq!(
+        caditor_file::load(&path).unwrap().issues,
+        Vec::<String>::new()
+    );
+    assert!(harness.model.notice().is_none());
 }

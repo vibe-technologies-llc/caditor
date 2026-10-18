@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     model::{
-        FreshVersion, NotReadBack, decode, encode_keeping, encode_over, history, load_version,
-        reads_back, save_bytes,
+        EncodeExtras, FreshVersion, NotReadBack, decode, encode_keeping, encode_over, history,
+        load_version, reads_back, save_bytes,
     },
     testing::{
         as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
@@ -15,7 +15,10 @@ use super::{
     value::{from_bytes, to_bytes},
     *,
 };
-use crate::format::FORMAT_VERSION;
+use crate::{
+    format::FORMAT_VERSION,
+    preview::{MAX_PREVIEW_BYTES, PNG_SIGNATURE, Preview, PreviewError, PreviewSlot},
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum Shape {
@@ -1266,9 +1269,14 @@ fn a_day_of_saves(save: impl Fn(&Document, &[u8], SystemTime) -> Vec<u8>) -> (Do
 
 fn versions_kept_by(retention: Retention) -> (usize, Vec<u8>) {
     let (document, bytes) = a_day_of_saves(|document, previous, time| {
-        encode_keeping(document, Some(previous), (time, retention), None)
-            .unwrap()
-            .bytes
+        encode_keeping(
+            document,
+            Some(previous),
+            (time, retention),
+            EncodeExtras::default(),
+        )
+        .unwrap()
+        .bytes
     });
     assert_eq!(decode(&bytes).unwrap().document, document);
     (history(&bytes).versions.len(), bytes)
@@ -1290,4 +1298,161 @@ fn a_retention_preset_keeps_more_or_fewer_versions_and_standard_writes_what_it_a
         save_bytes(document, Some(previous), time, None).unwrap()
     });
     assert_eq!(as_before, kept_as_standard);
+}
+
+fn a_picture(fill: u8) -> Preview {
+    let mut png = PNG_SIGNATURE.to_vec();
+    png.extend(std::iter::repeat_n(fill, 300));
+    Preview::from_png(png).unwrap()
+}
+
+fn drawn(preview: Preview) -> PreviewSlot {
+    let (slot, drawing) = PreviewSlot::new();
+    drawing.fill(preview);
+    slot
+}
+
+fn save_with_preview(
+    document: &Document,
+    previous: Option<&[u8]>,
+    preview: Option<&PreviewSlot>,
+) -> Vec<u8> {
+    encode_keeping(
+        document,
+        previous,
+        (at(1_000), Retention::Standard),
+        EncodeExtras {
+            label: None,
+            preview,
+        },
+    )
+    .unwrap()
+    .bytes
+}
+
+#[test]
+fn a_preview_follows_the_head_and_is_read_from_the_start_of_the_file_alone() {
+    let document = with_width(10);
+    let picture = a_picture(7);
+
+    let bytes = save_with_preview(&document, None, Some(&drawn(picture.clone())));
+
+    let kinds: Vec<_> = parse(&bytes, &MODEL_MAGIC)
+        .unwrap()
+        .chunks()
+        .filter_map(|chunk| chunk.kind)
+        .take(2)
+        .collect();
+    assert_eq!(kinds, [ChunkKind::Head, ChunkKind::Preview]);
+    assert_eq!(preview_of_prefix(&bytes), Some(picture.clone()));
+
+    let head_and_preview = 8 + 4 + 2 * CHUNK_HEADER_LENGTH + 2 * 600;
+    assert_eq!(
+        preview_of_prefix(bytes.get(..head_and_preview.min(bytes.len())).unwrap()),
+        Some(picture)
+    );
+    assert_eq!(decode(&bytes).unwrap().document, document);
+    assert_eq!(decode(&bytes).unwrap().issues, Vec::<String>::new());
+}
+
+#[test]
+fn a_save_without_a_picture_writes_none_and_drops_the_one_before() {
+    let document = with_width(10);
+    let with = save_with_preview(&document, None, Some(&drawn(a_picture(1))));
+
+    let (declined, drawing) = PreviewSlot::new();
+    drawing.decline();
+    let without = save_with_preview(&edited(&document, 11), Some(&with), Some(&declined));
+    let unasked = save_with_preview(&edited(&document, 12), Some(&without), None);
+
+    assert_eq!(preview_of_prefix(&without), None);
+    assert_eq!(preview_of_prefix(&unasked), None);
+    assert_eq!(decode(&without).unwrap().document, edited(&document, 11));
+    assert_eq!(history(&unasked).versions.len(), 2);
+}
+
+#[test]
+fn a_drawing_dropped_without_a_picture_releases_the_save_at_once() {
+    let (slot, drawing) = PreviewSlot::new();
+    drop(drawing);
+
+    let bytes = save_with_preview(&with_width(10), None, Some(&slot));
+
+    assert_eq!(preview_of_prefix(&bytes), None);
+}
+
+#[test]
+fn a_save_takes_the_picture_a_thread_draws_while_it_encodes() {
+    let (slot, drawing) = PreviewSlot::new();
+    let picture = a_picture(3);
+    let sent = picture.clone();
+    let drawing_thread = std::thread::spawn(move || drawing.fill(sent));
+
+    let bytes = save_with_preview(&with_width(10), None, Some(&slot));
+    drawing_thread.join().unwrap();
+
+    assert_eq!(preview_of_prefix(&bytes), Some(picture));
+}
+
+#[test]
+fn a_picture_that_never_comes_is_given_up_on_and_a_late_one_is_ignored() {
+    let (slot, drawing) = PreviewSlot::new();
+
+    assert_eq!(slot.wait_at_most(Duration::from_millis(10)), None);
+    assert!(!drawing.is_wanted());
+    drawing.fill(a_picture(5));
+
+    assert_eq!(slot.wait_at_most(Duration::from_millis(10)), None);
+}
+
+#[test]
+fn keeping_a_version_keeps_the_preview() {
+    let first = save_with_preview(&with_width(10), None, Some(&drawn(a_picture(9))));
+    let bytes = save_with_preview(
+        &edited(&with_width(10), 11),
+        Some(&first),
+        Some(&drawn(a_picture(9))),
+    );
+    let index = history(&bytes).versions[0].index;
+
+    let marked = with_version_kept(&bytes, index, true).unwrap();
+
+    assert_eq!(preview_of_prefix(&marked.bytes), Some(a_picture(9)));
+}
+
+#[test]
+fn a_preview_that_is_not_a_png_or_is_too_large_is_refused() {
+    assert_eq!(
+        Preview::from_png(b"GIF89a".to_vec()),
+        Err(PreviewError::NotPng)
+    );
+
+    let mut huge = PNG_SIGNATURE.to_vec();
+    huge.resize(MAX_PREVIEW_BYTES + 1, 0);
+    assert_eq!(
+        Preview::from_png(huge),
+        Err(PreviewError::TooLarge {
+            size: MAX_PREVIEW_BYTES + 1
+        })
+    );
+}
+
+#[test]
+fn a_damaged_preview_is_not_read_and_the_rest_of_the_model_loads() {
+    let document = with_width(10);
+    let bytes = save_with_preview(&document, None, Some(&drawn(a_picture(2))));
+
+    let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
+
+    assert_eq!(preview_of_prefix(&damaged), None);
+    assert_eq!(decode(&damaged).unwrap().document, document);
+}
+
+#[test]
+fn a_chunk_after_the_head_that_is_not_a_preview_reads_as_none() {
+    let bytes = save_bytes(&with_width(10), None, at(1_000), None).unwrap();
+
+    assert_eq!(preview_of_prefix(&bytes), None);
+    assert_eq!(preview_of_prefix(b""), None);
+    assert_eq!(preview_of_prefix(&MODEL_MAGIC), None);
 }

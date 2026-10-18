@@ -301,6 +301,7 @@ pub struct Context {
     pub selecting: bool,
     pub choosing_in_view: bool,
     pub choosing_profiles: bool,
+    pub bodies_only: bool,
     pub principal: PrincipalView,
 }
 
@@ -469,6 +470,7 @@ impl SketchEditing {
             choosing_profiles: self
                 .picking
                 .is_some_and(|picking| picking.slot == Slot::LoftProfiles),
+            bodies_only: false,
             principal: PrincipalView::default(),
         }
     }

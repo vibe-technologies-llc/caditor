@@ -16,6 +16,7 @@ pub const TILE_HEIGHT: f32 = 60.0;
 pub const TILE_GAP: f32 = 8.0;
 const TILE_ICON_SIZE: f32 = 22.0;
 const TILE_PICTURE_SIDE: f32 = TILE_HEIGHT - 2.0 * SPACE_S;
+const TILE_PICTURE_WIDTH: f32 = TILE_PICTURE_SIDE * 4.0 / 3.0;
 const MINUTE: i64 = 60;
 const HOUR: i64 = 60 * MINUTE;
 const DAY: i64 = 24 * HOUR;
@@ -90,7 +91,10 @@ pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
         child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
         match tile.picture {
             Some(texture) => {
-                let side = vec2(TILE_PICTURE_SIDE, TILE_PICTURE_SIDE);
+                let natural = texture.size_vec2();
+                let fitted = (TILE_PICTURE_SIDE / natural.y.max(1.0))
+                    .min(TILE_PICTURE_WIDTH / natural.x.max(1.0));
+                let side = natural * fitted;
                 let picture = child.add(
                     Image::new(SizedTexture::new(texture.id(), side))
                         .fit_to_exact_size(side)

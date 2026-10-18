@@ -13,8 +13,8 @@ use caditor_document::{
     Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
-    Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest, Recovered,
-    Report, Retention, SaveRequest, Start, Storage, StorageConfig,
+    Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest,
+    PreviewDrawing, Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -39,6 +39,7 @@ use crate::{
     },
     preferences::PreferencesCommand,
     queued::{Awaited, Queue, Queued, Rerun},
+    save_preview::SavePreviews,
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
@@ -263,6 +264,7 @@ pub struct Model {
     unprotected: Option<JournalFailure>,
     dirty: bool,
     pending_save: Option<PendingSave>,
+    save_previews: SavePreviews,
     next_ticket: u64,
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
@@ -321,6 +323,7 @@ impl Model {
             unprotected: None,
             dirty: false,
             pending_save: None,
+            save_previews: SavePreviews::default(),
             next_ticket: 0,
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
@@ -1637,6 +1640,9 @@ impl Model {
             retention: self.retention,
             path,
             replace_outside_changes,
+            preview: self
+                .save_previews
+                .request(self.revision(), self.evaluation.bodies().next().is_some()),
         };
         let sent = self
             .storage
@@ -1655,6 +1661,15 @@ impl Model {
             ));
             self.file_events.push(FileEvent::SaveFailed);
         }
+    }
+
+    pub fn draw_previews_on_save(&mut self) {
+        self.save_previews.enable();
+    }
+
+    pub fn take_preview_job(&mut self) -> Option<PreviewDrawing> {
+        let revision = self.revision();
+        self.save_previews.take(revision)
     }
 
     pub fn keep_version(&mut self, path: PathBuf, index: usize, kept: bool) -> bool {

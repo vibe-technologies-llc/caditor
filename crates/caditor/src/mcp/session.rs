@@ -442,6 +442,7 @@ impl Session {
             label: self.editor.undo_label().map(str::to_owned),
             replace_outside_changes: false,
             retention: self.retention,
+            preview: None,
         };
         let sent = self
             .journal

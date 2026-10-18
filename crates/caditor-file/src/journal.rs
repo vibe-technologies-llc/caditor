@@ -380,6 +380,7 @@ fn decode_entry(piece: &Piece<'_>, texts: &mut ImportTexts) -> Option<Logged> {
         | ChunkKind::JournalHeader
         | ChunkKind::Snapshot
         | ChunkKind::RebasedSnapshot
+        | ChunkKind::Preview
         | ChunkKind::Padding => return None,
     };
     let content = chunk.unpack(None).ok()?;

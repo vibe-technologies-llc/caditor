@@ -36,7 +36,7 @@ use super::{
 };
 use crate::{
     binary::{
-        ChunkKind, Codec, JOURNAL_MAGIC, MODEL_MAGIC, save_bytes,
+        ChunkKind, Codec, EncodeExtras, JOURNAL_MAGIC, MODEL_MAGIC, encode_keeping, save_bytes,
         testing::{records_as_json, sharing_from, with_slices_of},
     },
     format::{
@@ -45,6 +45,7 @@ use crate::{
     },
     journal::{JOURNAL_VERSION, JournalHead, Logged, decode_journal, encode_journal, replay},
     parameters::PARAMETERS_VERSION,
+    preview::{Preview, PreviewSlot},
 };
 
 const WRITE_CORPUS: &str = "CADITOR_WRITE_FORMAT_CORPUS";
@@ -52,7 +53,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 44] = [
+const KEPT: [(&str, &str); 45] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -168,6 +169,10 @@ const KEPT: [(&str, &str); 44] = [
     (
         "model-1/point-targets.caditor",
         "63353e88ac0ec528f701fd78e6d927bd62bb1f737a17edda9f6588682c4ed3ce",
+    ),
+    (
+        "model-1/preview.caditor",
+        "e0b9a6958693e108c3977da6155140b63c688a441a090b38c486ff96282455c5",
     ),
     (
         "model-1/primitives.caditor",
@@ -337,6 +342,13 @@ fn describe_model(bytes: &[u8]) -> String {
         for line in lines_of(&restored.document) {
             text.push_str(&format!("{line}\n"));
         }
+    }
+    if let Some(preview) = binary::preview_of_prefix(bytes) {
+        text.push_str(&format!(
+            "preview {} bytes {}\n",
+            preview.png().len(),
+            blake3::hash(preview.png()).to_hex()
+        ));
     }
     text
 }
@@ -819,6 +831,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("reference-images"),
             saved(&reference_images(), "Reference images"),
+        ),
+        (
+            model("preview"),
+            saved_with_preview(&primitive_model().0, "Preview"),
         ),
         (model("document"), document_with_history()),
         (
@@ -3025,6 +3041,30 @@ fn every_edit_journal() -> Vec<u8> {
         folded: 0,
     };
     encode_journal(&head, &base, &entries).unwrap()
+}
+
+fn saved_with_preview(document: &Document, label: &str) -> Vec<u8> {
+    let pixels = image::RgbaImage::from_fn(64, 48, |x, y| {
+        let shade = u8::try_from((x * 3 + y * 5) % 256).unwrap();
+        image::Rgba([shade, 255 - shade, 160, 255])
+    });
+    let mut png = io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(pixels)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let (slot, drawing) = PreviewSlot::new();
+    drawing.fill(Preview::from_png(png.into_inner()).unwrap());
+    encode_keeping(
+        document,
+        None,
+        (at(1_700_000_000), Retention::Standard),
+        EncodeExtras {
+            label: Some(label),
+            preview: Some(&slot),
+        },
+    )
+    .unwrap()
+    .bytes
 }
 
 fn corpus_picture(width: u32, height: u32) -> std::sync::Arc<caditor_document::Picture> {

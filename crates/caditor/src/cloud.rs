@@ -38,6 +38,7 @@ pub use self::{
         CloudCommand, Connection, Downloads, Import, Link, Linked, Load, SigningIn, Stage,
         first_workspace,
     },
+    thumbnails::Thumbnail,
 };
 use self::{
     jobs::{Courier, Event, ImportJob, Loaded, SignInJob},

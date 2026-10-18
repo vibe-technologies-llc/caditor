@@ -19,6 +19,8 @@ paths:
     express is still written as it.
   - Optional derived data (`region_references`, `copies`, `origins`) is a field written only when
     known; older readers drop it and lose only the fallback it gives.
+  - Something that is no part of the model and only decorates the file (the `Preview` chunk) is a
+    chunk kind of its own, not must-understand: an older reader skips it without a word.
   - Anything else that must not be lost needs a must-understand chunk.
   - Every shipped version keeps files in the format corpus, which proves it still reads.
 
@@ -29,7 +31,7 @@ paths:
   and constraint kind and entity flag, `pieces.caditor` holding trimmed and broken pieces with their
   `split_from`, a version history with a kept version and block-alignment padding, sliced
   content, a thread and a tapped hole carrying `modelled`, `reference-images.caditor` with a
-  picture shared by two images), `journal-1/` (every journaled edit, apply, undo and redo whole and
+  picture shared by two images, `preview.caditor` with a model's preview picture), `journal-1/` (every journaled edit, apply, undo and redo whole and
   by reference, a rebased snapshot, sliced content, `reference-images.journal` writing each
   picture once) and
   `parameters-1/` (an exported parameter file). Committed as binary (`.gitattributes` `-text`), a few KiB each.
@@ -78,6 +80,26 @@ paths:
   from a newer version, running out of memory or budget says too large to load, only the rest is
   "damaged".
 - A save holds the model twice at most, uncompressed (`PriorRecords`, `NewRecords`).
+- The `Preview` chunk (kind 14, `ChunkKind::Preview`) holds one PNG, at most `MAX_PREVIEW_BYTES`
+  (512 KiB), written right after the head chunk so that `read_preview` (`preview.rs`) finds it in
+  the first bytes of the file: it reads at most `PREVIEW_PREFIX`, walks magic, head chunk and the
+  chunk after it, and answers the PNG only when that chunk passes its checksum, is a `Preview`
+  and is a PNG (`Preview::from_png`, which refuses anything else or anything over the limit); no
+  model, record or version is read, so Home's tiles cost one small read each. It is not a
+  must-understand chunk, is never part of the record digest, and belongs to the file, not to the
+  document: loading ignores it (`Parsed::preview`), a damaged one is an ordinary damaged piece, and
+  a save writes the picture it was given or none, never the previous file's, so a preview never
+  outlives the model it pictured. Marking a version kept (`with_version_kept`) carries it as stored.
+  A reader older than the chunk skips it as an unknown non-must-understand chunk, and re-saving
+  there carries it along after the records (`Parsed::foreign`), where `read_preview` no longer
+  looks, so Home shows no picture for that file until it is saved here again.
+- A preview comes from the caller (`PreviewSlot`, `PreviewDrawing`): the slot goes into
+  `SaveOptions::preview` and `SaveRequest::preview`, the drawing half is filled by whoever draws the
+  picture, on another thread. `encode_keeping` waits for the slot only after encoding the records,
+  at most `PREVIEW_PATIENCE` (1.5 s); a drawing that is declined, dropped or too late leaves the
+  chunk out and the save goes on, so a failed picture never fails or noticeably delays a save. A
+  late picture is ignored (`PreviewDrawing::is_wanted` says so). The recovery journal carries no
+  preview (`file-journal.md`).
 
 ## Values (`binary/value.rs`)
 
@@ -92,8 +114,8 @@ paths:
 
 ## Model file
 
-- Head chunk (save time, last change's name, blake3 digest of records), one zstd chunk per record
-  (`RECORD_KINDS`), version history. The journal snapshot carries `principal`, `suppressed` and
+- Head chunk (save time, last change's name, blake3 digest of records), the optional `Preview`
+  chunk, one zstd chunk per record (`RECORD_KINDS`), version history. The journal snapshot carries `principal`, `suppressed` and
   `rollback` as fields.
 - A record with unchanged understood content is written back exactly as stored (newer fields kept).
   New records are encoded first; an old record whose bytes hash like a new one's is matched by

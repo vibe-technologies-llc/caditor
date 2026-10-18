@@ -14,11 +14,12 @@ use caditor_document::Document;
 
 use crate::{
     binary::{
-        self, EncodeError, Encoded, FileDigest, FreshVersion, KeepError, Retention, Shared,
-        value::ValueError,
+        self, EncodeError, EncodeExtras, Encoded, FileDigest, FreshVersion, KeepError, Retention,
+        Shared, value::ValueError,
     },
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
+    preview::PreviewSlot,
     read::{ensure_regular, open_file, read_open},
     reason::{ReadFailure, WriteFailure},
 };
@@ -202,6 +203,7 @@ pub struct SaveOptions<'a> {
     pub label: Option<&'a str>,
     pub unless_changed_from: Option<&'a FileDigest>,
     pub retention: Retention,
+    pub preview: Option<&'a PreviewSlot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,6 +223,7 @@ pub fn save(document: &Document, path: &Path, keep_original: bool) -> Result<Sav
             label: None,
             unless_changed_from: None,
             retention: Retention::Standard,
+            preview: None,
         },
     )
 }
@@ -258,7 +261,10 @@ pub(crate) fn save_interleaved(
         document,
         previous.as_ref().map(|previous| previous.bytes.as_slice()),
         (SystemTime::now(), options.retention),
-        options.label,
+        EncodeExtras {
+            label: options.label,
+            preview: options.preview,
+        },
     )
     .map_err(|error| SaveError::encoding(&error))?;
     while_encoding();

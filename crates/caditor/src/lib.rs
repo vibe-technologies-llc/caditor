@@ -175,6 +175,7 @@ mod rib_panel;
 mod rib_tools;
 mod ribbon;
 mod samples;
+mod save_preview;
 mod saved_views;
 mod scale_model;
 mod scale_panel;
@@ -317,6 +318,7 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
             panic_flush,
         },
     );
+    model.draw_previews_on_save();
     if let Some(log) = &stopped_before {
         model.set_notice(Notice::warning(logging::unexpected_end_notice(log)));
     }

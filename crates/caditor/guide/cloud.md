@@ -7,7 +7,9 @@ itself when caditor starts with an empty model, and from the File menu and the c
 any time. From top to bottom it holds:
 
 - the ways to start: a sketch, a box, an import, or opening a model;
-- your recent files, newest first;
+- your recent files, newest first, each with a small picture of its bodies when the model was
+  saved by this version of caditor (older files and models without bodies keep a file icon until
+  they are saved again);
 - your Fusion 360 and Onshape projects, when cloud services are on;
 - the samples, to see how a model is built.
 

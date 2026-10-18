@@ -22,6 +22,12 @@ paths:
   `FromEarlierBuild` for a journal of a development build before version 1 (magic
   `\x89CJL\r\n\x1a\n`). Each is handled alike: never offered, set aside by `journal_for`.
   Every shipped version keeps journals in the format corpus (`file-format.md`).
+- The journal carries no preview picture (`file-format.md`): a picture pictures a saved file, and a
+  journal restores unsaved work, so the file written when a recovered session is saved draws its
+  own. `SaveRequest::preview` reaches only the model file; the worker hands it to `SaveOptions` and
+  the journal rewrite after the save is untouched by it. The worker syncs the journal before a save
+  and waits for the picture inside the save (at most `PREVIEW_PATIENCE`, only while the drawing is
+  still running), so appends queue behind it for that long at most.
 - Undo and redo are journaled by reference when possible (`UndoLast`, `RedoNext`), so undoing an
   import never repeats its STEP text; the storage worker follows the journal in a `Mirror`.
 - A reference image's picture is written into a journal once: the worker keeps the digests the file
