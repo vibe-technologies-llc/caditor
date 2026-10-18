@@ -248,6 +248,10 @@ fn a_chosen_body_colour_draws_bodies_without_their_own_refuses_an_unseen_one_and
     harness.frame();
     harness.frame();
     assert_eq!(drawn_body(&mut harness), drawn(DEFAULT_COLOUR));
+    wait_until_stored(&mut harness, dir.path(), |stored| {
+        stored.appearance.body == BodyColour::Default
+    });
+
     harness.click_button(&preferences::body_swatch_name("Steel blue"));
     harness.frame();
 
