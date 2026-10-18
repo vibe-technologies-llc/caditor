@@ -1245,6 +1245,21 @@ impl Harness {
         self.frame();
     }
 
+    fn type_lines_into_field(&mut self, id: Id, lines: &[&str]) {
+        self.context.memory_mut(|memory| memory.request_focus(id));
+        self.frame();
+        self.key(Key::A, Modifiers::COMMAND);
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                self.key(Key::Enter, Modifiers::NONE);
+                self.frame();
+            }
+            self.events.push(Event::Text((*line).to_owned()));
+            self.frame();
+        }
+        self.frame();
+    }
+
     fn click_pickable(&mut self, plane: Plane, point: Point2, pickable: Pickable) {
         let position = self.hover_pickable(plane, point, pickable);
         self.press(position);
@@ -1877,7 +1892,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     rectangle(&mut plate, Point2::new(0.0, 0.0), Point2::new(20.0, 10.0));
     plate.add_circle(Point2::new(10.0, 5.0), 2.5);
     let mut peg = Sketch::new(Plane::XY);
-    peg.add_circle(Point2::new(10.0, 5.0000015), 2.5);
+    peg.add_circle(Point2::new(10.000002, 5.0), 2.499999);
     for (name, outline) in [("Plate", plate), ("Peg", peg)] {
         let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
         bodies.push(transaction.add_feature(

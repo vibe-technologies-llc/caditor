@@ -1,7 +1,9 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{Constraint, EntityId, Sketch, SketchError, Text, TextError, TextSize, letter_curve};
+use crate::{
+    Constraint, EntityId, Sketch, SketchError, Text, TextAlign, TextError, TextSize, letter_curve,
+};
 
 const HEIGHT: ParameterId = ParameterId::from_raw(4);
 
@@ -13,6 +15,7 @@ fn label(content: &str, anchor: EntityId) -> Text {
         angle: Expression::measure(0.0, Unit::Degree),
         bold: false,
         italic: false,
+        align: TextAlign::Left,
     }
 }
 
@@ -39,7 +42,7 @@ fn a_text_stands_on_a_point_that_cannot_go_while_the_text_stays() {
 }
 
 #[test]
-fn a_text_needs_a_point_and_one_line_of_letters() {
+fn a_text_needs_a_point_and_letters() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::X);
     let anchor = sketch.add_point(Point2::ZERO);
@@ -47,7 +50,7 @@ fn a_text_needs_a_point_and_one_line_of_letters() {
     let on_line = sketch.add_text(label("A", line));
     let missing = sketch.add_text(label("A", EntityId::from_raw(99)));
     let blank = sketch.add_text(label("  ", anchor));
-    let broken = sketch.add_text(label("A\nB", anchor));
+    let broken = sketch.add_text(label("A\tB", anchor));
     let long = sketch.add_text(label(&"x".repeat(crate::MAX_TEXT_CHARS + 1), anchor));
 
     assert_eq!(on_line, Err(SketchError::NotAPoint(line)));
@@ -196,4 +199,33 @@ fn letter_curves_name_their_text_and_never_a_stored_entity() {
     );
     assert_eq!(letter_curve(text, 1 << 11, 0), None);
     assert_eq!(letter_curve(text, 0, 1 << 12), None);
+}
+
+#[test]
+fn a_text_may_hold_line_breaks_and_an_alignment_that_edits_keep() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let anchor = sketch.add_point(Point2::ZERO);
+
+    let text = sketch.add_text(label("Top\nBottom", anchor)).unwrap();
+    let carriage_return = sketch.add_text(label("Top\r\nBottom", anchor));
+    let breaks_only = sketch.add_text(label("\n \n", anchor));
+    let centred = Text {
+        align: TextAlign::Centre,
+        ..label("Top\nBottom", anchor)
+    };
+    sketch.replace_text(text, centred.clone()).unwrap();
+
+    assert_eq!(
+        carriage_return,
+        Err(SketchError::InvalidText(TextError::ControlCharacter))
+    );
+    assert_eq!(breaks_only, Err(SketchError::InvalidText(TextError::Blank)));
+    assert_eq!(sketch.text(text), Some(&centred));
+    assert!(!sketch.same_geometry(&{
+        let mut other = sketch.clone();
+        other
+            .replace_text(text, label("Top\nBottom", anchor))
+            .unwrap();
+        other
+    }));
 }

@@ -17,6 +17,7 @@ mod id;
 mod inference;
 mod insertion;
 mod intersect;
+mod keeping;
 mod mirror;
 mod offset;
 mod open_ends;
@@ -63,6 +64,6 @@ pub use crate::{
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
     target::{EllipseEnd, PointTarget, Quadrant},
-    text::{MAX_TEXT_CHARS, Text, TextError, TextSize, letter_curve},
+    text::{LINE_BREAK, MAX_TEXT_CHARS, Text, TextAlign, TextError, TextSize, letter_curve},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

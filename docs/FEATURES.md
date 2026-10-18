@@ -114,8 +114,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   set along a curve (`sketch.md`, Text): text runs straight from its point at an angle, while
   laying each letter's middle on a sketch curve turned to its tangent, as SVG `textPath` does,
   would need the layout to follow the solved curve and a placement along it the solver can hold.
-  Text is also one line of Inter starting at its point: no other typeface, no lines below it and no
-  centred or right-aligned anchor.
+  Text is also set in Inter alone: no other typeface.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading
@@ -131,8 +130,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   it made, saved in the file) that recompute draws again from the evaluated values, holding its
   curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
 - [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
-  along their curves and cannot offset splines; a sketch fillet cannot round a spline and drops
-  equal lengths and midpoints of the lines it shortens, as trim does. A trimmed fit-point spline is
+  along their curves and cannot offset splines; a sketch fillet cannot round a spline (the
+  corner would need a centre rolled along the spline's offset and the spline cut at the touching
+  parameter by blossoming, as trim cuts it). A trimmed fit-point spline is
   refitted through its remaining points rather than kept exactly, and one cannot be split or broken
   at a point (its knots follow its points, so no fit spline holds the piece).
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable

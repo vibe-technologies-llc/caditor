@@ -299,7 +299,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         })),
     );
     let mut round = Sketch::new(Plane::XY);
-    round.add_circle(Point2::new(10.0000015, 5.0), 2.5);
+    round.add_circle(Point2::new(10.000002, 5.0), 2.499999);
     let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
     let peg = transaction.add_feature(
         "Peg",
@@ -331,7 +331,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     assert_eq!(
         error.reason(),
         "The bodies of Plate and Peg could not be combined. The faces of the result would not \
-         close up at Plate side from Circle 13, Plate start face and Peg start face."
+         close up at Plate start face."
     );
     assert!(
         error

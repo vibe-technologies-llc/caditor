@@ -477,14 +477,15 @@ Sketch entities:
 - A reader not knowing one reports it as a kind from a newer version and keeps the points.
 - A sketch text (`sketch.md`, Text) is written among the entities as an entity record of kind
   `text` (`TextRecord`: `anchor`, `content`, `height` and `angle` stored texts, `bold` and `italic`
-  only when set), so a reader not knowing it reports a kind from a newer version and keeps the
+  only when set, `align` as `centre` or `right` only when not left, so a file from before
+  alignment reads as left-aligned and one with line breaks is the same `content` string), so a reader not knowing it reports a kind from a newer version and keeps the
   anchor point rather than silently computing a model without the letters. Loading restores texts
   after the curves and before the constraints; an unreadable height loads as 5 mm and an angle as
   0°, reported, and a text the sketch refuses (missing anchor, blank or over-long content) is left
   out, reported with its content. Journal: `add_sketch_text` and `set_sketch_text` (`feature`,
   `id`, `text`) and `remove_sketch_text` (`feature`, `id`); an `add_sketch_entity` or
   `set_sketch_entity` holding a `text` kind is refused as unreadable. The corpus holds them in
-  `texts.caditor` and `texts.journal`.
+  `texts.caditor`, `texts.journal` and, with line breaks and alignment, `text-layouts.caditor`.
 
 ## Loading
 

@@ -10,6 +10,7 @@ use crate::{
     entity::Entity,
     id::{ConstraintId, EntityId, Reference},
     intersect::{self, Carrier, Shape},
+    keeping::MidpointOn,
     sketch::{DetachedConstraint, Sketch, SketchError},
     trim::spline::{Reshape, SplineCourse},
 };
@@ -789,7 +790,7 @@ impl Sketch {
         Ok(extension)
     }
 
-    fn shape_of(&self, curve: EntityId) -> Option<Shape> {
+    pub(crate) fn shape_of(&self, curve: EntityId) -> Option<Shape> {
         match self.entity(curve)? {
             Entity::Point(_) => None,
             Entity::Line { .. } => {
@@ -952,7 +953,7 @@ impl Sketch {
                         _ => None,
                     })
                     .collect();
-                self.restructure(
+                let far_midpoints = self.restructure_leaving(
                     curve,
                     Entity::Line {
                         start,
@@ -969,6 +970,7 @@ impl Sketch {
                     },
                 )?;
                 self.move_constraints(moved, curve, split)?;
+                self.settle_midpoints(&[split], far_midpoints)?;
                 if directions.is_empty() {
                     self.add_constraint(Constraint::Collinear(curve, split))?;
                 } else {
@@ -1024,7 +1026,8 @@ impl Sketch {
                     start,
                     end: near_end,
                 };
-                self.restructure(curve, arc, &moved_ids, keeps_sweep)?;
+                let far_midpoints =
+                    self.restructure_leaving(curve, arc, &moved_ids, keeps_sweep)?;
                 let split_center = self.add_point(center_at);
                 let split = self.add_piece(
                     curve,
@@ -1035,6 +1038,7 @@ impl Sketch {
                     },
                 )?;
                 self.move_constraints(moved, curve, split)?;
+                self.settle_midpoints(&[split], far_midpoints)?;
                 self.add_constraint(Constraint::Concentric(curve, split))?;
                 self.add_constraint(Constraint::Equal(curve, split))?;
                 self.join(near_end, &first, curve)?;
@@ -1181,13 +1185,30 @@ impl Sketch {
         moved: &[ConstraintId],
         keeps: impl Fn(&Constraint) -> bool,
     ) -> Result<(), SketchError> {
+        self.restructure_leaving(curve, entity, moved, keeps)?;
+        Ok(())
+    }
+
+    pub(crate) fn restructure_leaving(
+        &mut self,
+        curve: EntityId,
+        entity: Entity,
+        moved: &[ConstraintId],
+        keeps: impl Fn(&Constraint) -> bool,
+    ) -> Result<Vec<MidpointOn>, SketchError> {
         let construction = self.is_construction(curve);
         let split_from = self.split_from(curve);
         let mut kept = Vec::new();
+        let mut midpoints = Vec::new();
         for id in self.constraints_using(curve) {
             let detached = self.detach_constraint(id)?;
-            if !moved.contains(&id) && keeps(&detached.constraint) {
+            if moved.contains(&id) {
+                continue;
+            }
+            if keeps(&detached.constraint) {
                 kept.push((id, detached));
+            } else if let Some(midpoint) = MidpointOn::of(id, &detached, curve) {
+                midpoints.push(midpoint);
             }
         }
         self.remove_unused_entity(curve)?;
@@ -1199,7 +1220,7 @@ impl Sketch {
         for (id, detached) in kept {
             self.attach_constraint(id, detached)?;
         }
-        Ok(())
+        self.settle_midpoints(&[curve], midpoints)
     }
 
     pub(crate) fn drop_length_dimensions(
@@ -1561,8 +1582,12 @@ impl Sketch {
             .into_iter()
             .filter(|id| self.constraint(*id).is_some_and(|c| !keeps(c)))
             .collect();
+        let mut midpoints = Vec::new();
         for id in changed {
-            self.remove_constraint(id)?;
+            let detached = self.detach_constraint(id)?;
+            if let Some(midpoint) = MidpointOn::of(id, &detached, curve) {
+                midpoints.push(midpoint);
+            }
         }
         self.replace_entity(extension.end, Entity::Point(extension.to))?;
         if let Reach::Spline { shape, .. } = &extension.reach {
@@ -1572,7 +1597,9 @@ impl Sketch {
             Some(point) => Joint::Point(point),
             None => Joint::Curve(extension.target),
         };
-        self.attach(extension.end, joint, curve)
+        self.attach(extension.end, joint, curve)?;
+        self.settle_midpoints(&[curve], midpoints)?;
+        Ok(())
     }
 }
 

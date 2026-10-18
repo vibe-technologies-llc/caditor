@@ -103,10 +103,13 @@ paths:
 - Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
   the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
   `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,
-  `MissingEntity`), its content (one line, not blank, at most `MAX_TEXT_CHARS`, no control
-  characters: `InvalidText`), a height and an angle as `Expression`s (length, and angle in degrees
-  from the sketch's x axis) and bold and italic. The anchor counts as a use, so it cannot be removed
-  while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
+  `MissingEntity`), its content (lines separated by `LINE_BREAK`, not blank, at most
+  `MAX_TEXT_CHARS` counting the breaks, no other control characters: `InvalidText`), a height and
+  an angle as `Expression`s (length, and angle in degrees from the sketch's x axis), bold and
+  italic, and a `TextAlign` (`Left`, `Centre` or `Right`, left by default). The anchor is the
+  start, middle or end of the first line's baseline by that alignment, and each following line is
+  set below it, aligned about the same vertical through the anchor (`lettering.md`). The anchor
+  counts as a use, so it cannot be removed while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
   drill at it). `add_text`, `insert_text` (explicit id), `remove_text` and `replace_text` (value
   only; a changed anchor is `ChangesStructure`). The text holds no constraint and adds no freedom:
   the anchor is an ordinary point, constrained and dimensioned like any other.
@@ -224,8 +227,8 @@ paths:
   Point 5", "Centre of Point 1, Point 2 and Point 3 at Point 7". `restating` compares targets with
   a crossing's curves and the corners in order, and a target that is a sketch point keeps the
   two-point subject. Trim, extend, split and the sketch fillet drop a constraint tracking a middle
-  of a curve they reshape (`follows_a_middle` in `keeps_length` and `keeps_sweep`), as they drop
-  `Midpoint`.
+  of a curve they reshape (`follows_a_middle` in `keeps_length` and `keeps_sweep`); a `Midpoint` is
+  relaxed instead (`Editing operations`).
 - `Midpoint { point, curve }` takes a line, arc or elliptical arc, never a circle or whole ellipse.
   On an arc it is two single-branch equations (`Form::OnBisector`, on the chord's perpendicular
   bisector; `Form::ArcBulge`, signed distance from the centre across the chord equals the radius on
@@ -272,9 +275,30 @@ relative to the extent.
     ends of the overlap: the cutter's ends inside the target (`overlap_ends`, same tolerance); the
     overlap's own crossings are not looked for. A whole circle on a circle, or a cutter whose ends
     lie outside the target, cuts nothing. Extend does not look for overlaps.
-  - Dropped: `Midpoint` and `Equal` on a shortened line; `Midpoint`, `ArcLength` and `Sweep` on a
-    shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any distance
-    dimension between the two old ends or points joined to them by `Coincident`.
+  - Dropped: `Equal` on a shortened line (kept only by the fillet and chamfer, below); `ArcLength`
+    and `Sweep` on a shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any
+    distance dimension between the two old ends or points joined to them by `Coincident`.
+  - A `Midpoint` on a line, arc or elliptical arc a trim, extend, split, break, fillet or chamfer
+    reshapes is relaxed, not dropped (`keeping.rs`): `restructure_leaving` hands the midpoints
+    `keeps_length`/`keeps_sweep` refuse to `settle_midpoints`, which turns each, under its ID, flag
+    and label, into `Coincident(point, curve)` when the point still lies within `SLACK` of the
+    curve's drawn shape (`shape_of`, `Shape::closest`: the segment, arc or elliptical arc as it now
+    is), else drops it. The middle of the shorter curve is not where the point is, so the point is
+    never moved and never held at the new middle; a point on the part cut away has no curve left to
+    stay on. A split and a trim of the middle offer the leftovers to the far piece
+    (`settle_midpoints(&[piece], …)`), so the point stays on the line that now holds it. The relaxed
+    constraint is a subset of the equations the midpoint held, so it adds no conflict and the
+    sketch gains one degree of freedom per midpoint, which the user pins again if wanted. A
+    constraint already holding the same point on the curve, or one `check_constraint` refuses (the
+    point is an end of the curve), leaves nothing in its place.
+  - An `Equal` between the two lines of a fillet or chamfer corner survives (`shorten_to`:
+    `detach_equal_lines` before the reshaping, `restore_equal_lines` after) when both are lines and
+    their new lengths agree within `SLACK`, which is how the corner's own geometry decides: a
+    fillet takes the same tangent length from both lines of a corner, so equal lines stay equal and
+    the constraint is equivalent to the one it replaces, adding no redundancy; a chamfer by one
+    distance does the same, by two different distances the lengths differ and the `Equal` is
+    dropped. An `Equal` with a line the operation does not reshape never survives, nor does one
+    when only one of its lines is reshaped (trim, extend, split, fillet against an arc).
   - A split-off piece gets fresh IDs, the construction flag and `split_from`: the curve it came
     from (that curve's own original when it is a piece itself), so every piece of one curve names
     the same original (`Sketch::pieces_of`) and blends follow an edge onto them
@@ -397,7 +421,7 @@ relative to the extent.
   each (curve and a point on it), the corner at the crossing of their carriers nearest the picks
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with
   one shared point there, as trim does (`keeps_length`/`keeps_sweep`, distance dimensions between
-  old ends dropped, unused old ends removed). An end that must move outward is checked as extend
+  old ends dropped, unused old ends removed; midpoints relaxed likewise). An end that must move outward is checked as extend
   checks it (`Held`); an arc or elliptical arc whose crossing lies off it extends its nearer free
   end round its circle or ellipse (by angle or ellipse parameter, as extend's `reach_around_ellipse`
   does), keeping its minor radius. An elliptical arc's carrier is its whole ellipse

@@ -228,6 +228,7 @@ mod tests {
     use caditor_geometry::Plane;
 
     use super::*;
+    use crate::TextAlign;
 
     #[test]
     fn a_copied_text_is_pasted_on_a_copy_of_its_point() {
@@ -241,6 +242,7 @@ mod tests {
                 angle: Expression::Measure(0.0, Unit::Degree),
                 bold: true,
                 italic: false,
+                align: TextAlign::Left,
             })
             .unwrap();
 
