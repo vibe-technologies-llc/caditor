@@ -118,10 +118,20 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   sign-in link, since a browser may not open), open it with `browser::open` (https only, no shell:
   `xdg-open` or `gio`, `rundll32 url.dll,FileProtocolHandler`), wait up to five minutes, trade the
   code, save the session. Cancel stops the wait.
-- The session is `<state>/cloud/<service>-session.json` (`SessionStore`), written through
-  `caditor_file::write_privately` (an owner-only file, new or replaced; a test holds the mode); a
-  damaged file is dropped, not fatal. Sign-out and turning cloud off revoke at the service (best effort) and delete it. An
-  OS keyring is a recorded follow-up.
+- The session is JSON kept by `SessionStore` (`cloud/store.rs`) in the operating system's keyring
+  (`cloud/keyring.rs`, below), one entry per service, and in `<state>/cloud/<service>-session.json`
+  (`caditor_file::write_privately`, an owner-only file, new or replaced; a test holds the mode) only
+  when no keyring takes it. `save` writes the keyring and then removes any file; when the keyring
+  fails it writes the file. `load` reads a file first, since a file is by construction newer than
+  any keyring entry (it exists only because a keyring write failed, and a refresh token is spent
+  once): it moves the file into the keyring and deletes it on success, and keeps it while the keyring
+  cannot take it. With no file it reads the keyring; an unreachable keyring is no sign-in, never an
+  error. A damaged file or entry is dropped, not fatal. `forget` removes both; a keyring that is
+  absent (no bus, no Secret Service, no default collection) is not an error, one that refuses
+  (locked and not unlocked, prompt dismissed) is logged, since the entry would sign the user in
+  again at the next start. Sign-out and turning cloud off revoke at the service (best effort) and
+  forget; every keyring call, forgetting included, runs on a courier thread, never on the UI
+  thread (`Cloud::leave` spawns even when nothing is linked).
 - An import is one job (`ImportJob`): convert, poll every two seconds for ten minutes at most,
   stream to `<state>/cloud/downloads/<id hash>/<design name>.step` through a hidden `.part` file,
   fsync, rename, then keep the newest `KEPT_DESIGNS`. One runs at a time; Cancel stops it between
@@ -159,11 +169,40 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `CloudSignOut`, `OnshapeSignIn`, `OnshapeSignOut`, `CloudRefresh`, which refreshes every signed-in
   service) refused with a reason when it cannot run.
 
+## The keyring (`cloud/keyring.rs`)
+
+`Keyring` (object safe: `get`, `set`, `delete` of a service's bytes, `KeyringError` an enum of
+specific causes with `is_absent`) is the platform pair behind `keyring::system()`; `CloudServices`
+carries it so tests inject `FakeKeyring` (reachable or not), and the UI tests of the file fallback
+use an unreachable one. No test touches the real keyring.
+
+- Linux (`keyring/secret_service.rs`): the freedesktop Secret Service over `zbus` (the workspace's
+  zbus 6, already built for the portal), a new session-bus connection per call under `zbus::block_on`
+  on the calling job thread. `OpenSession` with the `plain` algorithm, the default collection
+  (`ReadAlias("default")`), items found by the attributes `application=caditor`, `kind=cloud-session`,
+  `service=<id>`; `CreateItem` replaces the entry. A locked collection is unlocked (`Unlock` and its
+  prompt, waited for at most two minutes and then dismissed by a helper thread, so a job never
+  waits forever); a prompt the user dismisses is `PromptDismissed` and the file is used.
+- `plain` is chosen over the DH session (`dh-ietf1024-sha256-aes128-cbc-pkcs7`) deliberately. The
+  secret then crosses only the user's own session bus, a Unix socket in the user's private runtime
+  directory, to a daemon that holds it as the user; a process of that user could equally read the
+  owner-only file the keyring replaces, and root can do anything. The DH exchange would protect
+  against a bus-wide eavesdropper that the bus's own permissions already exclude, and it would add
+  a 1024-bit Diffie-Hellman, HKDF and AES-CBC, none of which `zbus` or the dependency tree supplies
+  in pure Rust, for no gain here.
+- Windows (`keyring/credential_manager.rs`): Credential Manager generic credentials through
+  `caditor_windows::{read,write,delete}_credential` (`windows.md`), persisted for the local machine
+  and encrypted by Windows for the user. A credential's blob is at most 2560 bytes and an access
+  token can approach that alone, so the JSON is split into pieces `caditor/<service>/<n>` of at most
+  that size; `set` writes them all and deletes leftover higher pieces, `get` reads from 0 until one
+  is missing, `delete` removes them all. A torn write reads as damaged JSON and is dropped.
+
 ## Dependencies
 
 `ureq` (`rustls-no-provider`, `rustls-webpki-roots`), `rustls-graviola` and `graviola` (SHA-256 and
 the system random source for PKCE). `webpki-roots` is data under CDLA-Permissive-2.0, allowed for
-that crate alone in `deny.toml`. No dependency builds C.
+that crate alone in `deny.toml`. `zbus` (Unix) and `caditor-windows` (Windows) serve the keyring. No
+dependency builds C.
 
 ## Tests
 

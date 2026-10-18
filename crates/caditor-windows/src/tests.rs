@@ -8,12 +8,12 @@ use std::{
 use tempfile::TempDir;
 
 use crate::{
-    ButtonRect, FileId, HIDDEN_ATTRIBUTE, battery_flag, boot_id, client_area_animations,
-    cluster_size, duplicate_extents,
+    ButtonRect, CREDENTIAL_BLOB_LIMIT, FileId, HIDDEN_ATTRIBUTE, battery_flag, boot_id,
+    client_area_animations, cluster_size, delete_credential, duplicate_extents,
     files::{verbatim_for_tests, without_verbatim_for_tests},
     final_path, machine_guid,
     maximize::client_point,
-    move_file_durably, process_running, replace_file,
+    move_file_durably, process_running, read_credential, replace_file, write_credential,
 };
 
 #[test]
@@ -193,4 +193,30 @@ fn the_battery_flag_is_read() {
 #[test]
 fn the_client_area_animation_setting_is_read() {
     assert!(client_area_animations().is_ok());
+}
+
+#[test]
+fn a_credential_is_written_read_replaced_and_deleted() {
+    let target = format!("caditor test credential {}", std::process::id());
+
+    assert_eq!(read_credential(&target).unwrap(), None);
+
+    write_credential(&target, "caditor", b"first").unwrap();
+    write_credential(&target, "caditor", b"second").unwrap();
+
+    assert_eq!(read_credential(&target).unwrap(), Some(b"second".to_vec()));
+
+    assert!(delete_credential(&target).unwrap());
+    assert!(!delete_credential(&target).unwrap());
+    assert_eq!(read_credential(&target).unwrap(), None);
+}
+
+#[test]
+fn a_credential_larger_than_the_limit_is_refused() {
+    let target = format!("caditor test oversized credential {}", std::process::id());
+    let blob = vec![0u8; CREDENTIAL_BLOB_LIMIT + 1];
+
+    let error = write_credential(&target, "caditor", &blob).unwrap_err();
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
 }

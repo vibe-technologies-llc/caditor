@@ -54,6 +54,10 @@ so call sites stay platform-free.
     reads it for Preferences › Navigation › View changes › Follow the system (`app-files.md`).
   - `attach_parent_console`: a release build is GUI-subsystem, so `--version`, `--help` and
     `--export` print only after attaching to the starting console.
+  - `read_credential`, `write_credential` and `delete_credential`: generic Credential Manager entries
+    (`CredReadW`, `CredWriteW` with `CRED_PERSIST_LOCAL_MACHINE`, `CredDeleteW`, the answer freed with
+    `CredFree`), the cloud sign-in's keyring (`cloud.md`); a missing credential is `None` or `false`,
+    not an error, and a blob over `CREDENTIAL_BLOB_LIMIT` (2560 bytes) is `InvalidInput`.
   - `DialogParent`: an HWND as `HasWindowHandle` and `HasDisplayHandle`, for rfd.
   - `show_error`: `MessageBoxW`, for a failed start.
 

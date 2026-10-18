@@ -212,9 +212,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   no team or company scopes, shared-with-me or public filters, folders, versions or branches (the
   default workspace of a document is exported), and drawings, blobs and Part Studio parts are not
   offered, only whole Part Studios and assemblies.
-- [low · medium] The cloud sign-in is kept in an owner-only file in the state directory; the
-  operating system's keyring (the Secret Service over `zbus` on Linux, the Credential Manager on
-  Windows) would hold it better.
 - [low · medium] Cloud tiles and Recent files are names only: a Fusion design's thumbnail (the Model
   Derivative thumbnail) and a model's own picture would make Home recognisable at a glance.
 - [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
