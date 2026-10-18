@@ -174,7 +174,7 @@ impl Sketch {
                         _ => None,
                     })
                     .collect();
-                self.restructure(
+                let far_midpoints = self.restructure_leaving(
                     curve,
                     Entity::Line { start, end: point },
                     &moved_ids,
@@ -182,6 +182,7 @@ impl Sketch {
                 )?;
                 let piece = self.add_piece(curve, Entity::Line { start: point, end })?;
                 self.move_constraints(moved, curve, piece)?;
+                self.settle_midpoints(&[piece], far_midpoints)?;
                 if directions.is_empty() {
                     self.add_constraint(Constraint::Collinear(curve, piece))?;
                 } else {
@@ -197,7 +198,7 @@ impl Sketch {
             Entity::Arc { center, start, end } => {
                 let moved = self.far_constraints(curve, start, end);
                 let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _)| *id).collect();
-                self.restructure(
+                let far_midpoints = self.restructure_leaving(
                     curve,
                     Entity::Arc {
                         center,
@@ -216,6 +217,7 @@ impl Sketch {
                     },
                 )?;
                 self.move_constraints(moved, curve, piece)?;
+                self.settle_midpoints(&[piece], far_midpoints)?;
                 Ok(piece)
             }
             Entity::EllipticalArc {

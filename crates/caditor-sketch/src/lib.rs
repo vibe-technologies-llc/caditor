@@ -17,6 +17,7 @@ mod id;
 mod inference;
 mod insertion;
 mod intersect;
+mod keeping;
 mod mirror;
 mod offset;
 mod open_ends;
