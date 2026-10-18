@@ -1,7 +1,7 @@
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{FaceReference, SamplingTolerance, Solid, Surface};
-use caditor_sketch::{Constraint, Entity, Sketch, Text};
+use caditor_sketch::{Constraint, Entity, Sketch, Text, TextAlign};
 
 use crate::*;
 
@@ -366,6 +366,7 @@ fn text_embosses_with_its_counters_open() {
             angle: Expression::measure(0.0, Unit::Degree),
             bold: false,
             italic: false,
+            align: TextAlign::Left,
         },
     );
     document.apply(transaction.finish()).unwrap();
