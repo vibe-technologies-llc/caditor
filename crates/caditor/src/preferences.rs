@@ -40,7 +40,7 @@ use crate::{
     lighting::Lighting,
     model::Notice,
     onboarding::{Hint, Onboarding},
-    palette,
+    palette, slicer,
     units::{AngleUnit, Decimals, LengthUnit, NumberFormat, TrailingZeros},
     view_aids::{EdgeLook, EdgeWeight},
     view_cube::{Corner, CubePlacement, CubeSize},
@@ -511,6 +511,7 @@ pub struct Preferences {
     pub window: WindowPlacement,
     pub panels: PanelLayout,
     pub default_template: Option<String>,
+    pub slicer_program: Option<PathBuf>,
     pub palette_recent: Vec<Command>,
     pub recent_colours: Vec<Rgb>,
     pub last_values: LastValues,
@@ -587,6 +588,7 @@ pub enum PreferenceChange {
     CloudEnabled(bool),
     CloudOnHome(bool),
     ClientId(Service, String),
+    SlicerProgram(String),
     RestoreHints,
     DefenderReminded,
     RecentColour(Rgb),
@@ -792,6 +794,7 @@ impl Preferences {
             window: WindowPlacement::from_settings(&raw),
             panels: PanelLayout::from_settings(&raw),
             default_template: templates::default_template(&raw),
+            slicer_program: slicer::chosen_program(&raw),
             palette_recent: palette_recent(&raw),
             recent_colours: recent_colours(&raw),
             last_values: LastValues::from_settings(&raw),
@@ -845,6 +848,7 @@ impl Preferences {
         self.window.write(&mut settings);
         self.panels.write(&mut settings);
         templates::write_default_template(self.default_template.as_deref(), &mut settings);
+        slicer::write_chosen_program(self.slicer_program.as_deref(), &mut settings);
         if !self.palette_recent.is_empty() {
             let ids: Vec<String> = self
                 .palette_recent
@@ -957,6 +961,10 @@ impl Preferences {
             PreferenceChange::CloudEnabled(enabled) => self.cloud.enabled = enabled,
             PreferenceChange::CloudOnHome(shown) => self.cloud.on_home = shown,
             PreferenceChange::ClientId(service, id) => self.cloud.set_client_id(service, id),
+            PreferenceChange::SlicerProgram(program) => {
+                let program = program.trim();
+                self.slicer_program = (!program.is_empty()).then(|| PathBuf::from(program));
+            }
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {

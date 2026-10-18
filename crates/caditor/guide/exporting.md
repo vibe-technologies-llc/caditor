@@ -22,6 +22,14 @@ and folder after caditor is closed: the next export of a model, a drawing or an 
 last one ended. [Preferences](preferences) › General › Exports can keep them only while caditor
 runs, or forget them.
 
+{command:file.open_in_slicer} sends the bodies straight to OrcaSlicer for printing: it writes them
+as 3MF to a folder of caditor's own, without asking for a file, and starts OrcaSlicer with it. The
+Export dialog has the same button beside Export…, using the resolution and bodies chosen there.
+caditor finds OrcaSlicer where it is usually installed (on the path, from Flathub, or an AppImage in
+Applications, AppImages, Downloads or `/opt`; on Windows in Program Files). When it is elsewhere,
+name its program or AppImage in [Preferences](preferences) › General › Exports. The files are kept
+for a week.
+
 A model with modelled [threads](thread) offers **Threads**: **Modelled** (the default) cuts them
 into the exported bodies, recomputing them in the background while they are shown as cosmetic;
 **As shown** exports them as the view shows them. The command line always exports them modelled.

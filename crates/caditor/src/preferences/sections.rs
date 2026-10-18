@@ -193,8 +193,19 @@ impl Section {
                 "saving",
             ],
             Self::Exports => &[
-                "export", "remember", "folder", "format", "stl", "3mf", "step", "dxf", "svg",
+                "export",
+                "remember",
+                "folder",
+                "format",
+                "stl",
+                "3mf",
+                "step",
+                "dxf",
+                "svg",
                 "image",
+                "slicer",
+                "orcaslicer",
+                "3d print",
             ],
             Self::Cloud => &[
                 "fusion",
@@ -381,6 +392,7 @@ impl Section {
             }
             Self::VersionHistory => to.retention = from.retention,
             Self::Exports => {
+                to.slicer_program.clone_from(&from.slicer_program);
                 to.export_memory = from.export_memory;
                 if to.export_memory == ExportMemory::SessionOnly {
                     to.exports.clone_from(&from.exports);

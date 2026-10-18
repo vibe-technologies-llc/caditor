@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use caditor_cloud::Service;
 use caditor_document::Rgb;
 use caditor_file::Retention;
@@ -18,6 +20,7 @@ use crate::{
     graphics::{self, Hardware},
     icons, lighting_panel,
     scene_palette::{self, Canvas, Contrast},
+    slicer::Slicer,
     themes::{Look, UserThemes},
     units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
     view_aids::EdgeWeight,
@@ -571,7 +574,9 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
     let preferences = shown.preferences;
     let note = "Each export dialog keeps the format, options and folder you last exported with: \
                 the model formats and their mesh and thread options, the drawing format, layout \
-                and sheet, and the image size, scale and background.";
+                and sheet, and the image size, scale and background. Open in OrcaSlicer looks \
+                for OrcaSlicer where it is usually installed; name its program here when it is \
+                elsewhere.";
     section(ui, shown, Section::Exports, Some(note.to_owned()), |ui| {
         widgets::property(ui, "Export choices", |ui| {
             if let Some(memory) = pick::<ExportMemory>(ui, preferences.export_memory) {
@@ -594,7 +599,44 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
             change(command, PreferenceChange::ForgetExports);
         }
         ui.end_row();
+        widgets::property(ui, "Slicer program", |ui| {
+            slicer_program_field(ui, preferences.slicer_program.as_deref(), command);
+        });
     });
+}
+
+fn slicer_program_field(
+    ui: &mut Ui,
+    stored: Option<&Path>,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let slicer = Slicer::SUPPORTED;
+    let stored = stored.map(Path::display).map(|path| path.to_string());
+    let draft_id = Id::unique(SLICER_PROGRAM_FIELD);
+    let mut text = ui
+        .data(|data| data.get_temp::<String>(draft_id))
+        .or_else(|| stored.clone())
+        .unwrap_or_default();
+    let response = widgets::text_field(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut text)
+                .id(Id::unique(SLICER_PROGRAM_FIELD_EDIT))
+                .hint_text(format!("{slicer}, found automatically"))
+                .desired_width(f32::INFINITY),
+        )
+    })
+    .on_hover_text(format!(
+        "The {slicer} program or AppImage that File › Export › Open in {slicer} starts. Leave \
+         empty to look for {slicer} where it is usually installed"
+    ));
+    if response.lost_focus() {
+        ui.data_mut(|data| data.remove_temp::<String>(draft_id));
+        if text.trim() != stored.as_deref().unwrap_or_default() {
+            change(command, PreferenceChange::SlicerProgram(text));
+        }
+    } else if response.has_focus() || response.changed() {
+        ui.data_mut(|data| data.insert_temp(draft_id, text));
+    }
 }
 
 fn saving_on_windows(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
@@ -818,6 +860,8 @@ pub const CLIENT_ID_FIELD: &str = "preferences-cloud-client-id-draft";
 pub const CLIENT_ID_FIELD_EDIT: &str = "preferences-cloud-client-id";
 pub const ONSHAPE_CLIENT_ID_FIELD: &str = "preferences-cloud-onshape-client-id-draft";
 pub const ONSHAPE_CLIENT_ID_FIELD_EDIT: &str = "preferences-cloud-onshape-client-id";
+pub const SLICER_PROGRAM_FIELD: &str = "preferences-slicer-program-draft";
+pub const SLICER_PROGRAM_FIELD_EDIT: &str = "preferences-slicer-program";
 pub const RELOAD_THEMES: &str = "Reload themes";
 pub const AUTOMATIC_GRID: &str = "Grid: automatic";
 pub const CUSTOM_GRID: &str = "Custom grid colour";

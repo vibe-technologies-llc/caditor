@@ -200,6 +200,7 @@ mod sketch_placement;
 mod sketch_status;
 mod sketch_toolbar;
 mod sketch_tools;
+mod slicer;
 mod snap;
 mod snapshot;
 mod solid_panel;

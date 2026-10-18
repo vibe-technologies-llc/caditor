@@ -35,6 +35,7 @@ use crate::{
     image_export::ReadPixels,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus, display_name},
     preferences,
+    slicer::{FindError, Slicer},
     units::LengthUnit,
     widgets::{self, DialogWidth, Tone},
 };
@@ -60,6 +61,7 @@ pub enum ExportCommand {
     SetEveryConfiguration(bool),
     SetThreads(ExportThreads),
     Choose,
+    OpenInSlicer,
     Cancel,
 }
 
@@ -326,9 +328,18 @@ impl Exporter {
         self.running.as_ref().map(Running::description)
     }
 
-    #[cfg(test)]
     pub fn includes(&self, body: FeatureId) -> bool {
         !self.left_out.contains(&body)
+    }
+
+    pub fn has_chosen_body(&self, model: &Model) -> bool {
+        let evaluation = model.evaluation();
+        evaluation.bodies().any(|(id, _)| {
+            self.includes(id)
+                && evaluation
+                    .body_result(id)
+                    .is_some_and(|result| result.solid().is_some())
+        })
     }
 
     pub fn sync(&mut self, model: &Model) {
@@ -381,7 +392,7 @@ impl Exporter {
             }
             ExportCommand::Show => self.open = true,
             ExportCommand::Hide => self.open = false,
-            ExportCommand::Choose => {}
+            ExportCommand::Choose | ExportCommand::OpenInSlicer => {}
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::SetStlEncoding(stl) => self.stl = stl,
@@ -403,11 +414,7 @@ impl Exporter {
     }
 
     pub fn file_name(&self, model: &Model) -> String {
-        let name = display_name(model.path());
-        let stem = Path::new(&name)
-            .file_stem()
-            .map_or(name.clone(), |stem| stem.to_string_lossy().into_owned());
-        format!("{stem}.{}", self.format.extension())
+        named_for(model, self.format)
     }
 
     pub fn configuration_files(
@@ -698,6 +705,14 @@ impl Exporter {
     }
 }
 
+pub fn named_for(model: &Model, format: ExportFormat) -> String {
+    let name = display_name(model.path());
+    let stem = Path::new(&name)
+        .file_stem()
+        .map_or(name.clone(), |stem| stem.to_string_lossy().into_owned());
+    format!("{stem}.{}", format.extension())
+}
+
 pub fn moved_note(moved: Vector3) -> String {
     let back = Vector3::ZERO - moved;
     format!(
@@ -776,7 +791,12 @@ pub fn activity(
     }
 }
 
-pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option<ExportCommand> {
+pub fn dialog(
+    ctx: &egui::Context,
+    model: &Model,
+    exporter: &Exporter,
+    slicer_missing: Option<&FindError>,
+) -> Option<ExportCommand> {
     let response = widgets::dialog(ctx, DIALOG_ID, "Export", DialogWidth::Medium, |ui| {
         let bodies: Vec<Body> = Exporter::bodies(model).collect();
         if bodies.is_empty() {
@@ -819,6 +839,9 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
             if response.clicked() {
                 command = Some(ExportCommand::Choose);
             }
+            if slicer_button(ui, blocker, slicer_missing) {
+                command = Some(ExportCommand::OpenInSlicer);
+            }
             if ui.add(widgets::button("Cancel")).clicked() {
                 command = Some(ExportCommand::Hide);
             }
@@ -827,6 +850,26 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
     });
     let closed = response.should_close().then_some(ExportCommand::Hide);
     response.inner.or(closed)
+}
+
+fn slicer_button(ui: &mut Ui, blocker: Option<&str>, missing: Option<&FindError>) -> bool {
+    let slicer = Slicer::SUPPORTED;
+    let refusal = blocker
+        .map(str::to_owned)
+        .or_else(|| missing.map(|missing| format!("{missing}.")));
+    let response = ui
+        .add_enabled(
+            refusal.is_none(),
+            widgets::button(format!("Open in {slicer}")),
+        )
+        .on_hover_text(format!(
+            "Export the chosen bodies as 3MF at this resolution, without asking for a file, and \
+             open them in {slicer}"
+        ));
+    match refusal {
+        Some(refusal) => response.on_disabled_hover_text(refusal).clicked(),
+        None => response.clicked(),
+    }
 }
 
 pub fn heading(ui: &mut Ui, title: &str) {

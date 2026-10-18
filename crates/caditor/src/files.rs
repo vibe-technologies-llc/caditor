@@ -42,6 +42,7 @@ use self::{
     },
     parameters::{ParameterImportDraft, ParametersCommand},
     remembered::{ExportFolders, RememberedExports},
+    slicing::Slicing,
     templates::Templates,
 };
 use crate::{
@@ -72,6 +73,7 @@ use crate::{
     samples::Sample,
     scene_palette::Canvas,
     sketch_placement::FaceChoice,
+    slicer::{self, FindError, Installation, PrepareError},
     snapshot::Snapshot,
     themes::{Refusal, UserTheme, UserThemes},
     version_preview::{self, Picture, PictureFailure, Prepared, PreviewFailure, Started},
@@ -83,6 +85,7 @@ mod dialogs;
 pub mod parameters;
 mod pictures;
 pub mod remembered;
+pub mod slicing;
 pub mod templates;
 mod themes;
 
@@ -194,6 +197,8 @@ pub enum FileCommand {
     CheckRecent,
     RevertToSaved,
     ExportAgain,
+    OpenInSlicer,
+    FindSlicer,
     CancelOpen,
     CancelImport,
     CancelPick,
@@ -798,6 +803,16 @@ enum Event {
         report: ExportReport,
         written: BTreeMap<PathBuf, Stamp>,
     },
+    SlicerFound {
+        chosen: Option<PathBuf>,
+        result: Result<Installation, FindError>,
+    },
+    SlicerSearchFailed,
+    SlicerReady {
+        session: u64,
+        chosen: Option<PathBuf>,
+        result: Result<slicer::Prepared, PrepareError>,
+    },
     RecentChecked {
         missing: Vec<PathBuf>,
     },
@@ -1118,6 +1133,7 @@ pub struct Files {
     exports_to_remember: Option<RememberedExports>,
     missing_recent: BTreeSet<PathBuf>,
     own_threads_running: Arc<AtomicUsize>,
+    slicing: Slicing,
 }
 
 impl Files {
@@ -1181,6 +1197,7 @@ impl Files {
             exports_to_remember: None,
             missing_recent: BTreeSet::new(),
             own_threads_running: Arc::default(),
+            slicing: Slicing::default(),
         }
     }
 
@@ -1204,6 +1221,7 @@ impl Files {
         );
         self.list_templates(None, model);
         self.list_themes();
+        self.find_slicer();
         self.open_last = open.is_none() && self.startup == Startup::LastModel;
         match open {
             Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
@@ -1457,8 +1475,13 @@ impl Files {
             FileCommand::KeepExporting => self.waiting_for_exports = None,
             FileCommand::Export(command) => {
                 self.exporter.perform(command, model);
-                if command == ExportCommand::Choose {
-                    self.pick(Purpose::Export(self.exporter.format()), model);
+                match command {
+                    ExportCommand::Choose => {
+                        self.pick(Purpose::Export(self.exporter.format()), model);
+                    }
+                    ExportCommand::OpenInSlicer => self.open_in_slicer(model),
+                    ExportCommand::Show => self.find_slicer(),
+                    _ => {}
                 }
             }
             FileCommand::ExportImage(command) => {
@@ -1550,6 +1573,8 @@ impl Files {
             FileCommand::CheckRecent => self.check_recent(),
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
+            FileCommand::OpenInSlicer => self.open_in_slicer(model),
+            FileCommand::FindSlicer => self.find_slicer(),
             FileCommand::KeepDrawingConstruction(keep) => {
                 self.drawing_construction = if keep {
                     Construction::OnLayer
@@ -2109,9 +2134,22 @@ impl Files {
                 if let Some(last) = self.last_export.as_mut().filter(|last| last.path == path) {
                     last.written = written;
                 }
+                let slicer = self.sent_to_slicer(&path);
+                let wrote = !report.written(&path).is_empty();
                 let notice = self.exporter.reported(&path, report);
+                let notice = match slicer {
+                    Some(installation) if wrote => self.open_exported(&installation, &path, notice),
+                    _ => notice,
+                };
                 model.set_notice(notice);
             }
+            Event::SlicerFound { chosen, result } => self.slicer_found(chosen, result),
+            Event::SlicerSearchFailed => log::error!("looking for the slicer failed"),
+            Event::SlicerReady {
+                session,
+                chosen,
+                result,
+            } => self.slicer_ready(session, chosen, result, model),
             Event::RecentChecked { missing } => {
                 self.missing_recent = missing.into_iter().collect();
             }
@@ -2731,30 +2769,30 @@ impl Files {
             session: model.session(),
             written: BTreeMap::new(),
         });
+        let finished = self.export_finished();
+        self.exporter
+            .start(path, format, configurations, model, finished);
+        self.exporter.perform(ExportCommand::Hide, model);
+    }
+
+    fn export_finished(&self) -> export::Finished {
         let events = self.events.clone();
         let wake = (self.make_waker)();
-        self.exporter.start(
-            path,
-            format,
-            configurations,
-            model,
-            Box::new(move |path, report| {
-                let written = report
-                    .written(&path)
-                    .into_iter()
-                    .filter_map(|file| Some((file.to_path_buf(), Stamp::of(file)?)))
-                    .collect();
-                let exported = Event::Exported {
-                    path,
-                    report,
-                    written,
-                };
-                if events.send(exported).is_ok() {
-                    wake();
-                }
-            }),
-        );
-        self.exporter.perform(ExportCommand::Hide, model);
+        Box::new(move |path, report| {
+            let written = report
+                .written(&path)
+                .into_iter()
+                .filter_map(|file| Some((file.to_path_buf(), Stamp::of(file)?)))
+                .collect();
+            let exported = Event::Exported {
+                path,
+                report,
+                written,
+            };
+            if events.send(exported).is_ok() {
+                wake();
+            }
+        })
     }
 
     fn opened(&mut self, path: PathBuf, since: Since, outcome: OpenOutcome, model: &mut Model) {
@@ -3394,6 +3432,7 @@ impl Files {
     pub fn settings_loaded(&mut self, settings: Settings) {
         self.read_default_template(&settings);
         self.read_habits(&settings);
+        self.read_slicer_program(&settings);
         if ExportMemory::read(&settings, remembered::REMEMBER_KEY) == ExportMemory::Remembered {
             self.restore_exports(&RememberedExports::from_settings(&settings));
         }
@@ -3466,6 +3505,7 @@ impl Files {
     pub fn store_settings(&mut self, settings: Settings) {
         self.read_default_template(&settings);
         self.read_habits(&settings);
+        self.read_slicer_program(&settings);
         let Some(config_dir) = self.config.config_dir.clone() else {
             return;
         };
@@ -3851,6 +3891,7 @@ pub fn menu(
         Ok(())
     };
     let again = files.export_again_name(model);
+    let sendable = files.slicer_availability(model);
     let revertible = model.saved_version().map(|_| ());
     let file_menu = menu_bar::top_menu(ui, "File", |ui| {
         entries.item(ui, Command::Home);
@@ -3933,6 +3974,7 @@ pub fn menu(
                 availability,
                 Some(EXPORT_AGAIN_HINT),
             );
+            entries.hinted(ui, Command::OpenInSlicer, slicing::HINT);
             entries.hinted(ui, Command::ExportImage, IMAGE_HINT);
             for (command, unoffered, hint) in [
                 (Command::ExportSketch, NOT_A_SKETCH, SKETCH_HINT),
@@ -3961,6 +4003,11 @@ pub fn menu(
     if file_menu.clicked() {
         actions.push(Action::File(FileCommand::ListTemplates));
         actions.push(Action::File(FileCommand::CheckRecent));
+        actions.push(Action::File(FileCommand::FindSlicer));
+    }
+    if commands.invoke(Command::OpenInSlicer, &sendable) || chosen.contains(&Command::OpenInSlicer)
+    {
+        actions.push(Action::File(FileCommand::OpenInSlicer));
     }
     if commands.invoke_detailed(Command::ExportAgain, again.clone().ok(), &again)
         || chosen.contains(&Command::ExportAgain)
@@ -4245,7 +4292,8 @@ pub fn show(
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {
-        command = export::dialog(&ctx, model, &files.exporter).map(FileCommand::Export);
+        command = export::dialog(&ctx, model, &files.exporter, files.slicer_missing())
+            .map(FileCommand::Export);
     } else if files.image.is_open() {
         command =
             image_export::dialog(&ctx, model, &files.image, view).map(FileCommand::ExportImage);

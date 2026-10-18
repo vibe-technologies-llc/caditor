@@ -35,7 +35,9 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   is always kept for recovery.
 - **Exports**: whether the export dialogs keep their format, options and folder between sessions
   (the default) or only until caditor closes, and **Forget remembered choices**, after which the
-  next session's dialogs start from caditor's defaults. See [exporting](exporting).
+  next session's dialogs start from caditor's defaults, and **Slicer program**, the OrcaSlicer
+  program or AppImage that Open in OrcaSlicer starts when caditor does not find it by itself. See
+  [exporting](exporting).
 - **Cloud**: whether [cloud services](cloud) are used at all (turn them off here to hide every
   cloud button, sign out and make no cloud request), whether projects show on Home, and the
   Autodesk app to sign in with when the build carries none. Restore defaults never turns cloud

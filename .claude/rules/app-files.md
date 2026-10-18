@@ -24,6 +24,7 @@ paths:
   - "crates/caditor/src/import_unit.rs"
   - "crates/caditor/src/model_properties.rs"
   - "crates/caditor/src/window_export.rs"
+  - "crates/caditor/src/slicer.rs"
 ---
 
 # Files, import, export, history, preferences
@@ -203,6 +204,35 @@ paths:
   checked on the files worker, and a file whose stamp differs from what this export left is asked
   about with "Replace …?". Unavailable with the reason before an export in this session, while an
   export runs or the model recomputes, and for the model's own file.
+
+## Open in a slicer
+
+- Open in OrcaSlicer (`Command::OpenInSlicer`, File › Export, the palette, and the Export dialog's
+  Open in OrcaSlicer beside Export…, `ExportCommand::OpenInSlicer`) exports the bodies chosen for
+  export as 3MF with the dialog's resolution and threads, This configuration only, without asking
+  for a file, then starts the slicer with it. OrcaSlicer is the only `slicer::Slicer` so far; a new
+  one is a variant with its program names, install places and launch.
+- `slicer.rs` finds and starts it, platform parts in its `os` pair. `find` takes the program named
+  in Preferences › General › Exports (`slicer.program`, empty by default; a path that does not exist
+  is `FindError::ChosenMissing`), else `orca-slicer` on `PATH`, else on Unix the Flathub
+  `io.github.softfever.OrcaSlicer` export (started as `flatpak run --file-forwarding … @@ file @@`,
+  so the sandbox gets the file through the document portal whatever its permissions) or the newest
+  runnable `OrcaSlicer*.AppImage` in `~/Applications`, `~/AppImages`, `~/.local/bin`,
+  `~/Downloads` or `/opt`, on Windows `OrcaSlicer\orca-slicer.exe` under the program folders or
+  `%LOCALAPPDATA%\Programs`. `launch` spawns it with no shell and nulled standard streams and reaps
+  it on a `slicer` thread, as `browser.rs` does; a permission refusal says to allow the file to run.
+- `files/slicing.rs` (`Slicing` in `Files`) looks on the files worker (`FileCommand::FindSlicer`) at
+  start, on each File menu and Export dialog open and when the preference changes, dropping an
+  answer for another preference. A known miss refuses the command with `SlicerRefusal::Missing`;
+  the other refusals are no body, every body left out, an export running, a recompute running or a
+  send already preparing. Sending looks again on the worker and `slicer::prepare` makes
+  `<state>/slicer/` and removes files there older than a week, then the export runs as any other
+  (`Exporter::start`, `export_finished`), writing `<state>/slicer/<model stem>.3mf` over the last
+  one of that name. It leaves `LastExport` alone, so Export again stays the user's file. On
+  `Event::Exported` for that path (`sent_to_slicer`) a written file starts the slicer and the export
+  notice adds "OrcaSlicer is opening it.", or the launch error as a failure; a result for another
+  model's session says nothing was opened. Tests swap the finder and launcher
+  (`find_slicers_with`, `launch_slicers_with`), so no test starts a real slicer.
 
 ## Drawing export
 

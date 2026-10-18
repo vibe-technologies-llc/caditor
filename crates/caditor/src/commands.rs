@@ -77,6 +77,7 @@ pub enum Command {
     Export,
     ExportImage,
     ExportAgain,
+    OpenInSlicer,
     ImportParameters,
     ExportParameters,
     ImportConfigurations,
@@ -682,6 +683,7 @@ plain_commands! {
     Export,
     ExportImage,
     ExportAgain,
+    OpenInSlicer,
     ImportParameters,
     ExportParameters,
     ImportConfigurations,
@@ -958,6 +960,7 @@ impl Command {
             Self::SaveAsTemplate => "file.save_as_template",
             Self::RevertToSaved => "file.revert",
             Self::ExportAgain => "file.export_again",
+            Self::OpenInSlicer => "file.open_in_slicer",
             Self::Open => "file.open",
             Self::Save => "file.save",
             Self::SaveAs => "file.save_as",
@@ -1297,6 +1300,7 @@ impl Command {
             Self::SaveAsTemplate => "Save as template…",
             Self::RevertToSaved => "Revert to the saved version",
             Self::ExportAgain => "Export again",
+            Self::OpenInSlicer => "Open in OrcaSlicer",
             Self::Open => "Open…",
             Self::Save => "Save",
             Self::SaveAs => "Save as…",
@@ -1689,6 +1693,13 @@ impl Command {
             Self::Section(SectionCommand::Toggle) => &["cross section", "clipping", "cut away"],
             Self::ExportImage => &["screenshot", "png", "picture"],
             Self::Export => &["stl", "3mf", "step", "save as stl"],
+            Self::OpenInSlicer => &[
+                "slicer",
+                "orcaslicer",
+                "3d print",
+                "print",
+                "send to slicer",
+            ],
             Self::Import => &["dxf", "svg", "step", "stl", "obj", "3mf"],
             Self::Configurations => &["variants", "family table", "design table"],
             Self::ImportConfigurations | Self::ExportConfigurations => &[
@@ -1763,6 +1774,7 @@ impl Command {
             | Self::ForgetRecent(_)
             | Self::RevertToSaved
             | Self::ExportAgain
+            | Self::OpenInSlicer
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
@@ -2237,6 +2249,7 @@ impl Command {
             | Self::ForgetRecent(_)
             | Self::RevertToSaved
             | Self::ExportAgain
+            | Self::OpenInSlicer
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
