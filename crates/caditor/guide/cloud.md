@@ -49,7 +49,7 @@ When you have more than one hub, the one you pick in the Cloud projects window i
 from then on, also after restarting caditor; if it is gone, Home goes back to the team hub. Signing
 out forgets the choice.
 
-## Sending the model to Fusion 360
+## Sending the model to Fusion 360 or Onshape
 
 {command:file.cloud_send} (File › Cloud, and the command palette once you are signed in) opens the
 Cloud projects window to choose where the model goes. Open one of your projects, open the folder it
@@ -68,7 +68,14 @@ Nothing is sent if the export leaves a body out (the notice says which and why),
 still recomputing, or if there is no body yet. If Fusion 360 refuses (you may only be allowed to
 view that folder), the window says so and offers Try again. A sign-in made before sending existed
 needs signing out and in once more, because sending asks Autodesk for one more permission.
-Onshape cannot receive files yet.
+
+Onshape receives the model the same way: in the Cloud projects window open a document, then its
+main workspace (the first thing listed) or one of its branches, and press **Send the model here**.
+The STEP file is added to the document as a file element named after the model, not translated into
+a Part Studio, and Import beside it brings it back. If the document already holds a file element of
+that name, it is updated in place and Onshape keeps the earlier contents in the document's history.
+A saved version of a document cannot be changed, so Send is disabled there. If Onshape refuses
+(you may only be allowed to view the document), the window says so and offers Try again.
 
 ## Onshape documents
 
@@ -81,7 +88,9 @@ you opened recently, the ones shared with you, those of your companies and teams
 In that window a document's other branches and its versions appear as folders beside the tiles of
 its main workspace, so you can import a Part Studio as it was at a version. caditor asks Onshape
 to export only what you click and never changes your documents; signing out only forgets the
-sign-in on this computer, and you end the permission itself in your Onshape account.
+sign-in on this computer, and you end the permission itself in your Onshape account. Files you
+have uploaded to a document (STEP, mesh and drawing files) are listed beside its Part Studios, and
+**Send the model here** puts the model into a document, as described under Sending the model above.
 
 ## The Cloud projects window
 
@@ -92,7 +101,7 @@ sign-in on this computer, and you end the permission itself in your Onshape acco
 - **Projects**: for each signed-in service, the hub to list (Fusion 360: the team hub first), a list
   of its projects or documents and, beside it, the folders and designs of the one you choose, with
   a breadcrumb to go back up and an Import button on each design and on each STEP, mesh or drawing
-  file (Fusion 360), and **Send the model here** inside a Fusion 360 folder. **Versions** under a Fusion 360 design lists its saved versions, newest first;
+  file, and **Send the model here** inside a Fusion 360 folder or an Onshape workspace. **Versions** under a Fusion 360 design lists its saved versions, newest first;
   Import beside one has Autodesk convert that version instead of the newest, and it is kept as
   its own file named for the version.
 - **Downloaded designs**: how many downloaded files are kept, how large they are, and Clear.

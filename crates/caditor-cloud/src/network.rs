@@ -91,6 +91,9 @@ fn with_body(
             .header("Content-Type", "application/vnd.api+json")
             .send(text.as_str()),
         Body::Bytes(bytes) => builder.send(bytes.as_slice()),
+        Body::Multipart(multipart) => builder
+            .header("Content-Type", multipart.content_type())
+            .send(multipart.encoded().as_slice()),
     }
 }
 
@@ -132,9 +135,10 @@ fn classify(error: ureq::Error) -> TransportError {
 
 impl Transport for Network {
     fn send(&self, request: &Request) -> Result<Response, TransportError> {
-        let agent = match request.method {
-            Method::Put => &self.uploads,
-            Method::Get | Method::Post => &self.answers,
+        let agent = if request.is_upload() {
+            &self.uploads
+        } else {
+            &self.answers
         };
         let mut response = Self::call(agent, request)?;
         let status = response.status().as_u16();

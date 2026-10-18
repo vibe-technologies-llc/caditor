@@ -89,12 +89,8 @@ pub enum Refusal {
     Importing(Service),
     #[error("Another model is still being sent to {0}.")]
     Sending(Service),
-    #[error(
-        "Sign in to Fusion 360 first, from Home or File › Cloud. Onshape cannot receive files yet."
-    )]
+    #[error("Sign in to Fusion 360 or Onshape first, from Home or File › Cloud.")]
     NothingToSendTo,
-    #[error("{0} cannot receive files yet.")]
-    CannotReceive(Service),
 }
 
 impl Reason for Refusal {
@@ -280,7 +276,7 @@ impl Cloud {
         }
         Service::ALL
             .into_iter()
-            .any(|service| service.receives_files() && self.linked(service).is_some())
+            .any(|service| self.linked(service).is_some())
             .then_some(())
             .ok_or(Refusal::NothingToSendTo)
     }
@@ -900,10 +896,6 @@ impl Cloud {
         self.next_import += 1;
         let id = self.next_import;
         let refused = |refusal: Refusal| Action::Inform(Notice::warning(refusal.to_string()));
-        if !service.receives_files() {
-            actions.push(refused(Refusal::CannotReceive(service)));
-            return;
-        }
         let Some(linked) = self.linked_mut(service) else {
             actions.push(refused(Refusal::NotSignedIn(service)));
             return;

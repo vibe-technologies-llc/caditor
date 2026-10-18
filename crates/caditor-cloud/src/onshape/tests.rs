@@ -814,13 +814,225 @@ fn the_status_codes_of_a_listing_map_to_typed_errors() {
     }
 }
 
+fn workspace_place() -> FolderRef {
+    FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::workspace("ws9").folder_id(),
+    }
+}
+
+fn elements_url() -> String {
+    format!("{API}/documents/d/doc1/w/ws9/elements")
+}
+
+fn blob_url() -> String {
+    format!("{API}/blobelements/d/doc1/w/ws9")
+}
+
+fn send_to(net: &ScriptedTransport, name: &str) -> Result<Sent, Error> {
+    let place = workspace_place();
+    onshape().send(
+        net,
+        &session(),
+        &Outgoing {
+            folder: &place,
+            name,
+            bytes: b"ISO-10303-21;",
+        },
+        &mut |_, _| true,
+    )
+}
+
+fn upload_of(request: &Request) -> &Multipart {
+    match &request.body {
+        Body::Multipart(multipart) => multipart,
+        other => panic!("expected a multipart upload, found {other:?}"),
+    }
+}
+
 #[test]
-fn sending_a_model_is_refused_as_unsupported_without_any_request() {
+fn a_model_is_uploaded_as_a_new_blob_element_of_the_workspace() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, "[]")
+        .route(
+            Method::Post,
+            &blob_url(),
+            200,
+            r#"{"id":"e7","name":"plate.step"}"#,
+        );
+    let mut seen = Vec::new();
+
+    let place = workspace_place();
+    let sent = onshape()
+        .send(
+            &net,
+            &session(),
+            &Outgoing {
+                folder: &place,
+                name: " plate.step ",
+                bytes: b"ISO-10303-21;",
+            },
+            &mut |done, total| {
+                seen.push((done, total));
+                true
+            },
+        )
+        .unwrap();
+
+    assert_eq!(sent.name, "plate.step");
+    assert_eq!(sent.outcome, SendOutcome::Created);
+    assert_eq!(seen, [(0, Some(13)), (13, Some(13))]);
+    let requests = net.requests();
+    let post = requests.last().unwrap();
+    assert_eq!(post.method, Method::Post);
+    assert_eq!(post.bearer.as_deref(), Some("access-1"));
+    let upload = upload_of(post);
+    assert_eq!(upload.file_name(), "plate.step");
+    assert_eq!(upload.file_bytes(), b"ISO-10303-21;");
+    assert_eq!(
+        field(upload.fields(), "translate").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        field(upload.fields(), "storeInDocument").as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        field(upload.fields(), "encodedFilename").as_deref(),
+        Some("plate.step")
+    );
+}
+
+#[test]
+fn a_blob_of_the_same_name_is_updated_and_a_design_of_it_is_not_taken_for_one() {
+    let listing = r#"[
+        {"id":"e1","name":"PLATE.step","elementType":"PARTSTUDIO"},
+        {"id":"e4","name":"Plate.STEP","elementType":"BLOB"}
+    ]"#;
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, listing)
+        .route(
+            Method::Post,
+            &format!("{}/e/e4", blob_url()),
+            200,
+            r#"{"id":"e4"}"#,
+        );
+
+    let sent = send_to(&net, "plate.step").unwrap();
+
+    assert_eq!(sent.outcome, SendOutcome::NewVersion { number: None });
+    assert_eq!(net.requests().len(), 2);
+
+    let only_a_design = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &elements_url(),
+            200,
+            r#"[{"id":"e1","name":"plate.step","elementType":"PARTSTUDIO"}]"#,
+        )
+        .route(Method::Post, &blob_url(), 200, "{}");
+
+    assert_eq!(
+        send_to(&only_a_design, "plate.step").unwrap().outcome,
+        SendOutcome::Created
+    );
+}
+
+#[test]
+fn a_name_with_quotes_or_accents_cannot_break_out_of_the_upload_headers() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, "[]")
+        .route(Method::Post, &blob_url(), 200, "{}");
+
+    send_to(&net, "pla\"te é.step").unwrap();
+
+    let requests = net.requests();
+    let upload = upload_of(requests.last().unwrap());
+    assert_eq!(upload.file_name(), "pla\"te é.step");
+    assert_eq!(
+        field(upload.fields(), "encodedFilename").as_deref(),
+        Some("pla%22te%20%C3%A9.step")
+    );
+    let body = String::from_utf8_lossy(&upload.encoded()).into_owned();
+    assert!(body.contains("filename=\"pla%22te%20%C3%A9.step\""));
+    assert!(!body.contains("filename=\"pla\"te"));
+}
+
+#[test]
+fn nothing_is_sent_into_a_saved_version_or_a_folder_that_is_not_ours() {
     let net = ScriptedTransport::new();
-    let place = FolderRef {
-        project: ProjectId::new("doc"),
-        folder: crate::catalogue::FolderId::new("w/main"),
+    let version = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::version("v1").folder_id(),
     };
+    let stray = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: crate::catalogue::FolderId::new("top"),
+    };
+
+    for (place, expect_read_only) in [(&version, true), (&stray, false)] {
+        let result = onshape().send(
+            &net,
+            &session(),
+            &Outgoing {
+                folder: place,
+                name: "plate.step",
+                bytes: b"x",
+            },
+            &mut |_, _| true,
+        );
+
+        assert_eq!(
+            matches!(result, Err(Error::VersionIsReadOnly)),
+            expect_read_only
+        );
+        assert!(result.is_err());
+    }
+    assert!(net.requests().is_empty());
+}
+
+#[test]
+fn the_status_codes_of_an_upload_map_to_typed_errors() {
+    for (status, expected) in [
+        (401, "signed out"),
+        (403, "forbidden"),
+        (429, "rate limited"),
+        (400, "refused"),
+    ] {
+        let net = ScriptedTransport::new()
+            .route(Method::Get, &elements_url(), 200, "[]")
+            .route(Method::Post, &blob_url(), status, "");
+
+        let kind = match send_to(&net, "plate.step").unwrap_err() {
+            Error::SignedOut => "signed out",
+            Error::SendForbidden { .. } => "forbidden",
+            Error::RateLimited { .. } => "rate limited",
+            Error::Refused { .. } => "refused",
+            _ => "other",
+        };
+
+        assert_eq!(kind, expected);
+    }
+
+    let garbled = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, "[]")
+        .route(Method::Post, &blob_url(), 200, "not json");
+
+    assert!(matches!(
+        send_to(&garbled, "plate.step"),
+        Err(Error::Unreadable {
+            subject: Subject::Item,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn stopping_before_the_upload_sends_no_file() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, "[]")
+        .route(Method::Post, &blob_url(), 200, "{}");
+    let place = workspace_place();
 
     let result = onshape().send(
         &net,
@@ -830,16 +1042,142 @@ fn sending_a_model_is_refused_as_unsupported_without_any_request() {
             name: "plate.step",
             bytes: b"x",
         },
-        &mut |_, _| true,
+        &mut |_, _| false,
     );
+
+    assert!(matches!(result, Err(Error::Stopped)));
+    assert!(
+        net.requests()
+            .iter()
+            .all(|request| request.method == Method::Get)
+    );
+}
+
+#[test]
+fn uploaded_files_are_listed_with_their_place_and_download_as_blobs() {
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &format!("{API}/documents/doc1"),
+            200,
+            r#"{"id":"doc1","defaultWorkspace":{"id":"ws9"}}"#,
+        )
+        .route(
+            Method::Get,
+            &elements_url(),
+            200,
+            r#"[
+                {"id":"e1","name":"Frame","elementType":"PARTSTUDIO"},
+                {"id":"e4","name":"scan.STEP","elementType":"BLOB"},
+                {"id":"e5","name":"notes.pdf","elementType":"BLOB"},
+                {"id":"e6","name":"outline.svg","elementType":"BLOB"}
+            ]"#,
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/workspaces"),
+            200,
+            "[]",
+        )
+        .route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/versions?limit={VERSION_LIMIT}"),
+            200,
+            "[]",
+        )
+        .route_bytes(
+            Method::Get,
+            &format!("{API}/blobelements/d/doc1/w/ws9/e/e4"),
+            200,
+            b"ISO-10303-21;",
+        );
+
+    let root = onshape().root(&net, &session(), &project()).unwrap();
+
+    assert_eq!(root.place, Some(workspace_place()));
+    let uploads: Vec<_> = root
+        .uploads
+        .iter()
+        .map(|upload| (upload.name.as_str(), upload.format, upload.id.as_str()))
+        .collect();
+    assert_eq!(
+        uploads,
+        [
+            ("outline.svg", UploadFormat::Svg, "w/ws9/e6"),
+            ("scan.STEP", UploadFormat::Step, "w/ws9/e4"),
+        ]
+    );
+
+    let step = root
+        .uploads
+        .iter()
+        .find(|upload| upload.format == UploadFormat::Step)
+        .unwrap();
+    let mut sink = Vec::new();
+    let bytes = onshape()
+        .fetch_upload(&net, &session(), step, &mut sink, &mut |_, _| true)
+        .unwrap();
+
+    assert_eq!(bytes, 13);
+    assert_eq!(sink, b"ISO-10303-21;");
+}
+
+#[test]
+fn a_branch_accepts_files_and_a_version_does_not() {
+    let listing = |url: &str| {
+        ScriptedTransport::new().route(
+            Method::Get,
+            url,
+            200,
+            r#"[{"id":"e1","name":"Frame","elementType":"PARTSTUDIO"}]"#,
+        )
+    };
+    let branch = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::workspace("ws2").folder_id(),
+    };
+    let version = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::version("v1").folder_id(),
+    };
+
+    let in_branch = onshape()
+        .folder(
+            &listing(&format!("{API}/documents/d/doc1/w/ws2/elements")),
+            &session(),
+            &branch,
+        )
+        .unwrap();
+    let in_version = onshape()
+        .folder(
+            &listing(&format!("{API}/documents/d/doc1/v/v1/elements")),
+            &session(),
+            &version,
+        )
+        .unwrap();
+
+    assert_eq!(in_branch.place, Some(branch));
+    assert_eq!(in_version.place, None);
+}
+
+#[test]
+fn an_upload_that_is_not_ours_is_not_found() {
+    let net = ScriptedTransport::new();
+    let upload = Upload {
+        id: crate::catalogue::UploadId::new("nonsense"),
+        project: ProjectId::new("doc1"),
+        name: "a.step".to_owned(),
+        format: UploadFormat::Step,
+        modified: None,
+    };
+
+    let result =
+        onshape().fetch_upload(&net, &session(), &upload, &mut Vec::new(), &mut |_, _| true);
 
     assert!(matches!(
         result,
-        Err(Error::SendUnsupported {
-            service: Service::Onshape
+        Err(Error::NotFound {
+            subject: Subject::Upload
         })
     ));
-    assert!(net.requests().is_empty());
-    assert!(!Service::Onshape.receives_files());
-    assert!(Service::Fusion.receives_files());
 }
