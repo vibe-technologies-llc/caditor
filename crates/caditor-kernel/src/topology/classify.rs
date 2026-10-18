@@ -524,6 +524,9 @@ impl<'a> SolidClassifier<'a> {
                     .map_or(point, |face| face.surface().point_at(uv)))
             .dot(normal);
             if height.abs() <= NEGLIGIBLE_HEIGHT {
+                if self.exactly_inside_face(data.id, uv) == Some(false) {
+                    continue;
+                }
                 return PointClass::Undecided;
             }
             let inside = height < 0.0;

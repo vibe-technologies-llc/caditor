@@ -1201,15 +1201,13 @@ fn aligned_contacts_with_long_plates_combine() {
     }
 }
 
-#[test]
-#[ignore = "a survey of the near-coincidence failures left, best run in release"]
-fn aligned_contacts_a_micrometre_or_so_apart() {
-    let mut random = Random::new(7);
+fn aligned_contacts_failing(seed: u64, contacts: usize, exponents: (f64, f64)) -> usize {
+    let mut random = Random::new(seed);
     let mut outcomes: BTreeMap<&str, usize> = BTreeMap::new();
 
-    for _ in 0..300 {
+    for _ in 0..contacts {
         let contact = aligned_contact(&mut random, |random| {
-            let size = 10f64.powf(random.between(-6.0, -4.0));
+            let size = 10f64.powf(random.between(exponents.0, exponents.1));
             if random.unit() < 0.5 { size } else { -size }
         });
         for operation in [
@@ -1231,11 +1229,26 @@ fn aligned_contacts_a_micrometre_or_so_apart() {
 
     eprintln!("{outcomes:?}");
     assert_eq!(outcomes.get("accepted invalid"), None);
-    let failures: usize = outcomes
+    outcomes
         .iter()
         .filter(|(label, _)| !matches!(**label, "ok" | "empty"))
         .map(|(_, count)| count)
-        .sum();
+        .sum()
+}
+
+#[test]
+#[ignore = "a survey of the near-coincidence failures left, best run in release"]
+fn aligned_contacts_a_micrometre_or_so_apart() {
+    let failures = aligned_contacts_failing(7, 300, (-6.0, -4.0));
+
+    assert_eq!(failures, 0, "{failures} booleans failed");
+}
+
+#[test]
+#[ignore = "a survey of the near-coincidence failures left, best run in release"]
+fn aligned_contacts_within_the_resolution_or_past_it() {
+    let failures = aligned_contacts_failing(11, 1000, (-7.0, -4.0));
+
     assert_eq!(failures, 0, "{failures} booleans failed");
 }
 
@@ -1557,6 +1570,169 @@ fn plugs_micrometres_off_the_axis_of_their_bore_combine() {
         let through = moved(cylinder(2.5, 6.0), (5.0 + gap, 5.0, -1.0));
         consistent(&format!("a flush plug {gap} off"), &holed, &flush);
         consistent(&format!("a plug {gap} off through"), &holed, &through);
+    }
+}
+
+fn combine_within_the_resolution(name: &str, first: &Solid, second: &Solid) {
+    let (a, b) = (volume(first), volume(second));
+    let measured = |operation: BooleanOperation| match boolean(first, second, operation) {
+        Ok(solid) => {
+            assert_eq!(solid.validate(), Ok(()), "{name} {operation:?}");
+            volume(&solid)
+        }
+        Err(BooleanError::Empty) => 0.0,
+        Err(error) => panic!("{name} {operation:?}: {error:?}"),
+    };
+
+    let union = measured(BooleanOperation::Union);
+    let common = measured(BooleanOperation::Intersection);
+    let difference = measured(BooleanOperation::Difference);
+    let scale = a.max(b);
+
+    assert!(
+        (union + common - a - b).abs() <= 2e-3 * scale,
+        "{name}: {union} + {common} vs {a} + {b}"
+    );
+    assert!(
+        (difference + common - a).abs() <= 2e-3 * scale,
+        "{name}: {difference} + {common} vs {a}"
+    );
+}
+
+#[test]
+fn a_block_whose_back_and_bottom_lie_within_the_resolution_of_a_plate_combines() {
+    let plate = block((0.0, 0.0, 0.0), (30.0, 10.0, 5.0));
+
+    for (back, bottom) in [
+        (8.3e-7, 6.2e-7),
+        (-8.3e-7, -6.2e-7),
+        (8.3e-7, -6.2e-7),
+        (-8.3e-7, 6.2e-7),
+    ] {
+        let tool = block((4.0, 3.0, 5.0 + bottom), (9.0, 10.0 + back, 10.0));
+        combine_within_the_resolution(
+            &format!("a block {back} behind and {bottom} above"),
+            &plate,
+            &tool,
+        );
+    }
+}
+
+#[test]
+fn a_block_flush_on_one_side_and_just_past_the_resolution_on_another_combines() {
+    let corner = (27.063596327939067, 1.2173595314981942, 4.806626259306545);
+    let plate = block((0.0, 0.0, 0.0), corner);
+    let min = (13.406506566698416, 0.8660776046036809, 2.2455747096381655);
+
+    for (back, top) in [
+        (corner.1 - 1.8e-7, corner.2 + 1.56e-6),
+        (corner.1, corner.2 + 1.5e-6),
+        (corner.1 + 1.27e-6, corner.2 - 3.7e-7),
+    ] {
+        let tool = block(min, (13.610727542139564, back, top));
+        combine_within_the_resolution(
+            &format!("a block in a corner to {back} and {top}"),
+            &plate,
+            &tool,
+        );
+    }
+}
+
+#[test]
+fn a_post_within_the_resolution_of_tangent_to_a_plate_combines() {
+    let posts = [
+        (
+            (109.07330492315471, 4.127647295982372, 16.76512976095819),
+            1.8296880455588276,
+            (0.9258796956878559, 1.8296876466203027, 16.765129597131477),
+            12.135033571541092,
+        ),
+        (
+            (127.50637237963218, 125.07695831257296, 17.27481039641628),
+            44.81194058100597,
+            (103.13560597917588, 44.811940579969395, 17.274810395080497),
+            10.483087801174884,
+        ),
+    ];
+
+    for (corner, radius, at, height) in posts {
+        let plate = block((0.0, 0.0, 0.0), corner);
+        let post = moved(cylinder(radius, height), at);
+        combine_within_the_resolution(
+            &format!("a post of radius {radius} at {at:?}"),
+            &plate,
+            &post,
+        );
+    }
+}
+
+fn bored_plate() -> Solid {
+    let mut curves = rectangle(1, (0.0, 0.0), (20.0, 10.0));
+    curves.push(circle(10, (10.0, 5.0), 2.5));
+    let regions = Profile::new(&curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(4.0).unwrap(),
+        1,
+    )
+    .unwrap()
+}
+
+fn extruded_plug(center: (f64, f64)) -> Solid {
+    let regions = Profile::new(&[circle(20, center, 2.5)])
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    extrude(
+        &Plane::XY,
+        &regions,
+        LinearExtent::one_side(4.0).unwrap(),
+        2,
+    )
+    .unwrap()
+}
+
+#[test]
+fn an_extruded_plug_off_its_bores_axis_by_about_the_resolution_combines() {
+    let plate = bored_plate();
+
+    for gap in [5e-7, 1e-6, 1.1e-6, 1.5e-6, 2e-6, 3e-6] {
+        combine_within_the_resolution(
+            &format!("a plug {gap} off"),
+            &plate,
+            &extruded_plug((10.0 + gap, 5.0)),
+        );
+    }
+}
+
+#[test]
+fn faces_within_the_resolution_of_the_first_solid_are_snapped_onto_it() {
+    let plate = block((0.0, 0.0, 0.0), (30.0, 10.0, 5.0));
+    let tool = block((4.0, 3.0, 5.0 + 6.2e-7), (9.0, 10.0 + 8.3e-7, 10.0 + 8e-7));
+
+    let snapped = snap::snapped(&Input::new(&plate, &tool)).unwrap();
+    let corners: Vec<Point3> = snapped
+        .vertices()
+        .map(|(_, vertex)| vertex.point())
+        .collect();
+
+    assert_eq!(snapped.validate(), Ok(()));
+    assert_eq!(corners.len(), 8);
+    for expected in [
+        Point3::new(4.0, 10.0, 5.0),
+        Point3::new(9.0, 3.0, 5.0),
+        Point3::new(9.0, 10.0, 10.0 + 8e-7),
+    ] {
+        assert!(
+            corners
+                .iter()
+                .any(|corner| corner.distance(expected) <= 1e-12),
+            "{expected:?} in {corners:?}"
+        );
     }
 }
 

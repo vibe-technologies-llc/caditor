@@ -40,6 +40,8 @@ const OPENING_REACH: f64 = 2.0;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
 const NAMED_WALL_FACES: usize = 4;
 const LEANING: f64 = 1e-6;
+const SETTLED_RESIDUAL: f64 = 0.01 * LINEAR_RESOLUTION;
+const SNAPPED_RESIDUAL: f64 = 1e-12;
 
 pub use delete::{DeleteError, delete_faces};
 pub use offset::{OffsetError, offset_faces};
@@ -131,6 +133,7 @@ struct Offsets<'a> {
     solid: &'a Solid,
     reach: f64,
     distances: BTreeMap<FaceId, f64>,
+    settled: f64,
 }
 
 impl<'a> Offsets<'a> {
@@ -140,6 +143,7 @@ impl<'a> Offsets<'a> {
         Self {
             solid,
             reach,
+            settled: SETTLED_RESIDUAL,
             distances: solid
                 .faces()
                 .map(|(id, _)| {
@@ -161,6 +165,7 @@ impl<'a> Offsets<'a> {
         Self {
             solid,
             reach: outward * walls.reach(),
+            settled: SETTLED_RESIDUAL,
             distances: solid
                 .faces()
                 .filter(|(id, _)| !open.contains(id))
@@ -173,6 +178,7 @@ impl<'a> Offsets<'a> {
         Self {
             solid,
             reach: inward.abs(),
+            settled: SETTLED_RESIDUAL,
             distances: faces.iter().map(|face| (*face, inward)).collect(),
         }
     }
@@ -182,6 +188,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach,
             distances: BTreeMap::new(),
+            settled: SETTLED_RESIDUAL,
         }
     }
 
@@ -551,6 +558,22 @@ fn opens_curved(solid: &Solid, face: FaceId) -> Result<bool, ShellError> {
             Err(ShellError::UnsupportedFace(face))
         }
     }
+}
+
+pub(crate) fn snapped(solid: &Solid, inward: BTreeMap<FaceId, f64>) -> Option<Solid> {
+    let reach = inward
+        .values()
+        .fold(LINEAR_RESOLUTION, |most, distance| most.max(distance.abs()));
+    let offsets = Offsets {
+        solid,
+        reach,
+        distances: inward,
+        settled: SNAPPED_RESIDUAL,
+    };
+    inner::inner_solid(&offsets, inner::Naming::Kept)
+        .ok()
+        .filter(|inner| inner.dropped.is_empty())
+        .map(|inner| inner.solid)
 }
 
 pub fn shell(

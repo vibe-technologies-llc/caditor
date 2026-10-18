@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_geometry::{Aabb, Point2, Point3};
 
 use crate::{
-    boolean::{BooleanError, FaceBounds, FaceKey, Input, Operand, TOLERANCE},
+    boolean::{BooleanError, FaceBounds, FaceKey, Input, Operand, OverlapCuts, TOLERANCE},
     curve::Curve,
     interrupt::{self, Interrupted},
     intersect::{
-        IntersectionBranch, IntersectionError, SurfaceIntersection, SurfacePatch,
-        intersect_curve_surface, intersect_curves, intersect_surfaces_through,
+        CurveSurfaceOverlap, IntersectionBranch, IntersectionError, SurfaceIntersection,
+        SurfacePatch, intersect_curve_surface, intersect_curves, intersect_surfaces_through,
     },
     interval::Interval,
     naming::EdgeName,
@@ -18,6 +18,7 @@ use crate::{
 };
 
 const SAME_EDGE: f64 = TOLERANCE;
+const MIDDLE: f64 = 0.5;
 const EDGE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const INSIDE_SAMPLES: [f64; 5] = [0.5, 0.25, 0.75, 0.05, 0.95];
 const RANGE_SLACK: f64 = 1e-9;
@@ -26,6 +27,9 @@ const CELL_TOLERANCES: f64 = 4.0;
 const CELLS_PER_PIECE: f64 = 2.0;
 const MAX_CURVE_PIECES: f64 = 256.0;
 const UNJUDGED_PIECE: f64 = 2.0 * TOLERANCE;
+const CROSSING_SAMPLES: usize = 16;
+const CROSSING_SIDE: f64 = 0.5 * TOLERANCE;
+const CROSSING_BISECTIONS: usize = 60;
 
 type Mark = (f64, Option<usize>);
 
@@ -384,6 +388,14 @@ fn edge_hits(
                 }
             }
             for overlap in &found.overlaps {
+                if let Some(parameter) = shallow_crossing(curve, overlap, surface) {
+                    let point = curve.point(parameter);
+                    let uv = surface.project(point, Some(overlap.start_uv));
+                    if touches(classifier.point_in_face(face.id, uv)) {
+                        pool.insert(point, None);
+                    }
+                    continue;
+                }
                 for (parameter, uv) in [
                     (overlap.range.start(), overlap.start_uv),
                     (overlap.range.end(), overlap.end_uv),
@@ -416,6 +428,46 @@ fn edge_hits(
         }
     }
     Ok(())
+}
+
+fn signed_offset(surface: &Surface, point: Point3, hint: Point2) -> Option<f64> {
+    let uv = surface.project(point, Some(hint));
+    let normal = surface.normal(uv.x, uv.y)?;
+    Some((point - surface.point_at(uv)).dot(normal))
+}
+
+fn shallow_crossing(
+    curve: &Curve,
+    overlap: &CurveSurfaceOverlap,
+    surface: &Surface,
+) -> Option<f64> {
+    let range = overlap.range;
+    let offsets: Vec<f64> = range
+        .split(CROSSING_SAMPLES)
+        .map(|parameter| signed_offset(surface, curve.point(parameter), overlap.start_uv))
+        .collect::<Option<_>>()?;
+    let (first, last) = (*offsets.first()?, *offsets.last()?);
+    let sides = offsets
+        .windows(2)
+        .filter(|pair| matches!(pair, [a, b] if a.signum() != b.signum()))
+        .count();
+    let crosses = first.signum() != last.signum()
+        && first.abs().min(last.abs()) >= CROSSING_SIDE
+        && sides == 1;
+    if !crosses {
+        return None;
+    }
+    let (mut low, mut high) = (range.start(), range.end());
+    for _ in 0..CROSSING_BISECTIONS {
+        let middle = 0.5 * (low + high);
+        let offset = signed_offset(surface, curve.point(middle), overlap.start_uv)?;
+        if offset.signum() == first.signum() {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    Some(0.5 * (low + high))
 }
 
 fn edge_face_keys(solid: &Solid, operand: Operand, edge: EdgeId) -> Vec<FaceKey> {
@@ -643,8 +695,21 @@ fn add_overlap_cuts(input: &Input, overlap: &Overlap, arrangement: &mut Arrangem
         if !lies_on(surface, curve, data.interval) {
             continue;
         }
-        let uv = surface.project(curve.point(middle), Some(bounds.uv.center()));
-        if classifier.point_in_face(overlap.face.face, uv) == Some(FaceContainment::Inside) {
+        let containment = |fraction: f64| {
+            let point = curve.point(data.interval.at(fraction));
+            let uv = surface.project(point, Some(bounds.uv.center()));
+            classifier.point_in_face(overlap.face.face, uv)
+        };
+        let samples: &[f64] = match input.overlap_cuts {
+            OverlapCuts::AtMiddle => &[MIDDLE],
+            OverlapCuts::WhereverInside => &INSIDE_SAMPLES,
+        };
+        let found: Vec<Option<FaceContainment>> =
+            samples.iter().copied().map(containment).collect();
+        let outside = found
+            .iter()
+            .any(|class| matches!(class, Some(FaceContainment::Outside) | None));
+        if !outside && found.contains(&Some(FaceContainment::Inside)) {
             cuts.push(*piece);
         }
     }

@@ -14,7 +14,6 @@ use crate::{
     interrupt,
     naming::{EdgeName, FaceName, FaceOrigin},
     surface::Surface,
-    tolerance::LINEAR_RESOLUTION,
     topology::{CoedgeId, EdgeId, Face, FaceId, Solid, VertexId},
 };
 
@@ -169,7 +168,7 @@ pub(super) fn offset_vertex(
         let rows = rows_at(offsets, &hints, seams, point)?;
         if rows
             .iter()
-            .all(|(residual, _)| residual.abs() <= 0.01 * LINEAR_RESOLUTION)
+            .all(|(residual, _)| residual.abs() <= offsets.settled)
         {
             return Some(point);
         }

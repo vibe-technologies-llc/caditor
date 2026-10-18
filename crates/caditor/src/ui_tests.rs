@@ -1874,7 +1874,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     rectangle(&mut plate, Point2::new(0.0, 0.0), Point2::new(20.0, 10.0));
     plate.add_circle(Point2::new(10.0, 5.0), 2.5);
     let mut peg = Sketch::new(Plane::XY);
-    peg.add_circle(Point2::new(10.0000015, 5.0), 2.5);
+    peg.add_circle(Point2::new(10.0, 5.0000015), 2.5);
     for (name, outline) in [("Plate", plate), ("Peg", peg)] {
         let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
         bodies.push(transaction.add_feature(
