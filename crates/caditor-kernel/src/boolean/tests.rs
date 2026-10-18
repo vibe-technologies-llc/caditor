@@ -14,7 +14,7 @@ use super::{
 use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, plan::PlanError, revolve},
     fixtures::{cuboid, cylinder, sphere},
-    intersect::IntersectionError,
+    intersect::{IntersectionError, RefineStop},
     naming::{EdgeName, FaceName},
     profile::{Profile, Selection},
     sense::Sense,
@@ -973,9 +973,33 @@ fn failures_of_the_steps_become_boolean_errors_in_words() {
             "the solids could not be intersected: an intersection curve could not be followed \
              to its end",
         ),
+        (
+            BooleanError::from(IntersectionError::Unrefined {
+                point: Point3::new(1.0, 2.0, 3.0),
+                distance: 0.5,
+                cause: RefineStop::Unsolved,
+            }),
+            "the solids could not be intersected: an intersection curve strays 0.5 from its \
+             surfaces near [1, 2, 3], where it could not be refined (no point on both surfaces \
+             lies across its middle)",
+        ),
     ] {
         assert_eq!(error.to_string(), words);
     }
+}
+
+#[test]
+fn an_unrefined_intersection_curve_places_the_error_where_it_strays() {
+    let point = Point3::new(1.0, 2.0, 3.0);
+
+    let error = BooleanError::from(IntersectionError::Unrefined {
+        point,
+        distance: 0.5,
+        cause: RefineStop::AtEnd,
+    })
+    .or_point(|| Some(Point3::ZERO));
+
+    assert_eq!(error.site().and_then(|site| site.point), Some(point));
 }
 
 fn outcome(result: &Result<Solid, BooleanError>) -> &'static str {
@@ -1274,6 +1298,17 @@ fn fixture(name: &str) -> Solid {
 #[test]
 fn placements_the_survey_once_failed_on_combine_in_every_operation() {
     let placements = [
+        Placement {
+            first: "extruded spline",
+            second: "torus",
+            axis: [0.3494028092209731, 0.783808179789397, 0.5500293391852864],
+            angle: 1.7536915415737844,
+            offset: [
+                -0.3341052609403181,
+                -0.35189914101348946,
+                0.1946204593427221,
+            ],
+        },
         Placement {
             first: "torus",
             second: "torus",

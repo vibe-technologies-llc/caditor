@@ -79,7 +79,7 @@ pub use crate::{
     intersect::{
         CurveCurveIntersection, CurveCurveOverlap, CurveCurvePoint, CurveSurfaceIntersection,
         CurveSurfaceOverlap, CurveSurfacePoint, IntersectionBranch, IntersectionError,
-        IntersectionPoint, SurfaceIntersection, SurfacePatch, intersect_curve_surface,
+        IntersectionPoint, RefineStop, SurfaceIntersection, SurfacePatch, intersect_curve_surface,
         intersect_curves, intersect_curves2, intersect_surfaces,
     },
     interval::{Domain, Interval},

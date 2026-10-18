@@ -7,24 +7,24 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Kernel
 
-- [high · hard] Booleans between the fixture solids in random placements all succeed on the
-  survey's seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but another seed
-  still fails an extruded spline against a torus with `Invalid(EdgeOffSurface)` (an edge 1.3e-6 off
-  its face). Tori that nearly coincide still fail when turned rather than shifted: a torus and its
-  copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of
-  seeding. Intersection curves crossing at a tangent point (tori touching along their equators, a
-  face touching a torus's inner equator) cannot be split
-  (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
-  mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
-  is `Invalid(VoidOutside)`, with no test pinning it.
-- [medium · medium] `IntersectionCurve` refinement keeps a segment it could not split: `midpoint`
-  answers `None`, which `refine_traced` takes as close enough, when the true point lies within
-  `LINEAR_RESOLUTION` of an end, when `refine_on_plane` fails, and at `MAX_REFINE_DEPTH` or
-  `MAX_NODES`, so a Hermite segment straying more than `INTERSECTION_TOLERANCE` from its surfaces is
-  kept and found only by validation, as `EdgeOffSurface` on the solid. Telling a segment within
-  tolerance from one that could not be refined, and refusing the latter, would name the curve
-  instead; whether it causes the extruded spline's `EdgeOffSurface` against a torus above is
-  unchecked.
+- [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
+  seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but other seeds
+  (`Random::new(n)`) still fail. Two are refused as `Intersection(Unrefined)` because a marched
+  branch's contacts leave a segment no refinement can follow: seed 7's two cones at a neck where the
+  surfaces' normals are 0.004 apart (no point on both surfaces across the segment's middle, formerly
+  `Open`), and seed 16's torus against the hollow cuboid round a turn of 2.5 radians within 0.2
+  (formerly `EdgeOffSurface`, 2.4e-3 off); the marcher should step shorter there. The rest are
+  invalid results: `SelfIntersectingBoundary` tessellating a sphere and frustum (seed 7), two
+  frustums (8), an extruded spline and the hollow cuboid and a cone and cylinder (12) and two
+  extruded splines (14), and a cone and the hollow cuboid with a `DanglingEdge` (9). The extruded
+  spline against a torus that was `Invalid(EdgeOffSurface)` (seed 3) was a Hermite segment fitting
+  its curve at its middle but not its quarters, and now combines. Tori that nearly coincide still
+  fail when turned rather than shifted: a torus and its copy turned by 1e-5 to 1e-3 radians are
+  `Ambiguous` or `Split`, each after about 0.7 s of seeding. Intersection curves crossing at a
+  tangent point (tori touching along their equators, a face touching a torus's inner equator) cannot
+  be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the
+  validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
+  each axis is `Invalid(VoidOutside)`, with no test pinning it.
 - [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
   bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
   1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,

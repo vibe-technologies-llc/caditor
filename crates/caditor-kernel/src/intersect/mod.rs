@@ -8,6 +8,7 @@ mod surface_surface;
 #[cfg(test)]
 mod tests;
 
+use caditor_geometry::Point3;
 use thiserror::Error;
 
 pub(crate) use self::{
@@ -40,8 +41,28 @@ pub enum IntersectionError {
     TooComplex(usize),
     #[error("an intersection curve could not be followed to its end")]
     Unfollowable,
+    #[error(
+        "an intersection curve strays {distance} from its surfaces near {point}, where it could not be refined ({cause})"
+    )]
+    Unrefined {
+        point: Point3,
+        distance: f64,
+        cause: RefineStop,
+    },
     #[error(transparent)]
     Geometry(#[from] GeometryError),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum RefineStop {
+    #[error("no point on both surfaces lies across its middle")]
+    Unsolved,
+    #[error("the point across its middle lies at one of its ends")]
+    AtEnd,
+    #[error("it was halved {0} times")]
+    TooDeep(usize),
+    #[error("the curve reached {0} points")]
+    TooManyNodes(usize),
 }

@@ -94,6 +94,10 @@ paths:
     of two U-shaped branches). A step landing outside the patches whose exit lies behind the
     current point is retried at half length, so a branch dipping into a patch for less than a step
     is followed.
+  - A branch whose `IntersectionCurve` cannot be refined fails the intersection as `Unrefined`
+    (`kernel.md`); the boolean takes its point as the error's site, so the curve is named where it
+    strays instead of the solid failing validation. A branch whose contacts collapse to too few
+    distinct points is dropped.
   - Every branch is clipped to both patches over only the spans reaching the window the patches
     share, so a long curve through a small face is found there. A marched branch that is a line,
     circle or ellipse within half the resolution is returned as that curve (`recognize.rs`).

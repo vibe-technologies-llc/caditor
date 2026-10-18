@@ -863,21 +863,26 @@ impl<'a> Tracer<'a> {
             return Ok(());
         }
         for half in halves_of_lobe(&contacts, closed) {
-            self.add_curve(half, closed);
+            self.add_curve(half, closed)?;
         }
         Ok(())
     }
 
-    fn add_curve(&mut self, contacts: &[Contact], closed: bool) {
+    fn add_curve(&mut self, contacts: &[Contact], closed: bool) -> Result<(), IntersectionError> {
         let [first, second] = self.surfaces();
-        let Some(curve) =
-            IntersectionCurve::from_contacts([first.clone(), second.clone()], contacts, closed)
-        else {
-            return;
+        let curve = match IntersectionCurve::from_contacts(
+            [first.clone(), second.clone()],
+            contacts,
+            closed,
+        ) {
+            Ok(curve) => curve,
+            Err(IntersectionError::Geometry(_)) => return Ok(()),
+            Err(error) => return Err(error),
         };
         let curve = Curve::Intersection(curve);
         let bounds = curve.bounding_box(curve.domain().clipped(1.0));
         self.curves.push((curve, bounds));
+        Ok(())
     }
 }
 

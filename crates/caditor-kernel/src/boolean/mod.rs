@@ -100,6 +100,13 @@ impl From<IntersectionError> for BooleanError {
     fn from(error: IntersectionError) -> Self {
         match error {
             IntersectionError::Cancelled(interrupted) => Self::Cancelled(interrupted),
+            IntersectionError::Unrefined { point, .. } => Self::Intersection {
+                error,
+                site: Box::new(BooleanSite {
+                    point: Some(point),
+                    ..BooleanSite::default()
+                }),
+            },
             error => Self::Intersection {
                 error,
                 site: Box::default(),
