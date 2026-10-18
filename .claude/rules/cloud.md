@@ -118,6 +118,11 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   sign-in link, since a browser may not open), open it with `browser::open` (https only, no shell:
   `xdg-open` or `gio`, `rundll32 url.dll,FileProtocolHandler`), wait up to five minutes, trade the
   code, save the session. Cancel stops the wait.
+- The hub a user chooses is remembered in `<state>/cloud/<service>-hub.json` (written atomically
+  by a job on the courier, read by the job that lists the hubs). After a restart or Refresh the
+  hub in use wins, then the remembered one if it is still listed, then `first_workspace` (the team
+  hub first); a vanished hub keeps its file, so it returns with the hub. Only a deliberate choice writes it (`ChooseWorkspace`, never the automatic pick); an
+  explicit sign-out or turning cloud off deletes it with the session, an ended sign-in does not.
 - The session is `<state>/cloud/<service>-session.json` (`SessionStore`), written through
   `caditor_file::write_privately` (an owner-only file, new or replaced; a test holds the mode); a
   damaged file is dropped, not fatal. Sign-out and turning cloud off revoke at the service (best effort) and delete it. An

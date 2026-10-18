@@ -36,6 +36,10 @@ and clears them.
 If a team hub says Autodesk did not allow caditor, its administrator may need to allow the app in
 the hub's settings. Your own personal hub needs nothing.
 
+When you have more than one hub, the one you pick in the Cloud projects window is the one Home lists
+from then on, also after restarting caditor; if it is gone, Home goes back to the team hub. Signing
+out forgets the choice.
+
 ## Onshape documents
 
 Home shows Onshape below Fusion 360. {command:file.onshape_sign_in} opens Onshape's own sign-in

@@ -578,7 +578,24 @@ impl Cloud {
         linked.roots.clear();
         linked.folders.clear();
         linked.projects = Load::Idle;
-        self.load_projects(service, workspace);
+        self.load_projects(service, workspace.clone());
+        self.remember_workspace(service, workspace);
+    }
+
+    fn remember_workspace(&mut self, service: Service, workspace: WorkspaceId) {
+        let Some(store) = self.store(service) else {
+            return;
+        };
+        self.courier.spawn(
+            service,
+            move || jobs::remember_hub(&store, &workspace),
+            |outcome| {
+                if let Err(failure) = outcome {
+                    log::warn!("the chosen hub could not be remembered: {failure}");
+                }
+                Event::Left
+            },
+        );
     }
 
     fn load_account(&mut self, service: Service) {
@@ -612,9 +629,10 @@ impl Cloud {
         }
         linked.workspaces = Load::Loading;
         let client = Arc::clone(&linked.client);
+        let store = self.store(service);
         self.courier.spawn(
             service,
-            move || client.workspaces().map_err(Failure::from),
+            move || jobs::list_workspaces(&client, store.as_ref()),
             move |result| Event::Loaded {
                 service,
                 generation,
@@ -887,16 +905,17 @@ impl Cloud {
         match loaded {
             Loaded::Account(result) => linked.account = settle(result),
             Loaded::Workspaces(result) => {
-                if let Ok(workspaces) = &result {
-                    let kept = linked
-                        .workspace
-                        .as_ref()
-                        .filter(|id| workspaces.iter().any(|workspace| workspace.id == **id))
-                        .cloned();
-                    choose = kept.or_else(|| {
-                        first_workspace(workspaces).map(|workspace| workspace.id.clone())
-                    });
-                }
+                let result = result.map(|(workspaces, remembered)| {
+                    choose = [linked.workspace.as_ref(), remembered.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .find(|id| workspaces.iter().any(|workspace| workspace.id == **id))
+                        .cloned()
+                        .or_else(|| {
+                            first_workspace(&workspaces).map(|workspace| workspace.id.clone())
+                        });
+                    workspaces
+                });
                 linked.workspaces = settle(result);
             }
             Loaded::Projects(workspace, result) => {

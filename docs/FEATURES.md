@@ -220,7 +220,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
   chosen version, other file kinds in a project folder (uploaded STEP, mesh and DXF files, which
   need no conversion), and sending a model back to the cloud are not offered.
-- [low · easy] The hub Home lists (the team hub first) is not remembered between sessions.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a

@@ -22,7 +22,7 @@ use super::{FILE_TIMEOUT, Harness, extruded_plate, no_wake, run_from_palette, sa
 use crate::{
     app::Workspace as App,
     browser::OpenError,
-    cloud::{Cloud, CloudServices, Link, Opener, Refusal},
+    cloud::{Cloud, CloudCommand, CloudServices, Link, Opener, Refusal},
     cloud_dialog, cloud_parts,
     commands::Command,
     export::ExportCommand,
@@ -523,6 +523,100 @@ fn the_sign_in_survives_a_restart_and_signing_out_forgets_it() {
                 .join("fusion-session.json")
                 .exists()
     });
+}
+
+fn two_hubs() -> FakeProvider {
+    let personal = WorkspaceId::new("home");
+    catalogue(b"")
+        .workspace(Workspace {
+            id: personal.clone(),
+            name: "Mine".to_owned(),
+            kind: WorkspaceKind::Personal,
+        })
+        .project(
+            Project {
+                id: ProjectId::new("p9"),
+                workspace: personal,
+                name: "Garden".to_owned(),
+            },
+            Folder {
+                designs: vec![design("d9", "Shed", "p9", 2)],
+                folders: Vec::new(),
+            },
+        )
+}
+
+fn chosen_hub(harness: &Harness) -> Option<WorkspaceId> {
+    harness
+        .workspace
+        .cloud
+        .linked(Service::Fusion)
+        .and_then(|linked| linked.workspace.clone())
+}
+
+#[test]
+fn the_chosen_hub_comes_back_after_a_restart_and_a_missing_one_falls_back_to_the_first() {
+    let dir = TempDir::new().unwrap();
+    let mut first = with_cloud(dir.path(), &Arc::new(two_hubs()));
+    open_home(&mut first);
+    sign_in(&mut first);
+    first.wait_until("the team hub is listed", |harness| harness.shows("Frame"));
+    assert_eq!(chosen_hub(&first), Some(WorkspaceId::new("hub")));
+
+    first.perform(Action::Cloud(CloudCommand::ChooseWorkspace(
+        Service::Fusion,
+        WorkspaceId::new("home"),
+    )));
+    first.wait_until("the other hub is listed", |harness| harness.shows("Shed"));
+    let remembered = dir
+        .path()
+        .join("state")
+        .join("cloud")
+        .join("fusion-hub.json");
+    first.wait_until("the choice is kept", |_| remembered.exists());
+    let closing = first.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+    drop(first);
+
+    let mut restarted = with_cloud(dir.path(), &Arc::new(two_hubs()));
+    restarted.wait_until("the saved sign-in is used", is_linked);
+    open_home(&mut restarted);
+    restarted.wait_until("the remembered hub is listed", |harness| {
+        harness.shows("Shed")
+    });
+    assert_eq!(chosen_hub(&restarted), Some(WorkspaceId::new("home")));
+    let closing = restarted.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+    drop(restarted);
+
+    let mut gone = with_cloud(dir.path(), &Arc::new(catalogue(b"")));
+    gone.wait_until("the saved sign-in is used", is_linked);
+    open_home(&mut gone);
+    gone.wait_until("the first hub is listed", |harness| harness.shows("Frame"));
+    assert_eq!(chosen_hub(&gone), Some(WorkspaceId::new("hub")));
+}
+
+#[test]
+fn signing_out_forgets_the_remembered_hub() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = with_cloud(dir.path(), &Arc::new(two_hubs()));
+    open_home(&mut harness);
+    sign_in(&mut harness);
+    harness.wait_until("the team hub is listed", |harness| harness.shows("Frame"));
+    harness.perform(Action::Cloud(CloudCommand::ChooseWorkspace(
+        Service::Fusion,
+        WorkspaceId::new("home"),
+    )));
+    let remembered = dir
+        .path()
+        .join("state")
+        .join("cloud")
+        .join("fusion-hub.json");
+    harness.wait_until("the choice is kept", |_| remembered.exists());
+
+    harness.click(home::SIGN_OUT);
+
+    harness.wait_until("the choice is forgotten", |_| !remembered.exists());
 }
 
 #[test]
