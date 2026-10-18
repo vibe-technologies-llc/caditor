@@ -5,11 +5,21 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity
 use crate::{constraint::MAX_LENGTH, id::EntityId};
 
 pub const MAX_TEXT_CHARS: usize = 200;
+pub const LINE_BREAK: char = '\n';
 
-const LETTER_CURVES: u64 = 1 << 63;
-const TEXT_BITS: u32 = 40;
+pub(crate) const LETTER_CURVES: u64 = 1 << 63;
+pub(crate) const GEAR_CURVES: u64 = 1 << 62;
+pub(crate) const TEXT_BITS: u32 = 39;
 const LETTER_BITS: u32 = 11;
 const SEGMENT_BITS: u32 = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Centre,
+    Right,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
@@ -19,6 +29,7 @@ pub struct Text {
     pub angle: Expression,
     pub bold: bool,
     pub italic: bool,
+    pub align: TextAlign,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,7 +44,7 @@ pub enum TextError {
     Blank,
     #[error("text is limited to {MAX_TEXT_CHARS} characters, and this has {count}")]
     TooLong { count: usize },
-    #[error("text is one line, without line breaks or other control characters")]
+    #[error("text can hold line breaks but no other control characters")]
     ControlCharacter,
     #[error("its height cannot be worked out: {0}")]
     Height(EvalError),
@@ -53,7 +64,7 @@ impl Text {
     }
 
     pub fn check_content(content: &str) -> Result<(), TextError> {
-        if content.chars().any(char::is_control) {
+        if content.chars().any(|c| c.is_control() && c != LINE_BREAK) {
             return Err(TextError::ControlCharacter);
         }
         if content.trim().is_empty() {
@@ -123,7 +134,7 @@ pub fn letter_curve(text: EntityId, letter: usize, segment: usize) -> Option<u64
 }
 
 pub(crate) fn letter_curve_text(raw: u64) -> Option<u64> {
-    (raw & LETTER_CURVES != 0 && !EntityId::from_raw(raw).is_reference())
+    (raw & LETTER_CURVES != 0 && raw & GEAR_CURVES == 0 && !EntityId::from_raw(raw).is_reference())
         .then_some((raw & !LETTER_CURVES) >> (LETTER_BITS + SEGMENT_BITS))
 }
 

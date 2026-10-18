@@ -71,6 +71,7 @@ mod dialogs;
 mod dimension_labels;
 mod display_styles;
 mod drawing_import;
+mod emboss;
 mod exporting;
 mod extrude_from_selection;
 mod extrusion_basics;
@@ -1241,6 +1242,21 @@ impl Harness {
         self.events.push(Event::Text(text.to_owned()));
         self.frame();
         self.key(Key::Enter, Modifiers::NONE);
+        self.frame();
+    }
+
+    fn type_lines_into_field(&mut self, id: Id, lines: &[&str]) {
+        self.context.memory_mut(|memory| memory.request_focus(id));
+        self.frame();
+        self.key(Key::A, Modifiers::COMMAND);
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                self.key(Key::Enter, Modifiers::NONE);
+                self.frame();
+            }
+            self.events.push(Event::Text((*line).to_owned()));
+            self.frame();
+        }
         self.frame();
     }
 

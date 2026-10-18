@@ -164,12 +164,13 @@ impl Tool {
                  typed radius, kept tangent as they change"
             }
             Self::Gear => {
-                "Draw the outline of an involute spur gear from its module, teeth and pressure \
-                 angle, with its pitch, base, root and tip circles, ready to extrude"
+                "Draw an involute spur gear from its module, teeth and pressure angle, with its \
+                 pitch, base, root and tip circles, ready to extrude; it stays editable and \
+                 follows its parameters"
             }
             Self::Text => {
-                "Write a line of text in Inter at a point, with a height, an angle, bold and \
-                 italic; its letters are closed regions ready to extrude, and it stays editable"
+                "Write text in Inter, one or several lines, at a point, with a height, an \
+                 angle, alignment, bold and italic; its letters are closed regions ready to extrude, and it stays editable"
             }
             Self::Fillet => {
                 "Round the corner where two lines, arcs or elliptical arcs meet, or where two of \
@@ -1057,6 +1058,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)

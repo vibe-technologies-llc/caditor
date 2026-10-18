@@ -335,9 +335,10 @@ paths:
   radius as major axis since DXF wants a ratio at most 1). Construction curves are counted and left
   out (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction`
   dashed and counted in `SketchExported::construction`. The DXF reads back through `parse_dxf` as
-  the same curves, construction ones as construction. A sketch text writes its letters
-  (`caditor_document::placed_text`) as lines and Bézier splines on layer 0, counted as curves, and
-  not the point it stands on.
+  the same curves, construction ones as construction. A sketch text writes its letters, every line aligned as drawn
+  (`caditor_document::placed_text`), as lines and Bézier splines on layer 0, counted as curves, and
+  not the point it stands on. A stored gear writes its outline pieces (lines, arcs and flank
+  splines) and bore on layer 0 as curves, its four circles as construction, and not its centre.
 - A face (`export/outline.rs`) writes a flat face's outer loop on `Outline` and inner loops on
   `Holes`, seen from outside the body: the face's plane with its origin where the model origin
   projects onto it, up along Z for a face more upright than 45 degrees and along Y otherwise, so a

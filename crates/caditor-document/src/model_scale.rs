@@ -444,6 +444,19 @@ impl Rescaler {
                 });
             }
         }
+        for (gear, held) in sketch.gears() {
+            let mut scaled = held.clone();
+            self.length(&mut scaled.module, &feature.name)?;
+            self.length(&mut scaled.root_fillet, &feature.name)?;
+            self.length(&mut scaled.bore, &feature.name)?;
+            if scaled != *held {
+                edits.push(Edit::SetSketchGear {
+                    feature: id,
+                    id: gear,
+                    gear: scaled,
+                });
+            }
+        }
         for (constraint, held) in sketch.constraints() {
             let label = sketch
                 .label_offset(constraint)
@@ -592,6 +605,7 @@ impl Rescaler {
                 }
             }
             FeatureKind::OffsetFace(offset) => self.length(&mut offset.distance, name)?,
+            FeatureKind::Emboss(emboss) => self.length(&mut emboss.depth, name)?,
             FeatureKind::MoveFace(moving) => self.length(&mut moving.distance, name)?,
             FeatureKind::Mate(mate) => {
                 for distance in mate.lengths_mut() {
@@ -1281,6 +1295,7 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::DeleteFace(_)
+        | FeatureKind::Emboss(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Import(_)

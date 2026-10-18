@@ -7,7 +7,7 @@ use std::{
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError, Text};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Gear, SketchError, Text};
 
 use crate::{
     attachment::SketchAttachment,
@@ -206,6 +206,20 @@ pub enum Edit {
         id: EntityId,
         text: Text,
     },
+    AddSketchGear {
+        feature: FeatureId,
+        id: EntityId,
+        gear: Gear,
+    },
+    RemoveSketchGear {
+        feature: FeatureId,
+        id: EntityId,
+    },
+    SetSketchGear {
+        feature: FeatureId,
+        id: EntityId,
+        gear: Gear,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -288,7 +302,10 @@ impl Transaction {
                 | Edit::SetSketchProjection { feature, id, .. }
                 | Edit::AddSketchText { feature, id, .. }
                 | Edit::RemoveSketchText { feature, id }
-                | Edit::SetSketchText { feature, id, .. } => {
+                | Edit::SetSketchText { feature, id, .. }
+                | Edit::AddSketchGear { feature, id, .. }
+                | Edit::RemoveSketchGear { feature, id }
+                | Edit::SetSketchGear { feature, id, .. } => {
                     touched.features.insert(*feature);
                     touched.entities.insert((*feature, *id));
                 }
@@ -360,6 +377,9 @@ impl Transaction {
                 Edit::AddSketchText { text, .. } | Edit::SetSketchText { text, .. } => {
                     text.heap_size()
                 }
+                Edit::AddSketchGear { gear, .. } | Edit::SetSketchGear { gear, .. } => {
+                    gear.heap_size()
+                }
                 Edit::RemoveParameter { .. }
                 | Edit::MoveParameter { .. }
                 | Edit::RemoveFeature { .. }
@@ -377,6 +397,7 @@ impl Transaction {
                 | Edit::SetSketchConstraintActive { .. }
                 | Edit::SetSketchLabel { .. }
                 | Edit::RemoveSketchText { .. }
+                | Edit::RemoveSketchGear { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
             .sum();
@@ -1008,6 +1029,9 @@ impl Document {
             Edit::AddSketchText { feature, id, text } => self.add_sketch_text(feature, id, text),
             Edit::RemoveSketchText { feature, id } => self.remove_sketch_text(feature, id),
             Edit::SetSketchText { feature, id, text } => self.set_sketch_text(feature, id, text),
+            Edit::AddSketchGear { feature, id, gear } => self.add_sketch_gear(feature, id, gear),
+            Edit::RemoveSketchGear { feature, id } => self.remove_sketch_gear(feature, id),
+            Edit::SetSketchGear { feature, id, gear } => self.set_sketch_gear(feature, id, gear),
         }
     }
 
@@ -1148,6 +1172,7 @@ impl Document {
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
             | (FeatureKind::MoveFace(_), FeatureKind::MoveFace(_))
             | (FeatureKind::DeleteFace(_), FeatureKind::DeleteFace(_))
+            | (FeatureKind::Emboss(_), FeatureKind::Emboss(_))
             | (FeatureKind::SplitFace(_), FeatureKind::SplitFace(_))
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
             | (FeatureKind::Pipe(_), FeatureKind::Pipe(_))

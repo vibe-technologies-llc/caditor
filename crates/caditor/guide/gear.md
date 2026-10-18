@@ -19,6 +19,8 @@ The gear's values are:
   few teeth avoid undercut.
 - **Root fillet**: the radius rounding the bottom of each gap; 0 leaves it sharp.
 - **Bore**: the diameter of the hole in the middle; leave it empty for none.
+- **Rotation**: how far the whole gear turns about its centre; at 0° a tooth points along the
+  sketch's horizontal axis.
 
 The panel shows the pitch, tip, root and base diameters these give, or says in words what is
 wrong. A tooth count that would be undercut at the chosen profile shift is refused, naming the
@@ -60,6 +62,22 @@ diameters; a tooth count whose teeth would come to a point is refused in words.
 Whatever is drawn is one change that {command:edit.undo} takes back; a pair or a sprocket is
 placed by its first gear's or its own centre.
 
+## Changing a single gear
+
+A single gear stays a gear: it keeps the values you typed, with the parameters they use, and is
+drawn again from them whenever they change. Change `teeth` under Parameters and the teeth are
+added or taken away; the faces that were made from the other teeth keep their names, so later
+features that use them carry on.
+
+Select the gear by clicking its outline, then choose {command:sketch.gear}: the panel shows its
+values, and its button updates the gear in one change, keeping its centre and every constraint on
+it. **Draw a new gear instead** leaves the selected gear as it is and draws another.
+
+The centre is an ordinary sketch point: constrain it, dimension its distance from the origin or
+from other geometry, or fix it, and the gear moves with it; dragging the gear drags the centre.
+Deleting the gear deletes its centre too, unless a curve also uses that point; deleting the centre
+deletes the gear.
+
 ## What it draws
 
 Each gear tooth flank is a spline traced along the involute within a ten-thousandth of the module,
@@ -67,5 +85,10 @@ joined to arcs at the tip and root, the root fillets and, below the base circle,
 line. A sprocket is made of arcs only. The pitch, base, root and tip circles of a gear (the pitch,
 tip and root circles of a sprocket) are drawn as construction geometry around each centre.
 
-What is drawn is drawn once: its curves do not follow later changes to the values or the
-parameters they used. To change it, delete it and draw it again.
+A single gear is not made of sketch curves: its outline cannot be trimmed, dimensioned or
+constrained piece by piece, only as a gear through its values and its centre. It still extrudes,
+cuts and exports like any outline. When its values cannot make a gear, such as a tooth count with
+a fraction or fewer than 5 teeth, the sketch fails and names the gear and what to change.
+
+A pair and a sprocket are drawn once: their curves do not follow later changes to the values or
+the parameters they used. To change one, delete it and draw it again.

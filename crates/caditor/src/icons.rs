@@ -216,6 +216,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Shell => SHELL,
         Command::OffsetFace => OFFSET_FACE,
         Command::DeleteFace => DELETE_FACE,
+        Command::Emboss => EMBOSS,
         Command::MoveFace => MOVE_FACE,
         Command::SplitFace => SPLIT_FACE,
         Command::NewBox => primitive(PrimitiveKind::Box),
@@ -429,6 +430,7 @@ const SPLIT: &str = phosphor::SQUARE_SPLIT_HORIZONTAL;
 const MATE: &str = phosphor::MAGNET;
 const OFFSET_FACE: &str = phosphor::ARROWS_OUT_LINE_VERTICAL;
 const DELETE_FACE: &str = phosphor::ERASER;
+const EMBOSS: &str = phosphor::STAMP;
 const MOVE_FACE: &str = phosphor::ARROW_FAT_LINES_RIGHT;
 const SPLIT_FACE: &str = phosphor::SQUARE_SPLIT_VERTICAL;
 const THREAD: &str = phosphor::SPIRAL;
@@ -593,6 +595,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,
         FeatureKind::DeleteFace(_) => DELETE_FACE,
+        FeatureKind::Emboss(_) => EMBOSS,
         FeatureKind::MoveFace(_) => MOVE_FACE,
         FeatureKind::SplitFace(_) => SPLIT_FACE,
         FeatureKind::Primitive(primitive) => self::primitive(primitive.shape.kind()),

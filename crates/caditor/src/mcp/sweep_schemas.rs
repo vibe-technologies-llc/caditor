@@ -355,6 +355,20 @@ pub fn delete_face() -> Value {
     )
 }
 
+pub fn emboss() -> Value {
+    object(
+        json!({
+            "body": reference("The body, by id or name"),
+            "faces": keys("Face keys from list_faces: flat faces of one plane, or faces of one cylinder or cone"),
+            "sketch": reference("The sketch of closed outlines or text; lying parallel to a flat face, or on a plane along the axis of a round one"),
+            "depth": amount("How far the outlines stand out or sink in, such as \"0.5 mm\""),
+            "form": choice(&["raise", "recess"], "Raise the outlines from the faces (the default) or recess them into the faces"),
+            "name": name()
+        }),
+        &["body", "faces", "sketch", "depth"],
+    )
+}
+
 pub fn move_face() -> Value {
     object(
         json!({

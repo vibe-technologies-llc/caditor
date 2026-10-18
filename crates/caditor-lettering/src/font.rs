@@ -94,6 +94,10 @@ impl<'f> Typeface<'f> {
         self.cut_mut(instance.italic).cap_height(instance.weight)
     }
 
+    pub fn line_height(&mut self, instance: Instance) -> Option<f64> {
+        self.cut_mut(instance.italic).line_height(instance.weight)
+    }
+
     fn cut(&self, italic: bool) -> &Cut<'f> {
         match (&self.italic, italic) {
             (Some(cut), true) => cut,
@@ -208,6 +212,15 @@ impl<'f> Cut<'f> {
             .cap_height
             .map(f64::from)
             .filter(|height| height.is_finite() && *height > 0.0)
+    }
+
+    fn line_height(&mut self, weight: u16) -> Option<f64> {
+        let font = self.font.clone();
+        let location = self.location(weight);
+        let metrics = Metrics::new(&font, Size::unscaled(), location);
+        let height =
+            f64::from(metrics.ascent) - f64::from(metrics.descent) + f64::from(metrics.leading);
+        (height.is_finite() && height > 0.0).then_some(height)
     }
 
     fn segments(&mut self, weight: u16, glyph: GlyphId) -> Vec<Segment> {

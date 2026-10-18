@@ -11,24 +11,24 @@ use caditor_document::{
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
     CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Document, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate,
-    FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
-    FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
-    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
-    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
-    untwisted, view_name,
+    Document, EdgeGroup, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
+    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
+    Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
+    group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -38,8 +38,8 @@ use caditor_kernel::{
     SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{
-    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
-    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text,
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, Gear,
+    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text, TextAlign,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
@@ -332,6 +332,7 @@ pub(crate) enum FeatureKindRecord {
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
     MoveFace(Box<MoveFaceRecord>),
+    Emboss(Box<EmbossRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -904,6 +905,17 @@ pub(crate) struct DeleteFaceRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EmbossRecord {
+    pub body: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch: Option<u64>,
+    pub depth: String,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recessed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct MoveFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1057,7 +1069,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 88] = [
+pub(crate) const FEATURE_KINDS: [&str; 89] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1146,6 +1158,7 @@ pub(crate) const FEATURE_KINDS: [&str; 88] = [
     "sweep_shape",
     "loft_ends",
     "move_face",
+    "emboss",
 ];
 
 #[derive(Debug, Clone)]
@@ -1997,6 +2010,19 @@ pub(crate) enum EntityKindRecord {
         end: u64,
     },
     Text(TextRecord),
+    Gear(GearRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct GearRecord {
+    pub centre: u64,
+    pub module: String,
+    pub teeth: String,
+    pub pressure_angle: String,
+    pub profile_shift: String,
+    pub root_fillet: String,
+    pub bore: String,
+    pub turn: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2009,12 +2035,52 @@ pub(crate) struct TextRecord {
     pub bold: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub italic: bool,
+    #[serde(default, skip_serializing_if = "TextAlignRecord::is_left")]
+    pub align: TextAlignRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TextAlignRecord {
+    #[default]
+    Left,
+    Centre,
+    Right,
+}
+
+impl TextAlignRecord {
+    fn is_left(&self) -> bool {
+        *self == Self::Left
+    }
+}
+
+impl From<TextAlign> for TextAlignRecord {
+    fn from(align: TextAlign) -> Self {
+        match align {
+            TextAlign::Left => Self::Left,
+            TextAlign::Centre => Self::Centre,
+            TextAlign::Right => Self::Right,
+        }
+    }
+}
+
+impl From<TextAlignRecord> for TextAlign {
+    fn from(align: TextAlignRecord) -> Self {
+        match align {
+            TextAlignRecord::Left => Self::Left,
+            TextAlignRecord::Centre => Self::Centre,
+            TextAlignRecord::Right => Self::Right,
+        }
+    }
 }
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 const DEFAULT_TEXT_HEIGHT: f64 = 5.0;
+const DEFAULT_GEAR_MODULE: f64 = 2.0;
+const DEFAULT_GEAR_TEETH: f64 = 20.0;
+const DEFAULT_PRESSURE_ANGLE: f64 = 20.0;
 
-const ENTITY_KINDS: [&str; 16] = [
+const ENTITY_KINDS: [&str; 17] = [
     "point",
     "line",
     "circle",
@@ -2031,6 +2097,7 @@ const ENTITY_KINDS: [&str; 16] = [
     "ellipse",
     "elliptical_arc",
     "text",
+    "gear",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2458,6 +2525,20 @@ pub(crate) enum EditRecord {
         feature: u64,
         id: u64,
         text: TextRecord,
+    },
+    AddSketchGear {
+        feature: u64,
+        id: u64,
+        gear: GearRecord,
+    },
+    RemoveSketchGear {
+        feature: u64,
+        id: u64,
+    },
+    SetSketchGear {
+        feature: u64,
+        id: u64,
+        gear: GearRecord,
     },
 }
 
@@ -3363,6 +3444,17 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .collect(),
             }))
         }
+        FeatureKind::Emboss(emboss) => FeatureKindRecord::Emboss(Box::new(EmbossRecord {
+            body: emboss.body.raw(),
+            sketch: emboss.sketch.map(FeatureId::raw),
+            depth: emboss.depth.to_stored_text(),
+            faces: emboss
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            recessed: !emboss.form.is_raised(),
+        })),
         FeatureKind::MoveFace(moving) => FeatureKindRecord::MoveFace(Box::new(MoveFaceRecord {
             body: moving.body.raw(),
             faces: moving
@@ -5037,6 +5129,11 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
                     .texts()
                     .map(|(id, text)| Lenient::Read(text_entity_record(id, text))),
             )
+            .chain(
+                sketch
+                    .gears()
+                    .map(|(id, gear)| Lenient::Read(gear_entity_record(id, gear))),
+            )
             .collect(),
         constraints: sketch
             .constraints()
@@ -5231,6 +5328,42 @@ pub(crate) fn text_entity_record(id: EntityId, text: &Text) -> EntityRecord {
     }
 }
 
+pub(crate) fn gear_entity_record(id: EntityId, gear: &Gear) -> EntityRecord {
+    EntityRecord {
+        id: id.raw(),
+        construction: false,
+        split_from: None,
+        kind: EntityKindRecord::Gear(gear_record(gear)),
+    }
+}
+
+fn gear_record(gear: &Gear) -> GearRecord {
+    GearRecord {
+        centre: gear.centre.raw(),
+        module: gear.module.to_stored_text(),
+        teeth: gear.teeth.to_stored_text(),
+        pressure_angle: gear.pressure_angle.to_stored_text(),
+        profile_shift: gear.profile_shift.to_stored_text(),
+        root_fillet: gear.root_fillet.to_stored_text(),
+        bore: gear.bore.to_stored_text(),
+        turn: gear.turn.to_stored_text(),
+    }
+}
+
+fn restore_gear(record: &GearRecord) -> Option<Gear> {
+    let parse = |text: &str| Expression::parse_stored(text).ok();
+    Some(Gear {
+        centre: EntityId::from_raw(record.centre),
+        module: parse(&record.module)?,
+        teeth: parse(&record.teeth)?,
+        pressure_angle: parse(&record.pressure_angle)?,
+        profile_shift: parse(&record.profile_shift)?,
+        root_fillet: parse(&record.root_fillet)?,
+        bore: parse(&record.bore)?,
+        turn: parse(&record.turn)?,
+    })
+}
+
 fn text_record(text: &Text) -> TextRecord {
     TextRecord {
         anchor: text.anchor.raw(),
@@ -5239,6 +5372,7 @@ fn text_record(text: &Text) -> TextRecord {
         angle: text.angle.to_stored_text(),
         bold: text.bold,
         italic: text.italic,
+        align: text.align.into(),
     }
 }
 
@@ -5250,6 +5384,7 @@ fn restore_text(record: &TextRecord) -> Option<Text> {
         angle: Expression::parse_stored(&record.angle).ok()?,
         bold: record.bold,
         italic: record.italic,
+        align: record.align.into(),
     })
 }
 
@@ -5716,6 +5851,20 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             id: id.raw(),
         },
+        Edit::AddSketchGear { feature, id, gear } => EditRecord::AddSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+            gear: gear_record(gear),
+        },
+        Edit::RemoveSketchGear { feature, id } => EditRecord::RemoveSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+        },
+        Edit::SetSketchGear { feature, id, gear } => EditRecord::SetSketchGear {
+            feature: feature.raw(),
+            id: id.raw(),
+            gear: gear_record(gear),
+        },
         Edit::AddSketchText { feature, id, text } => EditRecord::AddSketchText {
             feature: feature.raw(),
             id: id.raw(),
@@ -5989,6 +6138,20 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
             feature: FeatureId::from_raw(feature),
             id: ConstraintId::from_raw(id),
+        },
+        EditRecord::AddSketchGear { feature, id, gear } => Edit::AddSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_gear(&gear)?,
+        },
+        EditRecord::RemoveSketchGear { feature, id } => Edit::RemoveSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+        },
+        EditRecord::SetSketchGear { feature, id, gear } => Edit::SetSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_gear(&gear)?,
         },
         EditRecord::AddSketchText { feature, id, text } => Edit::AddSketchText {
             feature: FeatureId::from_raw(feature),
@@ -6869,6 +7032,9 @@ fn restore_kind(
         }
         FeatureKindRecord::DeleteFace(record) => {
             FeatureKind::DeleteFace(restore_delete_face(record, name, issues))
+        }
+        FeatureKindRecord::Emboss(record) => {
+            FeatureKind::Emboss(restore_emboss(record, name, issues))
         }
         FeatureKindRecord::MoveFace(record) => {
             FeatureKind::MoveFace(restore_move_face(record, name, issues))
@@ -8659,6 +8825,36 @@ fn restore_delete_face(
     }
 }
 
+fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>) -> Emboss {
+    let depth = restore_value(&record.depth, "depth", "1 mm", feature, issues);
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces embossed by “{feature}” could not be read and were left plain."
+        ));
+    }
+    Emboss {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        sketch: record.sketch.map(FeatureId::from_raw),
+        depth,
+        form: if record.recessed {
+            EmbossForm::Recessed
+        } else {
+            EmbossForm::Raised
+        },
+    }
+}
+
 fn restore_move_face(record: &MoveFaceRecord, feature: &str, issues: &mut Vec<String>) -> MoveFace {
     let distance = restore_value(&record.distance, "distance", "0 mm", feature, issues);
     let angle = restore_value(&record.angle, "angle", "0 deg", feature, issues);
@@ -9233,6 +9429,9 @@ pub(crate) fn restore_sketch(
     let (texts, readable): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Text(_)));
+    let (gears, readable): (Vec<_>, Vec<_>) = readable
+        .into_iter()
+        .partition(|entity| matches!(entity.kind, EntityKindRecord::Gear(_)));
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
@@ -9271,6 +9470,12 @@ pub(crate) fn restore_sketch(
         }
     }
 
+    for record in gears {
+        if let EntityKindRecord::Gear(gear) = &record.kind {
+            restore_sketch_gear(&mut sketch, record.id, gear, feature, issues);
+        }
+    }
+
     for constraint in &record.constraints {
         match constraint {
             Lenient::Read(record) => restore_constraint(&mut sketch, record, feature, issues),
@@ -9284,6 +9489,64 @@ pub(crate) fn restore_sketch(
     }
     sketch.reserve_ids_below(record.next_id);
     sketch
+}
+
+fn restore_sketch_gear(
+    sketch: &mut Sketch,
+    id: u64,
+    record: &GearRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) {
+    let label = format!("Gear {id}");
+    let mut value = |name: &str, stored: &str, fallback: Expression| {
+        Expression::parse_stored(stored).unwrap_or_else(|_| {
+            issues.push(format!(
+                "In “{feature}”, the {name} of {label} could not be read, so it was set to a \
+                 standard value."
+            ));
+            fallback
+        })
+    };
+    let gear = Gear {
+        centre: EntityId::from_raw(record.centre),
+        module: value(
+            "module",
+            &record.module,
+            Expression::Measure(DEFAULT_GEAR_MODULE, Unit::Millimetre),
+        ),
+        teeth: value(
+            "number of teeth",
+            &record.teeth,
+            Expression::Number(DEFAULT_GEAR_TEETH),
+        ),
+        pressure_angle: value(
+            "pressure angle",
+            &record.pressure_angle,
+            Expression::Measure(DEFAULT_PRESSURE_ANGLE, Unit::Degree),
+        ),
+        profile_shift: value(
+            "profile shift",
+            &record.profile_shift,
+            Expression::Number(0.0),
+        ),
+        root_fillet: value(
+            "root fillet",
+            &record.root_fillet,
+            Expression::Measure(0.0, Unit::Millimetre),
+        ),
+        bore: value(
+            "bore",
+            &record.bore,
+            Expression::Measure(0.0, Unit::Millimetre),
+        ),
+        turn: value("turn", &record.turn, Expression::Measure(0.0, Unit::Degree)),
+    };
+    if let Err(error) = sketch.insert_gear(EntityId::from_raw(id), gear) {
+        issues.push(format!(
+            "In “{feature}”, {label} was left out because {error}."
+        ));
+    }
 }
 
 fn restore_sketch_text(
@@ -9314,6 +9577,7 @@ fn restore_sketch_text(
         angle,
         bold: record.bold,
         italic: record.italic,
+        align: record.align.into(),
     };
     if let Err(error) = sketch.insert_text(EntityId::from_raw(id), text) {
         issues.push(format!(
@@ -9420,7 +9684,7 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
             start: entity(*start),
             end: entity(*end),
         },
-        EntityKindRecord::Text(_) => return None,
+        EntityKindRecord::Text(_) | EntityKindRecord::Gear(_) => return None,
     })
 }
 

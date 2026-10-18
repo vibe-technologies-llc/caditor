@@ -21,6 +21,12 @@ corner in the selection, says how many it takes and what it left out and why, an
 them all in one step that one undo takes back. Clicking more corners before setting the radius adds
 them.
 
+A fillet or chamfer shortens the two curves, and constraints on them follow as a trim's do
+([Trim and extend](trim-and-extend)): a point that was the midpoint of a shortened line stays on it,
+as a point on the line, while it lies on what is left. Two lines meeting at the corner that were
+equal in length stay equal when the cut shortens both alike, as a fillet always does and a chamfer
+by one distance does; equal lengths with any other line are let go.
+
 The tool remembers the last radius while caditor runs: it shows in the field, and with a corner
 chosen Enter rounds it with that radius again, so a row of corners takes a click and Enter each.
 

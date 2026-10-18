@@ -1,6 +1,6 @@
 use caditor_expression::EvalError;
 use caditor_kernel::MAX_SIZE;
-use caditor_sketch::{DimensionError, SketchError, TextError};
+use caditor_sketch::{DimensionError, GearValueError, SketchError, TextError};
 
 use crate::{
     attachment::AttachCause,
@@ -11,6 +11,7 @@ use crate::{
     datum_cause::DatumCause,
     delete_face::DeleteFaceCause,
     document::list_names,
+    emboss::EmbossCause,
     hole::HoleCause,
     import::ImportCause,
     loft::LoftCause,
@@ -71,6 +72,7 @@ pub(crate) enum Cause {
     Combine(CombineCause),
     Blend(BlendCause),
     DeleteFace(DeleteFaceCause),
+    Emboss(EmbossCause),
     OffsetFace(OffsetFaceCause),
     MoveFace(MoveFaceCause),
     Shell(ShellCause),
@@ -115,6 +117,7 @@ impl Cause {
             Self::Combine(cause) => cause.reason(),
             Self::Blend(blend) => blend.reason(),
             Self::DeleteFace(delete) => delete.reason(),
+            Self::Emboss(emboss) => emboss.reason(),
             Self::OffsetFace(offset) => offset.reason(),
             Self::MoveFace(moving) => moving.reason(),
             Self::Shell(shell) => shell.reason(),
@@ -160,6 +163,7 @@ impl Cause {
             Self::Combine(cause) => cause.remedy(),
             Self::Blend(blend) => blend.remedy(),
             Self::DeleteFace(delete) => delete.remedy(),
+            Self::Emboss(emboss) => emboss.remedy(),
             Self::OffsetFace(offset) => offset.remedy(),
             Self::MoveFace(moving) => moving.remedy(),
             Self::Shell(shell) => shell.remedy(),
@@ -367,6 +371,10 @@ pub(crate) enum SketchCause {
         label: String,
         error: TextError,
     },
+    Gear {
+        label: String,
+        error: GearValueError,
+    },
     Several(Vec<Cause>),
 }
 
@@ -393,6 +401,7 @@ impl SketchCause {
                 format!("{label} cannot be evaluated: {error}.")
             }
             Self::Text { label, error } => format!("{label} cannot be drawn: {error}."),
+            Self::Gear { label, error } => format!("{label} cannot be drawn: {error}."),
             Self::Several(causes) => format!(
                 "The sketch has {} separate problems. {}",
                 causes.len(),
@@ -433,6 +442,7 @@ impl SketchCause {
                 error, expected, ..
             } => Self::dimension_remedy(error, *expected),
             Self::Text { label, error } => Self::text_remedy(label, error),
+            Self::Gear { label, error } => Self::gear_remedy(label, error),
             Self::Several(causes) => format!(
                 "Fix each of them. {}",
                 Self::numbered(causes, Cause::remedy)
@@ -458,6 +468,17 @@ impl SketchCause {
             0 => ("The sketch".to_owned(), "its", "it"),
             1 => (list_names(&names), "its", "it"),
             _ => (list_names(&names), "their", "them"),
+        }
+    }
+
+    fn gear_remedy(label: &str, error: &GearValueError) -> String {
+        match error.failed_name() {
+            Some(name) => {
+                format!(
+                    "Fix {name} under Parameters, or select {label} and edit it with Spur gear."
+                )
+            }
+            None => format!("Select {label} and change its values with Spur gear."),
         }
     }
 
@@ -522,6 +543,7 @@ pub(crate) enum Chosen {
     FacesToOpen,
     FacesToMove,
     FacesToDelete,
+    FacesToEmboss,
     FacesToMirror,
     FacesToSplit,
 }
@@ -534,6 +556,7 @@ impl Chosen {
             Self::FacesToOpen => "face to open",
             Self::FacesToMove => "face to move",
             Self::FacesToDelete => "face to delete",
+            Self::FacesToEmboss => "face to emboss",
             Self::FacesToMirror => "face to mirror",
             Self::FacesToSplit => "face to split",
         }
@@ -546,6 +569,7 @@ impl Chosen {
             Self::FacesToOpen => "faces to open",
             Self::FacesToMove => "faces to move",
             Self::FacesToDelete => "faces to delete",
+            Self::FacesToEmboss => "faces to emboss",
             Self::FacesToMirror => "faces to mirror",
             Self::FacesToSplit => "faces to split",
         }

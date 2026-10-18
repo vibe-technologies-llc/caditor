@@ -362,9 +362,17 @@ impl Modifying {
                 )),
                 (Some((_, Tool::BlendCurve)), None) => State::Blend(Box::default()),
                 (Some((_, Tool::Gear)), Some(sketch)) => {
-                    State::Gear(Box::new(Gearing::starting(sketch, selected)))
+                    self.gear.begin(Some(sketch), selected);
+                    State::Gear(Box::new(Gearing::starting(
+                        sketch,
+                        selected,
+                        self.gear.editing(),
+                    )))
                 }
-                (Some((_, Tool::Gear)), None) => State::Gear(Box::default()),
+                (Some((_, Tool::Gear)), None) => {
+                    self.gear.begin(None, selected);
+                    State::Gear(Box::default())
+                }
                 (Some((_, Tool::Text)), Some(sketch)) => {
                     self.text.begin(Some(sketch), selected);
                     State::Text(Box::new(Texting::starting(
@@ -402,7 +410,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.sync(sketch),
             State::Tangent(tangent) => tangent.sync(sketch),
             State::Blend(blend) => blend.sync(sketch, modes.blend()),
-            State::Gear(gearing) => gearing.sync(sketch),
+            State::Gear(gearing) => gearing.sync(sketch, self.gear.editing()),
             State::Text(texting) => texting.sync(sketch, self.text.editing()),
             State::Idle => {}
         }

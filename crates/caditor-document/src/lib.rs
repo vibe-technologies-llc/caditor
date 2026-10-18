@@ -17,8 +17,10 @@ mod document;
 mod edge_run;
 mod edit;
 mod editor;
+mod emboss;
 mod failure;
 mod feature_list;
+mod gear_curves;
 mod grouping;
 mod healing;
 mod helix;
@@ -134,6 +136,7 @@ pub use crate::{
         TransactionBuilder,
     },
     editor::{Base, Editor, Prepared, Stale, UndoMark},
+    emboss::{Emboss, EmbossForm},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
     helix::{HELIX_SHAPE, Helix, HelixResult},
@@ -280,9 +283,13 @@ mod datum_tests;
 #[cfg(test)]
 mod delete_face_tests;
 #[cfg(test)]
+mod emboss_tests;
+#[cfg(test)]
 mod extent_tests;
 #[cfg(test)]
 mod frame_tests;
+#[cfg(test)]
+mod gear_tests;
 #[cfg(test)]
 mod grouping_tests;
 #[cfg(test)]

@@ -12,7 +12,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind, Text,
+    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Gear, Sketch, SplineKind, Text,
+    TextAlign,
 };
 use tempfile::TempDir;
 
@@ -2073,6 +2074,19 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
             angle: Expression::Measure(30.0, Unit::Degree),
             bold: true,
             italic: false,
+            align: TextAlign::Left,
+        },
+    );
+    let lined = transaction.add_sketch_text(
+        sketch,
+        Text {
+            anchor,
+            content: "Top\nBottom line".to_owned(),
+            height: Expression::Measure(4.0, Unit::Millimetre),
+            angle: Expression::Measure(0.0, Unit::Degree),
+            bold: false,
+            italic: false,
+            align: TextAlign::Centre,
         },
     );
     document.apply(transaction.finish()).unwrap();
@@ -2104,6 +2118,88 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
         damaged.issues
     );
     assert_eq!(held.angle, Expression::Measure(0.0, Unit::Degree));
+    assert_eq!(held.align, TextAlign::Left);
+    assert_eq!(
+        written.matches("\"align\":\"centre\"").count(),
+        1,
+        "{written}"
+    );
+    assert!(!written.contains("\"align\":\"left\""), "{written}");
+    assert_eq!(
+        loaded
+            .document
+            .feature(sketch)
+            .and_then(|feature| feature.kind.sketch())
+            .and_then(|drawn| drawn.text(lined))
+            .map(|text| (text.content.as_str(), text.align)),
+        Some(("Top\nBottom line", TextAlign::Centre))
+    );
+}
+
+#[test]
+fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Gears");
+    let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
+    let sketch = transaction.add_feature("Wheel", FeatureKind::from(Sketch::new(Plane::XY)));
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(1.0, 2.0)));
+    let gear = transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            centre,
+            module: Expression::Measure(1.5, Unit::Millimetre),
+            teeth: Expression::Parameter(count),
+            pressure_angle: Expression::Measure(20.0, Unit::Degree),
+            profile_shift: Expression::Number(0.25),
+            root_fillet: Expression::Measure(0.4, Unit::Millimetre),
+            bore: Expression::Measure(5.0, Unit::Millimetre),
+            turn: Expression::Measure(12.0, Unit::Degree),
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"gear\":{", "\"gearr\":{"));
+    let damaged = decode_text(&written.replace("\"12 deg\"", "\"12 ((\""));
+    let held = damaged
+        .document
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(gear))
+        .cloned()
+        .unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        older.issues.join(" ").contains("(gearr)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        damaged.issues.join(" ").contains("the turn of Gear"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(held.turn, Expression::Measure(0.0, Unit::Degree));
+    assert_eq!(held.teeth, Expression::Parameter(count));
+}
+
+#[test]
+fn a_text_record_without_an_alignment_reads_as_left_aligned() {
+    let record: crate::format::TextRecord = serde_json::from_str(
+        "{\"anchor\":3,\"content\":\"Old\",\"height\":\"5 mm\",\"angle\":\"0 deg\"}",
+    )
+    .unwrap();
+    let centred: crate::format::TextRecord = serde_json::from_str(
+        "{\"anchor\":3,\"content\":\"New\",\"height\":\"5 mm\",\"angle\":\"0 deg\",\
+         \"align\":\"right\"}",
+    )
+    .unwrap();
+
+    assert_eq!(TextAlign::from(record.align), TextAlign::Left);
+    assert_eq!(TextAlign::from(centred.align), TextAlign::Right);
 }
 
 #[test]
@@ -4603,6 +4699,69 @@ fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
     );
     let restored = loaded.document.feature(deletion).unwrap();
     assert!(restored.kind.delete_face().unwrap().faces.is_empty());
+}
+
+fn emboss_model() -> (Document, FeatureId) {
+    use caditor_document::{Emboss, EmbossForm};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Emboss");
+    let emboss = transaction.add_feature(
+        "Emboss 1",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![top],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("0.5 mm").unwrap(),
+            form: EmbossForm::Recessed,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, emboss)
+}
+
+#[test]
+fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, emboss) = emboss_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"emboss\":{\"body\":1,\"depth\":"));
+    assert!(text.contains("\"depth\":\"0.5 mm\""));
+    assert!(text.contains("\"recessed\":true"));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(emboss).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: emboss, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_embossed_face_is_left_plain_and_reported() {
+    let (document, emboss) = emboss_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        ["Some faces embossed by “Emboss 1” could not be read and were left plain."]
+    );
+    let restored = loaded.document.feature(emboss).unwrap();
+    assert!(restored.kind.emboss().unwrap().faces.is_empty());
 }
 
 fn moving_model() -> (Document, FeatureId) {

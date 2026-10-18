@@ -1,6 +1,6 @@
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{EntityId, Sketch, TextAlign};
 use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
 
 use crate::{
@@ -19,15 +19,36 @@ use crate::{
 
 pub const TITLE: &str = "Text";
 pub const CLOSE: &str = "Close Text";
-pub const DESCRIPTION: &str = "Type the text and set its height and angle, then click in the \
-                               sketch where its baseline starts, or write it at the selected \
-                               point or the origin. Height and angle take units and expressions \
-                               using your parameters.";
-pub const EDITING: &str = "Change the selected text's letters, height, angle or style, then \
-                           update it. Its point stays where it is and keeps its constraints.";
+pub const DESCRIPTION: &str = "Type the text, with a new line wherever you press Enter, and set \
+                               its height, angle and alignment, then click in the sketch where \
+                               it is anchored on the first line's baseline, or write it at the \
+                               selected point or the origin. Height and angle take units and \
+                               expressions using your parameters.";
+pub const EDITING: &str = "Change the selected text's letters, height, angle, alignment or \
+                           style, then update it. Its point stays where it is and keeps its \
+                           constraints.";
+pub const ALIGN: &str = "Align";
+pub const ALIGNMENTS: [(TextAlign, &str, &str); 3] = [
+    (
+        TextAlign::Left,
+        "Left",
+        "Each line starts at the point, which is the start of the first line's baseline",
+    ),
+    (
+        TextAlign::Centre,
+        "Centre",
+        "Each line is centred on the point, which is the middle of the first line's baseline",
+    ),
+    (
+        TextAlign::Right,
+        "Right",
+        "Each line ends at the point, which is the end of the first line's baseline",
+    ),
+];
 pub const BOLD: &str = "Bold";
 pub const ITALIC: &str = "Italic";
 pub const NEW_TEXT: &str = "Write new text instead";
+const CONTENT_ROWS: usize = 3;
 const PANEL: RightPanel = RightPanel { id: "sketch-text" };
 
 pub fn field_id(field: TextField) -> Id {
@@ -167,11 +188,12 @@ fn fields(ui: &mut Ui, settings: &mut TextSettings, problems: &[(TextField, Fiel
                     return;
                 };
                 let response = widgets::text_field(ui, |ui| {
-                    ui.add(
+                    let edit = if field.multiline() {
+                        TextEdit::multiline(text).desired_rows(CONTENT_ROWS)
+                    } else {
                         TextEdit::singleline(text)
-                            .id(field_id(field))
-                            .desired_width(f32::INFINITY),
-                    )
+                    };
+                    ui.add(edit.id(field_id(field)).desired_width(f32::INFINITY))
                 });
                 widgets::tie_to_caption(ui, &response);
                 response.on_hover_text(field.about());
@@ -180,6 +202,17 @@ fn fields(ui: &mut Ui, settings: &mut TextSettings, problems: &[(TextField, Fiel
                 widgets::error_row(ui, &problem.to_string());
             }
         }
+        widgets::property(ui, ALIGN, |ui| {
+            let choices = ALIGNMENTS.map(|(_, label, hover)| (label, hover));
+            let chosen = ALIGNMENTS
+                .iter()
+                .position(|(align, ..)| *align == settings.align());
+            if let Some(index) = widgets::segmented(ui, &choices, chosen.unwrap_or(usize::MAX))
+                && let Some((align, ..)) = ALIGNMENTS.get(index)
+            {
+                settings.set_align(*align);
+            }
+        });
     });
 }
 

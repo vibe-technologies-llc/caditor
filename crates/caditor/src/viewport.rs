@@ -39,6 +39,7 @@ use crate::{
     drag_solver::DragCommand,
     drawing::{self, Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
+    emboss_tools,
     faceting::FacetLevel,
     feature_tree,
     gearing::GearSettings,
@@ -2752,7 +2753,11 @@ impl ViewportState {
         let sketch = model.displayed_sketch(owner)?;
         let from = self.on_sketch(model, feature, press.cursor)?;
         let selected = sketch_tools::selected_entities(&self.selection, feature);
-        let grabbed = sketch.text(grabbed).map_or(grabbed, |text| text.anchor);
+        let grabbed = sketch
+            .text(grabbed)
+            .map(|text| text.anchor)
+            .or_else(|| sketch.gear(grabbed).map(|gear| gear.centre))
+            .unwrap_or(grabbed);
         Grab::of(&sketch, feature, grabbed, &selected, from)
             .map(|grab| PrimaryDrag::Grab(grab.snapping_to_bodies(&self.body_snaps)))
     }
@@ -6200,6 +6205,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::DeleteFace(_)) => {
             in_view("Click faces to delete them, and again to keep one")
         }
+        Some(FeatureKind::Emboss(_)) => {
+            in_view("Click faces to emboss, and again to leave one out")
+        }
         Some(FeatureKind::SplitFace(_)) => {
             in_view("Click faces to split, and again to leave one out")
         }
@@ -6638,6 +6646,7 @@ fn pick_action(
                 Some(FeatureKind::MoveFace(_)) => {
                     move_face_tools::toggle_face(model, feature, face)
                 }
+                Some(FeatureKind::Emboss(_)) => emboss_tools::toggle_face(model, feature, face),
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)
                 }

@@ -9,12 +9,12 @@ use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, DeleteFace, EdgeGroup, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent,
-    FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
-    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
-    MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace, Outline,
-    ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces, Pipe,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    DatumPoint, DeleteFace, EdgeGroup, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft,
+    LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace,
+    Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces,
+    Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
     PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
     SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
@@ -25,7 +25,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::Text;
+use caditor_sketch::{Gear, Text, TextAlign};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 48] = [
+const KEPT: [(&str, &str); 52] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -62,6 +62,10 @@ const KEPT: [(&str, &str); 48] = [
     (
         "journal-1/every-edit.journal",
         "d5f3ffe41fdaf1a24552095ee7a8335337340fd0f9da665a39f0930f793cba29",
+    ),
+    (
+        "journal-1/gears.journal",
+        "4d52613675f7574742c9822a2110b70ffdfd87aa9c9560bd06a5a487ec92e81b",
     ),
     (
         "journal-1/piece-stand-ins.journal",
@@ -108,12 +112,20 @@ const KEPT: [(&str, &str); 48] = [
         "d6f719b47c939f742905bc3c7764a6b115222984bdb00759edacc6872588d630",
     ),
     (
+        "model-1/embossed-faces.caditor",
+        "cc4a8b402d64629be2a45e51e2287d29947cb6ddd376d7bc14d2c60d6a5a250e",
+    ),
+    (
         "model-1/extents.caditor",
         "079e3aa06ee8c687d2462c189baf9cb8a61920c7b54af61b2995a61f1fa31e28",
     ),
     (
         "model-1/faces.caditor",
         "37c964744927f008ee9f4c449e6ac47935ae79f7f64aac3138bbe00b2b0a7831",
+    ),
+    (
+        "model-1/gears.caditor",
+        "159ba946083ad16f8b6dc70f5c8404ce4f6b3e56ba56f5e318a458eac896cd73",
     ),
     (
         "model-1/helices.caditor",
@@ -238,6 +250,10 @@ const KEPT: [(&str, &str); 48] = [
     (
         "model-1/sweeps.caditor",
         "89008f408c1da375ec6d456157b46c58f8a088794926c1ae8fc334d4b4466519",
+    ),
+    (
+        "model-1/text-layouts.caditor",
+        "cb95a9b077de032d1980e155ccbe40997c1e66d52a945a42d3fa577bbf88f8a1",
     ),
     (
         "model-1/texts.caditor",
@@ -783,6 +799,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&spline_knots(), "Spline knots"),
         ),
         (model("texts"), saved(&texts().0, "Texts")),
+        (model("gears"), saved(&gears().0, "Gears")),
+        (
+            model("text-layouts"),
+            saved(&text_layouts(), "Text layouts"),
+        ),
         (
             model("projected-datums"),
             saved(&projected_datums(), "Projected datums"),
@@ -833,6 +854,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&deleted_faces(), "Deleted faces"),
         ),
         (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
+        (
+            model("embossed-faces"),
+            saved(&embossed_faces(), "Embossed faces"),
+        ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
@@ -864,6 +889,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("sliced"), with_slices_of(SLICE, every_edit_journal)),
         (journal("reference-images"), reference_image_journal()),
         (journal("texts"), texts_journal()),
+        (journal("gears"), gears_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1084,6 +1110,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             angle: Expression::Measure(0.0, Unit::Degree),
             bold: false,
             italic: false,
+            align: TextAlign::Left,
         },
     );
     transaction.add_sketch_text(
@@ -1095,6 +1122,7 @@ fn texts() -> (Document, FeatureId, EntityId) {
             angle: Expression::Measure(15.0, Unit::Degree),
             bold: true,
             italic: true,
+            align: TextAlign::Left,
         },
     );
     transaction.add_feature(
@@ -1115,6 +1143,125 @@ fn texts() -> (Document, FeatureId, EntityId) {
     (document, sketch, plain)
 }
 
+fn text_layouts() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Text layouts");
+    let sketch = transaction.add_feature("Plaque", FeatureKind::from(Sketch::new(Plane::XY)));
+    let middle = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(30.0, 20.0)));
+    let end = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 4.0)));
+    for (anchor, content, align) in [
+        (middle, "Caditor\nPlaque 7", TextAlign::Centre),
+        (end, "Rev A\n\nRight", TextAlign::Right),
+    ] {
+        transaction.add_sketch_text(
+            sketch,
+            Text {
+                anchor,
+                content: content.to_owned(),
+                height: Expression::Measure(4.0, Unit::Millimetre),
+                angle: Expression::Measure(0.0, Unit::Degree),
+                bold: false,
+                italic: false,
+                align,
+            },
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn gear_of(centre: EntityId, teeth: Expression) -> Gear {
+    Gear {
+        centre,
+        module: Expression::Measure(2.0, Unit::Millimetre),
+        teeth,
+        pressure_angle: Expression::Measure(20.0, Unit::Degree),
+        profile_shift: Expression::Number(0.0),
+        root_fillet: Expression::Measure(0.5, Unit::Millimetre),
+        bore: Expression::Measure(8.0, Unit::Millimetre),
+        turn: Expression::Measure(0.0, Unit::Degree),
+    }
+}
+
+fn gears() -> (Document, FeatureId, EntityId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Gears");
+    let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
+    let sketch = transaction.add_feature("Wheels", FeatureKind::from(Sketch::new(Plane::XY)));
+    let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
+    let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(60.0, 0.0)));
+    transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+    let plain = transaction.add_sketch_gear(sketch, gear_of(first, Expression::Number(20.0)));
+    transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            module: Expression::Measure(1.5, Unit::Millimetre),
+            profile_shift: Expression::Number(0.2),
+            bore: Expression::Measure(0.0, Unit::Millimetre),
+            turn: Expression::Measure(7.5, Unit::Degree),
+            ..gear_of(second, Expression::Parameter(count))
+        },
+    );
+    transaction.add_feature(
+        "Wheel body",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::Measure(3.0, Unit::Millimetre), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, sketch, plain)
+}
+
+fn gears_journal() -> Vec<u8> {
+    let (base, sketch, plain) = gears();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut addition = base.transaction("Draw spur gear");
+    let centre = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 50.0)));
+    addition.add_sketch_gear(sketch, gear_of(centre, Expression::Number(30.0)));
+    session.apply(addition.finish());
+    let edited = session.editor.document().clone();
+    let held = edited
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(plain))
+        .cloned()
+        .unwrap();
+    let mut change = edited.transaction("Edit spur gear");
+    change.set_sketch_gear(
+        sketch,
+        plain,
+        Gear {
+            teeth: Expression::Number(22.0),
+            ..held
+        },
+    );
+    session.apply(change.finish());
+    let changed = session.editor.document().clone();
+    let mut removal = changed.transaction("Delete gear");
+    removal.remove_sketch_items(sketch, [plain], []);
+    session.apply(removal.finish());
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Gears")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/gears.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
 fn texts_journal() -> Vec<u8> {
     let (base, sketch, plain) = texts();
     let mut session = Session {
@@ -1132,6 +1279,7 @@ fn texts_journal() -> Vec<u8> {
             angle: Expression::Measure(90.0, Unit::Degree),
             bold: false,
             italic: true,
+            align: TextAlign::Left,
         },
     );
     session.apply(addition.finish());
@@ -2360,6 +2508,49 @@ fn deleted_faces() -> Document {
         FeatureKind::DeleteFace(DeleteFace {
             body: base,
             faces: vec![end_cap(0xbeef), end_cap(0xcafe)],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn embossed_faces() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let mut transaction = document.transaction("Emboss");
+    transaction.add_feature(
+        "Raised text",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xbeef)],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("0.5 mm").unwrap(),
+            form: EmbossForm::Raised,
+        }),
+    );
+    transaction.add_feature(
+        "Recessed text",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xcafe), end_cap(0xbeef)],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("1 mm").unwrap(),
+            form: EmbossForm::Recessed,
+        }),
+    );
+    transaction.add_feature(
+        "Unfinished emboss",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: Vec::new(),
+            sketch: None,
+            depth: Expression::parse_stored("2 mm").unwrap(),
+            form: EmbossForm::Raised,
         }),
     );
     document.apply(transaction.finish()).unwrap();

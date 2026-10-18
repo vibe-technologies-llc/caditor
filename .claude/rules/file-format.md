@@ -364,7 +364,9 @@ Splits and faces:
   it in `deleted-faces.caditor`. `move_face`: `body`, `faces` (unreadable left where they
   are), `distance` (unreadable 0 mm), `angle` (unreadable 0 deg), and `direction` and `axis` when
   chosen (axis references; unreadable left unchosen, reported); the corpus holds it in
-  `moved-faces.caditor`. `split_face`: `body`, `faces` (unreadable left whole), `along`
+  `moved-faces.caditor`. `emboss`: `body`, `faces` (unreadable left plain), `sketch` when chosen,
+  `depth` (unreadable 1 mm) and `recessed` when set; the corpus holds it in `embossed-faces.caditor`.
+  `split_face`: `body`, `faces` (unreadable left whole), `along`
   (`{"plane": ref}` unreadable YZ, `{"body": id}`, `{"sketch": id}`). Wrappers: `split_face_along`
   (`direction`, axis reference; unreadable carried square), `split_face_surface` (`face`
   attachment record; unreadable along YZ), `split_face_wrapped` (wraps round a cylinder or cone).
@@ -475,14 +477,24 @@ Sketch entities:
 - A reader not knowing one reports it as a kind from a newer version and keeps the points.
 - A sketch text (`sketch.md`, Text) is written among the entities as an entity record of kind
   `text` (`TextRecord`: `anchor`, `content`, `height` and `angle` stored texts, `bold` and `italic`
-  only when set), so a reader not knowing it reports a kind from a newer version and keeps the
+  only when set, `align` as `centre` or `right` only when not left, so a file from before
+  alignment reads as left-aligned and one with line breaks is the same `content` string), so a reader not knowing it reports a kind from a newer version and keeps the
   anchor point rather than silently computing a model without the letters. Loading restores texts
   after the curves and before the constraints; an unreadable height loads as 5 mm and an angle as
   0°, reported, and a text the sketch refuses (missing anchor, blank or over-long content) is left
   out, reported with its content. Journal: `add_sketch_text` and `set_sketch_text` (`feature`,
   `id`, `text`) and `remove_sketch_text` (`feature`, `id`); an `add_sketch_entity` or
   `set_sketch_entity` holding a `text` kind is refused as unreadable. The corpus holds them in
-  `texts.caditor` and `texts.journal`.
+  `texts.caditor`, `texts.journal` and, with line breaks and alignment, `text-layouts.caditor`.
+
+- A stored gear (`sketch.md`, Gear) is an entity record of kind `gear` (`GearRecord`: `centre` and
+  the stored texts `module`, `teeth`, `pressure_angle`, `profile_shift`, `root_fillet`, `bore` and
+  `turn`), so a reader not knowing it reports a kind from a newer version and keeps the centre
+  point. Loading restores gears after the texts and before the constraints; a value that cannot be
+  read loads as 2 mm, 20 teeth, 20°, no shift, no fillet, no bore or no turn, reported, and a gear
+  the sketch refuses is left out. Journal: `add_sketch_gear` and `set_sketch_gear` (`feature`, `id`,
+  `gear`) and `remove_sketch_gear` (`feature`, `id`). Sketches written before it keep the free
+  curves a gear was drawn as. The corpus holds them in `gears.caditor` and `gears.journal`.
 
 ## Loading
 
@@ -611,7 +623,7 @@ Sketch entities:
 - Sketch geometry is written from a scratch sketch the clip is pasted into and read back through
   `restore_sketch` and `Sketch::clip`, so loading's checks apply; dimensions whose parameters
   cannot be carried are left out with a note, and so is a text whose height or angle cannot be
-  (its anchor point stays). The payload names the sketch it was copied from, so
+  (its anchor point stays) or a gear with any expression that cannot (its centre stays). The payload names the sketch it was copied from, so
   pasting into it again can shift the copy.
 - Reading refuses in words (`ClipboardError`): text without the header (`Foreign`), another or
   unknown kind, a newer version, damaged JSON, nothing usable, text over `MAX_CLIPBOARD_TEXT`. The

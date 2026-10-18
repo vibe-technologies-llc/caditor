@@ -10,6 +10,7 @@ use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, MAX_SPLINE_DEGREE},
     entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
+    gear::{Gear, GearOutline, GearValueError, GearValues, gear_curve_gear, same_gear_bits},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
         arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
@@ -168,6 +169,12 @@ pub enum SketchError {
     },
     #[error("{0}")]
     InvalidText(TextError),
+    #[error("{label} cannot be drawn: {reason}")]
+    Gear {
+        gear: EntityId,
+        label: String,
+        reason: GearValueError,
+    },
     #[error("{label} is {level}, so a {kind} cannot be measured from it")]
     RunsAlong {
         entity: EntityId,
@@ -181,9 +188,18 @@ pub enum SketchError {
 pub struct DimensionValues {
     values: BTreeMap<ConstraintId, f64>,
     texts: BTreeMap<EntityId, TextSize>,
+    gears: BTreeMap<EntityId, GearValues>,
 }
 
 impl DimensionValues {
+    pub fn gear(&self, gear: EntityId) -> Option<GearValues> {
+        self.gears.get(&gear).copied()
+    }
+
+    pub(crate) fn gears(&self) -> &BTreeMap<EntityId, GearValues> {
+        &self.gears
+    }
+
     pub fn text(&self, text: EntityId) -> Option<TextSize> {
         self.texts.get(&text).copied()
     }
@@ -209,6 +225,10 @@ pub(crate) struct DetachedConstraint {
 }
 
 impl DetachedConstraint {
+    pub(crate) fn with_constraint(self, constraint: Constraint) -> Self {
+        Self { constraint, ..self }
+    }
+
     pub(crate) fn with_entity_replaced(self, from: EntityId, to: EntityId) -> Self {
         Self {
             constraint: self.constraint.with_entity_replaced(from, to),
@@ -229,6 +249,8 @@ pub struct Sketch {
     split_from: BTreeMap<EntityId, EntityId>,
     texts: BTreeMap<EntityId, Text>,
     text_sizes: BTreeMap<EntityId, TextSize>,
+    gears: BTreeMap<EntityId, Gear>,
+    gear_values: BTreeMap<EntityId, GearValues>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
@@ -246,6 +268,8 @@ impl Sketch {
             split_from: BTreeMap::new(),
             texts: BTreeMap::new(),
             text_sizes: BTreeMap::new(),
+            gears: BTreeMap::new(),
+            gear_values: BTreeMap::new(),
             uses: BTreeMap::new(),
             next_id: 0,
         }
@@ -263,6 +287,8 @@ impl Sketch {
             split_from,
             texts,
             text_sizes,
+            gears,
+            gear_values,
             uses,
             next_id: _,
         } = self;
@@ -282,6 +308,9 @@ impl Sketch {
             + texts.len() * (size_of::<EntityId>() + size_of::<Text>())
             + texts.values().map(Text::heap_size).sum::<usize>()
             + text_sizes.len() * (size_of::<EntityId>() + size_of::<TextSize>())
+            + gears.len() * (size_of::<EntityId>() + size_of::<Gear>())
+            + gears.values().map(Gear::heap_size).sum::<usize>()
+            + gear_values.len() * (size_of::<EntityId>() + size_of::<GearValues>())
             + uses.len() * (size_of::<EntityId>() + size_of::<usize>())
     }
 
@@ -312,9 +341,14 @@ impl Sketch {
         match self.entities.get(&id) {
             Some(entity) => format!("{} {id}", entity.kind_name()),
             None if self.texts.contains_key(&id) => format!("Text {id}"),
-            None => match self.text_of_letter_curve(id.raw()) {
-                Some(text) => format!("Text {text}"),
-                None => format!("Missing entity {id}"),
+            None if self.gears.contains_key(&id) => format!("Gear {id}"),
+            None => match (
+                self.text_of_letter_curve(id.raw()),
+                self.gear_of_curve(id.raw()),
+            ) {
+                (Some(text), _) => format!("Text {text}"),
+                (None, Some(gear)) => format!("Gear {gear}"),
+                (None, None) => format!("Missing entity {id}"),
             },
         }
     }
@@ -789,6 +823,7 @@ impl Sketch {
             .filter_map(Constraint::dimension)
             .flat_map(Expression::parameters)
             .chain(self.texts.values().flat_map(Text::parameters))
+            .chain(self.gears.values().flat_map(Gear::parameters))
             .collect()
     }
 
@@ -798,6 +833,7 @@ impl Sketch {
             .filter_map(Constraint::dimension)
             .any(|expression| expression.uses(parameter))
             || self.texts.values().any(|text| text.uses(parameter))
+            || self.gears.values().any(|gear| gear.uses(parameter))
     }
 
     pub fn same_geometry(&self, other: &Self) -> bool {
@@ -808,6 +844,8 @@ impl Sketch {
             && self.split_from == other.split_from
             && self.texts == other.texts
             && self.text_sizes == other.text_sizes
+            && self.gears == other.gears
+            && self.gear_values == other.gear_values
     }
 
     pub fn texts(&self) -> impl ExactSizeIterator<Item = (EntityId, &Text)> {
@@ -831,6 +869,104 @@ impl Sketch {
             .get(&id)
             .copied()
             .or_else(|| self.texts.get(&id)?.literal_size())
+    }
+
+    pub fn gears(&self) -> impl ExactSizeIterator<Item = (EntityId, &Gear)> {
+        self.gears.iter().map(|(id, gear)| (*id, gear))
+    }
+
+    pub fn gear(&self, id: EntityId) -> Option<&Gear> {
+        self.gears.get(&id)
+    }
+
+    pub fn gears_using(&self, point: EntityId) -> Vec<EntityId> {
+        self.gears
+            .iter()
+            .filter(|(_, gear)| gear.centre == point)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    pub fn gear_values(&self, id: EntityId) -> Option<GearValues> {
+        self.gear_values
+            .get(&id)
+            .copied()
+            .or_else(|| self.gears.get(&id)?.literal_values())
+    }
+
+    pub fn gear_outline(&self, id: EntityId) -> Option<GearOutline> {
+        let centre = self.point(self.gears.get(&id)?.centre)?;
+        let values = self.gear_values(id)?;
+        values
+            .spur
+            .outline_turned(centre, values.turn.to_radians())
+            .ok()
+    }
+
+    pub fn gear_of_curve(&self, raw: u64) -> Option<EntityId> {
+        let bits = gear_curve_gear(raw)?;
+        self.gears
+            .keys()
+            .copied()
+            .find(|gear| same_gear_bits(*gear, bits))
+    }
+
+    pub fn add_parametric_gear(&mut self, gear: Gear) -> Result<EntityId, SketchError> {
+        self.check_gear(&gear)?;
+        let id = EntityId::from_raw(self.allocate());
+        self.count_uses(&[gear.centre], true);
+        self.gears.insert(id, gear);
+        Ok(id)
+    }
+
+    pub fn insert_gear(&mut self, id: EntityId, gear: Gear) -> Result<(), SketchError> {
+        self.check_new_id(id.raw())?;
+        self.check_gear(&gear)?;
+        self.count_uses(&[gear.centre], true);
+        self.gears.insert(id, gear);
+        self.reserve_ids_below(id.raw().saturating_add(1));
+        Ok(())
+    }
+
+    pub fn remove_gear(&mut self, id: EntityId) -> Result<Gear, SketchError> {
+        let removed = self
+            .gears
+            .remove(&id)
+            .ok_or(SketchError::NoSuchEntity(id))?;
+        self.gear_values.remove(&id);
+        self.count_uses(&[removed.centre], false);
+        Ok(removed)
+    }
+
+    pub fn replace_gear(&mut self, id: EntityId, gear: Gear) -> Result<Gear, SketchError> {
+        let current = self.gears.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
+        if current.centre != gear.centre {
+            return Err(SketchError::ChangesStructure {
+                entity: id,
+                label: self.entity_label(id),
+            });
+        }
+        self.check_gear(&gear)?;
+        self.gear_values.remove(&id);
+        self.gears
+            .insert(id, gear)
+            .ok_or(SketchError::NoSuchEntity(id))
+    }
+
+    fn check_gear(&self, gear: &Gear) -> Result<(), SketchError> {
+        match self.entities.get(&gear.centre) {
+            Some(Entity::Point(_)) => Ok(()),
+            Some(_) => Err(SketchError::NotAPoint(gear.centre)),
+            None => Err(SketchError::MissingEntity(gear.centre)),
+        }
+    }
+
+    pub(crate) fn set_gear_values(&mut self, values: &BTreeMap<EntityId, GearValues>) {
+        self.gear_values = values
+            .iter()
+            .filter(|(id, _)| self.gears.contains_key(id))
+            .map(|(id, values)| (*id, *values))
+            .collect();
     }
 
     pub fn text_of_letter_curve(&self, raw: u64) -> Option<EntityId> {
@@ -1456,6 +1592,7 @@ impl Sketch {
             .values()
             .flat_map(Entity::points)
             .chain(self.texts.values().map(|text| text.anchor))
+            .chain(self.gears.values().map(|gear| gear.centre))
             .collect();
         self.entities
             .iter()
@@ -1480,7 +1617,12 @@ impl Sketch {
             rays.contains(curve)
                 && matches!(self.entities.get(curve), Some(Entity::Line { end, .. }) if *end == point)
         };
-        let anchors: BTreeSet<EntityId> = self.texts.values().map(|text| text.anchor).collect();
+        let anchors: BTreeSet<EntityId> = self
+            .texts
+            .values()
+            .map(|text| text.anchor)
+            .chain(self.gears.values().map(|gear| gear.centre))
+            .collect();
         self.entities
             .iter()
             .filter(|(id, entity)| {
@@ -1700,6 +1842,7 @@ impl Sketch {
             .flat_map(Entity::points)
             .chain(self.constraints.values().flat_map(Constraint::entities))
             .chain(self.texts.values().map(|text| text.anchor))
+            .chain(self.gears.values().map(|gear| gear.centre))
             .collect();
         fresh.count_uses(&used, true);
         fresh.uses
@@ -1735,7 +1878,20 @@ impl Sketch {
             })?;
             texts.insert(*id, size);
         }
-        Ok(DimensionValues { values, texts })
+        let mut gears = BTreeMap::new();
+        for (id, gear) in &self.gears {
+            let failed = |reason| SketchError::Gear {
+                gear: *id,
+                label: self.entity_label(*id),
+                reason,
+            };
+            gears.insert(*id, gear.values(value_of).map_err(failed)?);
+        }
+        Ok(DimensionValues {
+            values,
+            texts,
+            gears,
+        })
     }
 
     pub(crate) fn role(&self, id: EntityId) -> Option<Role> {
@@ -1798,6 +1954,7 @@ impl Sketch {
         }
         let taken = self.entities.contains_key(&EntityId::from_raw(raw))
             || self.texts.contains_key(&EntityId::from_raw(raw))
+            || self.gears.contains_key(&EntityId::from_raw(raw))
             || self.constraints.contains_key(&ConstraintId::from_raw(raw));
         if taken {
             return Err(SketchError::DuplicateId(raw));

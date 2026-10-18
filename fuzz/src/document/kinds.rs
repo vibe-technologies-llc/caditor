@@ -8,7 +8,7 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
     CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
-    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup,
+    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup, Emboss, EmbossForm,
     Extrude, ExtrudeEnd, ExtrudeExtent, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
     FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
@@ -85,10 +85,11 @@ pub enum Family {
     ReferenceImage,
     DeleteFace,
     MoveFace,
+    Emboss,
 }
 
 impl Family {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -117,6 +118,7 @@ impl Family {
         Self::ReferenceImage,
         Self::DeleteFace,
         Self::MoveFace,
+        Self::Emboss,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -128,6 +130,7 @@ impl Family {
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::DeleteFace(_) => Self::DeleteFace,
             FeatureKind::MoveFace(_) => Self::MoveFace,
+            FeatureKind::Emboss(_) => Self::Emboss,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
@@ -186,6 +189,20 @@ pub fn feature_kind(
                 faces: scene.faces(input, body)?,
                 distance: scene.distance(input)?,
                 tangent: input.arbitrary()?,
+            })
+        }
+        Family::Emboss => {
+            let body = scene.body(input)?;
+            FeatureKind::Emboss(Emboss {
+                body,
+                faces: scene.faces(input, body)?,
+                sketch: scene.existing_sketch(input)?,
+                depth: scene.distance(input)?,
+                form: if input.arbitrary()? {
+                    EmbossForm::Raised
+                } else {
+                    EmbossForm::Recessed
+                },
             })
         }
         Family::MoveFace => {

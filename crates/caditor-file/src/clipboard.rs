@@ -5,13 +5,13 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Vector2};
-use caditor_sketch::{ClipError, EntityId, Sketch, SketchClip, Text};
+use caditor_sketch::{ClipError, EntityId, Gear, Sketch, SketchClip, Text};
 use serde::{Deserialize, Serialize};
 
 use crate::format::{
     ConstraintRecord, EntityRecord, FeatureRecord, Lenient, SketchRecord, Unreadable,
-    constraint_record, entity_record, feature_record, plane_record, restore_feature,
-    restore_sketch, text_entity_record,
+    constraint_record, entity_record, feature_record, gear_entity_record, plane_record,
+    restore_feature, restore_sketch, text_entity_record,
 };
 
 pub const CLIPBOARD_HEADER: &str = "caditor clipboard";
@@ -153,6 +153,11 @@ pub fn sketch_clipboard_text(
                     .texts()
                     .map(|(id, text)| Lenient::Read(text_entity_record(id, text))),
             )
+            .chain(
+                holder
+                    .gears()
+                    .map(|(id, gear)| Lenient::Read(gear_entity_record(id, gear))),
+            )
             .collect(),
         constraints: holder
             .constraints()
@@ -234,10 +239,40 @@ pub fn read_sketch_clipboard(
             }
         }
     }
+    let gears: Vec<(EntityId, Gear)> = sketch
+        .gears()
+        .map(|(id, gear)| (id, gear.clone()))
+        .collect();
+    for (id, gear) in gears {
+        let mut carried = gear.clone();
+        let mut failure = None;
+        for expression in carried.expressions_mut() {
+            match parameters.carry(expression, target, origin) {
+                Ok(done) => {
+                    inlined += done.inlined;
+                    *expression = done.expression;
+                }
+                Err(error) => {
+                    failure = Some(error);
+                    break;
+                }
+            }
+        }
+        match failure {
+            None => {
+                sketch.replace_gear(id, carried).map_err(ClipError::from)?;
+            }
+            Some(error) => {
+                sketch.remove_gear(id).map_err(ClipError::from)?;
+                notes.push(format!("A gear was left out because {error}."));
+            }
+        }
+    }
     let items: Vec<EntityId> = sketch
         .entities()
         .map(|(id, _)| id)
         .chain(sketch.texts().map(|(id, _)| id))
+        .chain(sketch.gears().map(|(id, _)| id))
         .filter(|id| !id.is_reference())
         .collect();
     let clip = sketch

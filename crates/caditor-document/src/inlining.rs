@@ -62,6 +62,21 @@ impl Document {
                         });
                     }
                 }
+                for (gear, held) in sketch.sketch.gears() {
+                    if held.uses(id) {
+                        let mut inlined = held.clone();
+                        for expression in inlined.expressions_mut() {
+                            if expression.uses(id) {
+                                *expression = inline(expression, &feature.name)?;
+                            }
+                        }
+                        edits.push(Edit::SetSketchGear {
+                            feature: feature.id(),
+                            id: gear,
+                            gear: inlined,
+                        });
+                    }
+                }
             } else if feature.kind.uses_parameter(id) {
                 let mut kind = feature.kind.clone();
                 for expression in expressions_mut(&mut kind) {
@@ -184,6 +199,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::MoveFace(moving) => moving.expressions_mut().into(),
         FeatureKind::DeleteFace(_) => Vec::new(),
+        FeatureKind::Emboss(emboss) => vec![&mut emboss.depth],
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
         FeatureKind::Loft(loft) => loft.expressions_mut(),
