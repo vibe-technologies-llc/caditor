@@ -120,13 +120,41 @@ paths:
     `uses_parameter`.
   - The letters are not entities: the document lays them out (`document.md`) and names each
     letter curve `letter_curve(text, letter, segment)`, an id at or above `FIRST_UNSTORABLE_ID`
-    holding 40 bits of the text's id, 11 of the letter's position in the string and 12 of the
-    segment, so letters before an edit keep their curve names. `Sketch::text_of_letter_curve` and
+    holding 39 bits of the text's id, 11 of the letter's position in the string and 12 of the
+    segment, so letters before an edit keep their curve names. A gear curve (below) has the next bit
+    set too, which `text_of_letter_curve` tells apart. `Sketch::text_of_letter_curve` and
     `entity_label` ("Text 5") read one back for error messages.
   - Copy and paste carry a selected text with a copy of its anchor (`SketchClip::text_count`; the
     clipboard writes it as a `text` entity record and carries its parameters like a dimension's).
     Trim, mirror and the patterns leave texts alone; one whose anchor a trim would remove makes the
     trim refuse it as in use.
+- Gear (`gear/stored.rs`, `Sketch::gears`): a map of `Gear` beside the entities and texts, keyed by
+  `EntityId`s from the same counter, part of `same_geometry` and `heap_size`. A `Gear` is its
+  centre (a point entity: `NotAPoint`, `MissingEntity`) and seven `Expression`s: module (length),
+  teeth, pressure angle (degrees), profile shift (in modules), root fillet (length), bore diameter
+  (length, 0 for none) and turn (degrees about the centre). Like a text, the centre counts as a use
+  (`InUse`), is neither a free point nor a layout point, and the gear holds no constraint and adds
+  no freedom. `add_parametric_gear`, `insert_gear`, `remove_gear`, `replace_gear` (a changed centre
+  is `ChangesStructure`), `gears_using`, and `add_stored_gear` for a `GearCentre` as the free-geometry
+  gear takes it.
+  - `Sketch::evaluate` works out each gear's `GearValues` (`Gear::values`: a `SpurGear` and a
+    turn; the teeth must come out a whole number, else `GearValueError::TeethNotWhole`, and
+    `SpurGear::check` must pass, so the refusals of `GearError` reach the user in the
+    gear's words as `SketchError::Gear` naming it), the solve writes them into the solved geometry
+    (`set_gear_values`), and `Sketch::gear_values` gives them or the literal ones for an unsolved
+    definition. `Sketch::gear_outline` turns them into a `GearOutline` about the solved centre.
+  - The gear's curves are not entities: the document takes the outline's pieces
+    (`GearOutline::named_pieces`) and names each `gear_curve(gear, tooth, segment)`, an id at or
+    above `FIRST_UNSTORABLE_ID` holding 39 bits of the gear's id, 11 of the tooth (`BORE_TOOTH` for
+    the bore) and 12 of the segment. A tooth's segments are 0 tip arc, 1 to 3 the upper flank,
+    radial line and fillet (those the shape has), 4 the root arc to the next tooth, and 5 to 7 the
+    lower fillet, line and flank, so more or fewer teeth add or remove whole teeth's names and every
+    other tooth keeps its curves' names.
+    The pitch, base, root and tip circles are construction and take no name.
+    `Sketch::gear_of_curve` and `entity_label` ("Gear 5") read one back.
+  - Copy and paste carry a selected gear with a copy of its centre (`SketchClip::gear_count`, a
+    `gear` entity record on the clipboard with its parameters carried like a text's). Trim, mirror
+    and the patterns leave gears alone.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch. The sketch never cascades a removal; the document's `remove_sketch_items` expands a
@@ -598,11 +626,16 @@ relative to the extent.
   `START_ROLL` above the base circle; a radial line runs to the root circle when the root lies
   below it. The outline (`GearPiece`s in order, each starting where the last ended): tip arc, flank,
   line, fillet, root arc, then the next tooth.
+- A single gear is normally a stored `Gear` (above), not curves: the Spur gear panel and the MCP
+  `gear` operation add one (`Sketch::add_stored_gear`), and sketches written before it keep the
+  free geometry they were drawn as. `Sketch::add_gear` draws the free form, which only tests
+  use now; the rest of this section describes the shape both produce.
 - `Sketch::add_gear` draws it about a `GearCentre`: a free position gets a new point, an existing
   point is shared, the origin gets a point held on it by `Coincident`. Pieces share end points, tip
   and root arcs share the centre, and the pitch, base, root and tip circles are construction
   circles on it, so the outline is one closed profile and the bore a circle inside it. No other
-  constraint: the gear does not follow later changes to its values. The drawing is shared
+  constraint: a gear drawn this way does not follow later changes to its values, as a pair and a
+  sprocket never do. The drawing is shared
   (`Sketch::draw_toothed`: circles, then the closed outline, then the bore), as is the placing of
   the centre (`wheel_centre_position`, `wheel_centre_point`).
 - `SpurGear::outline_turned` turns the whole outline about its centre; the tooth centred on the +x

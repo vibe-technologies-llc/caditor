@@ -1,5 +1,5 @@
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{EntityId, Faceting, Sketch, SpurGear};
+use caditor_sketch::{EntityId, Faceting, Sketch};
 use egui::{Key, Modifiers};
 
 use super::{
@@ -9,6 +9,7 @@ use crate::{
     editing::Tool,
     gear_panel,
     gearing::{self, GearField},
+    selection::Pickable,
     solid_tools,
 };
 
@@ -21,6 +22,12 @@ fn construction_circles(sketch: &Sketch) -> usize {
         .into_iter()
         .filter(|circle| sketch.is_construction(*circle))
         .count()
+}
+
+fn only_gear(sketch: &Sketch) -> EntityId {
+    let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
+    assert_eq!(gears.len(), 1, "{gears:?}");
+    gears[0]
 }
 
 #[test]
@@ -48,10 +55,15 @@ fn a_gear_is_drawn_where_clicked_after_too_few_teeth_are_refused_in_words() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
-    assert_eq!(entities_of_kind(sketch, "Spline").len(), 48);
-    assert_eq!(construction_circles(sketch), 4);
-    assert_eq!(entities_of_kind(sketch, "Circle").len(), 5);
-    assert!(sketch.open_ends().is_empty());
+    let gear = only_gear(sketch);
+    let held = sketch.gear(gear).unwrap();
+    let shown = harness.shown(feature);
+    let outline = shown.gear_outline(gear).unwrap();
+    assert_eq!(harness.document().expression_text(&held.teeth), "6 * 4");
+    assert_eq!(harness.document().expression_text(&held.bore), "8 mm");
+    assert_eq!(sketch.entities().len(), 1);
+    assert_eq!(outline.teeth, 24);
+    assert!(outline.centre.distance(CENTRE) < PLACED_WITHIN);
     assert_eq!(harness.model.undo_label(), Some(gearing::TRANSACTION));
 
     harness.key(Key::Z, Modifiers::COMMAND);
@@ -70,14 +82,13 @@ fn the_panel_draws_the_gear_at_the_origin_from_its_button() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+    let gear = only_gear(sketch);
     let coincident = constraints_of_kind(sketch, "Coincident");
+    let shown = harness.shown(feature);
+    let outline = shown.gear_outline(gear).unwrap();
     assert_eq!(coincident.len(), 1);
-    assert!(
-        entities_of_kind(sketch, "Circle")
-            .into_iter()
-            .filter_map(|circle| sketch.circle(circle))
-            .any(|(centre, radius)| centre == Point2::ZERO && (radius - 15.0).abs() < 1e-9)
-    );
+    assert_eq!(outline.centre, Point2::ZERO);
+    assert!((outline.circles.pitch - 15.0).abs() < 1e-9);
     assert!(coincident[0].entities().contains(&EntityId::ORIGIN));
 }
 
@@ -85,16 +96,15 @@ fn the_panel_draws_the_gear_at_the_origin_from_its_button() {
 fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
     let mut harness = Harness::new();
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
-    let gear = SpurGear {
-        module: 2.0,
-        teeth: 18,
-        pressure_angle: 20.0,
-        profile_shift: 0.0,
-        root_fillet: 0.75,
-        bore: 0.0,
-    };
-    let outline: Vec<Point2> = gear
-        .outline(Point2::ZERO)
+
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "18");
+    harness.click(&gear_panel::draw_label(None, None));
+    harness.settle();
+    let gear = only_gear(harness.sketch(feature));
+    let shown = harness.shown(feature);
+    let outline: Vec<Point2> = shown
+        .gear_outline(gear)
         .unwrap()
         .faceted(Faceting::within(1e-4))
         .into_iter()
@@ -106,11 +116,6 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
         .map(|(a, b)| a.perp_dot(*b))
         .sum::<f64>()
         / 2.0;
-
-    run_from_palette(&mut harness, SPUR_GEAR);
-    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "18");
-    harness.click(&gear_panel::draw_label(None, None));
-    harness.settle();
     harness.click("Extrude");
     harness.settle();
     let extrude = harness
@@ -124,10 +129,72 @@ fn a_drawn_gear_extrudes_into_a_solid_of_its_outline() {
         (volume - area * solid_tools::DEFAULT_DISTANCE).abs() < 1e-3 * volume,
         "{volume} for {area}"
     );
-    assert_eq!(
-        entities_of_kind(harness.sketch(feature), "Spline").len(),
-        36
-    );
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Spline").len(), 0);
+}
+
+#[test]
+fn a_selected_gear_is_edited_in_place_keeping_its_centre_and_follows_the_new_teeth() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click_at(CENTRE);
+    harness.settle();
+    let gear = only_gear(harness.sketch(feature));
+    let centre = harness.sketch(feature).gear(gear).unwrap().centre;
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: gear,
+    }]);
+    run_from_palette(&mut harness, SPUR_GEAR);
+    let update = gear_panel::update_label(Some(harness.sketch(feature)), gear);
+    assert!(harness.shows(&update));
+    assert!(harness.shows(gearing::EDIT_PROMPT));
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "30");
+    harness.type_into_field(gear_panel::field_id(GearField::Turn), "45 deg");
+    harness.click(&update);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let held = sketch.gear(only_gear(sketch)).unwrap();
+    let shown = harness.shown(feature);
+    let outline = shown.gear_outline(gear).unwrap();
+    assert_eq!(held.centre, centre);
+    assert_eq!(harness.document().expression_text(&held.teeth), "30");
+    assert_eq!(harness.document().expression_text(&held.turn), "45 deg");
+    assert_eq!(outline.teeth, 30);
+    assert_eq!(harness.model.undo_label(), Some(gearing::EDIT_TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    let sketch = harness.sketch(feature);
+    let held = sketch.gear(only_gear(sketch)).unwrap();
+    assert_eq!(harness.document().expression_text(&held.teeth), "20");
+}
+
+#[test]
+fn deleting_a_selected_gear_takes_its_centre() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click_at(CENTRE);
+    harness.settle();
+    let gear = only_gear(harness.sketch(feature));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: gear,
+    }]);
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(sketch.gears().len(), 0);
+    assert_eq!(sketch.entities().len(), 0);
 }
 
 fn circle_centres(sketch: &Sketch, construction: bool) -> Vec<(Point2, f64)> {
@@ -253,6 +320,12 @@ fn the_kind_and_the_values_chosen_stay_when_the_panel_switches_between_them() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
-    assert_eq!(entities_of_kind(sketch, "Spline").len(), 48);
+    let gear = only_gear(sketch);
+    assert_eq!(
+        harness
+            .document()
+            .expression_text(&sketch.gear(gear).unwrap().teeth),
+        "24"
+    );
     assert_eq!(harness.model.undo_label(), Some(gearing::TRANSACTION));
 }

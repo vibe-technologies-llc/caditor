@@ -6,7 +6,7 @@ use std::{
 use caditor_document::placed_text;
 use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_lettering::Segment;
-use caditor_sketch::{EllipseGeometry, Entity, Sketch};
+use caditor_sketch::{EllipseGeometry, Entity, GearPiece, Sketch};
 
 use super::{Construction, SketchExported};
 
@@ -442,6 +442,7 @@ impl Figure {
             .entities()
             .flat_map(|(_, entity)| entity.points())
             .chain(sketch.texts().map(|(_, text)| text.anchor))
+            .chain(sketch.gears().map(|(_, gear)| gear.centre))
             .collect();
         for (id, entity) in sketch.entities() {
             let layer = match (sketch.is_construction(id), construction) {
@@ -508,7 +509,80 @@ impl Figure {
                 figure.push(Layer::Sketch, letter_shape(segment));
             }
         }
+        for (id, _) in sketch.gears() {
+            let Some(outline) = sketch.gear_outline(id) else {
+                continue;
+            };
+            for piece in &outline.pieces {
+                exported.curves += 1;
+                figure.push(Layer::Sketch, gear_shape(piece));
+            }
+            if let Some(radius) = outline.bore {
+                exported.curves += 1;
+                figure.push(
+                    Layer::Sketch,
+                    Shape::Circle {
+                        center: outline.centre,
+                        radius,
+                    },
+                );
+            }
+            match construction {
+                Construction::OnLayer => {
+                    for radius in outline.circles.radii() {
+                        exported.construction += 1;
+                        figure.push(
+                            Layer::Construction,
+                            Shape::Circle {
+                                center: outline.centre,
+                                radius,
+                            },
+                        );
+                    }
+                }
+                Construction::LeftOut => {
+                    exported.construction_left_out += outline.circles.radii().len()
+                }
+            }
+        }
         (figure, exported)
+    }
+}
+
+fn gear_shape(piece: &GearPiece) -> Shape {
+    match piece {
+        GearPiece::Line { from, to } => Shape::Line(*from, *to),
+        GearPiece::Arc {
+            center,
+            from,
+            to,
+            counter_clockwise,
+            ..
+        } => {
+            let (start, end) = if *counter_clockwise {
+                (*from, *to)
+            } else {
+                (*to, *from)
+            };
+            let angle_of = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+            let start_angle = angle_of(start);
+            Shape::Arc {
+                center: *center,
+                radius: start.distance(*center),
+                start: start_angle,
+                end: start_angle + (angle_of(end) - start_angle).rem_euclid(TAU),
+            }
+        }
+        GearPiece::Flank { .. } => match piece.spline() {
+            Some(spline) => Shape::Spline(Spline {
+                degree: spline.degree(),
+                knots: spline.knots().to_vec(),
+                control_points: spline.control_points().to_vec(),
+                weights: None,
+                polyline: spline.polyline(SEGMENT_ANGLE),
+            }),
+            None => Shape::Line(piece.from(), piece.to()),
+        },
     }
 }
 

@@ -444,6 +444,19 @@ impl Rescaler {
                 });
             }
         }
+        for (gear, held) in sketch.gears() {
+            let mut scaled = held.clone();
+            self.length(&mut scaled.module, &feature.name)?;
+            self.length(&mut scaled.root_fillet, &feature.name)?;
+            self.length(&mut scaled.bore, &feature.name)?;
+            if scaled != *held {
+                edits.push(Edit::SetSketchGear {
+                    feature: id,
+                    id: gear,
+                    gear: scaled,
+                });
+            }
+        }
         for (constraint, held) in sketch.constraints() {
             let label = sketch
                 .label_offset(constraint)

@@ -1,6 +1,6 @@
 use caditor_expression::EvalError;
 use caditor_kernel::MAX_SIZE;
-use caditor_sketch::{DimensionError, SketchError, TextError};
+use caditor_sketch::{DimensionError, GearValueError, SketchError, TextError};
 
 use crate::{
     attachment::AttachCause,
@@ -371,6 +371,10 @@ pub(crate) enum SketchCause {
         label: String,
         error: TextError,
     },
+    Gear {
+        label: String,
+        error: GearValueError,
+    },
     Several(Vec<Cause>),
 }
 
@@ -397,6 +401,7 @@ impl SketchCause {
                 format!("{label} cannot be evaluated: {error}.")
             }
             Self::Text { label, error } => format!("{label} cannot be drawn: {error}."),
+            Self::Gear { label, error } => format!("{label} cannot be drawn: {error}."),
             Self::Several(causes) => format!(
                 "The sketch has {} separate problems. {}",
                 causes.len(),
@@ -437,6 +442,7 @@ impl SketchCause {
                 error, expected, ..
             } => Self::dimension_remedy(error, *expected),
             Self::Text { label, error } => Self::text_remedy(label, error),
+            Self::Gear { label, error } => Self::gear_remedy(label, error),
             Self::Several(causes) => format!(
                 "Fix each of them. {}",
                 Self::numbered(causes, Cause::remedy)
@@ -462,6 +468,17 @@ impl SketchCause {
             0 => ("The sketch".to_owned(), "its", "it"),
             1 => (list_names(&names), "its", "it"),
             _ => (list_names(&names), "their", "them"),
+        }
+    }
+
+    fn gear_remedy(label: &str, error: &GearValueError) -> String {
+        match error.failed_name() {
+            Some(name) => {
+                format!(
+                    "Fix {name} under Parameters, or select {label} and edit it with Spur gear."
+                )
+            }
+            None => format!("Select {label} and change its values with Spur gear."),
         }
     }
 

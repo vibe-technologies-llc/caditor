@@ -8,7 +8,7 @@ use caditor_document::{
     SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
-use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch, Text, TextAlign};
+use caditor_sketch::{ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::{
@@ -438,6 +438,19 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             align: *input.choose(&[TextAlign::Left, TextAlign::Centre, TextAlign::Right])?,
         })
     };
+    let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
+    let new_gear = |input: &mut Unstructured| -> Result<Gear> {
+        Ok(Gear {
+            centre: some_entity(input)?,
+            module: scene.distance(input)?,
+            teeth: scene.count(input)?,
+            pressure_angle: scene.turn(input)?,
+            profile_shift: scene.factor(input)?,
+            root_fillet: scene.distance(input)?,
+            bore: scene.distance(input)?,
+            turn: scene.turn(input)?,
+        })
+    };
     let label = |input: &mut Unstructured| -> Result<Option<Vector2>> {
         Ok(if input.arbitrary::<bool>()? {
             Some(Vector2::new(coordinate(input)?, coordinate(input)?))
@@ -445,7 +458,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             None
         })
     };
-    Ok(match input.int_in_range(0u8..=14)? {
+    Ok(match input.int_in_range(0u8..=16)? {
         0 => single(Edit::AddSketchEntity {
             feature,
             id: EntityId::from_raw(sketch.next_id()),
@@ -535,6 +548,19 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
                 None => some_entity(input)?,
             },
             text: new_text(input)?,
+        }),
+        14 => single(Edit::AddSketchGear {
+            feature,
+            id: EntityId::from_raw(sketch.next_id()),
+            gear: new_gear(input)?,
+        }),
+        15 => single(Edit::SetSketchGear {
+            feature,
+            id: match chosen(input, &gears)? {
+                Some(id) => id,
+                None => some_entity(input)?,
+            },
+            gear: new_gear(input)?,
         }),
         _ => single(Edit::SetSketchPlacement {
             feature,

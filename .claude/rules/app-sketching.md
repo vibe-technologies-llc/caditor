@@ -411,7 +411,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   pair of meshing gears or a roller chain sprocket (`sketch.md`, Spur gears). While active, the Spur
   gear panel (`gear_panel.rs`, a right-hand panel closing back to Select) opens with a segmented
   control for the `GearKind` (Single gear, Gear pair, Sprocket) and holds that kind's fields
-  (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet and Bore for a gear,
+  (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet, Bore and Rotation
+  for a gear,
   with Meshing teeth and Meshing bore for a pair, and a Chain combo (`ChainSize::ALL`) with Teeth and
   Bore for a sprocket (teeth from `MIN_SPROCKET_TEETH`). They are text fields
   (`patterning::quantity`: units and expressions with parameters), kept in `Modifying`
@@ -420,7 +421,19 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   under it (origin included) or where it is, a pair's second gear to the right of the first; a click
   draws them there; Enter or the panel's primary button draws at the one selected point, else the
   origin; Space or Enter on a highlighted point draws there. One "Draw spur gear", "Draw gear pair" or
-  "Draw sprocket" transaction (`Part::transaction`).
+  "Draw sprocket" transaction (`Part::transaction`). A single gear is stored (`Part::Gear(Spur)`:
+  the numbers for the preview and the panel's diameters, and the `Gear` of typed expressions;
+  `Sketch::add_stored_gear` puts it on its centre, a new point `Coincident` with the origin when
+  that is the origin), a pair and a sprocket are drawn as free curves.
+- Started with one gear selected (`GearSettings::begin`), the tool edits it: the panel loads its
+  values (`GearSettings::load`, expressions shown with parameter names, an empty bore as empty),
+  hides the kind choice, the canvas previews and writes nothing, and the primary button "Update
+  Gear N" applies one "Edit spur gear" `SetSketchGear` keeping the centre; "Draw a new gear
+  instead" drops the edit. A gear is drawn, picked and selected as one `SketchShape` under its id
+  (`scene::sketch_shapes`: its pieces and bore solid, its four circles dashed, coloured by its
+  centre's state), kept by the selection while the sketch has it (`Pickable::is_available`),
+  deleted with Delete through `remove_sketch_items` and dragged by its centre (`ViewportState`
+  grabs the centre for a gear).
 - Text (`Tool::Text`, `texting.rs`; Polygon's corner menu, the palette's "Write or edit sketch
   text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
   (`text_panel.rs`, a right-hand panel closing back to Select) holds a multi-line Text field

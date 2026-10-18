@@ -77,7 +77,10 @@ impl Generator {
             | Edit::SetSketchLabel { .. }
             | Edit::AddSketchText { .. }
             | Edit::RemoveSketchText { .. }
-            | Edit::SetSketchText { .. } => Self::Sketch,
+            | Edit::SetSketchText { .. }
+            | Edit::AddSketchGear { .. }
+            | Edit::RemoveSketchGear { .. }
+            | Edit::SetSketchGear { .. } => Self::Sketch,
             Edit::SetModelProperties { .. }
             | Edit::SetSavedViews { .. }
             | Edit::SetSelectionSets { .. }

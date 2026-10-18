@@ -20,6 +20,7 @@ mod editor;
 mod emboss;
 mod failure;
 mod feature_list;
+mod gear_curves;
 mod grouping;
 mod healing;
 mod helix;
@@ -287,6 +288,8 @@ mod emboss_tests;
 mod extent_tests;
 #[cfg(test)]
 mod frame_tests;
+#[cfg(test)]
+mod gear_tests;
 #[cfg(test)]
 mod grouping_tests;
 #[cfg(test)]

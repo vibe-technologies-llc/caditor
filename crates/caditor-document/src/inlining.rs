@@ -62,6 +62,21 @@ impl Document {
                         });
                     }
                 }
+                for (gear, held) in sketch.sketch.gears() {
+                    if held.uses(id) {
+                        let mut inlined = held.clone();
+                        for expression in inlined.expressions_mut() {
+                            if expression.uses(id) {
+                                *expression = inline(expression, &feature.name)?;
+                            }
+                        }
+                        edits.push(Edit::SetSketchGear {
+                            feature: feature.id(),
+                            id: gear,
+                            gear: inlined,
+                        });
+                    }
+                }
             } else if feature.kind.uses_parameter(id) {
                 let mut kind = feature.kind.clone();
                 for expression in expressions_mut(&mut kind) {

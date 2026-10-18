@@ -938,6 +938,23 @@ fn sketch_shapes(
                 control_polygon: Vec::new(),
             })
         }))
+        .chain(sketch.gears().filter_map(|(id, gear)| {
+            let outline = sketch.gear_outline(id)?;
+            let solid = outline
+                .faceted(faceting)
+                .into_iter()
+                .flat_map(|piece| curve_segments(plane, &piece, false).collect::<Vec<_>>());
+            let guides = outline
+                .construction(faceting)
+                .into_iter()
+                .flat_map(|circle| curve_segments(plane, &circle, true).collect::<Vec<_>>());
+            Some(SketchShape {
+                entity: id,
+                state: states.state(gear.centre),
+                outline: Outline::Curve(solid.chain(guides).collect()),
+                control_polygon: Vec::new(),
+            })
+        }))
         .collect()
 }
 

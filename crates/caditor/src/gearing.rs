@@ -1,9 +1,9 @@
 use caditor_document::{FeatureId, Transaction};
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    ChainSize, Entity, EntityId, Faceting, GearCentre, GearError, GearOutline, GearPair,
-    MAX_SPROCKET_TEETH, MAX_TEETH, MIN_SPROCKET_TEETH, MIN_TEETH, Sketch, Sprocket,
+    ChainSize, Dimensioned, Entity, EntityId, Faceting, Gear, GearCentre, GearError, GearOutline,
+    GearPair, MAX_SPROCKET_TEETH, MAX_TEETH, MIN_SPROCKET_TEETH, MIN_TEETH, Sketch, Sprocket,
     SprocketOutline, SpurGear,
 };
 use thiserror::Error;
@@ -21,11 +21,14 @@ use crate::{
 };
 
 pub const TRANSACTION: &str = "Draw spur gear";
+pub const EDIT_TRANSACTION: &str = "Edit spur gear";
 pub const PAIR_TRANSACTION: &str = "Draw gear pair";
 pub const SPROCKET_TRANSACTION: &str = "Draw sprocket";
 pub const PROMPT: &str =
     "Click where the gear's centre goes: on a point, or anywhere in the sketch";
+pub const EDIT_PROMPT: &str = "Change the gear in the Spur gear panel, then update it";
 const KEYS: &str = "Enter: draw it at the selected point or the origin   Esc: back to Select";
+const EDIT_KEYS: &str = "Esc: back to Select";
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
 const LENGTH: Expected = Expected {
     dimension: Some(Dimension::LENGTH),
@@ -78,6 +81,7 @@ impl GearKind {
                 GearField::ProfileShift,
                 GearField::RootFillet,
                 GearField::Bore,
+                GearField::Turn,
             ],
             Self::Pair => &[
                 GearField::Module,
@@ -111,10 +115,11 @@ pub enum GearField {
     RootFillet,
     Bore,
     PairBore,
+    Turn,
 }
 
 impl GearField {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Module,
         Self::Teeth,
         Self::PairTeeth,
@@ -123,6 +128,7 @@ impl GearField {
         Self::RootFillet,
         Self::Bore,
         Self::PairBore,
+        Self::Turn,
     ];
 
     pub fn label(self) -> &'static str {
@@ -135,6 +141,7 @@ impl GearField {
             Self::RootFillet => "Root fillet",
             Self::Bore => "Bore",
             Self::PairBore => "Meshing bore",
+            Self::Turn => "Rotation",
         }
     }
 
@@ -151,6 +158,10 @@ impl GearField {
             Self::RootFillet => "The radius rounding the root of each gap; 0 for a sharp root",
             Self::Bore => "The diameter of the hole in the middle; empty or 0 for none",
             Self::PairBore => "The diameter of the second gear's hole; empty or 0 for none",
+            Self::Turn => {
+                "How far the whole gear turns about its centre; at 0° a tooth points along the \
+                 sketch's horizontal axis"
+            }
         }
     }
 
@@ -170,19 +181,24 @@ impl GearField {
             Self::ProfileShift => "0",
             Self::RootFillet => "0.75 mm",
             Self::Bore | Self::PairBore => "",
+            Self::Turn => "0°",
         }
     }
 
     fn expected(self) -> Expected {
         match self {
             Self::Module | Self::RootFillet | Self::Bore | Self::PairBore => LENGTH,
-            Self::PressureAngle => ANGLE,
+            Self::PressureAngle | Self::Turn => ANGLE,
             Self::Teeth | Self::PairTeeth | Self::ProfileShift => PLAIN,
         }
     }
 
     fn may_be_empty(self) -> bool {
         matches!(self, Self::Bore | Self::PairBore)
+    }
+
+    fn empty_expression(self) -> Expression {
+        Expression::measure(0.0, Unit::Millimetre)
     }
 
     fn is_count(self) -> bool {
@@ -197,9 +213,47 @@ impl GearField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spur {
+    pub values: SpurGear,
+    pub turn: f64,
+    pub stored: Gear,
+}
+
+impl Spur {
+    pub fn literal(values: SpurGear) -> Self {
+        let stored = Gear {
+            centre: EntityId::ORIGIN,
+            module: Expression::measure(values.module, Unit::Millimetre),
+            teeth: Expression::number(f64::from(values.teeth)),
+            pressure_angle: Expression::measure(values.pressure_angle, Unit::Degree),
+            profile_shift: Expression::number(values.profile_shift),
+            root_fillet: Expression::measure(values.root_fillet, Unit::Millimetre),
+            bore: Expression::measure(values.bore, Unit::Millimetre),
+            turn: Expression::measure(0.0, Unit::Degree),
+        };
+        Self {
+            values,
+            turn: 0.0,
+            stored,
+        }
+    }
+
+    pub fn gear_at(&self, centre: EntityId) -> Gear {
+        Gear {
+            centre,
+            ..self.stored.clone()
+        }
+    }
+
+    fn outline(&self, at: Point2) -> Result<GearOutline, GearError> {
+        self.values.outline_turned(at, self.turn.to_radians())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Part {
-    Gear(SpurGear),
+    Gear(Box<Spur>),
     Pair(GearPair),
     Sprocket(Sprocket),
 }
@@ -237,7 +291,7 @@ impl Part {
 
     pub fn wheels(&self, at: Point2) -> Result<Vec<Wheel>, GearError> {
         match self {
-            Self::Gear(gear) => Ok(vec![Wheel::Gear(gear.outline(at)?)]),
+            Self::Gear(spur) => Ok(vec![Wheel::Gear(spur.outline(at)?)]),
             Self::Pair(pair) => {
                 let outlines = pair.outlines(at)?;
                 Ok(vec![
@@ -251,7 +305,12 @@ impl Part {
 
     pub fn drawn_into(&self, sketch: &mut Sketch, centre: GearCentre) -> Result<(), GearError> {
         match self {
-            Self::Gear(gear) => sketch.add_gear(gear, centre).map(|_| ()),
+            Self::Gear(spur) => {
+                spur.values.check()?;
+                sketch
+                    .add_stored_gear(centre, spur.stored.clone())
+                    .map(|_| ())
+            }
             Self::Pair(pair) => sketch.add_gear_pair(pair, centre).map(|_| ()),
             Self::Sprocket(sprocket) => sketch.add_sprocket(sprocket, centre).map(|_| ()),
         }
@@ -264,10 +323,10 @@ impl Part {
             None => 0.0,
         };
         match self {
-            Self::Gear(gear) => format!(
+            Self::Gear(spur) => format!(
                 "Spur gear of {} teeth, module {}, {} across the tips",
-                gear.teeth,
-                length_text(unit, gear.module),
+                spur.values.teeth,
+                length_text(unit, spur.values.module),
                 length_text(unit, tip_across(wheels.first()))
             ),
             Self::Pair(pair) => format!(
@@ -325,13 +384,17 @@ pub enum GearingError {
     Unusable { source: PartProblem },
     #[error("{}: its values are not read yet.", Tool::Gear.label())]
     NotRead,
+    #[error("{}: the gear being edited no longer exists.", Tool::Gear.label())]
+    GearGone,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GearSettings {
     kind: GearKind,
     chain: ChainSize,
-    texts: [String; 8],
+    texts: [String; 9],
+    editing: Option<EntityId>,
+    loaded: Option<EntityId>,
     evaluated: Option<Result<Part, PartProblem>>,
 }
 
@@ -341,6 +404,8 @@ impl Default for GearSettings {
             kind: GearKind::default(),
             chain: ChainSize::DEFAULT,
             texts: GearField::ALL.map(|field| field.initial().to_owned()),
+            editing: None,
+            loaded: None,
             evaluated: None,
         }
     }
@@ -383,21 +448,88 @@ impl GearSettings {
         self.evaluated.as_ref()
     }
 
+    pub fn editing(&self) -> Option<EntityId> {
+        self.editing
+    }
+
+    pub fn begin(&mut self, sketch: Option<&Sketch>, selected: &[EntityId]) {
+        self.editing = match (sketch, selected) {
+            (Some(sketch), [only]) if sketch.gear(*only).is_some() => Some(*only),
+            _ => None,
+        };
+        self.loaded = None;
+        if self.editing.is_some() {
+            self.set_kind(GearKind::Gear);
+        }
+    }
+
+    pub fn stop_editing(&mut self) {
+        self.editing = None;
+        self.loaded = None;
+    }
+
+    pub fn load(&mut self, model: &Model, sketch: Option<&Sketch>) {
+        let Some(editing) = self.editing else {
+            return;
+        };
+        if self.loaded == Some(editing) {
+            return;
+        }
+        let Some(gear) = sketch.and_then(|sketch| sketch.gear(editing)) else {
+            self.stop_editing();
+            return;
+        };
+        let document = model.document();
+        let stored = |field: GearField, expression: &Expression| {
+            if field.may_be_empty() && *expression == field.empty_expression() {
+                String::new()
+            } else {
+                document.expression_text(expression)
+            }
+        };
+        let loaded = [
+            (GearField::Module, &gear.module),
+            (GearField::Teeth, &gear.teeth),
+            (GearField::PressureAngle, &gear.pressure_angle),
+            (GearField::ProfileShift, &gear.profile_shift),
+            (GearField::RootFillet, &gear.root_fillet),
+            (GearField::Bore, &gear.bore),
+            (GearField::Turn, &gear.turn),
+        ];
+        for (field, expression) in loaded {
+            if let Some(text) = self.text_mut(field) {
+                *text = stored(field, expression);
+            }
+        }
+        self.kind = GearKind::Gear;
+        self.loaded = Some(editing);
+        self.evaluated = None;
+    }
+
     pub fn evaluate(&mut self, model: &Model) -> Evaluation {
         let kind = self.kind;
         let mut problems = Vec::new();
-        let mut values = [0.0; 8];
+        let mut read: [Option<Dimensioned>; 9] = Default::default();
         for field in kind.fields() {
             match value_of(model, kind, *field, self.text(*field)) {
                 Ok(value) => {
-                    if let Some(slot) = values.get_mut(field.index()) {
-                        *slot = value;
+                    if let Some(slot) = read.get_mut(field.index()) {
+                        *slot = Some(value);
                     }
                 }
                 Err(problem) => problems.push((*field, problem)),
             }
         }
-        let value = |field: GearField| values.get(field.index()).copied().unwrap_or_default();
+        let held = |field: GearField| {
+            read.get(field.index())
+                .and_then(Option::as_ref)
+                .cloned()
+                .unwrap_or(Dimensioned {
+                    expression: Expression::number(0.0),
+                    value: 0.0,
+                })
+        };
+        let value = |field: GearField| held(field).value;
         let part = match problems.first() {
             Some((field, _)) => Err(PartProblem::MendFirst { field: *field }),
             None => {
@@ -410,7 +542,20 @@ impl GearSettings {
                     bore: value(GearField::Bore),
                 };
                 let part = match kind {
-                    GearKind::Gear => Part::Gear(gear),
+                    GearKind::Gear => Part::Gear(Box::new(Spur {
+                        values: gear,
+                        turn: value(GearField::Turn),
+                        stored: Gear {
+                            centre: EntityId::ORIGIN,
+                            module: held(GearField::Module).expression,
+                            teeth: held(GearField::Teeth).expression,
+                            pressure_angle: held(GearField::PressureAngle).expression,
+                            profile_shift: held(GearField::ProfileShift).expression,
+                            root_fillet: held(GearField::RootFillet).expression,
+                            bore: held(GearField::Bore).expression,
+                            turn: held(GearField::Turn).expression,
+                        },
+                    })),
                     GearKind::Pair => Part::Pair(GearPair {
                         driver: gear,
                         partner_teeth: value(GearField::PairTeeth) as u32,
@@ -437,25 +582,30 @@ fn value_of(
     kind: GearKind,
     field: GearField,
     text: &str,
-) -> Result<f64, FieldProblem> {
+) -> Result<Dimensioned, FieldProblem> {
     if field.may_be_empty() && text.trim().is_empty() {
-        return Ok(0.0);
+        return Ok(Dimensioned {
+            expression: field.empty_expression(),
+            value: 0.0,
+        });
     }
     let label = field.label().to_lowercase();
-    let value = patterning::quantity(model, text, field.expected(), &label)
-        .map_err(FieldProblem::Value)?
-        .value;
+    let quantity =
+        patterning::quantity(model, text, field.expected(), &label).map_err(FieldProblem::Value)?;
     if !field.is_count() {
-        return Ok(value);
+        return Ok(quantity);
     }
     let (least, most) = kind.teeth_range();
-    let rounded = value.round();
-    if (value - rounded).abs() > WHOLE_NUMBER_TOLERANCE
+    let rounded = quantity.value.round();
+    if (quantity.value - rounded).abs() > WHOLE_NUMBER_TOLERANCE
         || !(f64::from(least)..=f64::from(most)).contains(&rounded)
     {
         return Err(FieldProblem::WholeNumber { label, least, most });
     }
-    Ok(rounded)
+    Ok(Dimensioned {
+        expression: quantity.expression,
+        value: rounded,
+    })
 }
 
 pub fn lone_point(sketch: &Sketch, selected: &[EntityId]) -> Option<EntityId> {
@@ -505,26 +655,50 @@ impl Aim {
     }
 }
 
+pub fn update(
+    model: &Model,
+    feature: FeatureId,
+    gear: EntityId,
+    spur: &Spur,
+) -> Result<Transaction, GearingError> {
+    let held = model
+        .document()
+        .feature(feature)
+        .and_then(|owner| owner.kind.sketch())
+        .ok_or(SketchGone)?
+        .gear(gear)
+        .ok_or(GearingError::GearGone)?;
+    let mut transaction = model.document().transaction(EDIT_TRANSACTION);
+    transaction.set_sketch_gear(feature, gear, spur.gear_at(held.centre));
+    Ok(transaction.finish())
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Gearing {
     selected: Option<EntityId>,
+    editing: Option<EntityId>,
     hover: Option<Aim>,
     highlight: Option<EntityId>,
     shown: Option<(Aim, Part, Result<Vec<Wheel>, PartProblem>)>,
 }
 
 impl Gearing {
-    pub fn starting(sketch: &Sketch, selected: &[EntityId]) -> Self {
+    pub fn starting(sketch: &Sketch, selected: &[EntityId], editing: Option<EntityId>) -> Self {
         Self {
             selected: lone_point(sketch, selected),
+            editing,
             ..Self::default()
         }
     }
 
-    pub fn sync(&mut self, sketch: &Sketch) {
+    pub fn sync(&mut self, sketch: &Sketch, editing: Option<EntityId>) {
         let exists = |point: &EntityId| is_centre(sketch, *point);
         self.selected = self.selected.filter(exists);
         self.highlight = self.highlight.filter(exists);
+        self.editing = editing.filter(|gear| sketch.gear(*gear).is_some());
+        if self.editing.is_some() {
+            self.shown = None;
+        }
     }
 
     pub fn hover(
@@ -555,7 +729,7 @@ impl Gearing {
     }
 
     fn refresh(&mut self, sketch: &Sketch, part: Option<&Result<Part, PartProblem>>) {
-        let (Some(aim), Some(Ok(part))) = (self.aim(sketch), part) else {
+        let (Some(aim), Some(Ok(part)), None) = (self.aim(sketch), part, self.editing) else {
             self.shown = None;
             return;
         };
@@ -563,7 +737,7 @@ impl Gearing {
             matches!(&self.shown, Some((shown, drawn, _)) if *shown == aim && drawn == part);
         if !fresh {
             let wheels = part.wheels(aim.at()).map_err(PartProblem::Unbuildable);
-            self.shown = Some((aim, *part, wheels));
+            self.shown = Some((aim, part.clone(), wheels));
         }
     }
 
@@ -593,6 +767,9 @@ impl Gearing {
     }
 
     pub fn highlighted_entities(&self) -> Vec<EntityId> {
+        if let Some(gear) = self.editing {
+            return vec![gear];
+        }
         let aimed = match self.shown {
             Some((Aim::Point(point, _), ..)) => Some(point),
             _ => self.highlight,
@@ -610,6 +787,9 @@ impl Gearing {
         unit: Units,
         part: Option<&Result<Part, PartProblem>>,
     ) -> Option<String> {
+        if let Some(gear) = self.editing {
+            return Some(format!("Editing {}", sketch.entity_label(gear)));
+        }
         if let Some(Err(problem)) = part {
             return Some(problem.to_string());
         }
@@ -627,9 +807,15 @@ impl Gearing {
     }
 
     pub fn prompt(&self) -> Prompt {
-        Prompt {
-            text: PROMPT,
-            hint: Hint::Keys(KEYS),
+        match self.editing {
+            Some(_) => Prompt {
+                text: EDIT_PROMPT,
+                hint: Hint::Keys(EDIT_KEYS),
+            },
+            None => Prompt {
+                text: PROMPT,
+                hint: Hint::Keys(KEYS),
+            },
         }
     }
 
@@ -639,9 +825,9 @@ impl Gearing {
         feature: FeatureId,
         part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
-        match self.hover {
-            Some(aim) => self.draw_at(model, feature, part, aim.centre()),
-            None => Outcome::Nothing,
+        match (self.hover, self.editing) {
+            (Some(aim), None) => self.draw_at(model, feature, part, aim.centre()),
+            _ => Outcome::Nothing,
         }
     }
 
@@ -651,6 +837,18 @@ impl Gearing {
         feature: FeatureId,
         part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
+        if let Some(gear) = self.editing {
+            return match part {
+                Some(Ok(Part::Gear(spur))) => update(model, feature, gear, spur).into(),
+                Some(Ok(_)) | None => Outcome::Refused(GearingError::NotRead.into()),
+                Some(Err(source)) => Outcome::Refused(
+                    GearingError::Unusable {
+                        source: source.clone(),
+                    }
+                    .into(),
+                ),
+            };
+        }
         let centre = self.highlight.or(self.selected).unwrap_or(EntityId::ORIGIN);
         self.highlight = None;
         self.draw_at(model, feature, part, GearCentre::Point(centre))
@@ -662,9 +860,9 @@ impl Gearing {
         feature: FeatureId,
         part: Option<&Result<Part, PartProblem>>,
     ) -> Outcome {
-        match self.highlight.take() {
-            Some(point) => self.draw_at(model, feature, part, GearCentre::Point(point)),
-            None => Outcome::Nothing,
+        match (self.highlight.take(), self.editing) {
+            (Some(point), None) => self.draw_at(model, feature, part, GearCentre::Point(point)),
+            _ => Outcome::Nothing,
         }
     }
 

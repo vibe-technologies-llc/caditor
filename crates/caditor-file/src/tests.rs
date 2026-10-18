@@ -12,7 +12,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Sketch, SplineKind, Text, TextAlign,
+    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Gear, Sketch, SplineKind, Text,
+    TextAlign,
 };
 use tempfile::TempDir;
 
@@ -2133,6 +2134,56 @@ fn sketch_texts_round_trip_and_older_readers_report_them() {
             .map(|text| (text.content.as_str(), text.align)),
         Some(("Top\nBottom line", TextAlign::Centre))
     );
+}
+
+#[test]
+fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Gears");
+    let count = transaction.add_parameter("teeth", transaction.parse("24").unwrap());
+    let sketch = transaction.add_feature("Wheel", FeatureKind::from(Sketch::new(Plane::XY)));
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(1.0, 2.0)));
+    let gear = transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            centre,
+            module: Expression::Measure(1.5, Unit::Millimetre),
+            teeth: Expression::Parameter(count),
+            pressure_angle: Expression::Measure(20.0, Unit::Degree),
+            profile_shift: Expression::Number(0.25),
+            root_fillet: Expression::Measure(0.4, Unit::Millimetre),
+            bore: Expression::Measure(5.0, Unit::Millimetre),
+            turn: Expression::Measure(12.0, Unit::Degree),
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"gear\":{", "\"gearr\":{"));
+    let damaged = decode_text(&written.replace("\"12 deg\"", "\"12 ((\""));
+    let held = damaged
+        .document
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(gear))
+        .cloned()
+        .unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        older.issues.join(" ").contains("(gearr)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        damaged.issues.join(" ").contains("the turn of Gear"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(held.turn, Expression::Measure(0.0, Unit::Degree));
+    assert_eq!(held.teeth, Expression::Parameter(count));
 }
 
 #[test]

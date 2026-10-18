@@ -122,13 +122,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   approximately possible); and a point can be inserted keeping the shape only in an open control
   spline of four points or more, not in a closed one (it needs a closed spline with knots of its
   own), a conic or one of fewer points.
-- [medium · hard] A spur gear (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
-  geometry, not tied to the values in the Spur gear panel (expressions using parameters are read
-  when it is drawn), so changing the module, teeth or pressure angle, or a parameter they use,
-  means deleting it and drawing it again, and nothing holds its shape when one of its points is
-  dragged. Keeping it parametric needs a gear stored in the sketch (its expressions and the curves
-  it made, saved in the file) that recompute draws again from the evaluated values, holding its
-  curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
 - [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
   along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is
@@ -148,6 +141,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
+- [low · medium] A gear pair and a sprocket (`sketch.md`, Spur gears) are drawn once: their
+  curves are free sketch geometry, not tied to the values in the Spur gear panel, so changing the
+  module, teeth or a parameter they use means deleting them and drawing them again. A single gear
+  is stored (`sketch.md`, Gear) and follows its values; a pair would need the partner stored as a
+  gear of its own whose module, pressure angle and root fillet follow the driver's, whose profile
+  shift is the opposite, whose centre sits the standard distance along the line of centres
+  (a constraint the sketch cannot hold without a derived dimension) and whose turn follows the
+  driver's by the tooth ratio, and a sprocket a stored form of its own with the same curve names
+  by gap and segment.
+- [low · easy] `get_sketch` (`mcp.md`) lists only a sketch's entities: a stored gear or a sketch
+  text drawn through the MCP server or the app does not appear in it, so an agent cannot read
+  back their values or edit them.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

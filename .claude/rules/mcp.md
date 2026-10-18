@@ -226,7 +226,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   evenly spaced) and insert_control_point (`splines`, and `point` with a single one;
   `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
-  `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel) and copy (`Sketch::clip`
+  `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel; a single gear is stored
+  with literal expressions, a pair and a sprocket drawn as curves; `get_sketch` does not list
+  stored gears or texts) and copy (`Sketch::clip`
   then `paste`, within the sketch shifted by `clipboard::same_sketch_shift` or from `from_sketch`
   in place, `by` or `to` moving it) are `sketch_additions.rs`, each with its tool's transaction
   label. Lengths and angles are
