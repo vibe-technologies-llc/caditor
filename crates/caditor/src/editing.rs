@@ -168,8 +168,8 @@ impl Tool {
                  angle, with its pitch, base, root and tip circles, ready to extrude"
             }
             Self::Text => {
-                "Write a line of text in Inter at a point, with a height, an angle, bold and \
-                 italic; its letters are closed regions ready to extrude, and it stays editable"
+                "Write text in Inter, one or several lines, at a point, with a height, an \
+                 angle, alignment, bold and italic; its letters are closed regions ready to extrude, and it stays editable"
             }
             Self::Fillet => {
                 "Round the corner where two lines, arcs or elliptical arcs meet, or where two of \

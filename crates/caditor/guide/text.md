@@ -1,17 +1,19 @@
 # Text
 
-{command:sketch.text} writes a line of text into the sketch in Inter, the font caditor carries.
+{command:sketch.text} writes text into the sketch in Inter, the font caditor carries.
 Its letters are closed outlines, so [Extrude](extrude) raises them from a face or cuts them into
 it like any other profile, their holes (the middle of an `o` or a `B`) left open. Find it in the
 corner menu of the Polygon button, the Sketch menu or {command:palette}.
 
 While it is active the Text panel opens with the text's values:
 
-- **Text**: one line of letters. Line breaks are not taken; a letter Inter lacks is left out and
-  the panel names it.
+- **Text**: the letters. Press Enter for a new line, set below the one before it; a letter Inter
+  lacks is left out and the panel names it.
 - **Height**: how tall a capital letter stands above the baseline, such as `5 mm` or `size`.
 - **Angle**: how far the baseline turns from the sketch's horizontal axis, such as `90 deg` for
   text running upward.
+- **Align**: **Left**, **Centre** or **Right**. The text's point is where the first line's
+  baseline starts, is centred or ends, and every other line lines up about the same point.
 - **Bold** and **Italic**: Inter's bold weight and its own italic letters.
 
 Height and angle take units and expressions using your [parameters](parameters), and stay tied to
@@ -19,7 +21,7 @@ them: change the parameter and the letters follow.
 
 ## Placing it
 
-- Click where the text starts, on its baseline: on a point, the text stands on it; anywhere else
+- Click where the text is anchored, on its first line's baseline: on a point, the text stands on it; anywhere else
   it gets a new point there. The letters follow the pointer as a preview.
 - The panel's button, or Enter in the view, writes it at the one selected point, else at the
   origin.

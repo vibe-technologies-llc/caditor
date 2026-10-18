@@ -335,8 +335,8 @@ paths:
   radius as major axis since DXF wants a ratio at most 1). Construction curves are counted and left
   out (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction`
   dashed and counted in `SketchExported::construction`. The DXF reads back through `parse_dxf` as
-  the same curves, construction ones as construction. A sketch text writes its letters
-  (`caditor_document::placed_text`) as lines and Bézier splines on layer 0, counted as curves, and
+  the same curves, construction ones as construction. A sketch text writes its letters, every line aligned as drawn
+  (`caditor_document::placed_text`), as lines and Bézier splines on layer 0, counted as curves, and
   not the point it stands on.
 - A face (`export/outline.rs`) writes a flat face's outer loop on `Outline` and inner loops on
   `Holes`, seen from outside the body: the face's plane with its origin where the model origin
