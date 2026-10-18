@@ -7,6 +7,18 @@ ignore = [
     {
         id = "RUSTSEC-2026-0192",
         reason = "ttf-parser comes in only through winit's sctk-adwaita window decorations, which have no maintained replacement yet"
+    },
+    {
+        id = "RUSTSEC-2026-0370",
+        reason = "zvariant was merged into zbus 6; zbus 5 comes in only through egui-winit, accesskit_winit, accesskit_unix 0.24 and atspi, and no accesskit_unix on zbus 6 is published yet"
+    },
+    {
+        id = "RUSTSEC-2026-0371",
+        reason = "zbus_names was merged into zbus 6; zbus 5 comes in only through egui-winit, accesskit_winit, accesskit_unix 0.24 and atspi, and no accesskit_unix on zbus 6 is published yet"
+    },
+    {
+        id = "RUSTSEC-2026-0372",
+        reason = "zvariant_derive was merged into zbus 6; zbus 5 comes in only through egui-winit, accesskit_winit, accesskit_unix 0.24 and atspi, and no accesskit_unix on zbus 6 is published yet"
     }
 ]
 

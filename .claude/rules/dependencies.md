@@ -31,6 +31,9 @@ paths:
   is compiled. Its version follows epaint's rather than the latest release (`cargo deny` refuses the
   second copy a newer one would add). `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.
+- `zvariant`, `zbus_names` and `zvariant_derive` (merged into `zbus` 6) come in only through
+  `egui-winit` → `accesskit_unix` 0.24 → `atspi` → `zbus` 5, so `deny.toml` ignores their
+  unmaintained advisories until an `accesskit_unix` on `zbus` 6 is published.
 - `egui` takes `default_fonts` (no longer a default since 0.37): its fallbacks follow Inter in every
   family and `caditor-notices` lists `epaint_default_fonts`. `egui-phosphor` supplies only the font
   bytes (`Variant::font_bytes`) and glyph constants, never its `FontDefinitions` helpers, so it may
