@@ -65,6 +65,7 @@ pub enum Page {
     Shell,
     OffsetFace,
     DeleteFace,
+    Emboss,
     MoveFace,
     Draft,
     Primitives,
@@ -154,6 +155,7 @@ all_variants!(
     Shell,
     OffsetFace,
     DeleteFace,
+    Emboss,
     MoveFace,
     Draft,
     Primitives,
@@ -289,6 +291,7 @@ impl Page {
             Self::Shell => "shell",
             Self::OffsetFace => "offset-face",
             Self::DeleteFace => "delete-face",
+            Self::Emboss => "emboss",
             Self::MoveFace => "move-face",
             Self::Draft => "draft",
             Self::Primitives => "primitives",
@@ -384,6 +387,7 @@ impl Page {
             Self::Shell => include_str!("../guide/shell.md"),
             Self::OffsetFace => include_str!("../guide/offset-face.md"),
             Self::DeleteFace => include_str!("../guide/delete-face.md"),
+            Self::Emboss => include_str!("../guide/emboss.md"),
             Self::MoveFace => include_str!("../guide/move-face.md"),
             Self::Draft => include_str!("../guide/draft.md"),
             Self::Primitives => include_str!("../guide/primitives.md"),
@@ -473,6 +477,7 @@ impl Page {
             | Self::Shell
             | Self::OffsetFace
             | Self::DeleteFace
+            | Self::Emboss
             | Self::MoveFace
             | Self::Draft
             | Self::Primitives
@@ -550,6 +555,7 @@ impl Page {
             FeatureKind::Shell(_) => Self::Shell,
             FeatureKind::OffsetFace(_) => Self::OffsetFace,
             FeatureKind::DeleteFace(_) => Self::DeleteFace,
+            FeatureKind::Emboss(_) => Self::Emboss,
             FeatureKind::MoveFace(_) => Self::MoveFace,
             FeatureKind::Draft(_) => Self::Draft,
             FeatureKind::Primitive(_) => Self::Primitives,

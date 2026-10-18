@@ -271,6 +271,17 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
             visit_plane(&mut draft.neutral, "its neutral plane", visitor);
         }
+        FeatureKind::Emboss(emboss) => {
+            let count = emboss.faces.len();
+            for (index, face) in emboss.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its embossed face".to_owned()
+                } else {
+                    format!("embossed face {} of {count}", index + 1)
+                };
+                visitor.face(emboss.body, face, &what);
+            }
+        }
         FeatureKind::MoveFace(moving) => {
             let count = moving.faces.len();
             for (index, face) in moving.faces.iter_mut().enumerate() {

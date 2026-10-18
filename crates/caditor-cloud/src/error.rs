@@ -93,8 +93,11 @@ pub enum Error {
          add a version to. Rename the model or choose another folder."
     )]
     NameTaken { service: Service, name: String },
-    #[error("Sending a model to {service} is not available yet.")]
-    SendUnsupported { service: Service },
+    #[error(
+        "A saved version of an Onshape document cannot be changed, so nothing can be sent into \
+         it. Open the document's main workspace or one of its branches."
+    )]
+    VersionIsReadOnly,
     #[error("{service} did not take every part of the file. Try again.")]
     UploadIncomplete { service: Service },
     #[error("The file could not be written: {0}.")]

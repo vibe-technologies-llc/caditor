@@ -10,7 +10,10 @@ spline carrying on along its own curve the way its end is heading.
 
 Every other curve cuts, construction lines and the sketch's axes included. Constraints that still
 make sense are kept on the pieces, and the new ends are joined to what cut them, so the outline
-stays closed.
+stays closed. A point that was the midpoint of a line or arc stays on it, as a point on the curve,
+when it still lies on what is left (a trimmed line's far piece takes it when it lies there), and is
+let go when the cut took its part. Equal lengths with a line you shorten are let go, since the
+line is no longer as long as the other.
 
 A trimmed ellipse becomes an elliptical arc, and the two pieces of an elliptical arc trimmed in
 the middle keep one ellipse. A trimmed spline keeps exactly the shape it had: what is left is a

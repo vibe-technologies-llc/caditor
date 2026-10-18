@@ -103,10 +103,13 @@ paths:
 - Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
   the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
   `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,
-  `MissingEntity`), its content (one line, not blank, at most `MAX_TEXT_CHARS`, no control
-  characters: `InvalidText`), a height and an angle as `Expression`s (length, and angle in degrees
-  from the sketch's x axis) and bold and italic. The anchor counts as a use, so it cannot be removed
-  while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
+  `MissingEntity`), its content (lines separated by `LINE_BREAK`, not blank, at most
+  `MAX_TEXT_CHARS` counting the breaks, no other control characters: `InvalidText`), a height and
+  an angle as `Expression`s (length, and angle in degrees from the sketch's x axis), bold and
+  italic, and a `TextAlign` (`Left`, `Centre` or `Right`, left by default). The anchor is the
+  start, middle or end of the first line's baseline by that alignment, and each following line is
+  set below it, aligned about the same vertical through the anchor (`lettering.md`). The anchor
+  counts as a use, so it cannot be removed while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
   drill at it). `add_text`, `insert_text` (explicit id), `remove_text` and `replace_text` (value
   only; a changed anchor is `ChangesStructure`). The text holds no constraint and adds no freedom:
   the anchor is an ordinary point, constrained and dimensioned like any other.
@@ -117,13 +120,41 @@ paths:
     `uses_parameter`.
   - The letters are not entities: the document lays them out (`document.md`) and names each
     letter curve `letter_curve(text, letter, segment)`, an id at or above `FIRST_UNSTORABLE_ID`
-    holding 40 bits of the text's id, 11 of the letter's position in the string and 12 of the
-    segment, so letters before an edit keep their curve names. `Sketch::text_of_letter_curve` and
+    holding 39 bits of the text's id, 11 of the letter's position in the string and 12 of the
+    segment, so letters before an edit keep their curve names. A gear curve (below) has the next bit
+    set too, which `text_of_letter_curve` tells apart. `Sketch::text_of_letter_curve` and
     `entity_label` ("Text 5") read one back for error messages.
   - Copy and paste carry a selected text with a copy of its anchor (`SketchClip::text_count`; the
     clipboard writes it as a `text` entity record and carries its parameters like a dimension's).
     Trim, mirror and the patterns leave texts alone; one whose anchor a trim would remove makes the
     trim refuse it as in use.
+- Gear (`gear/stored.rs`, `Sketch::gears`): a map of `Gear` beside the entities and texts, keyed by
+  `EntityId`s from the same counter, part of `same_geometry` and `heap_size`. A `Gear` is its
+  centre (a point entity: `NotAPoint`, `MissingEntity`) and seven `Expression`s: module (length),
+  teeth, pressure angle (degrees), profile shift (in modules), root fillet (length), bore diameter
+  (length, 0 for none) and turn (degrees about the centre). Like a text, the centre counts as a use
+  (`InUse`), is neither a free point nor a layout point, and the gear holds no constraint and adds
+  no freedom. `add_parametric_gear`, `insert_gear`, `remove_gear`, `replace_gear` (a changed centre
+  is `ChangesStructure`), `gears_using`, and `add_stored_gear` for a `GearCentre` as the free-geometry
+  gear takes it.
+  - `Sketch::evaluate` works out each gear's `GearValues` (`Gear::values`: a `SpurGear` and a
+    turn; the teeth must come out a whole number, else `GearValueError::TeethNotWhole`, and
+    `SpurGear::check` must pass, so the refusals of `GearError` reach the user in the
+    gear's words as `SketchError::Gear` naming it), the solve writes them into the solved geometry
+    (`set_gear_values`), and `Sketch::gear_values` gives them or the literal ones for an unsolved
+    definition. `Sketch::gear_outline` turns them into a `GearOutline` about the solved centre.
+  - The gear's curves are not entities: the document takes the outline's pieces
+    (`GearOutline::named_pieces`) and names each `gear_curve(gear, tooth, segment)`, an id at or
+    above `FIRST_UNSTORABLE_ID` holding 39 bits of the gear's id, 11 of the tooth (`BORE_TOOTH` for
+    the bore) and 12 of the segment. A tooth's segments are 0 tip arc, 1 to 3 the upper flank,
+    radial line and fillet (those the shape has), 4 the root arc to the next tooth, and 5 to 7 the
+    lower fillet, line and flank, so more or fewer teeth add or remove whole teeth's names and every
+    other tooth keeps its curves' names.
+    The pitch, base, root and tip circles are construction and take no name.
+    `Sketch::gear_of_curve` and `entity_label` ("Gear 5") read one back.
+  - Copy and paste carry a selected gear with a copy of its centre (`SketchClip::gear_count`, a
+    `gear` entity record on the clipboard with its parameters carried like a text's). Trim, mirror
+    and the patterns leave gears alone.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch. The sketch never cascades a removal; the document's `remove_sketch_items` expands a
@@ -224,8 +255,8 @@ paths:
   Point 5", "Centre of Point 1, Point 2 and Point 3 at Point 7". `restating` compares targets with
   a crossing's curves and the corners in order, and a target that is a sketch point keeps the
   two-point subject. Trim, extend, split and the sketch fillet drop a constraint tracking a middle
-  of a curve they reshape (`follows_a_middle` in `keeps_length` and `keeps_sweep`), as they drop
-  `Midpoint`.
+  of a curve they reshape (`follows_a_middle` in `keeps_length` and `keeps_sweep`); a `Midpoint` is
+  relaxed instead (`Editing operations`).
 - `Midpoint { point, curve }` takes a line, arc or elliptical arc, never a circle or whole ellipse.
   On an arc it is two single-branch equations (`Form::OnBisector`, on the chord's perpendicular
   bisector; `Form::ArcBulge`, signed distance from the centre across the chord equals the radius on
@@ -272,9 +303,30 @@ relative to the extent.
     ends of the overlap: the cutter's ends inside the target (`overlap_ends`, same tolerance); the
     overlap's own crossings are not looked for. A whole circle on a circle, or a cutter whose ends
     lie outside the target, cuts nothing. Extend does not look for overlaps.
-  - Dropped: `Midpoint` and `Equal` on a shortened line; `Midpoint`, `ArcLength` and `Sweep` on a
-    shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any distance
-    dimension between the two old ends or points joined to them by `Coincident`.
+  - Dropped: `Equal` on a shortened line (kept only by the fillet and chamfer, below); `ArcLength`
+    and `Sweep` on a shortened or extended arc (`keeps_sweep`; the sketch fillet does the same); any
+    distance dimension between the two old ends or points joined to them by `Coincident`.
+  - A `Midpoint` on a line, arc or elliptical arc a trim, extend, split, break, fillet or chamfer
+    reshapes is relaxed, not dropped (`keeping.rs`): `restructure_leaving` hands the midpoints
+    `keeps_length`/`keeps_sweep` refuse to `settle_midpoints`, which turns each, under its ID, flag
+    and label, into `Coincident(point, curve)` when the point still lies within `SLACK` of the
+    curve's drawn shape (`shape_of`, `Shape::closest`: the segment, arc or elliptical arc as it now
+    is), else drops it. The middle of the shorter curve is not where the point is, so the point is
+    never moved and never held at the new middle; a point on the part cut away has no curve left to
+    stay on. A split and a trim of the middle offer the leftovers to the far piece
+    (`settle_midpoints(&[piece], …)`), so the point stays on the line that now holds it. The relaxed
+    constraint is a subset of the equations the midpoint held, so it adds no conflict and the
+    sketch gains one degree of freedom per midpoint, which the user pins again if wanted. A
+    constraint already holding the same point on the curve, or one `check_constraint` refuses (the
+    point is an end of the curve), leaves nothing in its place.
+  - An `Equal` between the two lines of a fillet or chamfer corner survives (`shorten_to`:
+    `detach_equal_lines` before the reshaping, `restore_equal_lines` after) when both are lines and
+    their new lengths agree within `SLACK`, which is how the corner's own geometry decides: a
+    fillet takes the same tangent length from both lines of a corner, so equal lines stay equal and
+    the constraint is equivalent to the one it replaces, adding no redundancy; a chamfer by one
+    distance does the same, by two different distances the lengths differ and the `Equal` is
+    dropped. An `Equal` with a line the operation does not reshape never survives, nor does one
+    when only one of its lines is reshaped (trim, extend, split, fillet against an arc).
   - A split-off piece gets fresh IDs, the construction flag and `split_from`: the curve it came
     from (that curve's own original when it is a piece itself), so every piece of one curve names
     the same original (`Sketch::pieces_of`) and blends follow an edge onto them
@@ -289,9 +341,16 @@ relative to the extent.
     else a point on the cutter (an axis included). End points no curve uses are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
     shared with another curve, coincident with another point or fixed is refused.
-- Offset (`offset.rs`): `offset_chain` orders the chosen lines and arcs into one open or closed
-  chain (splines, branches and separate chains refused), walked from a free end so `Side` means the
-  same on the working copy. `Chain::outline` joins offset curves: smooth joints meet, line corners
+- Offset (`offset.rs`): `offset_chains` splits the chosen curves into chains and takes any number
+  of them, ordering each run of lines and arcs joined end to end into one open or closed chain
+  (walked from a free end so `Side` means the same on the working copy), a circle into a chain of
+  its own, and an ellipse, elliptical arc or spline into a chain of its own (below); branches are
+  refused, and so is an ellipse or spline with an end touching another chosen curve
+  (`NotInChain`). `offset_chain` is the same for exactly one chain (`SeveralChains` otherwise).
+  `offset_each` offsets every chain in one pass on a working copy that replaces the sketch only
+  when all succeed, each chain to the side its closure names (`offset` gives them all one `Side`,
+  `offset_both_sides` runs every chain both ways), so one undoable step and one refusal naming the
+  first chain that fails. `Chain::outline` joins offset curves: smooth joints meet, line corners
   meet sharp, a convex corner with an arc gets a round arc about the original corner, a concave one
   is trimmed where the carriers cross.
   - A closing notch or tab is dropped (`Chain::settle`, repeated until nothing more drops): an arc
@@ -315,6 +374,12 @@ relative to the extent.
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. A closed chain's closing `Coincident` is added last, so the
     one relation a loop repeats is never a whole redundant constraint.
+  - The free ends of an open chain are held (`hold_free_ends`): the offset's first and last end
+    point lies on the normal of the original end, a `Perpendicular through` (`OnDirection` with
+    `square`) the original end for a line and a `Parallel through` the arc's centre along a
+    construction radius to the original end for an arc, so the distance alone fixes the copy and
+    the sketch gains no degree of freedom from the copy. A closed chain and the both-sides outline
+    have no free end, a circle needs none.
   - `offset_both_sides` (`Chain::both_sides`, `Caps` of `Round` or `Flat`): a closed chain gets the
     two one-sided outlines; an open chain becomes one closed outline (`Chain::capped`): left
     outline, cap round the end point, right outline reversed, cap round the start point, the start
@@ -322,7 +387,7 @@ relative to the extent.
     joined by `Tangent` to both sides; a flat cap is a line through the end point (`Coincident`)
     `Perpendicular` to the end curve (square to a line, through an arc's centre), joined sharp.
     Either adds no freedom or redundancy. Caps crossing the outline are `CrossesItself`; an open
-    elliptical arc (offsets are free splines) is `CapsOnSpline`. The outline is profile geometry
+    elliptical arc or open spline (offsets are free splines) is `CapsOnSpline`. The outline is profile geometry
     even round a construction chain.
 - Mirror (`mirror.rs`): points on the mirror line are shared, others copied with `Symmetric` to the
   original; arcs and elliptical arcs swap ends to stay counter-clockwise; circles and ellipses add
@@ -376,14 +441,20 @@ relative to the extent.
   `Equal` holds them. Extend carries an elliptical arc's end round its ellipse to the nearest
   crossing beyond it (`reach_around_ellipse`, `Reach::AroundEllipse`); a whole ellipse is `Closed`
   and cannot be split or broken.
-- An ellipse or elliptical arc selected alone offsets as a fit-point spline (`offset/around.rs`;
-  `Chain::follows` is false), its fit points the exact offset at even parameter steps, doubled from
-  `FIRST_FIT_POINTS` (a share for an arc) until the centripetal spline strays from the offset by at
-  most `FIT_TOLERANCE` of the ellipse's reach (at most `MAX_FIT_POINTS`); closed for a whole
-  ellipse, open end to end for an arc. Inward past the tightest bend is `Collapses`. The spline has
-  no constraint to the ellipse (none could hold along its length) and the app says it will not
-  follow; an ellipse chosen with other curves is `EllipseNotOffsettable`. `Sketch::curve_crossings`
-  gives where a spline or ellipse crosses another curve.
+- An ellipse, elliptical arc or spline offsets as a fit-point spline (`offset/around.rs`, `Free`;
+  `Chain::follows` is false), its fit points the exact offset at even parameter steps (the
+  curve's parameter for an ellipse, the spline's parameter span for a spline), doubled from
+  `FIRST_FIT_POINTS` (a share for an arc; four per control point for a spline, at most
+  `MAX_FIT_POINTS`) until the centripetal spline strays from the offset by at most `FIT_TOLERANCE`
+  of the curve's reach (at most `MAX_FIT_POINTS`); closed for a whole ellipse or a closed spline,
+  open end to end otherwise. Inward past the tightest bend (sampled signed curvature times the
+  distance reaching one, `collapses_under`) is `Collapses`; a spline whose fitted offset crosses
+  itself (sampled segments properly crossing, `crosses_itself`) is `CrossesItself`. The spline has
+  no constraint to the original (none could hold along its length), so it adds its fit points'
+  degrees of freedom and the app says it will not follow; an open spline's free ends are not held.
+  A spline of any kind (fit or control point) is read as its curve. Such a curve chosen with a
+  chain it touches is `NotInChain`; beside chains it does not touch it is offset with them.
+  `Sketch::curve_crossings` gives where a spline or ellipse crosses another curve.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines, arcs or elliptical arcs end, kept by
   one of its points. `rounding` refuses a radius whose touching point would not lie on a curve
   short of its far end (`TooLarge`). Between lines and arcs the centre is where their offset
@@ -397,7 +468,7 @@ relative to the extent.
   each (curve and a point on it), the corner at the crossing of their carriers nearest the picks
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with
   one shared point there, as trim does (`keeps_length`/`keeps_sweep`, distance dimensions between
-  old ends dropped, unused old ends removed). An end that must move outward is checked as extend
+  old ends dropped, unused old ends removed; midpoints relaxed likewise). An end that must move outward is checked as extend
   checks it (`Held`); an arc or elliptical arc whose crossing lies off it extends its nearer free
   end round its circle or ellipse (by angle or ellipse parameter, as extend's `reach_around_ellipse`
   does), keeping its minor radius. An elliptical arc's carrier is its whole ellipse
@@ -555,11 +626,16 @@ relative to the extent.
   `START_ROLL` above the base circle; a radial line runs to the root circle when the root lies
   below it. The outline (`GearPiece`s in order, each starting where the last ended): tip arc, flank,
   line, fillet, root arc, then the next tooth.
+- A single gear is normally a stored `Gear` (above), not curves: the Spur gear panel and the MCP
+  `gear` operation add one (`Sketch::add_stored_gear`), and sketches written before it keep the
+  free geometry they were drawn as. `Sketch::add_gear` draws the free form, which only tests
+  use now; the rest of this section describes the shape both produce.
 - `Sketch::add_gear` draws it about a `GearCentre`: a free position gets a new point, an existing
   point is shared, the origin gets a point held on it by `Coincident`. Pieces share end points, tip
   and root arcs share the centre, and the pitch, base, root and tip circles are construction
   circles on it, so the outline is one closed profile and the bore a circle inside it. No other
-  constraint: the gear does not follow later changes to its values. The drawing is shared
+  constraint: a gear drawn this way does not follow later changes to its values, as a pair and a
+  sprocket never do. The drawing is shared
   (`Sketch::draw_toothed`: circles, then the closed outline, then the bore), as is the placing of
   the centre (`wheel_centre_position`, `wheel_centre_point`).
 - `SpurGear::outline_turned` turns the whole outline about its centre; the tooth centred on the +x

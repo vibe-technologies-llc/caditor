@@ -276,13 +276,57 @@ impl GearPiece {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GearOutline {
     pub centre: Point2,
+    pub teeth: u32,
     pub circles: GearCircles,
     pub pieces: Vec<GearPiece>,
     pub bore: Option<f64>,
     pub deviation: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GearPieceName {
+    pub tooth: usize,
+    pub segment: usize,
+}
+
+impl GearPiece {
+    fn segment(&self, upper: bool) -> usize {
+        match (self, upper) {
+            (Self::Flank { .. }, true) => 1,
+            (Self::Line { .. }, true) => 2,
+            (Self::Arc { .. }, true) => 3,
+            (Self::Arc { .. }, false) => 5,
+            (Self::Line { .. }, false) => 6,
+            (Self::Flank { .. }, false) => 7,
+        }
+    }
+}
+
 impl GearOutline {
+    pub fn named_pieces(&self) -> Vec<(GearPieceName, &GearPiece)> {
+        let teeth = self.teeth as usize;
+        let per_tooth = self.pieces.len().checked_div(teeth).unwrap_or(0);
+        let upper_count = per_tooth.saturating_sub(2) / 2;
+        self.pieces
+            .iter()
+            .enumerate()
+            .map(|(index, piece)| {
+                let tooth = index / per_tooth.max(1);
+                let within = index % per_tooth.max(1);
+                let segment = if within == 0 {
+                    0
+                } else if within <= upper_count {
+                    piece.segment(true)
+                } else if within == upper_count + 1 {
+                    4
+                } else {
+                    piece.segment(false)
+                };
+                (GearPieceName { tooth, segment }, piece)
+            })
+            .collect()
+    }
+
     pub fn faceted(&self, faceting: Faceting) -> Vec<Vec<Point2>> {
         let bore = self
             .bore
@@ -607,6 +651,22 @@ impl SpurGear {
         Ok((pieces, deviation))
     }
 
+    pub fn check(&self) -> Result<(), GearError> {
+        let involute = self.checked()?;
+        self.check_bore()?;
+        self.half_tooth(&involute).map(|_| ())
+    }
+
+    fn check_bore(&self) -> Result<(), GearError> {
+        if self.bore > 0.0 && self.bore > self.largest_bore() {
+            return Err(GearError::BoreTooLarge {
+                bore: self.bore,
+                largest: self.largest_bore(),
+            });
+        }
+        Ok(())
+    }
+
     pub fn outline(&self, centre: Point2) -> Result<GearOutline, GearError> {
         self.outline_turned(centre, 0.0)
     }
@@ -614,12 +674,7 @@ impl SpurGear {
     pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<GearOutline, GearError> {
         let involute = self.checked()?;
         let circles = self.circles();
-        if self.bore > 0.0 && self.bore > self.largest_bore() {
-            return Err(GearError::BoreTooLarge {
-                bore: self.bore,
-                largest: self.largest_bore(),
-            });
-        }
+        self.check_bore()?;
         if !(centre.is_finite() && centre.length() + circles.tip <= MAX_LENGTH) {
             return Err(GearError::OutOfReach);
         }
@@ -666,6 +721,7 @@ impl SpurGear {
         }
         Ok(GearOutline {
             centre,
+            teeth: self.teeth,
             circles,
             pieces,
             bore: (self.bore > 0.0).then_some(self.bore / 2.0),
@@ -724,6 +780,20 @@ impl Sketch {
             &outline.circles.radii(),
             outline.bore,
         )
+    }
+
+    pub fn add_stored_gear(
+        &mut self,
+        centre: GearCentre,
+        gear: Gear,
+    ) -> Result<EntityId, GearError> {
+        let at = self.wheel_centre_position(centre)?;
+        let held = self.wheel_centre_point(centre, at)?;
+        self.add_parametric_gear(Gear {
+            centre: held,
+            ..gear
+        })
+        .map_err(GearError::Edit)
     }
 
     pub(crate) fn wheel_centre_position(&self, centre: GearCentre) -> Result<Point2, GearError> {
@@ -840,11 +910,14 @@ impl Sketch {
 
 mod pair;
 mod sprocket;
+mod stored;
 
 pub use pair::{DrawnPair, GearPair, PairOutline};
 pub use sprocket::{
     ChainSize, MAX_SPROCKET_TEETH, MIN_SPROCKET_TEETH, Sprocket, SprocketCircles, SprocketOutline,
 };
+pub use stored::{BORE_TOOTH, Gear, GearValueError, GearValues, gear_curve};
+pub(crate) use stored::{gear_curve_gear, same_gear_bits};
 
 #[cfg(test)]
 mod tests;

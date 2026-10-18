@@ -175,6 +175,7 @@ pub struct Received {
 type Failure = fn() -> Error;
 
 pub struct FakeProvider {
+    service: Service,
     account: String,
     workspaces: Vec<Workspace>,
     projects: Vec<Project>,
@@ -200,6 +201,7 @@ impl Default for FakeProvider {
 impl FakeProvider {
     pub fn new() -> Self {
         Self {
+            service: Service::Fusion,
             account: "Ada Lovelace".to_owned(),
             workspaces: Vec::new(),
             projects: Vec::new(),
@@ -215,6 +217,11 @@ impl FakeProvider {
             calls: Mutex::new(Vec::new()),
             polled: AtomicUsize::new(0),
         }
+    }
+
+    pub fn serving(mut self, service: Service) -> Self {
+        self.service = service;
+        self
     }
 
     pub fn account(mut self, name: &str) -> Self {
@@ -330,7 +337,7 @@ impl FakeProvider {
 
 impl Provider for FakeProvider {
     fn service(&self) -> Service {
-        Service::Fusion
+        self.service
     }
 
     fn start_sign_in(&self, redirect: &Redirect) -> Result<SignIn, Error> {
@@ -496,7 +503,7 @@ impl Provider for FakeProvider {
     ) -> Result<u64, Error> {
         self.enter(Step::Fetch, format!("fetch upload {}", upload.id.as_str()))?;
         let bytes = self.stored.get(&upload.id).ok_or(Error::NoStoredFile {
-            service: Service::Fusion,
+            service: self.service,
         })?;
         sink.write_all(bytes)
             .map_err(|error| Error::Write(error.kind()))?;

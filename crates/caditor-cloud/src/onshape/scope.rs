@@ -1,5 +1,5 @@
 use crate::{
-    catalogue::{DesignId, FolderId},
+    catalogue::{DesignId, FolderId, UploadId},
     encoding::percent_encode,
 };
 
@@ -110,6 +110,10 @@ impl Place {
         }
     }
 
+    pub fn is_workspace(&self) -> bool {
+        self.kind == PlaceKind::Workspace
+    }
+
     pub fn path(&self) -> String {
         format!("{}/{}", self.kind.letter(), percent_encode(&self.id))
     }
@@ -183,6 +187,31 @@ impl DesignPlace {
             kind,
             place: Place {
                 kind: place_kind,
+                id: place.to_owned(),
+            },
+            element: element.to_owned(),
+        })
+    }
+}
+
+pub struct UploadPlace {
+    pub place: Place,
+    pub element: String,
+}
+
+impl UploadPlace {
+    pub fn encode(place: &Place, element: &str) -> UploadId {
+        UploadId::new(format!("{}/{}/{element}", place.kind.letter(), place.id))
+    }
+
+    pub fn parse(id: &UploadId) -> Option<Self> {
+        let mut parts = id.as_str().split('/');
+        let kind = PlaceKind::from_letter(parts.next()?)?;
+        let place = parts.next()?;
+        let element = parts.next()?;
+        (parts.next().is_none() && !place.is_empty() && !element.is_empty()).then(|| Self {
+            place: Place {
+                kind,
                 id: place.to_owned(),
             },
             element: element.to_owned(),

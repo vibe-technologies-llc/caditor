@@ -1,6 +1,6 @@
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch, Text};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch, Text, TextAlign};
 
 use crate::{solid_tests::extrude, *};
 
@@ -28,6 +28,7 @@ fn lettering(content: &str, anchor: EntityId, height: Expression) -> Text {
         angle: Expression::measure(0.0, Unit::Degree),
         bold: false,
         italic: false,
+        align: TextAlign::Left,
     }
 }
 
@@ -341,4 +342,84 @@ fn scaling_the_model_scales_a_written_height() {
         .unwrap();
 
     assert_eq!(model.document.expression_text(&held.height), "10 mm");
+}
+
+#[test]
+fn a_second_line_sits_below_the_first_and_leaves_the_names_of_its_letters_alone() {
+    let one = lettered("HI", Plane::XY, millimetres(10.0));
+    let two = lettered("HI\nHI", Plane::XY, millimetres(10.0));
+
+    let single = placed_text(sketch_of(&one.document, one.sketch), one.text).unwrap();
+    let double = placed_text(sketch_of(&two.document, two.sketch), two.text).unwrap();
+    let evaluation = evaluate(&two.document);
+    let (low, high) = letter_bounds(&evaluation, two.sketch);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(
+        single
+            .letters
+            .iter()
+            .map(|letter| letter.position)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(
+        double
+            .letters
+            .iter()
+            .map(|letter| letter.position)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 3, 4]
+    );
+    assert_eq!(double.letters[..2], single.letters[..]);
+    assert!((high.y - 13.0).abs() < 0.2, "{high:?}");
+    assert!(low.y < 3.0 - 10.0 * 1.2, "{low:?}");
+}
+
+#[test]
+fn alignment_hangs_the_lines_about_the_anchor_and_follows_edits() {
+    let mut model = lettered("HHHH\nHH", Plane::XY, millimetres(10.0));
+    let extent = |model: &Lettered| {
+        let evaluation = evaluate(&model.document);
+        assert_eq!(evaluation.failed_count(), 0);
+        letter_bounds(&evaluation, model.sketch)
+    };
+    let left = extent(&model);
+
+    let mut transaction = model.document.transaction("Centre");
+    let held = sketch_of(&model.document, model.sketch)
+        .text(model.text)
+        .cloned()
+        .unwrap();
+    transaction.set_sketch_text(
+        model.sketch,
+        model.text,
+        Text {
+            align: TextAlign::Centre,
+            ..held.clone()
+        },
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let centred = extent(&model);
+
+    let mut transaction = model.document.transaction("Right");
+    transaction.set_sketch_text(
+        model.sketch,
+        model.text,
+        Text {
+            align: TextAlign::Right,
+            ..held
+        },
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let right = extent(&model);
+    let width = left.1.x - left.0.x;
+
+    assert!(left.0.x >= 2.0 - CLOSE);
+    assert!(
+        (centred.0.x - (2.0 - width / 2.0)).abs() < 2.0,
+        "{centred:?}"
+    );
+    assert!((right.1.x - 2.0).abs() < 2.0, "{right:?}");
+    assert!((right.0.x - (2.0 - width)).abs() < 2.0, "{right:?}");
 }

@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, Text};
+use caditor_sketch::{Constraint, Entity, Gear, Text, TextAlign};
 
 use super::*;
 
@@ -282,11 +282,12 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     let text = sketch
         .add_text(Text {
             anchor,
-            content: "Vent".to_owned(),
+            content: "Vent\nHole".to_owned(),
             height: Expression::Parameter(size),
             angle: Expression::measure(45.0, Unit::Degree),
             bold: false,
             italic: true,
+            align: TextAlign::Right,
         })
         .unwrap();
     let clip = sketch.clip(&[text]).unwrap();
@@ -309,8 +310,53 @@ fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
     assert_eq!(same.inlined, 0);
     assert_eq!(elsewhere.inlined, 1);
     assert_eq!(pasted.len(), 1);
-    assert_eq!(pasted[0].content, "Vent");
+    assert_eq!(pasted[0].content, "Vent\nHole");
+    assert_eq!(pasted[0].align, TextAlign::Right);
     assert!(pasted[0].italic);
     assert_eq!(pasted[0].height.to_stored_text(), "7 mm");
     assert_eq!(target.point(pasted[0].anchor), Some(Point2::new(3.0, 1.0)));
+}
+
+#[test]
+fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let module = transaction.add_parameter("module", transaction.parse("2 mm").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = sketch.add_point(Point2::new(3.0, 1.0));
+    let gear = sketch
+        .add_parametric_gear(Gear {
+            centre,
+            module: Expression::Parameter(module),
+            teeth: Expression::number(20.0),
+            pressure_angle: Expression::measure(20.0, Unit::Degree),
+            profile_shift: Expression::number(0.0),
+            root_fillet: Expression::measure(0.5, Unit::Millimetre),
+            bore: Expression::measure(6.0, Unit::Millimetre),
+            turn: Expression::measure(10.0, Unit::Degree),
+        })
+        .unwrap();
+    let clip = sketch.clip(&[gear]).unwrap();
+    let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let source = Source {
+        document,
+        sketch: feature,
+        clip,
+    };
+    let copied = copied_text(&source);
+
+    let same = read_sketch_clipboard(&copied, &source.document, HERE).unwrap();
+    let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
+    let mut target = Sketch::new(Plane::XY);
+    target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+    let pasted: Vec<&Gear> = target.gears().map(|(_, gear)| gear).collect();
+
+    assert_eq!(same.clip.gear_count(), 1);
+    assert_eq!(same.inlined, 0);
+    assert_eq!(elsewhere.inlined, 1);
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(pasted[0].module.to_stored_text(), "2 mm");
+    assert_eq!(pasted[0].teeth, Expression::number(20.0));
+    assert_eq!(target.point(pasted[0].centre), Some(Point2::new(3.0, 1.0)));
 }

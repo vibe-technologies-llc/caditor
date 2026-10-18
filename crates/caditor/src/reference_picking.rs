@@ -7,7 +7,7 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools, draft_tools,
     editing::EditingCommand,
-    helix_tools, hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
+    emboss_tools, helix_tools, hole_panel, hole_placement, hole_tools, image_tools, loft_tools,
     mate_tools::{self, MatePart},
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
@@ -44,6 +44,7 @@ pub enum Slot {
     MirrorPlane,
     SplitPlane,
     SplitDirection,
+    EmbossSketch,
     PatternDirection,
     PatternSecond,
     PatternPath,
@@ -133,6 +134,7 @@ impl Slot {
             | Self::SweepPath
             | Self::LoftProfiles
             | Self::PatternPath
+            | Self::EmbossSketch
             | Self::MateMoving(_) => false,
         }
     }
@@ -288,6 +290,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
              along"
                 .to_owned()
         }
+        Slot::EmbossSketch => "Click the outlines or text of a sketch to emboss".to_owned(),
         Slot::FrameOrigin => {
             "Click a corner, round edge, sphere or torus, sketch point or datum point for its \
              origin"
@@ -437,6 +440,8 @@ pub enum ChangeError {
     #[error(transparent)]
     Solid(#[from] solid_panel::SolidChangeError),
     #[error(transparent)]
+    Emboss(#[from] emboss_tools::EmbossError),
+    #[error(transparent)]
     SplitFace(#[from] split_face_tools::SplitFaceError),
     #[error(transparent)]
     Split(#[from] split_tools::SplitError),
@@ -522,6 +527,10 @@ pub fn change(
         }
         (Slot::SplitPlane, FeatureKind::SplitFace(split)) => {
             split_face_tools::along_change(model, selection, feature, split)
+                .map_err(ChangeError::from)
+        }
+        (Slot::EmbossSketch, FeatureKind::Emboss(emboss)) => {
+            emboss_tools::sketch_change(model, selection, feature, emboss)
                 .map_err(ChangeError::from)
         }
         (Slot::SplitDirection, FeatureKind::SplitFace(split)) => {

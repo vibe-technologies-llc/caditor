@@ -149,6 +149,7 @@ pub enum Command {
     Shell,
     OffsetFace,
     DeleteFace,
+    Emboss,
     MoveFace,
     Draft,
     SplitFace,
@@ -368,6 +369,7 @@ impl Command {
                 | Self::Shell
                 | Self::OffsetFace
                 | Self::DeleteFace
+                | Self::Emboss
                 | Self::MoveFace
                 | Self::Draft
                 | Self::SplitFace
@@ -800,6 +802,7 @@ plain_commands! {
     Shell,
     OffsetFace,
     DeleteFace,
+    Emboss,
     MoveFace,
     Draft,
     SplitFace,
@@ -1102,6 +1105,7 @@ impl Command {
             Self::Shell => "model.shell",
             Self::OffsetFace => "model.offset_face",
             Self::DeleteFace => "model.delete_face",
+            Self::Emboss => "model.emboss",
             Self::MoveFace => "model.move_face",
             Self::Draft => "model.draft",
             Self::SplitFace => "model.split_face",
@@ -1411,6 +1415,7 @@ impl Command {
             Self::Shell => "Shell",
             Self::OffsetFace => "Offset face",
             Self::DeleteFace => "Delete face",
+            Self::Emboss => "Emboss or deboss",
             Self::MoveFace => "Move face",
             Self::Draft => "Draft",
             Self::SplitFace => "Split face",
@@ -1693,6 +1698,16 @@ impl Command {
                 "fill hole",
                 "heal",
             ],
+            Self::Emboss => &[
+                "deboss",
+                "engrave",
+                "relief",
+                "raise text",
+                "recess text",
+                "label",
+                "decal",
+                "wrap",
+            ],
             Self::Hole => &["drill", "bore", "counterbore", "countersink"],
             Self::CurvePattern => &["path pattern", "pattern along a path", "repeat along"],
             Self::PointPattern => &["sketch pattern", "pattern at points", "repeat at"],
@@ -1943,6 +1958,7 @@ impl Command {
             | Self::Shell
             | Self::OffsetFace
             | Self::DeleteFace
+            | Self::Emboss
             | Self::MoveFace
             | Self::Draft
             | Self::SplitFace
@@ -2216,6 +2232,7 @@ impl Command {
             Self::Shell => vec![alt(Key::S)],
             Self::OffsetFace => vec![alt(Key::Q)],
             Self::DeleteFace => vec![alt_shift(Key::Q)],
+            Self::Emboss => vec![alt_shift(Key::Y)],
             Self::MoveFace => vec![alt_shift(Key::J)],
             Self::Draft => Vec::new(),
             Self::SplitFace => vec![alt_shift(Key::K)],

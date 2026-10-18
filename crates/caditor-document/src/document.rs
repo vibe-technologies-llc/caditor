@@ -21,6 +21,7 @@ use crate::{
     delete_face::DeleteFace,
     draft::Draft,
     edit::{Edit, Transaction},
+    emboss::Emboss,
     feature_list::FeatureList,
     helix::Helix,
     hole::Hole,
@@ -150,6 +151,7 @@ pub enum FeatureKind {
     MoveFace(MoveFace),
     Draft(Draft),
     DeleteFace(DeleteFace),
+    Emboss(Emboss),
     SplitFace(SplitFace),
     Primitive(Primitive),
     Pipe(Pipe),
@@ -218,6 +220,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.heap_size(),
             Self::Draft(draft) => draft.heap_size(),
             Self::DeleteFace(delete) => delete.heap_size(),
+            Self::Emboss(emboss) => emboss.heap_size(),
             Self::SplitFace(split) => split.heap_size(),
             Self::Primitive(primitive) => primitive.heap_size(),
             Self::Pipe(pipe) => pipe.heap_size(),
@@ -259,6 +262,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -293,6 +297,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -327,6 +332,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -361,6 +367,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => Some(moving.body),
             Self::Draft(draft) => Some(draft.body),
             Self::DeleteFace(delete) => Some(delete.body),
+            Self::Emboss(emboss) => Some(emboss.body),
             Self::SplitFace(split) => Some(split.body),
             Self::Primitive(primitive) => primitive.operation.target(),
             Self::Pipe(pipe) => pipe.operation.target(),
@@ -423,6 +430,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::Scale(_)
             | Self::Import(_)
             | Self::Remove(_)
@@ -458,6 +466,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::Pipe(_)
             | Self::Loft(_)
             | Self::Coil(_)
@@ -497,6 +506,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
             | Self::Loft(_)
@@ -559,6 +569,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::Pipe(_)
             | Self::Rib(_)
             | Self::Combine(_)
@@ -599,6 +610,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -712,6 +724,7 @@ impl FeatureKind {
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Mirror(_)
@@ -756,6 +769,7 @@ impl FeatureKind {
                 .collect(),
             Self::Rib(rib) => BTreeSet::from([rib.sketch]),
             Self::MoveFace(moving) => moving.sketches(),
+            Self::Emboss(emboss) => emboss.sketch.into_iter().collect(),
             Self::Sketch(_)
             | Self::Draft(_)
             | Self::Blend(_)
@@ -786,6 +800,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -819,6 +834,7 @@ impl FeatureKind {
                     | Self::MoveFace(_)
                     | Self::Draft(_)
                     | Self::DeleteFace(_)
+                    | Self::Emboss(_)
                     | Self::SplitFace(_)
                     | Self::Combine(_)
                     | Self::Move(_)
@@ -838,6 +854,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -872,6 +889,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -906,6 +924,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -954,6 +973,13 @@ impl FeatureKind {
     pub fn delete_face(&self) -> Option<&DeleteFace> {
         match self {
             Self::DeleteFace(delete) => Some(delete),
+            _ => None,
+        }
+    }
+
+    pub fn emboss(&self) -> Option<&Emboss> {
+        match self {
+            Self::Emboss(emboss) => Some(emboss),
             _ => None,
         }
     }
@@ -1016,6 +1042,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1051,6 +1078,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Combine(_)
             | Self::Move(_)
@@ -1086,6 +1114,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1121,6 +1150,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1154,6 +1184,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1189,6 +1220,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1222,6 +1254,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1256,6 +1289,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1290,6 +1324,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1324,6 +1359,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1358,6 +1394,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1392,6 +1429,7 @@ impl FeatureKind {
             | Self::MoveFace(_)
             | Self::Draft(_)
             | Self::DeleteFace(_)
+            | Self::Emboss(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
             | Self::Pipe(_)
@@ -1425,6 +1463,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.parameters(),
             Self::Draft(draft) => draft.parameters(),
             Self::DeleteFace(_) => BTreeSet::new(),
+            Self::Emboss(emboss) => emboss.parameters(),
             Self::Primitive(primitive) => primitive.parameters(),
             Self::Pipe(pipe) => pipe.parameters(),
             Self::Loft(loft) => loft.parameters(),
@@ -1456,6 +1495,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.uses_parameter(parameter),
             Self::Draft(draft) => draft.uses_parameter(parameter),
             Self::DeleteFace(_) => false,
+            Self::Emboss(emboss) => emboss.uses_parameter(parameter),
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
             Self::Pipe(pipe) => pipe.uses_parameter(parameter),
             Self::Loft(loft) => loft.uses_parameter(parameter),
@@ -1501,6 +1541,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.features(),
             Self::Draft(draft) => draft.features(),
             Self::DeleteFace(delete) => delete.features(),
+            Self::Emboss(emboss) => emboss.features(),
             Self::SplitFace(split) => split.features(),
             Self::Primitive(primitive) => primitive.features(),
             Self::Pipe(pipe) => pipe.features(),
@@ -1553,6 +1594,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.origin_features(),
             Self::Draft(draft) => draft.origin_features(),
             Self::DeleteFace(delete) => delete.origin_features(),
+            Self::Emboss(emboss) => emboss.origin_features(),
             Self::SplitFace(split) => split.origin_features(),
             Self::Primitive(primitive) => primitive.origin_features(),
             Self::Pipe(pipe) => pipe.origin_features(),
@@ -1688,6 +1730,7 @@ impl Feature {
             FeatureKind::MoveFace(moving) => Some(moving.body),
             FeatureKind::Draft(draft) => Some(draft.body),
             FeatureKind::DeleteFace(delete) => Some(delete.body),
+            FeatureKind::Emboss(emboss) => Some(emboss.body),
             FeatureKind::SplitFace(split) => Some(split.body),
             FeatureKind::Primitive(primitive) => {
                 Some(primitive.operation.target().unwrap_or(self.id))
@@ -1758,6 +1801,7 @@ impl Feature {
             | FeatureKind::MoveFace(_)
             | FeatureKind::Draft(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::Emboss(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Mirror(_)

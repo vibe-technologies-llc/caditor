@@ -155,11 +155,27 @@ impl SplitFace {
     }
 }
 
-struct Context<'a> {
+pub(crate) struct Context<'a> {
     resolver: Resolver<'a>,
     body: FeatureId,
     body_name: String,
     tool: String,
+}
+
+impl<'a> Context<'a> {
+    pub(crate) fn new(
+        resolver: Resolver<'a>,
+        body: FeatureId,
+        body_name: String,
+        tool: String,
+    ) -> Self {
+        Self {
+            resolver,
+            body,
+            body_name,
+            tool,
+        }
+    }
 }
 
 impl Context<'_> {
@@ -262,7 +278,7 @@ enum Tool<'a> {
     Twice { outlines: Solid, chain: Solid },
 }
 
-fn sketch_result<'a>(
+pub(crate) fn sketch_result<'a>(
     inputs: &'a Inputs<'_>,
     sketch: FeatureId,
 ) -> Result<&'a SketchResult, Failure> {
@@ -338,13 +354,13 @@ fn sketch_tool<'a>(
 }
 
 #[derive(Clone, Copy)]
-enum Unrolled {
+pub(crate) enum Unrolled {
     Cylinder(Cylinder),
     Cone(Cone),
 }
 
 impl Unrolled {
-    fn of(surface: &Surface) -> Option<Self> {
+    pub(crate) fn of(surface: &Surface) -> Option<Self> {
         match surface {
             Surface::Cylinder(cylinder) => Some(Self::Cylinder(*cylinder)),
             Surface::Cone(cone) => Some(Self::Cone(*cone)),
@@ -352,21 +368,21 @@ impl Unrolled {
         }
     }
 
-    fn surface(self) -> Surface {
+    pub(crate) fn surface(self) -> Surface {
         match self {
             Self::Cylinder(cylinder) => cylinder.into(),
             Self::Cone(cone) => cone.into(),
         }
     }
 
-    fn axis(self) -> Vector3 {
+    pub(crate) fn axis(self) -> Vector3 {
         match self {
             Self::Cylinder(cylinder) => cylinder.frame().normal(),
             Self::Cone(cone) => cone.frame().normal(),
         }
     }
 
-    fn round(self) -> Round {
+    pub(crate) fn round(self) -> Round {
         match self {
             Self::Cylinder(_) => Round::Cylinder,
             Self::Cone(_) => Round::Cone,
@@ -393,7 +409,7 @@ pub fn on_one_unrolled_surface(solid: &Solid, faces: &[FaceId]) -> bool {
     found.all(|other| other.is_some_and(|other| first.same(other)))
 }
 
-fn wrapping_surface(
+pub(crate) fn wrapping_surface(
     context: &Context<'_>,
     solid: &Solid,
     faces: &[FaceId],
@@ -442,7 +458,7 @@ fn same_cone(first: &Cone, second: &Cone) -> bool {
         && (first.half_angle().abs() - second.half_angle().abs()).abs() <= SAME_HALF_ANGLE
 }
 
-fn wrap_failure(
+pub(crate) fn wrap_failure(
     context: &Context<'_>,
     sketch: FeatureId,
     unrolled: Unrolled,
@@ -674,7 +690,7 @@ pub(crate) enum Round {
 }
 
 impl Round {
-    fn noun(self) -> &'static str {
+    pub(crate) fn noun(self) -> &'static str {
         match self {
             Self::Cylinder => "cylinder",
             Self::Cone => "cone",

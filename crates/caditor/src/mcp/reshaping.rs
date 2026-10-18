@@ -1,6 +1,6 @@
 use caditor_document::{
-    AxisReference, DeleteFace, Draft, FaceAngle, FeatureId, FeatureKind, MoveFace, Scale, Split,
-    SplitAlong, SplitCarry, SplitFace,
+    AxisReference, DeleteFace, Draft, Emboss, EmbossForm, FaceAngle, FeatureId, FeatureKind,
+    MoveFace, Scale, Split, SplitAlong, SplitCarry, SplitFace,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_kernel::FaceReference;
@@ -8,11 +8,11 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    delete_face_tools, draft_tools,
+    delete_face_tools, draft_tools, emboss_tools,
     mcp::{
         features::{
-            Amount, Built, FeatureError, OffName, added, amount, body_of, face_references, needed,
-            parsed, signed_length, turn,
+            Amount, Built, FeatureError, OffName, added, amount, body_of, face_references, length,
+            needed, parsed, signed_length, sketch_of, turn,
         },
         places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
@@ -74,6 +74,33 @@ pub struct FaceSplitting {
 pub struct FaceDeleting {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbossFormName {
+    Raise,
+    Recess,
+}
+
+impl EmbossFormName {
+    fn form(self) -> EmbossForm {
+        match self {
+            Self::Raise => EmbossForm::Raised,
+            Self::Recess => EmbossForm::Recessed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Embossing {
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub sketch: Option<Named>,
+    pub depth: Option<Amount>,
+    pub form: Option<EmbossFormName>,
     pub name: Option<String>,
 }
 
@@ -322,6 +349,61 @@ pub fn delete_face_built(
         asked.name,
     )
     .telling("body", json!(label)))
+}
+
+pub fn emboss_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Embossing,
+    base: Option<&Emboss>,
+) -> Result<Built, ToolError> {
+    let depth = parsed(session, asked.depth.as_ref(), |session, depth| {
+        length(session, "depth", depth)
+    })?;
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let faces = faces_of(
+        session,
+        body,
+        (
+            asked.faces.as_deref(),
+            base.map(|base| base.faces.as_slice()),
+        ),
+        "emboss",
+    )?;
+    let (sketch, _, _) = sketch_of(
+        session.document(),
+        asked.sketch.as_ref(),
+        base.and_then(|base| base.sketch),
+    )?;
+    let emboss = Emboss {
+        body,
+        faces,
+        sketch: Some(sketch),
+        depth: needed(
+            depth.or_else(|| base.map(|base| base.depth.clone())),
+            "depth",
+        )?,
+        form: asked
+            .form
+            .map(EmbossFormName::form)
+            .or_else(|| base.map(|base| base.form))
+            .unwrap_or_default(),
+    };
+    let label = body_label(session.document(), body);
+    Ok(
+        Built::new(FeatureKind::Emboss(emboss), emboss_tools::TITLE, asked.name)
+            .telling("body", json!(label)),
+    )
+}
+
+pub fn emboss(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: Embossing,
+) -> Result<Answer, ToolError> {
+    let built = emboss_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
 pub fn delete_face(

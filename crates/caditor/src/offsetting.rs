@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
 use caditor_sketch::{Caps, Chain, EntityId, Faceting, OffsetError, Outline, Side, Sketch};
@@ -18,8 +20,8 @@ use crate::{
 pub const PROMPT: &str = "Click on the side and at the distance the offset should run, or type it";
 pub const BOTH_PROMPT: &str =
     "Click at the distance the offset should run on each side, or type it";
-pub const CHOOSE_PROMPT: &str = "Click a line, arc or circle to take its chain, or an ellipse, or \
-                                 select the curves to offset first";
+pub const CHOOSE_PROMPT: &str = "Click a curve to take its chain, or select the curves to offset \
+                                 first";
 pub const FREE_SPLINE: &str = "as a spline that will not follow it";
 pub const TRANSACTION: &str = "Offset curves";
 pub const BOTH_TRANSACTION: &str = "Offset curves to both sides";
@@ -43,7 +45,7 @@ pub enum OffsettingError {
 #[derive(Debug, Clone, Default)]
 pub struct Offsetting {
     mode: OffsetMode,
-    chain: Option<Result<Chain, OffsetError>>,
+    chains: Option<Result<Vec<Chain>, OffsetError>>,
     pointer: Option<Point2>,
     under: Option<EntityId>,
     typed: Option<f64>,
@@ -52,12 +54,12 @@ pub struct Offsetting {
 impl Offsetting {
     pub fn sync(&mut self, sketch: &Sketch, selected: &[EntityId], mode: OffsetMode) {
         self.mode = mode;
-        self.chain = (!selected.is_empty()).then(|| sketch.offset_chain(selected));
+        self.chains = (!selected.is_empty()).then(|| sketch.offset_chains(selected));
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
         self.pointer = pointer.map(|pointer| pointer.sketch);
-        self.under = match self.chain {
+        self.under = match self.chains {
             Some(Ok(_)) => None,
             Some(Err(_)) | None => pointer
                 .and_then(|pointer| trimming::curve_under(sketch, screen, pointer))
@@ -75,35 +77,59 @@ impl Offsetting {
     }
 
     pub fn can_pull(&self) -> bool {
-        matches!(self.chain, Some(Ok(_)))
+        matches!(self.chains, Some(Ok(_)))
     }
 
-    fn chain(&self) -> Option<&Chain> {
-        self.chain.as_ref()?.as_ref().ok()
+    fn chains(&self) -> Option<&[Chain]> {
+        self.chains.as_ref()?.as_ref().ok().map(Vec::as_slice)
     }
 
-    fn side(&self, chain: &Chain) -> Side {
-        self.pointer
-            .map_or(chain.default_side(), |pointer| chain.side_of(pointer))
+    fn side(&self, chain: &Chain, flipped: bool) -> Side {
+        let side = self
+            .pointer
+            .map_or(chain.default_side(), |pointer| chain.side_of(pointer));
+        if flipped { side.other() } else { side }
     }
 
-    fn placement(&self) -> Option<(Side, f64)> {
-        let chain = self.chain()?;
-        let side = self.side(chain);
-        match self.typed {
-            Some(value) if value < 0.0 => Some((side.other(), -value)),
-            Some(value) => Some((side, value)),
-            None => Some((side, chain.distance_to(self.pointer?))),
-        }
+    fn placement(&self) -> Option<Placement> {
+        let chains = self.chains()?;
+        let (flipped, distance) = match self.typed {
+            Some(value) => (value < 0.0, value.abs()),
+            None => {
+                let pointer = self.pointer?;
+                let nearest = chains
+                    .iter()
+                    .map(|chain| chain.distance_to(pointer))
+                    .fold(f64::INFINITY, f64::min);
+                (false, nearest)
+            }
+        };
+        Some(Placement {
+            sides: chains
+                .iter()
+                .map(|chain| (chain.curves(), self.side(chain, flipped)))
+                .collect(),
+            distance,
+        })
     }
 
     fn outlines(&self) -> Option<Result<Vec<Outline>, OffsetError>> {
-        let chain = self.chain()?;
-        let (side, distance) = self.placement()?;
-        Some(match self.mode.caps() {
-            Some(caps) => chain.both_sides(distance, caps),
-            None => chain.outline(side, distance).map(|outline| vec![outline]),
-        })
+        let chains = self.chains()?;
+        let placement = self.placement()?;
+        let mut outlines = Vec::new();
+        for chain in chains {
+            let made = match self.mode.caps() {
+                Some(caps) => chain.both_sides(placement.distance, caps),
+                None => chain
+                    .outline(placement.side_of(chain), placement.distance)
+                    .map(|outline| vec![outline]),
+            };
+            match made {
+                Ok(made) => outlines.extend(made),
+                Err(error) => return Some(Err(error)),
+            }
+        }
+        Some(Ok(outlines))
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
@@ -128,42 +154,45 @@ impl Offsetting {
                 sketch.entity_label(curve)
             ));
         }
-        let chain = match self.chain.as_ref()? {
-            Ok(chain) => chain,
+        let chains = match self.chains.as_ref()? {
+            Ok(chains) => chains,
             Err(error) => return Some(capitalized(&error.to_string())),
         };
-        let subject = subject(sketch, chain);
-        let way = self.way(chain);
+        let subject = subject(sketch, chains);
+        let way = self.way(chains);
+        let free = chains.iter().any(|chain| !chain.follows());
         match (self.placement(), self.outlines()) {
-            (Some((_, distance)), Some(Ok(_))) if !chain.follows() => Some(format!(
-                "Offset {subject} by {}{way} {FREE_SPLINE}",
-                length_text(unit, distance)
+            (Some(placement), Some(Ok(_))) if free => Some(format!(
+                "Offset {subject} by {}{way} {}",
+                length_text(unit, placement.distance),
+                free_spline(chains)
             )),
-            (Some((_, distance)), Some(Ok(_))) => Some(format!(
+            (Some(placement), Some(Ok(_))) => Some(format!(
                 "Offset {subject} by {}{way}",
-                length_text(unit, distance)
+                length_text(unit, placement.distance)
             )),
             (_, Some(Err(error))) => Some(capitalized(&error.to_string())),
             _ => Some(format!("Offset {subject}")),
         }
     }
 
-    fn way(&self, chain: &Chain) -> &'static str {
+    fn way(&self, chains: &[Chain]) -> &'static str {
+        let closed = chains.iter().all(Chain::is_closed);
         match self.mode.caps() {
             None => "",
-            Some(_) if chain.is_closed() => " inside and outside",
+            Some(_) if closed => " inside and outside",
             Some(Caps::Round) => " to both sides with round ends",
             Some(Caps::Flat) => " to both sides with flat ends",
         }
     }
 
     pub fn prompt(&self) -> Prompt {
-        if self.chain().is_some() && self.mode.caps().is_some() {
+        if self.chains().is_some() && self.mode.caps().is_some() {
             Prompt {
                 text: BOTH_PROMPT,
                 hint: Hint::Keys(BOTH_KEYS),
             }
-        } else if self.chain().is_some() {
+        } else if self.chains().is_some() {
             Prompt {
                 text: PROMPT,
                 hint: Hint::Keys(KEYS),
@@ -179,20 +208,20 @@ impl Offsetting {
     pub fn click(&mut self, model: &Model, feature: FeatureId, sketch: &Sketch) -> Outcome {
         if let Some(curve) = self.under {
             let chain = sketch.offset_chain_through(curve);
-            return match sketch.offset_chain(&chain) {
+            return match sketch.offset_chains(&chain) {
                 Ok(_) => Outcome::Select(chain),
                 Err(source) => Outcome::Refused(OffsettingError::Refused { source }.into()),
             };
         }
-        match &self.chain {
-            Some(Ok(chain)) => {
-                let Some((side, distance)) = self.placement() else {
+        match &self.chains {
+            Some(Ok(chains)) => {
+                let Some(placement) = self.placement() else {
                     return Outcome::Nothing;
                 };
-                let Some(value) = Value::pointed(model, distance) else {
+                let Some(value) = Value::pointed(model, placement.distance) else {
                     return Outcome::Nothing;
                 };
-                commit(model, feature, chain, self.mode, side, value).into()
+                commit(model, feature, chains, self.mode, &placement.sides, value).into()
             }
             Some(Err(source)) => Outcome::Refused(
                 OffsettingError::Refused {
@@ -210,8 +239,8 @@ impl Offsetting {
         feature: FeatureId,
         value: Value,
     ) -> Result<Outcome, OffsettingError> {
-        let chain = match &self.chain {
-            Some(Ok(chain)) => chain,
+        let chains = match &self.chains {
+            Some(Ok(chains)) => chains,
             Some(Err(source)) => {
                 return Err(OffsettingError::Refused {
                     source: source.clone(),
@@ -223,18 +252,42 @@ impl Offsetting {
                 });
             }
         };
-        let side = self.side(chain);
-        let (side, value) = if value.millimetres < 0.0 {
-            (side.other(), value.negated())
-        } else {
-            (side, value)
-        };
-        commit(model, feature, chain, self.mode, side, value).map(Outcome::Apply)
+        let flipped = value.millimetres < 0.0;
+        let value = if flipped { value.negated() } else { value };
+        let sides: Sides = chains
+            .iter()
+            .map(|chain| (chain.curves(), self.side(chain, flipped)))
+            .collect();
+        commit(model, feature, chains, self.mode, &sides, value).map(Outcome::Apply)
     }
 }
 
-fn subject(sketch: &Sketch, chain: &Chain) -> String {
-    match chain.curves().as_slice() {
+type Sides = BTreeMap<Vec<EntityId>, Side>;
+
+struct Placement {
+    sides: Sides,
+    distance: f64,
+}
+
+impl Placement {
+    fn side_of(&self, chain: &Chain) -> Side {
+        self.sides
+            .get(&chain.curves())
+            .copied()
+            .unwrap_or_else(|| chain.default_side())
+    }
+}
+
+fn free_spline(chains: &[Chain]) -> &'static str {
+    match chains {
+        [_] => FREE_SPLINE,
+        _ => "with the splines among them not following",
+    }
+}
+
+fn subject(sketch: &Sketch, chains: &[Chain]) -> String {
+    let curves: Vec<EntityId> = chains.iter().flat_map(Chain::curves).collect();
+    match curves.as_slice() {
         [only] => sketch.entity_label(*only),
         curves => count(curves.len(), "curve", "curves"),
     }
@@ -243,12 +296,12 @@ fn subject(sketch: &Sketch, chain: &Chain) -> String {
 fn commit(
     model: &Model,
     feature: FeatureId,
-    chain: &Chain,
+    chains: &[Chain],
     mode: OffsetMode,
-    side: Side,
+    sides: &Sides,
     value: Value,
 ) -> Result<Transaction, OffsettingError> {
-    let curves = chain.curves();
+    let curves: Vec<EntityId> = chains.iter().flat_map(Chain::curves).collect();
     let label = match mode.caps() {
         Some(_) => BOTH_TRANSACTION,
         None => TRANSACTION,
@@ -258,7 +311,12 @@ fn commit(
             Some(caps) => {
                 sketch.offset_both_sides(&curves, value.millimetres, value.expression, caps)
             }
-            None => sketch.offset(&curves, side, value.millimetres, value.expression),
+            None => sketch.offset_each(&curves, value.millimetres, value.expression, |chain| {
+                sides
+                    .get(&chain.curves())
+                    .copied()
+                    .unwrap_or_else(|| chain.default_side())
+            }),
         }
         .map(|_| ())
         .map_err(|source| OffsettingError::Refused { source })

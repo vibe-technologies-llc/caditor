@@ -221,14 +221,10 @@ fn a_corner_shared_by_two_lines_keeps_its_point_as_the_sharp() {
             at: Point2::ZERO
         }
     ));
-    assert!(
-        sketch
-            .constraints()
-            .all(|(_, constraint)| !matches!(constraint, Constraint::Equal(..)))
-    );
+    assert!(has(&sketch, &Constraint::Equal(first, second)));
     let solved = solve(&sketch);
     assert_clean(&solved);
-    assert_eq!(solved.solution.degrees_of_freedom(), freedom + 1);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
 }
 
 #[test]
@@ -1336,4 +1332,173 @@ fn a_selected_line_and_elliptical_arc_keep_their_longer_parts() {
         Point2::new(6.0, -10.0),
     );
     assert_eq!(upright_end, corner.point);
+}
+
+struct Wedge {
+    sketch: Sketch,
+    first: EntityId,
+    second: EntityId,
+    corner: EntityId,
+}
+
+fn wedge() -> Wedge {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(-20.0, 10.0), Point2::ZERO);
+    let (_, corner) = ends(&sketch, first);
+    let far = sketch.add_point(Point2::new(20.0, 10.0));
+    let second = EntityId::from_raw(sketch.next_id());
+    sketch
+        .insert_entity(
+            second,
+            Entity::Line {
+                start: corner,
+                end: far,
+            },
+        )
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: corner,
+            at: Point2::ZERO,
+        })
+        .unwrap();
+    Wedge {
+        sketch,
+        first,
+        second,
+        corner,
+    }
+}
+
+#[test]
+fn a_third_line_equal_to_a_rounded_one_is_freed_while_the_rounded_pair_stay_equal() {
+    let Wedge {
+        mut sketch,
+        first,
+        second,
+        corner,
+    } = wedge();
+    let third = sketch.add_line(
+        Point2::new(30.0, 0.0),
+        Point2::new(30.0, 22.360679774997898),
+    );
+    sketch
+        .add_constraint(Constraint::Equal(first, second))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Equal(first, third))
+        .unwrap();
+
+    sketch
+        .fillet(&sketch.corner_at(corner).unwrap(), 4.0, mm(4.0))
+        .unwrap();
+
+    assert!(has(&sketch, &Constraint::Equal(first, second)));
+    assert!(!has(&sketch, &Constraint::Equal(first, third)));
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn a_chamfer_by_unequal_distances_frees_the_equal_lengths_of_its_corner() {
+    let Wedge {
+        mut sketch,
+        first,
+        second,
+        corner,
+    } = wedge();
+    sketch
+        .add_constraint(Constraint::Equal(first, second))
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let size = ChamferSize::Distances {
+        first: dimensioned(3.0),
+        second: dimensioned(5.0),
+    };
+
+    sketch
+        .chamfer(&sketch.corner_at(corner).unwrap(), &size)
+        .unwrap();
+
+    assert!(!has(&sketch, &Constraint::Equal(first, second)));
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom + 1);
+}
+
+#[test]
+fn a_chamfer_by_one_distance_keeps_the_equal_lengths_of_its_corner() {
+    let Wedge {
+        mut sketch,
+        first,
+        second,
+        corner,
+    } = wedge();
+    sketch
+        .add_constraint(Constraint::Equal(first, second))
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    sketch
+        .chamfer(&sketch.corner_at(corner).unwrap(), &equal(4.0))
+        .unwrap();
+
+    assert!(has(&sketch, &Constraint::Equal(first, second)));
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}
+
+#[test]
+fn a_midpoint_on_a_rounded_line_becomes_a_point_on_it_while_it_stays_on_what_is_left() {
+    let Rectangle {
+        mut sketch,
+        sides,
+        corner,
+        ..
+    } = rectangle();
+    let middle = sketch.add_point(Point2::new(20.0, 0.0));
+    let held = sketch
+        .add_constraint(Constraint::Midpoint {
+            point: middle,
+            curve: sides[0],
+        })
+        .unwrap();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    sketch
+        .fillet(&sketch.corner_at(corner).unwrap(), 5.0, mm(5.0))
+        .unwrap();
+
+    assert_eq!(
+        sketch.constraint(held),
+        Some(&Constraint::Coincident(middle, sides[0]))
+    );
+    let solved = solve(&sketch);
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom + 1);
+}
+
+#[test]
+fn a_midpoint_on_a_rounded_line_is_freed_when_the_round_takes_its_part_of_the_line() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let across = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (_, corner) = ends(&sketch, across);
+    let up = sketch.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 100.0));
+    let (joint, _) = ends(&sketch, up);
+    sketch
+        .add_constraint(Constraint::Coincident(corner, joint))
+        .unwrap();
+    let middle = sketch.add_point(Point2::new(20.0, 0.0));
+    sketch
+        .add_constraint(Constraint::Midpoint {
+            point: middle,
+            curve: across,
+        })
+        .unwrap();
+
+    sketch
+        .fillet(&sketch.corner_at(corner).unwrap(), 30.0, mm(30.0))
+        .unwrap();
+
+    assert!(sketch.constraints_using(middle).is_empty());
 }

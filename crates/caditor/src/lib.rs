@@ -61,6 +61,8 @@ mod drawing;
 mod drawing_export;
 mod drop_target;
 mod editing;
+mod emboss_panel;
+mod emboss_tools;
 mod export;
 mod extrusion_detection;
 mod faceting;

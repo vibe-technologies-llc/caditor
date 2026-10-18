@@ -506,20 +506,18 @@ fn contents(
             }
         }
         Load::Ready(folder) => {
-            if service.receives_files() {
-                let folder_name = state
-                    .trail
-                    .last()
-                    .map_or_else(|| project.name.clone(), |crumb| crumb.name.clone());
-                send_row(
-                    ui,
-                    view,
-                    service,
-                    linked,
-                    (folder, &folder_name, choosing),
-                    outcomes,
-                );
-            }
+            let folder_name = state
+                .trail
+                .last()
+                .map_or_else(|| project.name.clone(), |crumb| crumb.name.clone());
+            send_row(
+                ui,
+                view,
+                service,
+                linked,
+                (folder, &folder_name, choosing),
+                outcomes,
+            );
             ScrollArea::vertical()
                 .id_salt("cloud designs")
                 .max_height(LIST_HEIGHT)
@@ -572,11 +570,14 @@ fn send_row(
 ) {
     let busy = linked.is_sending() || view.sending.preparing.is_some();
     let reason = match (&folder.place, busy, &view.sending.availability) {
-        (None, _, _) => Some(
-            "Open one of the project's folders first; files go inside a folder, not beside \
-             the folders at the top"
+        (None, _, _) => Some(match service {
+            Service::Fusion => "Open one of the project's folders first; files go inside a \
+                                folder, not beside the folders at the top"
                 .to_owned(),
-        ),
+            Service::Onshape => "A saved version cannot be changed; open the document's main \
+                                 workspace or one of its branches"
+                .to_owned(),
+        }),
         (_, true, _) => {
             Some("Another model is being sent; wait for it or cancel it first".to_owned())
         }

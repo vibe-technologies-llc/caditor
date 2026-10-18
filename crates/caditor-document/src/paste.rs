@@ -641,6 +641,10 @@ impl FeatureKind {
                 draft.body = rename(draft.body);
                 rename_plane(&mut draft.neutral, rename);
             }
+            Self::Emboss(emboss) => {
+                emboss.body = rename(emboss.body);
+                emboss.sketch = emboss.sketch.map(rename);
+            }
             Self::MoveFace(moving) => {
                 moving.body = rename(moving.body);
                 for axis in moving.references_mut() {

@@ -9,7 +9,9 @@ pub use skrifa::GlyphId;
 
 pub use crate::{
     font::{Instance, Typeface},
-    layout::{BOLD_WEIGHT, Letter, Lettered, LetteringError, REGULAR_WEIGHT, Style, lettered},
+    layout::{
+        Alignment, BOLD_WEIGHT, Letter, Lettered, LetteringError, REGULAR_WEIGHT, Style, lettered,
+    },
     overlap::{Segment, merged},
 };
 

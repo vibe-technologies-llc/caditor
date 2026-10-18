@@ -37,8 +37,8 @@ a `Transport`; the app never speaks a service's protocol itself.
   are, each with an `UploadFormat` told from its file name: STEP, STL, OBJ, 3MF, DXF, SVG),
   `Version` (a design's saved version, `number` and time), `Translation` and `Download`, whose
   strings only their provider reads. A `Folder` also names its `place`, the `FolderRef` a file can be
-  put in (a Fusion folder's own; none for a project top that lists several folders, and for every
-  Onshape place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name and
+  put in (a Fusion folder's own; none for a project top that lists several folders, and for an
+  Onshape version, which cannot change; an Onshape workspace is its own place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name and
   a `SendOutcome`, `Created` or `NewVersion { number }`) what came of it. Ids are newtypes, never
   positional.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
@@ -46,8 +46,7 @@ a `Transport`; the app never speaks a service's protocol itself.
   `folder`, `versions` (a design's saved versions, newest first; none for a service whose versions
   are folders), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
   `poll_conversion`, `fetch`, `fetch_upload` (an `Upload` streamed as it is stored, with no
-  conversion), `send` (an `Outgoing` into a folder, with progress and stop; Fusion 360 implements
-  it, Onshape answers `Error::SendUnsupported`, and `Service::receives_files` tells the UI) and
+  conversion), `send` (an `Outgoing` into a folder, with progress and stop) and
   `thumbnail`
   (a design's picture as the bytes the service sent, `Ok(None)` when it has none; the default is
   none, so a service without one implements nothing). A service is one variant of `Service`
@@ -58,10 +57,12 @@ a `Transport`; the app never speaks a service's protocol itself.
   the status-to-`Error` mapping, JSON reading, the bearer `get` and the token exchange.
 - `Transport` (`transport.rs`) is `send` (a bounded answer body, JSON or a
   picture's bytes; a request is a GET, POST or PUT whose body is empty, a form, JSON, JSON:API
-  (`application/vnd.api+json`) or bytes) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
+  (`application/vnd.api+json`), bytes or a `Multipart` of text fields and one file, whose boundary
+  is random per upload and whose names reach the headers percent-encoded unless plain ASCII) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
   `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, separate timeouts
-  for answers, downloads and PUT uploads (which also wait for the body to go out), a `caditor/<version>` User-Agent and nothing else identifying.
+  for answers, downloads and uploads (a request carrying bytes or a multipart, which also wait
+  for the body to go out), a `caditor/<version>` User-Agent and nothing else identifying.
 - `Client` (`client.rs`) holds a provider, a transport and the `Session`: it refreshes an
   expiring session once under a lock (so two jobs never spend one refresh token twice), retries a
   call once after a 401 and then says `Error::SignedOut`, and hands each renewed session to a
@@ -153,16 +154,30 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `FolderId` is `w/<id>` or `v/<id>` (`Place`), and `folder` lists that place's elements
   (`.../{w|v}/{id}/elements`), no deeper. A failing branch or version list leaves them out of the
   root, never the designs. A `DesignId` is `<partstudios|assemblies>/<w|v>/<id>/<element>`,
-  since the translation endpoint needs all of them. Drawings, blobs and Part Studio parts are
-  not offered.
+  since the translation endpoint needs all of them. Drawings and Part Studio parts are
+  not offered; a blob element whose name ends in a known `UploadFormat` extension is an `Upload`
+  (`w|v/<id>/<element>`, `UploadPlace`), listed beside the designs, with no date since an element
+  carries none.
 - Import: a `translations` request with `formatName: STEP` and `storeInDocument: false` (the
   document is never changed), `Translation::source` being `<document>/<translation>`, polled until
   `requestState` is `DONE` with a `resultExternalDataIds` entry, then
   `/documents/d/{did}/externaldata/{id}` streamed.
 - The client ID reaches a build as `CADITOR_ONSHAPE_CLIENT_ID` or `DEFAULT_ONSHAPE_CLIENT_ID`, or a
   user types it in Preferences (`cloud.onshape.client_id`, which wins), as for Autodesk.
-- Sending is not implemented (`Error::SendUnsupported`, no request); `docs/FEATURES.md` holds what
-  it would take.
+- Uploaded files: `fetch_upload` streams `/blobelements/d/{did}/{w|v}/{id}/e/{element}` with the
+  bearer.
+- Sending (`Provider::send`) puts the STEP into a document's workspace as a blob element. The root
+  and a branch carry a `place` (`w/<id>`), a version does not (`Error::VersionIsReadOnly` if one is
+  sent to anyway). In order: the workspace's elements are read for a `BLOB` of the same name
+  (trimmed, case-insensitive; a Part Studio of that name never counts); then one multipart `POST
+  /api/v10/blobelements/d/{did}/w/{wid}` (a new element) or `…/e/{eid}` (updating the found blob,
+  which Onshape keeps as a new microversion in its history, so `SendOutcome::NewVersion` has no
+  number) with the file part, `encodedFilename` (the name percent-encoded), `translate=false` and
+  `storeInDocument=true`, so Onshape stores the file as it is and never translates it into a Part
+  Studio. 403 is `SendForbidden`, 401 `SignedOut`. Progress is reported before and after the one
+  request, and stopping works only before it. The fields and endpoints are from Onshape's published
+  import guide and tested only against that shape, never a live server (`docs/DECISIONS.md`). Importing the
+  file as a Part Studio (`translate=true`, polled) is not offered (`docs/FEATURES.md`).
 
 ## The app service (`cloud.rs`)
 
@@ -224,8 +239,7 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `<state>/cloud/outgoing/` on a job, exports the bodies chosen for export as STEP there with the
   ordinary exporter (so its cancel, its left-out rules and its notices apply; a left-out body means
   nothing is sent), and hands the file to `app::perform` through `Files::take_cloud_shipment`,
-  which runs `CloudCommand::Send`. `Cloud::can_send_anywhere` (cloud on, a signed-in service with
-  `receives_files`) gates the `CloudSend` command.
+  which runs `CloudCommand::Send`. `Cloud::can_send_anywhere` (cloud on, a signed-in service) gates the `CloudSend` command.
 - A design's versions (`Linked::versions`, `Load<Vec<Version>>` per `DesignId`) load only when the
   user opens them in the manager (`LoadVersions`; `ReloadVersions` after a failure) and are
   dropped by Refresh and by choosing another hub.
@@ -277,8 +291,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `Service::has_design_versions` (rows of version number, time and Import, the newest marked) and
   the uploaded files after the designs with an icon for their kind (`cloud_parts::upload_icon`:
   a cube for STEP, a polygon for meshes, a vector drawing for DXF and SVG) and an Import
-  (`CloudDialog` keeps one browser per service, with the designs whose versions are open), in a
-  folder of a service that `receives_files` a Send the model here button (primary while the dialog
+  (`CloudDialog` keeps one browser per service, with the designs whose versions are open), in
+  a folder a Send the model here button (primary while the dialog
   was opened by the `CloudSend` command, which also shows a callout; disabled with the reason when
   the folder has no `place`, a send is running or `CloudSendRefusal` applies) with the send's
   progress, Cancel, failure and Try again at the head of the section (`cloud_parts::send_status`),
@@ -332,7 +346,7 @@ dependency builds C.
 `ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket and the client's
 refresh and retry. `ui_tests/home.rs` drives the app with a `FakeProvider` through a real loopback
 sign-in: the page, its order, one-click import into a model, failure and Try again, sending a model
-(a new file, then a new version, nothing sent without a body or from a project top, a refusal and
+(a new file, then a new version, into an Onshape workspace, nothing sent without a body or from a project top, a refusal and
 Try again, the palette command, opt-out), restart, sign-out, opt-out (no call reaches the
 provider), the manager and Preferences. The live handshake
 with Autodesk's hosts is not part of any test; a run needs a registered app.

@@ -13,7 +13,9 @@ use caditor_cloud::{
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
-use caditor_file::{Preview, PreviewSlot, SaveOptions, Settings, read_preview, save_with};
+use caditor_file::{
+    Preview, PreviewSlot, RecentFiles, SaveOptions, Settings, read_preview, save_with,
+};
 use egui::{Key, Modifiers, accesskit::Role};
 use jiff::Timestamp;
 use tempfile::TempDir;
@@ -1544,6 +1546,10 @@ fn saving_stores_a_small_picture_of_the_bodies_and_home_shows_it_next_time() {
     assert!(harness.model.notice().is_none());
     let closing = harness.model.close().unwrap();
     assert!(closing.wait(FILE_TIMEOUT));
+    let state = dir.path().join("state");
+    harness.wait_until("the saved model is remembered", |_| {
+        !RecentFiles::load(&state).paths().is_empty()
+    });
     drop(harness);
 
     let mut restarted = with_cloud(dir.path(), &fusion_provider(b""));
@@ -1660,6 +1666,9 @@ fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
     ));
     assert!(outgoing_files(dir.path()).is_empty());
 
+    harness.wait_until("the folder is listed again", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
     harness.click(cloud_dialog::SEND_HERE);
     harness.wait_until("the model is sent again", |_| {
         provider.received().len() == 2
@@ -1678,6 +1687,49 @@ fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
             .iter()
             .any(|call| call == &format!("send top {}", first.name))
     );
+}
+
+#[test]
+fn the_manager_sends_the_model_into_an_onshape_workspace() {
+    let dir = TempDir::new().unwrap();
+    let workspace = FolderRef {
+        project: ProjectId::new("p1"),
+        folder: FolderId::new("w/main"),
+    };
+    let provider = Arc::new(
+        Arc::into_inner(sendable_provider(Some(workspace.clone()), Vec::new()))
+            .unwrap()
+            .serving(Service::Onshape),
+    );
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    harness.perform(Action::Cloud(CloudCommand::SignIn(Service::Onshape)));
+    harness.wait_until("signed in to Onshape", |harness| {
+        harness.workspace.cloud.linked(Service::Onshape).is_some()
+    });
+    run_from_palette(&mut harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+    harness.wait_until("the sending ends", |harness| {
+        harness
+            .workspace
+            .cloud
+            .linked(Service::Onshape)
+            .is_some_and(|linked| linked.sending.is_none())
+    });
+
+    let sent = provider.received().remove(0);
+    assert_eq!(sent.folder, workspace);
+    assert!(sent.name.ends_with(".step"));
+    assert!(sent.bytes.starts_with(b"ISO-10303-21"));
+    assert!(outgoing_files(dir.path()).is_empty());
 }
 
 #[test]
@@ -1750,12 +1802,11 @@ fn sending_from_the_palette_opens_the_manager_to_choose_a_folder_and_needs_a_sig
     harness.frame();
 
     assert!(harness.workspace.cloud_dialog.is_none());
-    assert!(
-        harness
-            .model
-            .notice()
-            .is_some_and(|notice| notice.text.contains("Sign in to Fusion 360 first"))
-    );
+    assert!(harness.model.notice().is_some_and(|notice| {
+        notice
+            .text
+            .contains("Sign in to Fusion 360 or Onshape first")
+    }));
 
     open_home(&mut harness);
     sign_in(&mut harness);

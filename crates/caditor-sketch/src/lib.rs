@@ -17,6 +17,7 @@ mod id;
 mod inference;
 mod insertion;
 mod intersect;
+mod keeping;
 mod mirror;
 mod offset;
 mod open_ends;
@@ -43,10 +44,10 @@ pub use crate::{
     fillet::{Bevel, ChamferSize, Corner, CrossingPlan, FilletError, Pick, Rounding},
     fit::FittedSpline,
     gear::{
-        ChainSize, DrawnGear, DrawnPair, GearCentre, GearCircles, GearError, GearOutline, GearPair,
-        GearPiece, MAX_PRESSURE_ANGLE, MAX_SPROCKET_TEETH, MAX_TEETH, MIN_PRESSURE_ANGLE,
-        MIN_SPROCKET_TEETH, MIN_TEETH, PairOutline, Sprocket, SprocketCircles, SprocketOutline,
-        SpurGear,
+        BORE_TOOTH, ChainSize, DrawnGear, DrawnPair, Gear, GearCentre, GearCircles, GearError,
+        GearOutline, GearPair, GearPiece, GearPieceName, GearValueError, GearValues,
+        MAX_PRESSURE_ANGLE, MAX_SPROCKET_TEETH, MAX_TEETH, MIN_PRESSURE_ANGLE, MIN_SPROCKET_TEETH,
+        MIN_TEETH, PairOutline, Sprocket, SprocketCircles, SprocketOutline, SpurGear, gear_curve,
     },
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
@@ -63,6 +64,6 @@ pub use crate::{
     split::SplitError,
     tangent_circle::{TangentCircle, TangentError},
     target::{EllipseEnd, PointTarget, Quadrant},
-    text::{MAX_TEXT_CHARS, Text, TextError, TextSize, letter_curve},
+    text::{LINE_BREAK, MAX_TEXT_CHARS, Text, TextAlign, TextError, TextSize, letter_curve},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

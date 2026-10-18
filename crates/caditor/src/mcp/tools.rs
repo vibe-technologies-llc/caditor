@@ -73,6 +73,7 @@ pub enum Tool {
     AddThread,
     AddSplitFace,
     AddDeleteFace,
+    AddEmboss,
     AddMoveFace,
     AddDraft,
     AddSplit,
@@ -136,6 +137,7 @@ all_variants!(
     AddThread,
     AddSplitFace,
     AddDeleteFace,
+    AddEmboss,
     AddMoveFace,
     AddDraft,
     AddSplit,
@@ -290,6 +292,7 @@ impl Tool {
             Self::AddThread => "add_thread",
             Self::AddSplitFace => "add_split_face",
             Self::AddDeleteFace => "add_delete_face",
+            Self::AddEmboss => "add_emboss",
             Self::AddMoveFace => "add_move_face",
             Self::AddDraft => "add_draft",
             Self::AddSplit => "add_split",
@@ -355,6 +358,7 @@ impl Tool {
             Self::AddThread => "Thread",
             Self::AddSplitFace => "Split face",
             Self::AddDeleteFace => "Delete face",
+            Self::AddEmboss => "Emboss or deboss",
             Self::AddMoveFace => "Move face",
             Self::AddDraft => "Draft",
             Self::AddSplit => "Split body",
@@ -584,6 +588,9 @@ impl Tool {
             Self::AddDeleteFace => {
                 "Deletes faces of a body and heals the gap the surrounding faces leave. One undo step."
             }
+            Self::AddEmboss => {
+                "Raises the closed outlines or text of a sketch from faces of a body, or recesses them into it, by a depth: flat faces of one plane take the sketch parallel to them, faces of one cylinder or cone take it wrapped round them. One undo step."
+            }
             Self::AddMoveFace => {
                 "Shifts faces of a body along a direction and tilts them about an axis, the faces around them extending or trimming to follow, as on an imported body with no history. One undo step."
             }
@@ -647,6 +654,7 @@ impl Tool {
             | Self::AddThread
             | Self::AddSplitFace
             | Self::AddDeleteFace
+            | Self::AddEmboss
             | Self::AddMoveFace
             | Self::AddDraft
             | Self::AddSplit
@@ -844,6 +852,7 @@ impl Tool {
             Self::AddThread => sweep_schemas::thread(),
             Self::AddSplitFace => sweep_schemas::split_face(),
             Self::AddDeleteFace => sweep_schemas::delete_face(),
+            Self::AddEmboss => sweep_schemas::emboss(),
             Self::AddMoveFace => sweep_schemas::move_face(),
             Self::AddDraft => sweep_schemas::draft(),
             Self::AddSplit => sweep_schemas::split(),
@@ -930,6 +939,7 @@ impl Tool {
             Self::AddThread => Call::AddThread(self.arguments(arguments)?),
             Self::AddSplitFace => Call::AddSplitFace(self.arguments(arguments)?),
             Self::AddDeleteFace => Call::AddDeleteFace(self.arguments(arguments)?),
+            Self::AddEmboss => Call::AddEmboss(self.arguments(arguments)?),
             Self::AddMoveFace => Call::AddMoveFace(self.arguments(arguments)?),
             Self::AddDraft => Call::AddDraft(self.arguments(arguments)?),
             Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
@@ -1002,6 +1012,7 @@ pub enum Call {
     AddThread(sweeps::Threading),
     AddSplitFace(reshaping::FaceSplitting),
     AddDeleteFace(reshaping::FaceDeleting),
+    AddEmboss(reshaping::Embossing),
     AddMoveFace(reshaping::FaceMoving),
     AddDraft(reshaping::FaceDrafting),
     AddSplit(reshaping::Splitting),
@@ -1073,6 +1084,7 @@ impl Call {
             Self::AddThread(threading) => sweeps::thread(session, work, threading),
             Self::AddSplitFace(splitting) => reshaping::split_face(session, work, splitting),
             Self::AddDeleteFace(deleting) => reshaping::delete_face(session, work, deleting),
+            Self::AddEmboss(embossing) => reshaping::emboss(session, work, embossing),
             Self::AddMoveFace(moving) => reshaping::move_face(session, work, moving),
             Self::AddDraft(drafting) => reshaping::draft(session, work, drafting),
             Self::AddSplit(splitting) => reshaping::split(session, work, splitting),

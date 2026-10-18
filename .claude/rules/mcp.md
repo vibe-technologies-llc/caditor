@@ -131,7 +131,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
-  needing curves of a sketch), delete face, move face (`add_move_face`: a signed `distance`
+  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, a `depth` and a `form` of `raise` or
+  `recess`), move face (`add_move_face`: a signed `distance`
   along `direction`, `"normal"` or an axis as `places::axis` takes it, and an `angle` about `axis`,
   `"none"` or an axis; an edit keeps what it is not given), draft (`add_draft`: `faces`, an
   `angle`, a `neutral` plane as `places::plane` takes it, else `draft_tools::default_neutral_on`,
@@ -204,7 +205,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   shown positions, as `trimming::working`) through `reshape_sketch`, settled first, with the
   sketch crate's operations and the app tools' labels: trim (pieces found again by their middle on
   whichever curve carries them, `trimming::carrier`, as a trim path), extend (by the end point or a
-  position by it), offset (a chain, `whole_chain` as a click takes it, side by `toward` or the
+  position by it), offset (any number of chains, `whole_chain` as a click takes it, each side by `toward` or its
   default, a negative distance the other side, `both_sides` with round or flat caps), mirror,
   rectangular and circular patterns (`patterning::turned`, `square_to`), fillet and chamfer of
   corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build
@@ -228,7 +229,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   evenly spaced) and insert_control_point (`splines`, and `point` with a single one;
   `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
-  `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel) and copy (`Sketch::clip`
+  `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel; a single gear is stored
+  with literal expressions, a pair and a sprocket drawn as curves; `get_sketch` does not list
+  stored gears or texts) and copy (`Sketch::clip`
   then `paste`, within the sketch shifted by `clipboard::same_sketch_shift` or from `from_sketch`
   in place, `by` or `to` moving it) are `sketch_additions.rs`, each with its tool's transaction
   label. Lengths and angles are

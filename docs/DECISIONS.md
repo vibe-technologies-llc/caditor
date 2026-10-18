@@ -41,7 +41,10 @@ decision recorded in `docs/` before work starts.
   on the token and refresh requests) and does not mention PKCE, and no live handshake has been run:
   `onshape.rs` signs in with PKCE and no secret, as Fusion does. Register the application, try it,
   and if Onshape refuses a secretless exchange decide between API keys typed in Preferences and a
-  small token-exchange service; a secret is never shipped in the binary.
+  small token-exchange service; a secret is never shipped in the binary. The same run should
+  confirm sending (`cloud.md`): that `POST /blobelements/d/{did}/w/{wid}` with `file`,
+  `encodedFilename`, `translate=false` and `storeInDocument=true` stores the STEP file as a blob
+  element named after the file, and that the same call on `/e/{eid}` updates it.
 - [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
   running app listens on for MCP clients (a local socket or named pipe per user, or streamable
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once

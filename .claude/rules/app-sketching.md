@@ -371,9 +371,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Trim's primary drag is a trim path: every piece the path crosses is trimmed on release in crossing
   order as one transaction, each found again by its middle on whichever curve now carries it after
   earlier splits. Extend ignores drags.
-- Offset works on the selected chain; with none, a click on a curve selects its chain. The pointer's
-  side and distance choose side and distance, previewed live; an ellipse's words end
-  `offsetting::FREE_SPLINE`, since its offset spline does not follow it (`sketch.md`). `OffsetMode`
+- Offset works on the selected chains (`Sketch::offset_chains`, any number); with none, a click on a
+  curve selects its chain. The pointer's side (per chain) and the distance to the nearest chain
+  choose side and distance, previewed live for every chain, a typed negative value flipping every
+  side, committed by `Sketch::offset_each` as one transaction; the words of an offset that
+  includes an ellipse or spline end `offsetting::FREE_SPLINE` (several chains: that the splines
+  among them will not follow), since its offset spline does not follow it (`sketch.md`). `OffsetMode`
   (one side, both sides with round ends, both with flat ends): the both ways put the distance on each
   side (pointer side irrelevant, a negative typed value its magnitude) as one "Offset curves to both
   sides" transaction (`Sketch::offset_both_sides`). Mirror copies the selection about the line or axis
@@ -408,7 +411,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   pair of meshing gears or a roller chain sprocket (`sketch.md`, Spur gears). While active, the Spur
   gear panel (`gear_panel.rs`, a right-hand panel closing back to Select) opens with a segmented
   control for the `GearKind` (Single gear, Gear pair, Sprocket) and holds that kind's fields
-  (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet and Bore for a gear,
+  (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet, Bore and Rotation
+  for a gear,
   with Meshing teeth and Meshing bore for a pair, and a Chain combo (`ChainSize::ALL`) with Teeth and
   Bore for a sprocket (teeth from `MIN_SPROCKET_TEETH`). They are text fields
   (`patterning::quantity`: units and expressions with parameters), kept in `Modifying`
@@ -417,13 +421,27 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   under it (origin included) or where it is, a pair's second gear to the right of the first; a click
   draws them there; Enter or the panel's primary button draws at the one selected point, else the
   origin; Space or Enter on a highlighted point draws there. One "Draw spur gear", "Draw gear pair" or
-  "Draw sprocket" transaction (`Part::transaction`).
+  "Draw sprocket" transaction (`Part::transaction`). A single gear is stored (`Part::Gear(Spur)`:
+  the numbers for the preview and the panel's diameters, and the `Gear` of typed expressions;
+  `Sketch::add_stored_gear` puts it on its centre, a new point `Coincident` with the origin when
+  that is the origin), a pair and a sprocket are drawn as free curves.
+- Started with one gear selected (`GearSettings::begin`), the tool edits it: the panel loads its
+  values (`GearSettings::load`, expressions shown with parameter names, an empty bore as empty),
+  hides the kind choice, the canvas previews and writes nothing, and the primary button "Update
+  Gear N" applies one "Edit spur gear" `SetSketchGear` keeping the centre; "Draw a new gear
+  instead" drops the edit. A gear is drawn, picked and selected as one `SketchShape` under its id
+  (`scene::sketch_shapes`: its pieces and bore solid, its four circles dashed, coloured by its
+  centre's state), kept by the selection while the sketch has it (`Pickable::is_available`),
+  deleted with Delete through `remove_sketch_items` and dragged by its centre (`ViewportState`
+  grabs the centre for a gear).
 - Text (`Tool::Text`, `texting.rs`; Polygon's corner menu, the palette's "Write or edit sketch
-  text") writes a line of text (`sketch.md`, Text). While active the Text panel (`text_panel.rs`,
-  a right-hand panel closing back to Select) holds Text, Height and Angle fields and Bold and
+  text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
+  (`text_panel.rs`, a right-hand panel closing back to Select) holds a multi-line Text field
+  (Enter starts a line; `\r` from a paste is normalised to `\n` when evaluated), Height and Angle
+  fields, an Align segmented control (Left, Centre, Right: `widgets::segmented`) and Bold and
   Italic checkboxes, kept in `Modifying` (`TextSettings`) while caditor runs; Height and Angle are
   `patterning::quantity` fields kept as typed expressions, Text is checked by
-  `Text::check_content`, and the panel names letters Inter lacks in a warning callout. Placing
+  `Text::check_content`, labels show a text's lines joined by " / ", and the panel names letters Inter lacks in a warning callout. Placing
   works as the gear's does: the letters preview on the point under the pointer (origin included) or
   where it is, a click writes there (a new point when free, a new point `Coincident` with the origin
   there), Enter or the panel's primary button writes at the one selected point, else the origin. One

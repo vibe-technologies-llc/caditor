@@ -29,7 +29,7 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     blend_tools::{self, ChosenEdges},
-    delete_face_tools, draft_tools,
+    delete_face_tools, draft_tools, emboss_tools,
     model::Waker,
     move_face_tools, offset_face_tools,
     selection::Pickable,
@@ -656,6 +656,7 @@ pub enum FaceChoice {
     Opening,
     Moving { tangent: bool },
     Deleting,
+    Embossing,
     Splitting,
 }
 
@@ -782,6 +783,22 @@ impl OpenChoice {
                     references: deletion.faces.clone(),
                     opened: delete_face_tools::deleted_faces(solid, deletion),
                     choice: FaceChoice::Deleting,
+                },
+            },
+            Some(FeatureKind::Emboss(emboss)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Embossing,
+                }) if references == emboss.faces => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Embossing,
+                },
+                _ => Self::Faces {
+                    references: emboss.faces.clone(),
+                    opened: emboss_tools::chosen_faces(solid, emboss),
+                    choice: FaceChoice::Embossing,
                 },
             },
             Some(FeatureKind::SplitFace(split)) => match previous {

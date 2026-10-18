@@ -7,6 +7,7 @@ use crate::{encoding::base64_url, error::Error};
 
 const VERIFIER_BYTES: usize = 32;
 const STATE_BYTES: usize = 16;
+const BOUNDARY_BYTES: usize = 18;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Verifier(String);
@@ -37,6 +38,10 @@ impl std::fmt::Debug for Verifier {
 
 pub fn state() -> Result<String, Error> {
     random_text::<STATE_BYTES>()
+}
+
+pub fn boundary() -> Result<String, Error> {
+    Ok(format!("caditor{}", random_text::<BOUNDARY_BYTES>()?))
 }
 
 fn random_text<const BYTES: usize>() -> Result<String, Error> {

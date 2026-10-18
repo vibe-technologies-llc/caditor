@@ -6,6 +6,7 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use crate::{
     constraint::Constraint,
     entity::Entity,
+    gear::Gear,
     id::{ConstraintId, EntityId},
     sketch::{Sketch, SketchError},
     text::Text,
@@ -17,6 +18,7 @@ pub struct SketchClip {
     construction: BTreeSet<EntityId>,
     constraints: Vec<(Constraint, bool)>,
     texts: Vec<Text>,
+    gears: Vec<Gear>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -47,12 +49,17 @@ impl SketchClip {
         self.texts.len()
     }
 
+    pub fn gear_count(&self) -> usize {
+        self.gears.len()
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
         self.constraints
             .iter()
             .filter_map(|(constraint, _)| constraint.dimension())
             .flat_map(|value| value.parameters())
             .chain(self.texts.iter().flat_map(Text::parameters))
+            .chain(self.gears.iter().flat_map(Gear::parameters))
             .collect()
     }
 
@@ -91,6 +98,7 @@ impl SketchClip {
             .values()
             .flat_map(Entity::points)
             .chain(self.texts.iter().map(|text| text.anchor))
+            .chain(self.gears.iter().map(|gear| gear.centre))
             .collect();
         self.entities
             .iter()
@@ -103,12 +111,20 @@ impl Sketch {
     pub fn clip(&self, items: &[EntityId]) -> Result<SketchClip, ClipError> {
         let mut entities = BTreeMap::new();
         let mut texts = Vec::new();
+        let mut gears = Vec::new();
         for item in items.iter().filter(|item| !item.is_reference()) {
             if let Some(text) = self.text(*item)
                 && let Some(anchor) = self.entity(text.anchor)
             {
                 entities.insert(text.anchor, anchor.clone());
                 texts.push(text.clone());
+                continue;
+            }
+            if let Some(gear) = self.gear(*item)
+                && let Some(centre) = self.entity(gear.centre)
+            {
+                entities.insert(gear.centre, centre.clone());
+                gears.push(gear.clone());
                 continue;
             }
             let Some(entity) = self.entity(*item) else {
@@ -144,6 +160,7 @@ impl Sketch {
             construction,
             constraints,
             texts,
+            gears,
         })
     }
 
@@ -216,6 +233,13 @@ impl Sketch {
             })?;
             curves.push(id);
         }
+        for gear in &clip.gears {
+            let id = working.add_parametric_gear(Gear {
+                centre: rename(&renamed, gear.centre),
+                ..gear.clone()
+            })?;
+            curves.push(id);
+        }
         *self = working;
         let lone = clip.lone_points().map(|point| rename(&renamed, point));
         Ok(curves.into_iter().chain(lone).collect())
@@ -228,6 +252,7 @@ mod tests {
     use caditor_geometry::Plane;
 
     use super::*;
+    use crate::TextAlign;
 
     #[test]
     fn a_copied_text_is_pasted_on_a_copy_of_its_point() {
@@ -241,6 +266,7 @@ mod tests {
                 angle: Expression::Measure(0.0, Unit::Degree),
                 bold: true,
                 italic: false,
+                align: TextAlign::Left,
             })
             .unwrap();
 

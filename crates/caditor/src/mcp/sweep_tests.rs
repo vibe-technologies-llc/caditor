@@ -292,6 +292,43 @@ fn faces_are_moved_along_their_normal_or_an_axis() {
     client.finish();
 }
 
+#[test]
+fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
+    let top = faces_of(&mut client, &block)
+        .into_iter()
+        .find(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
+        .unwrap();
+    let (label, _) = sketch_on(
+        &mut client,
+        json!({ "plane": "XY" }),
+        json!([{ "kind": "rectangle", "corner": [-3, 2], "opposite": [3, 8] }]),
+    );
+
+    let emboss = added(
+        &mut client,
+        "add_emboss",
+        json!({ "body": block, "faces": [top["face"]], "sketch": label, "depth": 1 }),
+    );
+    assert!(close(total_volume(&mut client), 1036.0));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": emboss, "form": "recess", "depth": 2 }),
+    );
+    assert!(close(total_volume(&mut client), 928.0));
+
+    let refused = client.tool_error(
+        "add_emboss",
+        json!({ "body": block, "faces": [], "sketch": label, "depth": 1 }),
+    );
+    assert!(refused.contains("faces to emboss"), "{refused}");
+    client.finish();
+}
+
 fn drafted_block(sides: [f64; 4]) -> f64 {
     let [east, west, north, south] = sides.map(|degrees: f64| degrees.to_radians().tan());
     let area = |z: f64| (10.0 - (east + west) * z) * (10.0 - (north + south) * z);

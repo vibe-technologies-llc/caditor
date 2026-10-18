@@ -8,7 +8,7 @@ use serde_json::json;
 
 use crate::{
     blend_curving, clipboard,
-    gearing::Part,
+    gearing::{Part, Spur},
     mcp::{
         references::{self, EntityName, Named},
         session::Session,
@@ -216,7 +216,7 @@ fn part_of(session: &Session, asked: &Gearing) -> Result<Part, ToolError> {
             partner_teeth: asked.meshing_teeth.unwrap_or(DEFAULT_PAIR_TEETH),
             partner_bore: bore_of(session, "meshing_bore", asked.meshing_bore.as_ref())?,
         }),
-        GearShape::Gear | GearShape::Sprocket => Part::Gear(gear),
+        GearShape::Gear | GearShape::Sprocket => Part::Gear(Box::new(Spur::literal(gear))),
     })
 }
 

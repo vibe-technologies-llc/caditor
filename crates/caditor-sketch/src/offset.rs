@@ -14,6 +14,7 @@ use crate::{
     intersect::{self, Carrier, Shape},
     offset::around::Around,
     sketch::{Sketch, SketchError},
+    target::PointTarget,
 };
 
 const TOLERANCE: f64 = 1e-7;
@@ -25,16 +26,16 @@ const SIDE_SEGMENT_ANGLE: f64 = PI / 90.0;
 pub enum OffsetError {
     #[error("select the lines, arcs or circles to offset")]
     NothingSelected,
-    #[error("{label} cannot be offset; only lines, arcs and circles can")]
-    NotOffsettable { entity: EntityId, label: String },
     #[error(
-        "{label} can only be offset on its own: its offset is a spline, which does not join a \
-         chain of lines and arcs"
+        "{label} can only be offset on its own or beside curves it does not touch: its offset is \
+         a spline, which does not join a chain"
     )]
-    EllipseNotOffsettable { entity: EntityId, label: String },
+    NotInChain { entity: EntityId, label: String },
     #[error("{label} has no length to offset")]
     NoLength { entity: EntityId, label: String },
-    #[error("three or more of the selected curves meet at one point; offset one chain at a time")]
+    #[error(
+        "three or more of the selected curves meet at one point; select chains that do not branch"
+    )]
     Branches,
     #[error("the selected curves form {count} separate chains; offset one chain at a time")]
     SeveralChains { count: usize },
@@ -618,7 +619,7 @@ impl Chain {
 
     fn outline_points(&self) -> Vec<Point2> {
         if let Some(around) = &self.around {
-            return around.shape.polyline(SIDE_SEGMENT_ANGLE);
+            return around.polyline(SIDE_SEGMENT_ANGLE);
         }
         let mut points = Vec::new();
         for element in &self.elements {
@@ -1268,6 +1269,16 @@ struct End {
 
 impl Sketch {
     pub fn offset_chain(&self, curves: &[EntityId]) -> Result<Chain, OffsetError> {
+        let mut chains = self.offset_chains(curves)?;
+        if chains.len() > 1 {
+            return Err(OffsetError::SeveralChains {
+                count: chains.len(),
+            });
+        }
+        chains.pop().ok_or(OffsetError::NothingSelected)
+    }
+
+    pub fn offset_chains(&self, curves: &[EntityId]) -> Result<Vec<Chain>, OffsetError> {
         let picked: BTreeSet<EntityId> = curves
             .iter()
             .copied()
@@ -1281,37 +1292,72 @@ impl Sketch {
         if picked.is_empty() {
             return Err(OffsetError::NothingSelected);
         }
-        if picked.len() == 1
-            && let Some(around) = picked.first().and_then(|only| self.around(*only))
-        {
-            return Ok(Chain {
+        let mut free = Vec::new();
+        let mut elements = Vec::new();
+        for curve in &picked {
+            match self.around(*curve) {
+                Some(around) => free.push(around),
+                None => elements.push(self.offset_element(*curve)?),
+            }
+        }
+        self.refuse_joined(&elements, &free)?;
+
+        let mut chains: Vec<Chain> = free
+            .into_iter()
+            .map(|around| Chain {
                 elements: Vec::new(),
                 labels: vec![self.entity_label(around.curve)],
                 closed: around.closed(),
                 around: Some(around),
-            });
+            })
+            .collect();
+        let (circles, others): (Vec<Element>, Vec<Element>) = elements
+            .into_iter()
+            .partition(|element| matches!(element.course, Course::Circle { .. }));
+        chains.extend(
+            circles
+                .into_iter()
+                .map(|circle| self.chain_of(vec![circle], true)),
+        );
+        let links = linked_ends(&element_ends(&others), scale_of(&others))?;
+        for group in groups(others.len(), &links) {
+            let members: Vec<Element> = group
+                .into_iter()
+                .filter_map(|index| others.get(index).copied())
+                .collect();
+            let member_links = linked_ends(&element_ends(&members), scale_of(&members))?;
+            chains.push(self.walk(members, &member_links)?);
         }
-        let elements: Vec<Element> = picked
+        chains.sort_by_key(|chain| chain.curves().into_iter().min());
+        Ok(chains)
+    }
+
+    fn refuse_joined(&self, elements: &[Element], free: &[Around]) -> Result<(), OffsetError> {
+        let tolerance = TOLERANCE * scale_of(elements);
+        let element_ends: Vec<Point2> = elements
             .iter()
-            .map(|curve| self.offset_element(*curve))
-            .collect::<Result<_, _>>()?;
-        let circles = elements
-            .iter()
-            .filter(|element| matches!(element.course, Course::Circle { .. }))
-            .count();
-        if circles > 0 && elements.len() > 1 {
-            let others = elements.len() - circles;
-            let count = circles + usize::from(others > 0);
-            return Err(OffsetError::SeveralChains {
-                count: count.max(2),
-            });
+            .filter(|element| !matches!(element.course, Course::Circle { .. }))
+            .flat_map(|element| [element.course.start(), element.course.end()])
+            .collect();
+        for (index, around) in free.iter().enumerate() {
+            let other_ends = free
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .flat_map(|(_, other)| other.ends());
+            let others: Vec<Point2> = element_ends.iter().copied().chain(other_ends).collect();
+            let joined = around
+                .ends()
+                .into_iter()
+                .any(|end| others.iter().any(|other| other.distance(end) <= tolerance));
+            if joined {
+                return Err(OffsetError::NotInChain {
+                    entity: around.curve,
+                    label: self.entity_label(around.curve),
+                });
+            }
         }
-        if circles == 1 {
-            return Ok(self.chain_of(elements, true));
-        }
-        let ends = element_ends(&elements);
-        let links = linked_ends(&ends, scale_of(&elements))?;
-        self.walk(elements, &links)
+        Ok(())
     }
 
     pub fn offset_chain_through(&self, curve: EntityId) -> Vec<EntityId> {
@@ -1363,14 +1409,26 @@ impl Sketch {
         distance: f64,
         value: Expression,
     ) -> Result<Vec<EntityId>, OffsetError> {
-        let chain = self.offset_chain(curves)?;
-        let outline = chain.outline(side, distance)?;
+        self.offset_each(curves, distance, value, |_| side)
+    }
+
+    pub fn offset_each(
+        &mut self,
+        curves: &[EntityId],
+        distance: f64,
+        value: Expression,
+        side: impl Fn(&Chain) -> Side,
+    ) -> Result<Vec<EntityId>, OffsetError> {
+        let chains = self.offset_chains(curves)?;
         let mut working = self.clone();
-        let added = match &outline.fitted {
-            Some(points) => working.add_fitted(&chain, points),
-            None => working.add_offset(&chain, &outline, value),
+        let mut added = Vec::new();
+        for chain in &chains {
+            let outline = chain.outline(side(chain), distance)?;
+            let made = working
+                .add_outline(chain, &outline, value.clone())
+                .map_err(OffsetError::Edit)?;
+            added.extend(made);
         }
-        .map_err(OffsetError::Edit)?;
         *self = working;
         Ok(added)
     }
@@ -1382,17 +1440,16 @@ impl Sketch {
         value: Expression,
         caps: Caps,
     ) -> Result<Vec<EntityId>, OffsetError> {
-        let chain = self.offset_chain(curves)?;
-        let outlines = chain.both_sides(distance, caps)?;
+        let chains = self.offset_chains(curves)?;
         let mut working = self.clone();
         let mut added = Vec::new();
-        for outline in &outlines {
-            let made = match &outline.fitted {
-                Some(points) => working.add_fitted(&chain, points),
-                None => working.add_offset(&chain, outline, value.clone()),
+        for chain in &chains {
+            for outline in &chain.both_sides(distance, caps)? {
+                let made = working
+                    .add_outline(chain, outline, value.clone())
+                    .map_err(OffsetError::Edit)?;
+                added.extend(made);
             }
-            .map_err(OffsetError::Edit)?;
-            added.extend(made);
         }
         for curve in &added {
             working
@@ -1401,6 +1458,18 @@ impl Sketch {
         }
         *self = working;
         Ok(added)
+    }
+
+    fn add_outline(
+        &mut self,
+        chain: &Chain,
+        outline: &Outline,
+        value: Expression,
+    ) -> Result<Vec<EntityId>, SketchError> {
+        match &outline.fitted {
+            Some(points) => self.add_fitted(chain, points),
+            None => self.add_offset(chain, outline, value),
+        }
     }
 
     fn offset_element(&self, curve: EntityId) -> Result<Element, OffsetError> {
@@ -1452,14 +1521,8 @@ impl Sketch {
                     Course::Circle { center: at, radius },
                 )
             }
-            Entity::Spline { .. } => {
-                return Err(OffsetError::NotOffsettable {
-                    entity: curve,
-                    label: label(),
-                });
-            }
-            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
-                return Err(OffsetError::EllipseNotOffsettable {
+            Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                return Err(OffsetError::NotInChain {
                     entity: curve,
                     label: label(),
                 });
@@ -1496,7 +1559,7 @@ impl Sketch {
                 .copied()
                 .flatten()
         };
-        let components = components(count, links);
+        let components = groups(count, links).len();
         if components > 1 {
             return Err(OffsetError::SeveralChains { count: components });
         }
@@ -1581,6 +1644,9 @@ impl Sketch {
                     value: value.clone(),
                 })?;
             }
+        }
+        if !chain.closed && !outline.closed {
+            self.hold_free_ends(chain, &made)?;
         }
         let count = made.len();
         let closing = outline.closed.then(|| count.saturating_sub(1));
@@ -1725,6 +1791,55 @@ impl Sketch {
         Ok(())
     }
 
+    fn hold_free_ends(&mut self, chain: &Chain, made: &[Piece]) -> Result<(), SketchError> {
+        let ends = [
+            (ChainEnd::Start, made.first().and_then(|piece| piece.first)),
+            (ChainEnd::End, made.last().and_then(|piece| piece.last)),
+        ];
+        for (end, free) in ends {
+            if let (Some((source, element)), Some(free)) = (chain.end_point(end), free) {
+                self.hold_end_on_normal(element, source, free)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn hold_end_on_normal(
+        &mut self,
+        element: &Element,
+        source: EntityId,
+        free: EntityId,
+    ) -> Result<(), SketchError> {
+        match element.course {
+            Course::Line { .. } => {
+                self.add_constraint(Constraint::OnDirection {
+                    point: free,
+                    through: PointTarget::Point(source),
+                    line: element.curve,
+                    square: true,
+                })?;
+            }
+            Course::Arc { .. } => {
+                let center = element
+                    .center
+                    .ok_or(SketchError::NoSuchEntity(element.curve))?;
+                let radius = self.add_entity(Entity::Line {
+                    start: center,
+                    end: source,
+                })?;
+                self.set_construction(radius, true)?;
+                self.add_constraint(Constraint::OnDirection {
+                    point: free,
+                    through: PointTarget::Point(center),
+                    line: radius,
+                    square: false,
+                })?;
+            }
+            Course::Circle { .. } => {}
+        }
+        Ok(())
+    }
+
     fn join_offset_parts(
         &mut self,
         made: &[Piece],
@@ -1824,28 +1939,31 @@ fn linked_ends(ends: &[End], scale: f64) -> Result<Vec<Option<usize>>, OffsetErr
         .collect()
 }
 
-fn components(count: usize, links: &[Option<usize>]) -> usize {
+fn groups(count: usize, links: &[Option<usize>]) -> Vec<Vec<usize>> {
     let mut seen = vec![false; count];
-    let mut components = 0;
+    let mut groups = Vec::new();
     for first in 0..count {
         if seen.get(first).copied().unwrap_or(true) {
             continue;
         }
-        components += 1;
+        let mut group = Vec::new();
         let mut pending = vec![first];
         while let Some(element) = pending.pop() {
             match seen.get_mut(element) {
                 Some(visited) if !*visited => *visited = true,
                 _ => continue,
             }
+            group.push(element);
             for slot in [2 * element, 2 * element + 1] {
                 if let Some(Some(partner)) = links.get(slot) {
                     pending.push(partner / 2);
                 }
             }
         }
+        group.sort_unstable();
+        groups.push(group);
     }
-    components
+    groups
 }
 
 mod around;

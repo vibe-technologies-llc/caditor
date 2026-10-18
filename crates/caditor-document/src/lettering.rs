@@ -1,7 +1,7 @@
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::ProfileCurve;
-use caditor_lettering::{Segment, Style, lettered};
-use caditor_sketch::{EntityId, Faceting, Sketch, Text, TextSize, letter_curve};
+use caditor_lettering::{Alignment, Segment, Style, lettered};
+use caditor_sketch::{EntityId, Faceting, Sketch, Text, TextAlign, TextSize, letter_curve};
 
 const MAX_BEZIER_STEPS: f64 = 64.0;
 
@@ -44,7 +44,12 @@ pub fn lettered_at(text: &Text, anchor: Point2, size: TextSize) -> Option<Placed
         bold: text.bold,
         italic: text.italic,
     };
-    let lettered = lettered(&text.content, style).ok()?;
+    let alignment = match text.align {
+        TextAlign::Left => Alignment::Left,
+        TextAlign::Centre => Alignment::Centre,
+        TextAlign::Right => Alignment::Right,
+    };
+    let lettered = lettered(&text.content, style, alignment).ok()?;
     let (sin, cos) = size.angle.to_radians().sin_cos();
     let place = |point: Point2| {
         anchor

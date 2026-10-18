@@ -23,6 +23,8 @@ paths:
   - "crates/caditor/src/offset_face_panel.rs"
   - "crates/caditor/src/delete_face_tools.rs"
   - "crates/caditor/src/delete_face_panel.rs"
+  - "crates/caditor/src/emboss_tools.rs"
+  - "crates/caditor/src/emboss_panel.rs"
   - "crates/caditor/src/move_face_tools.rs"
   - "crates/caditor/src/move_face_panel.rs"
   - "crates/caditor/src/draft_tools.rs"
@@ -91,7 +93,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Move face, Draft, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Emboss, Move face, Draft, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
@@ -216,7 +218,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Move face, Draft, Split face, Thread, Sweep, and Hole on a face, whose
+  Shell, Offset faces, Delete face, Emboss, Move face, Draft, Split face, Thread, Sweep, and Hole on a face, whose
   `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
   (`app-input.md`, Queued actions), and runs when the shape arrives.
 
@@ -638,9 +640,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its body and
   its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable change, edges
   already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's,
-  an offset face's, a move face's and a delete face's do the same with the selected faces of their body
+  an offset face's, a move face's, a delete face's and an emboss's do the same with the selected faces of their body
   (`shell_tools::with_selected_faces`, openable faces only; `offset_face_tools::with_selected_faces`,
-  `move_face_tools::with_selected_faces`, `delete_face_tools::with_selected_faces`; already chosen
+  `move_face_tools::with_selected_faces`, `delete_face_tools::with_selected_faces`,
+  `emboss_tools::with_selected_faces`; already chosen
   skipped), the panels taking the
   selection through their `FacesRow`.
 - A chamfer's Distances (Equal, Two, Angle; `blend_tools::FormChoice`) follow Shape: Two names the size
@@ -660,14 +663,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
 - Hovering a row of the edges, opened, moved, drafted, deleted or split faces in an open fillet's,
-  chamfer's, shell's, offset face's, move face's, draft's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
+  chamfer's, shell's, offset face's, move face's, draft's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
   stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
   changes.
 
-## Offset face, Move face, Delete face and Split face
+## Offset face, Move face, Delete face, Emboss and Split face
 
 - Offset face (Alt+Q) takes the selected faces of one body, any shape (`offset_face_tools::selected_faces`),
   and creates an `OffsetFace` of 1 mm that opens (faces in words with Leave this face out, a signed
@@ -718,6 +721,18 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`FaceChoice::Deleting`, `Builder::opened_faces`), so a click on a result face deletes it and a
   click on a see-through one keeps it (`delete_face_tools::toggle_face`). A failed or pending one shows
   the body before it with every face pickable, deleted ones in the selected colour.
+- Emboss (Alt+Shift+Y) takes the selected faces of one body and the outlines or text of one earlier
+  sketch, chosen by any of its selected curves, letters or regions (`emboss_tools::source`); with no
+  face selected it takes the face a selected sketch is drawn on (its `FaceAttachment`), so writing
+  text on a face and choosing Emboss is two steps. It creates an `Emboss` raising by the remembered
+  depth (`Remembered::EmbossDepth`, 0.5 mm at first) that opens: faces in words with Leave this face
+  out and Choose in the view, Outlines (a combo of the earlier sketches and Use selected on
+  `Slot::EmbossSketch`, `emboss_tools::sketch_change`), Form (Raise or Recess, a segmented row), a
+  Depth that takes units and expressions, and the Body. With none of the faces or the sketch chosen
+  it waits (`FacesToEmboss`, `SketchToEmboss`) and the tree row offers to open it. While open and
+  computed it shows the result as an offset face does (`FaceChoice::Embossing`, chosen faces in the
+  selected colour), a click embossing a face or leaving it out (`emboss_tools::toggle_face`); failed
+  or pending, the body before it with every face pickable. It draws no drag arrows yet.
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
   (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that

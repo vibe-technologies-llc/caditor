@@ -4,12 +4,12 @@ use jiff::Timestamp;
 use serde::Deserialize;
 use serde_json::json;
 
-use self::scope::{DesignPlace, ElementKind, Place, Scope};
+use self::scope::{DesignPlace, ElementKind, Place, Scope, UploadPlace};
 use crate::{
     catalogue::{
         Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Project,
-        ProjectId, Sent, Translation, Upload, Version as DesignVersion, Workspace, WorkspaceId,
-        WorkspaceKind,
+        ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat, Version as DesignVersion,
+        Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{form, percent_encode},
     error::{Error, Subject},
@@ -18,7 +18,7 @@ use crate::{
     rest::{self, Token, checked},
     service::Service,
     session::Session,
-    transport::{Body, Request, Response, Transport},
+    transport::{Body, Multipart, Request, Response, Transport},
 };
 
 mod scope;
@@ -34,6 +34,8 @@ const MAX_PAGES: usize = 20;
 const STEP_FORMAT: &str = "STEP";
 const DONE: &str = "DONE";
 const FAILED: &str = "FAILED";
+const BLOB: &str = "BLOB";
+const FILE_FIELD: &str = "file";
 
 pub struct Onshape {
     client_id: String,
@@ -71,28 +73,97 @@ impl Onshape {
         Ok(document.default_workspace.id)
     }
 
-    fn designs(
+    fn elements(
         &self,
         net: &dyn Transport,
         session: &Session,
         document: &ProjectId,
         place: &Place,
-    ) -> Result<Vec<Design>, Error> {
+    ) -> Result<Vec<Element>, Error> {
         let url = format!(
             "{API}/documents/d/{}/{}/elements",
             percent_encode(document.as_str()),
             place.path()
         );
-        let elements: Vec<Element> = self.get(net, session, url, Subject::Folder)?;
+        self.get(net, session, url, Subject::Folder)
+    }
+
+    fn contents(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        document: &ProjectId,
+        place: &Place,
+    ) -> Result<Folder, Error> {
+        let elements = self.elements(net, session, document, place)?;
         let mut folder = Folder {
+            place: place.is_workspace().then(|| FolderRef {
+                project: document.clone(),
+                folder: place.folder_id(),
+            }),
             designs: elements
                 .iter()
                 .filter_map(|element| element.design(document, place))
                 .collect(),
+            uploads: elements
+                .iter()
+                .filter_map(|element| element.upload(document, place))
+                .collect(),
             ..Folder::default()
         };
         folder.newest_first();
-        Ok(folder.designs)
+        Ok(folder)
+    }
+
+    fn existing_blob(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        document: &ProjectId,
+        place: &Place,
+        name: &str,
+    ) -> Result<Option<String>, Error> {
+        let wanted = name.to_lowercase();
+        Ok(self
+            .elements(net, session, document, place)?
+            .into_iter()
+            .find(|element| {
+                element.element_type.as_deref() == Some(BLOB)
+                    && element
+                        .name
+                        .as_deref()
+                        .map(|found| found.trim().to_lowercase())
+                        == Some(wanted.clone())
+            })
+            .map(|element| element.id))
+    }
+
+    fn upload_file(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        url: String,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), Error> {
+        let fields = [
+            ("encodedFilename", percent_encode(name)),
+            ("translate", "false".to_owned()),
+            ("storeInDocument", "true".to_owned()),
+        ]
+        .into_iter()
+        .map(|(field, value)| (field.to_owned(), value))
+        .collect();
+        let multipart = Multipart::new(fields, FILE_FIELD, name, bytes.to_vec())?;
+        let request =
+            Request::post(url, Body::Multipart(multipart)).with_bearer(&session.access_token);
+        let response = net.send(&request)?;
+        let response = match response.status {
+            403 => return Err(Error::SendForbidden { service: SERVICE }),
+            _ => checked(SERVICE, response, Subject::Item)?,
+        };
+        let _: UploadedElement = rest::read(SERVICE, &response, Subject::Item)?;
+        Ok(())
     }
 
     fn branches(
@@ -342,14 +413,10 @@ impl Provider for Onshape {
         project: &Project,
     ) -> Result<Folder, Error> {
         let default = self.default_workspace(net, session, &project.id)?;
-        let designs = self.designs(net, session, &project.id, &Place::workspace(&default))?;
+        let main = self.contents(net, session, &project.id, &Place::workspace(&default))?;
         let mut folders = optional(self.branches(net, session, project, &default))?;
         folders.extend(optional(self.versions(net, session, project))?);
-        Ok(Folder {
-            folders,
-            designs,
-            ..Folder::default()
-        })
+        Ok(Folder { folders, ..main })
     }
 
     fn folder(
@@ -361,10 +428,7 @@ impl Provider for Onshape {
         let place = Place::from_folder_id(&folder.folder).ok_or(Error::NotFound {
             subject: Subject::Folder,
         })?;
-        Ok(Folder {
-            designs: self.designs(net, session, &folder.project, &place)?,
-            ..Folder::default()
-        })
+        self.contents(net, session, &folder.project, &place)
     }
 
     fn versions(
@@ -461,23 +525,70 @@ impl Provider for Onshape {
 
     fn send(
         &self,
-        _net: &dyn Transport,
-        _session: &Session,
-        _outgoing: &Outgoing<'_>,
-        _progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+        net: &dyn Transport,
+        session: &Session,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Sent, Error> {
-        Err(Error::SendUnsupported { service: SERVICE })
+        let name = outgoing.name.trim();
+        let place = Place::from_folder_id(&outgoing.folder.folder).ok_or(Error::NotFound {
+            subject: Subject::Folder,
+        })?;
+        if !place.is_workspace() {
+            return Err(Error::VersionIsReadOnly);
+        }
+        let document = &outgoing.folder.project;
+        let existing = self.existing_blob(net, session, document, &place, name)?;
+        let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+        if !progress(0, Some(total)) {
+            return Err(Error::Stopped);
+        }
+        let base = format!(
+            "{API}/blobelements/d/{}/{}",
+            percent_encode(document.as_str()),
+            place.path()
+        );
+        let (url, outcome) = match existing {
+            Some(element) => (
+                format!("{base}/e/{}", percent_encode(&element)),
+                SendOutcome::NewVersion { number: None },
+            ),
+            None => (base, SendOutcome::Created),
+        };
+        self.upload_file(net, session, url, name, outgoing.bytes)?;
+        progress(total, Some(total));
+        Ok(Sent {
+            name: name.to_owned(),
+            outcome,
+        })
     }
 
     fn fetch_upload(
         &self,
-        _net: &dyn Transport,
-        _session: &Session,
-        _upload: &Upload,
-        _sink: &mut dyn Write,
-        _progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+        net: &dyn Transport,
+        session: &Session,
+        upload: &Upload,
+        sink: &mut dyn Write,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<u64, Error> {
-        Err(Error::NoStoredFile { service: SERVICE })
+        let place = UploadPlace::parse(&upload.id).ok_or(Error::NotFound {
+            subject: Subject::Upload,
+        })?;
+        let url = format!(
+            "{API}/blobelements/d/{}/{}/e/{}",
+            percent_encode(upload.project.as_str()),
+            place.place.path(),
+            percent_encode(&place.element)
+        );
+        let request = Request::get(url).with_bearer(&session.access_token);
+        let fetched = net.fetch(&request, sink, progress)?;
+        let answer = Response {
+            status: fetched.status,
+            body: Vec::new(),
+            retry_after_seconds: fetched.retry_after_seconds,
+        };
+        checked(SERVICE, answer, Subject::Upload)?;
+        Ok(fetched.bytes)
     }
 }
 
@@ -561,7 +672,24 @@ impl Element {
             modified: None,
         })
     }
+
+    fn upload(&self, document: &ProjectId, place: &Place) -> Option<Upload> {
+        if self.element_type.as_deref()? != BLOB {
+            return None;
+        }
+        let name = label(self.name.as_deref(), "Untitled");
+        Some(Upload {
+            id: UploadPlace::encode(place, &self.id),
+            project: document.clone(),
+            format: UploadFormat::of_file_name(&name)?,
+            name,
+            modified: None,
+        })
+    }
 }
+
+#[derive(Deserialize)]
+struct UploadedElement {}
 
 #[derive(Deserialize)]
 struct Branch {
