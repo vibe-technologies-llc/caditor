@@ -48,9 +48,11 @@ paths:
     with the last `Recompute` holding it. Each run scopes its queue on it (`in_place_scope`, no
     `unsafe`) and starts serving tasks only as queued work outgrows idle ones; the walk stays on the
     run's own thread. A pool that cannot start, or `with_workers(0)` in tests, is the sequential
-    walk. Evaluations run lowest tree index first, before any mesh. When the walk
-    needs a queued feature and no worker is idle (all are evaluating or meshing), it takes the job
-    back and evaluates it inline rather than wait for a worker (`Pool::claim`). The walk takes an outcome only
+    walk. Evaluations run lowest tree index first, before any mesh. When the walk needs a queued
+    feature and no worker is idle or still starting up (all are evaluating or meshing), it takes the
+    job back and evaluates it inline rather than wait for a worker (`Pool::claim`); a worker counted
+    as starting until it first serves keeps a slow thread start from sending the walk inline, where
+    it would stop the lookahead behind one long feature. The walk takes an outcome only
     when the view it ran on is the walk's own (`View::same_as`, by `Arc`); otherwise (another view,
     a panic on the pool outside the evaluator, no thread started) it evaluates inline. A cancel
     halts the lookahead, queued evaluations end cancelled unrun, uncommitted features are

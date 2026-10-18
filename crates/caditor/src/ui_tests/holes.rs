@@ -8,7 +8,7 @@ use caditor_sketch::{Entity, Sketch};
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, attached_body, choose, drag_screen, extruded_plate, is_face,
+    CAMERA_SETTLE, Harness, Wheel, attached_body, choose, drag_screen, extruded_plate, is_face,
     open_combo, open_extrude, open_hole, open_hole_on, placed_holes, plate_edge_at, removed_about,
     rows_named, run_from_palette, selected_of,
 };
@@ -1097,6 +1097,8 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
     );
     assert!(harness.shows_containing("Thread M3 × 0.35"));
 
+    let panel = harness.position_of("Thread form");
+    harness.wheel_until_shown(panel, "Plain", Wheel::Down);
     harness.click("Plain");
     harness.click("Counterbore");
     harness.settle();

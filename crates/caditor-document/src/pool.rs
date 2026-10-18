@@ -134,6 +134,7 @@ struct Queue {
     landed: Vec<(usize, Landed)>,
     meshes: Vec<Meshing>,
     idle: usize,
+    starting: usize,
     started: usize,
     limit: usize,
     closed: bool,
@@ -150,7 +151,7 @@ impl Queue {
     }
 
     fn has_idle_worker(&self) -> bool {
-        self.started > 0 && self.idle > 0
+        self.idle + self.starting > 0
     }
 
     fn take(&mut self) -> Option<Task> {
@@ -191,6 +192,7 @@ impl<'a> Work<'a> {
 
     fn serve(&self) {
         let mut queue = self.queue.lock();
+        queue.starting -= 1;
         loop {
             if queue.closed {
                 return;
@@ -376,6 +378,7 @@ impl<'scope> Pool<'_, 'scope> {
         let spawn = queue.waiting() > queue.idle && queue.started < queue.limit;
         if spawn {
             queue.started += 1;
+            queue.starting += 1;
         }
         drop(queue);
         self.work.ready.notify_one();
@@ -408,7 +411,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_queued_job_is_left_to_a_worker_only_while_one_is_idle() {
+    fn a_queued_job_is_left_to_a_worker_only_while_one_is_idle_or_starting() {
         let mut queue = Queue {
             started: 4,
             ..Queue::default()
@@ -420,7 +423,12 @@ mod tests {
 
         assert!(queue.has_idle_worker());
 
-        queue.started = 0;
+        queue.idle = 0;
+        queue.starting = 1;
+
+        assert!(queue.has_idle_worker());
+
+        queue.starting = 0;
 
         assert!(!queue.has_idle_worker());
     }
