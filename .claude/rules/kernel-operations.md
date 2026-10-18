@@ -248,6 +248,23 @@ paths:
   `Solid::beside`, a difference the first solid, an intersection `Empty`; only when the pipeline
   would change nothing: no edge between two faces healing would merge, no vertex of exactly two
   edges between the same faces, no edge name repeated across both operands.
+- Snapping (`snap.rs`): a face of the second operand within `LINEAR_RESOLUTION` of a face of the
+  first but more than `SNAP_FLOOR` (1e-9) off it is moved along its normal onto it before imprinting:
+  a plane parallel to a plane, a cylinder whose axis runs along a plane it nearly touches (radius
+  set to the axis's distance), a cylinder on another's axis (radius set to the other's). Of several
+  candidates the nearest wins, and one within `SNAP_FLOOR` leaves the face where it is.
+  `shell::snapped` builds the moved solid as the shell's inner solid with those offsets (neighbours
+  follow, vertices settled to `SNAPPED_RESIDUAL` rather than the shell's hundredth of the
+  resolution, which would leave edges where they were; every name kept). So offsets each within the
+  resolution never compound past it: a block 8.3e-7 behind a plate's back and 6.2e-7 above its top
+  had its corner 1.03e-6 off the plate's edge, neither pooled with it nor apart. Offsets up to
+  `SNAP_FLOOR` count as exact; past the resolution faces are apart and nothing moves. A face the
+  resolution away by other than an offset (a cylinder whose axis lies beside the other's) is not
+  snapped (`BUGS.md`). When snapping fails or its boolean fails, the operands as given are
+  combined; an `Empty` or cancelled snapped result stands.
+- Each operand pair is combined with overlap cuts judged at the piece's middle and, only when that
+  fails for every pair, again judged along it (`OverlapCuts`, below); the error reported is the
+  first of the operands as given.
 - What no tool touches is carried rather than rebuilt, so work follows the size of the contact: a
   face's loops with unsplit, unshared edges and vertices no cut or other loop reaches keep their
   pcurves and skip tracing and refitting; a fragment with an edge whose box misses the other
@@ -257,7 +274,16 @@ paths:
   result included, still runs. `Input::with_carrying(.., false)` runs the full pipeline;
   `carry_tests.rs` compares the two.
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face-face branch is split
-  at the pooled vertices on it. A branch piece is kept when no sample along it lies outside either
+  at the pooled vertices on it. An edge found lying on the other solid's surface that passes from
+  one side of it to the other (at least `CROSSING_SIDE`, half the resolution, off at both ends and
+  changing side once, `shallow_crossing`) crosses it at a shallow angle instead: it is split where
+  it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim
+  1.5e-6 off its bore's axis was otherwise split where it came within the resolution, far from the
+  walls' crossing). A piece of an edge lying on a face is a cut of it when its middle lies strictly
+  inside the face (`OverlapCuts::AtMiddle`), or on the retry when some of `INSIDE_SAMPLES` lies
+  strictly inside and none outside (`WhereverInside`: a crescent rising past the resolution only
+  near its end, a plug 1.1e-6 off its bore's axis). The middle stays the first rule, since a whole
+  rim rising past the resolution in one bulge beside coincident walls must not cut. A branch piece is kept when no sample along it lies outside either
   face and some sample lies strictly inside each (so a piece a micrometre or two long still cuts);
   a piece no longer than twice the resolution is kept when no sample lies outside either face.
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
@@ -283,7 +309,10 @@ paths:
   thin-strip test and only failing that taken as coincident. A fragment whose samples only touch
   the other solid is decided at its deepest points (`trace::deepest_points`) by
   `SolidClassifier::side_of_touched_faces`: the sign of the offset along the outward normal of
-  every face it touches, which must agree. Faces that passed through share one class across
+  every face it touches, which must agree. A face whose surface passes through the point but which
+  ends short of it (`exactly_inside_face` false) says nothing and is left out, so a strip one to two
+  resolutions wide beside a coincident face (a block 1.5e-6 proud of a plate it is flush with
+  behind) is judged by the face it stands off. Faces that passed through share one class across
   unsplit edges no cut shares; one whose box misses the other solid's is outside. Of coincident
   faces only the first solid's fragment can stay: same orientation for union and intersection,
   opposite for difference. A difference reverses the second solid's kept fragments. Every result

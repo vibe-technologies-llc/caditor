@@ -25,17 +25,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the
   validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
   each axis is `Invalid(VoidOutside)`, with no test pinning it.
-- [medium · hard] Offsets within `LINEAR_RESOLUTION` compound past it: a block whose back and
-  bottom are each within the resolution of a plate's faces (8.3e-7 and 6.2e-7) has its corner
-  1.03e-6 off the plate's edge, so the corner is neither pooled with the edge nor apart from it,
-  and about 0.4% of aligned contacts with offsets between 1e-7 and 1e-4 fail as `Open`, `Split` or
-  `Invalid(VertexOffCurve)` (offsets of 1e-6 to 1e-4 alone, as in
-  `boolean::tests::aligned_contacts_a_micrometre_or_so_apart`, all combine), and an extruded plug
-  flush with a plate 1.1e-6 to 2e-6 off its bore's axis is `Open` (the UI test of a failing
-  combine's place uses it), though 3e-6 and more combine. Pooling points within the resolution of
-  each other transitively (`Pool::insert` in `boolean/imprint.rs` joins each to the nearest earlier
-  one alone), or snapping faces within the resolution onto each other before imprinting, would close
-  it; whichever is chosen, the band where offsets are snapped or refused is still to be documented.
+- [medium · hard] Parallel cylinders whose axes lie within the resolution of each other but not on
+  one axis are refused (`Split`, `Open`, `NonManifold`, `Invalid(VertexOffCurve)`) when a radius
+  differing within the resolution carries the gap past it on one side (an extruded plug 5.6e-7 off
+  its bore's axis and 5e-7 wider), or when the axes are about the resolution apart (a plug 1e-6 off
+  at 30° or 45° from its seam). Snapping (`boolean/snap.rs`) moves faces only along their normals;
+  moving a cylinder sideways onto the other's axis is what would close it.
+- [medium · hard] Cylinders of one radius whose walls cross on both their seams cannot be combined:
+  an extruded plug 1e-6 to 1e-3 off its bore's axis square to the side its seams face (seams at +x,
+  the plug moved along y) is `Ambiguous` in every operation, though 1e-2 combines and the same
+  offsets toward the seams do. The UI test of a failing combine's place uses it at 1.5e-6.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

@@ -9,6 +9,7 @@ mod interference;
 #[cfg(test)]
 mod interference_tests;
 mod select;
+mod snap;
 mod split_faces;
 #[cfg(test)]
 mod split_faces_tests;
@@ -218,10 +219,17 @@ struct FaceBounds {
     bounds: Aabb,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverlapCuts {
+    AtMiddle,
+    WhereverInside,
+}
+
 struct Input<'a> {
     first: &'a Solid,
     second: &'a Solid,
     carrying: bool,
+    overlap_cuts: OverlapCuts,
     imprinted: Option<BTreeSet<FaceId>>,
     classifiers: [SolidClassifier<'a>; 2],
     faces: [Vec<FaceBounds>; 2],
@@ -340,6 +348,7 @@ impl<'a> Input<'a> {
             first,
             second,
             carrying,
+            overlap_cuts: OverlapCuts::AtMiddle,
             imprinted: None,
             classifiers: [first.classifier(), second.classifier()],
             positions: [
@@ -456,7 +465,39 @@ fn combine(
     if let Some(result) = apart::combine_apart(first, second, operation) {
         return result;
     }
-    run(&Input::new(first, second), operation)
+    let mut plain = Input::new(first, second);
+    let snapped_solid = snap::snapped(&plain);
+    let mut snapped = snapped_solid.as_ref().map(|solid| Input::new(first, solid));
+    let attempt = |input: &mut Input, cuts: OverlapCuts| {
+        input.overlap_cuts = cuts;
+        settled(run(input, operation))
+    };
+    if let Some(done) = snapped
+        .as_mut()
+        .and_then(|input| attempt(input, OverlapCuts::AtMiddle).ok())
+    {
+        return done;
+    }
+    let reported = match attempt(&mut plain, OverlapCuts::AtMiddle) {
+        Ok(done) => return done,
+        Err(error) => error,
+    };
+    if let Some(done) = snapped
+        .as_mut()
+        .and_then(|input| attempt(input, OverlapCuts::WhereverInside).ok())
+    {
+        return done;
+    }
+    attempt(&mut plain, OverlapCuts::WhereverInside).unwrap_or(Err(reported))
+}
+
+fn settled(
+    result: Result<Solid, BooleanError>,
+) -> Result<Result<Solid, BooleanError>, BooleanError> {
+    match result {
+        Ok(_) | Err(BooleanError::Empty | BooleanError::Cancelled(_)) => Ok(result),
+        Err(error) => Err(error),
+    }
 }
 
 fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError> {
