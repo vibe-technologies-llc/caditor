@@ -36,7 +36,7 @@ use crate::{
     move_manipulator::Handle,
     panels::Focus,
     preferences::{InputMode, PreferenceChange, Preferences, PreferencesCommand},
-    scene,
+    save_preview, scene,
     selection::{Pickable, PrincipalPlane},
     version_preview,
 };
@@ -592,6 +592,7 @@ impl Harness {
         self.render_image();
         self.render_thumbnail();
         self.render_preview();
+        self.render_save_preview();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
         self.model.request_regions(self.workspace.editing.feature());
@@ -642,6 +643,25 @@ impl Harness {
             pixels: Some([90, 120, 200, 255].repeat(width as usize * height as usize)),
             sent: Vec::new(),
         })));
+    }
+
+    fn render_save_preview(&mut self) {
+        if self.renders_held {
+            return;
+        }
+        let Some(drawing) = self.model.take_preview_job() else {
+            return;
+        };
+        let size = save_preview::PREVIEW_SIZE;
+        save_preview::finish(
+            drawing,
+            Box::new(SolidRows {
+                width: size.width,
+                height: size.height,
+                pixels: Some([27, 28, 31, 255].repeat(size.width as usize * size.height as usize)),
+                sent: Vec::new(),
+            }),
+        );
     }
 
     fn render_preview(&mut self) {

@@ -1069,7 +1069,10 @@ pub fn build_keeping(
             for feature in document.active_features() {
                 let opened = context.solid == Some(feature.id());
                 let curve = feature.kind.helix().is_some();
-                if (curve || feature.kind.datum().is_some()) && (opened || !feature.hidden) {
+                if (curve || feature.kind.datum().is_some())
+                    && (opened || !feature.hidden)
+                    && !context.bodies_only
+                {
                     let shown = match drafted(draft, feature.id()) {
                         Some(drafted) if opened => drafted,
                         Some(_) | None => evaluation,
@@ -1105,8 +1108,8 @@ pub fn build_keeping(
     let palette_key = std::ptr::from_ref(palette).addr();
     let mut previous_shapes = std::mem::take(&mut shapes.sketches);
     let mut previous_sketches = std::mem::take(&mut parts.sketches);
-    for (feature, presence) in
-        drawn_sketches(document, editing, context.projecting).filter(|_| !bare)
+    for (feature, presence) in drawn_sketches(document, editing, context.projecting)
+        .filter(|_| !bare && !context.bodies_only)
     {
         let Some(drawn) = shapes.of(&mut previous_shapes, sources, feature) else {
             continue;

@@ -22,11 +22,19 @@ use crate::{
     selection::Selection,
     view_aids::ViewAids,
     viewport::initial_viewpoint,
+    visibility::{PrincipalSet, PrincipalView},
 };
 
 const MESHING_TIMEOUT: Duration = Duration::from_secs(120);
 const MESHING_POLL: Duration = Duration::from_millis(2);
 const REFERENCE_HEIGHT_POINTS: f32 = 720.0;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Looks {
+    canvas: Canvas,
+    bodies_only: bool,
+    principal: PrincipalView,
+}
 
 pub struct Snapshot {
     pub view: View,
@@ -88,9 +96,9 @@ pub fn looking_from(
         evaluation,
         &meshes,
         size,
-        Canvas::default(),
         Some(&pictures),
         starting,
+        Looks::default(),
     ))
 }
 
@@ -114,9 +122,40 @@ pub fn of_bodies(
         evaluation,
         meshes,
         size,
-        canvas,
         pictures,
         home_viewpoint(document),
+        Looks {
+            canvas,
+            ..Looks::default()
+        },
+    )
+}
+
+pub fn of_bodies_alone(
+    document: &Document,
+    evaluation: &Evaluation,
+    meshes: &BodyMeshes,
+    size: SurfaceSize,
+    canvas: Canvas,
+    pictures: Option<&ImageTextures>,
+    kept: PrincipalSet,
+) -> Snapshot {
+    framed_from(
+        document,
+        evaluation,
+        meshes,
+        size,
+        pictures,
+        home_viewpoint(document),
+        Looks {
+            canvas,
+            bodies_only: true,
+            principal: PrincipalView {
+                tucked_away: true,
+                kept,
+                selected: PrincipalSet::default(),
+            },
+        },
     )
 }
 
@@ -125,9 +164,9 @@ fn framed_from(
     evaluation: &Evaluation,
     meshes: &BodyMeshes,
     size: SurfaceSize,
-    canvas: Canvas,
     pictures: Option<&ImageTextures>,
     starting: Viewpoint,
+    looks: Looks,
 ) -> Snapshot {
     let sketches = DisplayedSketches::default();
     let sources = Sources {
@@ -139,17 +178,17 @@ fn framed_from(
         aids: ViewAids::default(),
         analyses: &Analyses::default(),
         contrast: Contrast::default(),
-        canvas,
+        canvas: looks.canvas,
         draft: None,
         pictures,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 
-    let first = build(&sources, FacetLevel::WITHOUT_A_VIEW);
+    let first = build(&sources, FacetLevel::WITHOUT_A_VIEW, looks);
     let initial = View::new(starting, width, height);
     let framed = View::new(initial.fitted(first.fit_all()), width, height);
     let level = FacetLevel::fitting(FacetLevel::wanted_chord(&framed));
-    let built = build(&sources, level);
+    let built = build(&sources, level, looks);
 
     Snapshot {
         view: framed.reaching(built.everything),
@@ -158,8 +197,11 @@ fn framed_from(
     }
 }
 
-fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {
-    let context = Context::default();
+fn build(sources: &Sources<'_>, level: FacetLevel, looks: Looks) -> scene::BuiltScene {
+    let context = Context {
+        bodies_only: looks.bodies_only,
+        ..Context::default().with_principal(looks.principal)
+    };
     let unselected = Selection::default();
     let mut built = scene::build(
         sources,
@@ -247,5 +289,42 @@ mod tests {
                 "{canvas:?}"
             );
         }
+    }
+    #[test]
+    fn a_snapshot_of_the_bodies_alone_leaves_out_sketches_planes_and_axes() {
+        let document = Sample::Bracket.document().unwrap();
+        let evaluation = Recompute::default().run(
+            &document,
+            &ModelEvaluator,
+            &CancelToken::never(),
+            &|_, _| {},
+        );
+        let meshes = meshed(&evaluation, &CancelToken::never()).unwrap();
+        let size = SurfaceSize {
+            width: 256,
+            height: 192,
+        };
+
+        let everything = of_bodies(&document, &evaluation, &meshes, size, Canvas::Dark, None);
+        let alone = of_bodies_alone(
+            &document,
+            &evaluation,
+            &meshes,
+            size,
+            Canvas::Dark,
+            None,
+            PrincipalSet::default(),
+        );
+
+        assert!(alone.scene.lines().count() < everything.scene.lines().count());
+        assert!(alone.scene.lines().count() > 0);
+        let origin = Contrast::Standard.palette(Canvas::Dark).origin;
+        assert!(
+            everything
+                .scene
+                .markers()
+                .any(|marker| marker.color == origin)
+        );
+        assert!(alone.scene.markers().all(|marker| marker.color != origin));
     }
 }

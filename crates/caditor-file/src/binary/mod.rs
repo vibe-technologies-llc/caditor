@@ -14,13 +14,15 @@ use xxhash_rust::xxh3::Xxh3;
 #[cfg(test)]
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
-    EncodeError, Encoded, FreshVersion, KeepError, NotReadBack, Shared, decode, decode_cancellable,
-    encode, encode_keeping, head_digest, history, load_version, reads_back, with_version_kept,
+    EncodeError, EncodeExtras, Encoded, FreshVersion, KeepError, NotReadBack, Shared, decode,
+    decode_cancellable, encode, encode_keeping, head_digest, history, load_version, reads_back,
+    with_version_kept,
 };
 pub use self::{
     model::{FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version},
     retention::Retention,
 };
+use crate::preview::{MAX_PREVIEW_BYTES, Preview};
 
 pub(crate) type Magic = [u8; 8];
 
@@ -61,10 +63,11 @@ pub(crate) enum ChunkKind {
     UndoLast = 11,
     RedoNext = 12,
     RebasedSnapshot = 13,
+    Preview = 14,
 }
 
 impl ChunkKind {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::Head,
         Self::Record,
         Self::VersionInfo,
@@ -78,6 +81,7 @@ impl ChunkKind {
         Self::UndoLast,
         Self::RedoNext,
         Self::RebasedSnapshot,
+        Self::Preview,
     ];
 
     fn from_byte(byte: u8) -> Option<Self> {
@@ -251,6 +255,24 @@ fn parse_scanned<'a>(bytes: &'a [u8], magic: &Magic) -> Option<(Container<'a>, u
     let body = rest.get(VERSION_LENGTH..)?;
     let (pieces, scanned) = scan_body(body);
     Some((Container { version, pieces }, scanned))
+}
+
+pub(crate) fn preview_of_prefix(prefix: &[u8]) -> Option<Preview> {
+    let rest = prefix.strip_prefix(&MODEL_MAGIC)?;
+    let body = rest.get(VERSION_LENGTH..)?;
+    let mut hashing_budget = body.len().saturating_mul(HASHING_ALLOWANCE);
+    let (head, after_head) = read_chunk(body, 0, &mut hashing_budget).ok()?;
+    if head.kind != Some(ChunkKind::Head) || head.continues() {
+        return None;
+    }
+    let (chunk, _) = read_chunk(body, after_head, &mut hashing_budget).ok()?;
+    if chunk.kind != Some(ChunkKind::Preview) || chunk.continues() || chunk.is_continuation() {
+        return None;
+    }
+    if chunk.content_length() > MAX_PREVIEW_BYTES {
+        return None;
+    }
+    Preview::from_png(chunk.unpack(None).ok()?).ok()
 }
 
 pub(crate) fn salvage(bytes: &[u8], leading: ChunkKind) -> Option<Vec<Piece<'_>>> {

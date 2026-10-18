@@ -25,6 +25,7 @@ paths:
   - "crates/caditor/src/model_properties.rs"
   - "crates/caditor/src/window_export.rs"
   - "crates/caditor/src/slicer.rs"
+  - "crates/caditor/src/save_preview.rs"
 ---
 
 # Files, import, export, history, preferences
@@ -294,6 +295,39 @@ paths:
   bar and palette; cancelling drops the bands, stopping the tiles still to draw.
 - Failures say what to change (size, scale, anti-aliasing, folder).
 
+## Model previews
+
+- Every save from the window stores a 256 by 192 PNG of the model in the file (`PREVIEW_SIZE`, the
+  `Preview` chunk of `file-format.md`) for Home's recent-file tiles. `Model::draw_previews_on_save`
+  (called once by `run_session`; the headless server and the tests leave it off, so they save as
+  before) makes `Model::send_save` hand the storage worker a `PreviewSlot` in the `SaveRequest` and
+  keep the matching `PreviewDrawing` (`save_preview::SavePreviews`, one at a time, a newer save
+  replaces an unfinished one) when the model has bodies; the save itself is sent at once and the
+  worker waits for the picture only after encoding the records (`file-format.md`).
+- The session takes the job in `App::export_image` the same frame (`Model::take_preview_job`: only
+  while the revision is the saved one and the worker still wants it), draws
+  `ViewportState::preview` with `Renderer::render_image` on the window's own renderer, and
+  `save_preview::finish` reads the bands, encodes the PNG (`png_bytes`) and fills the drawing on a
+  `preview` thread. A busy or failing renderer, an edit before the frame, a panic or a picture
+  over the limit declines the drawing instead, and the file is saved without a picture; nothing
+  is reported to the user.
+- The picture is the bodies alone (`snapshot::of_bodies_alone`: no sketches, datums, helices,
+  principal planes or axes the user did not keep shown, no grid or highlights), from the model's home
+  view (`snapshot::home_viewpoint`: the saved Home view, else the initial isometric one) fitted to the
+  bodies, in the scene palette of the canvas in use, on that canvas's background
+  (`Background::Viewport`). It shows the bodies as last meshed, so a save sent mid-recompute pictures
+  the last good result.
+- Recent tiles read it back with `files/recent_pictures.rs` (`RecentPictures` in `Files`): a tile
+  in view with no entry, or one checked more than `RECHECK_AFTER` ago, sends
+  `FileCommand::LoadRecentPicture`; `Files` starts at most `AT_ONCE` reads, each on a thread of its
+  own (`spawn_own`, named `recent picture`, so a slow share never queues a save), which stats the
+  file and, when its modification time is not the cached one, reads only the preview chunk
+  (`caditor_file::read_preview`) and decodes it to a `Thumbnail`. An unchanged file is kept as it
+  is (`Outcome::Unchanged`); a file with none, an unreadable or a damaged one is cached as having
+  none. `Files::remember` (opened or saved) forgets the file's entry, and a read already running for
+  it is dropped on arrival, so a save never leaves its old picture on Home. Entries for files no
+  longer listed are dropped when the next read starts.
+
 ## Import
 
 - Import picks a DXF or SVG drawing (`DRAWING_IMPORT_EXTENSIONS`; `read_drawing` tells them apart by
@@ -432,9 +466,9 @@ paths:
   `Renderer::render_image`, in the scene palette of the canvas in use when Preview was pressed
   (carried by `HistoryCommand::Preview` to `version_preview::prepare`; `Files::preview_picture`,
   `preview_rendered`; a busy renderer leaves it waiting). Bands are read on a `preview` thread into
-  an egui texture (`read_picture`), named for screen readers. Thumbnails are computed on demand, not
-  stored: storing would cost every save a render and a format change, while any restorable version
-  can be recomputed.
+  an egui texture (`read_picture`), named for screen readers. A version's picture is computed on
+  demand, never stored: the file keeps one picture, of the newest saved state (Model previews), and
+  any restorable version can be recomputed.
 - `Files::poll` compares again whenever the session or revision changes
   (`VersionHistory::compare_preview`), and says it is not compared while another model is open.
 - Keep / Stop keeping marks a version so age-based thinning never removes it (`file-format.md`),

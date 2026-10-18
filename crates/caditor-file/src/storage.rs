@@ -21,6 +21,7 @@ use crate::{
     },
     lock::{holds, install, locked_elsewhere, remove_held, remove_unheld},
     os, paths,
+    preview::PreviewSlot,
     reason::WriteFailure,
     recovery::{mark_journal, unmark_journal},
     save::{
@@ -68,6 +69,7 @@ pub struct SaveRequest {
     pub label: Option<String>,
     pub replace_outside_changes: bool,
     pub retention: Retention,
+    pub preview: Option<PreviewSlot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -541,6 +543,7 @@ impl Worker {
                 .as_ref()
                 .filter(|_| !request.replace_outside_changes),
             retention: request.retention,
+            preview: request.preview.as_ref(),
         };
         let report = match save::save_with(&request.document, &request.path, &options) {
             Ok(saved) => {

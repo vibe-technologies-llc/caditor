@@ -175,6 +175,7 @@ pub enum Choice {
     Start(Command),
     Open,
     OpenRecent(PathBuf),
+    LoadRecentPicture(PathBuf),
     ClearRecent,
     Sample(Sample),
     Cloud(CloudCommand),
@@ -333,6 +334,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         ui.label(widgets::muted(NO_RECENT, ui));
         return;
     }
+    let mut wanted = Vec::new();
     let chosen = cloud_parts::tiles(ui, recent.len(), TILE_WIDTH, |ui, at, width| {
         let Some(path) = recent.get(at) else {
             return false;
@@ -345,6 +347,19 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         } else {
             folder
         };
+        let place = Rect::from_min_size(
+            ui.next_widget_position(),
+            vec2(width, cloud_parts::TILE_HEIGHT),
+        );
+        let picture = files
+            .recent_picture(path)
+            .map(|picture| picture.texture(ui.ctx(), &format!("picture of {}", path.display())));
+        if files.wants_recent_picture(path)
+            && files.has_room_for_recent_picture()
+            && ui.is_rect_visible(place)
+        {
+            wanted.push(Choice::LoadRecentPicture(path.clone()));
+        }
         cloud_parts::tile(
             ui,
             width,
@@ -355,10 +370,11 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
                 name: &format!("Open {name}"),
                 hover: &path.display().to_string(),
                 enabled: true,
-                picture: None,
+                picture,
             },
         )
     });
+    choices.append(&mut wanted);
     if let Some(path) = chosen.and_then(|at| recent.get(at)) {
         choices.push(Choice::OpenRecent(path.clone()));
     }

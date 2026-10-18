@@ -18,6 +18,7 @@ mod os;
 mod parameters;
 mod paths;
 mod picture;
+mod preview;
 mod read;
 mod reason;
 mod recent;
@@ -79,6 +80,10 @@ pub use crate::{
     paths::{recovery_dir, state_dir},
     picture::{
         PictureReadError, ReadPicture, RgbaPixels, decode_picture, read_picture, read_picture_file,
+    },
+    preview::{
+        MAX_PREVIEW_BYTES, PREVIEW_PATIENCE, Preview, PreviewDrawing, PreviewError,
+        PreviewReadError, PreviewSlot, read_preview,
     },
     reason::{ReadFailure, UpdateFailure, WriteFailure},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},

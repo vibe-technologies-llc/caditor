@@ -14,6 +14,11 @@ a file dialog is open asks too, and Save there stops waiting for that dialog and
 save; cancelling that leaves the window open. A Save as or export whose file you chose before
 another model was opened writes nothing and says so; choose the file again.
 
+A save also keeps a small picture of the model's bodies in the file, drawn the way the 3D view shows
+them now but from the model's home view, without sketches or reference planes. [Home](cloud) shows it
+on the model's tile in your recent files. It is only a picture: if it cannot be drawn the save still
+happens without one, and a model with no bodies has none.
+
 A save never overwrites the file in place. caditor writes a new copy beside it, makes sure it is on
 the disk and only then puts it in place, so a crash or a full disk during a save leaves the old file
 whole. If another program changed the file since you opened it, the save asks whether to save a

@@ -835,6 +835,7 @@ fn save_request(ticket: u64, document: &Document, path: &Path, replace: bool) ->
         label: None,
         replace_outside_changes: replace,
         retention: Retention::Standard,
+        preview: None,
     }
 }
 
@@ -868,6 +869,91 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
 
     assert_eq!(load(&path).unwrap().document, Document::default());
     assert_eq!(kept.document, sample());
+}
+
+fn a_png_picture(fill: u8) -> Preview {
+    let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    png.extend(std::iter::repeat_n(fill, 200));
+    Preview::from_png(png).unwrap()
+}
+
+#[test]
+fn a_saved_picture_is_read_back_from_the_file_without_loading_the_model() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let picture = a_png_picture(4);
+    let (slot, drawing) = PreviewSlot::new();
+    drawing.fill(picture.clone());
+    let options = SaveOptions {
+        preview: Some(&slot),
+        ..SaveOptions::default()
+    };
+
+    save_with(&sample(), &path, &options).unwrap();
+
+    assert_eq!(read_preview(&path), Ok(Some(picture)));
+    assert_eq!(load(&path).unwrap().document, sample());
+    assert_eq!(load(&path).unwrap().issues, Vec::<String>::new());
+}
+
+#[test]
+fn a_file_saved_without_a_picture_or_that_is_not_a_model_has_none() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&sample(), &path, false).unwrap();
+    let other = dir.path().join("notes.txt");
+    fs::write(&other, b"not a model").unwrap();
+
+    assert_eq!(read_preview(&path), Ok(None));
+    assert_eq!(read_preview(&other), Ok(None));
+    assert_eq!(
+        read_preview(&dir.path().join("missing.caditor")),
+        Err(PreviewReadError::Reading(ReadFailure::NotFound))
+    );
+    assert!(read_preview(dir.path()).is_err());
+}
+
+#[test]
+fn a_later_save_replaces_the_picture_and_one_without_removes_it() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    for fill in [1, 2] {
+        let (slot, drawing) = PreviewSlot::new();
+        drawing.fill(a_png_picture(fill));
+        let options = SaveOptions {
+            history_from: Some(&path),
+            preview: Some(&slot),
+            ..SaveOptions::default()
+        };
+        save_with(&sample(), &path, &options).unwrap();
+
+        assert_eq!(read_preview(&path), Ok(Some(a_png_picture(fill))));
+    }
+
+    save(&Document::default(), &path, false).unwrap();
+
+    assert_eq!(read_preview(&path), Ok(None));
+}
+
+#[test]
+fn the_storage_worker_saves_with_the_picture_drawn_meanwhile() {
+    let dir = TempDir::new().unwrap();
+    let base = sample();
+    let storage = Storage::spawn(config(&dir), untitled(&base), || {}).unwrap();
+    let path = dir.path().join("model.caditor");
+    let (slot, drawing) = PreviewSlot::new();
+    let mut request = save_request(1, &base, &path, false);
+    request.preview = Some(slot);
+
+    storage.save(request).unwrap();
+    drawing.fill(a_png_picture(8));
+    let report = wait_for_report(&storage);
+
+    assert!(
+        matches!(report, Report::Saved { ticket: 1, .. }),
+        "{report:?}"
+    );
+    assert_eq!(read_preview(&path), Ok(Some(a_png_picture(8))));
 }
 
 fn replace_from_outside(path: &Path, contents: &[u8]) {
@@ -1049,6 +1135,7 @@ fn saving_moves_the_journal_next_to_the_file_and_closing_removes_it() {
             label: None,
             replace_outside_changes: false,
             retention: Retention::Standard,
+            preview: None,
         })
         .unwrap();
     let report = wait_for_report(&storage);
@@ -6480,6 +6567,7 @@ fn saving_over_a_model_open_in_another_window_is_refused() {
             label: None,
             replace_outside_changes: false,
             retention: Retention::Standard,
+            preview: None,
         })
         .unwrap();
     let Report::SaveFailed { error, .. } = wait_for_report(&storage) else {
@@ -6751,6 +6839,7 @@ fn an_undo_reaching_past_the_journal_snapshot_is_journaled_whole() {
             label: None,
             replace_outside_changes: false,
             retention: Retention::Standard,
+            preview: None,
         })
         .unwrap();
     undo_and_redo(&storage, &mut editor);

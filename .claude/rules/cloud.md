@@ -195,8 +195,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   failed request a `Load::Failed` that nothing shows: the tile keeps its icon and never a callout.
   The decoded `ColorImage` becomes a texture on the UI thread on first use (`Thumbnail::texture`).
   Refresh and choosing another hub drop the in-memory pictures; an explicit sign-out or turning
-  cloud off deletes the folder, an ended sign-in does not. Recent files and samples keep icons: the
-  model file stores no preview (`docs/FEATURES.md`).
+  cloud off deletes the folder, an ended sign-in does not. Samples keep icons; a recent file's tile
+  shows the picture its model file holds (below).
 - Failures are `Failure`s worded for the user; a 401 that survives a refresh signs the connection
   out with a notice, anything else is a callout with Try again on Home and in the manager.
 
@@ -208,6 +208,14 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   close button, any start, an opened file or sample, and whenever the model it opened over changes
   (`Home::follow`: session, revision, a sketch being edited or a plane chosen). While it is open
   the start card stays away (`ViewportState::cover`). Tests never open it by default.
+- Recent files tiles show the model's own preview picture (`app-files.md`, Model previews): a tile
+  in view with none known asks `Choice::LoadRecentPicture` (`FileCommand::LoadRecentPicture`, only
+  while `Files::has_room_for_recent_picture`, so no more than `AT_ONCE` reads run), and draws
+  `Files::recent_picture` through `cloud_parts::Tile::picture` once it arrives, the same widget the
+  Fusion pictures use (`Thumbnail`); a file without a picture, a damaged or missing one keeps its
+  icon and never shows a callout. The tile's picture box is `TILE_PICTURE_WIDTH` by
+  `TILE_PICTURE_SIDE` and the picture is fitted into it, so a square Fusion picture and a 4:3
+  preview both keep their proportions.
 - Order: header, starts (New sketch primary, box, import, open), Recent files (the history, tiles
   from `Files::recent`), Fusion 360, Onshape, samples, footer. Signed out, a service is an advert
   card: what it does, three honest lines about what it sends, Sign in (or the no-app callout); the

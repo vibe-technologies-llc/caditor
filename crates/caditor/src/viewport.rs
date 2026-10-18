@@ -1852,6 +1852,24 @@ impl ViewportState {
         }
     }
 
+    pub fn preview(&self, model: &Model, size: SurfaceSize) -> ImageView {
+        let shown: Vec<FeatureId> = self.bodies.iter().map(|(id, _)| id).collect();
+        let snapshot = snapshot::of_bodies_alone(
+            model.document(),
+            model.evaluation(),
+            &self.bodies.only(&shown),
+            size,
+            self.canvas,
+            Some(model.pictures()),
+            model.principal_view().kept,
+        );
+        ImageView {
+            view: snapshot.view,
+            scene: snapshot.scene,
+            pixels_per_point: snapshot.pixels_per_point,
+        }
+    }
+
     pub fn pick_was_not_issued(&mut self) {
         self.last_pick = None;
         self.picks_in_flight = None;

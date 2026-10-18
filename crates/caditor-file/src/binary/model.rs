@@ -27,6 +27,7 @@ use crate::{
         LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
         newer_version,
     },
+    preview::PreviewSlot,
     selection_sets::selection_sets_record,
     untrusted::UntrustedMap,
 };
@@ -219,6 +220,7 @@ struct Parsed<'a> {
     damaged: usize,
     head: Option<StateRecord>,
     head_chunk: Option<Chunk<'a>>,
+    preview: Option<Chunk<'a>>,
     records: Vec<Chunk<'a>>,
     versions: Vec<StoredVersion<'a>>,
     foreign: Vec<Chunk<'a>>,
@@ -235,6 +237,7 @@ impl<'a> Parsed<'a> {
             damaged: damaged(&pieces),
             head: None,
             head_chunk: None,
+            preview: None,
             records: Vec::new(),
             versions: Vec::new(),
             foreign: Vec::new(),
@@ -253,6 +256,9 @@ impl<'a> Parsed<'a> {
                     parsed.head = state_record(&chunk);
                     parsed.head_chunk = parsed.head.is_some().then_some(chunk);
                 }
+                Some(ChunkKind::Preview) if parsed.preview.is_none() => {
+                    parsed.preview = Some(chunk);
+                }
                 Some(ChunkKind::Record) => parsed.records.push(chunk),
                 Some(ChunkKind::VersionInfo) => {
                     pending_info = state_record(&chunk).map(|record| StoredInfo { record, chunk });
@@ -267,6 +273,7 @@ impl<'a> Parsed<'a> {
                 Some(ChunkKind::Padding) => pending_info = info,
                 Some(
                     ChunkKind::Head
+                    | ChunkKind::Preview
                     | ChunkKind::JournalHeader
                     | ChunkKind::Snapshot
                     | ChunkKind::Apply
@@ -634,7 +641,7 @@ pub(crate) fn encode(document: &Document) -> Result<Vec<u8>, EncodeError> {
         document,
         None,
         (SystemTime::now(), Retention::Standard),
-        None,
+        EncodeExtras::default(),
     )?
     .bytes)
 }
@@ -855,15 +862,30 @@ pub(crate) fn encode_over(
     now: SystemTime,
     label: Option<&str>,
 ) -> Result<Encoded, EncodeError> {
-    encode_keeping(document, previous, (now, Retention::Standard), label)
+    encode_keeping(
+        document,
+        previous,
+        (now, Retention::Standard),
+        EncodeExtras {
+            label,
+            preview: None,
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct EncodeExtras<'a> {
+    pub label: Option<&'a str>,
+    pub preview: Option<&'a PreviewSlot>,
 }
 
 pub(crate) fn encode_keeping(
     document: &Document,
     previous: Option<&[u8]>,
     (now, retention): (SystemTime, Retention),
-    label: Option<&str>,
+    extras: EncodeExtras<'_>,
 ) -> Result<Encoded, EncodeError> {
+    let EncodeExtras { label, preview } = extras;
     let prior = previous.and_then(Parsed::of);
     let (new, prior_records) = NewRecords::of(document, prior.as_ref())?;
     let read_prior = prior.as_ref().zip(prior_records.as_ref());
@@ -889,6 +911,9 @@ pub(crate) fn encode_keeping(
 
     let mut bytes = start_file(&MODEL_MAGIC, FORMAT_VERSION);
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
+    if let Some(preview) = preview.and_then(PreviewSlot::wait) {
+        push_packed(&mut bytes, ChunkKind::Preview, preview.png())?;
+    }
     new.push_chunks(&mut bytes)?;
     for foreign in prior.iter().flat_map(|prior| &prior.foreign) {
         if !foreign.must_understand() {
@@ -1499,6 +1524,9 @@ pub(crate) fn with_version_kept(
 
     let mut rewritten = start_file(&MODEL_MAGIC, version);
     rewritten.extend_from_slice(head_chunk.whole);
+    if let Some(preview) = parsed.preview {
+        rewritten.extend_from_slice(preview.whole);
+    }
     for record in &parsed.records {
         rewritten.extend_from_slice(record.whole);
     }

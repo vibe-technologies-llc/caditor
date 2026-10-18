@@ -41,6 +41,7 @@ use self::{
         show_report,
     },
     parameters::{ParameterImportDraft, ParametersCommand},
+    recent_pictures::{Outcome as RecentPicture, RecentPictures},
     remembered::{ExportFolders, RememberedExports},
     slicing::Slicing,
     templates::Templates,
@@ -84,6 +85,7 @@ pub mod configurations;
 mod dialogs;
 pub mod parameters;
 mod pictures;
+mod recent_pictures;
 pub mod remembered;
 pub mod slicing;
 pub mod templates;
@@ -195,6 +197,7 @@ pub enum FileCommand {
     ClearRecent,
     ForgetRecent(PathBuf),
     CheckRecent,
+    LoadRecentPicture(PathBuf),
     RevertToSaved,
     ExportAgain,
     OpenInSlicer,
@@ -816,6 +819,10 @@ enum Event {
     RecentChecked {
         missing: Vec<PathBuf>,
     },
+    RecentPicture {
+        path: PathBuf,
+        outcome: RecentPicture,
+    },
     RecentForgotten {
         path: PathBuf,
     },
@@ -1132,6 +1139,7 @@ pub struct Files {
     last_export: Option<LastExport>,
     exports_to_remember: Option<RememberedExports>,
     missing_recent: BTreeSet<PathBuf>,
+    recent_pictures: RecentPictures,
     own_threads_running: Arc<AtomicUsize>,
     slicing: Slicing,
 }
@@ -1196,6 +1204,7 @@ impl Files {
             last_export: None,
             exports_to_remember: None,
             missing_recent: BTreeSet::new(),
+            recent_pictures: RecentPictures::default(),
             own_threads_running: Arc::default(),
             slicing: Slicing::default(),
         }
@@ -1571,6 +1580,7 @@ impl Files {
             }
             FileCommand::ForgetRecent(path) => self.forget_on_request(&path),
             FileCommand::CheckRecent => self.check_recent(),
+            FileCommand::LoadRecentPicture(path) => self.load_recent_picture(path),
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
             FileCommand::OpenInSlicer => self.open_in_slicer(model),
@@ -2153,6 +2163,7 @@ impl Files {
             Event::RecentChecked { missing } => {
                 self.missing_recent = missing.into_iter().collect();
             }
+            Event::RecentPicture { path, outcome } => self.recent_picture_arrived(path, outcome),
             Event::RecentForgotten { path } => model.set_notice(Notice::success(format!(
                 "Removed “{}” from the recent models. The file itself is untouched.",
                 display_name(Some(&path))
@@ -3340,6 +3351,7 @@ impl Files {
 
     fn remember(&mut self, path: PathBuf) {
         self.missing_recent.remove(&path);
+        self.recent_pictures.forget(&path);
         self.change_recent(RecentChange::Opened(path), None);
     }
 

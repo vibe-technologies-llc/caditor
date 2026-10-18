@@ -46,6 +46,16 @@ impl Thumbnail {
         })
     }
 
+    #[cfg(test)]
+    pub fn is_uploaded(&self) -> bool {
+        self.texture.get().is_some()
+    }
+
+    #[cfg(test)]
+    pub fn size(&self) -> [usize; 2] {
+        self.image.size
+    }
+
     pub fn texture(&self, context: &Context, name: &str) -> &TextureHandle {
         self.texture.get_or_init(|| {
             context.load_texture(
