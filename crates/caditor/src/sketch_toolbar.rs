@@ -50,7 +50,7 @@ pub const CURVE_LABEL: &str = "Curve";
 pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
 pub const POLYGON_LABEL: &str = "Polygon";
 pub const POLYGON_WAYS_LABEL: &str = "Ways to draw a polygon";
-pub const POLYGON_TOOLS: [Tool; 2] = [Tool::Polygon, Tool::Gear];
+pub const POLYGON_TOOLS: [Tool; 3] = [Tool::Polygon, Tool::Gear, Tool::Text];
 pub const CURVE_TOOLS: [Tool; 4] = [
     Tool::Spline,
     Tool::Ellipse,
@@ -260,9 +260,13 @@ fn menu_sections(group: Group) -> Vec<Vec<Command>> {
     let tools: Vec<Tool> = Tool::ALL
         .into_iter()
         .filter(|tool| match group {
-            Group::Draw => tool.draws() || *tool == Tool::Gear,
+            Group::Draw => tool.draws() || matches!(tool, Tool::Gear | Tool::Text),
             Group::Modify => {
-                !tool.draws() && !matches!(tool, Tool::Select | Tool::Gear | Tool::Dimension)
+                !tool.draws()
+                    && !matches!(
+                        tool,
+                        Tool::Select | Tool::Gear | Tool::Text | Tool::Dimension
+                    )
             }
             _ => false,
         })

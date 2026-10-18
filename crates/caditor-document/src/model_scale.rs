@@ -433,6 +433,17 @@ impl Rescaler {
                 });
             }
         }
+        for (text, held) in sketch.texts() {
+            let mut scaled = held.clone();
+            self.length(&mut scaled.height, &feature.name)?;
+            if scaled != *held {
+                edits.push(Edit::SetSketchText {
+                    feature: id,
+                    id: text,
+                    text: scaled,
+                });
+            }
+        }
         for (constraint, held) in sketch.constraints() {
             let label = sketch
                 .label_offset(constraint)

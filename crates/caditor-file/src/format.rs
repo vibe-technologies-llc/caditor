@@ -39,7 +39,7 @@ use caditor_kernel::{
 };
 use caditor_sketch::{
     Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing,
-    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind,
+    PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
@@ -1996,11 +1996,25 @@ pub(crate) enum EntityKindRecord {
         start: u64,
         end: u64,
     },
+    Text(TextRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TextRecord {
+    pub anchor: u64,
+    pub content: String,
+    pub height: String,
+    pub angle: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
 }
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
+const DEFAULT_TEXT_HEIGHT: f64 = 5.0;
 
-const ENTITY_KINDS: [&str; 15] = [
+const ENTITY_KINDS: [&str; 16] = [
     "point",
     "line",
     "circle",
@@ -2016,6 +2030,7 @@ const ENTITY_KINDS: [&str; 15] = [
     "spline_knots",
     "ellipse",
     "elliptical_arc",
+    "text",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2429,6 +2444,20 @@ pub(crate) enum EditRecord {
         id: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         offset: Option<[f64; 2]>,
+    },
+    AddSketchText {
+        feature: u64,
+        id: u64,
+        text: TextRecord,
+    },
+    RemoveSketchText {
+        feature: u64,
+        id: u64,
+    },
+    SetSketchText {
+        feature: u64,
+        id: u64,
+        text: TextRecord,
     },
 }
 
@@ -5003,6 +5032,11 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
                     sketch.split_from(id),
                 ))
             })
+            .chain(
+                sketch
+                    .texts()
+                    .map(|(id, text)| Lenient::Read(text_entity_record(id, text))),
+            )
             .collect(),
         constraints: sketch
             .constraints()
@@ -5186,6 +5220,37 @@ pub(crate) fn constraint_record(
         label: label.map(|offset| offset.to_array()),
         kind: constraint_kind_record(constraint),
     }
+}
+
+pub(crate) fn text_entity_record(id: EntityId, text: &Text) -> EntityRecord {
+    EntityRecord {
+        id: id.raw(),
+        construction: false,
+        split_from: None,
+        kind: EntityKindRecord::Text(text_record(text)),
+    }
+}
+
+fn text_record(text: &Text) -> TextRecord {
+    TextRecord {
+        anchor: text.anchor.raw(),
+        content: text.content.clone(),
+        height: text.height.to_stored_text(),
+        angle: text.angle.to_stored_text(),
+        bold: text.bold,
+        italic: text.italic,
+    }
+}
+
+fn restore_text(record: &TextRecord) -> Option<Text> {
+    Some(Text {
+        anchor: EntityId::from_raw(record.anchor),
+        content: record.content.clone(),
+        height: Expression::parse_stored(&record.height).ok()?,
+        angle: Expression::parse_stored(&record.angle).ok()?,
+        bold: record.bold,
+        italic: record.italic,
+    })
 }
 
 fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
@@ -5651,6 +5716,20 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             id: id.raw(),
         },
+        Edit::AddSketchText { feature, id, text } => EditRecord::AddSketchText {
+            feature: feature.raw(),
+            id: id.raw(),
+            text: text_record(text),
+        },
+        Edit::RemoveSketchText { feature, id } => EditRecord::RemoveSketchText {
+            feature: feature.raw(),
+            id: id.raw(),
+        },
+        Edit::SetSketchText { feature, id, text } => EditRecord::SetSketchText {
+            feature: feature.raw(),
+            id: id.raw(),
+            text: text_record(text),
+        },
     }
 }
 
@@ -5845,7 +5924,7 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::AddSketchEntity { feature, entity } => Edit::AddSketchEntity {
             feature: FeatureId::from_raw(feature),
             id: EntityId::from_raw(entity.id),
-            entity: restore_entity(&entity.kind),
+            entity: restore_entity(&entity.kind)?,
             construction: entity.construction,
             split_from: entity.split_from.map(EntityId::from_raw),
         },
@@ -5856,7 +5935,7 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::SetSketchEntity { feature, entity } => Edit::SetSketchEntity {
             feature: FeatureId::from_raw(feature),
             id: EntityId::from_raw(entity.id),
-            entity: restore_entity(&entity.kind),
+            entity: restore_entity(&entity.kind)?,
         },
         EditRecord::SetSketchConstruction {
             feature,
@@ -5910,6 +5989,20 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
             feature: FeatureId::from_raw(feature),
             id: ConstraintId::from_raw(id),
+        },
+        EditRecord::AddSketchText { feature, id, text } => Edit::AddSketchText {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            text: restore_text(&text)?,
+        },
+        EditRecord::RemoveSketchText { feature, id } => Edit::RemoveSketchText {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+        },
+        EditRecord::SetSketchText { feature, id, text } => Edit::SetSketchText {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            text: restore_text(&text)?,
         },
     })
 }
@@ -9137,11 +9230,16 @@ pub(crate) fn restore_sketch(
             }
         }
     }
+    let (texts, readable): (Vec<_>, Vec<_>) = readable
+        .into_iter()
+        .partition(|entity| matches!(entity.kind, EntityKindRecord::Text(_)));
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
     for record in points.into_iter().chain(others) {
-        let entity = restore_entity(&record.kind);
+        let Some(entity) = restore_entity(&record.kind) else {
+            continue;
+        };
         let label = format!("{} {}", entity.kind_name(), record.id);
         let id = EntityId::from_raw(record.id);
         if let Err(error) = sketch.insert_entity(id, entity) {
@@ -9167,6 +9265,12 @@ pub(crate) fn restore_sketch(
         }
     }
 
+    for record in texts {
+        if let EntityKindRecord::Text(text) = &record.kind {
+            restore_sketch_text(&mut sketch, record.id, text, feature, issues);
+        }
+    }
+
     for constraint in &record.constraints {
         match constraint {
             Lenient::Read(record) => restore_constraint(&mut sketch, record, feature, issues),
@@ -9182,9 +9286,46 @@ pub(crate) fn restore_sketch(
     sketch
 }
 
-fn restore_entity(record: &EntityKindRecord) -> Entity {
+fn restore_sketch_text(
+    sketch: &mut Sketch,
+    id: u64,
+    record: &TextRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) {
+    let label = format!("Text {id}");
+    let height = Expression::parse_stored(&record.height).unwrap_or_else(|_| {
+        issues.push(format!(
+            "In “{feature}”, the height of {label} could not be read, so it was set to \
+             {DEFAULT_TEXT_HEIGHT} mm."
+        ));
+        Expression::Measure(DEFAULT_TEXT_HEIGHT, Unit::Millimetre)
+    });
+    let angle = Expression::parse_stored(&record.angle).unwrap_or_else(|_| {
+        issues.push(format!(
+            "In “{feature}”, the angle of {label} could not be read, so it was set to 0°."
+        ));
+        Expression::Measure(0.0, Unit::Degree)
+    });
+    let text = Text {
+        anchor: EntityId::from_raw(record.anchor),
+        content: record.content.clone(),
+        height,
+        angle,
+        bold: record.bold,
+        italic: record.italic,
+    };
+    if let Err(error) = sketch.insert_text(EntityId::from_raw(id), text) {
+        issues.push(format!(
+            "In “{feature}”, {label} (“{}”) was left out because {error}.",
+            record.content
+        ));
+    }
+}
+
+fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
     let entity = EntityId::from_raw;
-    match record {
+    Some(match record {
         EntityKindRecord::Point([x, y]) => Entity::Point(Point2::new(*x, *y)),
         EntityKindRecord::Line { start, end } => Entity::Line {
             start: entity(*start),
@@ -9279,7 +9420,8 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             start: entity(*start),
             end: entity(*end),
         },
-    }
+        EntityKindRecord::Text(_) => return None,
+    })
 }
 
 fn restore_digest(text: &str) -> Option<u128> {

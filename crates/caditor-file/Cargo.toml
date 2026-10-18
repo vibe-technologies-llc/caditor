@@ -17,6 +17,7 @@ caditor-document.workspace = true
 caditor-expression.workspace = true
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
+caditor-lettering.workspace = true
 caditor-sketch.workspace = true
 caditor-step.workspace = true
 caditor-zstd.workspace = true
@@ -31,7 +32,6 @@ parking_lot.workspace = true
 png.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
-skrifa.workspace = true
 thiserror.workspace = true
 xxhash-rust.workspace = true
 
@@ -44,5 +44,6 @@ caditor-windows.workspace = true
 
 [dev-dependencies]
 roxmltree.workspace = true
+skrifa.workspace = true
 tempfile.workspace = true
 tiff.workspace = true

@@ -1043,6 +1043,7 @@ impl Command {
                 Tool::CircularPattern => "sketch.circular_pattern",
                 Tool::TangentCircle => "sketch.tangent_circle",
                 Tool::Gear => "sketch.gear",
+                Tool::Text => "sketch.text",
                 Tool::Fillet => "sketch.fillet",
                 Tool::Chamfer => "sketch.chamfer",
                 Tool::Project => "sketch.project",
@@ -1373,6 +1374,7 @@ impl Command {
             Self::SketchTool(Tool::CircularPattern) => "Repeat sketch geometry about a point",
             Self::SketchTool(Tool::TangentCircle) => "Draw a circle tangent to sketch curves",
             Self::SketchTool(Tool::Gear) => "Draw a spur gear",
+            Self::SketchTool(Tool::Text) => "Write or edit sketch text",
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
             Self::SketchTool(Tool::Chamfer) => "Chamfer a sketch corner",
             Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
@@ -2429,6 +2431,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         | Tool::CircularPattern
         | Tool::TangentCircle
         | Tool::Gear
+        | Tool::Text
         | Tool::Ellipse
         | Tool::EllipticalArc
         | Tool::Conic => None,

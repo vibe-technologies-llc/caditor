@@ -15,7 +15,7 @@ use caditor_geometry::Point3;
 use caditor_kernel::{Interrupt, MeshQuality, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{
     ConstraintId, DimensionError, EntityId, PointBeyond, Sketch, SketchError, SketchSolution,
-    SolveMemo, Solved,
+    SolveMemo, Solved, TextError,
 };
 
 use crate::{
@@ -1966,6 +1966,20 @@ fn sketch_error(feature: FeatureId, sketch: &Sketch, error: &SketchError) -> Fea
         .fixing(FixTarget::Feature(feature)),
         SketchError::Unsolvable { entities, newest } => {
             unsolvable_error(feature, sketch, entities, *newest)
+        }
+        SketchError::Text { label, reason, .. } => {
+            let fix = match reason {
+                TextError::Height(EvalError::ParameterFailed { id, .. })
+                | TextError::Angle(EvalError::ParameterFailed { id, .. }) => {
+                    FixTarget::Parameter(*id)
+                }
+                _ => FixTarget::Feature(feature),
+            };
+            FeatureError::new(SketchCause::Text {
+                label: label.clone(),
+                error: reason.clone(),
+            })
+            .fixing(fix)
         }
         _ => FeatureError::new(SketchCause::Unevaluable {
             error: error.clone(),

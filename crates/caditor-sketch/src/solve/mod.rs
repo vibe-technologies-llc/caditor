@@ -430,6 +430,7 @@ impl Sketch {
         for (conic, rho) in &system.rhos {
             geometry.set_rho(*conic, *rho);
         }
+        geometry.set_text_sizes(&system.text_sizes);
         geometry
     }
 }

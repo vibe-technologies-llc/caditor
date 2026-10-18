@@ -158,17 +158,11 @@ paths:
   sans-serif is named in one note (at most `MAX_NAMED_ELEMENTS`). Weight sets the `wght` axis
   (100 to 900); italic and oblique use the italic face, upright and noted only when none was handed
   in. A character without a glyph takes the missing glyph's advance, draws nothing and is counted.
-- Glyphs (`font.rs`) are read per weight of each face (`Cut` per face, `Instance` of weight and
-  italic, one `skrifa` `Location` per weight, outlines cached per weight and glyph); quadratic and
-  cubic segments become the same exact splines and lines `path` makes. A variable font keeps
-  overlapping contours (Inter's `e`, `t`, `f`, `k`), which the sketch's even-depth regions would read
-  as notches, so `overlap.rs` merges each glyph first: its segments build a kernel `Profile`, faces
-  whose anchor has non-zero winding over the original contours (Béziers sampled 32 steps) are
-  selected as lumps, and each loop's pieces become lines and Béziers (de Casteljau) meeting exactly
-  at junctions. A glyph the profile cannot build keeps its contours as drawn; different glyphs that
-  overlap are not merged. `read_drawing` installs its `CancelToken` as the kernel interrupt around
-  `parse_svg`. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is counted without
-  being merged.
+- Glyphs come from `caditor-lettering` (`lettering.md`): its `Typeface` reads the faces handed in,
+  kerns, and gives each glyph merged into one outline, which `path::traced` turns into the same
+  exact splines and lines `path` makes. `read_drawing` installs its `CancelToken` as the kernel
+  interrupt around `parse_svg`. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is
+  counted without being merged.
 
 ## STEP import (`import/model.rs`)
 
@@ -341,7 +335,9 @@ paths:
   radius as major axis since DXF wants a ratio at most 1). Construction curves are counted and left
   out (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction`
   dashed and counted in `SketchExported::construction`. The DXF reads back through `parse_dxf` as
-  the same curves, construction ones as construction.
+  the same curves, construction ones as construction. A sketch text writes its letters
+  (`caditor_document::placed_text`) as lines and Bézier splines on layer 0, counted as curves, and
+  not the point it stands on.
 - A face (`export/outline.rs`) writes a flat face's outer loop on `Outline` and inner loops on
   `Holes`, seen from outside the body: the face's plane with its origin where the model origin
   projects onto it, up along Z for a face more upright than 45 degrees and along Y otherwise, so a

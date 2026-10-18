@@ -473,6 +473,16 @@ Sketch entities:
   `add_sketch_entity`. A `split_from` the sketch refuses (the entity itself) is reported and
   dropped, the curve kept.
 - A reader not knowing one reports it as a kind from a newer version and keeps the points.
+- A sketch text (`sketch.md`, Text) is written among the entities as an entity record of kind
+  `text` (`TextRecord`: `anchor`, `content`, `height` and `angle` stored texts, `bold` and `italic`
+  only when set), so a reader not knowing it reports a kind from a newer version and keeps the
+  anchor point rather than silently computing a model without the letters. Loading restores texts
+  after the curves and before the constraints; an unreadable height loads as 5 mm and an angle as
+  0°, reported, and a text the sketch refuses (missing anchor, blank or over-long content) is left
+  out, reported with its content. Journal: `add_sketch_text` and `set_sketch_text` (`feature`,
+  `id`, `text`) and `remove_sketch_text` (`feature`, `id`); an `add_sketch_entity` or
+  `set_sketch_entity` holding a `text` kind is refused as unreadable. The corpus holds them in
+  `texts.caditor` and `texts.journal`.
 
 ## Loading
 
@@ -600,7 +610,8 @@ Sketch entities:
   parameters are then kept by id (`document.md`).
 - Sketch geometry is written from a scratch sketch the clip is pasted into and read back through
   `restore_sketch` and `Sketch::clip`, so loading's checks apply; dimensions whose parameters
-  cannot be carried are left out with a note. The payload names the sketch it was copied from, so
+  cannot be carried are left out with a note, and so is a text whose height or angle cannot be
+  (its anchor point stays). The payload names the sketch it was copied from, so
   pasting into it again can shift the copy.
 - Reading refuses in words (`ClipboardError`): text without the header (`Foreign`), another or
   unknown kind, a newer version, damaged JSON, nothing usable, text over `MAX_CLIPBOARD_TEXT`. The

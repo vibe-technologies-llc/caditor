@@ -18,6 +18,7 @@ caditor-expression.workspace = true
 caditor-file.workspace = true
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
+caditor-lettering.workspace = true
 caditor-render.workspace = true
 caditor-sketch.workspace = true
 

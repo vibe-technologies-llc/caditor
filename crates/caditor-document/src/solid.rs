@@ -31,6 +31,7 @@ use crate::{
     describe::describe_origin,
     document::{Feature, FeatureId},
     failure::{Cause, Expected, Upstream},
+    lettering,
     recompute::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
         MissingInput, SketchResult,
@@ -1018,6 +1019,7 @@ pub(crate) fn profile_curves(sketch: &Sketch) -> Vec<ProfileCurve> {
         .entities()
         .filter(|(id, _)| !sketch.is_construction(*id))
         .filter_map(|(id, _)| profile_curve(sketch, id))
+        .chain(lettering::text_curves(sketch))
         .collect()
 }
 

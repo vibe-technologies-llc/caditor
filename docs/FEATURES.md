@@ -87,9 +87,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
-  text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
-  recessed by a depth.
+- [low · hard] Emboss or deboss sketch text, or any sketch profile, onto a face, flat or curved
+  (wrapped around it), raised or recessed by a depth.
 - [low · hard · blocked by: draft angle (above)] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
@@ -108,9 +107,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   references (the pieces projected as new curves, the first keeping the id constraints and
   dimensions hang on) needs that healing to add sketch geometry, which it does not yet.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
-  path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
-  font, a height, bold and italic, set along a curve, its letters becoming closed regions that
-  extrude).
+  path would need a vector-equality or along-the-curve spacing the solver lacks), and sketch text
+  set along a curve (`sketch.md`, Text): text runs straight from its point at an angle, while
+  laying each letter's middle on a sketch curve turned to its tangent, as SVG `textPath` does,
+  would need the layout to follow the solved curve and a placement along it the solver can hold.
+  Text is also one line of Inter starting at its point: no other typeface, no lines below it and no
+  centred or right-aligned anchor.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

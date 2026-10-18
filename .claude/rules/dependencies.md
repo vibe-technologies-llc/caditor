@@ -26,8 +26,9 @@ paths:
   `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus`,
   `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays
   unconditional, since `cfg` there tests the host: `build.rs` checks `CARGO_CFG_TARGET_OS`.
-- `skrifa` (`std` only, through its `raw` re-export of `read-fonts`) reads outlines, the `wght` axis and
-  GPOS kerning for SVG text in `caditor-file`; it is the copy epaint builds, so no second font parser
+- `skrifa` (`std` only, through its `raw` re-export of `read-fonts`) reads outlines, the `wght` axis,
+  cap height and GPOS kerning in `caditor-lettering` (SVG text and sketch text); it is the copy
+  epaint builds, so no second font parser
   is compiled. Its version follows epaint's rather than the latest release (`cargo deny` refuses the
   second copy a newer one would add). `ttf-parser` is left only through winit's `sctk-adwaita`, which is why `deny.toml`
   ignores its unmaintained advisory; nothing of ours uses it.

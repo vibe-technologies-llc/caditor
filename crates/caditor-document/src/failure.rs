@@ -1,6 +1,6 @@
 use caditor_expression::EvalError;
 use caditor_kernel::MAX_SIZE;
-use caditor_sketch::{DimensionError, SketchError};
+use caditor_sketch::{DimensionError, SketchError, TextError};
 
 use crate::{
     attachment::AttachCause,
@@ -363,6 +363,10 @@ pub(crate) enum SketchCause {
         error: DimensionError,
         expected: Expected,
     },
+    Text {
+        label: String,
+        error: TextError,
+    },
     Several(Vec<Cause>),
 }
 
@@ -388,6 +392,7 @@ impl SketchCause {
             Self::Dimension { label, error, .. } => {
                 format!("{label} cannot be evaluated: {error}.")
             }
+            Self::Text { label, error } => format!("{label} cannot be drawn: {error}."),
             Self::Several(causes) => format!(
                 "The sketch has {} separate problems. {}",
                 causes.len(),
@@ -427,6 +432,7 @@ impl SketchCause {
             Self::Dimension {
                 error, expected, ..
             } => Self::dimension_remedy(error, *expected),
+            Self::Text { label, error } => Self::text_remedy(label, error),
             Self::Several(causes) => format!(
                 "Fix each of them. {}",
                 Self::numbered(causes, Cause::remedy)
@@ -452,6 +458,24 @@ impl SketchCause {
             0 => ("The sketch".to_owned(), "its", "it"),
             1 => (list_names(&names), "its", "it"),
             _ => (list_names(&names), "their", "them"),
+        }
+    }
+
+    fn text_remedy(label: &str, error: &TextError) -> String {
+        match error {
+            TextError::Height(EvalError::ParameterFailed { name, .. })
+            | TextError::Angle(EvalError::ParameterFailed { name, .. }) => {
+                format!("Fix {name} under Parameters, or select {label} and edit it with Text.")
+            }
+            TextError::Height(_) | TextError::HeightNotPositive | TextError::HeightTooLarge => {
+                format!("Select {label} and give it a height such as 5 mm with Text.")
+            }
+            TextError::Angle(_) | TextError::AngleNotFinite => {
+                format!("Select {label} and give it an angle such as 0 deg with Text.")
+            }
+            TextError::Blank | TextError::TooLong { .. } | TextError::ControlCharacter => {
+                format!("Select {label} and change its letters with Text.")
+            }
         }
     }
 

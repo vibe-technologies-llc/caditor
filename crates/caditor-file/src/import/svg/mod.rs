@@ -1,7 +1,5 @@
 mod css;
-mod font;
 mod lettering;
-mod overlap;
 mod path;
 mod shapes;
 mod sizing;
@@ -17,6 +15,7 @@ use std::{
 };
 
 use caditor_geometry::{Point2, Vector2};
+use caditor_lettering::Typeface;
 
 pub(super) use crate::import::svg::text::looks_like_svg;
 use crate::{
@@ -27,7 +26,6 @@ use crate::{
         model::unpacked,
         svg::{
             css::{MAX_STYLE_RULES, StyleSheet, without_comments},
-            font::Typeface,
             path::{Outline, Vertex},
             shapes::{Axis, fitted, length, nested_viewport, outline_of, symbol_viewport},
             sizing::{Sizing, sizing},

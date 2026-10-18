@@ -87,7 +87,9 @@ use crate::{
     snapshot, solid_tools, split_face_tools,
     start_card::{self, Start, StartCard},
     symmetric_drawing::{self, Mirror, Symmetry},
-    system_motion, toggles,
+    system_motion,
+    texting::TextSettings,
+    toggles,
     trimming::{self, Trimming},
     typed_point::{self, Typed, TypedPoint, TypedPointError, TypedValueError},
     upload_badge::UploadRequest,
@@ -659,6 +661,10 @@ pub fn initial_viewpoint() -> Viewpoint {
 impl ViewportState {
     pub fn gear_settings(&mut self) -> &mut GearSettings {
         self.modifying.gear_settings()
+    }
+
+    pub fn text_settings(&mut self) -> &mut TextSettings {
+        self.modifying.text_settings()
     }
 
     pub fn new() -> Self {
@@ -2706,6 +2712,7 @@ impl ViewportState {
             | Tool::CircularPattern
             | Tool::TangentCircle
             | Tool::Gear
+            | Tool::Text
             | Tool::Project
             | Tool::Intersect
             | Tool::Dimension
@@ -2745,6 +2752,7 @@ impl ViewportState {
         let sketch = model.displayed_sketch(owner)?;
         let from = self.on_sketch(model, feature, press.cursor)?;
         let selected = sketch_tools::selected_entities(&self.selection, feature);
+        let grabbed = sketch.text(grabbed).map_or(grabbed, |text| text.anchor);
         Grab::of(&sketch, feature, grabbed, &selected, from)
             .map(|grab| PrimaryDrag::Grab(grab.snapping_to_bodies(&self.body_snaps)))
     }

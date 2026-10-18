@@ -37,6 +37,8 @@ paths:
   - "crates/caditor/src/constraint_trial.rs"
   - "crates/caditor/src/symmetric_drawing.rs"
   - "crates/caditor/src/tangent_circling.rs"
+  - "crates/caditor/src/texting.rs"
+  - "crates/caditor/src/text_panel.rs"
 ---
 
 
@@ -353,7 +355,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   conflict fails the solve); in high contrast the involved constraint marks also get a frame
   (`annotations::paint_frame`): solid for conflicting, dashed for redundant.
 
-## Trim, extend, offset, mirror, patterns, gear, blend and sketch fillet
+## Trim, extend, offset, mirror, patterns, gear, text, blend and sketch fillet
 
 - `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `patterning.rs`,
   `filleting.rs`) hold the tools' UI state; geometry and constraint rules are the sketch's
@@ -416,6 +418,23 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   draws them there; Enter or the panel's primary button draws at the one selected point, else the
   origin; Space or Enter on a highlighted point draws there. One "Draw spur gear", "Draw gear pair" or
   "Draw sprocket" transaction (`Part::transaction`).
+- Text (`Tool::Text`, `texting.rs`; Polygon's corner menu, the palette's "Write or edit sketch
+  text") writes a line of text (`sketch.md`, Text). While active the Text panel (`text_panel.rs`,
+  a right-hand panel closing back to Select) holds Text, Height and Angle fields and Bold and
+  Italic checkboxes, kept in `Modifying` (`TextSettings`) while caditor runs; Height and Angle are
+  `patterning::quantity` fields kept as typed expressions, Text is checked by
+  `Text::check_content`, and the panel names letters Inter lacks in a warning callout. Placing
+  works as the gear's does: the letters preview on the point under the pointer (origin included) or
+  where it is, a click writes there (a new point when free, a new point `Coincident` with the origin
+  there), Enter or the panel's primary button writes at the one selected point, else the origin. One
+  "Draw text" transaction through `reshape_sketch`.
+- Started with one text selected (`TextSettings::begin`), the tool edits it: the panel loads its
+  values (`TextSettings::load`, expressions shown with parameter names), the canvas previews and
+  writes nothing, and the primary button "Update Text N" applies one "Edit text" `SetSketchText`
+  keeping the anchor; "Write new text instead" drops the edit. A text is drawn, picked and selected
+  as one `SketchShape` under its id (`scene::sketch_shapes`, coloured by its anchor's state), kept by
+  the selection while the sketch has it (`Pickable::is_available`), deleted with Delete through
+  `remove_sketch_items`, and dragged by its anchor (`ViewportState` grabs the anchor for a text).
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's corner menu) joins two
   curve ends with a spline (`sketch.md`, Blend curves). It takes the end of a line, arc or spline
   (projected included) nearest the pointer on the curve under it, or a selected point ending exactly

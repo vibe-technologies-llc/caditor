@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity};
+use caditor_sketch::{Constraint, Entity, Text};
 
 use super::*;
 
@@ -270,4 +270,47 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
         read_features_clipboard(&text, HERE).unwrap().origin,
         PasteOrigin::ThisDocument
     );
+}
+
+#[test]
+fn a_copied_text_crosses_the_clipboard_with_its_height_written_out_elsewhere() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let size = transaction.add_parameter("size", transaction.parse("7 mm").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let anchor = sketch.add_point(Point2::new(3.0, 1.0));
+    let text = sketch
+        .add_text(Text {
+            anchor,
+            content: "Vent".to_owned(),
+            height: Expression::Parameter(size),
+            angle: Expression::measure(45.0, Unit::Degree),
+            bold: false,
+            italic: true,
+        })
+        .unwrap();
+    let clip = sketch.clip(&[text]).unwrap();
+    let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let source = Source {
+        document,
+        sketch: feature,
+        clip,
+    };
+    let copied = copied_text(&source);
+
+    let same = read_sketch_clipboard(&copied, &source.document, HERE).unwrap();
+    let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
+    let mut target = Sketch::new(Plane::XY);
+    target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+    let pasted: Vec<&Text> = target.texts().map(|(_, text)| text).collect();
+
+    assert_eq!(same.clip.text_count(), 1);
+    assert_eq!(same.inlined, 0);
+    assert_eq!(elsewhere.inlined, 1);
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(pasted[0].content, "Vent");
+    assert!(pasted[0].italic);
+    assert_eq!(pasted[0].height.to_stored_text(), "7 mm");
+    assert_eq!(target.point(pasted[0].anchor), Some(Point2::new(3.0, 1.0)));
 }

@@ -3,13 +3,16 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
+use caditor_document::placed_text;
 use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_lettering::Segment;
 use caditor_sketch::{EllipseGeometry, Entity, Sketch};
 
 use super::{Construction, SketchExported};
 
 pub(super) const SEGMENT_ANGLE: f64 = 5.0 * PI / 180.0;
 const TEXT_WIDTH_PER_HEIGHT: f64 = 0.6;
+const LETTER_SEGMENTS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Layer {
@@ -438,6 +441,7 @@ impl Figure {
         let anchors: BTreeSet<_> = sketch
             .entities()
             .flat_map(|(_, entity)| entity.points())
+            .chain(sketch.texts().map(|(_, text)| text.anchor))
             .collect();
         for (id, entity) in sketch.entities() {
             let layer = match (sketch.is_construction(id), construction) {
@@ -495,6 +499,32 @@ impl Figure {
             }
             figure.push(layer, shape);
         }
+        for (id, _) in sketch.texts() {
+            let letters = placed_text(sketch, id)
+                .map(|placed| placed.letters)
+                .unwrap_or_default();
+            for segment in letters.into_iter().flat_map(|letter| letter.segments) {
+                exported.curves += 1;
+                figure.push(Layer::Sketch, letter_shape(segment));
+            }
+        }
         (figure, exported)
+    }
+}
+
+fn letter_shape(segment: Segment) -> Shape {
+    match segment {
+        Segment::Line(start, end) => Shape::Line(start, end),
+        Segment::Bezier(points) => {
+            let count = points.len();
+            let curve = Segment::Bezier(points.clone());
+            Shape::Spline(Spline {
+                degree: count.saturating_sub(1),
+                knots: [vec![0.0; count], vec![1.0; count]].concat(),
+                control_points: points,
+                weights: None,
+                polyline: curve.sampled(LETTER_SEGMENTS),
+            })
+        }
     }
 }

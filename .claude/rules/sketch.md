@@ -100,6 +100,30 @@ paths:
     similarity-invariant: mirror, patterns, copies and uniform scaling keep the kind; only a
     non-uniform map (oblique projection, skewed DXF block) bends a centripetal spline between its
     mapped points.
+- Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
+  the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
+  `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,
+  `MissingEntity`), its content (one line, not blank, at most `MAX_TEXT_CHARS`, no control
+  characters: `InvalidText`), a height and an angle as `Expression`s (length, and angle in degrees
+  from the sketch's x axis) and bold and italic. The anchor counts as a use, so it cannot be removed
+  while the text stands (`InUse`), and it is neither a free point nor a layout point (holes never
+  drill at it). `add_text`, `insert_text` (explicit id), `remove_text` and `replace_text` (value
+  only; a changed anchor is `ChangesStructure`). The text holds no constraint and adds no freedom:
+  the anchor is an ordinary point, constrained and dimensioned like any other.
+  - `Sketch::evaluate` works out each text's `TextSize` (`Text::size`: height above zero and at most
+    `MAX_LENGTH`, angle finite; else `SketchError::Text` naming it), the solve writes them into the
+    solved geometry (`set_text_sizes`, like a conic's rho), and `Sketch::text_size` gives them, or
+    the literal value for an unsolved definition. Parameters a text uses count in `parameters` and
+    `uses_parameter`.
+  - The letters are not entities: the document lays them out (`document.md`) and names each
+    letter curve `letter_curve(text, letter, segment)`, an id at or above `FIRST_UNSTORABLE_ID`
+    holding 40 bits of the text's id, 11 of the letter's position in the string and 12 of the
+    segment, so letters before an edit keep their curve names. `Sketch::text_of_letter_curve` and
+    `entity_label` ("Text 5") read one back for error messages.
+  - Copy and paste carry a selected text with a copy of its anchor (`SketchClip::text_count`; the
+    clipboard writes it as a `text` entity record and carries its parameters like a dimension's).
+    Trim, mirror and the patterns leave texts alone; one whose anchor a trim would remove makes the
+    trim refuse it as in use.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch. The sketch never cascades a removal; the document's `remove_sketch_items` expands a

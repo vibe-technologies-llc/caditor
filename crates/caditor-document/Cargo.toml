@@ -12,6 +12,7 @@ workspace = true
 caditor-expression.workspace = true
 caditor-geometry.workspace = true
 caditor-kernel.workspace = true
+caditor-lettering.workspace = true
 caditor-sketch.workspace = true
 caditor-zstd.workspace = true
 

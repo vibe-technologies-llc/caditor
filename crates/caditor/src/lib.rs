@@ -220,6 +220,8 @@ mod sweep_tools;
 mod symmetric_drawing;
 mod system_motion;
 mod tangent_circling;
+mod text_panel;
+mod texting;
 mod themes;
 mod thread_panel;
 mod thread_tools;

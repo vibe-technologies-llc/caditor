@@ -469,6 +469,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::CircularPattern => CIRCULAR_PATTERN,
         Tool::TangentCircle => phosphor::CIRCLES_THREE,
         Tool::Gear => phosphor::GEAR_FINE,
+        Tool::Text => phosphor::TEXT_T,
         Tool::Fillet => blend(BlendKind::Fillet),
         Tool::Chamfer => blend(BlendKind::Chamfer),
         Tool::Project => phosphor::ARROW_FAT_LINES_DOWN,

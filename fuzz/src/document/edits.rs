@@ -8,7 +8,7 @@ use caditor_document::{
     SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
-use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch};
+use caditor_sketch::{ConstraintId, Entity, EntityId, Sketch, Text};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::{
@@ -426,6 +426,17 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             _ => Entity::Point(point(input)?),
         })
     };
+    let texts: Vec<EntityId> = sketch.texts().map(|(id, _)| id).collect();
+    let new_text = |input: &mut Unstructured| -> Result<Text> {
+        Ok(Text {
+            anchor: some_entity(input)?,
+            content: text(input)?,
+            height: scene.distance(input)?,
+            angle: scene.turn(input)?,
+            bold: input.arbitrary()?,
+            italic: input.arbitrary()?,
+        })
+    };
     let label = |input: &mut Unstructured| -> Result<Option<Vector2>> {
         Ok(if input.arbitrary::<bool>()? {
             Some(Vector2::new(coordinate(input)?, coordinate(input)?))
@@ -433,7 +444,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             None
         })
     };
-    Ok(match input.int_in_range(0u8..=12)? {
+    Ok(match input.int_in_range(0u8..=14)? {
         0 => single(Edit::AddSketchEntity {
             feature,
             id: EntityId::from_raw(sketch.next_id()),
@@ -511,6 +522,19 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             transaction.remove_sketch_items(feature, removed, constraints);
             Some(transaction.finish())
         }
+        12 => single(Edit::AddSketchText {
+            feature,
+            id: EntityId::from_raw(sketch.next_id()),
+            text: new_text(input)?,
+        }),
+        13 => single(Edit::SetSketchText {
+            feature,
+            id: match chosen(input, &texts)? {
+                Some(id) => id,
+                None => some_entity(input)?,
+            },
+            text: new_text(input)?,
+        }),
         _ => single(Edit::SetSketchPlacement {
             feature,
             plane: plane(input)?,

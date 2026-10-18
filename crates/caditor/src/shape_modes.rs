@@ -379,6 +379,7 @@ impl ShapeModes {
             | Tool::CircularPattern
             | Tool::TangentCircle
             | Tool::Gear
+            | Tool::Text
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project

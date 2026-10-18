@@ -445,6 +445,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   the flags before. A projected entity is never removed while flagged
   (`StillProjected`), so `remove_sketch_items` first takes the projection off every doomed
   projected entity and takes a projected curve's points with it (undo restores in opposite order).
+- `Edit::AddSketchText`, `RemoveSketchText` and `SetSketchText` (`TransactionBuilder::add_sketch_text`,
+  `set_sketch_text`) add, remove and change a sketch text under its id, checking the parameters its
+  height and angle use as a dimension's are checked. `remove_sketch_items` takes text ids with the
+  entities: a doomed point takes the texts standing on it, and a doomed text takes its anchor when
+  no curve and no surviving text uses it (with the constraints on it); texts go after constraints
+  and before curves and points. `reshape_sketch` removes a text whose anchor was replaced or
+  changed, adds new ones after the entities and sets changed ones. Model scale scales a text's
+  height like a length dimension; inlining a parameter rewrites a text's height and angle.
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with
   everything using it, its `split_from` included. `settle_sketch` moves the definition to a solved
@@ -483,6 +491,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Solid (`solid.rs`)
 
+- A sketch's profile curves (`solid::profile_curves`, used by regions, extrude, revolve, walls,
+  ribs, splits) are its non-construction curves and the letters of its texts (`lettering.rs`):
+  `placed_text` lays a text out with `caditor-lettering` at its anchor in the solved geometry,
+  scaled by its height (cap height) and turned by its angle, each Bézier and line a `ProfileCurve`
+  named `letter_curve` (`sketch.md`), so letters become regions and holes like drawn outlines and
+  extruded side faces are named from them. `PlacedText::polylines` facets them for the app and
+  `lettered_at` lays out a text not yet in a sketch, for the preview.
 - An `Extrude` or `Revolve` of a sketch's regions (`RegionChoice::All`, or chosen
   `RegionReference`s resolved by `resolve_regions` so a changed region is healed or left out; fails
   only on a tie or when none is left) with a `BodyOperation`: `NewBody`, or `Add`, `Remove`,

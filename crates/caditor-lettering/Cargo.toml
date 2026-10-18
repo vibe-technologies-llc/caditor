@@ -1,0 +1,17 @@
+[package]
+name = "caditor-lettering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+caditor-geometry.workspace = true
+caditor-kernel.workspace = true
+
+parking_lot.workspace = true
+skrifa.workspace = true
+thiserror.workspace = true

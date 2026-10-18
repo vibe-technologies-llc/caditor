@@ -47,6 +47,21 @@ impl Document {
                         });
                     }
                 }
+                for (text, held) in sketch.sketch.texts() {
+                    if held.uses(id) {
+                        let mut inlined = held.clone();
+                        for expression in [&mut inlined.height, &mut inlined.angle] {
+                            if expression.uses(id) {
+                                *expression = inline(expression, &feature.name)?;
+                            }
+                        }
+                        edits.push(Edit::SetSketchText {
+                            feature: feature.id(),
+                            id: text,
+                            text: inlined,
+                        });
+                    }
+                }
             } else if feature.kind.uses_parameter(id) {
                 let mut kind = feature.kind.clone();
                 for expression in expressions_mut(&mut kind) {

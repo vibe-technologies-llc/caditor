@@ -31,6 +31,7 @@ pub fn same_sketch_shift(clip: &SketchClip) -> Vector2 {
 pub fn described(clip: &SketchClip) -> String {
     let parts: Vec<String> = [
         (clip.curve_count(), "curve", "curves"),
+        (clip.text_count(), "text", "texts"),
         (clip.lone_point_count(), "point", "points"),
         (clip.constraint_count(), "constraint", "constraints"),
     ]

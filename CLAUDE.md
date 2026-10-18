@@ -39,11 +39,12 @@ inside the workspace.
 | `caditor-expression` | `Quantity` (mm and degrees with a `Dimension`) and expressions over parameters. | none |
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver; the unit-free dimension layout the canvas and drawing export share. | expression, geometry |
 | `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
+| `caditor-lettering` | Letter outlines in the bundled Inter: font reading, kerning, merging a glyph's overlapping contours, one-line layout; shared by SVG import and sketch text. | geometry, kernel |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | expression, kernel, geometry |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the three crates with `unsafe`. | none |
 | `caditor-windows` | Safe wrappers over the Win32 calls nothing else offers safely; a crate with `unsafe`, empty off Windows. | none |
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |
-| `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, sketch, zstd |
+| `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, lettering, sketch, zstd |
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, reference picture decoding, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
 | `caditor-cloud` | Cloud services behind one `Provider` abstraction (Fusion 360 first): OAuth with PKCE, a rustls transport, project listing and design conversion to STEP. | none |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
@@ -95,6 +96,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `expression.md`, `zstd.md`, `windows.md`, `wayland.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI; the Wayland boundary and files dropped on Wayland. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
 | `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (the geometry crate, tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
+| `lettering.md` | The letter outlines crate: Inter's faces, kerning, overlap merging, line layout in cap heights. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP and mesh import, model, image and drawing export, parameter files. |

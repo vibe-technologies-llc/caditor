@@ -1,6 +1,7 @@
 use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Point3, Vector2};
+use caditor_lettering::Segment;
 
 use crate::import::{
     dxf::geometry::{Nurbs, Shape},
@@ -14,6 +15,17 @@ pub(super) struct Vertex {
     pub at: Point2,
     pub incoming: Option<Vector2>,
     pub outgoing: Option<Vector2>,
+}
+
+pub(super) fn traced(segments: &[Segment]) -> Outline {
+    let mut outline = Outline::default();
+    for segment in segments {
+        match segment {
+            Segment::Line(start, end) => outline.line(*start, *end),
+            Segment::Bezier(points) => outline.bezier(points),
+        }
+    }
+    outline
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
