@@ -527,7 +527,7 @@ Sketch entities:
   directory fsync is logged, not a failed save). On Windows the rename is `ReplaceFileW` with no
   directory fsync (`windows.md`). Permissions, group and extended attributes (ACLs too) are kept;
   the temporary is owner-only until applied, and a new file gets the umask's mode.
-  `write_privately` is the same write for secrets (the cloud sign-in): a new or replaced file is
+  `write_privately` is the same write for secrets (the cloud sign-in when no keyring takes it): a new or replaced file is
   owner-only. A symbolic link is followed.
 - Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`. After each write, those next to the
   file are removed when from an earlier boot of this machine, or from this boot with their process

@@ -1896,10 +1896,10 @@ impl ApplicationHandler<AppEvent> for App {
             Ok(mut session) => {
                 session.workspace.cloud = Cloud::new(
                     &self.preferences.cloud,
-                    CloudServices {
-                        make_waker: waker_factory(self.proxy.clone()),
-                        state_dir: caditor_file::state_dir(),
-                    },
+                    CloudServices::on_this_system(
+                        waker_factory(self.proxy.clone()),
+                        caditor_file::state_dir(),
+                    ),
                 );
                 let wanted = self.preferences.onboarding.home
                     && self.preferences.startup == Startup::EmptyModel

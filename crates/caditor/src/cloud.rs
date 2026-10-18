@@ -26,9 +26,12 @@ use crate::{
 mod downloads;
 mod failure;
 mod jobs;
+mod keyring;
 mod state;
 mod store;
 
+#[cfg(test)]
+pub use self::keyring::FakeKeyring;
 pub use self::{
     failure::Failure,
     jobs::Opener,
@@ -39,6 +42,7 @@ pub use self::{
 };
 use self::{
     jobs::{Courier, Event, ImportJob, Loaded, SignInJob},
+    keyring::Keyring,
     store::SessionStore,
 };
 
@@ -87,13 +91,23 @@ impl Reason for Refusal {
 pub struct CloudServices {
     pub make_waker: WakerFactory,
     pub state_dir: Option<PathBuf>,
+    pub keyring: Arc<dyn Keyring>,
 }
 
 impl CloudServices {
+    pub fn on_this_system(make_waker: WakerFactory, state_dir: Option<PathBuf>) -> Self {
+        Self {
+            make_waker,
+            state_dir,
+            keyring: keyring::system(),
+        }
+    }
+
     pub fn without_files() -> Self {
         Self {
             make_waker: Box::new(|| Box::new(|| {})),
             state_dir: None,
+            keyring: keyring::system(),
         }
     }
 }
@@ -108,6 +122,7 @@ pub struct Cloud {
     courier: Courier,
     receiver: Receiver<Event>,
     state_dir: Option<PathBuf>,
+    keyring: Arc<dyn Keyring>,
     opener: Opener,
     callback_port: u16,
     next_attempt: u64,
@@ -150,6 +165,7 @@ impl Cloud {
             courier,
             receiver,
             state_dir: services.state_dir,
+            keyring: services.keyring,
             opener: Arc::new(browser::open),
             callback_port: CALLBACK_PORT,
             next_attempt: 0,
@@ -374,7 +390,7 @@ impl Cloud {
     fn store(&self, service: Service) -> Option<SessionStore> {
         self.state_dir
             .as_deref()
-            .map(|dir| SessionStore::in_state_dir(dir, service))
+            .map(|dir| SessionStore::in_state_dir(dir, service, Arc::clone(&self.keyring)))
     }
 
     fn connection_mut(&mut self, service: Service) -> Option<&mut Connection> {
@@ -412,32 +428,38 @@ impl Cloud {
         else {
             return;
         };
-        match left {
-            Link::SigningIn(signing) => signing.stop.store(true, Ordering::Relaxed),
+        let client = match left {
+            Link::SigningIn(signing) => {
+                signing.stop.store(true, Ordering::Relaxed);
+                None
+            }
             Link::Linked(linked) => {
                 linked.import.iter().for_each(|import| {
                     import.stop.store(true, Ordering::Relaxed);
                 });
-                let client = Arc::clone(&linked.client);
-                self.courier.spawn(
-                    service,
-                    move || {
-                        if revoke {
-                            jobs::sign_out(&client, store.as_ref());
-                        } else {
-                            jobs::forget(store.as_ref());
-                        }
-                        Ok(())
-                    },
-                    |_: Result<(), Failure>| Event::Left,
-                );
-                return;
+                Some(Arc::clone(&linked.client))
             }
-            Link::Off | Link::Starting | Link::SignedOut => {}
+            Link::Off | Link::Starting | Link::SignedOut => None,
+        };
+        let signing_out = match (client, revoke) {
+            (Some(client), true) => Some(client),
+            (_, true) => return,
+            (_, false) => None,
+        };
+        if signing_out.is_none() && store.is_none() {
+            return;
         }
-        if !revoke {
-            jobs::forget(store.as_ref());
-        }
+        self.courier.spawn(
+            service,
+            move || {
+                match &signing_out {
+                    Some(client) => jobs::sign_out(client, store.as_ref()),
+                    None => jobs::forget(store.as_ref()),
+                }
+                Ok(())
+            },
+            |_: Result<(), Failure>| Event::Left,
+        );
     }
 
     fn start_restoring(&mut self) {

@@ -6,6 +6,7 @@ mod tests;
 mod animation;
 mod cloning;
 mod console;
+mod credentials;
 mod files;
 mod maximize;
 mod power;
@@ -16,6 +17,9 @@ mod window;
 pub use animation::client_area_animations;
 pub use cloning::{cluster_size, duplicate_extents};
 pub use console::{attach_parent_console, on_console_close};
+pub use credentials::{
+    CREDENTIAL_BLOB_LIMIT, delete_credential, read_credential, write_credential,
+};
 pub use files::{
     FileId, HIDDEN_ATTRIBUTE, final_path, move_file_durably, open_for_identity, replace_file,
 };

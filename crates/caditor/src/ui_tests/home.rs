@@ -22,7 +22,7 @@ use super::{FILE_TIMEOUT, Harness, extruded_plate, no_wake, run_from_palette, sa
 use crate::{
     app::Workspace as App,
     browser::OpenError,
-    cloud::{Cloud, CloudServices, Link, Opener, Refusal},
+    cloud::{Cloud, CloudServices, FakeKeyring, Link, Opener, Refusal},
     cloud_dialog, cloud_parts,
     commands::Command,
     export::ExportCommand,
@@ -150,9 +150,14 @@ fn browser() -> Opener {
 }
 
 fn services(dir: &Path) -> CloudServices {
+    keyring_services(dir, FakeKeyring::unreachable())
+}
+
+fn keyring_services(dir: &Path, keyring: Arc<FakeKeyring>) -> CloudServices {
     CloudServices {
         make_waker: no_wake(),
         state_dir: Some(dir.join("state")),
+        keyring,
     }
 }
 
@@ -183,9 +188,13 @@ pub(super) fn attach(harness: &mut Harness, dir: &Path, provider: &Arc<FakeProvi
 }
 
 fn with_cloud(dir: &Path, provider: &Arc<FakeProvider>) -> Harness {
+    with_services(dir, provider, services(dir))
+}
+
+fn with_services(dir: &Path, provider: &Arc<FakeProvider>, services: CloudServices) -> Harness {
     let preferences = preferences(dir);
     let mut workspace = App::with_preferences(preferences);
-    workspace.cloud = Cloud::new(&workspace.preferences.cloud, services(dir)).with_backend(
+    workspace.cloud = Cloud::new(&workspace.preferences.cloud, services).with_backend(
         provider.clone(),
         Arc::new(ScriptedTransport::new()),
         browser(),
@@ -522,6 +531,46 @@ fn the_sign_in_survives_a_restart_and_signing_out_forgets_it() {
                 .join("cloud")
                 .join("fusion-session.json")
                 .exists()
+    });
+}
+
+#[test]
+fn a_sign_in_kept_in_the_keyring_survives_a_restart_without_a_file_and_signing_out_forgets_it() {
+    let dir = TempDir::new().unwrap();
+    let keyring = FakeKeyring::reachable();
+    let file = dir
+        .path()
+        .join("state")
+        .join("cloud")
+        .join("fusion-session.json");
+    let provider = fusion_provider(b"");
+    let mut first = with_services(
+        dir.path(),
+        &provider,
+        keyring_services(dir.path(), keyring.clone()),
+    );
+    open_home(&mut first);
+    sign_in(&mut first);
+    first.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+    let closing = first.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+    drop(first);
+
+    assert!(keyring.holds(Service::Fusion).is_some());
+    assert!(!file.exists());
+
+    let again = fusion_provider(b"");
+    let mut restarted = with_services(
+        dir.path(),
+        &again,
+        keyring_services(dir.path(), keyring.clone()),
+    );
+    restarted.wait_until("the saved sign-in is used", is_linked);
+    open_home(&mut restarted);
+
+    restarted.click(home::SIGN_OUT);
+    restarted.wait_until("the sign-in is revoked and forgotten", |_| {
+        again.calls().contains(&"revoke".to_owned()) && keyring.holds(Service::Fusion).is_none()
     });
 }
 
