@@ -282,13 +282,21 @@ paths:
   receiver, each a lit patch's radiance over distance squared with both cosines. A sample facing
   the receiver is tested for visibility (`bounce_blocked`): the segment between the two, each end
   lifted along its normal by the shadow normal offset, is marched in light space at
-  `BOUNCE_BLOCK_STEPS` points against `lit_depth` (texels holding 0 are empty), and a point behind
-  the stored surface by more than `BOUNCE_BLOCK_LIFTS` lifts and less than the segment's length
-  drops the sample. The upper bound tells a wall crossed from a shadow travelled through: a
-  caster farther above than the segment is long shades the path without standing in it. Only
-  surfaces the sun lights block, so an unlit wall still leaks. The targets are made lazily inside `gpu::scoped`; a
-  refusal draws without shadows and bounce and reports `RenderFault::LightRefused` once. Image
-  siblings make their own.
+  `BOUNCE_BLOCK_STEPS` points against `BOUNCE_LAYERS` depth layers of the light (texels holding 0
+  are empty), and a point behind a stored surface of any layer by more than `BOUNCE_BLOCK_LIFTS`
+  lifts and less than the segment's length drops the sample. The first layer is `lit_depth`; with
+  bounce on, `PEEL_LAYERS` more are peeled after the main pass (`peel_pipeline`, `fs_peel`, layout
+  `[view, mesh, previous layer]`): each draws the same meshes again into an `R32Uint` target
+  (`LightPass::begin_peel_pass`) and discards a fragment no farther than the previous layer's
+  depth plus the normal offset's depth, so the next surface along each sun ray is kept, back faces
+  included (no culling). A wall the sun does not light because a caster stands over it is then the
+  second or third surface of its column and blocks like a lit one. The layers hold depth only,
+  never radiance, so sources still come from `lit_depth`; shadows alone draw no layers. The upper
+  bound tells a wall crossed from a shadow travelled through: a surface farther above than the
+  segment is long shades the path without standing in it. A wall edge-on to the sun covers no
+  texel of any layer, and one behind more than `PEEL_LAYERS` surfaces is missed. The targets are
+  made lazily inside `gpu::scoped`; a refusal draws without shadows and bounce and reports
+  `RenderFault::LightRefused` once. Image siblings make their own.
 - Ambient occlusion (`occlusion.rs`, `Lighting::occlusion` above zero) is GTAO over what the view
   shows. Before the scene pass, three single-sampled passes over targets the size of the scene
   targets (`Occlusion`, made lazily in `gpu::scoped`, a refusal reporting

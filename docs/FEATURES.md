@@ -217,10 +217,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   only import (a design or version of Fusion 360, an uploaded STEP, mesh, DXF or SVG file), and
   Onshape lists neither uploaded files nor versions beyond its version folders.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
-  reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
-  surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a
-  wall the sun does not light (fully in shadow, or edge-on to it) still lets bounced light
-  through.
+  reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
+  surfaces the sun sees, and its visibility test (`bounce_blocked`) sees the first `BOUNCE_LAYERS`
+  surfaces along each sun ray: a wall edge-on to the sun, or behind more surfaces than that, still
+  lets bounced light through.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps, and the visible floor
