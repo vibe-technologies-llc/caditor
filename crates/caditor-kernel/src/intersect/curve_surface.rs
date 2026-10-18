@@ -833,6 +833,13 @@ fn finish(
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map_or(low, |(at, _)| at);
         let crossing = single_crossing(probe, cluster);
+        if let (Some(end), Some(root)) = (at_end, crossing)
+            && probe.curve.point(end).distance(probe.curve.point(root)) > TOLERANCE
+        {
+            outcomes.push(Outcome::Point(end, true));
+            outcomes.push(Outcome::Point(root, probe.sine(root) <= TANGENT_SINE));
+            continue;
+        }
         let parameter = at_end.or(crossing).or(touch).unwrap_or(nearest);
         let tangent = probe.sine(parameter) <= TANGENT_SINE
             || (crossing.is_none() && (genuine >= 2 || touch.is_some() || along));

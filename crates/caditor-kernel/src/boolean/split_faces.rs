@@ -9,7 +9,7 @@ use crate::{
         faces,
         heal::{check_closed, uses},
         imprint::{self, Arrangement},
-        select::{Class, KeptFace, classify},
+        select::{Class, KeptFace, Twin, classify},
     },
     interrupt::{self, Interrupted},
     naming::{EdgeName, FaceName, SplitPiece},
@@ -86,6 +86,7 @@ fn imprinted(
                     original.surface(),
                     original.sense(),
                     &fragment,
+                    Twin::Alone,
                 )?;
                 FaceName::split(feature, original.name(), piece_of(class))
             } else {

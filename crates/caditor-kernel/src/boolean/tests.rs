@@ -918,7 +918,15 @@ fn a_fragment_both_inside_and_outside_the_other_solid_is_ambiguous() {
 
     assert_eq!(points.len(), 3);
     assert!(points[1..].iter().all(|point| point.distance(probe) > 0.1));
-    let error = select::classify(&input, key, &surface, Sense::Same, &fragment).unwrap_err();
+    let error = select::classify(
+        &input,
+        key,
+        &surface,
+        Sense::Same,
+        &fragment,
+        select::Twin::Alone,
+    )
+    .unwrap_err();
     let BooleanError::Ambiguous(site) = error else {
         panic!("{error:?}");
     };
@@ -1682,8 +1690,8 @@ fn bored_plate() -> Solid {
     .unwrap()
 }
 
-fn extruded_plug(center: (f64, f64)) -> Solid {
-    let regions = Profile::new(&[circle(20, center, 2.5)])
+fn extruded_plug(center: (f64, f64), radius: f64) -> Solid {
+    let regions = Profile::new(&[circle(20, center, radius)])
         .unwrap()
         .select(&Selection::EvenDepth)
         .unwrap();
@@ -1704,7 +1712,56 @@ fn an_extruded_plug_off_its_bores_axis_by_about_the_resolution_combines() {
         combine_within_the_resolution(
             &format!("a plug {gap} off"),
             &plate,
-            &extruded_plug((10.0 + gap, 5.0)),
+            &extruded_plug((10.0 + gap, 5.0), 2.5),
+        );
+    }
+}
+
+#[test]
+fn a_plug_beside_its_bores_axis_by_a_few_resolutions_combines() {
+    let plate = bored_plate();
+
+    for (gap, degrees, wider) in [
+        (5.6e-7, 0.0, 5e-7),
+        (5.6e-7, 0.0, -5e-7),
+        (5.6e-7, 90.0, 5e-7),
+        (1e-6, 30.0, 0.0),
+        (1e-6, 45.0, 0.0),
+        (7e-7, 60.0, 3e-7),
+        (1.5e-6, 45.0, -5e-7),
+        (2.5e-6, 90.0, 0.0),
+        (4e-6, 75.0, 0.0),
+    ] {
+        let angle = f64::to_radians(degrees);
+        let center = (10.0 + gap * angle.cos(), 5.0 + gap * angle.sin());
+        combine_within_the_resolution(
+            &format!("a plug {gap} off at {degrees} degrees and {wider} wider"),
+            &plate,
+            &extruded_plug(center, 2.5 + wider),
+        );
+    }
+}
+
+#[test]
+fn a_plug_off_its_bores_axis_square_to_its_seams_combines() {
+    let plate = bored_plate();
+
+    for (gap, wider) in [
+        (1.5e-6, 0.0),
+        (1e-5, 0.0),
+        (1e-4, 0.0),
+        (1e-3, 0.0),
+        (2e-3, 0.0),
+        (1e-2, 0.0),
+        (1e-5, 5e-7),
+        (1e-5, -5e-7),
+        (1e-4, -5e-7),
+        (1e-3, 5e-7),
+    ] {
+        combine_within_the_resolution(
+            &format!("a plug {gap} off along y and {wider} wider"),
+            &plate,
+            &extruded_plug((10.0, 5.0 + gap), 2.5 + wider),
         );
     }
 }

@@ -258,10 +258,17 @@ paths:
   resolution, which would leave edges where they were; every name kept). So offsets each within the
   resolution never compound past it: a block 8.3e-7 behind a plate's back and 6.2e-7 above its top
   had its corner 1.03e-6 off the plate's edge, neither pooled with it nor apart. Offsets up to
-  `SNAP_FLOOR` count as exact; past the resolution faces are apart and nothing moves. A face the
-  resolution away by other than an offset (a cylinder whose axis lies beside the other's) is not
-  snapped (`BUGS.md`). When snapping fails or its boolean fails, the operands as given are
-  combined; an `Empty` or cancelled snapped result stands.
+  `SNAP_FLOOR` count as exact; past the resolution faces are apart and nothing moves. Before that,
+  a cylinder of the second operand parallel to one of the first, its axis more than `SNAP_FLOOR`
+  and at most `SIDEWAYS_REACH` (four resolutions) beside the other's and its radius close enough
+  for the walls to come within the resolution, moves the whole second operand sideways onto that
+  axis by one translation (every such pair must ask for the same one); the radius is then matched
+  by the offset above. Four resolutions, not one: axes 1.5e-6 to 4e-6 apart leave a crescent at
+  most that thick whose walls lie within the resolution of each other over much of the round,
+  which imprinting cannot split cleanly (`NonManifold`, `Open`), while a shift that small is
+  invisible. The shift is dropped when it would take any face pair the offsets above would join
+  (`contacts`) out of the resolution. When snapping fails or its boolean fails, the operands as
+  given are combined; an `Empty` or cancelled snapped result stands.
 - Each operand pair is combined with overlap cuts judged at the piece's middle and, only when that
   fails for every pair, again judged along it (`OverlapCuts`, below); the error reported is the
   first of the operands as given.
@@ -275,9 +282,9 @@ paths:
   `carry_tests.rs` compares the two.
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face-face branch is split
   at the pooled vertices on it. An edge found lying on the other solid's surface that passes from
-  one side of it to the other (at least `CROSSING_SIDE`, half the resolution, off at both ends and
-  changing side once, `shallow_crossing`) crosses it at a shallow angle instead: it is split where
-  it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim
+  one side of it to the other (at least `CROSSING_SIDE`, half the resolution, off at one end,
+  `CROSSING_FLOOR`, a tenth, at the other, and changing side once, `shallow_crossing`) crosses it
+  at a shallow angle instead: it is split where it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim
   1.5e-6 off its bore's axis was otherwise split where it came within the resolution, far from the
   walls' crossing). A piece of an edge lying on a face is a cut of it when its middle lies strictly
   inside the face (`OverlapCuts::AtMiddle`), or on the retry when some of `INSIDE_SAMPLES` lies
@@ -312,8 +319,16 @@ paths:
   every face it touches, which must agree. A face whose surface passes through the point but which
   ends short of it (`exactly_inside_face` false) says nothing and is left out, so a strip one to two
   resolutions wide beside a coincident face (a block 1.5e-6 proud of a plate it is flush with
-  behind) is judged by the face it stands off. Faces that passed through share one class across
-  unsplit edges no cut shares; one whose box misses the other solid's is outside. Of coincident
+  behind) is judged by the face it stands off. A fragment every sample of which touches a face of
+  the other solid lying within the resolution of it, exactly inside that face and with normals
+  within `LYING_ALONG_SINE` (1e-2) of parallel (`lying_along`; the surfaces differ, so the sample is
+  not coincident) is coincident with the sense of those normals: first, before the deepest points,
+  when the other solid has a fragment bounded by the same arrangement pieces (`Twin::Matched`, as
+  the strips between two cylinders' seams lying within the resolution of the other wall are),
+  otherwise only when nothing else decides it. So cylinders of one radius or radii within the
+  resolution whose walls cross beside their seams (an extruded plug 1e-5 to 2e-3 off its bore's
+  axis square to its seams) drop or keep both strips together. Faces that passed through share one
+  class across unsplit edges no cut shares; one whose box misses the other solid's is outside. Of coincident
   faces only the first solid's fragment can stay: same orientation for union and intersection,
   opposite for difference. A difference reverses the second solid's kept fragments. Every result
   edge must then have one use each way, else `Open`, or `NonManifold` when solids meet only along

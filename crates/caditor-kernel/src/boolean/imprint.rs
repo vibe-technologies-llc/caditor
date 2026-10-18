@@ -29,6 +29,7 @@ const MAX_CURVE_PIECES: f64 = 256.0;
 const UNJUDGED_PIECE: f64 = 2.0 * TOLERANCE;
 const CROSSING_SAMPLES: usize = 16;
 const CROSSING_SIDE: f64 = 0.5 * TOLERANCE;
+const CROSSING_FLOOR: f64 = 0.1 * TOLERANCE;
 const CROSSING_BISECTIONS: usize = 60;
 
 type Mark = (f64, Option<usize>);
@@ -452,7 +453,8 @@ fn shallow_crossing(
         .filter(|pair| matches!(pair, [a, b] if a.signum() != b.signum()))
         .count();
     let crosses = first.signum() != last.signum()
-        && first.abs().min(last.abs()) >= CROSSING_SIDE
+        && first.abs().max(last.abs()) >= CROSSING_SIDE
+        && first.abs().min(last.abs()) >= CROSSING_FLOOR
         && sides == 1;
     if !crosses {
         return None;

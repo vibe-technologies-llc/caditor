@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Aabb, Point3};
+use caditor_geometry::{Aabb, Point3, Vector3};
 
 use crate::{
     boolean::{
@@ -16,6 +16,14 @@ use crate::{
     surface::Surface,
     topology::{BoundaryClass, FaceId, PointClass, SolidClassifier},
 };
+
+const LYING_ALONG_SINE: f64 = 1e-2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Twin {
+    Alone,
+    Matched,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Class {
@@ -61,12 +69,15 @@ pub(super) fn classify(
     surface: &Surface,
     sense: Sense,
     fragment: &Fragment,
+    twin: Twin,
 ) -> Result<Class, BooleanError> {
     let other = key.operand.other();
     let classifier = input.classifier(other);
     let mut solid_side = None;
     let mut coincident: Option<Class> = None;
     let mut along_boundary: Option<Class> = None;
+    let mut lying: Vec<Class> = Vec::new();
+    let mut sampled = 0;
     let mut mixed_at = None;
     let mut first_sample = None;
     for uv in interior_points(fragment, surface) {
@@ -75,8 +86,10 @@ pub(super) fn classify(
         };
         let point = surface.point_at(uv);
         first_sample.get_or_insert(point);
+        sampled += 1;
         let ambiguous = || BooleanError::Ambiguous(Box::default()).or_point(|| Some(point));
-        let found = classifier.classify_fragment_point(point, normal * sense.sign(), surface);
+        let outward = normal * sense.sign();
+        let found = classifier.classify_fragment_point(point, outward, surface);
         match found {
             BoundaryClass::Inside | BoundaryClass::Outside => {
                 let class = if matches!(found, BoundaryClass::Inside) {
@@ -100,7 +113,12 @@ pub(super) fn classify(
                 }
                 coincident = Some(class);
             }
-            BoundaryClass::Touching(_) | BoundaryClass::Undecided => {}
+            BoundaryClass::Touching(face) => {
+                if let Some(class) = lying_along(input, other, face, point, outward) {
+                    lying.push(class);
+                }
+            }
+            BoundaryClass::Undecided => {}
         }
     }
     let ambiguous = |point: Option<Point3>| {
@@ -111,11 +129,56 @@ pub(super) fn classify(
     if let Some(point) = mixed_at {
         return Err(ambiguous(Some(point)));
     }
+    let lying_throughout = (lying.len() == sampled).then(|| agreed(&lying)).flatten();
+    let lying_on_twin = lying_throughout.filter(|_| twin == Twin::Matched);
     solid_side
         .or(coincident)
+        .or(lying_on_twin)
         .or_else(|| classify_thin(classifier, surface, fragment))
         .or(along_boundary)
+        .or(lying_throughout)
         .ok_or_else(|| ambiguous(first_sample))
+}
+
+fn lying_along(
+    input: &Input,
+    operand: Operand,
+    face: FaceId,
+    point: Point3,
+    outward: Vector3,
+) -> Option<Class> {
+    let touched = input.solid(operand).face(face)?;
+    let hint = input
+        .bounds(FaceKey { operand, face })
+        .map(|bounds| bounds.uv.center());
+    let uv = touched.surface().project(point, hint);
+    let normal = touched.surface().normal(uv.x, uv.y)? * touched.sense().sign();
+    let along = normal.cross(outward.try_normalize()?).length() <= LYING_ALONG_SINE;
+    let inside = input.classifier(operand).exactly_inside_face(face, uv) == Some(true);
+    (along && inside).then(|| Class::Coincident(Sense::from_sign(normal.dot(outward))))
+}
+
+fn boundary_pieces(fragment: &Fragment) -> BTreeSet<usize> {
+    fragment
+        .loops
+        .iter()
+        .flat_map(|traced| &traced.coedges)
+        .map(|coedge| coedge.half_edge.piece)
+        .collect()
+}
+
+fn outlines(split: &[SplitFace], operand: Operand) -> BTreeSet<BTreeSet<usize>> {
+    split
+        .iter()
+        .filter(|face| face.key.operand == operand)
+        .flat_map(|face| &face.fragments)
+        .map(boundary_pieces)
+        .collect()
+}
+
+fn agreed(classes: &[Class]) -> Option<Class> {
+    let (first, rest) = classes.split_first()?;
+    rest.iter().all(|class| class == first).then_some(*first)
 }
 
 fn exactly_inside(input: &Input, operand: Operand, face: FaceId, point: Point3) -> bool {
@@ -245,6 +308,7 @@ pub(super) fn select(
 ) -> Result<Vec<KeptFace>, BooleanError> {
     let components = untouched_components(input, arrangement, &split);
     let extents = Operand::BOTH.map(|operand| extent(input, operand));
+    let [first_outlines, second_outlines] = Operand::BOTH.map(|operand| outlines(&split, operand));
     let mut shared_classes: BTreeMap<FaceKey, Class> = BTreeMap::new();
     let mut kept = Vec::new();
     for face in split {
@@ -270,13 +334,25 @@ pub(super) fn select(
                 None if input.carrying && reaches_beyond(arrangement, &fragment, other_extent) => {
                     Class::Outside
                 }
-                None => classify(
-                    input,
-                    face.key,
-                    original.surface(),
-                    original.sense(),
-                    &fragment,
-                )?,
+                None => {
+                    let others = match face.key.operand {
+                        Operand::First => &second_outlines,
+                        Operand::Second => &first_outlines,
+                    };
+                    let twin = if others.contains(&boundary_pieces(&fragment)) {
+                        Twin::Matched
+                    } else {
+                        Twin::Alone
+                    };
+                    classify(
+                        input,
+                        face.key,
+                        original.surface(),
+                        original.sense(),
+                        &fragment,
+                        twin,
+                    )?
+                }
             };
             if face.untouched && !matches!(class, Class::Coincident(_)) {
                 shared_classes.insert(root, class);

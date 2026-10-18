@@ -1,18 +1,95 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Plane, Vector3};
+use caditor_geometry::{Plane, RigidTransform, Vector3};
 
 use crate::{
     boolean::{Input, Operand, TOLERANCE},
     shell,
     surface::{Cylinder, Surface},
     tolerance::{ANGULAR_RESOLUTION, parallel},
-    topology::{FaceId, Solid},
+    topology::{Face, FaceId, Solid},
 };
 
 const SNAP_FLOOR: f64 = 1e-9;
+const SIDEWAYS_REACH: f64 = 4.0 * TOLERANCE + SNAP_FLOOR;
 
 pub(super) fn snapped(input: &Input) -> Option<Solid> {
+    let Some(shift) = sideways_shift(input) else {
+        return offset_onto(input);
+    };
+    let shifted = input
+        .second
+        .transformed(&RigidTransform::translation(shift)?)
+        .ok()?;
+    let moved = Input::new(input.first, &shifted);
+    if !contacts(&moved).is_superset(&contacts(input)) {
+        return offset_onto(input);
+    }
+    let offset = offset_onto(&moved);
+    drop(moved);
+    offset.or(Some(shifted))
+}
+
+fn sideways_shift(input: &Input) -> Option<Vector3> {
+    let shifts: Vec<Vector3> = near_pairs(input)
+        .filter_map(
+            |(second, first)| match (second.surface(), first.surface()) {
+                (Surface::Cylinder(cylinder), Surface::Cylinder(other)) => {
+                    onto_axis(cylinder, other)
+                }
+                _ => None,
+            },
+        )
+        .collect();
+    let (first, rest) = shifts.split_first()?;
+    let agreed = rest
+        .iter()
+        .all(|shift| shift.distance(*first) <= SNAP_FLOOR);
+    (agreed && first.length() > SNAP_FLOOR).then_some(*first)
+}
+
+fn near_pairs<'a>(input: &'a Input) -> impl Iterator<Item = (&'a Face, &'a Face)> {
+    input.faces(Operand::Second).iter().flat_map(move |bounds| {
+        input
+            .faces_near(Operand::First, &bounds.bounds)
+            .filter_map(move |near| {
+                Some((input.second.face(bounds.id)?, input.first.face(near.id)?))
+            })
+    })
+}
+
+fn contacts(input: &Input) -> BTreeSet<(FaceId, FaceId)> {
+    input
+        .faces(Operand::Second)
+        .iter()
+        .flat_map(|bounds| {
+            input
+                .faces_near(Operand::First, &bounds.bounds)
+                .filter(|near| {
+                    let pair = input.second.face(bounds.id).zip(input.first.face(near.id));
+                    pair.and_then(|(second, first)| growth_onto(second.surface(), first.surface()))
+                        .is_some_and(|growth| growth.abs() <= TOLERANCE)
+                })
+                .map(|near| (bounds.id, near.id))
+        })
+        .collect()
+}
+
+fn onto_axis(cylinder: &Cylinder, other: &Cylinder) -> Option<Vector3> {
+    let shift = off_axis(cylinder, other)?;
+    let apart = shift.length();
+    let walls_meet = (other.radius() - cylinder.radius()).abs() <= TOLERANCE + apart;
+    (apart <= SIDEWAYS_REACH && walls_meet).then_some(shift)
+}
+
+fn off_axis(cylinder: &Cylinder, other: &Cylinder) -> Option<Vector3> {
+    let (axis, other_axis) = (cylinder.frame(), other.frame());
+    let offset: Vector3 = other_axis.origin() - axis.origin();
+    parallel(axis.normal(), other_axis.normal())
+        .then(|| offset - axis.normal() * offset.dot(axis.normal()))
+}
+
+fn offset_onto(input: &Input) -> Option<Solid> {
     let inward: BTreeMap<FaceId, f64> = input
         .faces(Operand::Second)
         .iter()
@@ -68,9 +145,6 @@ fn tangent_growth(cylinder: &Cylinder, plane: &Plane) -> Option<f64> {
 }
 
 fn coaxial_growth(cylinder: &Cylinder, other: &Cylinder) -> Option<f64> {
-    let (axis, other_axis) = (cylinder.frame(), other.frame());
-    let offset: Vector3 = other_axis.origin() - axis.origin();
-    let off_axis = offset - axis.normal() * offset.dot(axis.normal());
-    let coaxial = parallel(axis.normal(), other_axis.normal()) && off_axis.length() <= SNAP_FLOOR;
+    let coaxial = off_axis(cylinder, other)?.length() <= SNAP_FLOOR;
     coaxial.then(|| other.radius() - cylinder.radius())
 }
