@@ -18,7 +18,8 @@ mod transport;
 pub use crate::{
     catalogue::{
         Account, Conversion, Design, DesignId, Download, Folder, FolderEntry, FolderId, FolderRef,
-        Project, ProjectId, Translation, Workspace, WorkspaceId, WorkspaceKind,
+        Project, ProjectId, Translation, Upload, UploadFormat, UploadId, Version, VersionId,
+        Workspace, WorkspaceId, WorkspaceKind,
     },
     client::{Client, Saved, finish_sign_in},
     error::{Error, Subject},

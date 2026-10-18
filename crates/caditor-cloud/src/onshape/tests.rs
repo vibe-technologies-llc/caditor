@@ -550,7 +550,7 @@ fn a_branch_and_a_version_list_their_own_elements_and_import_from_them() {
     assert_eq!(ids, ["partstudios/v/v3/e2", "assemblies/v/v3/e7"]);
 
     let translation = onshape()
-        .start_conversion(&net, &session(), &version.designs[1])
+        .start_conversion(&net, &session(), &version.designs[1], None)
         .unwrap();
     assert_eq!(translation.source, "doc1/tr9");
 }
@@ -630,7 +630,7 @@ fn starting_a_conversion_asks_for_step_kept_outside_the_document() {
     );
 
     let translation = onshape()
-        .start_conversion(&net, &session(), &design("partstudios/w/ws9/e1"))
+        .start_conversion(&net, &session(), &design("partstudios/w/ws9/e1"), None)
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr1");
@@ -650,7 +650,7 @@ fn an_assembly_converts_through_its_own_endpoint() {
     let net = ScriptedTransport::new().route(Method::Post, &url, 200, r#"{"id":"tr2"}"#);
 
     let translation = onshape()
-        .start_conversion(&net, &session(), &design("assemblies/w/ws9/e3"))
+        .start_conversion(&net, &session(), &design("assemblies/w/ws9/e3"), None)
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr2");
@@ -670,7 +670,7 @@ fn a_design_id_that_is_not_ours_is_not_found() {
         "partstudios/w/ws9/e1/x",
     ] {
         assert!(matches!(
-            onshape().start_conversion(&net, &session(), &design(id)),
+            onshape().start_conversion(&net, &session(), &design(id), None),
             Err(Error::NotFound {
                 subject: Subject::Design
             })

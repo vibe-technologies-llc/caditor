@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Project, Translation, Workspace,
-        WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Project, Translation, Upload,
+        Version, Workspace, WorkspaceId,
     },
     error::Error,
     provider::{Callback, Provider, SignIn},
@@ -96,10 +96,18 @@ impl Client {
         self.authorised(|session| self.provider.folder(&*self.transport, session, folder))
     }
 
-    pub fn start_conversion(&self, design: &Design) -> Result<Translation, Error> {
+    pub fn versions(&self, design: &Design) -> Result<Vec<Version>, Error> {
+        self.authorised(|session| self.provider.versions(&*self.transport, session, design))
+    }
+
+    pub fn start_conversion(
+        &self,
+        design: &Design,
+        version: Option<&Version>,
+    ) -> Result<Translation, Error> {
         self.authorised(|session| {
             self.provider
-                .start_conversion(&*self.transport, session, design)
+                .start_conversion(&*self.transport, session, design, version)
         })
     }
 
@@ -123,6 +131,17 @@ impl Client {
         let session = self.fresh()?;
         self.provider
             .fetch(&*self.transport, &session, download, sink, progress)
+    }
+
+    pub fn fetch_upload(
+        &self,
+        upload: &Upload,
+        sink: &mut dyn Write,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<u64, Error> {
+        let session = self.fresh()?;
+        self.provider
+            .fetch_upload(&*self.transport, &session, upload, sink, progress)
     }
 
     fn fresh(&self) -> Result<Session, Error> {

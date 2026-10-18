@@ -21,6 +21,8 @@ identifier!(WorkspaceId);
 identifier!(ProjectId);
 identifier!(FolderId);
 identifier!(DesignId);
+identifier!(UploadId);
+identifier!(VersionId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -68,16 +70,81 @@ pub struct Design {
     pub modified: Option<Timestamp>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UploadFormat {
+    Step,
+    Stl,
+    Obj,
+    ThreeMf,
+    Dxf,
+    Svg,
+}
+
+impl UploadFormat {
+    pub fn of_file_name(name: &str) -> Option<Self> {
+        let (_, extension) = name.trim().rsplit_once('.')?;
+        match extension.to_ascii_lowercase().as_str() {
+            "step" | "stp" => Some(Self::Step),
+            "stl" => Some(Self::Stl),
+            "obj" => Some(Self::Obj),
+            "3mf" => Some(Self::ThreeMf),
+            "dxf" => Some(Self::Dxf),
+            "svg" => Some(Self::Svg),
+            _ => None,
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Step => "step",
+            Self::Stl => "stl",
+            Self::Obj => "obj",
+            Self::ThreeMf => "3mf",
+            Self::Dxf => "dxf",
+            Self::Svg => "svg",
+        }
+    }
+
+    pub fn is_drawing(self) -> bool {
+        matches!(self, Self::Dxf | Self::Svg)
+    }
+
+    pub fn is_mesh(self) -> bool {
+        matches!(self, Self::Stl | Self::Obj | Self::ThreeMf)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Upload {
+    pub id: UploadId,
+    pub project: ProjectId,
+    pub name: String,
+    pub format: UploadFormat,
+    pub modified: Option<Timestamp>,
+}
+
+impl Upload {
+    pub fn stem(&self) -> &str {
+        let name = self.name.trim();
+        match name.rsplit_once('.') {
+            Some((stem, _)) if !stem.is_empty() => stem,
+            _ => name,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Folder {
     pub folders: Vec<FolderEntry>,
     pub designs: Vec<Design>,
+    pub uploads: Vec<Upload>,
 }
 
 impl Folder {
     pub fn merge(&mut self, other: Self) {
         self.folders.extend(other.folders);
         self.designs.extend(other.designs);
+        self.uploads.extend(other.uploads);
     }
 
     pub fn newest_first(&mut self) {
@@ -87,9 +154,22 @@ impl Folder {
                 .cmp(&first.modified)
                 .then_with(|| first.name.cmp(&second.name))
         });
+        self.uploads.sort_by(|first, second| {
+            second
+                .modified
+                .cmp(&first.modified)
+                .then_with(|| first.name.cmp(&second.name))
+        });
         self.folders
             .sort_by(|first, second| first.name.cmp(&second.name));
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Version {
+    pub id: VersionId,
+    pub number: u32,
+    pub modified: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

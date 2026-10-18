@@ -4,9 +4,8 @@ use std::{
     time::SystemTime,
 };
 
-use caditor_cloud::Design;
+use super::state::ImportItem;
 
-const EXTENSION: &str = "step";
 const MAX_NAME_CHARS: usize = 80;
 const FALLBACK_NAME: &str = "design";
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -19,9 +18,12 @@ pub struct Usage {
     pub bytes: u64,
 }
 
-pub fn path_for(dir: &Path, design: &Design) -> PathBuf {
-    dir.join(format!("{:016x}", identity(design)))
-        .join(format!("{}.{EXTENSION}", file_stem(&design.name)))
+pub fn path_for(dir: &Path, item: &ImportItem) -> PathBuf {
+    dir.join(format!("{:016x}", identity(item))).join(format!(
+        "{}.{}",
+        file_stem(&item.stem()),
+        item.extension()
+    ))
 }
 
 pub fn temporary_for(target: &Path) -> PathBuf {
@@ -32,13 +34,12 @@ pub fn temporary_for(target: &Path) -> PathBuf {
     target.with_file_name(format!(".{name}.part"))
 }
 
-fn identity(design: &Design) -> u64 {
-    design
-        .project
+fn identity(item: &ImportItem) -> u64 {
+    item.project()
         .as_str()
         .bytes()
         .chain(std::iter::once(0))
-        .chain(design.id.as_str().bytes())
+        .chain(item.key().into_bytes())
         .fold(FNV_OFFSET, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
         })
@@ -122,21 +123,33 @@ fn folder_bytes(folder: &Path) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use caditor_cloud::{DesignId, ProjectId};
+    use caditor_cloud::{
+        Design, DesignId, ProjectId, Upload, UploadFormat, UploadId, Version, VersionId,
+    };
     use tempfile::TempDir;
 
     use super::*;
 
-    fn design(id: &str, name: &str) -> Design {
-        Design {
+    fn design(id: &str, name: &str) -> ImportItem {
+        ImportItem::Design(Design {
             id: DesignId::new(id),
             project: ProjectId::new("p"),
             name: name.to_owned(),
             modified: None,
-        }
+        })
     }
 
-    fn keep(dir: &Path, design: &Design, bytes: usize) -> PathBuf {
+    fn upload(id: &str, name: &str, format: UploadFormat) -> ImportItem {
+        ImportItem::Upload(Upload {
+            id: UploadId::new(id),
+            project: ProjectId::new("p"),
+            name: name.to_owned(),
+            format,
+            modified: None,
+        })
+    }
+
+    fn keep(dir: &Path, design: &ImportItem, bytes: usize) -> PathBuf {
         let path = path_for(dir, design);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, vec![0_u8; bytes]).unwrap();
@@ -155,6 +168,46 @@ mod tests {
         assert_ne!(
             path.parent(),
             path_for(dir, &design("urn:i:2", "Frame v3")).parent()
+        );
+    }
+
+    #[test]
+    fn an_uploaded_file_keeps_its_own_name_and_kind_under_a_folder_of_its_own() {
+        let dir = Path::new("downloads");
+
+        let stl = path_for(dir, &upload("urn:i:1", "Bracket.STL", UploadFormat::Stl));
+        let stp = path_for(dir, &upload("urn:i:2", "Plate.stp", UploadFormat::Step));
+
+        assert_eq!(stl.file_name().unwrap(), "Bracket.stl");
+        assert_eq!(stp.file_name().unwrap(), "Plate.step");
+        assert_ne!(stl.parent(), stp.parent());
+    }
+
+    #[test]
+    fn a_chosen_version_is_kept_apart_from_the_newest_one_and_named_for_its_number() {
+        let dir = Path::new("downloads");
+        let frame = |item: &ImportItem| path_for(dir, item);
+        let version = |number: u32| {
+            ImportItem::Version(
+                Design {
+                    id: DesignId::new("urn:i:1"),
+                    project: ProjectId::new("p"),
+                    name: "Frame".to_owned(),
+                    modified: None,
+                },
+                Version {
+                    id: VersionId::new(format!("v{number}")),
+                    number,
+                    modified: None,
+                },
+            )
+        };
+
+        assert_eq!(frame(&version(3)).file_name().unwrap(), "Frame v3.step");
+        assert_ne!(frame(&version(3)).parent(), frame(&version(2)).parent());
+        assert_ne!(
+            frame(&version(3)).parent(),
+            frame(&design("urn:i:1", "Frame")).parent()
         );
     }
 

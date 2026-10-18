@@ -2,7 +2,7 @@ use std::{
     fs::{self, File},
     io::{BufWriter, Write},
     panic::{AssertUnwindSafe, catch_unwind},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -14,14 +14,14 @@ use std::{
 
 use caditor_cloud::{
     Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Project,
-    ProjectId, Provider, Service, Session, Transport, Workspace, WorkspaceId,
+    ProjectId, Provider, Service, Session, Transport, Version, Workspace, WorkspaceId,
 };
 use parking_lot::Mutex;
 
 use super::{
     downloads::{self, KEPT_DESIGNS, Usage},
     failure::Failure,
-    state::Stage,
+    state::{ImportItem, Stage},
     store::SessionStore,
     thumbnails::{self, Thumbnail},
 };
@@ -42,6 +42,7 @@ pub enum Loaded {
     Root(ProjectId, Result<Folder, Arc<Failure>>),
     Folder(FolderRef, Result<Folder, Arc<Failure>>),
     Thumbnail(DesignId, Result<Option<Arc<Thumbnail>>, Arc<Failure>>),
+    Versions(DesignId, Result<Vec<Version>, Arc<Failure>>),
 }
 
 pub enum Event {
@@ -222,7 +223,7 @@ pub struct ImportJob {
     pub generation: u64,
     pub id: u64,
     pub client: Arc<Client>,
-    pub design: Design,
+    pub item: ImportItem,
     pub dir: PathBuf,
     pub stop: Arc<AtomicBool>,
     pub courier: Courier,
@@ -230,8 +231,38 @@ pub struct ImportJob {
 
 impl ImportJob {
     pub fn run(&self) -> Result<PathBuf, Failure> {
+        let target = downloads::path_for(&self.dir, &self.item);
+        let temporary = downloads::temporary_for(&target);
+        let outcome = match &self.item {
+            ImportItem::Design(design) => {
+                self.convert_and_download(design, None, &temporary, &target)
+            }
+            ImportItem::Version(design, version) => {
+                self.convert_and_download(design, Some(version), &temporary, &target)
+            }
+            ImportItem::Upload(upload) => self.write(&temporary, &target, |writer, progress| {
+                self.client.fetch_upload(upload, writer, progress)
+            }),
+        };
+        if outcome.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        outcome?;
+        if let Err(error) = downloads::prune(&self.dir, KEPT_DESIGNS) {
+            log::warn!("old downloaded designs could not be tidied: {error}");
+        }
+        Ok(target)
+    }
+
+    fn convert_and_download(
+        &self,
+        design: &Design,
+        version: Option<&Version>,
+        temporary: &Path,
+        target: &Path,
+    ) -> Result<(), Failure> {
         let service = self.service;
-        let translation = self.client.start_conversion(&self.design)?;
+        let translation = self.client.start_conversion(design, version)?;
         let deadline = Instant::now() + CONVERSION_PATIENCE;
         let download = loop {
             self.check_stopped()?;
@@ -244,24 +275,19 @@ impl ImportJob {
             }
             self.pause(POLL_EVERY)?;
         };
-        let target = downloads::path_for(&self.dir, &self.design);
-        let temporary = downloads::temporary_for(&target);
-        let outcome = self.download(&download, &temporary, &target);
-        if outcome.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        outcome?;
-        if let Err(error) = downloads::prune(&self.dir, KEPT_DESIGNS) {
-            log::warn!("old downloaded designs could not be tidied: {error}");
-        }
-        Ok(target)
+        self.write(temporary, target, |writer, progress| {
+            self.client.fetch(&download, writer, progress)
+        })
     }
 
-    fn download(
+    fn write(
         &self,
-        download: &caditor_cloud::Download,
-        temporary: &std::path::Path,
-        target: &std::path::Path,
+        temporary: &Path,
+        target: &Path,
+        fetch: impl FnOnce(
+            &mut BufWriter<File>,
+            &mut dyn FnMut(u64, Option<u64>) -> bool,
+        ) -> Result<u64, Error>,
     ) -> Result<(), Failure> {
         let save = |error: std::io::Error| Failure::Save(error.kind());
         if let Some(folder) = target.parent() {
@@ -276,7 +302,7 @@ impl ImportJob {
             }
             !self.stop.load(Ordering::Relaxed)
         };
-        self.client.fetch(download, &mut writer, &mut progress)?;
+        fetch(&mut writer, &mut progress)?;
         writer.flush().map_err(save)?;
         let file = writer
             .into_inner()

@@ -13,6 +13,8 @@ pub enum Subject {
     Translation,
     Download,
     Thumbnail,
+    Upload,
+    StoredFile,
 }
 
 impl Subject {
@@ -27,6 +29,8 @@ impl Subject {
             Self::Translation => "the conversion",
             Self::Download => "the converted file",
             Self::Thumbnail => "the picture of the design",
+            Self::Upload => "the uploaded file",
+            Self::StoredFile => "the download address of the file",
         }
     }
 }
@@ -70,6 +74,8 @@ pub enum Error {
     ConversionTimedOut { service: Service },
     #[error("{service} converted the design but gave no STEP file.")]
     NoStepFile { service: Service },
+    #[error("{service} holds no file for this item that caditor can download.")]
+    NoStoredFile { service: Service },
     #[error("The file could not be written: {0}.")]
     Write(io::ErrorKind),
 }

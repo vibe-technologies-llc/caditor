@@ -1,4 +1,4 @@
-use caditor_cloud::Service;
+use caditor_cloud::{Service, UploadFormat};
 use egui::{
     Align, CornerRadius, FontId, Frame, Image, Label, Layout, RichText, Sense, Stroke, StrokeKind,
     TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, load::SizedTexture, vec2,
@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use crate::{
     appearance::{self, BORDER_WIDTH, CARD_RADIUS, SPACE_L, SPACE_S},
     cloud::{CloudCommand, Failure, Link, Linked, Stage},
-    fonts,
+    fonts, icons,
     widgets::{self, Tone},
 };
 
@@ -24,7 +24,17 @@ const YEAR: i64 = 365 * DAY;
 const YESTERDAY_ENDS: i64 = 2 * DAY - 1;
 pub const TRY_AGAIN: &str = "Try again";
 pub const DISMISS: &str = "Dismiss";
-pub const CANCEL_IMPORT_HOVER: &str = "Stop importing this design; nothing is added to the model";
+pub const CANCEL_IMPORT_HOVER: &str = "Stop this import; nothing is added to the model";
+
+pub fn upload_icon(format: UploadFormat) -> &'static str {
+    if format.is_drawing() {
+        icons::UPLOADED_DRAWING
+    } else if format.is_mesh() {
+        icons::UPLOADED_MESH
+    } else {
+        icons::BODIES
+    }
+}
 
 pub fn page_card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
@@ -223,7 +233,7 @@ pub fn failure_callout(ui: &mut Ui, tone: Tone, summary: &str, failure: &Failure
 
 pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<CloudCommand> {
     let import = linked.import.as_ref()?;
-    let name = &import.design.name;
+    let name = &import.item.name();
     let words = match &import.stage {
         Stage::Failed(failure) => {
             let summary = format!("Could not import “{name}” from {service}.");
@@ -232,7 +242,7 @@ pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<C
                 ui.add(Label::new(format!("{summary} {failure}")).wrap());
                 ui.horizontal(|ui| {
                     if ui.add(widgets::button(TRY_AGAIN)).clicked() {
-                        command = Some(CloudCommand::Import(service, import.design.clone()));
+                        command = Some(import.item.command(service));
                     }
                     if ui.add(widgets::button(DISMISS)).clicked() {
                         command = Some(CloudCommand::DismissImport(service));
@@ -241,7 +251,10 @@ pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<C
             });
             return command;
         }
-        Stage::Starting => format!("Asking {service} to convert “{name}”…"),
+        Stage::Starting if import.item.is_converted() => {
+            format!("Asking {service} to convert “{name}”…")
+        }
+        Stage::Starting => format!("Asking {service} for “{name}”…"),
         Stage::Converting(Some(percent)) => {
             format!("{service} is converting “{name}” to STEP… {percent}%")
         }

@@ -1,12 +1,14 @@
 use std::io::Write;
 
+use jiff::Timestamp;
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::json;
 
 use crate::{
     catalogue::{
         Account, Conversion, Design, DesignId, Download, Folder, FolderEntry, FolderId, FolderRef,
-        Project, ProjectId, Translation, Workspace, WorkspaceId, WorkspaceKind,
+        Project, ProjectId, Translation, Upload, UploadFormat, UploadId, Version, VersionId,
+        Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{base64_url, form, percent_encode},
     error::{Error, Subject},
@@ -26,6 +28,7 @@ const REVOKE: &str = "https://developer.api.autodesk.com/authentication/v2/revok
 const USER_INFO: &str = "https://api.userprofile.autodesk.com/userinfo";
 const PROJECT_API: &str = "https://developer.api.autodesk.com/project/v1";
 const DATA_API: &str = "https://developer.api.autodesk.com/data/v1";
+const STORAGE_API: &str = "https://developer.api.autodesk.com/oss/v2";
 const DERIVATIVE_API: &str = "https://developer.api.autodesk.com/modelderivative/v2/designdata";
 const SCOPES: &str = "data:read data:write user-profile:read";
 const FUSION_DESIGN: &str = "items:autodesk.fusion360:Design";
@@ -35,6 +38,8 @@ const STEP_OUTPUT: &str = "step";
 const STEP_ROLE: &str = "step";
 const THUMBNAIL_SIDE: u32 = 200;
 const MAX_PAGES: usize = 20;
+const STORAGE_OBJECT_PREFIX: &str = "urn:adsk.objects:os.object:";
+const DOWNLOAD_LINK_MINUTES: u32 = 10;
 
 pub struct Fusion {
     client_id: String,
@@ -91,7 +96,11 @@ impl Fusion {
         net: &dyn Transport,
         session: &Session,
         design: &Design,
+        version: Option<&Version>,
     ) -> Result<String, Error> {
+        if let Some(version) = version {
+            return Ok(base64_url(version.id.as_str().as_bytes()));
+        }
         let url = format!(
             "{DATA_API}/projects/{}/items/{}/tip",
             percent_encode(design.project.as_str()),
@@ -99,6 +108,42 @@ impl Fusion {
         );
         let tip: Single = self.get(net, session, url, Subject::Design)?;
         Ok(base64_url(tip.data.id.as_bytes()))
+    }
+
+    fn download_link(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        upload: &Upload,
+    ) -> Result<String, Error> {
+        let url = format!(
+            "{DATA_API}/projects/{}/items/{}/tip",
+            percent_encode(upload.project.as_str()),
+            percent_encode(upload.id.as_str())
+        );
+        let tip: StoredTip = self.get(net, session, url, Subject::Upload)?;
+        let stored = tip
+            .data
+            .relationships
+            .and_then(|relationships| relationships.storage)
+            .and_then(|storage| storage.data)
+            .ok_or(Error::NoStoredFile { service: SERVICE })?;
+        let (bucket, object) = stored
+            .id
+            .strip_prefix(STORAGE_OBJECT_PREFIX)
+            .and_then(|location| location.split_once('/'))
+            .filter(|(bucket, object)| !bucket.is_empty() && !object.is_empty())
+            .ok_or(Error::NoStoredFile { service: SERVICE })?;
+        let url = format!(
+            "{STORAGE_API}/buckets/{}/objects/{}/signeds3download?minutesExpiration={DOWNLOAD_LINK_MINUTES}",
+            percent_encode(bucket),
+            percent_encode(object)
+        );
+        let signed: SignedDownload = self.get(net, session, url, Subject::StoredFile)?;
+        signed
+            .url
+            .filter(|link| link.starts_with("https://"))
+            .ok_or(Error::NoStoredFile { service: SERVICE })
     }
 
     fn contents(
@@ -124,6 +169,7 @@ impl Fusion {
             match part {
                 Entry::Folder(entry) => contents.folders.push(entry),
                 Entry::Design(design) => contents.designs.push(design),
+                Entry::Upload(upload) => contents.uploads.push(upload),
             }
         }
         contents.newest_first();
@@ -271,7 +317,7 @@ impl Provider for Fusion {
             Err(several) => {
                 let mut root = Folder {
                     folders: several,
-                    designs: Vec::new(),
+                    ..Folder::default()
                 };
                 root.newest_first();
                 Ok(root)
@@ -288,13 +334,32 @@ impl Provider for Fusion {
         self.contents(net, session, folder)
     }
 
+    fn versions(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+    ) -> Result<Vec<Version>, Error> {
+        let url = format!(
+            "{DATA_API}/projects/{}/items/{}/versions",
+            percent_encode(design.project.as_str()),
+            percent_encode(design.id.as_str())
+        );
+        let mut versions = self.pages(net, session, url, Subject::Design, |page| {
+            page.data.iter().filter_map(Resource::version).collect()
+        })?;
+        versions.sort_by_key(|version| std::cmp::Reverse(version.number));
+        Ok(versions)
+    }
+
     fn start_conversion(
         &self,
         net: &dyn Transport,
         session: &Session,
         design: &Design,
+        version: Option<&Version>,
     ) -> Result<Translation, Error> {
-        let source = self.version_urn(net, session, design)?;
+        let source = self.version_urn(net, session, design, version)?;
         let job = json!({
             "input": { "urn": source },
             "output": { "formats": [{ "type": STEP_OUTPUT }] },
@@ -344,13 +409,32 @@ impl Provider for Fusion {
         }
     }
 
+    fn fetch_upload(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        upload: &Upload,
+        sink: &mut dyn Write,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<u64, Error> {
+        let link = self.download_link(net, session, upload)?;
+        let fetched = net.fetch(&Request::get(link), sink, progress)?;
+        let answer = Response {
+            status: fetched.status,
+            body: Vec::new(),
+            retry_after_seconds: fetched.retry_after_seconds,
+        };
+        checked(SERVICE, answer, Subject::Upload)?;
+        Ok(fetched.bytes)
+    }
+
     fn thumbnail(
         &self,
         net: &dyn Transport,
         session: &Session,
         design: &Design,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let urn = self.version_urn(net, session, design)?;
+        let urn = self.version_urn(net, session, design, None)?;
         let url = format!(
             "{DERIVATIVE_API}/{urn}/thumbnail?width={THUMBNAIL_SIDE}&height={THUMBNAIL_SIDE}"
         );
@@ -400,6 +484,7 @@ fn percent_of(progress: Option<&str>) -> Option<u8> {
 enum Entry {
     Folder(FolderEntry),
     Design(Design),
+    Upload(Upload),
 }
 
 #[derive(Deserialize)]
@@ -454,6 +539,31 @@ struct Identified {
 }
 
 #[derive(Deserialize)]
+struct StoredTip {
+    data: StoredVersion,
+}
+
+#[derive(Deserialize)]
+struct StoredVersion {
+    relationships: Option<StoredRelationships>,
+}
+
+#[derive(Deserialize)]
+struct StoredRelationships {
+    storage: Option<StoredLocation>,
+}
+
+#[derive(Deserialize)]
+struct StoredLocation {
+    data: Option<Identified>,
+}
+
+#[derive(Deserialize)]
+struct SignedDownload {
+    url: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct Resource {
     id: String,
     #[serde(rename = "type")]
@@ -469,6 +579,8 @@ struct Attributes {
     display_name: Option<String>,
     #[serde(rename = "lastModifiedTime")]
     last_modified: Option<String>,
+    #[serde(rename = "versionNumber")]
+    version_number: Option<u32>,
     #[serde(default)]
     hidden: bool,
     extension: Option<Extension>,
@@ -495,6 +607,22 @@ impl Resource {
             .extension
             .as_ref()
             .and_then(|extension| extension.kind.as_deref())
+    }
+
+    fn version(&self) -> Option<Version> {
+        (self.kind == "versions").then_some(())?;
+        Some(Version {
+            id: VersionId::new(&self.id),
+            number: self.attributes.version_number?,
+            modified: self.modified(),
+        })
+    }
+
+    fn modified(&self) -> Option<Timestamp> {
+        self.attributes
+            .last_modified
+            .as_deref()
+            .and_then(|text| text.parse().ok())
     }
 
     fn workspace(&self) -> Option<Workspace> {
@@ -537,12 +665,20 @@ impl Resource {
                 id: DesignId::new(&self.id),
                 project: project.clone(),
                 name: self.title(),
-                modified: self
-                    .attributes
-                    .last_modified
-                    .as_deref()
-                    .and_then(|text| text.parse().ok()),
+                modified: self.modified(),
             })),
+            "items" => {
+                let name = self.title();
+                UploadFormat::of_file_name(&name).map(|format| {
+                    Entry::Upload(Upload {
+                        id: UploadId::new(&self.id),
+                        project: project.clone(),
+                        name,
+                        format,
+                        modified: self.modified(),
+                    })
+                })
+            }
             _ => None,
         }
     }

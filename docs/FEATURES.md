@@ -217,9 +217,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   recognisable at a glance, but the file format stores no preview of a model, so a tile would need
   either the file loaded and rendered in the background or a new preview record in the format
   (which `file-format.md` and the recovery journal would then have to cover).
-- [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
-  chosen version, other file kinds in a project folder (uploaded STEP, mesh and DXF files, which
-  need no conversion), and sending a model back to the cloud are not offered.
+- [low · medium] Sending a model back to the cloud is not offered: Home and the Cloud projects window
+  only import (a design or version of Fusion 360, an uploaded STEP, mesh, DXF or SVG file), and
+  Onshape lists neither uploaded files nor versions beyond its version folders.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame, comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees only those surfaces: a

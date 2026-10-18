@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use crate::{
     catalogue::{
         Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Project, ProjectId,
-        Translation, Workspace, WorkspaceId,
+        Translation, Upload, UploadId, Version, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -160,6 +160,7 @@ pub enum Step {
     Conversion,
     Fetch,
     Thumbnail,
+    Versions,
 }
 
 type Failure = fn() -> Error;
@@ -172,6 +173,8 @@ pub struct FakeProvider {
     folders: BTreeMap<FolderRef, Folder>,
     step: Vec<u8>,
     thumbnails: BTreeMap<DesignId, Vec<u8>>,
+    stored: BTreeMap<UploadId, Vec<u8>>,
+    versions: BTreeMap<DesignId, Vec<Version>>,
     working_polls: usize,
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
@@ -194,6 +197,8 @@ impl FakeProvider {
             folders: BTreeMap::new(),
             step: Vec::new(),
             thumbnails: BTreeMap::new(),
+            stored: BTreeMap::new(),
+            versions: BTreeMap::new(),
             working_polls: 0,
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
@@ -229,6 +234,16 @@ impl FakeProvider {
 
     pub fn thumbnail(mut self, design: DesignId, picture: &[u8]) -> Self {
         self.thumbnails.insert(design, picture.to_vec());
+        self
+    }
+
+    pub fn stored_file(mut self, upload: UploadId, bytes: &[u8]) -> Self {
+        self.stored.insert(upload, bytes.to_vec());
+        self
+    }
+
+    pub fn versions(mut self, design: DesignId, versions: Vec<Version>) -> Self {
+        self.versions.insert(design, versions);
         self
     }
 
@@ -364,13 +379,28 @@ impl Provider for FakeProvider {
         Ok(self.folders.get(folder).cloned().unwrap_or_default())
     }
 
+    fn versions(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        design: &Design,
+    ) -> Result<Vec<Version>, Error> {
+        self.enter(Step::Versions, format!("versions {}", design.id.as_str()))?;
+        Ok(self.versions.get(&design.id).cloned().unwrap_or_default())
+    }
+
     fn start_conversion(
         &self,
         _net: &dyn Transport,
         _session: &Session,
         design: &Design,
+        version: Option<&Version>,
     ) -> Result<Translation, Error> {
-        self.enter(Step::Conversion, format!("convert {}", design.id.as_str()))?;
+        let call = match version {
+            Some(version) => format!("convert {} {}", design.id.as_str(), version.id.as_str()),
+            None => format!("convert {}", design.id.as_str()),
+        };
+        self.enter(Step::Conversion, call)?;
         self.polled.store(0, Ordering::Relaxed);
         Ok(Translation {
             source: design.id.as_str().to_owned(),
@@ -409,6 +439,27 @@ impl Provider for FakeProvider {
             return Err(Error::Stopped);
         }
         Ok(bytes)
+    }
+
+    fn fetch_upload(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        upload: &Upload,
+        sink: &mut dyn Write,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<u64, Error> {
+        self.enter(Step::Fetch, format!("fetch upload {}", upload.id.as_str()))?;
+        let bytes = self.stored.get(&upload.id).ok_or(Error::NoStoredFile {
+            service: Service::Fusion,
+        })?;
+        sink.write_all(bytes)
+            .map_err(|error| Error::Write(error.kind()))?;
+        let length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if !progress(length, Some(length)) {
+            return Err(Error::Stopped);
+        }
+        Ok(length)
     }
 
     fn thumbnail(

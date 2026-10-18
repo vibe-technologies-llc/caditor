@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Project, Translation, Workspace,
-        WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Project, Translation, Upload,
+        Version, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -73,11 +73,19 @@ pub trait Provider: Send + Sync {
         folder: &FolderRef,
     ) -> Result<Folder, Error>;
 
+    fn versions(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+    ) -> Result<Vec<Version>, Error>;
+
     fn start_conversion(
         &self,
         net: &dyn Transport,
         session: &Session,
         design: &Design,
+        version: Option<&Version>,
     ) -> Result<Translation, Error>;
 
     fn poll_conversion(
@@ -92,6 +100,15 @@ pub trait Provider: Send + Sync {
         net: &dyn Transport,
         session: &Session,
         download: &Download,
+        sink: &mut dyn Write,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<u64, Error>;
+
+    fn fetch_upload(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        upload: &Upload,
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<u64, Error>;

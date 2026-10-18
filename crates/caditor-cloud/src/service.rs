@@ -53,6 +53,13 @@ impl Service {
         }
     }
 
+    pub fn has_design_versions(self) -> bool {
+        match self {
+            Self::Fusion => true,
+            Self::Onshape => false,
+        }
+    }
+
     pub fn workspace_noun(self) -> &'static str {
         match self {
             Self::Fusion => "hub",

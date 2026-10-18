@@ -8,8 +8,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Design, DesignId, Error, Folder, FolderId, FolderRef, Project, ProjectId, Service, Workspace,
-    WorkspaceId, WorkspaceKind,
+    Design, DesignId, Error, Folder, FolderId, FolderRef, Project, ProjectId, Service, Upload,
+    UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
@@ -27,7 +27,7 @@ use crate::{
     commands::Command,
     export::ExportCommand,
     files::FileCommand,
-    home,
+    home, icons,
     model::Action,
     preferences::{
         CLIENT_ID_FIELD_EDIT, CLOUD_ON_HOME, PreferenceChange, Preferences, PreferencesCommand,
@@ -109,13 +109,14 @@ fn catalogue(step: &[u8]) -> FakeProvider {
                     },
                     name: "Wheels".to_owned(),
                 }],
+                ..Folder::default()
             },
         )
         .project(
             project("p2", "Robots"),
             Folder {
                 designs: vec![design("d3", "Arm", "p2", 1)],
-                folders: Vec::new(),
+                ..Folder::default()
             },
         )
         .folder(
@@ -125,8 +126,23 @@ fn catalogue(step: &[u8]) -> FakeProvider {
             },
             Folder {
                 designs: vec![design("d4", "Rim", "p1", 9)],
-                folders: Vec::new(),
+                ..Folder::default()
             },
+        )
+        .versions(
+            DesignId::new("d1"),
+            vec![
+                Version {
+                    id: VersionId::new("v2"),
+                    number: 2,
+                    modified: None,
+                },
+                Version {
+                    id: VersionId::new("v1"),
+                    number: 1,
+                    modified: None,
+                },
+            ],
         )
         .step_file(step)
 }
@@ -560,7 +576,7 @@ fn two_hubs() -> FakeProvider {
             },
             Folder {
                 designs: vec![design("d9", "Shed", "p9", 2)],
-                folders: Vec::new(),
+                ..Folder::default()
             },
         )
 }
@@ -1098,6 +1114,179 @@ fn the_manager_signs_in_browses_folders_and_imports() {
     });
     assert!(downloaded_files(dir.path()).is_empty());
     assert!(harness.shows_containing("No design is kept yet."));
+}
+
+fn upload(id: &str, name: &str, format: UploadFormat) -> Upload {
+    Upload {
+        id: UploadId::new(id),
+        project: ProjectId::new("p1"),
+        name: name.to_owned(),
+        format,
+        modified: None,
+    }
+}
+
+fn uploads_provider(step: &[u8], uploads: Vec<Upload>) -> FakeProvider {
+    let hub = WorkspaceId::new("hub");
+    FakeProvider::new()
+        .workspace(Workspace {
+            id: hub.clone(),
+            name: "Studio".to_owned(),
+            kind: WorkspaceKind::Team,
+        })
+        .project(
+            Project {
+                id: ProjectId::new("p1"),
+                workspace: hub,
+                name: "Parts".to_owned(),
+            },
+            Folder {
+                uploads,
+                ..Folder::default()
+            },
+        )
+        .stored_file(UploadId::new("u1"), step)
+}
+
+fn plate_upload() -> Vec<Upload> {
+    vec![upload("u1", "Plate.STP", UploadFormat::Step)]
+}
+
+fn open_parts_in_manager(harness: &mut Harness) {
+    run_from_palette(harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click(cloud_dialog::SIGN_IN);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| harness.shows("Plate.STP"));
+}
+
+#[test]
+fn the_manager_lists_uploaded_files_with_an_icon_for_their_kind() {
+    let dir = TempDir::new().unwrap();
+    let every_kind = vec![
+        upload("u1", "Plate.STP", UploadFormat::Step),
+        upload("u2", "Bracket.stl", UploadFormat::Stl),
+        upload("u3", "Plan.dxf", UploadFormat::Dxf),
+    ];
+    let provider = Arc::new(uploads_provider(&plate_step(), every_kind));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_parts_in_manager(&mut harness);
+
+    assert!(harness.shows("Plate.STP"));
+    assert!(harness.shows("Bracket.stl"));
+    assert!(harness.shows("Plan.dxf"));
+    assert!(harness.shows(icons::BODIES));
+    assert!(harness.shows(icons::UPLOADED_MESH));
+    assert!(harness.shows(icons::UPLOADED_DRAWING));
+}
+
+#[test]
+fn an_uploaded_step_file_comes_in_like_a_local_one_with_no_conversion() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(uploads_provider(&plate_step(), plate_upload()));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_parts_in_manager(&mut harness);
+
+    let before = harness.document().features().len();
+    harness.click(cloud_dialog::IMPORT);
+    harness.wait_until("the file is imported", |harness| {
+        harness.document().features().len() > before
+    });
+    harness.settle();
+
+    assert_eq!(downloaded_files(dir.path()), vec!["Plate.step".to_owned()]);
+    let calls = provider.calls();
+    assert!(calls.contains(&"fetch upload u1".to_owned()));
+    assert!(!calls.iter().any(|call| call.starts_with("convert")));
+}
+
+#[test]
+fn an_uploaded_file_that_cannot_be_downloaded_says_so_and_offers_to_try_again() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(uploads_provider(&plate_step(), plate_upload()).failing(
+        Step::Fetch,
+        || Error::NoStoredFile {
+            service: Service::Fusion,
+        },
+    ));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_parts_in_manager(&mut harness);
+
+    harness.click(cloud_dialog::IMPORT);
+    harness.wait_until("the failure is shown", |harness| {
+        harness.shows_containing("Could not import “Plate.STP” from Fusion 360.")
+    });
+
+    assert!(harness.shows(cloud_parts::TRY_AGAIN));
+    assert!(downloaded_files(dir.path()).is_empty());
+}
+
+#[test]
+fn a_designs_versions_are_listed_on_request_and_a_chosen_one_is_converted_and_imported() {
+    let dir = TempDir::new().unwrap();
+    let step = plate_step();
+    let provider = fusion_provider(&step);
+    let mut harness = with_cloud(dir.path(), &provider);
+    run_from_palette(&mut harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click(cloud_dialog::SIGN_IN);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Bikes"));
+    harness.click("Bikes");
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+
+    assert!(!harness.shows("Version 1"));
+
+    harness.click(cloud_dialog::VERSIONS);
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows("Version 1") && harness.shows("Version 2")
+    });
+
+    assert!(harness.shows(cloud_dialog::NEWEST_VERSION));
+
+    let before = harness.document().features().len();
+    harness.click_beside(cloud_dialog::IMPORT, "Version 1");
+    harness.wait_until("the version is imported", |harness| {
+        harness.document().features().len() > before
+    });
+    harness.settle();
+
+    assert_eq!(
+        downloaded_files(dir.path()),
+        vec!["Frame v1.step".to_owned()]
+    );
+    assert!(provider.calls().contains(&"convert d1 v1".to_owned()));
+    harness.click(cloud_dialog::VERSIONS);
+    assert!(!harness.shows("Version 1"));
+}
+
+#[test]
+fn listing_versions_that_fails_says_so_and_try_again_lists_them() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(catalogue(b"").failing(Step::Versions, || Error::NotFound {
+        subject: caditor_cloud::Subject::Design,
+    }));
+    let mut harness = with_cloud(dir.path(), &provider);
+    run_from_palette(&mut harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click(cloud_dialog::SIGN_IN);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Bikes"));
+    harness.click("Bikes");
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+
+    harness.click(cloud_dialog::VERSIONS);
+    harness.wait_until("the failure is shown", |harness| {
+        harness.shows_containing("Could not list the versions.")
+    });
+
+    provider.recover(Step::Versions);
+    harness.click(cloud_parts::TRY_AGAIN);
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows("Version 2")
+    });
 }
 
 #[test]

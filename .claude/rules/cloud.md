@@ -32,11 +32,16 @@ The abstraction layer, free of the app and of any UI. A service is a `Provider` 
 a `Transport`; the app never speaks a service's protocol itself.
 
 - Vocabulary (`catalogue.rs`): `Account`, `Workspace` (a Fusion hub; `WorkspaceKind`), `Project`,
-  `FolderRef`, `Folder` (sub-folders and `Design`s), `Translation` and `Download`, whose strings
-  only their provider reads. Ids are newtypes, never positional.
+  `FolderRef`, `Folder` (sub-folders, `Design`s a service converts, and `Upload`s it stores as they
+  are, each with an `UploadFormat` told from its file name: STEP, STL, OBJ, 3MF, DXF, SVG),
+  `Version` (a design's saved version, `number` and time), `Translation` and `Download`, whose
+  strings only their provider reads. Ids are newtypes, never positional.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
-  `folder`, the conversion trio `start_conversion`, `poll_conversion`, `fetch`, and `thumbnail`
+  `folder`, `versions` (a design's saved versions, newest first; none for a service whose versions
+  are folders), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
+  `poll_conversion`, `fetch`, `fetch_upload` (an `Upload` streamed as it is stored, with no
+  conversion) and `thumbnail`
   (a design's picture as the bytes the service sent, `Ok(None)` when it has none; the default is
   none, so a service without one implements nothing). A service is one variant of `Service`
   (`service.rs`, which also holds the words that differ: `company`, `app_name`, `project_name`,
@@ -71,12 +76,21 @@ convert a design needs; caditor never changes a design).
   `/data/v1`), following `links.next` only inside `developer.api.autodesk.com`, at most
   `MAX_PAGES`. A project with one top folder shows its contents, with several the folders. Only
   `items:autodesk.fusion360:Design` items are listed.
-- Import: the item's tip version, its id as an unpadded URL-safe base64 URN, a Model Derivative
-  job to `step`, the manifest polled until the `step` derivative has a child with role `step`, then
+- Import: the item's tip version (or the version the user chose from `…/items/{id}/versions`, whose
+  `versionNumber` and `lastModifiedTime` make a `Version`), its id as an unpadded URL-safe base64
+  URN, a Model Derivative job to `step`, the manifest polled until the `step` derivative has a child with role `step`, then
   that derivative streamed. The design's picture is the Model Derivative thumbnail
   (`<urn>/thumbnail?width=200&height=200`, a PNG) of the same version URN; 404 and 202 (nothing
   rendered yet) are no picture, not errors. Fusion's own file format is closed, so STEP through
   Autodesk is the way a design comes in; it then goes through the ordinary STEP import.
+- Uploaded files: an `items` entry that is not a Fusion design and whose display name ends in a
+  known `UploadFormat` extension (`Resource::entry`; hidden items and other kinds such as PDF are
+  left out) is listed as an `Upload` beside the designs. `fetch_upload` asks the item's tip for
+  `relationships.storage.data.id` (`urn:adsk.objects:os.object:<bucket>/<object>`), asks Object
+  Storage for a signed S3 link (`/oss/v2/buckets/{bucket}/objects/{object}/signeds3download`, ten
+  minutes) with the bearer, and streams that link without the bearer. A missing or malformed
+  storage object, or a link absent or not https, is `Error::NoStoredFile`. No Model Derivative job
+  is made.
 - The app registered with Autodesk is a deployment fact, not code: a public-client app with the
   Data Management and Model Derivative APIs and the callback
   `http://localhost:49617/callback` (`CALLBACK_PORT`). Its client ID reaches a build as
@@ -155,12 +169,21 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   again at the next start. Sign-out and turning cloud off revoke at the service (best effort) and
   forget; every keyring call, forgetting included, runs on a courier thread, never on the UI
   thread (`Cloud::leave` spawns even when nothing is linked).
-- An import is one job (`ImportJob`): convert, poll every two seconds for ten minutes at most,
-  stream to `<state>/cloud/downloads/<id hash>/<design name>.step` through a hidden `.part` file,
-  fsync, rename, then keep the newest `KEPT_DESIGNS`. One runs at a time; Cancel stops it between
-  and inside steps. The finished file reaches the model as `FileCommand::Drop`, so every import
-  rule in `app-files.md` applies (report, placement, one change per body, Reload import from its
-  file); a refused drop leaves the file where it is. A file is named after its design so the body is.
+- An import is one job (`ImportJob`) of an `ImportItem`: a `Design` (the tip), a `Version` of a
+  design, or an `Upload`. A design or version is converted, polled every two seconds for ten
+  minutes at most, and streamed; an upload is streamed straight (`Client::fetch_upload`, progress
+  `Stage::Downloading` only). Either goes to `<state>/cloud/downloads/<id hash>/<name>.<ext>`
+  through a hidden `.part` file, fsync, rename, then the newest `KEPT_DESIGNS` are kept (`.step`
+  for a design, `Name vN.step` for a version, the upload's own name with its format's extension).
+  The hash covers project, item id and, for a version, the version id, so a version never replaces
+  the tip's file. One runs at a time; Cancel stops it between and inside steps. The finished file
+  reaches the model as `FileCommand::Drop`, so every import rule in `app-files.md` applies (the
+  extension picks STEP, mesh or drawing import; report, placement, one change per body, Reload
+  import from its file); a refused drop leaves the file where it is. A file is named after its
+  item so the body is.
+- A design's versions (`Linked::versions`, `Load<Vec<Version>>` per `DesignId`) load only when the
+  user opens them in the manager (`LoadVersions`; `ReloadVersions` after a failure) and are
+  dropped by Refresh and by choosing another hub.
 - A design's picture (`cloud/thumbnails.rs`) is decoration, loaded lazily: Home asks
   (`LoadThumbnail`) for each design tile it draws inside the visible area, one courier job per
   design, at most `AT_ONCE` running (the rest ask again on the next frame), the answer a
@@ -191,13 +214,17 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   first advert shown also holds Cloud projects… and Turn off cloud features. Signed in, a header
   with hub and account (Sign out, Cloud projects…, Refresh) and a line per project,
   `PROJECT_ROWS_ON_HOME` of them, each loading its root only once drawn (`LoadProject`), with the
-  newest designs as tiles that import on a click (the design's picture replaces the tile's icon once
+  newest designs as tiles (uploaded files are not shown on Home) that import on a click (the design's picture replaces the tile's icon once
   it arrives) and `N more…` going to the manager. Tiles are disabled while an import runs, and the
   import's progress, failure and Cancel sit at the head of the section.
 - The manager (`Command::Cloud`, File › Cloud) is the window for everything outside Home:
   accounts (state pill, Sign in, Cancel, Sign out, Refresh, the last failure), then per signed-in
   service a hub combo (only where `Service::has_workspaces`), a project list beside a folder
-  browser with breadcrumbs and an Import per design (`CloudDialog` keeps one browser per service), the downloaded
+  browser with breadcrumbs, an Import per design, a Versions toggle per design where
+  `Service::has_design_versions` (rows of version number, time and Import, the newest marked) and
+  the uploaded files after the designs with an icon for their kind (`cloud_parts::upload_icon`:
+  a cube for STEP, a polygon for meshes, a vector drawing for DXF and SVG) and an Import
+  (`CloudDialog` keeps one browser per service, with the designs whose versions are open), the downloaded
   designs (count, size, Clear), Show cloud projects on Home, and Turn off cloud features at the
   footer's far left. A cloud turned off shows one callout and Turn on cloud services.
 - Shared parts are `cloud_parts.rs`: tiles on `raised` over the page's `panel`, relative times

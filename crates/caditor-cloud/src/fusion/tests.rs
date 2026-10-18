@@ -319,11 +319,15 @@ const CONTENTS: &str = r#"{"data":[
     {"type":"folders","id":"urn:f:hid","attributes":{"displayName":"Hidden","hidden":true}},
     {"type":"items","id":"urn:i:old","attributes":{"displayName":"Old frame","lastModifiedTime":"2024-01-02T03:04:05.000Z","extension":{"type":"items:autodesk.fusion360:Design"}}},
     {"type":"items","id":"urn:i:new","attributes":{"displayName":"New frame","lastModifiedTime":"2025-06-07T08:09:10.000Z","extension":{"type":"items:autodesk.fusion360:Design"}}},
+    {"type":"items","id":"urn:i:stl","attributes":{"displayName":"Bracket.STL","lastModifiedTime":"2025-01-02T03:04:05.000Z","extension":{"type":"items:autodesk.core:File"}}},
+    {"type":"items","id":"urn:i:dxf","attributes":{"displayName":"Plan.dxf","lastModifiedTime":"2025-08-02T03:04:05.000Z","extension":{"type":"items:autodesk.core:File"}}},
+    {"type":"items","id":"urn:i:hiddenstep","attributes":{"displayName":"Old.step","hidden":true,"extension":{"type":"items:autodesk.core:File"}}},
     {"type":"items","id":"urn:i:pdf","attributes":{"displayName":"Notes.pdf","extension":{"type":"items:autodesk.core:File"}}}
 ]}"#;
 
 #[test]
-fn a_folder_lists_designs_newest_first_and_subfolders_and_leaves_other_files_out() {
+fn a_folder_lists_designs_newest_first_with_subfolders_and_importable_uploads_and_leaves_other_files_out()
+ {
     let url = folder_url("urn%3Af%3Atop");
     let net = ScriptedTransport::new().route(Method::Get, &url, 200, CONTENTS);
     let reference = FolderRef {
@@ -356,6 +360,18 @@ fn a_folder_lists_designs_newest_first_and_subfolders_and_leaves_other_files_out
         .map(|entry| (entry.reference.folder.as_str(), entry.name.as_str()))
         .collect();
     assert_eq!(folders, vec![("urn:f:sub", "Parts")]);
+    let uploads: Vec<_> = folder
+        .uploads
+        .iter()
+        .map(|upload| (upload.id.as_str(), upload.name.as_str(), upload.format))
+        .collect();
+    assert_eq!(
+        uploads,
+        vec![
+            ("urn:i:dxf", "Plan.dxf", UploadFormat::Dxf),
+            ("urn:i:stl", "Bracket.STL", UploadFormat::Stl),
+        ]
+    );
 }
 
 #[test]
@@ -414,7 +430,7 @@ fn starting_a_conversion_asks_for_the_newest_version_as_step() {
         .route(Method::Post, &job, 201, r#"{"result":"created"}"#);
 
     let translation = fusion()
-        .start_conversion(&net, &session(), &design("urn:i:new"))
+        .start_conversion(&net, &session(), &design("urn:i:new"), None)
         .unwrap();
 
     assert_eq!(
@@ -435,7 +451,7 @@ fn a_design_that_is_gone_is_reported_as_not_found() {
     let tip = format!("{DATA_API}/projects/a.proj/items/gone/tip");
     let net = ScriptedTransport::new().route(Method::Get, &tip, 404, "{}");
 
-    let result = fusion().start_conversion(&net, &session(), &design("gone"));
+    let result = fusion().start_conversion(&net, &session(), &design("gone"), None);
 
     assert!(matches!(
         result,
@@ -720,4 +736,280 @@ fn a_design_that_is_gone_has_no_thumbnail_to_fetch() {
             subject: Subject::Design
         })
     ));
+}
+
+fn upload() -> Upload {
+    Upload {
+        id: UploadId::new("urn:i:stl"),
+        project: ProjectId::new("a.proj"),
+        name: "Bracket.stl".to_owned(),
+        format: UploadFormat::Stl,
+        modified: None,
+    }
+}
+
+fn upload_tip() -> String {
+    format!("{DATA_API}/projects/a.proj/items/urn%3Ai%3Astl/tip")
+}
+
+const UPLOAD_TIP_BODY: &str = r#"{"data":{"type":"versions","id":"urn:adsk.wipprod:fs.file:vf.S?version=2",
+    "relationships":{"storage":{"data":{"type":"objects","id":"urn:adsk.objects:os.object:wip.dm.prod/9d4a-b1.stl"},
+    "meta":{"link":{"href":"https://developer.api.autodesk.com/data/v1/projects/a.proj/storage/x"}}}}}}"#;
+
+fn signed_download() -> String {
+    format!(
+        "{STORAGE_API}/buckets/wip.dm.prod/objects/9d4a-b1.stl/signeds3download?minutesExpiration=10"
+    )
+}
+
+const SIGNED_LINK: &str =
+    "https://signed.example.invalid/wip.dm.prod/9d4a-b1.stl?X-Amz-Signature=s";
+
+fn stored_file_net() -> ScriptedTransport {
+    ScriptedTransport::new()
+        .route(Method::Get, &upload_tip(), 200, UPLOAD_TIP_BODY)
+        .route(
+            Method::Get,
+            &signed_download(),
+            200,
+            &format!(r#"{{"status":"complete","url":"{SIGNED_LINK}","size":6}}"#),
+        )
+        .route(Method::Get, SIGNED_LINK, 200, "solid ")
+}
+
+#[test]
+fn an_uploaded_file_is_downloaded_from_its_storage_object_through_a_signed_link_without_conversion()
+{
+    let net = stored_file_net();
+    let mut sink = Vec::new();
+
+    let bytes = fusion()
+        .fetch_upload(&net, &session(), &upload(), &mut sink, &mut |_, _| true)
+        .unwrap();
+
+    assert_eq!(sink, b"solid ");
+    assert_eq!(bytes, 6);
+    let requests = net.requests();
+    let urls: Vec<_> = requests
+        .iter()
+        .map(|request| request.url.as_str())
+        .collect();
+    assert_eq!(
+        urls,
+        vec![upload_tip(), signed_download(), SIGNED_LINK.to_owned()]
+    );
+    assert_eq!(
+        requests
+            .first()
+            .and_then(|request| request.bearer.as_deref()),
+        Some("access-1")
+    );
+    assert_eq!(
+        requests
+            .get(1)
+            .and_then(|request| request.bearer.as_deref()),
+        Some("access-1")
+    );
+    assert_eq!(
+        requests
+            .get(2)
+            .and_then(|request| request.bearer.as_deref()),
+        None
+    );
+    assert!(urls.iter().all(|url| !url.contains(DERIVATIVE_API)));
+}
+
+#[test]
+fn an_upload_without_a_storage_object_has_nothing_to_download() {
+    let bodies = [
+        r#"{"data":{"type":"versions","id":"v"}}"#,
+        r#"{"data":{"type":"versions","id":"v","relationships":{"storage":{}}}}"#,
+        r#"{"data":{"type":"versions","id":"v","relationships":{"storage":{"data":{"id":"urn:adsk.objects:os.object:nobucket"}}}}}"#,
+        r#"{"data":{"type":"versions","id":"v","relationships":{"storage":{"data":{"id":"urn:other:thing/x"}}}}}"#,
+    ];
+    for body in bodies {
+        let net = ScriptedTransport::new().route(Method::Get, &upload_tip(), 200, body);
+
+        let result =
+            fusion().fetch_upload(&net, &session(), &upload(), &mut Vec::new(), &mut |_, _| {
+                true
+            });
+
+        assert!(matches!(result, Err(Error::NoStoredFile { .. })), "{body}");
+    }
+}
+
+#[test]
+fn a_signed_link_that_is_missing_or_not_https_is_refused() {
+    for answer in [
+        r#"{"status":"complete"}"#,
+        r#"{"url":"http://plain.example.invalid/x"}"#,
+    ] {
+        let net = ScriptedTransport::new()
+            .route(Method::Get, &upload_tip(), 200, UPLOAD_TIP_BODY)
+            .route(Method::Get, &signed_download(), 200, answer);
+
+        let result =
+            fusion().fetch_upload(&net, &session(), &upload(), &mut Vec::new(), &mut |_, _| {
+                true
+            });
+
+        assert!(
+            matches!(result, Err(Error::NoStoredFile { .. })),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn an_uploaded_file_that_is_gone_or_refused_is_reported_in_words() {
+    let gone = ScriptedTransport::new().route(Method::Get, &upload_tip(), 404, "{}");
+    let refused = ScriptedTransport::new()
+        .route(Method::Get, &upload_tip(), 200, UPLOAD_TIP_BODY)
+        .route(
+            Method::Get,
+            &signed_download(),
+            200,
+            &format!(r#"{{"url":"{SIGNED_LINK}"}}"#),
+        )
+        .route(Method::Get, SIGNED_LINK, 403, "");
+    let sign_in_ended = ScriptedTransport::new().route(Method::Get, &upload_tip(), 401, "{}");
+
+    let run = |net: &ScriptedTransport| {
+        fusion()
+            .fetch_upload(net, &session(), &upload(), &mut Vec::new(), &mut |_, _| {
+                true
+            })
+            .unwrap_err()
+    };
+
+    assert!(matches!(
+        run(&gone),
+        Error::NotFound {
+            subject: Subject::Upload
+        }
+    ));
+    assert!(matches!(run(&refused), Error::Forbidden { .. }));
+    assert!(matches!(run(&sign_in_ended), Error::SignedOut));
+}
+
+#[test]
+fn stopping_an_upload_download_surfaces_as_a_stop() {
+    let result = fusion().fetch_upload(
+        &stored_file_net(),
+        &session(),
+        &upload(),
+        &mut Vec::new(),
+        &mut |_, _| false,
+    );
+
+    assert!(result.unwrap_err().is_stop());
+}
+
+#[test]
+fn formats_are_told_from_the_file_name_and_other_names_are_not_importable() {
+    let format = |name: &str| UploadFormat::of_file_name(name);
+
+    assert_eq!(format("a.STP"), Some(UploadFormat::Step));
+    assert_eq!(format("a.b.step"), Some(UploadFormat::Step));
+    assert_eq!(format("part.3MF"), Some(UploadFormat::ThreeMf));
+    assert_eq!(format("part.obj"), Some(UploadFormat::Obj));
+    assert_eq!(format("sheet.svg"), Some(UploadFormat::Svg));
+    assert_eq!(format("noextension"), None);
+    assert_eq!(format("model.f3d"), None);
+    assert_eq!(format("notes.pdf"), None);
+    assert_eq!(upload().stem(), "Bracket");
+}
+
+fn versions_url() -> String {
+    format!("{DATA_API}/projects/a.proj/items/urn%3Ai%3Anew/versions")
+}
+
+#[test]
+fn a_designs_versions_are_listed_newest_first_across_pages() {
+    let second =
+        format!("{DATA_API}/projects/a.proj/items/urn%3Ai%3Anew/versions?page%5Bnumber%5D=1");
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &versions_url(),
+            200,
+            &format!(
+                r#"{{"data":[
+                {{"type":"versions","id":"urn:adsk.wipprod:fs.file:vf.X?version=1","attributes":{{"versionNumber":1,"lastModifiedTime":"2024-01-02T03:04:05.000Z"}}}},
+                {{"type":"versions","id":"urn:adsk.wipprod:fs.file:vf.X?version=2","attributes":{{"versionNumber":2}}}}],
+                "links":{{"next":{{"href":"{second}"}}}}}}"#
+            ),
+        )
+        .route(
+            Method::Get,
+            &second,
+            200,
+            r#"{"data":[
+                {"type":"versions","id":"urn:adsk.wipprod:fs.file:vf.X?version=3","attributes":{"versionNumber":3,"lastModifiedTime":"2025-06-07T08:09:10.000Z"}},
+                {"type":"versions","id":"urn:odd","attributes":{"name":"no number"}}]}"#,
+        );
+
+    let versions = fusion()
+        .versions(&net, &session(), &design("urn:i:new"))
+        .unwrap();
+
+    let numbers: Vec<_> = versions.iter().map(|version| version.number).collect();
+    assert_eq!(numbers, vec![3, 2, 1]);
+    assert_eq!(
+        versions.first().map(|version| version.id.as_str()),
+        Some("urn:adsk.wipprod:fs.file:vf.X?version=3")
+    );
+    assert_eq!(
+        versions
+            .first()
+            .and_then(|version| version.modified)
+            .map(|time| time.to_string()),
+        Some("2025-06-07T08:09:10Z".to_owned())
+    );
+    assert_eq!(versions.get(1).and_then(|version| version.modified), None);
+}
+
+#[test]
+fn a_design_without_versions_listed_has_none_and_a_gone_one_is_not_found() {
+    let empty = ScriptedTransport::new().route(Method::Get, &versions_url(), 200, r#"{"data":[]}"#);
+    let gone = ScriptedTransport::new().route(Method::Get, &versions_url(), 404, "{}");
+
+    assert!(
+        fusion()
+            .versions(&empty, &session(), &design("urn:i:new"))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        fusion().versions(&gone, &session(), &design("urn:i:new")),
+        Err(Error::NotFound { .. })
+    ));
+}
+
+#[test]
+fn a_chosen_version_is_converted_instead_of_the_newest_and_the_tip_is_not_asked() {
+    let job = format!("{DERIVATIVE_API}/job");
+    let net = ScriptedTransport::new().route(Method::Post, &job, 201, r#"{"result":"created"}"#);
+    let version = Version {
+        id: VersionId::new("urn:adsk.wipprod:fs.file:vf.X?version=2"),
+        number: 2,
+        modified: None,
+    };
+
+    let translation = fusion()
+        .start_conversion(&net, &session(), &design("urn:i:new"), Some(&version))
+        .unwrap();
+
+    assert_eq!(
+        translation.source,
+        base64_url(b"urn:adsk.wipprod:fs.file:vf.X?version=2")
+    );
+    let requests = net.requests();
+    assert_eq!(requests.len(), 1);
+    let Body::Json(text) = &requests.first().unwrap().body else {
+        panic!("the job is JSON");
+    };
+    let sent: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(sent["input"]["urn"], translation.source.as_str());
 }

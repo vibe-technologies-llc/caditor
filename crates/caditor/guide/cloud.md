@@ -30,6 +30,11 @@ removed when you sign out. The progress and a Cancel button show where the desig
 status bar once the file is being read. If a conversion fails, the page says why and offers Try
 again.
 
+Other files in a project folder, uploaded as they are, are not converted: the Cloud projects window
+lists the STEP, STL, OBJ, 3MF, DXF and SVG files of a Fusion 360 folder beside its designs, and Import
+downloads one and brings it in exactly as if you had opened it from your disk, with its usual
+report or questions (a mesh asks for its unit, a drawing for where to place it).
+
 Fusion's own file format is closed, so a design arrives as it is converted: a body you can
 measure, cut, combine and build on, not a Fusion feature history. Each imported design is kept as a
 STEP file so Reload import from its file works; the Cloud projects window shows how many are kept
@@ -63,8 +68,11 @@ sign-in on this computer, and you end the permission itself in your Onshape acco
   and Refresh.
 - **Projects**: for each signed-in service, the hub to list (Fusion 360: the team hub first), a list
   of its projects or documents and, beside it, the folders and designs of the one you choose, with
-  a breadcrumb to go back up and an Import button on each design.
-- **Downloaded designs**: how many STEP files are kept, how large they are, and Clear.
+  a breadcrumb to go back up and an Import button on each design and on each STEP, mesh or drawing
+  file (Fusion 360). **Versions** under a Fusion 360 design lists its saved versions, newest first;
+  Import beside one has Autodesk convert that version instead of the newest, and it is kept as
+  its own file named for the version.
+- **Downloaded designs**: how many downloaded files are kept, how large they are, and Clear.
 - **Cloud features**: whether projects show on Home, and Turn off cloud features.
 
 Every command has a name in the command palette: Home, Cloud projects, Sign in to Fusion 360, Sign

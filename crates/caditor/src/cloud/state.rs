@@ -5,8 +5,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Workspace,
-    WorkspaceId, WorkspaceKind,
+    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Upload,
+    Version, Workspace, WorkspaceId, WorkspaceKind,
 };
 
 use super::{downloads::Usage, failure::Failure, thumbnails::Thumbnail};
@@ -39,7 +39,10 @@ impl<T> Load<T> {
     }
 }
 
+pub const DESIGN_EXTENSION: &str = "step";
+
 pub static IDLE_FOLDER: Load<Folder> = Load::Idle;
+pub static IDLE_VERSIONS: Load<Vec<Version>> = Load::Idle;
 
 #[derive(Debug, Clone)]
 pub enum Stage {
@@ -49,10 +52,75 @@ pub enum Stage {
     Failed(Arc<Failure>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportItem {
+    Design(Design),
+    Version(Design, Version),
+    Upload(Upload),
+}
+
+impl ImportItem {
+    pub fn name(&self) -> String {
+        match self {
+            Self::Design(design) => design.name.clone(),
+            Self::Version(design, version) => {
+                format!("{} (version {})", design.name, version.number)
+            }
+            Self::Upload(upload) => upload.name.clone(),
+        }
+    }
+
+    pub fn stem(&self) -> String {
+        match self {
+            Self::Design(design) => design.name.clone(),
+            Self::Version(design, version) => format!("{} v{}", design.name, version.number),
+            Self::Upload(upload) => upload.stem().to_owned(),
+        }
+    }
+
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Self::Design(_) | Self::Version(..) => DESIGN_EXTENSION,
+            Self::Upload(upload) => upload.format.extension(),
+        }
+    }
+
+    pub fn project(&self) -> &ProjectId {
+        match self {
+            Self::Design(design) | Self::Version(design, _) => &design.project,
+            Self::Upload(upload) => &upload.project,
+        }
+    }
+
+    pub fn key(&self) -> String {
+        match self {
+            Self::Design(design) => design.id.as_str().to_owned(),
+            Self::Version(design, version) => {
+                format!("{}\0{}", design.id.as_str(), version.id.as_str())
+            }
+            Self::Upload(upload) => upload.id.as_str().to_owned(),
+        }
+    }
+
+    pub fn is_converted(&self) -> bool {
+        !matches!(self, Self::Upload(_))
+    }
+
+    pub fn command(&self, service: Service) -> CloudCommand {
+        match self {
+            Self::Design(design) => CloudCommand::Import(service, design.clone()),
+            Self::Version(design, version) => {
+                CloudCommand::ImportVersion(service, design.clone(), version.clone())
+            }
+            Self::Upload(upload) => CloudCommand::ImportUpload(service, upload.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Import {
     pub id: u64,
-    pub design: Design,
+    pub item: ImportItem,
     pub stage: Stage,
     pub(super) stop: Arc<AtomicBool>,
 }
@@ -78,6 +146,7 @@ pub struct Linked {
     pub(super) roots: BTreeMap<ProjectId, Load<Folder>>,
     pub(super) folders: BTreeMap<FolderRef, Load<Folder>>,
     pub(super) thumbnails: BTreeMap<DesignId, Load<Option<Arc<Thumbnail>>>>,
+    pub(super) versions: BTreeMap<DesignId, Load<Vec<Version>>>,
     pub import: Option<Import>,
 }
 
@@ -92,6 +161,7 @@ impl Linked {
             roots: BTreeMap::new(),
             folders: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
+            versions: BTreeMap::new(),
             import: None,
         }
     }
@@ -102,6 +172,10 @@ impl Linked {
 
     pub fn folder(&self, folder: &FolderRef) -> &Load<Folder> {
         self.folders.get(folder).unwrap_or(&IDLE_FOLDER)
+    }
+
+    pub fn versions(&self, design: &DesignId) -> &Load<Vec<Version>> {
+        self.versions.get(design).unwrap_or(&IDLE_VERSIONS)
     }
 
     pub fn picture(&self, design: &DesignId) -> Option<&Arc<Thumbnail>> {
@@ -171,6 +245,10 @@ pub enum CloudCommand {
     OpenFolder(Service, FolderRef),
     ReloadFolder(Service, FolderRef),
     Import(Service, Design),
+    ImportUpload(Service, Upload),
+    ImportVersion(Service, Design, Version),
+    LoadVersions(Service, Design),
+    ReloadVersions(Service, Design),
     CancelImport(Service),
     DismissImport(Service),
     MeasureDownloads,

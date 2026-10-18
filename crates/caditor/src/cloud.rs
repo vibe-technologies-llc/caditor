@@ -35,8 +35,8 @@ pub use self::{
     failure::Failure,
     jobs::Opener,
     state::{
-        CloudCommand, Connection, Downloads, Import, Link, Linked, Load, SigningIn, Stage,
-        first_workspace,
+        CloudCommand, Connection, Downloads, Import, ImportItem, Link, Linked, Load, SigningIn,
+        Stage, first_workspace,
     },
 };
 use self::{
@@ -341,7 +341,20 @@ impl Cloud {
                 self.load_folder(service, folder);
             }
             CloudCommand::Import(service, design) => {
-                self.start_import(service, design, &mut actions)
+                self.start_import(service, ImportItem::Design(design), &mut actions)
+            }
+            CloudCommand::ImportVersion(service, design, version) => {
+                self.start_import(service, ImportItem::Version(design, version), &mut actions)
+            }
+            CloudCommand::LoadVersions(service, design) => self.load_versions(service, design),
+            CloudCommand::ReloadVersions(service, design) => {
+                if let Some(linked) = self.linked_mut(service) {
+                    linked.versions.remove(&design.id);
+                }
+                self.load_versions(service, design);
+            }
+            CloudCommand::ImportUpload(service, upload) => {
+                self.start_import(service, ImportItem::Upload(upload), &mut actions)
             }
             CloudCommand::CancelImport(service) => self.cancel_import(service),
             CloudCommand::DismissImport(service) => {
@@ -588,6 +601,7 @@ impl Cloud {
         linked.roots.clear();
         linked.folders.clear();
         linked.thumbnails.clear();
+        linked.versions.clear();
         linked.projects = Load::Idle;
         linked.workspaces = Load::Idle;
         linked.account = Load::Idle;
@@ -604,6 +618,7 @@ impl Cloud {
         linked.roots.clear();
         linked.folders.clear();
         linked.thumbnails.clear();
+        linked.versions.clear();
         linked.projects = Load::Idle;
         self.load_projects(service, workspace.clone());
         self.remember_workspace(service, workspace);
@@ -742,6 +757,28 @@ impl Cloud {
         );
     }
 
+    fn load_versions(&mut self, service: Service, design: Design) {
+        let generation = self.generation(service);
+        let Some(linked) = self.linked_mut(service) else {
+            return;
+        };
+        if !matches!(linked.versions(&design.id), Load::Idle) {
+            return;
+        }
+        linked.versions.insert(design.id.clone(), Load::Loading);
+        let client = Arc::clone(&linked.client);
+        let id = design.id.clone();
+        self.courier.spawn(
+            service,
+            move || client.versions(&design).map_err(Failure::from),
+            move |result| Event::Loaded {
+                service,
+                generation,
+                loaded: Loaded::Versions(id.clone(), result.map_err(Arc::new)),
+            },
+        );
+    }
+
     fn load_folder(&mut self, service: Service, folder: FolderRef) {
         let generation = self.generation(service);
         let Some(linked) = self.linked_mut(service) else {
@@ -764,7 +801,7 @@ impl Cloud {
         );
     }
 
-    fn start_import(&mut self, service: Service, design: Design, actions: &mut Vec<Action>) {
+    fn start_import(&mut self, service: Service, item: ImportItem, actions: &mut Vec<Action>) {
         let generation = self.generation(service);
         let dir = self.downloads.dir.clone();
         let courier = self.courier.clone();
@@ -791,7 +828,7 @@ impl Cloud {
         let stop = Arc::new(AtomicBool::new(false));
         linked.import = Some(Import {
             id,
-            design: design.clone(),
+            item: item.clone(),
             stage: Stage::Starting,
             stop: Arc::clone(&stop),
         });
@@ -800,7 +837,7 @@ impl Cloud {
             generation,
             id,
             client: Arc::clone(&linked.client),
-            design,
+            item,
             dir,
             stop,
             courier: courier.clone(),
@@ -943,7 +980,8 @@ impl Cloud {
             | Loaded::Projects(_, Err(failure))
             | Loaded::Root(_, Err(failure))
             | Loaded::Folder(_, Err(failure))
-            | Loaded::Thumbnail(_, Err(failure)) => Some(Arc::clone(failure)),
+            | Loaded::Thumbnail(_, Err(failure))
+            | Loaded::Versions(_, Err(failure)) => Some(Arc::clone(failure)),
             _ => None,
         };
         if failed
@@ -990,6 +1028,9 @@ impl Cloud {
             Loaded::Thumbnail(design, result) => {
                 linked.thumbnails.insert(design, settle(result));
             }
+            Loaded::Versions(design, result) => {
+                linked.versions.insert(design, settle(result));
+            }
         }
         if let Some(workspace) = choose {
             linked.workspace = Some(workspace.clone());
@@ -1016,7 +1057,7 @@ impl Cloud {
         else {
             return;
         };
-        let name = current.design.name.clone();
+        let name = current.item.name();
         match outcome {
             Ok(path) => {
                 linked.import = None;

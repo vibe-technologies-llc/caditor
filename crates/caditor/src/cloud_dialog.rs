@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_cloud::{FolderRef, Project, ProjectId, Service};
+use caditor_cloud::{Design, DesignId, FolderRef, Project, ProjectId, Service, Upload};
 use egui::{Label, ScrollArea, Sides, Ui};
 use jiff::Timestamp;
 
@@ -20,6 +20,8 @@ pub const SIGN_OUT: &str = "Sign out";
 pub const CANCEL_SIGN_IN: &str = "Cancel signing in";
 pub const REFRESH: &str = "Refresh";
 pub const IMPORT: &str = "Import";
+pub const VERSIONS: &str = "Versions";
+pub const NEWEST_VERSION: &str = "newest";
 pub const CLEAR_DOWNLOADS: &str = "Clear downloaded designs";
 pub const TURN_OFF: &str = "Turn off cloud features";
 pub const TURN_ON: &str = "Turn on cloud services";
@@ -41,6 +43,7 @@ struct Crumb {
 struct Browser {
     project: Option<ProjectId>,
     trail: Vec<Crumb>,
+    versions_shown: BTreeSet<DesignId>,
 }
 
 impl Browser {
@@ -432,7 +435,10 @@ fn contents(
                 .max_height(LIST_HEIGHT)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    if folder.folders.is_empty() && folder.designs.is_empty() {
+                    if folder.folders.is_empty()
+                        && folder.designs.is_empty()
+                        && folder.uploads.is_empty()
+                    {
                         ui.label(widgets::muted("Nothing to import in this folder.", ui));
                     }
                     for entry in &folder.folders {
@@ -448,7 +454,18 @@ fn contents(
                         });
                     }
                     for design in &folder.designs {
-                        design_row(ui, view, service, linked, design, outcomes);
+                        design_row(
+                            ui,
+                            view,
+                            service,
+                            linked,
+                            design,
+                            &mut state.versions_shown,
+                            outcomes,
+                        );
+                    }
+                    for upload in &folder.uploads {
+                        upload_row(ui, view, service, linked, upload, outcomes);
                     }
                 });
         }
@@ -480,12 +497,58 @@ fn breadcrumbs(ui: &mut Ui, project: &Project, state: &mut Browser) {
     ui.add_space(SPACE_S);
 }
 
+fn upload_row(
+    ui: &mut Ui,
+    view: &DialogView<'_>,
+    service: Service,
+    linked: &Linked,
+    upload: &Upload,
+    outcomes: &mut Vec<Outcome>,
+) {
+    let tokens = appearance::tokens(ui);
+    Sides::new().shrink_left().show(
+        ui,
+        |ui| {
+            widgets::icon_label(
+                ui,
+                cloud_parts::upload_icon(upload.format),
+                tokens.accent_text,
+            );
+            ui.add(Label::new(&upload.name).truncate());
+            ui.label(widgets::muted(
+                cloud_parts::modified_text(upload.modified, view.now),
+                ui,
+            ));
+        },
+        |ui| {
+            let button = widgets::small_button(ui, icons::command(Command::Import), IMPORT);
+            let importing = linked.is_importing();
+            let response = ui
+                .add_enabled(!importing, button)
+                .on_hover_text(format!(
+                    "Download “{}” from {service} and add it to the model",
+                    upload.name
+                ))
+                .on_disabled_hover_text(
+                    "Another import is running; wait for it or cancel it first",
+                );
+            if response.clicked() {
+                outcomes.push(Outcome::Cloud(CloudCommand::ImportUpload(
+                    service,
+                    upload.clone(),
+                )));
+            }
+        },
+    );
+}
+
 fn design_row(
     ui: &mut Ui,
     view: &DialogView<'_>,
     service: Service,
     linked: &Linked,
-    design: &caditor_cloud::Design,
+    design: &Design,
+    versions_shown: &mut BTreeSet<DesignId>,
     outcomes: &mut Vec<Outcome>,
 ) {
     let tokens = appearance::tokens(ui);
@@ -517,8 +580,101 @@ fn design_row(
                     design.clone(),
                 )));
             }
+            if service.has_design_versions() {
+                let shown = versions_shown.contains(&design.id);
+                let toggle = widgets::small_button(ui, icons::DESIGN_VERSIONS, VERSIONS);
+                let toggle = ui.add(toggle).on_hover_text(format!(
+                    "Choose which saved version of “{}” to import",
+                    design.name
+                ));
+                if toggle.clicked() {
+                    if shown {
+                        versions_shown.remove(&design.id);
+                    } else {
+                        versions_shown.insert(design.id.clone());
+                        outcomes.push(Outcome::Cloud(CloudCommand::LoadVersions(
+                            service,
+                            design.clone(),
+                        )));
+                    }
+                }
+            }
         },
     );
+    if versions_shown.contains(&design.id) {
+        ui.indent(("versions", design.id.as_str()), |ui| {
+            version_rows(ui, view, service, linked, design, outcomes);
+        });
+    }
+}
+
+fn version_rows(
+    ui: &mut Ui,
+    view: &DialogView<'_>,
+    service: Service,
+    linked: &Linked,
+    design: &Design,
+    outcomes: &mut Vec<Outcome>,
+) {
+    match linked.versions(&design.id) {
+        Load::Idle | Load::Loading => {
+            widgets::progress("Loading versions…").show(ui);
+        }
+        Load::Failed(failure) => {
+            if cloud_parts::failure_callout(
+                ui,
+                Tone::Warning,
+                "Could not list the versions.",
+                failure,
+            ) {
+                outcomes.push(Outcome::Cloud(CloudCommand::ReloadVersions(
+                    service,
+                    design.clone(),
+                )));
+            }
+        }
+        Load::Ready(versions) if versions.is_empty() => {
+            ui.label(widgets::muted("This design has no saved versions.", ui));
+        }
+        Load::Ready(versions) => {
+            for (index, version) in versions.iter().enumerate() {
+                Sides::new().shrink_left().show(
+                    ui,
+                    |ui| {
+                        ui.add(Label::new(format!("Version {}", version.number)).truncate());
+                        if index == 0 {
+                            ui.label(widgets::muted(NEWEST_VERSION, ui));
+                        }
+                        ui.label(widgets::muted(
+                            cloud_parts::modified_text(version.modified, view.now),
+                            ui,
+                        ));
+                    },
+                    |ui| {
+                        let button =
+                            widgets::small_button(ui, icons::command(Command::Import), IMPORT);
+                        let response = ui
+                            .add_enabled(!linked.is_importing(), button)
+                            .on_hover_text(format!(
+                                "Have {service} convert version {} of “{}” to STEP and add it to \
+                                 the model",
+                                version.number, design.name
+                            ))
+                            .on_disabled_hover_text(
+                                "Another design is being imported; wait for it or cancel it first",
+                            );
+                        if response.clicked() {
+                            outcomes.push(Outcome::Cloud(CloudCommand::ImportVersion(
+                                service,
+                                design.clone(),
+                                version.clone(),
+                            )));
+                        }
+                    },
+                );
+            }
+        }
+    }
 }
 
 fn downloads(ui: &mut Ui, downloads: &Downloads, outcomes: &mut Vec<Outcome>) {

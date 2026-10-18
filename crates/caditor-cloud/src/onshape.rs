@@ -8,7 +8,7 @@ use self::scope::{DesignPlace, ElementKind, Place, Scope};
 use crate::{
     catalogue::{
         Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Project, ProjectId,
-        Translation, Workspace, WorkspaceId, WorkspaceKind,
+        Translation, Upload, Version as DesignVersion, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{form, percent_encode},
     error::{Error, Subject},
@@ -84,11 +84,11 @@ impl Onshape {
         );
         let elements: Vec<Element> = self.get(net, session, url, Subject::Folder)?;
         let mut folder = Folder {
-            folders: Vec::new(),
             designs: elements
                 .iter()
                 .filter_map(|element| element.design(document, place))
                 .collect(),
+            ..Folder::default()
         };
         folder.newest_first();
         Ok(folder.designs)
@@ -344,7 +344,11 @@ impl Provider for Onshape {
         let designs = self.designs(net, session, &project.id, &Place::workspace(&default))?;
         let mut folders = optional(self.branches(net, session, project, &default))?;
         folders.extend(optional(self.versions(net, session, project))?);
-        Ok(Folder { folders, designs })
+        Ok(Folder {
+            folders,
+            designs,
+            uploads: Vec::new(),
+        })
     }
 
     fn folder(
@@ -357,9 +361,18 @@ impl Provider for Onshape {
             subject: Subject::Folder,
         })?;
         Ok(Folder {
-            folders: Vec::new(),
             designs: self.designs(net, session, &folder.project, &place)?,
+            ..Folder::default()
         })
+    }
+
+    fn versions(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _design: &Design,
+    ) -> Result<Vec<DesignVersion>, Error> {
+        Ok(Vec::new())
     }
 
     fn start_conversion(
@@ -367,6 +380,7 @@ impl Provider for Onshape {
         net: &dyn Transport,
         session: &Session,
         design: &Design,
+        _version: Option<&DesignVersion>,
     ) -> Result<Translation, Error> {
         let place = DesignPlace::parse(&design.id).ok_or(Error::NotFound {
             subject: Subject::Design,
@@ -442,6 +456,17 @@ impl Provider for Onshape {
         };
         checked(SERVICE, answer, Subject::Download)?;
         Ok(fetched.bytes)
+    }
+
+    fn fetch_upload(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _upload: &Upload,
+        _sink: &mut dyn Write,
+        _progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<u64, Error> {
+        Err(Error::NoStoredFile { service: SERVICE })
     }
 }
 
