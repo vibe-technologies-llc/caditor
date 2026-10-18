@@ -215,8 +215,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] The cloud sign-in is kept in an owner-only file in the state directory; the
   operating system's keyring (the Secret Service over `zbus` on Linux, the Credential Manager on
   Windows) would hold it better.
-- [low · medium] Cloud tiles and Recent files are names only: a Fusion design's thumbnail (the Model
-  Derivative thumbnail) and a model's own picture would make Home recognisable at a glance.
+- [low · medium] Recent files on Home are names only: a model's own picture would make them
+  recognisable at a glance, but the file format stores no preview of a model, so a tile would need
+  either the file loaded and rendered in the background or a new preview record in the format
+  (which `file-format.md` and the recovery journal would then have to cover).
 - [low · medium] Importing from a cloud project is the newest version of Fusion designs only: a
   chosen version, other file kinds in a project folder (uploaded STEP, mesh and DXF files, which
   need no conversion), and sending a model back to the cloud are not offered.

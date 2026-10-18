@@ -22,7 +22,7 @@ use super::{FILE_TIMEOUT, Harness, extruded_plate, no_wake, run_from_palette, sa
 use crate::{
     app::Workspace as App,
     browser::OpenError,
-    cloud::{Cloud, CloudCommand, CloudServices, Link, Opener, Refusal},
+    cloud::{Cloud, CloudCommand, CloudServices, Link, Opener, Refusal, sample_png},
     cloud_dialog, cloud_parts,
     commands::Command,
     export::ExportCommand,
@@ -69,6 +69,16 @@ fn design(id: &str, name: &str, project: &str, days_ago: i64) -> Design {
 
 pub(super) fn fusion_provider(step: &[u8]) -> Arc<FakeProvider> {
     Arc::new(catalogue(step))
+}
+
+pub(super) fn fusion_provider_with_pictures() -> Arc<FakeProvider> {
+    Arc::new(
+        ["d1", "d3", "d4"]
+            .into_iter()
+            .fold(catalogue(b""), |provider, design| {
+                provider.thumbnail(DesignId::new(design), &sample_png(64))
+            }),
+    )
 }
 
 fn catalogue(step: &[u8]) -> FakeProvider {
@@ -617,6 +627,109 @@ fn signing_out_forgets_the_remembered_hub() {
     harness.click(home::SIGN_OUT);
 
     harness.wait_until("the choice is forgotten", |_| !remembered.exists());
+}
+
+fn thumbnail_dir(dir: &Path) -> std::path::PathBuf {
+    dir.join("state")
+        .join("cloud")
+        .join("thumbnails")
+        .join("fusion")
+}
+
+fn picture_of(harness: &Harness, design: &str) -> bool {
+    harness
+        .workspace
+        .cloud
+        .linked(Service::Fusion)
+        .is_some_and(|linked| linked.picture(&DesignId::new(design)).is_some())
+}
+
+#[test]
+fn a_design_with_a_thumbnail_shows_it_on_its_tile_and_the_picture_is_kept_for_next_time() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(catalogue(b"").thumbnail(DesignId::new("d1"), &sample_png(8)));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_home(&mut harness);
+
+    sign_in(&mut harness);
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+    harness.wait_until("the picture of Frame arrives", |harness| {
+        picture_of(harness, "d1")
+    });
+
+    assert!(!picture_of(&harness, "d2"));
+    assert!(harness.shows("Fork"));
+    assert!(
+        fs::read_dir(thumbnail_dir(dir.path()))
+            .unwrap()
+            .flatten()
+            .any(|entry| entry.path().extension().is_some_and(|ext| ext == "png"))
+    );
+    let closing = harness.model.close().unwrap();
+    assert!(closing.wait(FILE_TIMEOUT));
+    drop(harness);
+
+    let mut restarted = with_cloud(dir.path(), &provider);
+    restarted.wait_until("the saved sign-in is used", is_linked);
+    open_home(&mut restarted);
+    restarted.wait_until("the kept picture is shown", |harness| {
+        picture_of(harness, "d1")
+    });
+
+    let asked = provider
+        .calls()
+        .iter()
+        .filter(|call| *call == "thumbnail d1")
+        .count();
+    assert_eq!(asked, 1);
+}
+
+#[test]
+fn a_thumbnail_that_cannot_be_had_leaves_the_tile_as_it_was_and_still_imports() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(
+        catalogue(&plate_step()).failing(Step::Thumbnail, || Error::Refused {
+            service: Service::Fusion,
+            status: 500,
+        }),
+    );
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_home(&mut harness);
+    sign_in(&mut harness);
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+    harness.wait_until("the pictures were tried", |_| {
+        provider.calls().iter().any(|call| call == "thumbnail d1")
+    });
+
+    assert!(!picture_of(&harness, "d1"));
+    assert!(harness.shows("Frame"));
+    assert!(harness.model.notice().is_none());
+
+    let before = harness.document().features().len();
+
+    harness.click("Frame");
+
+    harness.wait_until("the design is imported", |harness| {
+        harness.document().features().len() > before
+    });
+}
+
+#[test]
+fn signing_out_removes_the_kept_pictures() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(catalogue(b"").thumbnail(DesignId::new("d1"), &sample_png(8)));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_home(&mut harness);
+    sign_in(&mut harness);
+    harness.wait_until("the picture of Frame arrives", |harness| {
+        picture_of(harness, "d1")
+    });
+
+    harness.click(home::SIGN_OUT);
+
+    harness.wait_until("the pictures are removed", |_| {
+        !thumbnail_dir(dir.path()).exists()
+    });
 }
 
 #[test]

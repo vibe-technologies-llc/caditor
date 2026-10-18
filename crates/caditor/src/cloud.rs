@@ -28,7 +28,10 @@ mod failure;
 mod jobs;
 mod state;
 mod store;
+mod thumbnails;
 
+#[cfg(test)]
+pub use self::thumbnails::sample_png;
 pub use self::{
     failure::Failure,
     jobs::Opener,
@@ -40,6 +43,7 @@ pub use self::{
 use self::{
     jobs::{Courier, Event, ImportJob, Loaded, SignInJob},
     store::SessionStore,
+    thumbnails::{AT_ONCE, ThumbnailCache},
 };
 
 pub const CALLBACK_PORT: u16 = 49617;
@@ -308,6 +312,7 @@ impl Cloud {
                 self.choose_workspace(service, workspace);
             }
             CloudCommand::LoadProject(service, project) => self.load_root(service, &project),
+            CloudCommand::LoadThumbnail(service, design) => self.load_thumbnail(service, design),
             CloudCommand::OpenFolder(service, folder) => self.load_folder(service, folder),
             CloudCommand::ReloadProject(service, project) => {
                 if let Some(linked) = self.linked_mut(service) {
@@ -562,6 +567,7 @@ impl Cloud {
         };
         linked.roots.clear();
         linked.folders.clear();
+        linked.thumbnails.clear();
         linked.projects = Load::Idle;
         linked.workspaces = Load::Idle;
         linked.account = Load::Idle;
@@ -577,6 +583,7 @@ impl Cloud {
         linked.workspace = Some(workspace.clone());
         linked.roots.clear();
         linked.folders.clear();
+        linked.thumbnails.clear();
         linked.projects = Load::Idle;
         self.load_projects(service, workspace.clone());
         self.remember_workspace(service, workspace);
@@ -681,6 +688,36 @@ impl Cloud {
                 service,
                 generation,
                 loaded: Loaded::Root(id.clone(), result.map_err(Arc::new)),
+            },
+        );
+    }
+
+    fn load_thumbnail(&mut self, service: Service, design: Design) {
+        let generation = self.generation(service);
+        let cache = self
+            .store(service)
+            .map(|store| ThumbnailCache::new(store.thumbnails_dir().to_owned()));
+        let Some(linked) = self.linked_mut(service) else {
+            return;
+        };
+        let loading = linked
+            .thumbnails
+            .values()
+            .filter(|load| load.is_loading())
+            .count();
+        if !linked.wants_picture(&design.id) || loading >= AT_ONCE {
+            return;
+        }
+        linked.thumbnails.insert(design.id.clone(), Load::Loading);
+        let client = Arc::clone(&linked.client);
+        let id = design.id.clone();
+        self.courier.spawn(
+            service,
+            move || thumbnails::load(&client, cache.as_ref(), service, &design),
+            move |result| Event::Loaded {
+                service,
+                generation,
+                loaded: Loaded::Thumbnail(id.clone(), result.map_err(Arc::new)),
             },
         );
     }
@@ -885,7 +922,8 @@ impl Cloud {
             | Loaded::Workspaces(Err(failure))
             | Loaded::Projects(_, Err(failure))
             | Loaded::Root(_, Err(failure))
-            | Loaded::Folder(_, Err(failure)) => Some(Arc::clone(failure)),
+            | Loaded::Folder(_, Err(failure))
+            | Loaded::Thumbnail(_, Err(failure)) => Some(Arc::clone(failure)),
             _ => None,
         };
         if failed
@@ -928,6 +966,9 @@ impl Cloud {
             }
             Loaded::Folder(folder, result) => {
                 linked.folders.insert(folder, settle(result));
+            }
+            Loaded::Thumbnail(design, result) => {
+                linked.thumbnails.insert(design, settle(result));
             }
         }
         if let Some(workspace) = choose {

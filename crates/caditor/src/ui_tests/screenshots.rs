@@ -661,7 +661,7 @@ fn screenshots() {
 
 fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
     let dir = TempDir::new().expect("a temporary directory");
-    let provider = super::home::fusion_provider(b"");
+    let provider = super::home::fusion_provider_with_pictures();
     let mut harness = Harness::styled(look, dir.path(), false);
     super::home::attach(&mut harness, dir.path(), &provider);
     super::home::open_home(&mut harness);
@@ -669,6 +669,17 @@ fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
     super::home::sign_in(&mut harness);
     harness.wait_until("the designs are listed", |harness| {
         harness.shows("Frame") && harness.shows("Arm")
+    });
+    harness.wait_until("the pictures arrive", |harness| {
+        harness
+            .workspace
+            .cloud
+            .linked(caditor_cloud::Service::Fusion)
+            .is_some_and(|linked| {
+                linked
+                    .picture(&caditor_cloud::DesignId::new("d3"))
+                    .is_some()
+            })
     });
     shoot(&mut harness, gpu, out, "home-signed-in", look);
     harness.workspace.home.close();

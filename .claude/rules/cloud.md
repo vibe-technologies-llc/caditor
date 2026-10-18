@@ -36,14 +36,16 @@ a `Transport`; the app never speaks a service's protocol itself.
   only their provider reads. Ids are newtypes, never positional.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
-  `folder`, and the conversion trio `start_conversion`, `poll_conversion`, `fetch`. A service is
-  one variant of `Service` (`service.rs`, which also holds the words that differ: `company`,
-  `app_name`, `project_name`, `has_workspaces`) and one `Provider`: a new service is that variant, a
-  module mapping its projects, workspaces and STEP translation onto this vocabulary, one arm in
+  `folder`, the conversion trio `start_conversion`, `poll_conversion`, `fetch`, and `thumbnail`
+  (a design's picture as the bytes the service sent, `Ok(None)` when it has none; the default is
+  none, so a service without one implements nothing). A service is one variant of `Service`
+  (`service.rs`, which also holds the words that differ: `company`, `app_name`, `project_name`,
+  `has_workspaces`) and one `Provider`: a new service is that variant, a module
+  mapping its projects, workspaces and STEP translation onto this vocabulary, one arm in
   `Cloud::provider` and its copy in Home's `Wording`. `rest.rs` holds what Fusion and Onshape share:
   the status-to-`Error` mapping, JSON reading, the bearer `get` and the token exchange.
-- `Transport` (`transport.rs`) is `send` (a bounded JSON answer) and `fetch` (a streamed body into a
-  sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
+- `Transport` (`transport.rs`) is `send` (a bounded answer body, JSON or a
+  picture's bytes) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
   `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, separate timeouts
   for answers and downloads, a `caditor/<version>` User-Agent and nothing else identifying.
@@ -71,8 +73,10 @@ convert a design needs; caditor never changes a design).
   `items:autodesk.fusion360:Design` items are listed.
 - Import: the item's tip version, its id as an unpadded URL-safe base64 URN, a Model Derivative
   job to `step`, the manifest polled until the `step` derivative has a child with role `step`, then
-  that derivative streamed. Fusion's own file format is closed, so STEP through Autodesk is the way
-  a design comes in; it then goes through the ordinary STEP import.
+  that derivative streamed. The design's picture is the Model Derivative thumbnail
+  (`<urn>/thumbnail?width=200&height=200`, a PNG) of the same version URN; 404 and 202 (nothing
+  rendered yet) are no picture, not errors. Fusion's own file format is closed, so STEP through
+  Autodesk is the way a design comes in; it then goes through the ordinary STEP import.
 - The app registered with Autodesk is a deployment fact, not code: a public-client app with the
   Data Management and Model Derivative APIs and the callback
   `http://localhost:49617/callback` (`CALLBACK_PORT`). Its client ID reaches a build as
@@ -133,6 +137,19 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   and inside steps. The finished file reaches the model as `FileCommand::Drop`, so every import
   rule in `app-files.md` applies (report, placement, one change per body, Reload import from its
   file); a refused drop leaves the file where it is. A file is named after its design so the body is.
+- A design's picture (`cloud/thumbnails.rs`) is decoration, loaded lazily: Home asks
+  (`LoadThumbnail`) for each design tile it draws inside the visible area, one courier job per
+  design, at most `AT_ONCE` running (the rest ask again on the next frame), the answer a
+  `Load<Option<Arc<Thumbnail>>>` in `Linked::thumbnails`. The job reads
+  `<state>/cloud/thumbnails/<service>/<hash>.png` first (the hash covers service, project, design
+  and modified time, so a new version is a new file), else asks the provider's `thumbnail`, refuses
+  an answer over `MAX_THUMBNAIL_BYTES`, decodes it with `caditor_file::decode_picture` and keeps the
+  bytes atomically, `KEPT_THUMBNAILS` newest. A missing or unreadable picture is `Ok(None)` and a
+  failed request a `Load::Failed` that nothing shows: the tile keeps its icon and never a callout.
+  The decoded `ColorImage` becomes a texture on the UI thread on first use (`Thumbnail::texture`).
+  Refresh and choosing another hub drop the in-memory pictures; an explicit sign-out or turning
+  cloud off deletes the folder, an ended sign-in does not. Recent files and samples keep icons: the
+  model file stores no preview (`docs/FEATURES.md`).
 - Failures are `Failure`s worded for the user; a 401 that survives a refresh signs the connection
   out with a notice, anything else is a callout with Try again on Home and in the manager.
 
@@ -147,11 +164,12 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
 - Order: header, starts (New sketch primary, box, import, open), Recent files (the history, tiles
   from `Files::recent`), Fusion 360, Onshape, samples, footer. Signed out, a service is an advert
   card: what it does, three honest lines about what it sends, Sign in (or the no-app callout); the
-  first advert shown also holds Cloud projects… and Turn off cloud features. Signed in, a header with hub and account (Sign out, Cloud
-  projects…, Refresh) and a line per project, `PROJECT_ROWS_ON_HOME` of them, each loading its root
-  only once drawn (`LoadProject`), with the newest designs as tiles that import on a click and
-  `N more…` going to the manager. Tiles are disabled while an import runs, and the import's
-  progress, failure and Cancel sit at the head of the section.
+  first advert shown also holds Cloud projects… and Turn off cloud features. Signed in, a header
+  with hub and account (Sign out, Cloud projects…, Refresh) and a line per project,
+  `PROJECT_ROWS_ON_HOME` of them, each loading its root only once drawn (`LoadProject`), with the
+  newest designs as tiles that import on a click (the design's picture replaces the tile's icon once
+  it arrives) and `N more…` going to the manager. Tiles are disabled while an import runs, and the
+  import's progress, failure and Cancel sit at the head of the section.
 - The manager (`Command::Cloud`, File › Cloud) is the window for everything outside Home:
   accounts (state pill, Sign in, Cancel, Sign out, Refresh, the last failure), then per signed-in
   service a hub combo (only where `Service::has_workspaces`), a project list beside a folder

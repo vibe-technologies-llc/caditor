@@ -95,4 +95,13 @@ pub trait Provider: Send + Sync {
         sink: &mut dyn Write,
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<u64, Error>;
+
+    fn thumbnail(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _design: &Design,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        Ok(None)
+    }
 }

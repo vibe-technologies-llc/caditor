@@ -12,6 +12,7 @@ const FOLDER: &str = "cloud";
 pub struct SessionStore {
     path: PathBuf,
     hub_path: PathBuf,
+    thumbnails_dir: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -25,7 +26,12 @@ impl SessionStore {
         Self {
             path: folder.join(format!("{}-session.json", service.id())),
             hub_path: folder.join(format!("{}-hub.json", service.id())),
+            thumbnails_dir: folder.join("thumbnails").join(service.id()),
         }
+    }
+
+    pub fn thumbnails_dir(&self) -> &Path {
+        &self.thumbnails_dir
     }
 
     pub fn downloads_dir(state_dir: &Path) -> PathBuf {

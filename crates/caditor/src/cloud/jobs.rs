@@ -13,8 +13,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Conversion, Design, Error, Folder, FolderRef, Listener, Project, ProjectId,
-    Provider, Service, Session, Transport, Workspace, WorkspaceId,
+    Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Project,
+    ProjectId, Provider, Service, Session, Transport, Workspace, WorkspaceId,
 };
 use parking_lot::Mutex;
 
@@ -23,6 +23,7 @@ use super::{
     failure::Failure,
     state::Stage,
     store::SessionStore,
+    thumbnails::{self, Thumbnail},
 };
 use crate::{browser::OpenError, model::Waker};
 
@@ -40,6 +41,7 @@ pub enum Loaded {
     Projects(WorkspaceId, Result<Vec<Project>, Arc<Failure>>),
     Root(ProjectId, Result<Folder, Arc<Failure>>),
     Folder(FolderRef, Result<Folder, Arc<Failure>>),
+    Thumbnail(DesignId, Result<Option<Arc<Thumbnail>>, Arc<Failure>>),
 }
 
 pub enum Event {
@@ -184,6 +186,11 @@ pub fn sign_out(client: &Client, store: Option<&SessionStore>) {
         && let Err(error) = store.forget_hub()
     {
         log::warn!("the remembered hub could not be removed: {error}");
+    }
+    if let Some(store) = store
+        && let Err(error) = thumbnails::forget(store.thumbnails_dir())
+    {
+        log::warn!("the kept pictures of designs could not be removed: {error}");
     }
 }
 

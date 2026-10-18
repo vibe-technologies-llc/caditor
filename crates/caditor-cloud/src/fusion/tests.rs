@@ -621,3 +621,103 @@ fn percentages_read_from_the_progress_text() {
     assert_eq!(percent_of(None), None);
     assert_eq!(percent_of(Some("250% complete")), None);
 }
+
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+const TIP_BODY: &str =
+    r#"{"data":{"type":"versions","id":"urn:adsk.wipprod:fs.file:vf.X?version=5"}}"#;
+
+fn thumbnail_address() -> String {
+    let urn = base64_url(b"urn:adsk.wipprod:fs.file:vf.X?version=5");
+    format!("{DERIVATIVE_API}/{urn}/thumbnail?width=200&height=200")
+}
+
+fn tip_route(net: ScriptedTransport) -> ScriptedTransport {
+    net.route(
+        Method::Get,
+        &format!("{DATA_API}/projects/a.proj/items/frame/tip"),
+        200,
+        TIP_BODY,
+    )
+}
+
+fn answer_with(status: u16, body: &str) -> ScriptedTransport {
+    tip_route(ScriptedTransport::new()).route(Method::Get, &thumbnail_address(), status, body)
+}
+
+#[test]
+fn a_thumbnail_is_asked_for_the_newest_version_at_a_fixed_size_and_comes_back_as_bytes() {
+    let mut picture = PNG_SIGNATURE.to_vec();
+    picture.extend_from_slice(&[0, 0, 0, 13, b'I', b'H', b'D', b'R']);
+    let net = tip_route(ScriptedTransport::new()).route_bytes(
+        Method::Get,
+        &thumbnail_address(),
+        200,
+        &picture,
+    );
+
+    let found = fusion()
+        .thumbnail(&net, &session(), &design("frame"))
+        .unwrap();
+
+    assert_eq!(found, Some(picture));
+    let requests = net.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.get(1).unwrap().url, thumbnail_address());
+    assert_eq!(requests.get(1).unwrap().bearer.as_deref(), Some("access-1"));
+}
+
+#[test]
+fn a_design_autodesk_has_not_rendered_yet_has_no_thumbnail_rather_than_an_error() {
+    for status in [404, 202] {
+        let net = answer_with(status, "{}");
+
+        let found = fusion()
+            .thumbnail(&net, &session(), &design("frame"))
+            .unwrap();
+
+        assert_eq!(found, None, "status {status}");
+    }
+}
+
+#[test]
+fn an_empty_thumbnail_answer_is_no_thumbnail() {
+    let net = answer_with(200, "");
+
+    assert_eq!(
+        fusion()
+            .thumbnail(&net, &session(), &design("frame"))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_thumbnail_refused_for_the_session_or_the_hub_is_reported_in_words() {
+    assert!(matches!(
+        fusion().thumbnail(&answer_with(401, "{}"), &session(), &design("frame")),
+        Err(Error::SignedOut)
+    ));
+    assert!(matches!(
+        fusion().thumbnail(&answer_with(403, "{}"), &session(), &design("frame")),
+        Err(Error::Forbidden { .. })
+    ));
+    assert!(matches!(
+        fusion().thumbnail(&answer_with(429, "{}"), &session(), &design("frame")),
+        Err(Error::RateLimited { .. })
+    ));
+}
+
+#[test]
+fn a_design_that_is_gone_has_no_thumbnail_to_fetch() {
+    let tip = format!("{DATA_API}/projects/a.proj/items/frame/tip");
+    let net = ScriptedTransport::new().route(Method::Get, &tip, 404, "{}");
+
+    let result = fusion().thumbnail(&net, &session(), &design("frame"));
+
+    assert!(matches!(
+        result,
+        Err(Error::NotFound {
+            subject: Subject::Design
+        })
+    ));
+}

@@ -110,6 +110,10 @@ impl Client {
         })
     }
 
+    pub fn thumbnail(&self, design: &Design) -> Result<Option<Vec<u8>>, Error> {
+        self.authorised(|session| self.provider.thumbnail(&*self.transport, session, design))
+    }
+
     pub fn fetch(
         &self,
         download: &Download,
@@ -302,5 +306,31 @@ mod tests {
             Err(Error::SignInMismatch)
         ));
         assert!(finish_sign_in(&provider, &net, &sign_in, &own).is_ok());
+    }
+
+    #[test]
+    fn a_thumbnail_is_asked_through_the_refreshing_call() {
+        let design = Design {
+            id: crate::catalogue::DesignId::new("d1"),
+            project: crate::catalogue::ProjectId::new("p"),
+            name: "Frame".to_owned(),
+            modified: None,
+        };
+        let provider = Arc::new(
+            FakeProvider::new()
+                .thumbnail(design.id.clone(), b"picture")
+                .failing(Step::Thumbnail, || Error::SignedOut),
+        );
+        let client = client(&provider, session(clock() + 3600, true));
+
+        assert!(client.thumbnail(&design).unwrap_err().is_sign_in_needed());
+        assert_eq!(refreshes(&provider), 1);
+
+        provider.recover(Step::Thumbnail);
+
+        assert_eq!(
+            client.thumbnail(&design).unwrap(),
+            Some(b"picture".to_vec())
+        );
     }
 }

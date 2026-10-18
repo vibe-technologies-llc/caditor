@@ -355,6 +355,7 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
                 name: &format!("Open {name}"),
                 hover: &path.display().to_string(),
                 enabled: true,
+                picture: None,
             },
         )
     });
@@ -380,6 +381,7 @@ fn samples(ui: &mut Ui, choices: &mut Vec<Choice>) {
                 name: &Command::OpenSample(sample).title(),
                 hover: sample.description(),
                 enabled: true,
+                picture: None,
             },
         )
     });
@@ -705,6 +707,7 @@ fn design_tiles(
 ) {
     let shown = designs.get(..DESIGNS_PER_PROJECT).unwrap_or(designs);
     let importing = linked.is_importing();
+    let mut wanted = Vec::new();
     let chosen = cloud_parts::tiles(ui, shown.len(), TILE_WIDTH, |ui, at, width| {
         let Some(design) = shown.get(at) else {
             return false;
@@ -718,6 +721,22 @@ fn design_tiles(
                 design.name
             )
         };
+        let place = Rect::from_min_size(
+            ui.next_widget_position(),
+            vec2(width, cloud_parts::TILE_HEIGHT),
+        );
+        let picture = linked.picture(&design.id).map(|picture| {
+            picture.texture(
+                ui.ctx(),
+                &format!("{service} design {}", design.id.as_str()),
+            )
+        });
+        if linked.wants_picture(&design.id) && ui.is_rect_visible(place) {
+            wanted.push(Choice::Cloud(CloudCommand::LoadThumbnail(
+                service,
+                design.clone(),
+            )));
+        }
         cloud_parts::tile(
             ui,
             width,
@@ -728,9 +747,11 @@ fn design_tiles(
                 name: &format!("Import {} from {service}", design.name),
                 hover: &hover,
                 enabled: !importing,
+                picture,
             },
         )
     });
+    choices.append(&mut wanted);
     if let Some(design) = chosen.and_then(|at| shown.get(at)) {
         choices.push(Choice::Cloud(CloudCommand::Import(service, design.clone())));
     }
