@@ -79,7 +79,7 @@ pub fn modify_sketch() -> Value {
                 "description": "extend: the point ending the curve at the end to extend"
             }),
             "near": point("extend: a position by the end to extend, instead of end; tangent_circle: of the circles that fit, the one whose centre is nearest this position"),
-            "curves": entities("offset: lines, arcs and circles forming one chain, or one ellipse; break: the lines, arcs, elliptical arcs and control-point splines to break at every crossing with other curves and the axes; tangent_circle: the lines, circles and arcs the circle touches"),
+            "curves": entities("offset: lines, arcs, circles, ellipses and splines, any number of chains, each side set by toward; break: the lines, arcs, elliptical arcs and control-point splines to break at every crossing with other curves and the axes; tangent_circle: the lines, circles and arcs the circle touches"),
             "whole_chain": { "type": "boolean", "description": "offset: take every curve joined end to end with the given ones, as a click on a curve does" },
             "distance": expression("offset: how far, such as \"3 mm\", negative for the other side; chamfer: how far from the corner it cuts"),
             "toward": point("offset: a position on the side to offset toward; without it the outside of a closed chain"),

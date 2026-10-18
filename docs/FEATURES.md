@@ -126,9 +126,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   dragged. Keeping it parametric needs a gear stored in the sketch (its expressions and the curves
   it made, saved in the file) that recompute draws again from the evaluated values, holding its
   curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
-- [medium · hard] Offset takes one chain at a time, leaves the free ends of an open chain sliding
-  along their curves and cannot offset splines; a sketch fillet cannot round a spline (the
-  corner would need a centre rolled along the spline's offset and the spline cut at the touching
+- [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
+  along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is
   refitted through its remaining points rather than kept exactly, and one cannot be split or broken
   at a point (its knots follow its points, so no fit spline holds the piece).
@@ -139,12 +138,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
   points and directions and the constraints that mean something there (coincident, horizontal and
   vertical in space, parallel, perpendicular, distance, fix).
-- [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
-  holding it would need a constraint keeping each fit point on the ellipse's normal at its own
-  parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would
-  put a dimension on each), a new constraint kind with its solver form, file record and glyph.
-  An ellipse also cannot be offset within a chain of lines and arcs, whose joints would need the
-  spline to meet them.
+- [low · hard] The offset of an ellipse, elliptical arc or spline is a free fit-point spline that
+  does not follow the original: holding it would need a constraint keeping each fit point on the
+  original's normal at its own parameter (a `Distance` from the curve lets every fit point slide
+  along the offset and would put a dimension on each), a new constraint kind with its solver form,
+  file record and glyph; the free ends of an open spline's offset slide along it for the same
+  reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
+  need the spline to meet them.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

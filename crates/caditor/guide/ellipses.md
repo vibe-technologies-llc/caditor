@@ -27,6 +27,6 @@ a line, arc or another elliptical arc, or where it would meet one carried round 
 [Projecting](project-and-intersect) an ellipse onto a sketch facing the same way, or the opposite
 way, brings it in as an ellipse; seen at an angle it comes in as a spline.
 
-[Offset](offset) copies an ellipse or elliptical arc on its own as a fit-point spline at the
+[Offset](offset) copies an ellipse or elliptical arc as a fit-point spline at the
 distance. The curve at one distance from an ellipse is no ellipse, so the spline is free: it
 does not follow when the ellipse changes, and the tool says so before you place it.

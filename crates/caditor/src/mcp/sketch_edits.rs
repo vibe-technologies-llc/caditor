@@ -1,12 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
     BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, Dimensioned,
     EntityId, ExtendError, FilletError, GearError, InsertError, MAX_LENGTH, MirrorError,
-    OffsetError, PatternError, PatternRow, RectangularPattern, Sketch, SketchError, SplitError,
-    Spread, TangentError, TrimError,
+    OffsetError, PatternError, PatternRow, RectangularPattern, Side, Sketch, SketchError,
+    SplitError, Spread, TangentError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -609,21 +609,29 @@ fn offset(
     } else {
         picked
     };
-    let chain = working
-        .offset_chain(&curves)
+    let chains = working
+        .offset_chains(&curves)
         .map_err(SketchEditError::Offset)?;
-    let side = match asked.toward {
-        Some(toward) => chain.side_of(point(toward)?),
-        None => chain.default_side(),
-    };
-    let (side, millimetres, expression) = if distance.value < 0.0 {
+    let toward = asked.toward.map(point).transpose()?;
+    let flipped = distance.value < 0.0;
+    let sides: BTreeMap<Vec<EntityId>, Side> = chains
+        .iter()
+        .map(|chain| {
+            let side = match toward {
+                Some(toward) => chain.side_of(toward),
+                None => chain.default_side(),
+            };
+            (chain.curves(), if flipped { side.other() } else { side })
+        })
+        .collect();
+    let (millimetres, expression) = if flipped {
         let expression = match distance.expression {
             Expression::Negate(inner) => *inner,
             other => Expression::Negate(Box::new(other)),
         };
-        (side.other(), -distance.value, expression)
+        (-distance.value, expression)
     } else {
-        (side, distance.value, distance.expression)
+        (distance.value, distance.expression)
     };
     let caps = asked.both_sides.map(|caps| match caps {
         EndCaps::Round => Caps::Round,
@@ -636,7 +644,12 @@ fn offset(
     let transaction = target.reshaped(label.to_owned(), |sketch| {
         match caps {
             Some(caps) => sketch.offset_both_sides(&curves, millimetres, expression, caps),
-            None => sketch.offset(&curves, side, millimetres, expression),
+            None => sketch.offset_each(&curves, millimetres, expression, |chain| {
+                sides
+                    .get(&chain.curves())
+                    .copied()
+                    .unwrap_or_else(|| chain.default_side())
+            }),
         }
         .map(|_| ())
         .map_err(|error| SketchEditError::Offset(error).into())

@@ -201,7 +201,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   shown positions, as `trimming::working`) through `reshape_sketch`, settled first, with the
   sketch crate's operations and the app tools' labels: trim (pieces found again by their middle on
   whichever curve carries them, `trimming::carrier`, as a trim path), extend (by the end point or a
-  position by it), offset (a chain, `whole_chain` as a click takes it, side by `toward` or the
+  position by it), offset (any number of chains, `whole_chain` as a click takes it, each side by `toward` or its
   default, a negative distance the other side, `both_sides` with round or flat caps), mirror,
   rectangular and circular patterns (`patterning::turned`, `square_to`), fillet and chamfer of
   corners named by their point or a pair of curves (`ChamferSize`). Move, rotate and scale build
