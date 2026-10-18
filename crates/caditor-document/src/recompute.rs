@@ -26,6 +26,7 @@ use crate::{
     datum::{self, DatumResult},
     delete_face,
     document::{Document, Feature, FeatureId, FeatureKind},
+    emboss,
     failure::{Cause, Expected, SketchCause, Upstream},
     healing::{self, Healing},
     helix::{self, HelixResult},
@@ -128,6 +129,8 @@ pub enum MissingInput {
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
     FacesToDelete { body: FeatureId },
+    FacesToEmboss { body: FeatureId },
+    SketchToEmboss { body: FeatureId },
     FacesToSplit { body: FeatureId },
 }
 
@@ -139,9 +142,11 @@ impl MissingInput {
             Self::Profiles => "Waiting for profiles",
             Self::Regions { .. } => "Waiting for regions",
             Self::Edges { .. } => "Waiting for edges",
-            Self::FacesToMove { .. } | Self::FacesToDelete { .. } | Self::FacesToSplit { .. } => {
-                "Waiting for faces"
-            }
+            Self::FacesToMove { .. }
+            | Self::FacesToDelete { .. }
+            | Self::FacesToEmboss { .. }
+            | Self::FacesToSplit { .. } => "Waiting for faces",
+            Self::SketchToEmboss { .. } => "Waiting for a sketch",
         }
     }
 
@@ -175,6 +180,13 @@ impl MissingInput {
             Self::FacesToDelete { body } => {
                 format!("Choose the faces of the body of {} to delete.", name(body))
             }
+            Self::FacesToEmboss { body } => {
+                format!("Choose the faces of the body of {} to emboss.", name(body))
+            }
+            Self::SketchToEmboss { body } => format!(
+                "Choose the sketch of outlines or text to emboss onto the body of {}.",
+                name(body)
+            ),
             Self::FacesToSplit { body } => {
                 format!("Choose the faces of the body of {} to split.", name(body))
             }
@@ -1904,6 +1916,9 @@ impl Evaluator for ModelEvaluator {
             }
             FeatureKind::DeleteFace(definition) => {
                 delete_face::evaluate(feature, definition, inputs, cancel)
+            }
+            FeatureKind::Emboss(definition) => {
+                emboss::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::MoveFace(definition) => {
                 move_face::evaluate(feature, definition, inputs, cancel)

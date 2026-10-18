@@ -11,24 +11,24 @@ use caditor_document::{
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
     CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Document, EdgeGroup, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate,
-    FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
-    FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
-    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
-    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
-    untwisted, view_name,
+    Document, EdgeGroup, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Helix, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
+    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
+    Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
+    group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -332,6 +332,7 @@ pub(crate) enum FeatureKindRecord {
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
     MoveFace(Box<MoveFaceRecord>),
+    Emboss(Box<EmbossRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -904,6 +905,17 @@ pub(crate) struct DeleteFaceRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EmbossRecord {
+    pub body: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch: Option<u64>,
+    pub depth: String,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub recessed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct MoveFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1057,7 +1069,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 88] = [
+pub(crate) const FEATURE_KINDS: [&str; 89] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1146,6 +1158,7 @@ pub(crate) const FEATURE_KINDS: [&str; 88] = [
     "sweep_shape",
     "loft_ends",
     "move_face",
+    "emboss",
 ];
 
 #[derive(Debug, Clone)]
@@ -3363,6 +3376,17 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .collect(),
             }))
         }
+        FeatureKind::Emboss(emboss) => FeatureKindRecord::Emboss(Box::new(EmbossRecord {
+            body: emboss.body.raw(),
+            sketch: emboss.sketch.map(FeatureId::raw),
+            depth: emboss.depth.to_stored_text(),
+            faces: emboss
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            recessed: !emboss.form.is_raised(),
+        })),
         FeatureKind::MoveFace(moving) => FeatureKindRecord::MoveFace(Box::new(MoveFaceRecord {
             body: moving.body.raw(),
             faces: moving
@@ -6870,6 +6894,9 @@ fn restore_kind(
         FeatureKindRecord::DeleteFace(record) => {
             FeatureKind::DeleteFace(restore_delete_face(record, name, issues))
         }
+        FeatureKindRecord::Emboss(record) => {
+            FeatureKind::Emboss(restore_emboss(record, name, issues))
+        }
         FeatureKindRecord::MoveFace(record) => {
             FeatureKind::MoveFace(restore_move_face(record, name, issues))
         }
@@ -8656,6 +8683,36 @@ fn restore_delete_face(
     DeleteFace {
         body: FeatureId::from_raw(record.body),
         faces,
+    }
+}
+
+fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>) -> Emboss {
+    let depth = restore_value(&record.depth, "depth", "1 mm", feature, issues);
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces embossed by “{feature}” could not be read and were left plain."
+        ));
+    }
+    Emboss {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        sketch: record.sketch.map(FeatureId::from_raw),
+        depth,
+        form: if record.recessed {
+            EmbossForm::Recessed
+        } else {
+            EmbossForm::Raised
+        },
     }
 }
 

@@ -4605,6 +4605,69 @@ fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
     assert!(restored.kind.delete_face().unwrap().faces.is_empty());
 }
 
+fn emboss_model() -> (Document, FeatureId) {
+    use caditor_document::{Emboss, EmbossForm};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Emboss");
+    let emboss = transaction.add_feature(
+        "Emboss 1",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![top],
+            sketch: Some(sketch),
+            depth: Expression::parse_stored("0.5 mm").unwrap(),
+            form: EmbossForm::Recessed,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, emboss)
+}
+
+#[test]
+fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, emboss) = emboss_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"emboss\":{\"body\":1,\"depth\":"));
+    assert!(text.contains("\"depth\":\"0.5 mm\""));
+    assert!(text.contains("\"recessed\":true"));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(emboss).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: emboss, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_embossed_face_is_left_plain_and_reported() {
+    let (document, emboss) = emboss_model();
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        ["Some faces embossed by “Emboss 1” could not be read and were left plain."]
+    );
+    let restored = loaded.document.feature(emboss).unwrap();
+    assert!(restored.kind.emboss().unwrap().faces.is_empty());
+}
+
 fn moving_model() -> (Document, FeatureId) {
     use caditor_document::{AxisReference, MoveFace, PrincipalAxis};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
