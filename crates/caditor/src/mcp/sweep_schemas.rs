@@ -355,6 +355,27 @@ pub fn delete_face() -> Value {
     )
 }
 
+pub fn move_face() -> Value {
+    object(
+        json!({
+            "body": reference("The body, by id or name"),
+            "faces": keys("Face keys from list_faces"),
+            "distance": amount("How far the faces shift along the direction; negative shifts them back. 0 mm by default"),
+            "direction": {
+                "description": "What the faces shift along: \"normal\" (the default, out of the body square to the first flat face chosen) or an axis as add_linear_pattern takes it",
+                "anyOf": [{ "type": "string", "enum": ["normal"] }, axis()]
+            },
+            "angle": amount("How far the faces tilt about the axis, tilted before they shift; 0 deg by default"),
+            "axis": {
+                "description": "What the faces tilt about: \"none\" (the default) or an axis or straight edge as add_linear_pattern takes it",
+                "anyOf": [{ "type": "string", "enum": ["none"] }, axis()]
+            },
+            "name": name()
+        }),
+        &["body", "faces"],
+    )
+}
+
 pub fn split() -> Value {
     object(
         json!({

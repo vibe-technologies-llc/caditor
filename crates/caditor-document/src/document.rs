@@ -29,6 +29,7 @@ use crate::{
     measurement::Measurement,
     mirror::Mirror,
     model_parameters::ParameterOwner,
+    move_face::MoveFace,
     movement::Move,
     offset_face::OffsetFace,
     parameter_list::ParameterList,
@@ -145,6 +146,7 @@ pub enum FeatureKind {
     Blend(Blend),
     Shell(Shell),
     OffsetFace(OffsetFace),
+    MoveFace(MoveFace),
     DeleteFace(DeleteFace),
     SplitFace(SplitFace),
     Primitive(Primitive),
@@ -211,6 +213,7 @@ impl FeatureKind {
                         .sum::<usize>()
                     + offset.distance.heap_size()
             }
+            Self::MoveFace(moving) => moving.heap_size(),
             Self::DeleteFace(delete) => delete.heap_size(),
             Self::SplitFace(split) => split.heap_size(),
             Self::Primitive(primitive) => primitive.heap_size(),
@@ -250,6 +253,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -282,6 +286,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -314,6 +319,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -346,6 +352,7 @@ impl FeatureKind {
             Self::Blend(blend) => Some(blend.body),
             Self::Shell(shell) => Some(shell.body),
             Self::OffsetFace(offset) => Some(offset.body),
+            Self::MoveFace(moving) => Some(moving.body),
             Self::DeleteFace(delete) => Some(delete.body),
             Self::SplitFace(split) => Some(split.body),
             Self::Primitive(primitive) => primitive.operation.target(),
@@ -403,6 +410,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Hole(hole) => used.extend(hole.end_body()),
             Self::Measurement(measurement) => used.extend(measurement.bodies()),
+            Self::MoveFace(moving) => used.extend(moving.reference_bodies()),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -439,6 +447,7 @@ impl FeatureKind {
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::Pipe(_)
             | Self::Loft(_)
@@ -473,6 +482,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => sketch.projected_axes().collect(),
             Self::Coil(coil) => coil.axis.datum().into_iter().collect(),
             Self::Helix(helix) => helix.axis.datum().into_iter().collect(),
+            Self::MoveFace(moving) => moving.axis_datums(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -533,6 +543,7 @@ impl FeatureKind {
                 .into_iter()
                 .chain(helix.start_point.as_ref().and_then(PointReference::frame))
                 .collect(),
+            Self::MoveFace(moving) => moving.frames(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -574,6 +585,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -680,6 +692,7 @@ impl FeatureKind {
             Self::Pattern(pattern) => pattern.sketch_entities(),
             Self::Measurement(measurement) => measurement.sketch_entities(),
             Self::Sketch(sketch) => sketch.projected_entities().collect(),
+            Self::MoveFace(moving) => moving.sketch_entities().collect(),
             Self::Pipe(_)
             | Self::Rib(_)
             | Self::Blend(_)
@@ -729,6 +742,7 @@ impl FeatureKind {
                 .chain(helix.start_point.as_ref().and_then(PointReference::sketch))
                 .collect(),
             Self::Rib(rib) => BTreeSet::from([rib.sketch]),
+            Self::MoveFace(moving) => moving.sketches(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -755,6 +769,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -786,6 +801,7 @@ impl FeatureKind {
                 Self::Blend(_)
                     | Self::Shell(_)
                     | Self::OffsetFace(_)
+                    | Self::MoveFace(_)
                     | Self::DeleteFace(_)
                     | Self::SplitFace(_)
                     | Self::Combine(_)
@@ -803,6 +819,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -835,6 +852,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -867,6 +885,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -895,6 +914,13 @@ impl FeatureKind {
     pub fn offset_face(&self) -> Option<&OffsetFace> {
         match self {
             Self::OffsetFace(offset) => Some(offset),
+            _ => None,
+        }
+    }
+
+    pub fn move_face(&self) -> Option<&MoveFace> {
+        match self {
+            Self::MoveFace(moving) => Some(moving),
             _ => None,
         }
     }
@@ -961,6 +987,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Combine(_)
@@ -994,6 +1021,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Combine(_)
@@ -1027,6 +1055,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1060,6 +1089,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1091,6 +1121,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1124,6 +1155,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1155,6 +1187,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1187,6 +1220,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1219,6 +1253,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1251,6 +1286,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1283,6 +1319,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1315,6 +1352,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
+            | Self::MoveFace(_)
             | Self::DeleteFace(_)
             | Self::SplitFace(_)
             | Self::Primitive(_)
@@ -1346,6 +1384,7 @@ impl FeatureKind {
             Self::Blend(blend) => blend.parameters(),
             Self::Shell(shell) => shell.parameters(),
             Self::OffsetFace(offset) => offset.parameters(),
+            Self::MoveFace(moving) => moving.parameters(),
             Self::DeleteFace(_) => BTreeSet::new(),
             Self::Primitive(primitive) => primitive.parameters(),
             Self::Pipe(pipe) => pipe.parameters(),
@@ -1375,6 +1414,7 @@ impl FeatureKind {
             Self::Blend(blend) => blend.uses_parameter(parameter),
             Self::Shell(shell) => shell.uses_parameter(parameter),
             Self::OffsetFace(offset) => offset.uses_parameter(parameter),
+            Self::MoveFace(moving) => moving.uses_parameter(parameter),
             Self::DeleteFace(_) => false,
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
             Self::Pipe(pipe) => pipe.uses_parameter(parameter),
@@ -1418,6 +1458,7 @@ impl FeatureKind {
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),
             Self::OffsetFace(offset) => offset.features(),
+            Self::MoveFace(moving) => moving.features(),
             Self::DeleteFace(delete) => delete.features(),
             Self::SplitFace(split) => split.features(),
             Self::Primitive(primitive) => primitive.features(),
@@ -1468,6 +1509,7 @@ impl FeatureKind {
             Self::Blend(blend) => blend.origin_features(),
             Self::Shell(shell) => shell.origin_features(),
             Self::OffsetFace(offset) => offset.origin_features(),
+            Self::MoveFace(moving) => moving.origin_features(),
             Self::DeleteFace(delete) => delete.origin_features(),
             Self::SplitFace(split) => split.origin_features(),
             Self::Primitive(primitive) => primitive.origin_features(),
@@ -1601,6 +1643,7 @@ impl Feature {
             FeatureKind::Blend(blend) => Some(blend.body),
             FeatureKind::Shell(shell) => Some(shell.body),
             FeatureKind::OffsetFace(offset) => Some(offset.body),
+            FeatureKind::MoveFace(moving) => Some(moving.body),
             FeatureKind::DeleteFace(delete) => Some(delete.body),
             FeatureKind::SplitFace(split) => Some(split.body),
             FeatureKind::Primitive(primitive) => {
@@ -1669,6 +1712,7 @@ impl Feature {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::MoveFace(_)
             | FeatureKind::DeleteFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Combine(_)

@@ -102,8 +102,8 @@ pub use crate::{
     sense::Sense,
     shared::SharedBuffer,
     shell::{
-        DeleteError, OffsetError, ShellError, ShellSide, Walls, delete_faces, offset_faces, shell,
-        shell_walls,
+        DeleteError, MoveError, OffsetError, ShellError, ShellSide, Walls, delete_faces,
+        move_faces, offset_faces, shell, shell_walls,
     },
     surface::{
         BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,

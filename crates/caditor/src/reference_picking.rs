@@ -12,6 +12,7 @@ use crate::{
     measurement_tools::{self, MeasuredPart},
     mirror_tools,
     model::{Action, Model, Notice},
+    move_face_tools::{self, Reference as MoveFaceReference},
     move_tools,
     pattern_tools::{self, Reference},
     pipe_tools, primitive_tools, scale_tools,
@@ -50,6 +51,8 @@ pub enum Slot {
     DatumBase,
     DatumRotation,
     MoveAxis,
+    MoveFaceDirection,
+    MoveFaceAxis,
     PrimitivePlace,
     CoilAxis,
     HelixAxis,
@@ -98,6 +101,8 @@ impl Slot {
             | Self::DatumBase
             | Self::DatumRotation
             | Self::MoveAxis
+            | Self::MoveFaceDirection
+            | Self::MoveFaceAxis
             | Self::PrimitivePlace
             | Self::CoilAxis
             | Self::HelixAxis
@@ -239,6 +244,8 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
              stop"
                 .to_owned()
         }
+        Slot::MoveFaceDirection => format!("Click {AXIS} to shift the faces along"),
+        Slot::MoveFaceAxis => format!("Click {AXIS} to tilt the faces about"),
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
                                     along"
             .to_owned(),
@@ -398,6 +405,8 @@ pub enum ChangeError {
     #[error(transparent)]
     Move(#[from] move_tools::MoveError),
     #[error(transparent)]
+    MoveFace(#[from] move_face_tools::MoveFaceError),
+    #[error(transparent)]
     Pattern(#[from] pattern_tools::PatternToolError),
     #[error(transparent)]
     Pipe(#[from] pipe_tools::PipeError),
@@ -535,6 +544,24 @@ pub fn change(
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
             move_tools::axis_change(model, selection, feature, movement).map_err(ChangeError::from)
         }
+        (Slot::MoveFaceDirection, FeatureKind::MoveFace(moving)) => {
+            move_face_tools::reference_change(
+                model,
+                selection,
+                feature,
+                moving,
+                MoveFaceReference::Direction,
+            )
+            .map_err(ChangeError::from)
+        }
+        (Slot::MoveFaceAxis, FeatureKind::MoveFace(moving)) => move_face_tools::reference_change(
+            model,
+            selection,
+            feature,
+            moving,
+            MoveFaceReference::Axis,
+        )
+        .map_err(ChangeError::from),
         (Slot::CoilAxis, FeatureKind::Coil(coil)) => {
             coil_tools::axis_change(model, selection, feature, coil).map_err(ChangeError::from)
         }

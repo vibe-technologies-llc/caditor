@@ -4554,6 +4554,73 @@ fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
     assert!(restored.kind.delete_face().unwrap().faces.is_empty());
 }
 
+fn moving_model() -> (Document, FeatureId) {
+    use caditor_document::{AxisReference, MoveFace, PrincipalAxis};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Move face");
+    let moving = transaction.add_feature(
+        "Move face 1",
+        FeatureKind::MoveFace(MoveFace {
+            body: base,
+            faces: vec![top],
+            distance: Expression::parse_stored("2 mm").unwrap(),
+            direction: None,
+            angle: Expression::parse_stored("5 deg").unwrap(),
+            axis: Some(AxisReference::Principal(PrincipalAxis::Y)),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, moving)
+}
+
+#[test]
+fn shifted_and_tilted_faces_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, moving) = moving_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains(
+        "\"move_face\":{\"angle\":\"5 deg\",\"axis\":{\"principal\":\"y\"},\"body\":1,\
+         \"distance\":\"2 mm\",\"faces\":[{\"face\":\"0000000000000000000000000000beef\",\
+         \"neighbours\":[\"00000000000000000000000000000002\"],\"origin\":{\"end_cap\":\
+         {\"feature\":1}}}]}"
+    ));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(moving).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: moving, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_tilt_axis_or_moved_face_is_left_out_and_reported() {
+    let (document, moving) = moving_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("0000000000000000000000000000beef", "not a digest", 1)
+        .replacen("{\"principal\":\"y\"}", "{\"principal\":\"w\"}", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "Some faces moved by “Move face 1” could not be read and were left where they are.",
+            "The tilt axis of “Move face 1” could not be read, so it was left unchosen."
+        ]
+    );
+    let restored = loaded.document.feature(moving).unwrap();
+    let restored = restored.kind.move_face().unwrap();
+    assert!(restored.faces.is_empty());
+    assert_eq!(restored.axis, None);
+}
+
 fn sweep_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{BodyOperation, SolidFeature, Sweep, SweepPath};
     use caditor_kernel::{EdgeName, EdgeReference, FaceName, SweepOrientation, VertexName};

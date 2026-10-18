@@ -19,7 +19,7 @@ fn delete_face_of(harness: &Harness, feature: FeatureId) -> &caditor_document::D
         .unwrap()
 }
 
-fn holed_plate(harness: &mut Harness) -> (FeatureId, Pickable, Pickable) {
+pub(super) fn holed_plate(harness: &mut Harness) -> (FeatureId, Pickable, Pickable) {
     let mut sketch = Sketch::new(Plane::XY);
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     sketch.add_circle(Point2::new(20.0, 20.0), 5.0);

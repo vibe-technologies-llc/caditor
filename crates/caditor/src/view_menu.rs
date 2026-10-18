@@ -44,11 +44,12 @@ pub const FEATURE_COMMANDS: [Command; 3] = [
     Command::DeleteFeature,
 ];
 const EDGE_TOOLS: [Command; 2] = [Command::Fillet, Command::Chamfer];
-const FACE_TOOLS: [Command; 8] = [
+const FACE_TOOLS: [Command; 9] = [
     Command::Extrude,
     Command::Hole,
     Command::OffsetFace,
     Command::DeleteFace,
+    Command::MoveFace,
     Command::Shell,
     Command::SplitFace,
     Command::Thread,

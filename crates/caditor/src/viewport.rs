@@ -56,6 +56,7 @@ use crate::{
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
     model_dimensions::{self, ModelDimensions, Outside},
     modifying::{HighlightNeeded, Hint, Modifying, Outcome, SketchVersion, StepError},
+    move_face_tools,
     move_manipulator::Handle,
     offset_face_tools,
     paint_selection::{self, Painting},
@@ -6185,6 +6186,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::OffsetFace(_)) => {
             in_view("Click faces to move them, and again to leave one out")
         }
+        Some(FeatureKind::MoveFace(_)) => {
+            in_view("Click faces to move them, and again to leave one out")
+        }
         Some(FeatureKind::DeleteFace(_)) => {
             in_view("Click faces to delete them, and again to keep one")
         }
@@ -6622,6 +6626,9 @@ fn pick_action(
                 }
                 Some(FeatureKind::DeleteFace(_)) => {
                     delete_face_tools::toggle_face(model, feature, face)
+                }
+                Some(FeatureKind::MoveFace(_)) => {
+                    move_face_tools::toggle_face(model, feature, face)
                 }
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)

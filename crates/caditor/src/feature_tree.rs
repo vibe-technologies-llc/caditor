@@ -34,7 +34,7 @@ use crate::{
     fonts, helix_panel, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator,
     mate_panel, measurement_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
-    move_panel, move_tools, offset_face_panel,
+    move_face_panel, move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
@@ -397,6 +397,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Shell(_) => &["shell", "hollow"],
         FeatureKind::OffsetFace(_) => &["offset", "face", "press", "pull", "move face"],
         FeatureKind::DeleteFace(_) => &["delete", "face", "remove", "defeature", "heal", "fill"],
+        FeatureKind::MoveFace(_) => &["move", "face", "tilt", "shift", "push", "pull", "hole"],
         FeatureKind::SplitFace(_) => &["split", "face", "part line", "imprint", "divide"],
         FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
             PrimitiveKind::Box => &["box", "block", "cube", "primitive"],
@@ -1153,6 +1154,21 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::MoveFace(moving) => {
+            move_face_panel::show(
+                ui,
+                &move_face_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    moving,
+                    opened: row.edited,
+                },
+                &mut state.reference_rows,
+                actions,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::DeleteFace(deletion) => {
             delete_face_panel::show(
                 ui,
@@ -1314,6 +1330,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::DeleteFace(_)
+        | FeatureKind::MoveFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
@@ -1446,6 +1463,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
@@ -1474,6 +1492,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
             | FeatureKind::DeleteFace(_)
+            | FeatureKind::MoveFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)

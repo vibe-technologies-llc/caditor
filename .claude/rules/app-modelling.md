@@ -23,6 +23,8 @@ paths:
   - "crates/caditor/src/offset_face_panel.rs"
   - "crates/caditor/src/delete_face_tools.rs"
   - "crates/caditor/src/delete_face_panel.rs"
+  - "crates/caditor/src/move_face_tools.rs"
+  - "crates/caditor/src/move_face_panel.rs"
   - "crates/caditor/src/split_face_tools.rs"
   - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
@@ -87,7 +89,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Move face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
@@ -212,7 +214,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Split face, Thread, Sweep, and Hole on a face, whose
+  Shell, Offset faces, Delete face, Move face, Split face, Thread, Sweep, and Hole on a face, whose
   `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
   (`app-input.md`, Queued actions), and runs when the shape arrives.
 
@@ -634,9 +636,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its body and
   its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable change, edges
   already in a chosen chain and faces whose edges are all chosen skipped), then opens it. A shell's,
-  an offset face's and a delete face's do the same with the selected faces of their body
+  an offset face's, a move face's and a delete face's do the same with the selected faces of their body
   (`shell_tools::with_selected_faces`, openable faces only; `offset_face_tools::with_selected_faces`,
-  `delete_face_tools::with_selected_faces`; already chosen skipped), the panels taking the
+  `move_face_tools::with_selected_faces`, `delete_face_tools::with_selected_faces`; already chosen
+  skipped), the panels taking the
   selection through their `FacesRow`.
 - A chamfer's Distances (Equal, Two, Angle; `blend_tools::FormChoice`) follow Shape: Two names the size
   First distance and adds Second distance (starting as the first), Angle adds an angle field (45 deg to
@@ -655,14 +658,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
 - Hovering a row of the edges, opened, moved, deleted or split faces in an open fillet's, chamfer's,
-  shell's, offset face's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
+  shell's, offset face's, move face's, delete face's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
   stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or the revision
   changes.
 
-## Offset face, Delete face and Split face
+## Offset face, Move face, Delete face and Split face
 
 - Offset face (Alt+Q) takes the selected faces of one body, any shape (`offset_face_tools::selected_faces`),
   and creates an `OffsetFace` of 1 mm that opens (faces in words with Leave this face out, a signed
@@ -671,6 +674,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`FaceChoice::Moving`, `Builder::choosable_faces`, tangent chain included); a click moves a face or
   leaves it out; faces keep their keys across the feature. A failed or pending one shows the body before
   it with every face pickable.
+- Move face (Alt+Shift+J) takes the selected faces of one body (`move_face_tools::selected_faces`,
+  through `offset_face_tools::faces_of_one_body`) and creates a `MoveFace` shifting 1 mm square to
+  the first flat face with no tilt, which opens: faces in words with Leave this face out, Distance,
+  Direction, Angle and Tilt about. Direction and Tilt about are axis rows
+  (`feature_fields::axis_row`): a combo of Square to a flat face (`SQUARE_TO_FACE`, the first flat
+  face chosen) or None: no tilt (`NO_TILT`) first, then the principal, datum and coordinate system
+  axes before it, with Use selected and Choose in the view on `Slot::MoveFaceDirection` and `Slot::MoveFaceAxis` (any axis,
+  straight edge, round face or sketch line, `move_face_tools::reference_change`). While open and
+  computed it shows the result as an offset face does (`FaceChoice::Moving`, the moved faces keep
+  their keys), a click moving a face or leaving it out (`move_face_tools::toggle_face`); failed or
+  pending, the body before it with every face pickable. It draws no drag arrows yet.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it

@@ -1,7 +1,8 @@
 use caditor_document::{
-    DeleteFace, FeatureId, FeatureKind, Scale, Split, SplitAlong, SplitCarry, SplitFace,
+    AxisReference, DeleteFace, FeatureId, FeatureKind, MoveFace, Scale, Split, SplitAlong,
+    SplitCarry, SplitFace,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, Expression, Unit};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -10,14 +11,14 @@ use crate::{
     mcp::{
         features::{
             Amount, Built, FeatureError, added, amount, body_of, face_references, needed, parsed,
-            signed_length,
+            signed_length, turn,
         },
         places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
         session::{Session, Work},
         tools::{Answer, ToolError},
     },
-    scale_tools, split_face_tools,
+    move_face_tools, scale_tools, split_face_tools,
     units::LengthUnit,
 };
 
@@ -72,6 +73,44 @@ pub struct FaceSplitting {
 pub struct FaceDeleting {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectionName {
+    Normal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum DirectionChoice {
+    Named(DirectionName),
+    Along(AxisChoice),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TiltName {
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum TiltChoice {
+    Named(TiltName),
+    About(AxisChoice),
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FaceMoving {
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub distance: Option<Amount>,
+    pub direction: Option<DirectionChoice>,
+    pub angle: Option<Amount>,
+    pub axis: Option<TiltChoice>,
     pub name: Option<String>,
 }
 
@@ -262,6 +301,73 @@ pub fn delete_face(
     asked: FaceDeleting,
 ) -> Result<Answer, ToolError> {
     let built = delete_face_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
+fn axis_of(session: &Session, choice: &AxisChoice) -> Result<AxisReference, ToolError> {
+    places::axis(session.document(), session.evaluation(), choice)
+}
+
+pub fn move_face_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceMoving,
+    base: Option<&MoveFace>,
+) -> Result<Built, ToolError> {
+    let distance = parsed(session, asked.distance.as_ref(), |session, distance| {
+        signed_length(session, "distance", distance)
+    })?;
+    let angle = parsed(session, asked.angle.as_ref(), |session, angle| {
+        turn(session, "angle", angle)
+    })?;
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let faces = faces_of(
+        session,
+        body,
+        (
+            asked.faces.as_deref(),
+            base.map(|base| base.faces.as_slice()),
+        ),
+        "move",
+    )?;
+    let direction = match &asked.direction {
+        None => base.and_then(|base| base.direction.clone()),
+        Some(DirectionChoice::Named(DirectionName::Normal)) => None,
+        Some(DirectionChoice::Along(choice)) => Some(axis_of(session, choice)?),
+    };
+    let axis = match &asked.axis {
+        None => base.and_then(|base| base.axis.clone()),
+        Some(TiltChoice::Named(TiltName::None)) => None,
+        Some(TiltChoice::About(choice)) => Some(axis_of(session, choice)?),
+    };
+    let moving = MoveFace {
+        body,
+        faces,
+        distance: distance
+            .or_else(|| base.map(|base| base.distance.clone()))
+            .unwrap_or(Expression::Measure(0.0, Unit::Millimetre)),
+        direction,
+        angle: angle
+            .or_else(|| base.map(|base| base.angle.clone()))
+            .unwrap_or(Expression::Measure(0.0, Unit::Degree)),
+        axis,
+    };
+    let label = body_label(session.document(), body);
+    Ok(Built::new(
+        FeatureKind::MoveFace(moving),
+        move_face_tools::TITLE,
+        asked.name,
+    )
+    .telling("body", json!(label)))
+}
+
+pub fn move_face(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceMoving,
+) -> Result<Answer, ToolError> {
+    let built = move_face_built(session, work, asked, None)?;
     added(session, work, built)
 }
 

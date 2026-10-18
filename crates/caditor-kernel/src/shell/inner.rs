@@ -5,7 +5,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use super::{
     OFFSET_TOLERANCE, Offsets, ShellError,
     collapse::{Collapses, coedge_faces, loop_edges},
-    edge::{offset_edge, reverses},
+    edge::{offset_edge, pulled_back, reverses},
     split::{Cluster, Split, split_vertex, stranded},
 };
 use crate::{
@@ -157,7 +157,10 @@ pub(super) fn offset_vertex(
         .iter()
         .filter_map(|face| {
             let surface = offsets.solid.face(*face)?.surface();
-            Some((*face, surface.project(start, None)))
+            Some((
+                *face,
+                surface.project(offsets.pulled_back(*face, start), None),
+            ))
         })
         .collect();
     if hints.len() != faces.len() || hints.is_empty() {
@@ -198,11 +201,12 @@ fn rotational_frame(surface: &Surface) -> Option<&Plane> {
 }
 
 fn seam_plane(
-    solid: &Solid,
+    offsets: &Offsets<'_>,
     live: &BTreeSet<FaceId>,
     edge: EdgeId,
     point: Point3,
 ) -> Option<SeamPlane> {
+    let solid = offsets.solid;
     let [first, second] = coedge_faces(solid, edge)[..] else {
         return None;
     };
@@ -220,9 +224,16 @@ fn seam_plane(
         return None;
     }
     let radial = (point - frame.origin()).reject_from(axis).try_normalize()?;
-    Some(SeamPlane {
-        origin: frame.origin(),
-        normal: axis.cross(radial),
+    let normal = axis.cross(radial);
+    Some(match offsets.motion(first) {
+        Some(rigid) => SeamPlane {
+            origin: rigid.forward.apply_point(frame.origin()),
+            normal: rigid.forward.apply_vector(normal),
+        },
+        None => SeamPlane {
+            origin: frame.origin(),
+            normal,
+        },
     })
 }
 
@@ -328,8 +339,11 @@ fn place_corners(
             .iter()
             .filter_map(|vertex| Some(solid.vertex(*vertex)?.point()))
             .collect();
-        let start = points.iter().fold(Point3::ZERO, |sum, point| sum + *point)
-            / points.len().max(1) as f64;
+        let start = offsets.carried_with(
+            &every,
+            points.iter().fold(Point3::ZERO, |sum, point| sum + *point)
+                / points.len().max(1) as f64,
+        );
         let placed = match pole_face(solid, collapses, &members, &around, &live) {
             Some(face) => at_pole(offsets, face, &live, start)?,
             None => {
@@ -343,7 +357,7 @@ fn place_corners(
                                 .get(vertex)
                                 .into_iter()
                                 .flatten()
-                                .filter_map(move |edge| seam_plane(solid, live, *edge, point?))
+                                .filter_map(move |edge| seam_plane(offsets, live, *edge, point?))
                         })
                         .collect()
                 } else {
@@ -661,7 +675,8 @@ impl Layout {
         ))
     }
 
-    fn reversed_edges(&self, solid: &Solid) -> BTreeSet<EdgeId> {
+    fn reversed_edges(&self, offsets: &Offsets<'_>) -> BTreeSet<EdgeId> {
+        let solid = offsets.solid;
         solid
             .edges()
             .filter(|(id, edge)| !self.vanishing.contains(id) && !edge.is_closed())
@@ -670,7 +685,11 @@ impl Layout {
                     return false;
                 };
                 match (self.plan.point(start), self.plan.point(end)) {
-                    (Some(from), Some(to)) => reverses(edge, from, to),
+                    (Some(from), Some(to)) => {
+                        let faces = coedge_faces(solid, *id);
+                        let (from, to) = pulled_back(offsets, &faces, (from, to));
+                        reverses(edge, from, to)
+                    }
                     _ => false,
                 }
             })
@@ -678,7 +697,8 @@ impl Layout {
             .collect()
     }
 
-    fn outline_inverts(&self, solid: &Solid, face: FaceId) -> Option<bool> {
+    fn outline_inverts(&self, offsets: &Offsets<'_>, face: FaceId) -> Option<bool> {
+        let solid = offsets.solid;
         let definition = solid.face(face)?;
         let surface = definition.surface();
         let [only] = definition.loops() else {
@@ -694,20 +714,21 @@ impl Layout {
                 self.plan
                     .point(self.corners.end(&self.clusters, start, coedge.edge())?)?;
             original.push(uv);
-            offset.push(surface.project(point, Some(uv)));
+            offset.push(surface.project(offsets.pulled_back(face, point), Some(uv)));
         }
         Some(signed_area(&original) * signed_area(&offset) <= 0.0)
     }
 
-    fn closes(&self, solid: &Solid, face: FaceId, sides: &[Vec<CoedgeId>]) -> bool {
+    fn closes(&self, offsets: &Offsets<'_>, face: FaceId, sides: &[Vec<CoedgeId>]) -> bool {
+        let solid = offsets.solid;
         let edge = |coedge: &CoedgeId| solid.coedge(*coedge).map(|coedge| coedge.edge());
         match sides {
             [] => true,
             [first, second] => match (first.as_slice(), second.as_slice()) {
                 ([a], [b]) => {
-                    edge(a) != edge(b) && self.outline_inverts(solid, face) != Some(false)
+                    edge(a) != edge(b) && self.outline_inverts(offsets, face) != Some(false)
                 }
-                _ => self.outline_inverts(solid, face) == Some(true),
+                _ => self.outline_inverts(offsets, face) == Some(true),
             },
             _ => false,
         }
@@ -715,10 +736,11 @@ impl Layout {
 
     fn shrinking_faces(
         &self,
-        solid: &Solid,
+        offsets: &Offsets<'_>,
         collapses: &Collapses,
     ) -> BTreeMap<FaceId, BTreeSet<EdgeId>> {
-        let reversed = self.reversed_edges(solid);
+        let solid = offsets.solid;
+        let reversed = self.reversed_edges(offsets);
         let mut shrinking = BTreeMap::new();
         if reversed.is_empty() {
             return shrinking;
@@ -734,7 +756,7 @@ impl Layout {
             let Some(sides) = sides(solid, id, &across, &self.vanishing) else {
                 continue;
             };
-            if self.closes(solid, id, &sides) {
+            if self.closes(offsets, id, &sides) {
                 shrinking.insert(id, across);
             }
         }
@@ -1149,7 +1171,7 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
                 continue;
             }
         };
-        let shrinking = layout.shrinking_faces(solid, collapses);
+        let shrinking = layout.shrinking_faces(offsets, collapses);
         if shrinking.is_empty() {
             return Ok(layout);
         }
@@ -1226,13 +1248,12 @@ fn narrow_to_ridge(
     every: BTreeSet<EdgeId>,
     choices: [BTreeSet<EdgeId>; 2],
 ) -> Result<(), ShellError> {
-    let solid = offsets.solid;
     for vanishing in choices {
         let ridge: Vec<EdgeId> = every.difference(&vanishing).copied().collect();
         collapses.add_shrinking(BTreeMap::from([(face, vanishing)]));
         let holds = match Layout::new(offsets, collapses) {
             Ok(trial) => {
-                let reversed = trial.reversed_edges(solid);
+                let reversed = trial.reversed_edges(offsets);
                 ridge.iter().all(|edge| !reversed.contains(edge))
             }
             Err(error @ ShellError::Cancelled(_)) => return Err(error),

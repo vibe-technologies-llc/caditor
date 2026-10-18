@@ -17,6 +17,7 @@ use crate::{
     mate::MateCause,
     measurement_cause::MeasureCause,
     mirror::MirrorCause,
+    move_face::MoveFaceCause,
     movement::MoveCause,
     offset_face::OffsetFaceCause,
     pattern::PatternCause,
@@ -71,6 +72,7 @@ pub(crate) enum Cause {
     Blend(BlendCause),
     DeleteFace(DeleteFaceCause),
     OffsetFace(OffsetFaceCause),
+    MoveFace(MoveFaceCause),
     Shell(ShellCause),
 }
 
@@ -114,6 +116,7 @@ impl Cause {
             Self::Blend(blend) => blend.reason(),
             Self::DeleteFace(delete) => delete.reason(),
             Self::OffsetFace(offset) => offset.reason(),
+            Self::MoveFace(moving) => moving.reason(),
             Self::Shell(shell) => shell.reason(),
         }
     }
@@ -158,6 +161,7 @@ impl Cause {
             Self::Blend(blend) => blend.remedy(),
             Self::DeleteFace(delete) => delete.remedy(),
             Self::OffsetFace(offset) => offset.remedy(),
+            Self::MoveFace(moving) => moving.remedy(),
             Self::Shell(shell) => shell.remedy(),
         }
     }

@@ -437,7 +437,7 @@ paths:
   through `Workspace::deferred_commands` as the context menu's are, so the same `Command` path as
   the button, palette and keys decides what happens (`ui_tests/group_menus.rs`).
 - The main ribbon's menus are named "<group> commands" (`Group::menu_name`) and listed by
-  `Group::sections` (Thread, the primitives, Offset face, Delete face, Split face, Copy body, Mirror faces,
+  `Group::sections` (Thread, the primitives, Offset face, Delete face, Move face, Split face, Copy body, Mirror faces,
   Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section plane, centres of
   mass without buttons); their trigger's host is the whole row of tools, so the corner sits over the
   last tool. `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference

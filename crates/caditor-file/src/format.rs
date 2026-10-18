@@ -18,8 +18,8 @@ use caditor_document::{
     LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
-    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
+    ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
+    Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks,
     PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
     PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
     PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
@@ -331,6 +331,7 @@ pub(crate) enum FeatureKindRecord {
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
+    MoveFace(Box<MoveFaceRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -903,6 +904,18 @@ pub(crate) struct DeleteFaceRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MoveFaceRecord {
+    pub body: u64,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    pub distance: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<Lenient<AxisReferenceRecord>>,
+    pub angle: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<Lenient<AxisReferenceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DrillPointHoleRecord {
     pub feature: FeatureKindRecord,
     pub angle: String,
@@ -1044,7 +1057,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 87] = [
+pub(crate) const FEATURE_KINDS: [&str; 88] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1132,6 +1145,7 @@ pub(crate) const FEATURE_KINDS: [&str; 87] = [
     "shaped_rib",
     "sweep_shape",
     "loft_ends",
+    "move_face",
 ];
 
 #[derive(Debug, Clone)]
@@ -3320,6 +3334,24 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .collect(),
             }))
         }
+        FeatureKind::MoveFace(moving) => FeatureKindRecord::MoveFace(Box::new(MoveFaceRecord {
+            body: moving.body.raw(),
+            faces: moving
+                .faces
+                .iter()
+                .map(|face| Lenient::Read(face_record(face)))
+                .collect(),
+            distance: moving.distance.to_stored_text(),
+            direction: moving
+                .direction
+                .as_ref()
+                .map(|direction| Lenient::Read(axis_record(direction))),
+            angle: moving.angle.to_stored_text(),
+            axis: moving
+                .axis
+                .as_ref()
+                .map(|axis| Lenient::Read(axis_record(axis))),
+        })),
         FeatureKind::Remove(remove) => FeatureKindRecord::Remove(RemoveRecord {
             body: remove.body.raw(),
         }),
@@ -6745,6 +6777,9 @@ fn restore_kind(
         FeatureKindRecord::DeleteFace(record) => {
             FeatureKind::DeleteFace(restore_delete_face(record, name, issues))
         }
+        FeatureKindRecord::MoveFace(record) => {
+            FeatureKind::MoveFace(restore_move_face(record, name, issues))
+        }
         FeatureKindRecord::Sweep(record) => {
             FeatureKind::Solid(SolidFeature::Sweep(restore_sweep(record, name, issues)))
         }
@@ -8528,6 +8563,49 @@ fn restore_delete_face(
     DeleteFace {
         body: FeatureId::from_raw(record.body),
         faces,
+    }
+}
+
+fn restore_move_face(record: &MoveFaceRecord, feature: &str, issues: &mut Vec<String>) -> MoveFace {
+    let distance = restore_value(&record.distance, "distance", "0 mm", feature, issues);
+    let angle = restore_value(&record.angle, "angle", "0 deg", feature, issues);
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces moved by “{feature}” could not be read and were left where they are."
+        ));
+    }
+    let mut restored = |reference: &Option<Lenient<AxisReferenceRecord>>, what: &str| {
+        let read = match reference {
+            None => return None,
+            Some(Lenient::Read(record)) => restore_axis(record),
+            Some(Lenient::Unreadable(_)) => None,
+        };
+        if read.is_none() {
+            issues.push(format!(
+                "The {what} of “{feature}” could not be read, so it was left unchosen."
+            ));
+        }
+        read
+    };
+    let direction = restored(&record.direction, "direction");
+    let axis = restored(&record.axis, "tilt axis");
+    MoveFace {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        distance,
+        direction,
+        angle,
+        axis,
     }
 }
 

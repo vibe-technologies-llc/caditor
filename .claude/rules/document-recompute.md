@@ -97,7 +97,7 @@ paths:
   enum, one variant per missing input carrying what it names: `Axis` of a circular pattern, `Path`
   of a sweep, `Profiles` of a loft with fewer than two profiles (or one and no end point),
   `Regions { sketch }` of an extrusion, revolve or sweep with none chosen, `Edges { body
-  }` of a blend, `FacesToMove` of an offset face, `FacesToDelete` of a delete face, `FacesToSplit` of a split face), returned as
+  }` of a blend, `FacesToMove` of an offset or move face, `FacesToDelete` of a delete face, `FacesToSplit` of a split face), returned as
   `Failure::Waiting`. `waiting_words` ("Waiting for an axis") and `prompt` (what to choose, naming
   sketch or body from the document) word it where shown, so its cache entry holds no names. It is
   not a failure (`failures`, `failed_count` and F8 leave it out) but otherwise acts as one: it keeps

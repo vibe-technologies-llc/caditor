@@ -34,7 +34,7 @@ use crate::{
     lookahead::Lookahead,
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
-    mirror, movement, offset_face, pattern, pipe,
+    mirror, move_face, movement, offset_face, pattern, pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
@@ -1904,6 +1904,9 @@ impl Evaluator for ModelEvaluator {
             }
             FeatureKind::DeleteFace(definition) => {
                 delete_face::evaluate(feature, definition, inputs, cancel)
+            }
+            FeatureKind::MoveFace(definition) => {
+                move_face::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Primitive(definition) => {

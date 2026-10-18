@@ -785,6 +785,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Kernel refusals become sentences (`OffsetError`: a vanishing face, crossing faces, a neighbour it
   cannot follow, a corner where faces cannot meet).
 
+### Move face (`move_face.rs`)
+
+- `MoveFace { body, faces, distance, direction, angle, axis }` resolves its `FaceReference`s in the
+  body's state before it (lost or tied fails, none waits as `MissingInput::FacesToMove`) and carries
+  them by one rigid motion (kernel `move_faces`): a tilt by `angle` about `axis`, then a shift by the
+  signed `distance` along `direction`. No `direction` means square to the first flat face among the
+  chosen, in reference order, out of the body (`flat_normal`; none flat with a distance is
+  `NoNormal`); a
+  non-zero angle with no `axis` is `NoAxis`; both nought is `Unmoved`. Both references are
+  `AxisReference`s resolved through `Resolver::axis` (an edge's or datum's direction, its origin
+  for the tilt), counted in `bodies_used`, `axes_used`, `frames_used`, `reference_sketches`,
+  `named_entities`, healed (`direction`, `tilt axis`) and renamed when pasted; the tilt axis is
+  anchored under model scaling and the distance scales as a length.
+- It modifies its body (`modifies_body`), keeps every face and edge name and the state before it.
+  Kernel refusals become sentences naming the face, edge or corner (`MoveError`), with what to do:
+  move the fillet along an edge that cannot follow too, or move less.
+
 ### Delete face (`delete_face.rs`)
 
 - `DeleteFace { body, faces }` resolves its `FaceReference`s in the body's state before it (lost or
