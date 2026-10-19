@@ -38,7 +38,7 @@ use caditor_kernel::{
     SweepOrientation, VertexName, WallSide,
 };
 use caditor_sketch::{
-    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, Gear,
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, Gear, Meshing,
     PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text, TextAlign,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -2049,6 +2049,16 @@ pub(crate) enum EntityKindRecord {
     },
     Text(TextRecord),
     Gear(GearRecord),
+    MeshedGear(MeshedGearRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MeshedGearRecord {
+    pub centre: u64,
+    pub driver: u64,
+    pub teeth: String,
+    pub bore: String,
+    pub direction: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2118,7 +2128,7 @@ const DEFAULT_GEAR_MODULE: f64 = 2.0;
 const DEFAULT_GEAR_TEETH: f64 = 20.0;
 const DEFAULT_PRESSURE_ANGLE: f64 = 20.0;
 
-const ENTITY_KINDS: [&str; 17] = [
+const ENTITY_KINDS: [&str; 18] = [
     "point",
     "line",
     "circle",
@@ -2136,6 +2146,7 @@ const ENTITY_KINDS: [&str; 17] = [
     "elliptical_arc",
     "text",
     "gear",
+    "meshed_gear",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2577,6 +2588,16 @@ pub(crate) enum EditRecord {
         feature: u64,
         id: u64,
         gear: GearRecord,
+    },
+    AddSketchMeshedGear {
+        feature: u64,
+        id: u64,
+        gear: MeshedGearRecord,
+    },
+    SetSketchMeshedGear {
+        feature: u64,
+        id: u64,
+        gear: MeshedGearRecord,
     },
 }
 
@@ -5413,8 +5434,32 @@ pub(crate) fn gear_entity_record(id: EntityId, gear: &Gear) -> EntityRecord {
         id: id.raw(),
         construction: false,
         split_from: None,
-        kind: EntityKindRecord::Gear(gear_record(gear)),
+        kind: match &gear.meshing {
+            Some(meshing) => EntityKindRecord::MeshedGear(meshed_gear_record(gear, meshing)),
+            None => EntityKindRecord::Gear(gear_record(gear)),
+        },
     }
+}
+
+fn meshed_gear_record(gear: &Gear, meshing: &Meshing) -> MeshedGearRecord {
+    MeshedGearRecord {
+        centre: gear.centre.raw(),
+        driver: meshing.driver.raw(),
+        teeth: gear.teeth.to_stored_text(),
+        bore: gear.bore.to_stored_text(),
+        direction: meshing.direction.to_stored_text(),
+    }
+}
+
+fn restore_meshed_gear(record: &MeshedGearRecord) -> Option<Gear> {
+    let parse = |text: &str| Expression::parse_stored(text).ok();
+    Some(Gear::meshed(
+        EntityId::from_raw(record.centre),
+        EntityId::from_raw(record.driver),
+        parse(&record.teeth)?,
+        parse(&record.bore)?,
+        parse(&record.direction)?,
+    ))
 }
 
 fn gear_record(gear: &Gear) -> GearRecord {
@@ -5441,6 +5486,7 @@ fn restore_gear(record: &GearRecord) -> Option<Gear> {
         root_fillet: parse(&record.root_fillet)?,
         bore: parse(&record.bore)?,
         turn: parse(&record.turn)?,
+        meshing: None,
     })
 }
 
@@ -5931,19 +5977,33 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             id: id.raw(),
         },
-        Edit::AddSketchGear { feature, id, gear } => EditRecord::AddSketchGear {
-            feature: feature.raw(),
-            id: id.raw(),
-            gear: gear_record(gear),
+        Edit::AddSketchGear { feature, id, gear } => match &gear.meshing {
+            Some(meshing) => EditRecord::AddSketchMeshedGear {
+                feature: feature.raw(),
+                id: id.raw(),
+                gear: meshed_gear_record(gear, meshing),
+            },
+            None => EditRecord::AddSketchGear {
+                feature: feature.raw(),
+                id: id.raw(),
+                gear: gear_record(gear),
+            },
         },
         Edit::RemoveSketchGear { feature, id } => EditRecord::RemoveSketchGear {
             feature: feature.raw(),
             id: id.raw(),
         },
-        Edit::SetSketchGear { feature, id, gear } => EditRecord::SetSketchGear {
-            feature: feature.raw(),
-            id: id.raw(),
-            gear: gear_record(gear),
+        Edit::SetSketchGear { feature, id, gear } => match &gear.meshing {
+            Some(meshing) => EditRecord::SetSketchMeshedGear {
+                feature: feature.raw(),
+                id: id.raw(),
+                gear: meshed_gear_record(gear, meshing),
+            },
+            None => EditRecord::SetSketchGear {
+                feature: feature.raw(),
+                id: id.raw(),
+                gear: gear_record(gear),
+            },
         },
         Edit::AddSketchText { feature, id, text } => EditRecord::AddSketchText {
             feature: feature.raw(),
@@ -6232,6 +6292,16 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             id: EntityId::from_raw(id),
             gear: restore_gear(&gear)?,
+        },
+        EditRecord::AddSketchMeshedGear { feature, id, gear } => Edit::AddSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_meshed_gear(&gear)?,
+        },
+        EditRecord::SetSketchMeshedGear { feature, id, gear } => Edit::SetSketchGear {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            gear: restore_meshed_gear(&gear)?,
         },
         EditRecord::AddSketchText { feature, id, text } => Edit::AddSketchText {
             feature: FeatureId::from_raw(feature),
@@ -9632,6 +9702,9 @@ pub(crate) fn restore_sketch(
     let (gears, readable): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Gear(_)));
+    let (meshed_gears, readable): (Vec<_>, Vec<_>) = readable
+        .into_iter()
+        .partition(|entity| matches!(entity.kind, EntityKindRecord::MeshedGear(_)));
     let (points, others): (Vec<_>, Vec<_>) = readable
         .into_iter()
         .partition(|entity| matches!(entity.kind, EntityKindRecord::Point(_)));
@@ -9673,6 +9746,12 @@ pub(crate) fn restore_sketch(
     for record in gears {
         if let EntityKindRecord::Gear(gear) = &record.kind {
             restore_sketch_gear(&mut sketch, record.id, gear, feature, issues);
+        }
+    }
+
+    for record in meshed_gears {
+        if let EntityKindRecord::MeshedGear(gear) = &record.kind {
+            restore_sketch_meshed_gear(&mut sketch, record.id, gear, feature, issues);
         }
     }
 
@@ -9741,7 +9820,51 @@ fn restore_sketch_gear(
             Expression::Measure(0.0, Unit::Millimetre),
         ),
         turn: value("turn", &record.turn, Expression::Measure(0.0, Unit::Degree)),
+        meshing: None,
     };
+    if let Err(error) = sketch.insert_gear(EntityId::from_raw(id), gear) {
+        issues.push(format!(
+            "In “{feature}”, {label} was left out because {error}."
+        ));
+    }
+}
+
+fn restore_sketch_meshed_gear(
+    sketch: &mut Sketch,
+    id: u64,
+    record: &MeshedGearRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) {
+    let label = format!("Gear {id}");
+    let mut value = |name: &str, stored: &str, fallback: Expression| {
+        Expression::parse_stored(stored).unwrap_or_else(|_| {
+            issues.push(format!(
+                "In “{feature}”, the {name} of {label} could not be read, so it was set to a \
+                 standard value."
+            ));
+            fallback
+        })
+    };
+    let gear = Gear::meshed(
+        EntityId::from_raw(record.centre),
+        EntityId::from_raw(record.driver),
+        value(
+            "number of teeth",
+            &record.teeth,
+            Expression::Number(DEFAULT_GEAR_TEETH),
+        ),
+        value(
+            "bore",
+            &record.bore,
+            Expression::Measure(0.0, Unit::Millimetre),
+        ),
+        value(
+            "direction",
+            &record.direction,
+            Expression::Measure(0.0, Unit::Degree),
+        ),
+    );
     if let Err(error) = sketch.insert_gear(EntityId::from_raw(id), gear) {
         issues.push(format!(
             "In “{feature}”, {label} was left out because {error}."
@@ -9884,7 +10007,9 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
             start: entity(*start),
             end: entity(*end),
         },
-        EntityKindRecord::Text(_) | EntityKindRecord::Gear(_) => return None,
+        EntityKindRecord::Text(_) | EntityKindRecord::Gear(_) | EntityKindRecord::MeshedGear(_) => {
+            return None;
+        }
     })
 }
 

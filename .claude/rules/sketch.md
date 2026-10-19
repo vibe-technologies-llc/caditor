@@ -133,16 +133,43 @@ paths:
   centre (a point entity: `NotAPoint`, `MissingEntity`) and seven `Expression`s: module (length),
   teeth, pressure angle (degrees), profile shift (in modules), root fillet (length), bore diameter
   (length, 0 for none) and turn (degrees about the centre). Like a text, the centre counts as a use
-  (`InUse`), is neither a free point nor a layout point, and the gear holds no constraint and adds
-  no freedom. `add_parametric_gear`, `insert_gear`, `remove_gear`, `replace_gear` (a changed centre
-  is `ChangesStructure`), `gears_using`, and `add_stored_gear` for a `GearCentre` as the free-geometry
-  gear takes it.
+  (`InUse`), is neither a free point nor a layout point, and the gear holds no constraint of its
+  own. `add_parametric_gear`, `insert_gear`, `remove_gear`, `replace_gear` (a changed centre or
+  driver is `ChangesStructure`), `gears_using`, and `add_stored_gear` for a `GearCentre` as the
+  free-geometry gear takes it.
+  - A meshing gear (`Gear::meshed`, `Gear::meshing`: a `Meshing` of the `driver` gear's id and a
+    `direction` expression, degrees from the sketch's x axis) is the partner of a pair, stored
+    with only what is its own: teeth, bore and direction (`Gear::expressions` lists just those
+    three, so parameters, inlining and `uses` see no more). Its module, pressure angle and root
+    fillet are the driver's, its profile shift the opposite, its turn the driver's by the tooth
+    ratio and its centre the standard distance `m (z1 + z2) / 2` from the driver's along the
+    direction (`GearPair`, below); the five followed fields hold zeros nothing reads. The driver
+    must be a gear that does not itself mesh (`WrongKind`), another gear with its own centre
+    (`SameEntity`), and standing (`MissingEntity`); `remove_gear` refuses a driver with partners
+    (`InUse`, `partners_of`), so the document removes partners first (`document.md`).
+  - Copy and paste leave a meshing gear out (a link to the driver cannot cross the clipboard); a
+    driver is copied alone as a free gear.
   - `Sketch::evaluate` works out each gear's `GearValues` (`Gear::values`: a `SpurGear` and a
     turn; the teeth must come out a whole number, else `GearValueError::TeethNotWhole`, and
     `SpurGear::check` must pass, so the refusals of `GearError` reach the user in the
     gear's words as `SketchError::Gear` naming it), the solve writes them into the solved geometry
     (`set_gear_values`), and `Sketch::gear_values` gives them or the literal ones for an unsolved
     definition. `Sketch::gear_outline` turns them into a `GearOutline` about the solved centre.
+    The free gears are worked out first and each meshing gear from its driver's values
+    (`Gear::meshed_values`, a partner that cannot be cut refused as `GearError::Partner` inside
+    `GearValueError::Build`); its `GearValues::placement` (`MeshPlacement`: driver, distance,
+    direction) is `None` for a free gear.
+  - The centre distance is a number known before the solve (it depends on parameters, never on
+    the geometry), so the solver holds it itself instead of through a derived dimension the
+    sketch could not state: `System::add_meshes` adds, per meshing gear, two ownerless
+    `Form::Offset` equations (the partner's centre `distance` from the driver's along the
+    direction, and `0` along its normal), the way structural equations such as an arc's end on its
+    circle have no constraint to blame. The partner's centre is a point like any other (the stored
+    position is only where the solve starts), is fully determined by them, and counts in the
+    freedom (a free driver leaves its two, a pair's remaining freedom is the driver's); a user
+    constraint that fights the mesh is named as the conflict, never the mesh. The solve memo's key
+    includes the placements of the meshes touching a component, so a recalled solve is never used
+    after the module changes.
   - The gear's curves are not entities: the document takes the outline's pieces
     (`GearOutline::named_pieces`) and names each `gear_curve(gear, tooth, segment)`, an id at or
     above `FIRST_UNSTORABLE_ID` holding 39 bits of the gear's id, 11 of the tooth (`BORE_TOOTH` for
@@ -629,26 +656,36 @@ relative to the extent.
 - A single gear is normally a stored `Gear` (above), not curves: the Spur gear panel and the MCP
   `gear` operation add one (`Sketch::add_stored_gear`), and sketches written before it keep the
   free geometry they were drawn as. `Sketch::add_gear` draws the free form, which only tests
-  use now; the rest of this section describes the shape both produce.
+  use now; the rest of this section describes the shape both produce. A pair is two stored
+  gears the same way (`Sketch::add_stored_pair`, below); `Sketch::add_gear_pair` and the sprocket
+  (`Sketch::add_sprocket`) still draw free curves.
 - `Sketch::add_gear` draws it about a `GearCentre`: a free position gets a new point, an existing
   point is shared, the origin gets a point held on it by `Coincident`. Pieces share end points, tip
   and root arcs share the centre, and the pitch, base, root and tip circles are construction
   circles on it, so the outline is one closed profile and the bore a circle inside it. No other
-  constraint: a gear drawn this way does not follow later changes to its values, as a pair and a
-  sprocket never do. The drawing is shared
+  constraint: a gear drawn this way does not follow later changes to its values, as a sprocket
+  never does. The drawing is shared
   (`Sketch::draw_toothed`: circles, then the closed outline, then the bore), as is the placing of
   the centre (`wheel_centre_position`, `wheel_centre_point`).
 - `SpurGear::outline_turned` turns the whole outline about its centre; the tooth centred on the +x
   axis is the unturned one.
-- `GearPair` (`pair.rs`): a driver, the partner's tooth count and bore. The partner shares module,
-  pressure angle and root fillet and takes the opposite profile shift (`GearPair::partner`), so the
-  standard centre distance `m (z1 + z2) / 2` (`centre_distance`) holds with a tip clearance of
-  `DEDENDUM - ADDENDUM` modules and no backlash. It sits that far along +x from the driver
-  (`partner_centre`), turned by `PI + PI / z2` so a gap of its own lies on the line of centres
-  where the driver's tooth points (`partner_turn`, which also takes the driver's turn, the partner
-  counter-turning by the tooth ratio). A partner that cannot be cut is refused as
-  `GearError::Partner` naming the meshing gear. `Sketch::add_gear_pair` works both outlines out
-  before drawing either; the partner gets a new centre point, joined to the driver's by no
+- `GearPair` (`pair.rs`): a driver, the partner's tooth count and bore, and the direction of the
+  line of centres in radians from +x. The partner shares module, pressure angle and root fillet
+  and takes the opposite profile shift (`GearPair::partner`), so the standard centre distance
+  `m (z1 + z2) / 2` (`centre_distance`) holds with a tip clearance of `DEDENDUM - ADDENDUM`
+  modules and no backlash. It sits that far from the driver along the direction
+  (`partner_centre`), turned by `PI + PI / z2 + direction (1 + z1 / z2)` so a gap of its own lies
+  on the line of centres where the driver's tooth points (`partner_turn`, which also takes the
+  driver's turn, the partner counter-turning by the tooth ratio). A partner that cannot be cut is
+  refused as `GearError::Partner` naming the meshing gear. `GearPair::outlines_turned` works both
+  outlines out.
+- `Sketch::add_stored_pair` is what the Spur gear panel and the MCP `gear` operation add: the
+  driver as a stored `Gear` and the partner as a meshing one (`Gear::meshed`) whose driver is the
+  new gear, on a new centre point put where the pair's numbers place it (the solve then keeps it
+  there, `Sketch::evaluate`). The numbers of a `GearPair` only place the partner and test that
+  both can be cut before anything is added; the stored expressions are what follow later changes.
+  `Sketch::add_gear_pair` draws the free form, which only tests use now: both outlines worked out
+  before drawing either, the partner on a new centre point joined to the driver's by no
   constraint, and its own construction circles and bore.
 - `Sprocket` (`sprocket.rs`): a `ChainSize` (designation, pitch, roller diameter; `ChainSize::ALL`
   holds the ISO 606 A and B series from 05B to 48B, `DEFAULT` is 08B), a tooth count

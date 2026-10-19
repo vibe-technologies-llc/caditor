@@ -26,6 +26,7 @@ fn pair(teeth: u32, partner_teeth: u32) -> GearPair {
         driver: driver(teeth),
         partner_teeth,
         partner_bore: 0.0,
+        direction: 0.0,
     }
 }
 
@@ -155,6 +156,7 @@ fn the_partner_takes_the_opposite_shift_so_the_standard_distance_still_meshes() 
         },
         partner_teeth: 40,
         partner_bore: 6.0,
+        direction: 0.0,
     };
     let partner = pair.partner();
     let (first, second) = meshed(&pair, 0.0);

@@ -1484,11 +1484,11 @@ impl Builder<'_> {
     fn draft(&self, draft: &Draft) -> Option<Gauge> {
         let value = self.angle(&draft.angle)?;
         let solid = &handle_snap::before(self.model, self.feature)?.solid;
-        let (face, plane) = draft
-            .resolve(solid)
-            .ok()?
-            .into_iter()
-            .find_map(|face| Some((face, face_plane(solid, face)?)))?;
+        let faces = draft.resolve(solid).ok()?;
+        let (face, plane) = faces
+            .iter()
+            .find_map(|face| Some((*face, face_plane(solid, *face)?)))
+            .or_else(|| faces.iter().find_map(|face| round_tangent(solid, *face)))?;
         let neutral = displayed_plane(self.shown_evaluation(), self.feature, &draft.neutral)?;
         let pull = if draft.flipped {
             -neutral.normal()
@@ -2529,6 +2529,15 @@ fn face_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {
         return Some((plane.to_world(middle), plane.normal()));
     }
     rim_stand(solid, face)
+}
+
+fn round_tangent(solid: &Solid, face: FaceId) -> Option<(FaceId, Plane)> {
+    let round = matches!(
+        solid.face(face)?.surface(),
+        Surface::Cylinder(_) | Surface::Cone(_)
+    );
+    let (at, normal) = rim_stand(solid, face).filter(|_| round)?;
+    Some((face, Plane::new(at, normal)?))
 }
 
 fn rim_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {

@@ -241,7 +241,7 @@ pub(super) fn pulled_back(
     (from, to): (Point3, Point3),
 ) -> (Point3, Point3) {
     match offsets.shared_motion(faces) {
-        Some(rigid) => (rigid.back.apply_point(from), rigid.back.apply_point(to)),
+        Some(motion) => (motion.pulled_back(from), motion.pulled_back(to)),
         None => (from, to),
     }
 }
@@ -252,14 +252,16 @@ fn carried(
     faces: &[FaceId],
     (from, to): (Point3, Point3),
 ) -> Option<(Curve, Interval)> {
-    let rigid = faces.iter().find_map(|face| offsets.motion(*face))?;
-    let curve = edge.curve().transformed(&rigid.forward).ok()?;
-    let interval = edge.interval();
-    let lands = curve.point(interval.start()).distance(from) <= OFFSET_TOLERANCE
-        && curve.point(interval.end()).distance(to) <= OFFSET_TOLERANCE;
-    let on_faces =
-        offsets.shared_motion(faces).is_some() || follows(offsets, faces, &curve, interval);
-    (lands && on_faces).then_some((curve, interval))
+    let shared = offsets.shared_motion(faces).is_some();
+    faces
+        .iter()
+        .filter_map(|face| offsets.motion(*face))
+        .filter_map(|motion| motion.carried_edge(edge))
+        .find(|(curve, interval)| {
+            let lands = curve.point(interval.start()).distance(from) <= OFFSET_TOLERANCE
+                && curve.point(interval.end()).distance(to) <= OFFSET_TOLERANCE;
+            lands && (shared || follows(offsets, faces, curve, *interval))
+        })
 }
 
 pub(super) fn offset_edge(

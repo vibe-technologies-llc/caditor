@@ -18,6 +18,7 @@ fn spur_gear(centre: EntityId) -> Gear {
         root_fillet: Expression::measure(0.5, Unit::Millimetre),
         bore: Expression::measure(6.0, Unit::Millimetre),
         turn: Expression::measure(0.0, Unit::Degree),
+        meshing: None,
     }
 }
 

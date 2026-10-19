@@ -121,6 +121,11 @@ impl Sketch {
                 continue;
             }
             if let Some(gear) = self.gear(*item)
+                && gear.meshing.is_some()
+            {
+                continue;
+            }
+            if let Some(gear) = self.gear(*item)
                 && let Some(centre) = self.entity(gear.centre)
             {
                 entities.insert(gear.centre, centre.clone());

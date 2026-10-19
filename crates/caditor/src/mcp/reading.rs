@@ -627,31 +627,56 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
             if let Some(at) = shown.point(gear.centre) {
                 entry.insert("at".to_owned(), point2(at));
             }
-            let expressions = [
-                ("module", &gear.module),
-                ("teeth", &gear.teeth),
-                ("pressure_angle", &gear.pressure_angle),
-                ("profile_shift", &gear.profile_shift),
-                ("root_fillet", &gear.root_fillet),
-                ("bore", &gear.bore),
-                ("turn", &gear.turn),
-            ];
+            let expressions = match &gear.meshing {
+                None => {
+                    let partners: Vec<u64> = definition
+                        .partners_of(id)
+                        .into_iter()
+                        .map(|partner| partner.raw())
+                        .collect();
+                    if !partners.is_empty() {
+                        entry.insert("meshing_gears".to_owned(), json!(partners));
+                    }
+                    vec![
+                        ("module", &gear.module),
+                        ("teeth", &gear.teeth),
+                        ("pressure_angle", &gear.pressure_angle),
+                        ("profile_shift", &gear.profile_shift),
+                        ("root_fillet", &gear.root_fillet),
+                        ("bore", &gear.bore),
+                        ("turn", &gear.turn),
+                    ]
+                }
+                Some(meshing) => {
+                    entry.insert("meshes_with".to_owned(), json!(meshing.driver.raw()));
+                    vec![
+                        ("teeth", &gear.teeth),
+                        ("bore", &gear.bore),
+                        ("direction", &meshing.direction),
+                    ]
+                }
+            };
             for (name, expression) in expressions {
                 entry.insert(name.to_owned(), json!(document.expression_text(expression)));
             }
             if let Some(values) = shown.gear_values(id) {
-                entry.insert(
-                    "values".to_owned(),
-                    json!({
-                        "module": rounded(values.spur.module),
-                        "teeth": values.spur.teeth,
-                        "pressure_angle": rounded(values.spur.pressure_angle),
-                        "profile_shift": rounded(values.spur.profile_shift),
-                        "root_fillet": rounded(values.spur.root_fillet),
-                        "bore": rounded(values.spur.bore),
-                        "turn": rounded(values.turn),
-                    }),
-                );
+                let mut derived = json!({
+                    "module": rounded(values.spur.module),
+                    "teeth": values.spur.teeth,
+                    "pressure_angle": rounded(values.spur.pressure_angle),
+                    "profile_shift": rounded(values.spur.profile_shift),
+                    "root_fillet": rounded(values.spur.root_fillet),
+                    "bore": rounded(values.spur.bore),
+                    "turn": rounded(values.turn),
+                });
+                if let (Some(placement), Some(map)) = (values.placement, derived.as_object_mut()) {
+                    map.insert(
+                        "centre_distance".to_owned(),
+                        json!(rounded(placement.distance)),
+                    );
+                    map.insert("direction".to_owned(), json!(rounded(placement.direction)));
+                }
+                entry.insert("values".to_owned(), derived);
             }
             Value::Object(entry)
         })

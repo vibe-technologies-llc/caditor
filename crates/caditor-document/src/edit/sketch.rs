@@ -340,6 +340,11 @@ impl Removal {
                 .filter(|(_, gear)| doomed_entities.contains(&gear.centre))
                 .map(|(id, _)| id),
         );
+        let partners: Vec<EntityId> = doomed_gears
+            .iter()
+            .flat_map(|id| sketch.partners_of(*id))
+            .collect();
+        doomed_gears.extend(partners);
         let lone_points: Vec<EntityId> = doomed_texts
             .iter()
             .filter_map(|id| sketch.text(*id))
@@ -380,7 +385,7 @@ impl Removal {
         Self {
             constraints: doomed_constraints.into_iter().collect(),
             texts: doomed_texts.into_iter().collect(),
-            gears: doomed_gears.into_iter().collect(),
+            gears: partners_first(sketch, doomed_gears),
             entities: curves.into_iter().chain(points).collect(),
         }
     }
@@ -408,6 +413,13 @@ impl Removal {
             .chain(entities)
             .collect()
     }
+}
+
+fn partners_first(sketch: &Sketch, gears: BTreeSet<EntityId>) -> Vec<EntityId> {
+    let (partners, drivers): (Vec<EntityId>, Vec<EntityId>) = gears
+        .into_iter()
+        .partition(|id| sketch.gear(*id).is_some_and(|gear| gear.driver().is_some()));
+    partners.into_iter().chain(drivers).collect()
 }
 
 struct AddedEntity {
@@ -565,18 +577,29 @@ impl Reshape {
                     .text(*id)
                     .is_some_and(|previous| kept_text(*id, previous))
             });
-        let kept_gear = |id: EntityId, gear: &Gear| {
+        let kept_alone = |id: EntityId, gear: &Gear| {
             !replaced.contains(&gear.centre)
-                && after
-                    .gear(id)
-                    .is_some_and(|kept| kept.centre == gear.centre)
+                && after.gear(id).is_some_and(|kept| {
+                    kept.centre == gear.centre && kept.driver() == gear.driver()
+                })
         };
-        let removed_gears = before
-            .gears()
-            .filter(|(id, gear)| !kept_gear(*id, gear))
-            .map(|(id, _)| id)
-            .collect();
-        let (changed_gears, added_gears) = after
+        let kept_gear = |id: EntityId, gear: &Gear| {
+            kept_alone(id, gear)
+                && gear.driver().is_none_or(|driver| {
+                    before
+                        .gear(driver)
+                        .is_some_and(|held| kept_alone(driver, held))
+                })
+        };
+        let removed_gears = partners_first(
+            before,
+            before
+                .gears()
+                .filter(|(id, gear)| !kept_gear(*id, gear))
+                .map(|(id, _)| id)
+                .collect(),
+        );
+        let (changed_gears, mut added_gears): (Vec<_>, Vec<_>) = after
             .gears()
             .filter(|(id, gear)| before.gear(*id) != Some(*gear))
             .map(|(id, gear)| (id, gear.clone()))
@@ -585,6 +608,7 @@ impl Reshape {
                     .gear(*id)
                     .is_some_and(|previous| kept_gear(*id, previous))
             });
+        added_gears.sort_by_key(|(_, gear)| gear.driver().is_some());
         Self {
             removed_constraints,
             removed_texts,

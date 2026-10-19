@@ -39,8 +39,11 @@ pub enum DraftToolError {
     NoShape { body: FeatureId },
     #[error("Click a face of the body being drafted")]
     NotAFace,
-    #[error("Only flat faces can be drafted, so that face cannot take an angle of its own")]
-    NotFlat,
+    #[error(
+        "Only flat faces and round faces about the pull direction can be drafted, so that face \
+         cannot take an angle of its own"
+    )]
+    NotDraftable,
     #[error(transparent)]
     Check(#[from] CheckError),
 }
@@ -293,10 +296,13 @@ fn without_faces(draft: &mut Draft, solid: &Solid, faces: &BTreeSet<FaceId>) {
     draft.faces = kept;
 }
 
-fn is_flat(solid: &Solid, face: FaceId) -> bool {
-    solid
-        .face(face)
-        .is_some_and(|face| matches!(face.surface(), Surface::Plane(_)))
+fn is_draftable(solid: &Solid, face: FaceId) -> bool {
+    solid.face(face).is_some_and(|face| {
+        matches!(
+            face.surface(),
+            Surface::Plane(_) | Surface::Cylinder(_) | Surface::Cone(_)
+        )
+    })
 }
 
 fn own_angle_toggled(
@@ -312,8 +318,8 @@ fn own_angle_toggled(
     let input = bodies::input(model.evaluation(), feature)
         .ok_or(DraftToolError::NoShape { body: draft.body })?;
     let solid = &input.solid;
-    if !is_flat(solid, clicked) {
-        return Err(DraftToolError::NotFlat);
+    if !is_draftable(solid, clicked) {
+        return Err(DraftToolError::NotDraftable);
     }
     let clicked_only = BTreeSet::from([clicked]);
     let mut changed = draft.clone();

@@ -233,10 +233,13 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
   `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel; a single gear is stored
-  with literal expressions, a pair and a sprocket drawn as curves), edit_gear (a stored `gear` by
-  id, any of its seven values as a number or an expression through `amount`, checked by
+  with literal expressions, a pair as two stored gears (`StoredPair::literal`, the second at
+  `meshing_direction`, 0 deg by default) and a sprocket drawn as curves), edit_gear (a stored
+  `gear` by id, any of its seven values as a number or an expression through `amount`, checked by
   `Gear::values` against the parameters before one `set_sketch_gear`, as the Spur gear panel's
-  update does), text (`content`, `height`, `angle`, `bold`, `italic`, `align`, at `anchor` or
+  update does; a meshing gear takes only `teeth`, `bore` and `direction`, naming the gear it
+  follows when asked for another value, checked by `Gear::meshed_values` against its driver's),
+  text (`content`, `height`, `angle`, `bold`, `italic`, `align`, at `anchor` or
   `at`, the origin by default, written by `texting::write_into`), edit_text (a stored `text` by id,
   checked by `Text::size`, one `set_sketch_text`) and copy (`Sketch::clip`
   then `paste`, within the sketch shifted by `clipboard::same_sketch_shift` or from `from_sketch`
@@ -250,7 +253,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`
   (a spline with its form (control, fit, conic, piece or knotted), a fit spline's spacing and a conic's rho, an ellipse or elliptical arc with its major end and
   minor radius, and the stored `gears` and `texts` when it has any, each with its id, centre or
-  anchor, the expressions as typed and the `values` they evaluate to in the shown sketch), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
+  anchor, the expressions as typed and the `values` they evaluate to in the shown sketch; a meshing
+  gear lists `meshes_with` (its driver's id), `teeth`, `bore` and `direction` and values with the
+  `centre_distance` and `direction`, its driver `meshing_gears`), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
   `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `save_as` sends the same `SaveRequest` for a new
   `.caditor` path (`Session::save_to`, refusing a file that exists), and the session follows the

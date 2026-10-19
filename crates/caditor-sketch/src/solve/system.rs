@@ -45,6 +45,15 @@ pub(crate) struct System {
     pub rhos: BTreeMap<EntityId, f64>,
     pub text_sizes: BTreeMap<EntityId, TextSize>,
     pub gear_values: BTreeMap<EntityId, GearValues>,
+    pub meshes: Vec<Mesh>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Mesh {
+    pub driver_centre: EntityId,
+    pub partner_centre: EntityId,
+    pub distance: f64,
+    pub direction: f64,
 }
 
 impl System {
@@ -115,6 +124,7 @@ impl System {
                 .collect(),
             text_sizes: dimensions.texts().clone(),
             gear_values: dimensions.gears().clone(),
+            meshes: Vec::new(),
         };
         system.add_splines(sketch)?;
         system.entity_variables = sketch
@@ -223,7 +233,45 @@ impl System {
                     form,
                 }));
         }
+        system.add_meshes(sketch)?;
         Ok(system)
+    }
+
+    fn add_meshes(&mut self, sketch: &Sketch) -> Result<(), SketchError> {
+        for (id, gear) in sketch.gears() {
+            let Some(driver) = gear.driver().and_then(|driver| sketch.gear(driver)) else {
+                continue;
+            };
+            let Some(placement) = self
+                .gear_values
+                .get(&id)
+                .and_then(|values| values.placement)
+            else {
+                continue;
+            };
+            let (from, to) = (self.point(driver.centre)?, self.point(gear.centre)?);
+            let (sine, cosine) = placement.direction.to_radians().sin_cos();
+            let along = Vector2::new(cosine, sine);
+            for (along, value) in [(along, placement.distance), (along.perp(), 0.0)] {
+                self.equations.push(Equation {
+                    owner: None,
+                    form: Form::Offset {
+                        from,
+                        to,
+                        along,
+                        side: 1.0,
+                        value,
+                    },
+                });
+            }
+            self.meshes.push(Mesh {
+                driver_centre: driver.centre,
+                partner_centre: gear.centre,
+                distance: placement.distance,
+                direction: placement.direction,
+            });
+        }
+        Ok(())
     }
 
     pub fn supports_move_with_values(&self) -> bool {

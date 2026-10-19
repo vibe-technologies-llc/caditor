@@ -1735,6 +1735,7 @@ fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_it
                 caditor_expression::Unit::Millimetre,
             ),
             turn: caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
+            meshing: None,
         })
         .unwrap();
     let solved = sketch

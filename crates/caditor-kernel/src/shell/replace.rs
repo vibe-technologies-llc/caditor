@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
-use super::{Carried, MoveError, collapse::loop_edges, edge_faces, moving::move_each};
+use super::{Carried, Motion, MoveError, collapse::loop_edges, edge_faces, moving::move_each};
 use crate::{
     interrupt::{self, Interrupted},
     surface::Surface,
@@ -209,8 +209,8 @@ pub fn replace_faces(
         .iter()
         .map(|group| Carried {
             faces: &group.faces,
-            motion: group.first.motion,
+            motion: Motion::rigid(group.first.motion),
         })
         .collect();
-    Ok(move_each(solid, &carried)?)
+    Ok(move_each(solid, carried)?)
 }

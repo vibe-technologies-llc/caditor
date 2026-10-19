@@ -503,6 +503,16 @@ Sketch entities:
   the sketch refuses is left out. Journal: `add_sketch_gear` and `set_sketch_gear` (`feature`, `id`,
   `gear`) and `remove_sketch_gear` (`feature`, `id`). Sketches written before it keep the free
   curves a gear was drawn as. The corpus holds them in `gears.caditor` and `gears.journal`.
+- A meshing gear (`sketch.md`, Gear) is an entity record of kind `meshed_gear` of its own
+  (`MeshedGearRecord`: `centre`, `driver` and the stored texts `teeth`, `bore` and `direction`),
+  so a reader that knows plain gears but not pairs reports a kind from a newer version and keeps
+  the centre point rather than reading a gear with values it never stored. Loading restores them
+  after the plain gears, so a driver stands when its partner is read; an unreadable value loads as
+  20 teeth, no bore or 0°, reported, and a meshing gear the sketch refuses (no such driver, a
+  driver that itself meshes) is left out, reported. Journal: `add_sketch_meshed_gear` and
+  `set_sketch_meshed_gear` (`feature`, `id`, `gear`), written for an `AddSketchGear` or
+  `SetSketchGear` of a meshing gear and read back as those edits; removal is
+  `remove_sketch_gear`. The corpus holds them in `gear-pairs.caditor` and `gear-pairs.journal`.
 
 ## Loading
 

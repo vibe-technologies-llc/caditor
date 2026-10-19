@@ -1,15 +1,15 @@
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::Vector2;
 use caditor_sketch::{
-    BlendEnd, ChainSize, Continuity, Dimensioned, EntityId, GearCentre, GearPair, Sprocket,
-    SpurGear, Text, TextAlign,
+    BlendEnd, ChainSize, Continuity, Dimensioned, EntityId, Gear, GearCentre, GearPair, Sketch,
+    Sprocket, SpurGear, Text, TextAlign,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
     blend_curving, clipboard,
-    gearing::{self, Part, Spur},
+    gearing::{self, Part, Spur, StoredPair},
     mcp::{
         features::Amount,
         references::{self, EntityName, Named},
@@ -25,6 +25,7 @@ use crate::{
 const DEFAULT_MODULE: &str = "2 mm";
 const DEFAULT_TEETH: u32 = 20;
 const DEFAULT_PAIR_TEETH: u32 = 30;
+const DEFAULT_PAIR_DIRECTION: &str = "0 deg";
 const DEFAULT_PRESSURE_ANGLE: &str = "20 deg";
 const DEFAULT_ROOT_FILLET: &str = "0.75 mm";
 const DEFAULT_TEXT_HEIGHT: &str = "5 mm";
@@ -85,6 +86,7 @@ pub struct Gearing {
     pub bore: Option<String>,
     pub meshing_teeth: Option<u32>,
     pub meshing_bore: Option<String>,
+    pub meshing_direction: Option<String>,
     pub chain: Option<String>,
 }
 
@@ -100,6 +102,7 @@ pub struct GearEditing {
     pub root_fillet: Option<Amount>,
     pub bore: Option<Amount>,
     pub turn: Option<Amount>,
+    pub direction: Option<Amount>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -278,11 +281,22 @@ fn part_of(session: &Session, asked: &Gearing) -> Result<Part, ToolError> {
         bore: bore_of(session, "bore", asked.bore.as_ref())?,
     };
     Ok(match shape {
-        GearShape::Pair => Part::Pair(GearPair {
+        GearShape::Pair => Part::Pair(Box::new(StoredPair::literal(GearPair {
             driver: gear,
             partner_teeth: asked.meshing_teeth.unwrap_or(DEFAULT_PAIR_TEETH),
             partner_bore: bore_of(session, "meshing_bore", asked.meshing_bore.as_ref())?,
-        }),
+            direction: amount(
+                session,
+                "meshing_direction",
+                asked
+                    .meshing_direction
+                    .as_deref()
+                    .unwrap_or(DEFAULT_PAIR_DIRECTION),
+                Dimension::ANGLE,
+            )?
+            .value
+            .to_radians(),
+        }))),
         GearShape::Gear | GearShape::Sprocket => Part::Gear(Box::new(Spur::literal(gear))),
     })
 }
@@ -324,17 +338,36 @@ pub(super) fn edit_gear(
 ) -> Result<Planned, ToolError> {
     let (id, held) = references::gear(target.name, target.definition, &asked.gear)?;
     let mut gear = held.clone();
-    let changes = [
+    let parameters = session.parameters();
+    let value_of = |parameter| parameters.value(parameter);
+    let mut changed = false;
+    let mut set = |slot: &mut Expression, change: Option<Dimensioned>| {
+        if let Some(change) = change {
+            *slot = change.expression;
+            changed = true;
+        }
+    };
+    set(
+        &mut gear.teeth,
+        given(session, "teeth", asked.teeth.as_ref(), Dimension::NONE)?,
+    );
+    set(
+        &mut gear.bore,
+        given(session, "bore", asked.bore.as_ref(), Dimension::LENGTH)?,
+    );
+    let direction = given(
+        session,
+        "direction",
+        asked.direction.as_ref(),
+        Dimension::ANGLE,
+    )?;
+    let followed = [
         (
-            &mut gear.module,
+            "module",
             given(session, "module", asked.module.as_ref(), Dimension::LENGTH)?,
         ),
         (
-            &mut gear.teeth,
-            given(session, "teeth", asked.teeth.as_ref(), Dimension::NONE)?,
-        ),
-        (
-            &mut gear.pressure_angle,
+            "pressure_angle",
             given(
                 session,
                 "pressure_angle",
@@ -343,7 +376,7 @@ pub(super) fn edit_gear(
             )?,
         ),
         (
-            &mut gear.profile_shift,
+            "profile_shift",
             given(
                 session,
                 "profile_shift",
@@ -352,7 +385,7 @@ pub(super) fn edit_gear(
             )?,
         ),
         (
-            &mut gear.root_fillet,
+            "root_fillet",
             given(
                 session,
                 "root_fillet",
@@ -361,19 +394,37 @@ pub(super) fn edit_gear(
             )?,
         ),
         (
-            &mut gear.bore,
-            given(session, "bore", asked.bore.as_ref(), Dimension::LENGTH)?,
-        ),
-        (
-            &mut gear.turn,
+            "turn",
             given(session, "turn", asked.turn.as_ref(), Dimension::ANGLE)?,
         ),
     ];
-    let mut changed = false;
-    for (slot, change) in changes {
-        if let Some(change) = change {
-            *slot = change.expression;
-            changed = true;
+    match gear.meshing.as_mut() {
+        Some(meshing) => {
+            let driver = meshing.driver;
+            if let Some((field, _)) = followed.iter().find(|(_, change)| change.is_some()) {
+                return Err(SketchEditError::Followed {
+                    gear: target.definition.entity_label(id),
+                    driver: target.definition.entity_label(driver),
+                    field,
+                }
+                .into());
+            }
+            set(&mut meshing.direction, direction);
+        }
+        None => {
+            if direction.is_some() {
+                return Err(SketchEditError::NoDirection {
+                    gear: target.definition.entity_label(id),
+                }
+                .into());
+            }
+            let [module, pressure_angle, profile_shift, root_fillet, turn] =
+                followed.map(|(_, change)| change);
+            set(&mut gear.module, module);
+            set(&mut gear.pressure_angle, pressure_angle);
+            set(&mut gear.profile_shift, profile_shift);
+            set(&mut gear.root_fillet, root_fillet);
+            set(&mut gear.turn, turn);
         }
     }
     if !changed {
@@ -382,14 +433,27 @@ pub(super) fn edit_gear(
         }
         .into());
     }
-    let parameters = session.parameters();
-    gear.values(&|parameter| parameters.value(parameter))
-        .map_err(SketchEditError::GearValues)?;
+    check_gear_values(target.definition, &gear, &value_of)?;
     let mut transaction = target.document.transaction(gearing::EDIT_TRANSACTION);
     transaction.set_sketch_gear(target.feature, id, gear);
     let mut planned = Planned::of(transaction.finish());
     planned.details.insert("gear".to_owned(), json!(id.raw()));
     Ok(planned)
+}
+
+fn check_gear_values<F>(sketch: &Sketch, gear: &Gear, value_of: &F) -> Result<(), ToolError>
+where
+    F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+{
+    let values = match gear.driver().and_then(|driver| sketch.gear(driver)) {
+        None => gear.values(value_of),
+        Some(driver) => driver
+            .values(value_of)
+            .and_then(|driver| gear.meshed_values(&driver, value_of)),
+    };
+    values
+        .map(|_| ())
+        .map_err(|error| SketchEditError::GearValues(error).into())
 }
 
 pub(super) fn text(

@@ -440,6 +440,19 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
     };
     let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
     let new_gear = |input: &mut Unstructured| -> Result<Gear> {
+        if input.ratio(1u8, 4)? {
+            let driver = match chosen(input, &gears)? {
+                Some(id) => id,
+                None => some_entity(input)?,
+            };
+            return Ok(Gear::meshed(
+                some_entity(input)?,
+                driver,
+                scene.count(input)?,
+                scene.distance(input)?,
+                scene.turn(input)?,
+            ));
+        }
         Ok(Gear {
             centre: some_entity(input)?,
             module: scene.distance(input)?,
@@ -449,6 +462,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             root_fillet: scene.distance(input)?,
             bore: scene.distance(input)?,
             turn: scene.turn(input)?,
+            meshing: None,
         })
     };
     let label = |input: &mut Unstructured| -> Result<Option<Vector2>> {

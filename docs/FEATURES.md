@@ -63,11 +63,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [medium · hard] Draft tilts flat faces only: a round wall (a cylinder drafted into a cone), a
-  cone, a spline or extruded face in a tangent chain is refused (`DraftCause::NotFlat`), since each
-  needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
-  is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
-  (each side drafted from its own hinge) is not offered.
+- [medium · hard] Draft rebuilds only planes and cylinders or cones coaxial with the pull: a round
+  face about another axis (a fillet along a top edge, `DraftCause::OffPull`), a sphere, torus,
+  spline, extruded or revolved face (`DraftCause::NotDraftable`) is refused, since each needs its
+  surface rebuilt about the neutral plane by something other than a tilt or a coaxial taper (a
+  variable-radius blend, a swept or lofted surface); and a parting line is only the neutral plane,
+  so a stepped parting line along chosen edges or a split face's line (each side drafted from its
+  own hinge) is not offered.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -140,15 +142,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
-- [low · medium] A gear pair and a sprocket (`sketch.md`, Spur gears) are drawn once: their
-  curves are free sketch geometry, not tied to the values in the Spur gear panel, so changing the
-  module, teeth or a parameter they use means deleting them and drawing them again. A single gear
-  is stored (`sketch.md`, Gear) and follows its values; a pair would need the partner stored as a
-  gear of its own whose module, pressure angle and root fillet follow the driver's, whose profile
-  shift is the opposite, whose centre sits the standard distance along the line of centres
-  (a constraint the sketch cannot hold without a derived dimension) and whose turn follows the
-  driver's by the tooth ratio, and a sprocket a stored form of its own with the same curve names
-  by gap and segment.
+- [low · medium] A sprocket (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
+  geometry, not tied to the values in the Spur gear panel, so changing the chain, teeth or a
+  parameter they use means deleting it and drawing it again. A gear and the two gears of a pair
+  are stored (`sketch.md`, Gear) and follow their values; a sprocket would need a stored form of
+  its own (the chain designation, teeth, bore and turn as expressions, a record kind and edits
+  beside the gear's, the pieces of `SprocketOutline` named by gap and segment the way
+  `gear_curve` names a gear's) and its panel, MCP and clipboard handling to match.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

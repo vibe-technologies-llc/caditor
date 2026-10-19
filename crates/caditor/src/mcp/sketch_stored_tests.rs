@@ -116,6 +116,94 @@ fn a_drawn_gear_is_read_back_and_edited() {
     assert!(gone.get("gears").is_none(), "{gone}");
 }
 
+fn gear_with(sketch: &Value, field: &str, present: bool) -> Value {
+    sketch["gears"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|gear| gear.get(field).is_some() == present)
+        .cloned()
+        .unwrap_or_else(|| panic!("{sketch}"))
+}
+
+#[test]
+fn a_drawn_pair_follows_its_first_gear_and_its_meshing_gear_takes_only_its_own_values() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+
+    let drawn = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "gear", "shape": "pair", "teeth": 20, "meshing_teeth": 30, "at": [0, 0] }),
+    );
+    let read = described(&mut client, &sketch);
+    let driver = gear_with(&read, "meshes_with", false);
+    let partner = gear_with(&read, "meshes_with", true);
+    let driver_id = driver["id"].clone();
+    let partner_id = partner["id"].clone();
+
+    modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": driver_id, "module": "3 mm" }),
+    );
+    let regenerated = gear_with(&described(&mut client, &sketch), "meshes_with", true);
+    let turned = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": partner_id, "teeth": 40, "direction": "45 deg" }),
+    );
+    let after = gear_with(&described(&mut client, &sketch), "meshes_with", true);
+
+    let followed = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": partner_id, "module": "4 mm" }),
+    );
+    let no_direction = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": driver_id, "direction": "10 deg" }),
+    );
+    let undercut = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": partner_id, "teeth": 8 }),
+    );
+    let removed = client.tool(
+        "remove_sketch_items",
+        json!({ "sketch": sketch, "entities": [driver_id] }),
+    );
+    let gone = described(&mut client, &sketch);
+    client.finish();
+
+    assert_eq!(drawn["added_gears"].as_array().unwrap().len(), 2, "{drawn}");
+    assert_eq!(partner["meshes_with"], driver_id);
+    assert_eq!(driver["meshing_gears"], json!([partner_id]));
+    assert!(partner.get("module").is_none(), "{partner}");
+    assert_eq!(partner["direction"], "0 deg");
+    assert!(close(number(&partner["values"]["centre_distance"]), 50.0));
+    assert!(close(number(&regenerated["values"]["module"]), 3.0));
+    assert!(close(
+        number(&regenerated["values"]["centre_distance"]),
+        75.0
+    ));
+    assert_eq!(turned["gear"], partner_id);
+    assert_eq!(after["teeth"], "40");
+    assert_eq!(after["direction"], "45 deg");
+    assert!(close(number(&after["values"]["centre_distance"]), 90.0));
+    assert!(followed.contains("follows"), "{followed}");
+    assert!(no_direction.contains("no direction"), "{no_direction}");
+    assert!(undercut.contains("undercut"), "{undercut}");
+    assert_eq!(
+        removed["removed_gears"].as_array().unwrap().len(),
+        2,
+        "{removed}"
+    );
+    assert!(gone.get("gears").is_none(), "{gone}");
+}
+
 #[test]
 fn drawn_text_is_read_back_and_edited() {
     let folder = TempDir::new().unwrap();
