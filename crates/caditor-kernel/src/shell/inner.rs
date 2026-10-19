@@ -226,9 +226,9 @@ fn seam_plane(
     let radial = (point - frame.origin()).reject_from(axis).try_normalize()?;
     let normal = axis.cross(radial);
     Some(match offsets.motion(first) {
-        Some(rigid) => SeamPlane {
-            origin: rigid.forward.apply_point(frame.origin()),
-            normal: rigid.forward.apply_vector(normal),
+        Some(motion) => SeamPlane {
+            origin: motion.carried(frame.origin()),
+            normal: motion.turned(normal),
         },
         None => SeamPlane {
             origin: frame.origin(),

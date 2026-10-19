@@ -706,15 +706,16 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`feature_fields::expression_row_removable`, owned as `draft_panel::own_angle_caption`, keyed
   `("draft-own-angle", feature, index)`; its remove button gives it the draft angle again, back
   among the faces). Choose faces starts `Slot::DraftOwnAngle`, which keeps choosing: each click on
-  a flat face of the body (`draft_tools::own_angle_click`, routed before other picking like the
-  shell's own thickness, queued as `Rerun::OwnAngle` while the body has no shape) gives it its own
-  angle (the draft angle to start) or takes it back, one undoable change each, a curved face
-  refused in a notice. A face is in one list at a time: giving it its own angle takes it out of
+  a flat, cylinder or cone face of the body (`draft_tools::own_angle_click`, routed before other
+  picking like the shell's own thickness, queued as `Rerun::OwnAngle` while the body has no shape)
+  gives it its own angle (the draft angle to start) or takes it back, one undoable change each,
+  another curved face refused in a notice. A face is in one list at a time: giving it its own angle takes it out of
   the faces, and a click while the draft is open (`draft_tools::toggle_face`) leaves a face out of
   either list or adds it to the faces. While open and computed it shows the result as a move face
   does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
   colour, `draft_tools::drafted_faces`); failed or pending, the body before it. Its value arrow is
-  the Draft angle (Value handles).
+  the Draft angle (Value handles), standing on the first flat chosen face, or with only round faces
+  on the plane tangent to the first at the middle of its first edge.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it

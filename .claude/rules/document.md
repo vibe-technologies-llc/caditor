@@ -849,14 +849,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ### Draft (`draft.rs`)
 
 - `Draft { body, faces, neutral, angle, flipped, tangent, beyond, own }` tilts flat faces of its
-  body (kernel `draft_faces`) about where each meets the neutral plane (a `PlaneReference`: a
+  body, and turns cylinders and cones coaxial with the pull into cones (kernel `draft_faces`), about
+  where each meets the neutral plane (a `PlaneReference`: a
   principal, datum or coordinate system plane or a flat face, resolved through `Resolver::plane`;
   its datum, frame and body count as used, its face is healed as "its neutral plane", it is
   renamed when pasted and anchored for model scale), so each makes `angle` with the pull: the
   plane's normal, reversed when `flipped`. `faces` are `FaceReference`s resolved in the body's state
   before it (pieces of one split face accepted; lost or tied fails, none waits as
   `MissingInput::FacesToDraft`); with `tangent` they first grow to everything reached across smooth
-  edges (`tangent_faces`), and a curved face among them fails, saying when the chain brought it.
+  edges (`tangent_faces`), so a slot's or rounded outline's wall drafts as one chain. Before the
+  kernel, `check_draftable` refuses a face that is neither flat nor round (`NotDraftable`) or round
+  about an axis off the pull (`OffPull`, a fillet along a top edge), saying when the chain brought
+  it.
 - `own` lists `FaceAngle`s: faces drafted at an angle of their own instead of `angle` (beyond the
   neutral plane they keep `beyond`), resolved like `faces` (lost or tied fails as a face given its
   own draft angle); a face in both takes its own. Either list alone is enough.
@@ -869,13 +873,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Every angle is an expression (`Draft::expressions`: parameters, inlining, pasting); model scale
   changes none. An angle steeper than `STEEPEST_DRAFT` fails before the kernel, naming which angle.
   Kernel refusals become sentences naming the face, edge or corner as a move's do (a face parallel
-  to the neutral plane, a curved face, every face already at its angle, a face that would vanish,
+  to the neutral plane, a face that cannot be drafted, a round face narrowing to a point
+  (`NarrowsToPoint`), every face already at its angle, a face that would vanish,
   faces that would cross, a neighbour that cannot follow), each with what to change.
 - It modifies its body (`modifies_body`), keeps every face and edge name (split pieces take split
   names) and the state before it. `default_neutral` gives the app's starting plane: of the flat
   faces beside the first flat chosen face and square to it, the one whose outward normal points
-  lowest (a floor), else the first principal plane across it, with `flipped_toward` pointing the
-  pull at the faces (the mean height of their edges above the plane).
+  lowest (a floor), else the first principal plane across it; with only round faces chosen, of the
+  flat faces beside the first one square to its axis, one facing the face (a boss's plate, a blind
+  hole's floor) before the one pointing lowest, else the first principal plane square to the axis;
+  `flipped_toward` then points the pull at the faces (the mean height of their edges above the
+  plane).
 
 ### Delete face (`delete_face.rs`)
 

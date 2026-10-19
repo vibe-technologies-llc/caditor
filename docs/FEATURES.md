@@ -61,11 +61,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
   extrusion up to next stops where the original did, not on the face it meets), and one pattern
   cannot chain a shift, a turn and a mirror.
-- [medium · hard] Draft tilts flat faces only: a round wall (a cylinder drafted into a cone), a
-  cone, a spline or extruded face in a tangent chain is refused (`DraftCause::NotFlat`), since each
-  needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
-  is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
-  (each side drafted from its own hinge) is not offered.
+- [medium · hard] Draft rebuilds only planes and cylinders or cones coaxial with the pull: a round
+  face about another axis (a fillet along a top edge, `DraftCause::OffPull`), a sphere, torus,
+  spline, extruded or revolved face (`DraftCause::NotDraftable`) is refused, since each needs its
+  surface rebuilt about the neutral plane by something other than a tilt or a coaxial taper (a
+  variable-radius blend, a swept or lofted surface); and a parting line is only the neutral plane,
+  so a stepped parting line along chosen edges or a split face's line (each side drafted from its
+  own hinge) is not offered.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

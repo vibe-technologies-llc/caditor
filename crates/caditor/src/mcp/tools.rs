@@ -595,7 +595,7 @@ impl Tool {
                 "Shifts faces of a body along a direction and tilts them about an axis, the faces around them extending or trimming to follow, as on an imported body with no history. One undo step."
             }
             Self::AddDraft => {
-                "Tilts flat faces of a body about the line where each meets the neutral plane, so each makes the draft angle with the pull direction (the neutral plane's normal, reversed by flipped), the faces around them following; beyond splits the faces at the neutral plane and drafts the part beyond it at an angle of its own. One undo step."
+                "Tilts flat faces of a body about the line where each meets the neutral plane, and turns round faces (cylinders and cones) about the pull direction into cones hinged on the circle where each meets it, so each makes the draft angle with the pull direction (the neutral plane's normal, reversed by flipped), the faces around them following; beyond splits the faces at the neutral plane and drafts the part beyond it at an angle of its own. One undo step."
             }
             Self::AddSplit => {
                 "Splits a body in two along a plane, a sketch's curves or another body; flipped swaps which side is kept first. One undo step."

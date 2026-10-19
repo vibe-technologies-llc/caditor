@@ -19,15 +19,16 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Tilts the chosen flat faces about the line where each meets the \
-                               neutral plane, so each makes the draft angle with the pull \
-                               direction, the faces beside them following";
+                               neutral plane, and turns round faces about the pull direction into \
+                               cones from the circle where each meets it, so each makes the draft \
+                               angle with the pull direction, the faces beside them following";
 pub const FLIP: &str = "Flip the pull direction";
 pub const TANGENT: &str = "Draft the faces tangent to these too";
 pub const SPLIT: &str = "Split the faces at the neutral plane";
 pub const OWN_ANGLE: &str = "Own angle";
 pub const ADD_OWN_ANGLE: &str = "Choose faces";
 const ADD_OWN_ANGLE_HOVER: &str =
-    "Click flat faces in the view to give each its own draft angle, or the draft's again";
+    "Click flat or round faces in the view to give each its own draft angle, or the draft's again";
 const NO_OWN_ANGLE: &str = "None: every face takes the draft angle";
 const DRAFTS_ANGLE: &str = "Give this face the draft angle";
 const GONE: &str = "A face that is no longer there";

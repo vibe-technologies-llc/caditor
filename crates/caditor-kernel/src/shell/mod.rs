@@ -14,6 +14,7 @@ mod offset;
 #[cfg(test)]
 mod offset_tests;
 mod split;
+mod taper;
 #[cfg(test)]
 mod tests;
 mod walls;
@@ -28,17 +29,19 @@ use std::{
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
+use self::taper::Taper;
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{LinearExtent, extrude},
     curve::Curve,
     interrupt::{self, Interrupted},
+    interval::Interval,
     naming::{FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
     surface::{Cone, Cylinder, PlaneSurface, Sphere, Surface, Torus},
     tessellation::TessellationError,
     tolerance::LINEAR_RESOLUTION,
-    topology::{CrossingCheck, EdgeId, FaceId, Solid, VertexId},
+    topology::{CrossingCheck, Edge, EdgeId, FaceId, Solid, VertexId},
 };
 
 const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -50,7 +53,7 @@ const SETTLED_RESIDUAL: f64 = 0.01 * LINEAR_RESOLUTION;
 const SNAPPED_RESIDUAL: f64 = 1e-12;
 
 pub use delete::{DeleteError, delete_faces};
-pub use draft::{DraftError, DraftedFace, STEEPEST_DRAFT, draft_faces};
+pub use draft::{DraftError, DraftedFace, STEEPEST_DRAFT, check_draftable, draft_faces};
 pub use moving::{MoveError, move_faces};
 pub use offset::{OffsetError, offset_faces};
 pub use walls::{ShellSide, Walls};
@@ -137,17 +140,59 @@ impl From<BooleanError> for ShellError {
     }
 }
 
-struct Motion {
-    forward: RigidTransform,
-    back: RigidTransform,
+enum Motion {
+    Rigid {
+        forward: RigidTransform,
+        back: RigidTransform,
+    },
+    Tapered(Taper),
 }
 
-struct Rigid {
+impl Motion {
+    fn rigid(forward: RigidTransform) -> Self {
+        Self::Rigid {
+            forward,
+            back: forward.inverse(),
+        }
+    }
+
+    fn carried(&self, point: Point3) -> Point3 {
+        match self {
+            Self::Rigid { forward, .. } => forward.apply_point(point),
+            Self::Tapered(taper) => taper.carried(point),
+        }
+    }
+
+    fn pulled_back(&self, point: Point3) -> Point3 {
+        match self {
+            Self::Rigid { back, .. } => back.apply_point(point),
+            Self::Tapered(taper) => taper.pulled_back(point),
+        }
+    }
+
+    fn turned(&self, direction: Vector3) -> Vector3 {
+        match self {
+            Self::Rigid { forward, .. } => forward.apply_vector(direction),
+            Self::Tapered(_) => direction,
+        }
+    }
+
+    fn carried_edge(&self, edge: &Edge) -> Option<(Curve, Interval)> {
+        match self {
+            Self::Rigid { forward, .. } => {
+                Some((edge.curve().transformed(forward).ok()?, edge.interval()))
+            }
+            Self::Tapered(taper) => taper.carried_edge(edge),
+        }
+    }
+}
+
+struct Motions {
     motions: Vec<Motion>,
     faces: BTreeMap<FaceId, usize>,
 }
 
-impl Rigid {
+impl Motions {
     fn of(&self, face: FaceId) -> Option<usize> {
         self.faces.get(&face).copied()
     }
@@ -155,7 +200,7 @@ impl Rigid {
 
 struct Carried<'a> {
     faces: &'a [FaceId],
-    motion: RigidTransform,
+    motion: Motion,
 }
 
 struct Offsets<'a> {
@@ -163,7 +208,7 @@ struct Offsets<'a> {
     reach: f64,
     distances: BTreeMap<FaceId, f64>,
     settled: f64,
-    rigid: Option<Rigid>,
+    motions: Option<Motions>,
 }
 
 impl<'a> Offsets<'a> {
@@ -174,7 +219,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach,
             settled: SETTLED_RESIDUAL,
-            rigid: None,
+            motions: None,
             distances: solid
                 .faces()
                 .map(|(id, _)| {
@@ -197,7 +242,7 @@ impl<'a> Offsets<'a> {
             solid,
             reach: outward * walls.reach(),
             settled: SETTLED_RESIDUAL,
-            rigid: None,
+            motions: None,
             distances: solid
                 .faces()
                 .filter(|(id, _)| !open.contains(id))
@@ -211,30 +256,24 @@ impl<'a> Offsets<'a> {
             solid,
             reach: inward.abs(),
             settled: SETTLED_RESIDUAL,
-            rigid: None,
+            motions: None,
             distances: faces.iter().map(|face| (*face, inward)).collect(),
         }
     }
 
-    fn rigid(solid: &'a Solid, carried: &[Carried<'_>], reach: f64) -> Self {
-        let motions = carried
-            .iter()
-            .map(|group| Motion {
-                forward: group.motion,
-                back: group.motion.inverse(),
-            })
-            .collect();
+    fn carrying(solid: &'a Solid, carried: Vec<Carried<'_>>, reach: f64) -> Self {
         let faces = carried
             .iter()
             .enumerate()
             .flat_map(|(index, group)| group.faces.iter().map(move |face| (*face, index)))
             .collect();
+        let motions = carried.into_iter().map(|group| group.motion).collect();
         Self {
             solid,
             reach,
             settled: SETTLED_RESIDUAL,
             distances: BTreeMap::new(),
-            rigid: Some(Rigid { motions, faces }),
+            motions: Some(Motions { motions, faces }),
         }
     }
 
@@ -244,22 +283,22 @@ impl<'a> Offsets<'a> {
             reach,
             distances: BTreeMap::new(),
             settled: SETTLED_RESIDUAL,
-            rigid: None,
+            motions: None,
         }
     }
 
     fn motion(&self, face: FaceId) -> Option<&Motion> {
-        let rigid = self.rigid.as_ref()?;
-        rigid.motions.get(rigid.of(face)?)
+        let motions = self.motions.as_ref()?;
+        motions.motions.get(motions.of(face)?)
     }
 
     fn shared_motion(&self, faces: &[FaceId]) -> Option<&Motion> {
-        let rigid = self.rigid.as_ref()?;
+        let motions = self.motions.as_ref()?;
         let (first, rest) = faces.split_first()?;
-        let index = rigid.of(*first)?;
+        let index = motions.of(*first)?;
         rest.iter()
-            .all(|face| rigid.of(*face) == Some(index))
-            .then(|| rigid.motions.get(index))
+            .all(|face| motions.of(*face) == Some(index))
+            .then(|| motions.motions.get(index))
             .flatten()
     }
 
@@ -271,12 +310,12 @@ impl<'a> Offsets<'a> {
         faces
             .iter()
             .find_map(|face| self.motion(*face))
-            .map_or(point, |rigid| rigid.forward.apply_point(point))
+            .map_or(point, |motion| motion.carried(point))
     }
 
     fn pulled_back(&self, face: FaceId, point: Point3) -> Point3 {
         self.motion(face)
-            .map_or(point, |rigid| rigid.back.apply_point(point))
+            .map_or(point, |motion| motion.pulled_back(point))
     }
 
     fn distance(&self, face: FaceId) -> f64 {
@@ -294,24 +333,33 @@ impl<'a> Offsets<'a> {
         hint: Option<Point2>,
     ) -> Option<(f64, Vector3)> {
         let definition = self.solid.face(face)?;
+        let sign = definition.sense().sign();
+        if let Some(Motion::Tapered(taper)) = self.motion(face) {
+            let (beyond, normal) = taper.residual(point);
+            return Some((beyond * sign + self.distance(face), normal * sign));
+        }
         let surface = definition.surface();
         let local = self.pulled_back(face, point);
         let uv = surface.project(local, hint);
-        let normal = surface.normal(uv.x, uv.y)? * definition.sense().sign();
+        let normal = surface.normal(uv.x, uv.y)? * sign;
         let signed = (local - surface.point_at(uv)).dot(normal);
         let normal = self
             .motion(face)
-            .map_or(normal, |rigid| rigid.forward.apply_vector(normal));
+            .map_or(normal, |motion| motion.turned(normal));
         Some((signed + self.distance(face), normal))
     }
 
     fn surface(&self, face: FaceId) -> Result<Surface, ShellError> {
         let definition = self.solid.face(face).ok_or(ShellError::MissingFace(face))?;
-        if let Some(rigid) = self.motion(face) {
-            return definition
-                .surface()
-                .transformed(&rigid.forward)
-                .map_err(|_| ShellError::UnsupportedFace(face));
+        match self.motion(face) {
+            Some(Motion::Rigid { forward, .. }) => {
+                return definition
+                    .surface()
+                    .transformed(forward)
+                    .map_err(|_| ShellError::UnsupportedFace(face));
+            }
+            Some(Motion::Tapered(taper)) => return Ok(taper.surface().clone()),
+            None => {}
         }
         if self.distance(face) == 0.0 {
             return Ok(definition.surface().clone());
@@ -666,7 +714,7 @@ pub(crate) fn snapped(solid: &Solid, inward: BTreeMap<FaceId, f64>) -> Option<So
         reach,
         distances: inward,
         settled: SNAPPED_RESIDUAL,
-        rigid: None,
+        motions: None,
     };
     inner::inner_solid(&offsets, inner::Naming::Kept)
         .ok()
