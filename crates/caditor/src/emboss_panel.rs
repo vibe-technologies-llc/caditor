@@ -1,28 +1,41 @@
-use caditor_document::{Document, Emboss, EmbossForm, Feature, FeatureId, Resolution, SolidResult};
+use caditor_document::{
+    Document, Emboss, EmbossForm, Feature, FeatureId, RegionChoice, Resolution, SolidResult,
+};
 use caditor_expression::Dimension;
 use caditor_kernel::FaceId;
 use egui::{Id, Ui};
 
 use crate::{
     bodies,
+    commands::Command,
     editing::EditingCommand,
     emboss_tools,
     feature_fields::{self, Choice, ListChoosing, Picker, Quantity, Rule, Segment},
     feature_tree::count,
+    icons,
     model::{Action, Model},
     offset_face_panel,
     reference_picking::Slot,
     reference_rows::{ReferenceRows, RowCache},
-    selection::Selection,
-    widgets,
+    scene,
+    selection::{self, Selection},
+    solid_tools, widgets,
 };
 
+pub const DEPTH: &str = "Depth";
 pub const DESCRIPTION: &str = "Raises the closed outlines or text of a sketch from the chosen faces, or \
                                sinks them in, flat or wrapped round a cylinder or cone";
 const RAISE_HOVER: &str = "Add the outlines to the faces";
 const RECESS_HOVER: &str = "Cut the outlines into the faces";
 const PICK_HOVER: &str = "Emboss the outlines of the selected sketch instead";
 const MISSING_SKETCH: &str = "A sketch that is no longer there, or none chosen";
+const ALL_REGIONS_HOVER: &str = "Emboss every closed outline of the sketch";
+const CHOSEN_REGIONS_HOVER: &str = "Emboss only the regions you choose in the view";
+const SELECT_ALL_REGIONS: &str = "Select all";
+const SELECT_ALL_REGIONS_HOVER: &str =
+    "Take every closed outline of the sketch, and any drawn in it later";
+const CLEAR_REGIONS: &str = "Clear";
+const CLEAR_REGIONS_HOVER: &str = "Choose no region, then click in the view the regions to emboss";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
 fn face_rows(document: &Document, input: Option<&SolidResult>, emboss: &Emboss) -> ReferenceRows {
@@ -142,6 +155,7 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
                             id,
                             Emboss {
                                 sketch: Some(sketch),
+                                regions: RegionChoice::All,
                                 ..emboss.clone()
                             },
                         )
@@ -172,6 +186,101 @@ fn sketch_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
     ui.end_row();
 }
 
+fn regions_row(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
+    let FacesRow {
+        model,
+        feature,
+        emboss,
+        opened,
+        ..
+    } = *row;
+    if emboss.sketch.is_none() {
+        return;
+    }
+    let id = feature.id();
+    widgets::caption(ui, "Regions");
+    let all = matches!(emboss.regions, RegionChoice::All);
+    let chosen_count = selection::swept_regions(model.document(), model.evaluation(), id)
+        .map_or(0, |(_, regions)| {
+            scene::chosen_regions(&emboss.regions, regions).len()
+        });
+    let mut change = None;
+    ui.vertical(|ui| {
+        let choices = [
+            ("All closed", ALL_REGIONS_HOVER),
+            ("Chosen", CHOSEN_REGIONS_HOVER),
+        ];
+        match widgets::segmented(ui, &choices, usize::from(!all)) {
+            Some(0) => {
+                change = Some(emboss_tools::change(
+                    model,
+                    id,
+                    emboss_tools::with_regions(emboss, RegionChoice::All),
+                ));
+            }
+            Some(_) => {
+                change = Some(emboss_tools::choose_every_region(model, id));
+            }
+            None => {}
+        }
+        ui.horizontal(|ui| {
+            if !all {
+                let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
+                ui.label(widgets::muted(chosen, ui));
+                let every = widgets::small_button(
+                    ui,
+                    icons::command(Command::SelectAllRegions),
+                    SELECT_ALL_REGIONS,
+                );
+                if ui
+                    .add(every)
+                    .on_hover_text(SELECT_ALL_REGIONS_HOVER)
+                    .clicked()
+                {
+                    actions.push(feature_fields::applied(
+                        &feature.name,
+                        solid_tools::select_all_regions(model, feature),
+                    ));
+                }
+            }
+            if chosen_count > 0 {
+                let clear = widgets::small_button(
+                    ui,
+                    icons::command(Command::ClearChosenRegions),
+                    CLEAR_REGIONS,
+                );
+                if ui.add(clear).on_hover_text(CLEAR_REGIONS_HOVER).clicked() {
+                    actions.push(feature_fields::applied(
+                        &feature.name,
+                        solid_tools::clear_regions(model, feature),
+                    ));
+                }
+            }
+        });
+        if !all {
+            let chosen = feature_fields::list_in_view(
+                ui,
+                opened,
+                "Click regions in the view to include or leave them out.",
+                "Show the regions of the sketch so you can click them",
+            );
+            match chosen {
+                Some(ListChoosing::Start) => {
+                    actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
+                }
+                Some(ListChoosing::Stop) => {
+                    actions.push(Action::Editing(EditingCommand::CloseSolid));
+                }
+                None => {}
+            }
+        }
+    });
+    ui.end_row();
+    if let Some(change) = change {
+        actions.push(feature_fields::applied(&feature.name, change));
+    }
+}
+
 fn depth_row(
     ui: &mut Ui,
     model: &Model,
@@ -187,7 +296,7 @@ fn depth_row(
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,
     };
-    let drafting = feature_fields::expression_row_drafting(ui, model, "Depth", quantity, |depth| {
+    let drafting = feature_fields::expression_row_drafting(ui, model, DEPTH, quantity, |depth| {
         emboss_tools::change(
             model,
             id,
@@ -245,6 +354,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         feature_fields::description_row(ui, DESCRIPTION);
         faces_row(ui, row, cache, actions);
         sketch_row(ui, row, actions);
+        regions_row(ui, row, actions);
         form_row(ui, model, feature, emboss, actions);
         depth_row(ui, model, feature, emboss, actions);
         feature_fields::feature_row(ui, model.document(), "Body", emboss.body);

@@ -12,6 +12,13 @@ menu of faces or {command:palette}.
 - **Outlines** is the sketch, chosen from the earlier ones or by clicking one of its curves or
   letters. Every closed shape is used and the holes inside shapes stay open, so the middle of an
   `o` or a `B` is left as it is. Curves that enclose nothing are ignored.
+- **Regions** chooses which of the sketch's regions are embossed. **All closed** uses every closed
+  shape; **Chosen** lets you click regions of the sketch in the view, over the faces, to include
+  them or leave them out again, so one letter of a word or one shape of a logo can be raised on its
+  own. **Select all** takes every region again, **Clear** chooses none until you click some, and
+  regions selected before choosing Emboss start as the chosen ones. A chosen region follows its
+  shape when you edit the sketch, and if it is split or removed the emboss says so and asks you to
+  choose again.
 - **Depth** is how far the outlines stand out or sink in, as a length or an expression using your
   [parameters](parameters). A new emboss starts from the depth last set on one, kept between
   sessions.
@@ -26,7 +33,9 @@ the surface, out of it for Raise and into it for Recess, and a bore takes the ou
 A sphere or a torus cannot be unrolled flat, so those faces are refused.
 
 While it is open the body is shown with the emboss, and each face listed in the panel lights up in
-the view when hovered.
+the view when hovered. On a flat face an arrow stands over the raised tops, or on the floor of a
+recess, and dragging it changes the depth live, in one undoable change; the Depth field keeps
+working beside it.
 
 The raised tops and recessed floors are faces of the feature, named from it, so a later
 [fillet](fillet-and-chamfer) can round the letters or a colour can be given to them, and they keep

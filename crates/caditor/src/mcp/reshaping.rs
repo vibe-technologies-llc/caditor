@@ -1,6 +1,6 @@
 use caditor_document::{
     AxisReference, DeleteFace, Draft, Emboss, EmbossForm, FaceAngle, FeatureId, FeatureKind,
-    MoveFace, Scale, Split, SplitAlong, SplitCarry, SplitFace,
+    MoveFace, RegionChoice, Scale, Split, SplitAlong, SplitCarry, SplitFace,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_kernel::FaceReference;
@@ -11,8 +11,9 @@ use crate::{
     delete_face_tools, draft_tools, emboss_tools,
     mcp::{
         features::{
-            Amount, Built, FeatureError, OffName, added, amount, body_of, face_references, length,
-            needed, parsed, signed_length, sketch_of, turn,
+            Amount, Built, FeatureError, OffName, RegionsAsk, added, amount, body_of,
+            face_references, length, needed, parsed, regions_chosen, signed_length, sketch_of,
+            turn,
         },
         places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
@@ -99,6 +100,7 @@ pub struct Embossing {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
     pub sketch: Option<Named>,
+    pub regions: Option<RegionsAsk>,
     pub depth: Option<Amount>,
     pub form: Option<EmbossFormName>,
     pub name: Option<String>,
@@ -371,15 +373,25 @@ pub fn emboss_built(
         ),
         "emboss",
     )?;
-    let (sketch, _, _) = sketch_of(
+    let (sketch, sketch_name, _) = sketch_of(
         session.document(),
         asked.sketch.as_ref(),
         base.and_then(|base| base.sketch),
+    )?;
+    let regions = regions_chosen(
+        session.evaluation(),
+        (sketch, sketch_name),
+        asked.regions.as_ref(),
+        match base {
+            Some(base) if base.sketch == Some(sketch) => base.regions.clone(),
+            Some(_) | None => RegionChoice::All,
+        },
     )?;
     let emboss = Emboss {
         body,
         faces,
         sketch: Some(sketch),
+        regions,
         depth: needed(
             depth.or_else(|| base.map(|base| base.depth.clone())),
             "depth",

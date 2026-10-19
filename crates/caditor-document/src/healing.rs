@@ -281,6 +281,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 };
                 visitor.face(emboss.body, face, &what);
             }
+            if let Some(sketch) = emboss.sketch {
+                visitor.regions(sketch, &mut emboss.regions);
+            }
         }
         FeatureKind::MoveFace(moving) => {
             let count = moving.faces.len();

@@ -196,10 +196,13 @@ pub fn feature_kind(
         }
         Family::Emboss => {
             let body = scene.body(input)?;
+            let faces = scene.faces(input, body)?;
+            let sketch = scene.existing_sketch(input)?;
             FeatureKind::Emboss(Emboss {
                 body,
-                faces: scene.faces(input, body)?,
-                sketch: scene.existing_sketch(input)?,
+                faces,
+                sketch,
+                regions: regions(input, scene, sketch)?,
                 depth: scene.distance(input)?,
                 form: if input.arbitrary()? {
                     EmbossForm::Raised

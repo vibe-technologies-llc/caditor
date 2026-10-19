@@ -5,10 +5,10 @@ use std::{
 };
 
 use caditor_document::{
-    BodyAppearance, Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureKind,
-    FeatureResult, FeatureState, PrincipalAxis, PrincipalGeometry, ReferenceImage, RegionChoice,
-    RevolveAxis, Rgb, SketchRegion, SketchResult, SolidFeature, SolidResult, body_parts,
-    datum_outline, displayed_axis, displayed_frame, placed_text, placed_threads,
+    BodyAppearance, Datum, DatumResult, Document, Emboss, Evaluation, Feature, FeatureId,
+    FeatureKind, FeatureResult, FeatureState, PrincipalAxis, PrincipalGeometry, ReferenceImage,
+    RegionChoice, RevolveAxis, Rgb, SketchRegion, SketchResult, SolidFeature, SolidResult,
+    body_parts, datum_outline, displayed_axis, displayed_frame, placed_text, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -2707,6 +2707,13 @@ impl<'a> Builder<'a> {
             sketches,
             ..
         } = *sources;
+        if let Some(emboss) = document
+            .feature(feature)
+            .and_then(|owner| owner.kind.emboss())
+        {
+            self.emboss_regions(sources, feature, emboss);
+            return;
+        }
         let Some(solid) = document
             .feature(feature)
             .and_then(|owner| owner.kind.solid())
@@ -2747,6 +2754,36 @@ impl<'a> Builder<'a> {
             return;
         };
         let chosen = chosen_regions(solid.regions(), regions);
+        self.region_fills(feature, regions, &chosen, &plane);
+    }
+
+    fn emboss_regions(&mut self, sources: &Sources<'_>, feature: FeatureId, emboss: &Emboss) {
+        let Sources {
+            document,
+            evaluation,
+            ..
+        } = *sources;
+        let RegionChoice::Chosen(_) = &emboss.regions else {
+            return;
+        };
+        let Some((sketch, regions)) = selection::swept_regions(document, evaluation, feature)
+        else {
+            return;
+        };
+        let Some(plane) = sketch_plane(document, evaluation, sketch) else {
+            return;
+        };
+        let chosen = chosen_regions(&emboss.regions, regions);
+        self.region_fills(feature, regions, &chosen, &plane);
+    }
+
+    fn region_fills(
+        &mut self,
+        feature: FeatureId,
+        regions: &[SketchRegion],
+        chosen: &BTreeSet<RegionKey>,
+        plane: &Plane,
+    ) {
         for region in regions {
             let Some(mesh) = &region.mesh else {
                 continue;
@@ -2762,7 +2799,7 @@ impl<'a> Builder<'a> {
                 self.palette.open_region
             };
             self.scene.fills.push(Fill {
-                triangles: region_triangles(mesh, &plane),
+                triangles: region_triangles(mesh, plane),
                 color: self.region_color(pickable, base),
                 layer: Layer::Front,
                 pick: self.picks.register(pickable, PickPriority::Surface),

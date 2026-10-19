@@ -2,13 +2,14 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern, CurveSpacing,
-    Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind,
-    Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection,
-    LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
-    OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor,
-    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule,
-    SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
-    displayed_plane, face_plane, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
+    Datum, DatumPlane, Emboss, EmbossForm, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FeatureId, FeatureKind, Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
+    LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES,
+    MIN_PRISM_SIDES, OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive,
+    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell,
+    ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name,
+    displayed_axis, displayed_plane, face_plane, hole_centres, hole_thread, pipe_size_name,
+    pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -21,14 +22,14 @@ use caditor_sketch::Entity;
 use crate::{
     blend_panel, bodies, coil_panel,
     curve_track::{CurveTrack, TrackPoint},
-    datum_tools,
+    datum_tools, emboss_panel,
     feature_fields::Rule,
     handle_snap, hole_panel, hole_tools,
     model::Model,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
     pattern_panel, pattern_tools, pipe_panel, reach_handles,
     reversing::Flip,
-    rib_panel, scene, shell_panel, solid_panel,
+    rib_panel, scene, selection, shell_panel, solid_panel,
     turn_handles::{STEP_DEGREES, Swing},
     units::Units,
 };
@@ -131,6 +132,7 @@ pub enum Measured {
     CoilPitch,
     CoilHeight,
     RibThickness,
+    EmbossDepth,
 }
 
 fn reached_side(reach: Reach) -> ReachedSide {
@@ -279,7 +281,8 @@ impl Measured {
             | Self::CoilSection
             | Self::CoilPitch
             | Self::CoilHeight
-            | Self::RibThickness => Amount::Length,
+            | Self::RibThickness
+            | Self::EmbossDepth => Amount::Length,
         }
     }
 
@@ -305,7 +308,8 @@ impl Measured {
             | Self::CoilSection
             | Self::CoilPitch
             | Self::CoilHeight
-            | Self::RibThickness => Rule::AboveZero,
+            | Self::RibThickness
+            | Self::EmbossDepth => Rule::AboveZero,
             Self::PipeBend => Rule::ZeroOrMore,
             Self::CountersinkAngle => Rule::ConeAngle,
             Self::BlendAngle => Rule::ChamferAngle,
@@ -368,6 +372,7 @@ impl Measured {
             Self::CoilPitch => coil_panel::PITCH,
             Self::CoilHeight => coil_panel::HEIGHT,
             Self::RibThickness => rib_panel::THICKNESS,
+            Self::EmbossDepth => emboss_panel::DEPTH,
             Self::BlendSize => blend_panel::size_caption(kind.blend()?),
             Self::BlendSecond => blend_panel::SECOND_DISTANCE,
             Self::BlendAngle => blend_panel::CHAMFER_ANGLE,
@@ -450,6 +455,7 @@ impl Measured {
                 return format!("Drag to change the {}'s height", winding_noun(kind));
             }
             Self::RibThickness => "Drag to change the rib's thickness",
+            Self::EmbossDepth => "Drag to change how far the outlines stand out or sink in",
             Self::BlendSecond => "Drag to change the chamfer's second distance",
             Self::BlendAngle => "Drag to change the chamfer's angle",
             Self::BlendSize => match kind.blend() {
@@ -557,6 +563,10 @@ impl Measured {
             },
             Self::OffsetDistance => match kind {
                 FeatureKind::OffsetFace(OffsetFace { distance, .. }) => Some(distance),
+                _ => None,
+            },
+            Self::EmbossDepth => match kind {
+                FeatureKind::Emboss(Emboss { depth, .. }) => Some(depth),
                 _ => None,
             },
             Self::PlaneOffset => match kind {
@@ -711,7 +721,8 @@ impl Measured {
             | Self::CoilSection
             | Self::CoilPitch
             | Self::CoilHeight
-            | Self::RibThickness => {}
+            | Self::RibThickness
+            | Self::EmbossDepth => {}
         }
     }
 
@@ -752,7 +763,8 @@ impl Measured {
             | Self::CoilSection
             | Self::CoilPitch
             | Self::CoilHeight
-            | Self::RibThickness => step_for(per_point),
+            | Self::RibThickness
+            | Self::EmbossDepth => step_for(per_point),
         }
     }
 
@@ -781,7 +793,8 @@ impl Measured {
             | Self::CoilSection
             | Self::CoilPitch
             | Self::CoilHeight
-            | Self::RibThickness => value.max(step),
+            | Self::RibThickness
+            | Self::EmbossDepth => value.max(step),
             Self::PipeBend => value.max(0.0),
             Self::BlendAngle => value.clamp(step, HALF_TURN_DEGREES - step),
             Self::PrimitiveSize(index) => {
@@ -899,7 +912,8 @@ impl Measured {
             | Self::CurveSpacing
             | Self::CurveCount
             | Self::CoilDiameter
-            | Self::CoilSection => return None,
+            | Self::CoilSection
+            | Self::EmbossDepth => return None,
         }
         Some(reversed)
     }
@@ -1018,6 +1032,7 @@ impl Builder<'_> {
         match kind {
             FeatureKind::Hole(hole) => self.hole(hole),
             FeatureKind::OffsetFace(offset) => self.offset(offset).into_iter().collect(),
+            FeatureKind::Emboss(emboss) => self.emboss(emboss).into_iter().collect(),
             FeatureKind::Datum(Datum::Plane(plane)) => {
                 [self.plane_offset(plane), self.plane_angle(plane)]
                     .into_iter()
@@ -1342,6 +1357,36 @@ impl Builder<'_> {
         Some(Gauge::line(
             Measured::OffsetDistance,
             (plane.to_world(middle), plane.normal()),
+            1.0,
+            value,
+        ))
+    }
+
+    fn emboss(&self, emboss: &Emboss) -> Option<Gauge> {
+        let value = self.length(&emboss.depth)?;
+        let document = self.model.document();
+        let evaluation = self.model.evaluation();
+        let solid = &evaluation.body_before(self.feature)?.solid()?.solid;
+        let face = emboss
+            .resolve(solid)
+            .ok()?
+            .into_iter()
+            .find_map(|face| face_plane(solid, face))?;
+        let (sketch, regions) = selection::swept_regions(document, evaluation, self.feature)?;
+        let sketch_plane = scene::sketch_plane(document, evaluation, sketch)?;
+        let chosen = scene::chosen_regions(&emboss.regions, regions);
+        let inside = regions
+            .iter()
+            .filter(|region| chosen.contains(&region.region.key()))
+            .find_map(|region| region.reference().anchor())?;
+        let on_face = face.to_world(face.to_local(sketch_plane.to_world(inside)));
+        let outward = match emboss.form {
+            EmbossForm::Raised => face.normal(),
+            EmbossForm::Recessed => -face.normal(),
+        };
+        Some(Gauge::line(
+            Measured::EmbossDepth,
+            (on_face, outward),
             1.0,
             value,
         ))

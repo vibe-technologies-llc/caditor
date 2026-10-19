@@ -589,7 +589,7 @@ impl Tool {
                 "Deletes faces of a body and heals the gap the surrounding faces leave. One undo step."
             }
             Self::AddEmboss => {
-                "Raises the closed outlines or text of a sketch from faces of a body, or recesses them into it, by a depth: flat faces of one plane take the sketch parallel to them, faces of one cylinder or cone take it wrapped round them. One undo step."
+                "Raises the closed outlines or text of a sketch (all of them, or the regions chosen by a point inside each) from faces of a body, or recesses them into it, by a depth: flat faces of one plane take the sketch parallel to them, faces of one cylinder or cone take it wrapped round them. One undo step."
             }
             Self::AddMoveFace => {
                 "Shifts faces of a body along a direction and tilts them about an axis, the faces around them extending or trimming to follow, as on an imported body with no history. One undo step."
