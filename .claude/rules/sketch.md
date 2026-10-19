@@ -147,14 +147,22 @@ paths:
     must be a gear that does not itself mesh (`WrongKind`), another gear with its own centre
     (`SameEntity`), and standing (`MissingEntity`); `remove_gear` refuses a driver with partners
     (`InUse`, `partners_of`), so the document removes partners first (`document.md`).
+  - A sprocket is a `Gear` too (`Gear::sprocket`, `Gear::is_sprocket`: `chain` holds the
+    `ChainSize`, and `Gear::expressions` lists just teeth, bore and turn, the module, pressure angle,
+    profile shift and root fillet holding zeros nothing reads). The chain is a designation of the ISO
+    606 table, not an expression, so a parameter cannot change it. A sprocket never meshes and is
+    never a driver (`WrongKind`), `replace_gear` refuses turning a sprocket into a spur gear or back
+    (`ChangesStructure`) while the chain may change, and `entity_label` calls it "Sprocket 5".
   - Copy and paste leave a meshing gear out (a link to the driver cannot cross the clipboard); a
-    driver is copied alone as a free gear.
-  - `Sketch::evaluate` works out each gear's `GearValues` (`Gear::values`: a `SpurGear` and a
-    turn; the teeth must come out a whole number, else `GearValueError::TeethNotWhole`, and
-    `SpurGear::check` must pass, so the refusals of `GearError` reach the user in the
-    gear's words as `SketchError::Gear` naming it), the solve writes them into the solved geometry
-    (`set_gear_values`), and `Sketch::gear_values` gives them or the literal ones for an unsolved
-    definition. `Sketch::gear_outline` turns them into a `GearOutline` about the solved centre.
+    driver is copied alone as a free gear, and a sprocket is copied with its chain.
+  - `Sketch::evaluate` works out each gear's `GearValues` (`Gear::values`: a `GearShape`, a
+    `SpurGear` or a `Sprocket`, and a turn; the teeth must come out a whole number, else
+    `GearValueError::TeethNotWhole`, and `SpurGear::check` or `Sprocket::check` must pass, so the
+    refusals of `GearError` reach the user in the gear's words as `SketchError::Gear` naming it),
+    the solve writes them into the solved geometry (`set_gear_values`), and `Sketch::gear_values`
+    gives them or the literal ones for an unsolved definition. `Sketch::toothed_outline` turns them
+    into a `ToothedOutline` (a `GearOutline` or a `SprocketOutline`) about the solved centre;
+    `gear_outline` gives a spur gear's alone.
     The free gears are worked out first and each meshing gear from its driver's values
     (`Gear::meshed_values`, a partner that cannot be cut refused as `GearError::Partner` inside
     `GearValueError::Build`); its `GearValues::placement` (`MeshPlacement`: driver, distance,
@@ -171,12 +179,14 @@ paths:
     includes the placements of the meshes touching a component, so a recalled solve is never used
     after the module changes.
   - The gear's curves are not entities: the document takes the outline's pieces
-    (`GearOutline::named_pieces`) and names each `gear_curve(gear, tooth, segment)`, an id at or
+    (`ToothedOutline::named_pieces`) and names each `gear_curve(gear, tooth, segment)`, an id at or
     above `FIRST_UNSTORABLE_ID` holding 39 bits of the gear's id, 11 of the tooth (`BORE_TOOTH` for
     the bore) and 12 of the segment. A tooth's segments are 0 tip arc, 1 to 3 the upper flank,
     radial line and fillet (those the shape has), 4 the root arc to the next tooth, and 5 to 7 the
     lower fillet, line and flank, so more or fewer teeth add or remove whole teeth's names and every
-    other tooth keeps its curves' names.
+    other tooth keeps its curves' names. A sprocket's gap is its tooth and it has four segments
+    (`SprocketOutline::named_pieces`): 0 lower flank, 1 seat, 2 upper flank, 3 tip arc to the next
+    gap.
     The pitch, base, root and tip circles are construction and take no name.
     `Sketch::gear_of_curve` and `entity_label` ("Gear 5") read one back.
   - Copy and paste carry a selected gear with a copy of its centre (`SketchClip::gear_count`, a
@@ -657,14 +667,14 @@ relative to the extent.
   `gear` operation add one (`Sketch::add_stored_gear`), and sketches written before it keep the
   free geometry they were drawn as. `Sketch::add_gear` draws the free form, which only tests
   use now; the rest of this section describes the shape both produce. A pair is two stored
-  gears the same way (`Sketch::add_stored_pair`, below); `Sketch::add_gear_pair` and the sprocket
-  (`Sketch::add_sprocket`) still draw free curves.
+  gears the same way (`Sketch::add_stored_pair`, below) and a sprocket is a stored `Gear` with a
+  chain (`Gear::sprocket`, below); `Sketch::add_gear_pair` and `Sketch::add_sprocket` draw the free
+  forms, which only tests use now.
 - `Sketch::add_gear` draws it about a `GearCentre`: a free position gets a new point, an existing
   point is shared, the origin gets a point held on it by `Coincident`. Pieces share end points, tip
   and root arcs share the centre, and the pitch, base, root and tip circles are construction
   circles on it, so the outline is one closed profile and the bore a circle inside it. No other
-  constraint: a gear drawn this way does not follow later changes to its values, as a sprocket
-  never does. The drawing is shared
+  constraint: a gear drawn this way does not follow later changes to its values. The drawing is shared
   (`Sketch::draw_toothed`: circles, then the closed outline, then the bore), as is the placing of
   the centre (`wheel_centre_position`, `wheel_centre_point`).
 - `SpurGear::outline_turned` turns the whole outline about its centre; the tooth centred on the +x
@@ -700,7 +710,12 @@ relative to the extent.
   `GearError::SprocketPointed`; the bore leaves `MIN_RIM_PITCHES` pitches below the root.
   `SprocketOutline` pieces are `GearPiece`s in the same order as a gear's (gap: lower flank, seat,
   upper flank, tip arc); the pitch, tip and root circles are construction circles
-  (`Sketch::add_sprocket`). The first gap lies on the +x axis.
+  (`Sketch::add_sprocket` draws them as free curves). The first gap lies on the +x axis, and
+  `Sprocket::outline_turned` turns the whole outline about the centre. `Sprocket::check` runs every
+  refusal of `outline` but the reach, so a stored sprocket is checked without building it.
+- A drawn sprocket is a stored `Gear` (`Gear::sprocket`: chain, teeth, bore and turn), regenerated
+  at every solve from its expressions like a spur gear, and its pieces are named by gap and segment
+  (above).
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

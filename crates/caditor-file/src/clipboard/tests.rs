@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, Gear, Text, TextAlign};
+use caditor_sketch::{ChainSize, Constraint, Entity, Gear, Text, TextAlign};
 
 use super::*;
 
@@ -335,6 +335,7 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
             bore: Expression::measure(6.0, Unit::Millimetre),
             turn: Expression::measure(10.0, Unit::Degree),
             meshing: None,
+            chain: None,
         })
         .unwrap();
     let clip = sketch.clip(&[gear]).unwrap();
@@ -359,5 +360,44 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
     assert_eq!(pasted.len(), 1);
     assert_eq!(pasted[0].module.to_stored_text(), "2 mm");
     assert_eq!(pasted[0].teeth, Expression::number(20.0));
+    assert_eq!(target.point(pasted[0].centre), Some(Point2::new(3.0, 1.0)));
+}
+
+#[test]
+fn a_copied_sprocket_crosses_the_clipboard_with_its_chain_and_parameters_written_out_elsewhere() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let teeth = transaction.add_parameter("teeth", transaction.parse("19").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = sketch.add_point(Point2::new(3.0, 1.0));
+    let sprocket = sketch
+        .add_parametric_gear(Gear::sprocket(
+            centre,
+            ChainSize::find("12B").unwrap(),
+            Expression::Parameter(teeth),
+            Expression::measure(6.0, Unit::Millimetre),
+            Expression::measure(10.0, Unit::Degree),
+        ))
+        .unwrap();
+    let clip = sketch.clip(&[sprocket]).unwrap();
+    let feature = transaction.add_feature("Sketch 1", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+    let source = Source {
+        document,
+        sketch: feature,
+        clip,
+    };
+    let copied = copied_text(&source);
+
+    let elsewhere = read_sketch_clipboard(&copied, &Document::default(), THERE).unwrap();
+    let mut target = Sketch::new(Plane::XY);
+    target.paste(&elsewhere.clip, Vector2::ZERO).unwrap();
+    let pasted: Vec<&Gear> = target.gears().map(|(_, gear)| gear).collect();
+
+    assert_eq!(elsewhere.inlined, 1);
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(pasted[0].chain, ChainSize::find("12B"));
+    assert_eq!(pasted[0].teeth, Expression::number(19.0));
+    assert_eq!(pasted[0].turn.to_stored_text(), "10 deg");
     assert_eq!(target.point(pasted[0].centre), Some(Point2::new(3.0, 1.0)));
 }

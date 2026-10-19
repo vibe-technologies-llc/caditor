@@ -939,7 +939,7 @@ fn sketch_shapes(
             })
         }))
         .chain(sketch.gears().filter_map(|(id, gear)| {
-            let outline = sketch.gear_outline(id)?;
+            let outline = sketch.toothed_outline(id)?;
             let solid = outline
                 .faceted(faceting)
                 .into_iter()

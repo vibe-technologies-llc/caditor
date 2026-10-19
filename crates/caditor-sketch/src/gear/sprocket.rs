@@ -2,7 +2,7 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
 
-use super::{DrawnGear, GearCentre, GearError, GearPiece};
+use super::{DrawnGear, GearCentre, GearError, GearPiece, GearPieceName};
 use crate::{
     Sketch,
     constraint::MAX_LENGTH,
@@ -22,6 +22,7 @@ const TIP_PITCHES: f64 = 1.125;
 const TIP_TEETH_PITCHES: f64 = 0.8;
 const MIN_TIP_LAND: f64 = 0.02;
 const MIN_RIM_PITCHES: f64 = 0.3;
+const PIECES_PER_GAP: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ChainSize {
@@ -113,6 +114,20 @@ pub struct SprocketOutline {
 }
 
 impl SprocketOutline {
+    pub fn named_pieces(&self) -> Vec<(GearPieceName, &GearPiece)> {
+        self.pieces
+            .iter()
+            .enumerate()
+            .map(|(index, piece)| {
+                let name = GearPieceName {
+                    tooth: index / PIECES_PER_GAP,
+                    segment: index % PIECES_PER_GAP,
+                };
+                (name, piece)
+            })
+            .collect()
+    }
+
     pub fn faceted(&self, faceting: Faceting) -> Vec<Vec<Point2>> {
         let bore = self
             .bore
@@ -202,7 +217,7 @@ impl Sprocket {
         })
     }
 
-    pub fn outline(&self, centre: Point2) -> Result<SprocketOutline, GearError> {
+    fn checked(&self) -> Result<ToothForm, GearError> {
         if !(MIN_SPROCKET_TEETH..=MAX_SPROCKET_TEETH).contains(&self.teeth) {
             return Err(GearError::SprocketTeethOutOfRange { teeth: self.teeth });
         }
@@ -218,11 +233,24 @@ impl Sprocket {
                 largest: self.largest_bore(),
             });
         }
+        self.tooth_form()
+    }
+
+    pub fn check(&self) -> Result<(), GearError> {
+        self.checked().map(drop)
+    }
+
+    pub fn outline(&self, centre: Point2) -> Result<SprocketOutline, GearError> {
+        self.outline_turned(centre, 0.0)
+    }
+
+    pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<SprocketOutline, GearError> {
+        let form = self.checked()?;
         let circles = self.circles();
-        if !(centre.is_finite() && centre.length() + circles.tip <= MAX_LENGTH) {
+        if !(centre.is_finite() && turn.is_finite() && centre.length() + circles.tip <= MAX_LENGTH)
+        {
             return Err(GearError::OutOfReach);
         }
-        let form = self.tooth_form()?;
         let seat_end = form.seat_end;
         let seat = GearPiece::Arc {
             center: form.seat_centre,
@@ -240,8 +268,8 @@ impl Sprocket {
         };
         let lower = upper.mirrored_backwards();
         let step = TAU / f64::from(self.teeth);
-        let place = |turn: f64| {
-            let (sine, cosine) = turn.sin_cos();
+        let place = |angle: f64| {
+            let (sine, cosine) = (angle + turn).sin_cos();
             move |point: Point2| {
                 Point2::new(
                     centre.x + point.x * cosine - point.y * sine,
@@ -317,5 +345,7 @@ impl Sketch {
     }
 }
 
+#[cfg(test)]
+mod stored_tests;
 #[cfg(test)]
 mod tests;

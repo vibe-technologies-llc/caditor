@@ -17,13 +17,6 @@ const SPUR_GEAR: &str = "draw a spur gear";
 const CENTRE: Point2 = Point2::new(40.0, 25.0);
 const PLACED_WITHIN: f64 = 1.0;
 
-fn construction_circles(sketch: &Sketch) -> usize {
-    entities_of_kind(sketch, "Circle")
-        .into_iter()
-        .filter(|circle| sketch.is_construction(*circle))
-        .count()
-}
-
 fn only_gear(sketch: &Sketch) -> EntityId {
     let gears: Vec<EntityId> = sketch.gears().map(|(id, _)| id).collect();
     assert_eq!(gears.len(), 1, "{gears:?}");
@@ -197,14 +190,6 @@ fn deleting_a_selected_gear_takes_its_centre() {
     assert_eq!(sketch.entities().len(), 0);
 }
 
-fn circle_centres(sketch: &Sketch, construction: bool) -> Vec<(Point2, f64)> {
-    entities_of_kind(sketch, "Circle")
-        .into_iter()
-        .filter(|circle| sketch.is_construction(*circle) == construction)
-        .filter_map(|circle| sketch.circle(circle))
-        .collect()
-}
-
 fn pair_ids(sketch: &Sketch) -> (EntityId, EntityId) {
     let gears: Vec<(EntityId, bool)> = sketch
         .gears()
@@ -302,8 +287,8 @@ fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
     let shown = harness.shown(feature);
     let values = shown.gear_values(partner).unwrap();
     assert!((centres_apart(&harness, feature).x - 75.0).abs() < 1e-6);
-    assert_eq!(values.spur.module, 3.0);
-    assert_eq!(values.spur.profile_shift, -0.25);
+    assert_eq!(values.shape.spur().unwrap().module, 3.0);
+    assert_eq!(values.shape.spur().unwrap().profile_shift, -0.25);
     assert_eq!(harness.model.undo_label(), Some(gearing::EDIT_TRANSACTION));
 
     harness.key(Key::Z, Modifiers::COMMAND);
@@ -373,7 +358,7 @@ fn deleting_the_first_gear_of_a_pair_takes_the_other_and_both_centres() {
 }
 
 #[test]
-fn a_sprocket_for_the_chosen_chain_is_drawn_with_its_pitch_circle() {
+fn a_sprocket_for_the_chosen_chain_is_stored_and_drawn_with_its_pitch_circle() {
     let mut harness = Harness::new();
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     let before = harness.sketch(feature).clone();
@@ -382,6 +367,7 @@ fn a_sprocket_for_the_chosen_chain_is_drawn_with_its_pitch_circle() {
     harness.click("Sprocket");
     assert!(!harness.shows(GearField::Module.label()));
     assert!(harness.shows(gear_panel::CHAIN));
+    assert!(harness.shows(GearField::Turn.label()));
     harness.type_into_field(gear_panel::field_id(GearField::Teeth), "5");
     assert!(harness.shows_containing("Use a whole number from 9 to 150"));
 
@@ -394,18 +380,17 @@ fn a_sprocket_for_the_chosen_chain_is_drawn_with_its_pitch_circle() {
     harness.settle();
 
     let sketch = harness.sketch(feature);
+    let sprocket = only_gear(sketch);
+    let held = sketch.gear(sprocket).unwrap();
+    let shown = harness.shown(feature);
+    let outline = shown.toothed_outline(sprocket).unwrap();
     let pitch_radius = 15.875 / (2.0 * (std::f64::consts::PI / 18.0).sin());
-    assert_eq!(entities_of_kind(sketch, "Arc").len(), 4 * 18);
-    assert!(entities_of_kind(sketch, "Spline").is_empty());
-    assert_eq!(construction_circles(sketch), 3);
-    assert!(
-        circle_centres(sketch, true)
-            .into_iter()
-            .any(|(centre, radius)| {
-                centre.distance(CENTRE) < PLACED_WITHIN && (radius - pitch_radius).abs() < 1e-9
-            })
-    );
-    assert!(sketch.open_ends().is_empty());
+    assert!(held.is_sprocket());
+    assert_eq!(held.chain.map(|chain| chain.designation), Some("10B"));
+    assert!(entities_of_kind(sketch, "Arc").is_empty());
+    assert_eq!(outline.pieces().len(), 4 * 18);
+    assert!((outline.radii()[0] - pitch_radius).abs() < 1e-9);
+    assert!(outline.centre().distance(CENTRE) < PLACED_WITHIN);
     assert_eq!(
         harness.model.undo_label(),
         Some(gearing::SPROCKET_TRANSACTION)
@@ -414,6 +399,52 @@ fn a_sprocket_for_the_chosen_chain_is_drawn_with_its_pitch_circle() {
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn a_selected_sprocket_is_edited_for_its_chain_teeth_and_rotation_and_keeps_its_centre() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Sprocket");
+    harness.click_at(CENTRE);
+    harness.settle();
+    let sprocket = only_gear(harness.sketch(feature));
+    let centre = harness.sketch(feature).gear(sprocket).unwrap().centre;
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: sprocket,
+    }]);
+    run_from_palette(&mut harness, SPUR_GEAR);
+    assert!(harness.shows(gear_panel::EDITING_SPROCKET));
+    assert!(harness.shows(gear_panel::CHAIN));
+    assert!(!harness.shows(GearField::Module.label()));
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "25");
+    harness.type_into_field(gear_panel::field_id(GearField::Turn), "10 deg");
+    choose(&mut harness, "08B · 12.7 mm pitch", "12B · 19.05 mm pitch");
+    harness.click(&gear_panel::update_label(
+        Some(harness.sketch(feature)),
+        sprocket,
+    ));
+    harness.settle();
+
+    let held = harness.sketch(feature).gear(sprocket).unwrap().clone();
+    assert_eq!(held.centre, centre);
+    assert_eq!(held.chain.map(|chain| chain.designation), Some("12B"));
+    assert_eq!(harness.document().expression_text(&held.teeth), "25");
+    assert_eq!(harness.document().expression_text(&held.turn), "10 deg");
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(gearing::EDIT_SPROCKET_TRANSACTION)
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+    let restored = harness.sketch(feature).gear(sprocket).unwrap().clone();
+    assert_eq!(restored.chain.map(|chain| chain.designation), Some("08B"));
 }
 
 #[test]

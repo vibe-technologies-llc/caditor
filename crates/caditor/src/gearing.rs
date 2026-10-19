@@ -22,6 +22,7 @@ use crate::{
 
 pub const TRANSACTION: &str = "Draw spur gear";
 pub const EDIT_TRANSACTION: &str = "Edit spur gear";
+pub const EDIT_SPROCKET_TRANSACTION: &str = "Edit sprocket";
 pub const PAIR_TRANSACTION: &str = "Draw gear pair";
 pub const SPROCKET_TRANSACTION: &str = "Draw sprocket";
 pub const PROMPT: &str =
@@ -98,7 +99,7 @@ impl GearKind {
                 GearField::Turn,
                 GearField::Direction,
             ],
-            Self::Sprocket => &[GearField::Teeth, GearField::Bore],
+            Self::Sprocket => &[GearField::Teeth, GearField::Bore, GearField::Turn],
             Self::Meshing => &[
                 GearField::PairTeeth,
                 GearField::PairBore,
@@ -249,6 +250,7 @@ impl Spur {
             bore: Expression::measure(values.bore, Unit::Millimetre),
             turn: Expression::measure(0.0, Unit::Degree),
             meshing: None,
+            chain: None,
         };
         Self {
             values,
@@ -270,10 +272,45 @@ impl Spur {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StoredSprocket {
+    pub values: Sprocket,
+    pub turn: f64,
+    pub stored: Gear,
+}
+
+impl StoredSprocket {
+    pub fn literal(values: Sprocket) -> Self {
+        let stored = Gear::sprocket(
+            EntityId::ORIGIN,
+            values.chain,
+            Expression::number(f64::from(values.teeth)),
+            Expression::measure(values.bore, Unit::Millimetre),
+            Expression::measure(0.0, Unit::Degree),
+        );
+        Self {
+            values,
+            turn: 0.0,
+            stored,
+        }
+    }
+
+    pub fn gear_at(&self, centre: EntityId) -> Gear {
+        Gear {
+            centre,
+            ..self.stored.clone()
+        }
+    }
+
+    fn outline(&self, at: Point2) -> Result<SprocketOutline, GearError> {
+        self.values.outline_turned(at, self.turn.to_radians())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Part {
     Gear(Box<Spur>),
     Pair(Box<StoredPair>),
-    Sprocket(Sprocket),
+    Sprocket(Box<StoredSprocket>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -365,7 +402,12 @@ impl Part {
                     &pair.placing,
                 )
                 .map(|_| ()),
-            Self::Sprocket(sprocket) => sketch.add_sprocket(sprocket, centre).map(|_| ()),
+            Self::Sprocket(sprocket) => {
+                sprocket.values.check()?;
+                sketch
+                    .add_stored_gear(centre, sprocket.stored.clone())
+                    .map(|_| ())
+            }
         }
     }
 
@@ -391,8 +433,8 @@ impl Part {
             ),
             Self::Sprocket(sprocket) => format!(
                 "Sprocket of {} teeth for {} chain, {} across the tips",
-                sprocket.teeth,
-                sprocket.chain.designation,
+                sprocket.values.teeth,
+                sprocket.values.chain.designation,
                 length_text(unit, tip_across(wheels.first()))
             ),
         }
@@ -513,16 +555,11 @@ impl GearSettings {
             _ => None,
         };
         self.loaded = None;
-        let meshing = sketch
+        let held = sketch
             .zip(self.editing)
-            .and_then(|(sketch, gear)| sketch.gear(gear))
-            .is_some_and(|gear| gear.meshing.is_some());
-        if self.editing.is_some() {
-            self.set_kind(if meshing {
-                GearKind::Meshing
-            } else {
-                GearKind::Gear
-            });
+            .and_then(|(sketch, gear)| sketch.gear(gear));
+        if let Some(gear) = held {
+            self.set_kind(kind_of(gear));
         }
     }
 
@@ -550,8 +587,13 @@ impl GearSettings {
                 document.expression_text(expression)
             }
         };
-        let loaded = match &gear.meshing {
-            None => vec![
+        let loaded = match (&gear.meshing, gear.chain) {
+            (None, Some(_)) => vec![
+                (GearField::Teeth, &gear.teeth),
+                (GearField::Bore, &gear.bore),
+                (GearField::Turn, &gear.turn),
+            ],
+            (None, None) => vec![
                 (GearField::Module, &gear.module),
                 (GearField::Teeth, &gear.teeth),
                 (GearField::PressureAngle, &gear.pressure_angle),
@@ -560,7 +602,7 @@ impl GearSettings {
                 (GearField::Bore, &gear.bore),
                 (GearField::Turn, &gear.turn),
             ],
-            Some(meshing) => vec![
+            (Some(meshing), _) => vec![
                 (GearField::PairTeeth, &gear.teeth),
                 (GearField::PairBore, &gear.bore),
                 (GearField::Direction, &meshing.direction),
@@ -571,11 +613,10 @@ impl GearSettings {
                 *text = stored(field, expression);
             }
         }
-        self.kind = if gear.meshing.is_some() {
-            GearKind::Meshing
-        } else {
-            GearKind::Gear
-        };
+        self.kind = kind_of(gear);
+        if let Some(chain) = gear.chain {
+            self.chain = chain;
+        }
         self.loaded = Some(editing);
         self.evaluated = None;
     }
@@ -627,6 +668,7 @@ impl GearSettings {
                     bore: held(GearField::Bore).expression,
                     turn: turn.expression,
                     meshing: None,
+                    chain: None,
                 },
             }
         };
@@ -655,11 +697,21 @@ impl GearSettings {
                 let part = match kind {
                     GearKind::Gear => Ok(Part::Gear(Box::new(spur()))),
                     GearKind::Pair => Ok(Part::Pair(Box::new(pair_around(spur())))),
-                    GearKind::Sprocket => Ok(Part::Sprocket(Sprocket {
-                        chain: self.chain,
-                        teeth: value(GearField::Teeth) as u32,
-                        bore: value(GearField::Bore),
-                    })),
+                    GearKind::Sprocket => Ok(Part::Sprocket(Box::new(StoredSprocket {
+                        values: Sprocket {
+                            chain: self.chain,
+                            teeth: value(GearField::Teeth) as u32,
+                            bore: value(GearField::Bore),
+                        },
+                        turn: value(GearField::Turn),
+                        stored: Gear::sprocket(
+                            EntityId::ORIGIN,
+                            self.chain,
+                            held(GearField::Teeth).expression,
+                            held(GearField::Bore).expression,
+                            held(GearField::Turn).expression,
+                        ),
+                    }))),
                     GearKind::Meshing => {
                         self.driver_of_editing(model, sketch).map(|(id, driver)| {
                             let mut pair = pair_around(driver);
@@ -701,14 +753,23 @@ impl GearSettings {
         let values = driver
             .values(&|parameter| parameters.value(parameter))
             .map_err(|_| broken(id))?;
+        let spur = values.shape.spur().copied().ok_or_else(|| broken(id))?;
         Ok((
             id,
             Spur {
-                values: values.spur,
+                values: spur,
                 turn: values.turn,
                 stored: driver.clone(),
             },
         ))
+    }
+}
+
+fn kind_of(gear: &Gear) -> GearKind {
+    match (&gear.meshing, gear.chain) {
+        (Some(_), _) => GearKind::Meshing,
+        (None, Some(_)) => GearKind::Sprocket,
+        (None, None) => GearKind::Gear,
     }
 }
 
@@ -805,6 +866,24 @@ pub fn update(
         .ok_or(GearingError::GearGone)?;
     let mut transaction = model.document().transaction(EDIT_TRANSACTION);
     transaction.set_sketch_gear(feature, gear, spur.gear_at(held.centre));
+    Ok(transaction.finish())
+}
+
+pub fn update_sprocket(
+    model: &Model,
+    feature: FeatureId,
+    gear: EntityId,
+    sprocket: &StoredSprocket,
+) -> Result<Transaction, GearingError> {
+    let held = model
+        .document()
+        .feature(feature)
+        .and_then(|owner| owner.kind.sketch())
+        .ok_or(SketchGone)?
+        .gear(gear)
+        .ok_or(GearingError::GearGone)?;
+    let mut transaction = model.document().transaction(EDIT_SPROCKET_TRANSACTION);
+    transaction.set_sketch_gear(feature, gear, sprocket.gear_at(held.centre));
     Ok(transaction.finish())
 }
 
@@ -1001,9 +1080,10 @@ impl Gearing {
             return match part {
                 Some(Ok(Part::Gear(spur))) => update(model, feature, gear, spur).into(),
                 Some(Ok(Part::Pair(pair))) => update_meshing(model, feature, gear, pair).into(),
-                Some(Ok(Part::Sprocket(_))) | None => {
-                    Outcome::Refused(GearingError::NotRead.into())
+                Some(Ok(Part::Sprocket(sprocket))) => {
+                    update_sprocket(model, feature, gear, sprocket).into()
                 }
+                None => Outcome::Refused(GearingError::NotRead.into()),
                 Some(Err(source)) => Outcome::Refused(
                     GearingError::Unusable {
                         source: source.clone(),

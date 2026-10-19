@@ -917,7 +917,8 @@ pub use sprocket::{
     ChainSize, MAX_SPROCKET_TEETH, MIN_SPROCKET_TEETH, Sprocket, SprocketCircles, SprocketOutline,
 };
 pub use stored::{
-    BORE_TOOTH, Gear, GearValueError, GearValues, MeshPlacement, Meshing, gear_curve,
+    BORE_TOOTH, Gear, GearShape, GearValueError, GearValues, MeshPlacement, Meshing,
+    ToothedOutline, gear_curve,
 };
 pub(crate) use stored::{gear_curve_gear, same_gear_bits};
 

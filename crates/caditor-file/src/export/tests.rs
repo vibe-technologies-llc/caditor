@@ -1736,6 +1736,7 @@ fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_it
             ),
             turn: caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
             meshing: None,
+            chain: None,
         })
         .unwrap();
     let solved = sketch
@@ -1758,6 +1759,41 @@ fn a_stored_gear_exports_as_its_outline_bore_and_construction_circles_without_it
         exported.curves + exported.construction
     );
     assert!((bounds.max().x - 5.0 - 22.0).abs() < 0.05, "{bounds:?}");
+}
+
+#[test]
+fn a_stored_sprocket_exports_as_its_gaps_bore_and_construction_circles_without_its_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = sketch.add_point(Point2::new(5.0, 4.0));
+    let held = caditor_sketch::Gear::sprocket(
+        centre,
+        caditor_sketch::ChainSize::DEFAULT,
+        caditor_expression::Expression::Number(19.0),
+        caditor_expression::Expression::Measure(10.0, caditor_expression::Unit::Millimetre),
+        caditor_expression::Expression::Measure(0.0, caditor_expression::Unit::Degree),
+    );
+    let sprocket = sketch.add_parametric_gear(held).unwrap();
+    let solved = sketch
+        .solve(
+            &|_| Err(caditor_expression::EvalError::ParameterMissing),
+            &|| false,
+        )
+        .unwrap()
+        .geometry;
+    let tip = solved.toothed_outline(sprocket).unwrap().tip_radius();
+
+    let (figure, exported) = Figure::of_sketch(&solved, Construction::OnLayer);
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+    let bounds = figure.bounds().unwrap();
+
+    assert_eq!(exported.points, 0);
+    assert_eq!(exported.construction, 3);
+    assert_eq!(exported.curves, 19 * 4 + 1);
+    assert_eq!(
+        drawing.curves.len(),
+        exported.curves + exported.construction
+    );
+    assert!((bounds.max().x - 5.0 - tip).abs() < 0.05, "{bounds:?}");
 }
 
 #[test]

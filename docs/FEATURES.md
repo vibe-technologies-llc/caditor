@@ -143,13 +143,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
-- [low · medium] A sprocket (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
-  geometry, not tied to the values in the Spur gear panel, so changing the chain, teeth or a
-  parameter they use means deleting it and drawing it again. A gear and the two gears of a pair
-  are stored (`sketch.md`, Gear) and follow their values; a sprocket would need a stored form of
-  its own (the chain designation, teeth, bore and turn as expressions, a record kind and edits
-  beside the gear's, the pieces of `SprocketOutline` named by gap and segment the way
-  `gear_curve` names a gear's) and its panel, MCP and clipboard handling to match.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

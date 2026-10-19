@@ -9,7 +9,7 @@ use serde_json::json;
 
 use crate::{
     blend_curving, clipboard,
-    gearing::{self, Part, Spur, StoredPair},
+    gearing::{self, Part, Spur, StoredPair, StoredSprocket},
     mcp::{
         features::Amount,
         references::{self, EntityName, Named},
@@ -103,6 +103,7 @@ pub struct GearEditing {
     pub bore: Option<Amount>,
     pub turn: Option<Amount>,
     pub direction: Option<Amount>,
+    pub chain: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -234,29 +235,29 @@ fn bore_of(
 }
 
 fn chain_named(name: Option<&String>) -> Result<ChainSize, ToolError> {
-    let Some(name) = name else {
-        return Ok(ChainSize::DEFAULT);
-    };
-    ChainSize::ALL
-        .into_iter()
-        .find(|size| size.designation.eq_ignore_ascii_case(name.trim()))
-        .ok_or_else(|| {
-            SketchEditError::UnknownChain {
-                given: name.clone(),
-            }
-            .into()
-        })
+    name.map_or(Ok(ChainSize::DEFAULT), |name| chain_named_strictly(name))
+}
+
+fn chain_named_strictly(name: &str) -> Result<ChainSize, ToolError> {
+    ChainSize::find(name).ok_or_else(|| {
+        SketchEditError::UnknownChain {
+            given: name.to_owned(),
+        }
+        .into()
+    })
 }
 
 fn part_of(session: &Session, asked: &Gearing) -> Result<Part, ToolError> {
     let teeth = asked.teeth.unwrap_or(DEFAULT_TEETH);
     let shape = asked.shape.unwrap_or(GearShape::Gear);
     if shape == GearShape::Sprocket {
-        return Ok(Part::Sprocket(Sprocket {
-            chain: chain_named(asked.chain.as_ref())?,
-            teeth,
-            bore: bore_of(session, "bore", asked.bore.as_ref())?,
-        }));
+        return Ok(Part::Sprocket(Box::new(StoredSprocket::literal(
+            Sprocket {
+                chain: chain_named(asked.chain.as_ref())?,
+                teeth,
+                bore: bore_of(session, "bore", asked.bore.as_ref())?,
+            },
+        ))));
     }
     let gear = SpurGear {
         module: length_or(session, "module", asked.module.as_ref(), DEFAULT_MODULE)?,
@@ -398,25 +399,55 @@ pub(super) fn edit_gear(
             given(session, "turn", asked.turn.as_ref(), Dimension::ANGLE)?,
         ),
     ];
-    match gear.meshing.as_mut() {
-        Some(meshing) => {
+    let label = target.definition.entity_label(id);
+    let chain = asked
+        .chain
+        .as_deref()
+        .map(chain_named_strictly)
+        .transpose()?;
+    match (gear.meshing.as_mut(), gear.chain) {
+        (Some(meshing), _) => {
             let driver = meshing.driver;
             if let Some((field, _)) = followed.iter().find(|(_, change)| change.is_some()) {
                 return Err(SketchEditError::Followed {
-                    gear: target.definition.entity_label(id),
+                    gear: label,
                     driver: target.definition.entity_label(driver),
                     field,
                 }
                 .into());
             }
+            if chain.is_some() {
+                return Err(SketchEditError::NoChain { gear: label }.into());
+            }
             set(&mut meshing.direction, direction);
         }
-        None => {
+        (None, Some(_)) => {
             if direction.is_some() {
-                return Err(SketchEditError::NoDirection {
-                    gear: target.definition.entity_label(id),
-                }
-                .into());
+                return Err(SketchEditError::NoDirection { gear: label }.into());
+            }
+            let [module, pressure_angle, profile_shift, root_fillet, turn] =
+                followed.map(|(_, change)| change);
+            let spur_only = [
+                ("module", &module),
+                ("pressure_angle", &pressure_angle),
+                ("profile_shift", &profile_shift),
+                ("root_fillet", &root_fillet),
+            ];
+            if let Some((field, _)) = spur_only.iter().find(|(_, change)| change.is_some()) {
+                return Err(SketchEditError::SprocketHas { gear: label, field }.into());
+            }
+            set(&mut gear.turn, turn);
+            if let Some(chain) = chain {
+                gear.chain = Some(chain);
+                changed = true;
+            }
+        }
+        (None, None) => {
+            if direction.is_some() {
+                return Err(SketchEditError::NoDirection { gear: label }.into());
+            }
+            if chain.is_some() {
+                return Err(SketchEditError::NoChain { gear: label }.into());
             }
             let [module, pressure_angle, profile_shift, root_fillet, turn] =
                 followed.map(|(_, change)| change);
@@ -434,7 +465,12 @@ pub(super) fn edit_gear(
         .into());
     }
     check_gear_values(target.definition, &gear, &value_of)?;
-    let mut transaction = target.document.transaction(gearing::EDIT_TRANSACTION);
+    let name = if gear.is_sprocket() {
+        gearing::EDIT_SPROCKET_TRANSACTION
+    } else {
+        gearing::EDIT_TRANSACTION
+    };
+    let mut transaction = target.document.transaction(name);
     transaction.set_sketch_gear(target.feature, id, gear);
     let mut planned = Planned::of(transaction.finish());
     planned.details.insert("gear".to_owned(), json!(id.raw()));

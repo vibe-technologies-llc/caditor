@@ -513,6 +513,15 @@ Sketch entities:
   `set_sketch_meshed_gear` (`feature`, `id`, `gear`), written for an `AddSketchGear` or
   `SetSketchGear` of a meshing gear and read back as those edits; removal is
   `remove_sketch_gear`. The corpus holds them in `gear-pairs.caditor` and `gear-pairs.journal`.
+- A sprocket (`sketch.md`, Gear) is an entity record of kind `sprocket` of its own
+  (`SprocketRecord`: `centre`, the `chain` designation as plain text and the stored texts `teeth`,
+  `bore` and `turn`), so older readers report a kind from a newer version and keep the centre. A
+  designation the table no longer knows leaves the sprocket out, reported naming it; an
+  unreadable value loads as 17 teeth, no bore or 0°, reported. Loading restores sprockets after the
+  meshing gears. Journal: `add_sketch_sprocket` and `set_sketch_sprocket` (`feature`, `id`,
+  `gear`), written for an `AddSketchGear` or `SetSketchGear` of a sprocket and read back as those
+  edits (an unknown designation makes the edit unreadable); removal is `remove_sketch_gear`. The
+  corpus holds them in `sprockets.caditor` and `sprockets.journal`.
 
 ## Loading
 
