@@ -4,9 +4,9 @@ use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
     BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, Dimensioned,
-    EntityId, ExtendError, FilletError, GearError, InsertError, MAX_LENGTH, MirrorError,
-    OffsetError, PatternError, PatternRow, RectangularPattern, Side, Sketch, SketchError,
-    SplitError, Spread, TangentError, TrimError,
+    EntityId, ExtendError, FilletError, GearError, GearValueError, InsertError, MAX_LENGTH,
+    MirrorError, OffsetError, PatternError, PatternRow, RectangularPattern, Side, Sketch,
+    SketchError, SplitError, Spread, TangentError, TextError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -18,7 +18,9 @@ use crate::{
     mcp::{
         references::{self, EntityName, Named},
         session::{Session, Work},
-        sketch_additions::{self, Blending, Copying, Gearing, TangentCircling},
+        sketch_additions::{
+            self, Blending, Copying, GearEditing, Gearing, Lettered, TangentCircling, TextEditing,
+        },
         sketch_cuts::{self, Breaking, Constructing, InsertingPoints, Respacing, Splitting},
         sketch_moves,
         sketch_projections::{self, Intersecting, Projecting},
@@ -28,6 +30,7 @@ use crate::{
     mirroring, offsetting, patterning,
     projecting::ProjectionError,
     sketch_status::{SketchSummary, up_to_date_result},
+    texting::TextingError,
     trimming,
     units::{Units, attach_unit},
 };
@@ -110,6 +113,16 @@ pub enum SketchEditError {
     Blend(BlendError),
     #[error("the gear cannot be drawn: {0}")]
     Gear(GearError),
+    #[error("the gear cannot take those values: {0}")]
+    GearValues(GearValueError),
+    #[error("the text cannot take those values: {0}")]
+    TextValues(TextError),
+    #[error("the text cannot be written: {0}")]
+    TextDrawn(TextingError),
+    #[error("give the text's anchor as anchor (a point) or at (a position), not both")]
+    TextAnchor,
+    #[error("nothing to change in {sketch}: give at least one value to set")]
+    NothingToEdit { sketch: String },
     #[error("give the gear's centre as center (a point) or at (a position), not both")]
     GearCentre,
     #[error(
@@ -181,6 +194,9 @@ pub enum Modification {
     TangentCircle(TangentCircling),
     Blend(Blending),
     Gear(Gearing),
+    EditGear(GearEditing),
+    Text(Lettered),
+    EditText(TextEditing),
     Copy(Copying),
 }
 
@@ -427,6 +443,31 @@ fn entity_ids(sketch: &Sketch) -> BTreeSet<u64> {
     sketch.entities().map(|(id, _)| id.raw()).collect()
 }
 
+pub(super) fn gear_ids(sketch: &Sketch) -> BTreeSet<u64> {
+    sketch.gears().map(|(id, _)| id.raw()).collect()
+}
+
+pub(super) fn text_ids(sketch: &Sketch) -> BTreeSet<u64> {
+    sketch.texts().map(|(id, _)| id.raw()).collect()
+}
+
+pub(super) fn report_stored(data: &mut Map<String, Value>, before: &Sketch, after: &Sketch) {
+    let changes = [
+        ("gears", gear_ids(before), gear_ids(after)),
+        ("texts", text_ids(before), text_ids(after)),
+    ];
+    for (kind, was, now) in changes {
+        let added: Vec<u64> = now.difference(&was).copied().collect();
+        let removed: Vec<u64> = was.difference(&now).copied().collect();
+        if !added.is_empty() {
+            data.insert(format!("added_{kind}"), listed(added.into_iter()));
+        }
+        if !removed.is_empty() {
+            data.insert(format!("removed_{kind}"), listed(removed.into_iter()));
+        }
+    }
+}
+
 fn listed(ids: impl Iterator<Item = u64>) -> Value {
     Value::Array(ids.map(|id| json!(id)).collect())
 }
@@ -440,7 +481,7 @@ pub fn modify(
     let (feature, before, planned) = {
         let target = Target::of(session, sketch_of(&asked))?;
         let planned = plan(session, work, &target, &asked)?;
-        (target.feature, entity_ids(target.definition), planned)
+        (target.feature, target.definition.clone(), planned)
     };
     let answer = writing::apply(session, work, planned.transaction, planned.details)?;
     let mut data = answer.data;
@@ -448,16 +489,17 @@ pub fn modify(
         .document()
         .feature(feature)
         .and_then(|found| found.kind.sketch())
-        .map(entity_ids)
     {
+        let (was, now) = (entity_ids(&before), entity_ids(after));
         data.insert(
             "added_entities".to_owned(),
-            listed(after.difference(&before).copied()),
+            listed(now.difference(&was).copied()),
         );
         data.insert(
             "removed_entities".to_owned(),
-            listed(before.difference(&after).copied()),
+            listed(was.difference(&now).copied()),
         );
+        report_stored(&mut data, &before, after);
     }
     data.insert(
         "sketch_status".to_owned(),
@@ -489,6 +531,9 @@ fn sketch_of(asked: &Modification) -> &Named {
         Modification::TangentCircle(asked) => &asked.sketch,
         Modification::Blend(asked) => &asked.sketch,
         Modification::Gear(asked) => &asked.sketch,
+        Modification::EditGear(asked) => &asked.sketch,
+        Modification::Text(asked) => &asked.sketch,
+        Modification::EditText(asked) => &asked.sketch,
         Modification::Copy(asked) => &asked.sketch,
     }
 }
@@ -525,6 +570,9 @@ fn plan(
         }
         Modification::Blend(asked) => sketch_additions::blend(target, asked),
         Modification::Gear(asked) => sketch_additions::gear(session, target, asked),
+        Modification::EditGear(asked) => sketch_additions::edit_gear(session, target, asked),
+        Modification::Text(asked) => sketch_additions::text(session, target, asked),
+        Modification::EditText(asked) => sketch_additions::edit_text(session, target, asked),
         Modification::Copy(asked) => sketch_additions::copy(target, asked),
     }
 }
