@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
     f64::consts::{FRAC_PI_2, PI},
+    sync::Arc,
 };
 
 use caditor_document::{
@@ -9,7 +10,7 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Vector2};
-use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance};
+use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance, interruptible};
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch, SplineKind};
 
 use crate::{
@@ -2842,4 +2843,34 @@ fn many_different_splines_still_run_out_of_their_budget() {
     let bytes = text(vec![header(Some(4)), section("ENTITIES", splines)]);
 
     assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManySplines));
+}
+
+#[test]
+fn many_different_splines_are_read_when_the_import_can_be_cancelled() {
+    let splines = (0..80)
+        .map(|index| wiggly_spline(0.05 + 0.01 * f64::from(index), 3e-5))
+        .collect();
+    let bytes = text(vec![header(Some(4)), section("ENTITIES", splines)]);
+
+    let drawing = interruptible(CancelToken::never().interrupt(), || parse_dxf(&bytes)).unwrap();
+
+    assert_eq!(drawing.curves.len(), 80);
+    assert!(
+        drawing
+            .curves
+            .iter()
+            .all(|curve| matches!(curve, DrawingCurve::Spline { .. }))
+    );
+}
+
+#[test]
+fn cancelling_stops_the_spline_conversion() {
+    let splines = (0..80)
+        .map(|index| wiggly_spline(0.05 + 0.01 * f64::from(index), 3e-5))
+        .collect();
+    let bytes = text(vec![header(Some(4)), section("ENTITIES", splines)]);
+
+    let read = interruptible(Arc::new(|| true), || parse_dxf(&bytes));
+
+    assert_eq!(read, Err(ImportError::Cancelled));
 }

@@ -15,10 +15,15 @@ paths:
   charges every kept record and every layer, linetype, block and MLINESTYLE entry `RECORD_VALUES`
   before keeping it, so bare `POINT` records end there too), `MAX_EXPANDED_OBJECTS` (block
   expansion, per object and per decoded shape, both added to the `tally` the refusal tests read),
-  `MAX_DRAWING_POINTS`, and `MAX_FIT_WORK` (`TooManySplines`, the backstop: `flatten` charges each
-  spline it actually rebuilds by sampling or `BSpline::through` the work `BSpline::fit_work` /
-  `through_work` say it can take, samples times the attempts at doubling control points, and
-  refuses the drawing, DXF or SVG, past the limit). Rebuilt splines are cached (`dxf/fit_cache.rs`)
+  `MAX_DRAWING_POINTS`, and `MAX_FIT_WORK` (`TooManySplines`, the backstop for a parse nothing can
+  cancel, such as the fuzz targets': `flatten` charges each spline it actually rebuilds by sampling
+  or `BSpline::through` the work `BSpline::fit_work` / `through_work` say it can take, samples
+  times the attempts at doubling control points, and refuses the drawing, DXF or SVG, past the
+  limit). `read_dxf` and `read_drawing` parse under the import's interrupt, and a parse with an
+  interrupt in place (`current_interrupt`) has no work limit: its shapes are flattened on every
+  core (`flatten_all`, the calling thread and helpers taking shapes in turn, the cache shared and
+  the curves put back in file order), each fit checks the interrupt, and Cancel ends it as
+  `Cancelled`. Rebuilt splines are cached (`dxf/fit_cache.rs`)
   by degree, knots, weights and their control points in the frame of the first distinct one
   (translation, rotation, mirror and size divided out), so the copies a block's INSERT array makes
   are placed from one fit and charged nothing; a copy is reused only while the stored deviation

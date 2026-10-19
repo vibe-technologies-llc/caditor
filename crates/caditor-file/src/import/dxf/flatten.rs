@@ -1,7 +1,15 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    num::NonZeroUsize,
+    panic,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    thread,
+};
 
 use caditor_geometry::{Point2, Point3, Vector2};
+use caditor_kernel::{check_interrupt, current_interrupt, interruptible};
 use caditor_sketch::{BSpline, FittedSpline, SplineKind};
+use parking_lot::Mutex;
 
 use crate::import::{
     Drawing, DrawingCurve, ImportError, MAX_FIT_WORK,
@@ -23,6 +31,7 @@ const RELATIVE_FLATNESS: f64 = 1e-9;
 const KNOT_TOLERANCE: f64 = 1e-9;
 const MAX_FIT_POINTS: usize = MAX_FIT_CONTROL_POINTS;
 const MIN_CLOSED_FIT_POINTS: usize = 3;
+const SHAPES_PER_WORKER: usize = 64;
 
 #[derive(Default)]
 struct Tally {
@@ -31,17 +40,143 @@ struct Tally {
     fit_point_splines: usize,
     collapsed: usize,
     deviation: f64,
-    work: usize,
-    exhausted: bool,
-    cache: FitCache,
 }
 
 impl Tally {
-    fn charge(&mut self, work: usize) -> bool {
-        self.work = self.work.saturating_add(work);
-        self.exhausted |= self.work > MAX_FIT_WORK;
-        !self.exhausted
+    fn absorb(&mut self, other: Tally) {
+        self.splines += other.splines;
+        self.rebuilt += other.rebuilt;
+        self.fit_point_splines += other.fit_point_splines;
+        self.collapsed += other.collapsed;
+        self.deviation = self.deviation.max(other.deviation);
     }
+}
+
+enum Bound {
+    Work,
+    Interrupt,
+}
+
+struct Fitting {
+    bound: Bound,
+    cache: Mutex<FitCache>,
+    work: AtomicUsize,
+    exhausted: AtomicBool,
+    cancelled: AtomicBool,
+}
+
+impl Fitting {
+    fn new(bound: Bound) -> Self {
+        Self {
+            bound,
+            cache: Mutex::new(FitCache::default()),
+            work: AtomicUsize::new(0),
+            exhausted: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
+    fn charge(&self, work: usize) -> bool {
+        match self.bound {
+            Bound::Work => {
+                let total = self
+                    .work
+                    .fetch_add(work, Ordering::Relaxed)
+                    .saturating_add(work);
+                if total > MAX_FIT_WORK {
+                    self.exhausted.store(true, Ordering::Relaxed);
+                }
+            }
+            Bound::Interrupt => {
+                if check_interrupt().is_err() {
+                    self.cancelled.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        !self.stopped()
+    }
+
+    fn stopped(&self) -> bool {
+        self.exhausted.load(Ordering::Relaxed) || self.cancelled.load(Ordering::Relaxed)
+    }
+
+    fn outcome(&self) -> Result<(), ImportError> {
+        if self.cancelled.load(Ordering::Relaxed) {
+            Err(ImportError::Cancelled)
+        } else if self.exhausted.load(Ordering::Relaxed) {
+            Err(ImportError::TooManySplines)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+struct Flattened {
+    curves: Vec<(usize, DrawingCurve)>,
+    tally: Tally,
+}
+
+fn flatten_from(
+    shapes: &[Shape],
+    next: &AtomicUsize,
+    tolerance: f64,
+    fitting: &Fitting,
+) -> Flattened {
+    let mut flattened = Flattened {
+        curves: Vec::new(),
+        tally: Tally::default(),
+    };
+    while !fitting.stopped() {
+        let index = next.fetch_add(1, Ordering::Relaxed);
+        let Some(shape) = shapes.get(index) else {
+            break;
+        };
+        if let Some(curve) = flatten_shape(shape, tolerance, &mut flattened.tally, fitting) {
+            flattened.curves.push((index, curve));
+        }
+    }
+    flattened
+}
+
+fn flatten_all(shapes: &[Shape], tolerance: f64, fitting: &Fitting) -> Flattened {
+    let next = AtomicUsize::new(0);
+    let interrupt = match fitting.bound {
+        Bound::Work => None,
+        Bound::Interrupt => current_interrupt(),
+    };
+    let Some(interrupt) = interrupt else {
+        return flatten_from(shapes, &next, tolerance, fitting);
+    };
+    let helpers = thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(shapes.len() / SHAPES_PER_WORKER)
+        .saturating_sub(1);
+    thread::scope(|scope| {
+        let spawned: Vec<_> = (0..helpers)
+            .filter_map(|_| {
+                let interrupt = interrupt.clone();
+                let next = &next;
+                thread::Builder::new()
+                    .name("drawing import".to_owned())
+                    .spawn_scoped(scope, move || {
+                        interruptible(interrupt, || flatten_from(shapes, next, tolerance, fitting))
+                    })
+                    .ok()
+            })
+            .collect();
+        let mut flattened = flatten_from(shapes, &next, tolerance, fitting);
+        for helper in spawned {
+            match helper.join() {
+                Ok(helped) => {
+                    flattened.curves.extend(helped.curves);
+                    flattened.tally.absorb(helped.tally);
+                }
+                Err(payload) => panic::resume_unwind(payload),
+            }
+        }
+        flattened.curves.sort_unstable_by_key(|(index, _)| *index);
+        flattened
+    })
 }
 
 pub(in crate::import) fn flatten(
@@ -60,23 +195,25 @@ pub(in crate::import) fn flatten(
         notes.push("The drawing is not flat, so it was projected onto its XY plane.".to_owned());
     }
     let tolerance = (extent * RELATIVE_FIT_TOLERANCE).max(MIN_FIT_TOLERANCE);
-    let mut tally = Tally::default();
+    let bound = if current_interrupt().is_some() {
+        Bound::Interrupt
+    } else {
+        Bound::Work
+    };
+    let fitting = Fitting::new(bound);
+    let flattened = flatten_all(shapes, tolerance, &fitting);
+    fitting.outcome()?;
     let mut curves = Vec::new();
     let mut curve_layers = Vec::new();
     let mut construction = BTreeSet::new();
-    for (index, shape) in shapes.iter().enumerate() {
-        if let Some(curve) = flatten_shape(shape, tolerance, &mut tally) {
-            if dashed.contains(&index) && !matches!(curve, DrawingCurve::Point(_)) {
-                construction.insert(curves.len());
-            }
-            curves.push(curve);
-            curve_layers.push(layers.get(index).copied().unwrap_or_default());
+    for (index, curve) in flattened.curves {
+        if dashed.contains(&index) && !matches!(curve, DrawingCurve::Point(_)) {
+            construction.insert(curves.len());
         }
-        if tally.exhausted {
-            return Err(ImportError::TooManySplines);
-        }
+        curves.push(curve);
+        curve_layers.push(layers.get(index).copied().unwrap_or_default());
     }
-    tally.report(tolerance, &mut notes);
+    flattened.tally.report(tolerance, &mut notes);
     if !construction.is_empty() {
         notes.push(format!(
             "{} with a dashed or centre linetype {} imported as construction geometry, which \
@@ -106,7 +243,12 @@ fn extent(points: &[Point3]) -> f64 {
     bounds.map_or(0.0, |(low, high)| low.distance(high))
 }
 
-fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
+fn flatten_shape(
+    shape: &Shape,
+    tolerance: f64,
+    tally: &mut Tally,
+    fitting: &Fitting,
+) -> Option<DrawingCurve> {
     let point2 = |point: Point3| Point2::new(point.x, point.y);
     match shape {
         Shape::Point(point) => Some(DrawingCurve::Point(point2(*point))),
@@ -162,11 +304,11 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                 *sweep,
             ))
         }
-        Shape::Spline(nurbs) => spline(nurbs, tolerance, tally),
+        Shape::Spline(nurbs) => spline(nurbs, tolerance, tally, fitting),
         Shape::Interpolated(fit) => {
             if fit.has_tangents()
                 && let Some(nurbs) = fit.cubic()
-                && let Some(curve) = sampled(&nurbs, tolerance, tally)
+                && let Some(curve) = sampled(&nurbs, tolerance, tally, fitting)
             {
                 tally.rebuilt += 1;
                 return Some(curve);
@@ -197,7 +339,8 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                     })
                 }
                 _ => {
-                    if !tally.charge(BSpline::through_work(points.len(), MAX_FIT_CONTROL_POINTS)) {
+                    if !fitting.charge(BSpline::through_work(points.len(), MAX_FIT_CONTROL_POINTS))
+                    {
                         return None;
                     }
                     let Some(fit) = BSpline::through(&points, tolerance, MAX_FIT_CONTROL_POINTS)
@@ -216,7 +359,12 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
     }
 }
 
-fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
+fn spline(
+    nurbs: &Nurbs,
+    tolerance: f64,
+    tally: &mut Tally,
+    fitting: &Fitting,
+) -> Option<DrawingCurve> {
     let control_points: Vec<Point2> = nurbs
         .points
         .iter()
@@ -235,24 +383,30 @@ fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCur
             _ => DrawingCurve::Spline { control_points },
         });
     }
-    let curve = sampled(nurbs, tolerance, tally);
+    let curve = sampled(nurbs, tolerance, tally, fitting);
     if curve.is_some() {
         tally.splines += 1;
     }
     curve
 }
 
-fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
+fn sampled(
+    nurbs: &Nurbs,
+    tolerance: f64,
+    tally: &mut Tally,
+    fitting: &Fitting,
+) -> Option<DrawingCurve> {
     let (start, end) = nurbs.domain()?;
     let canonical = Canonical::of(nurbs);
-    if let Some(canonical) = &canonical
-        && let Some((control_points, deviation)) = tally.cache.find(canonical, tolerance)
-    {
+    let found = canonical
+        .as_ref()
+        .and_then(|canonical| fitting.cache.lock().find(canonical, tolerance));
+    if let Some((control_points, deviation)) = found {
         tally.deviation = tally.deviation.max(deviation);
         return Some(DrawingCurve::Spline { control_points });
     }
     let count = (nurbs.spans() * SAMPLES_PER_SPAN).clamp(MIN_SAMPLES, MAX_SAMPLES);
-    if !tally.charge(BSpline::fit_work(count + 1, MAX_FIT_CONTROL_POINTS)) {
+    if !fitting.charge(BSpline::fit_work(count + 1, MAX_FIT_CONTROL_POINTS)) {
         return None;
     }
     let samples: Vec<Point2> = (0..=count)
@@ -266,7 +420,10 @@ fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCu
     let fit = fitted(&samples, tolerance, tally)?;
     let control_points = fit.spline.control_points().to_vec();
     if let Some(canonical) = canonical {
-        tally.cache.store(canonical, &control_points, fit.deviation);
+        fitting
+            .cache
+            .lock()
+            .store(canonical, &control_points, fit.deviation);
     }
     Some(DrawingCurve::Spline { control_points })
 }

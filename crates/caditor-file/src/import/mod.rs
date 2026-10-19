@@ -308,7 +308,7 @@ pub enum ImportError {
 pub fn read_dxf(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
-    let drawing = parse_dxf(&bytes)?;
+    let drawing = interruptible(cancel.interrupt(), || parse_dxf(&bytes))?;
     ensure_going(cancel)?;
     Ok(drawing)
 }
@@ -332,7 +332,7 @@ pub fn read_drawing(
     let drawing = if is_svg {
         interruptible(cancel.interrupt(), || parse_svg(&bytes, text_outlines))
     } else {
-        parse_dxf(&bytes)
+        interruptible(cancel.interrupt(), || parse_dxf(&bytes))
     }?;
     ensure_going(cancel)?;
     Ok(drawing)
