@@ -209,6 +209,55 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · medium] No Export and open in Fusion 360: Send the model here (`cloud.md`) already
+  exports the bodies chosen for export as STEP and uploads it into a Fusion folder as a file
+  (`items:autodesk.core:File`, a new item or a new version of one of the same name), but the user
+  must then find it in Fusion and open it themselves. Plan:
+  - One command (`CloudOpenInFusion`, File › Cloud, File › Export beside Open in OrcaSlicer, the
+    Export dialog, the palette) that runs the existing `FileCommand::SendToCloud` path
+    (`files/cloud_send.rs`, so `CloudSendRefusal`, the exporter's cancel and left-out rules apply)
+    to a remembered destination, then opens the result. The destination is chosen once in the
+    manager (a folder with a `place`, remembered per hub like the hub in
+    `<state>/cloud/fusion-destination.json`, written atomically on the courier) and changeable
+    there; with none remembered the command opens the manager as `CloudSend` does, with Send and
+    open as the folder's primary button. The file is named after the model (`Untitled` asks
+    for a name in the dialog first), so a second send is a new version of the same item rather
+    than a second file.
+  - `Sent` gains what opening needs: `Provider::send` for Fusion keeps the created or found item's
+    id and the version id from the `POST …/items` or `…/versions` answer (`Created` already reads
+    it) and returns them with any `links.webView.href` the answer carries (confirm that Data
+    Management returns `webView` on a `items:autodesk.core:File` item and version, as it does for
+    designs). Onshape fills the same fields with its document and element ids, so the command
+    works for both behind `Service`; Onshape's open target is its documented document URL.
+  - Opening: on Windows, Fusion's desktop URL handler (`fusion360://`, the target Autodesk's "Open
+    in Fusion" links use; its exact parameters, likely the item's lineage URN and hub, must be
+    confirmed against a live Fusion before it is relied on) started through a new
+    `caditor_windows` call, never a shell; everywhere, and as the fallback when the handler is
+    missing or refuses, the item's web page through `browser::open` (https only), where Fusion's
+    web client or the hub's viewer opens it. Linux has no desktop Fusion, so it always takes the
+    web page. Whether Fusion opens an uploaded STEP item as a new design (importing it) or only
+    shows it, and whether Autodesk offers any public call that converts a stored STEP into a
+    Fusion design server side, must be confirmed; if not, the notice says the file opens as an
+    import in Fusion.
+  - Scopes stay `data:read data:write data:create user-profile:read`; a sign-in that predates
+    `data:create` gets `Error::SendForbidden` and its sign-in-again words, as sending does.
+  - Never blocking: the upload is the existing `SendJob` with its progress, Cancel between parts
+    and `SendStage`; opening runs on the courier after `SendOutcome` arrives, and a failure to open
+    is a notice with Copy link (the web page's address), never undoing the upload. Signed
+    out, cloud off or offline, the command is refused with the reason (`Refusal::Off`, sign in
+    first, the transport's offline words) before anything is exported; a send interrupted
+    offline is `SendStage::Failed` with Try again, as today.
+  - Errors in plain words naming the folder and the file: no Fusion installed (opened on the web
+    instead), the folder no longer exists or is read-only (choose another, which opens the
+    manager), the name taken by a Fusion design (`NameTaken`, suggest a new name).
+  - Tests: `caditor-cloud` against Autodesk-shaped JSON through `ScriptedTransport` for the ids and
+    web link read from a create and a new-version answer; `ui_tests/home.rs` with `FakeProvider`
+    for the first run choosing a folder, a second run making version 2 and opening it, Cancel,
+    refusals (no body, cloud off, signed out) and an opener that fails falling back to the web
+    page, with the opener injected like `FakeKeyring` so no test starts a browser or Fusion.
+  - Open questions for `DECISIONS.md` once work starts: whether to also offer Send and open for a
+    folder chosen each time, and whether the remembered destination belongs in the model file (a
+    model sent to one project keeps going there) or in the preferences.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
