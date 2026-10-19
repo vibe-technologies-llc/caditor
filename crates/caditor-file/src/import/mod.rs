@@ -53,6 +53,7 @@ pub const MAX_READ_CURVES: usize = 5 * MAX_DRAWING_CURVES;
 pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
 pub const MAX_DRAWING_POINTS: usize = 2_000_000;
 pub const MAX_DRAWING_VALUES: usize = 16_000_000;
+pub const MAX_FIT_WORK: usize = 1_000_000;
 pub const MAX_DRAWING_ELEMENTS: usize = 4_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -282,6 +283,11 @@ pub enum ImportError {
          from one drawing"
     )]
     TooDetailed,
+    #[error(
+        "its splines are more than caditor converts into sketch splines from one drawing; split \
+         it into smaller drawings"
+    )]
+    TooManySplines,
     #[error(
         "its layers, blocks and entities hold more than {MAX_DRAWING_VALUES} values, more than caditor \
          reads from one drawing; split it into smaller drawings"

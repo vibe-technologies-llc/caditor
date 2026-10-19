@@ -150,7 +150,7 @@ fn read_tree(
         &walker.shape_layers,
         &walker.construction,
         notes,
-    );
+    )?;
     drawing.layers = std::mem::take(&mut walker.layer_names);
     drawing.unit_scale = sizing.unit_scale();
     match (walker.report(drawing), damaged_at) {

@@ -127,6 +127,11 @@ paths:
   panic counts, including ones recompute would contain.
 - The byte entry points are `caditor_file::fuzzing` and `caditor::fuzzing`, behind their `fuzzing`
   features.
+- A byte input a target once timed out or crashed on is kept as a file in
+  `crates/caditor-file/regressions` and read by a test of the subject (not in `fuzz/seeds`, which
+  tests require to load) that asserts the refusal or the bounded result:
+  `dxf-spline-array.dxf` is a block of non-native splines repeated thousands of times, refused with
+  `TooManySplines`.
 - `picture` feeds bytes to `caditor_file::fuzzing::decode_picture` (every format a reference image
   reads), seeded with a small picture of each format (`write_picture_fuzz_seeds`, checked by
   `picture_seeds_decode`); the document generators make reference images with a few bytes behind a

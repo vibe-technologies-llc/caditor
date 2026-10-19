@@ -2746,3 +2746,10 @@ fn the_sketch_limit_applies_to_the_layers_chosen_so_leaving_layers_out_brings_la
         MAX_DRAWING_CURVES + 3
     );
 }
+
+const SPLINE_ARRAY: &[u8] = include_bytes!("../../regressions/dxf-spline-array.dxf");
+
+#[test]
+fn a_block_of_splines_repeated_thousands_of_times_is_refused_quickly() {
+    assert_eq!(parse_dxf(SPLINE_ARRAY), Err(ImportError::TooManySplines));
+}

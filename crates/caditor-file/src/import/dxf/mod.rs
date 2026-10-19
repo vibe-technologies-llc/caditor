@@ -76,7 +76,7 @@ pub fn parse_dxf(bytes: &[u8]) -> Result<Drawing, ImportError> {
         &interpreter.shape_layers,
         &interpreter.construction,
         notes,
-    );
+    )?;
     drawing.layers = interpreter.layer_names.clone();
     drawing.unit_scale = scale;
     match (interpreter.report(drawing), file.damage) {

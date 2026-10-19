@@ -29,9 +29,7 @@ impl BSpline {
     ) -> Option<FittedSpline> {
         let (first, last) = (*samples.first()?, *samples.last()?);
         let parameters = chord_parameters(samples)?;
-        let limit = max_control_points
-            .min(samples.len() / SAMPLES_PER_CONTROL_POINT)
-            .max(MIN_CONTROL_POINTS);
+        let limit = control_point_limit(samples.len(), max_control_points);
         let mut best: Option<FittedSpline> = None;
         let mut count = MIN_CONTROL_POINTS;
         loop {
@@ -53,6 +51,23 @@ impl BSpline {
             count = (count * 2).min(limit);
         }
         best
+    }
+
+    pub fn fit_work(sample_count: usize, max_control_points: usize) -> usize {
+        let limit = control_point_limit(sample_count, max_control_points);
+        let mut attempts = 1;
+        let mut count = MIN_CONTROL_POINTS;
+        while count < limit {
+            count = (count * 2).min(limit);
+            attempts += 1;
+        }
+        sample_count.saturating_mul(attempts)
+    }
+
+    pub fn through_work(point_count: usize, max_control_points: usize) -> usize {
+        let degree = MAX_SPLINE_DEGREE.min(point_count.saturating_sub(1));
+        let samples = through_samples(point_count, degree, max_control_points) + 1;
+        Self::fit_work(samples, max_control_points).saturating_add(point_count)
     }
 
     pub fn interpolate(points: &[Point2]) -> Option<BSpline> {
@@ -84,9 +99,7 @@ impl BSpline {
         }
         let knots = averaged_knots(&parameters, degree);
         let control_points = collocate(degree, &knots, points, &parameters)?;
-        let total = ((count - degree) * SAMPLES_PER_SPAN)
-            .max(max_control_points.saturating_mul(SAMPLES_PER_CONTROL_POINT))
-            .min(MAX_THROUGH_SAMPLES);
+        let total = through_samples(count, degree, max_control_points);
         let samples: Vec<Point2> = (0..=total)
             .map(|index| {
                 let parameter = index as f64 / total as f64;
@@ -105,6 +118,18 @@ impl BSpline {
             .collect();
         Self::fit(&samples, tolerance, max_control_points)
     }
+}
+
+fn control_point_limit(sample_count: usize, max_control_points: usize) -> usize {
+    max_control_points
+        .min(sample_count / SAMPLES_PER_CONTROL_POINT)
+        .max(MIN_CONTROL_POINTS)
+}
+
+fn through_samples(count: usize, degree: usize, max_control_points: usize) -> usize {
+    (count.saturating_sub(degree) * SAMPLES_PER_SPAN)
+        .max(max_control_points.saturating_mul(SAMPLES_PER_CONTROL_POINT))
+        .min(MAX_THROUGH_SAMPLES)
 }
 
 fn distinct(points: &[Point2]) -> Option<Vec<Point2>> {
@@ -424,6 +449,15 @@ mod tests {
             xs.windows(2).all(|pair| pair[1] >= pair[0] - 1e-9),
             "the interpolated curve turns back"
         );
+    }
+
+    #[test]
+    fn the_work_of_a_fit_counts_every_attempt_at_a_growing_number_of_control_points() {
+        assert_eq!(BSpline::fit_work(65, 500), 65 * 4);
+        assert_eq!(BSpline::fit_work(12, 500), 12);
+        assert_eq!(BSpline::fit_work(16_385, 500), 16_385 * 8);
+        assert!(BSpline::through_work(10, 500) >= BSpline::fit_work(1_500, 500));
+        assert_eq!(BSpline::through_work(0, 500), BSpline::fit_work(1_501, 500));
     }
 
     #[test]

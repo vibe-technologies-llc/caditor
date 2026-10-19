@@ -4,7 +4,7 @@ use caditor_geometry::{Point2, Point3, Vector2};
 use caditor_sketch::{BSpline, SplineKind};
 
 use crate::import::{
-    Drawing, DrawingCurve,
+    Drawing, DrawingCurve, ImportError, MAX_FIT_WORK,
     dxf::{
         capitalized, counted,
         geometry::{Nurbs, Shape, flat, is_full_turn, planar_circle},
@@ -30,6 +30,16 @@ struct Tally {
     fit_point_splines: usize,
     collapsed: usize,
     deviation: f64,
+    work: usize,
+    exhausted: bool,
+}
+
+impl Tally {
+    fn charge(&mut self, work: usize) -> bool {
+        self.work = self.work.saturating_add(work);
+        self.exhausted |= self.work > MAX_FIT_WORK;
+        !self.exhausted
+    }
 }
 
 pub(in crate::import) fn flatten(
@@ -37,7 +47,7 @@ pub(in crate::import) fn flatten(
     layers: &[usize],
     dashed: &BTreeSet<usize>,
     mut notes: Vec<String>,
-) -> Drawing {
+) -> Result<Drawing, ImportError> {
     let points: Vec<Point3> = shapes.iter().flat_map(Shape::defining_points).collect();
     let extent = extent(&points);
     if let (Some(low), Some(high)) = (
@@ -60,6 +70,9 @@ pub(in crate::import) fn flatten(
             curves.push(curve);
             curve_layers.push(layers.get(index).copied().unwrap_or_default());
         }
+        if tally.exhausted {
+            return Err(ImportError::TooManySplines);
+        }
     }
     tally.report(tolerance, &mut notes);
     if !construction.is_empty() {
@@ -70,14 +83,14 @@ pub(in crate::import) fn flatten(
             were(construction.len()),
         ));
     }
-    Drawing {
+    Ok(Drawing {
         curves,
         construction,
         notes,
         unit_scale: 1.0,
         layers: Vec::new(),
         curve_layers,
-    }
+    })
 }
 
 fn extent(points: &[Point3]) -> f64 {
@@ -182,6 +195,9 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                     })
                 }
                 _ => {
+                    if !tally.charge(BSpline::through_work(points.len(), MAX_FIT_CONTROL_POINTS)) {
+                        return None;
+                    }
                     let Some(fit) = BSpline::through(&points, tolerance, MAX_FIT_CONTROL_POINTS)
                     else {
                         tally.collapsed += 1;
@@ -227,6 +243,9 @@ fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCur
 fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
     let (start, end) = nurbs.domain()?;
     let count = (nurbs.spans() * SAMPLES_PER_SPAN).clamp(MIN_SAMPLES, MAX_SAMPLES);
+    if !tally.charge(BSpline::fit_work(count + 1, MAX_FIT_CONTROL_POINTS)) {
+        return None;
+    }
     let samples: Vec<Point2> = (0..=count)
         .map(|index| {
             let parameter = start + (end - start) * index as f64 / count as f64;
