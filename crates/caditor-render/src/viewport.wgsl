@@ -1627,7 +1627,8 @@ fn fs_sky(in: Varyings) -> @location(0) vec4<f32> {
             shade = 1.0 - GROUND_SHADOW * shadowed * (1.0 - fade);
         }
         if shows_floor() {
-            let floor_colour = pbr_neutral(FLOOR_ALBEDO * view.exposure_shadow.x) * shade;
+            let floor_shade = shade * occlusion_at(in.position.xy, hit.xyz);
+            let floor_colour = pbr_neutral(FLOOR_ALBEDO * view.exposure_shadow.x) * floor_shade;
             colour = mix(colour, floor_colour, 1.0 - smoothstep(FLOOR_FADE_FROM, FLOOR_FADE_TO, spread));
         } else if !has_plain_backdrop() {
             colour = colour * shade;

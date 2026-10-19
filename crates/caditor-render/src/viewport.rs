@@ -2566,8 +2566,15 @@ impl Pipelines {
             "peeled depth",
             &[Some(layouts.view), Some(layouts.mesh), Some(layouts.peel)],
         );
-        let sky_pipeline_layout =
-            pipeline_layout("sky", &[Some(layouts.view), None, Some(layouts.shadow)]);
+        let sky_pipeline_layout = pipeline_layout(
+            "sky",
+            &[
+                Some(layouts.view),
+                None,
+                Some(layouts.shadow),
+                Some(&layouts.occlusion.shading),
+            ],
+        );
         let occlusion_pipeline_layout = pipeline_layout(
             "occlusion",
             &[Some(layouts.view), Some(&layouts.occlusion.surfaces)],

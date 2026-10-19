@@ -5737,6 +5737,46 @@ fn the_visible_floor_occludes_the_sky_for_the_foot_of_a_body_and_not_while_it_is
 }
 
 #[test]
+fn the_visible_floor_is_darker_beside_a_body_standing_on_it_only_under_occlusion() {
+    let cube = Arc::new(box_mesh(20.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 20.0));
+    let view = oblique_view(300.0);
+    let spots = [Point3::new(0.0, -20.6, 0.0), Point3::new(0.0, -70.0, 0.0)];
+    let scene_with = |occlusion: f32| Scene {
+        meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
+        lighting: Some(crate::Lighting {
+            occlusion,
+            environment: 1.0,
+            surroundings: crate::Surroundings {
+                backdrop: None,
+                floor: true,
+            },
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(open) = rendered_pixels(&scene_with(0.0), &view, &spots) else {
+        return;
+    };
+    let occluded = rendered_pixels(&scene_with(1.0), &view, &spots).unwrap();
+
+    assert!(
+        brightness(occluded[0]) + 8 < brightness(open[0]),
+        "{open:?} {occluded:?}"
+    );
+    assert!(
+        brightness(occluded[1]) + 4 > brightness(open[1]),
+        "{open:?} {occluded:?}"
+    );
+    assert!(
+        brightness(occluded[0]) + 8 < brightness(occluded[1]),
+        "{occluded:?}"
+    );
+}
+
+#[test]
 fn a_metal_renders_apart_from_a_dielectric_of_its_colour_and_exposure_brightens_both() {
     let cube = Arc::new(box_mesh(20.0));
     let steel = Color::from_rgb8(150, 155, 160);

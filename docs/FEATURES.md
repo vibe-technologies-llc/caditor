@@ -270,8 +270,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   surfaces than `BOUNCE_LAYERS` sun layers and the cross map's one layer hold.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
-  refuses), nor give a material texture, bump or clear-coat maps, and the visible floor
-  (`render.md`) takes no ambient occlusion from the bodies standing on it.
+  refuses), nor give a material texture, bump or clear-coat maps.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

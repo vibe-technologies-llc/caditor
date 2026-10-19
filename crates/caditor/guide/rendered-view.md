@@ -42,7 +42,8 @@ shading.
 - **Ambient occlusion** darkens the sky and bounced light where surfaces crowd in: inside
   corners, holes, the gap under a part. It is worked out from what the view shows (ground-truth
   ambient occlusion), so it only sees surfaces on screen, the visible floor included, which
-  darkens the foot of a part standing on it; 0 turns it off, above 1 deepens it.
+  darkens the foot of a part standing on it and the floor beside it, as a contact shadow; 0 turns it
+  off, above 1 deepens it.
 - **Exposure** brightens or darkens the whole picture in stops.
 - **Cast shadows**: bodies shade what lies behind them from the sun.
 - **Visible floor**: draws the ground the bodies stand on, a neutral grey at the model's lowest

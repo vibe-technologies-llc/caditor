@@ -215,7 +215,7 @@ paths:
   from the world horizon, never the camera's, so a view from above keeps the faces toward the
   viewer lit. `Model` is fixed with Z up.
 - With lighting, every frame of the 3D view (and image tiles on the viewport background, not
-  transparent ones) starts with the sky pass (`vs_sky`, `fs_sky`, layout `[view, -, light]`, no
+  transparent ones) starts with the sky pass (`vs_sky`, `fs_sky`, layout `[view, -, light, occlusion]`, no
   depth): a backdrop graded in screen space from `BACKDROP_TOP` to `BACKDROP_BOTTOM` (the
   tile's place in the whole image from the inverse tile transform), tone mapped, darkened where an
   unseen ground at the opaque meshes' lowest point (`Ground::under`, uniform `ground`: height and
@@ -319,8 +319,13 @@ paths:
   under it, so shadows need no further work. Under occlusion, `fs_floor_surface` (`vs_sky`, a full
   screen triangle, pipeline `floor_surfaces`) writes the ground hit of each pixel into the surface
   target after the meshes, with its own depth (`FLOOR_DEPTH_BIAS` leaves a body's feet in front of
-  it), so the horizons of a body's lower parts find it. The floor itself is lit by the sky pass and
-  takes no occlusion from the bodies.
+  it), so the horizons of a body's lower parts find it, and the floor's own pixels get a value in the
+  occlusion map like any surface. The floor is drawn by the sky pass, which binds group 3 for it:
+  `fs_sky` reads the map through `occlusion_at` at the ground hit (the depth match leaves a pixel
+  whose floor is not the stored surface at 1) and multiplies the floor's shade, shadow included, by
+  it, so the floor darkens beside and under the bodies standing on it with the bodies' own reach and
+  in every canvas, backdrop and image tile. Without occlusion, or where the device refused it
+  (`occludes()` false, the stand-in group), the floor is as before.
 - Ambient occlusion (`occlusion.rs`, `Lighting::occlusion` above zero) is GTAO over what the view
   shows. Before the scene pass, three single-sampled passes over targets the size of the scene
   targets (`Occlusion`, made lazily in `gpu::scoped`, a refusal reporting
