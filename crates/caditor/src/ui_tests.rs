@@ -112,6 +112,7 @@ mod move_face;
 mod negative_distances;
 mod notices;
 mod opening_and_saving;
+mod opening_in_fusion;
 mod opening_in_slicer;
 mod paint_selection;
 mod palette_and_notices;

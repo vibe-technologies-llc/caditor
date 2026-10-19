@@ -117,12 +117,51 @@ impl ImportItem {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AfterSend {
+    #[default]
+    Nothing,
+    OpenOnTheWeb,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Destination {
     pub service: Service,
     pub folder: FolderRef,
     pub folder_name: String,
     pub how: SendAs,
+    pub after: AfterSend,
+}
+
+impl Destination {
+    pub fn opening(&self) -> bool {
+        self.after == AfterSend::OpenOnTheWeb
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Remembered {
+    pub workspace: WorkspaceId,
+    pub folder: FolderRef,
+    pub folder_name: String,
+}
+
+impl Remembered {
+    pub fn destination(&self, service: Service) -> Destination {
+        Destination {
+            service,
+            folder: self.folder.clone(),
+            folder_name: self.folder_name.clone(),
+            how: SendAs::File,
+            after: AfterSend::OpenOnTheWeb,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unopened {
+    pub name: String,
+    pub link: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,8 +223,10 @@ pub struct Linked {
     pub(super) folders: BTreeMap<FolderRef, Load<Folder>>,
     pub(super) thumbnails: BTreeMap<DesignId, Load<Option<Arc<Thumbnail>>>>,
     pub(super) versions: BTreeMap<DesignId, Load<Vec<Version>>>,
+    pub(super) destinations: Vec<Remembered>,
     pub import: Option<Import>,
     pub sending: Option<Send>,
+    pub unopened: Option<Unopened>,
 }
 
 impl Linked {
@@ -200,9 +241,18 @@ impl Linked {
             folders: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
             versions: BTreeMap::new(),
+            destinations: Vec::new(),
             import: None,
             sending: None,
+            unopened: None,
         }
+    }
+
+    pub fn remembered_destination(&self) -> Option<&Remembered> {
+        let hub = self.workspace.as_ref()?;
+        self.destinations
+            .iter()
+            .find(|remembered| remembered.workspace == *hub)
     }
 
     pub fn root(&self, project: &ProjectId) -> &Load<Folder> {
@@ -297,6 +347,8 @@ pub enum CloudCommand {
     Send(Shipment),
     CancelSend(Service),
     DismissSend(Service),
+    OpenInFusion,
+    DismissUnopened(Service),
     MeasureDownloads,
     ClearDownloads,
 }

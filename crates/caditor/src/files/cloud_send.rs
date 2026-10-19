@@ -17,6 +17,10 @@ use crate::{
 pub const HINT: &str = "Export the bodies chosen for export as STEP, without asking for a file, \
                         and put them in the cloud folder you choose";
 
+pub const OPEN_IN_FUSION_HINT: &str = "Export the bodies chosen for export as STEP, put them in \
+                                       your remembered Fusion 360 folder and open the file \
+                                       in your browser";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CloudSendRefusal {
     #[error("There are no bodies to send yet. Extrude or revolve a sketch to make one")]

@@ -8,7 +8,7 @@ use jiff::Timestamp;
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S},
-    cloud::{Cloud, CloudCommand, Destination, Downloads, Link, Linked, Load, Refusal},
+    cloud::{AfterSend, Cloud, CloudCommand, Destination, Downloads, Link, Linked, Load, Refusal},
     cloud_parts::{self, SendChoice},
     commands::Command,
     export::ExportCommand,
@@ -33,9 +33,12 @@ pub const OFF_NOTE: &str =
     "Cloud services are turned off, so caditor makes no cloud request and shows no cloud project.";
 pub const SHOW_ON_HOME: &str = "Show cloud projects on Home";
 pub const SEND_HERE: &str = "Send the model here";
+pub const SEND_AND_OPEN: &str = "Send and open in Fusion 360";
 pub const SEND_AS_PART_STUDIO: &str = "Send as a Part Studio";
 pub const CHOOSE_A_FOLDER_TO_SEND: &str =
     "Open a folder of a project, then press Send the model here.";
+pub const CHOOSE_A_FOLDER_TO_OPEN: &str = "Open a folder of a project, then press Send and open in \
+                                           Fusion 360. caditor remembers the folder for next time.";
 pub const CHOOSE_A_PROJECT: &str = "Choose a project to see its designs.";
 pub const OPEN_PREFERENCES: &str = "Open preferences";
 const LIST_HEIGHT: f32 = 300.0;
@@ -63,16 +66,31 @@ impl Browser {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Choosing {
+    #[default]
+    Nothing,
+    ToSend,
+    ToOpen,
+}
+
 #[derive(Debug, Default)]
 pub struct CloudDialog {
     browsers: BTreeMap<Service, Browser>,
-    choosing: bool,
+    choosing: Choosing,
 }
 
 impl CloudDialog {
     pub fn choosing_where_to_send() -> Self {
         Self {
-            choosing: true,
+            choosing: Choosing::ToSend,
+            ..Self::default()
+        }
+    }
+
+    pub fn choosing_where_to_open() -> Self {
+        Self {
+            choosing: Choosing::ToOpen,
             ..Self::default()
         }
     }
@@ -113,9 +131,14 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
     let response = widgets::dialog(ctx, "cloud", TITLE, DialogWidth::Wide, |ui| {
         widgets::dialog_body(ui, |ui| {
             if view.cloud.is_enabled() {
-                if state.choosing {
+                let instruction = match state.choosing {
+                    Choosing::Nothing => None,
+                    Choosing::ToSend => Some(CHOOSE_A_FOLDER_TO_SEND),
+                    Choosing::ToOpen => Some(CHOOSE_A_FOLDER_TO_OPEN),
+                };
+                if let Some(instruction) = instruction {
                     widgets::callout(ui, Tone::Info, |ui| {
-                        ui.add(Label::new(CHOOSE_A_FOLDER_TO_SEND).wrap());
+                        ui.add(Label::new(instruction).wrap());
                     });
                     ui.add_space(SPACE_L);
                 }
@@ -174,7 +197,7 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
         .iter()
         .any(|outcome| matches!(outcome, Outcome::File(FileCommand::SendToCloud(_))))
     {
-        state.choosing = false;
+        state.choosing = Choosing::Nothing;
     }
     if closing {
         outcomes.push(Outcome::Close);
@@ -319,7 +342,7 @@ fn projects(
     view: &DialogView<'_>,
     service: Service,
     linked: &Linked,
-    (state, choosing): (&mut Browser, bool),
+    (state, choosing): (&mut Browser, Choosing),
     outcomes: &mut Vec<Outcome>,
 ) {
     ui.label(widgets::section_title(&format!(
@@ -358,6 +381,10 @@ fn projects(
         None => {}
     }
     if linked.sending.is_some() {
+        ui.add_space(SPACE_S);
+    }
+    if let Some(command) = cloud_parts::unopened_status(ui, service, linked) {
+        outcomes.push(Outcome::Cloud(command));
         ui.add_space(SPACE_S);
     }
     hub_row(ui, service, linked, outcomes);
@@ -467,7 +494,7 @@ fn contents(
     service: Service,
     linked: &Linked,
     projects: &[Project],
-    (state, choosing): (&mut Browser, bool),
+    (state, choosing): (&mut Browser, Choosing),
     outcomes: &mut Vec<Outcome>,
 ) {
     let Some(project) = state
@@ -568,7 +595,7 @@ fn send_row(
     view: &DialogView<'_>,
     service: Service,
     linked: &Linked,
-    (folder, folder_name, choosing): (&Folder, &str, bool),
+    (folder, folder_name, choosing): (&Folder, &str, Choosing),
     outcomes: &mut Vec<Outcome>,
 ) {
     let busy = linked.is_sending() || view.sending.preparing.is_some();
@@ -595,8 +622,9 @@ fn send_row(
     let enabled = reason.is_none();
     let disabled = reason.unwrap_or_default();
     let mut how = None;
+    let mut after = AfterSend::Nothing;
     ui.horizontal_wrapped(|ui| {
-        let response = if choosing {
+        let response = if choosing == Choosing::ToSend {
             ui.add_enabled(enabled, widgets::primary_button(ui, SEND_HERE))
         } else {
             ui.add_enabled(enabled, widgets::button(SEND_HERE))
@@ -607,6 +635,26 @@ fn send_row(
             .clicked()
         {
             how = Some(SendAs::File);
+        }
+        if service == Service::Fusion {
+            let response = if choosing == Choosing::ToOpen {
+                ui.add_enabled(enabled, widgets::primary_button(ui, SEND_AND_OPEN))
+            } else {
+                ui.add_enabled(enabled, widgets::button(SEND_AND_OPEN))
+            };
+            if response
+                .on_hover_text(format!(
+                    "Export the bodies chosen for export as STEP, add “{}” to this folder of \
+                     {service}, open it in your browser and remember this folder for Export \
+                     and open in Fusion 360",
+                    view.sending.name
+                ))
+                .on_disabled_hover_text(&disabled)
+                .clicked()
+            {
+                how = Some(SendAs::File);
+                after = AfterSend::OpenOnTheWeb;
+            }
         }
         if service.sends_part_studios()
             && ui
@@ -630,7 +678,19 @@ fn send_row(
             folder: place.clone(),
             folder_name: folder_name.to_owned(),
             how,
+            after,
         })));
+    }
+    if service == Service::Fusion
+        && let Some(remembered) = linked.remembered_destination()
+    {
+        ui.label(widgets::muted(
+            format!(
+                "Export and open in Fusion 360 sends to “{}”.",
+                remembered.folder_name
+            ),
+            ui,
+        ));
     }
     ui.add_space(SPACE_S);
 }

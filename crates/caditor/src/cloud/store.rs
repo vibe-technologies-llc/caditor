@@ -4,10 +4,13 @@ use std::{
     sync::Arc,
 };
 
-use caditor_cloud::{Service, Session, WorkspaceId};
+use caditor_cloud::{FolderId, FolderRef, ProjectId, Service, Session, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
-use super::keyring::{Keyring, KeyringError};
+use super::{
+    keyring::{Keyring, KeyringError},
+    state::Remembered,
+};
 
 const FOLDER: &str = "cloud";
 
@@ -23,6 +26,7 @@ pub enum StoreError {
 pub struct SessionStore {
     path: PathBuf,
     hub_path: PathBuf,
+    destination_path: PathBuf,
     thumbnails_dir: PathBuf,
     service: Service,
     keyring: Arc<dyn Keyring>,
@@ -31,6 +35,20 @@ pub struct SessionStore {
 #[derive(Serialize, Deserialize)]
 struct RememberedHub {
     workspace: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RememberedDestination {
+    workspace: String,
+    project: String,
+    folder: String,
+    folder_name: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct RememberedDestinations {
+    #[serde(default)]
+    destinations: Vec<RememberedDestination>,
 }
 
 impl fmt::Debug for SessionStore {
@@ -49,6 +67,7 @@ impl SessionStore {
         Self {
             path: folder.join(format!("{}-session.json", service.id())),
             hub_path: folder.join(format!("{}-hub.json", service.id())),
+            destination_path: folder.join(format!("{}-destination.json", service.id())),
             thumbnails_dir: folder.join("thumbnails").join(service.id()),
             service,
             keyring,
@@ -181,6 +200,51 @@ impl SessionStore {
 
     pub fn forget_hub(&self) -> io::Result<()> {
         remove_if_present(&self.hub_path)
+    }
+
+    pub fn remembered_destinations(&self) -> Vec<Remembered> {
+        let Ok(bytes) = fs::read(&self.destination_path) else {
+            return Vec::new();
+        };
+        let kept: RememberedDestinations = serde_json::from_slice(&bytes).unwrap_or_default();
+        kept.destinations
+            .into_iter()
+            .filter(|kept| !kept.workspace.is_empty() && !kept.folder.is_empty())
+            .map(|kept| Remembered {
+                workspace: WorkspaceId::new(kept.workspace),
+                folder: FolderRef {
+                    project: ProjectId::new(kept.project),
+                    folder: FolderId::new(kept.folder),
+                },
+                folder_name: kept.folder_name,
+            })
+            .collect()
+    }
+
+    pub fn remember_destinations(&self, destinations: &[Remembered]) -> io::Result<()> {
+        if destinations.is_empty() {
+            return remove_if_present(&self.destination_path);
+        }
+        if let Some(folder) = self.destination_path.parent() {
+            fs::create_dir_all(folder)?;
+        }
+        let kept = RememberedDestinations {
+            destinations: destinations
+                .iter()
+                .map(|remembered| RememberedDestination {
+                    workspace: remembered.workspace.as_str().to_owned(),
+                    project: remembered.folder.project.as_str().to_owned(),
+                    folder: remembered.folder.folder.as_str().to_owned(),
+                    folder_name: remembered.folder_name.clone(),
+                })
+                .collect(),
+        };
+        let bytes = serde_json::to_vec(&kept).map_err(io::Error::other)?;
+        caditor_file::write_atomically(&self.destination_path, &bytes)
+    }
+
+    pub fn forget_destinations(&self) -> io::Result<()> {
+        remove_if_present(&self.destination_path)
     }
 }
 
@@ -419,5 +483,83 @@ mod tests {
         fusion.remember_hub(&WorkspaceId::new("hub-2")).unwrap();
 
         assert_eq!(onshape.remembered_hub(), None);
+    }
+
+    fn remembered(hub: &str, folder: &str, name: &str) -> Remembered {
+        Remembered {
+            workspace: WorkspaceId::new(hub),
+            folder: FolderRef {
+                project: ProjectId::new("p1"),
+                folder: FolderId::new(folder),
+            },
+            folder_name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn destinations_of_every_hub_load_again_and_an_empty_list_removes_the_file() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+        assert!(store.remembered_destinations().is_empty());
+
+        let both = [
+            remembered("hub-1", "f1", "Parts"),
+            remembered("hub-2", "f2", "Frames"),
+        ];
+        store.remember_destinations(&both).unwrap();
+
+        assert_eq!(store.remembered_destinations(), both);
+
+        store.remember_destinations(&[]).unwrap();
+
+        assert!(store.remembered_destinations().is_empty());
+        assert!(!store.destination_path.exists());
+    }
+
+    #[test]
+    fn a_damaged_destination_file_is_none_and_a_write_leaves_no_temporary_file() {
+        let dir = TempDir::new().unwrap();
+        let store =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+        store
+            .remember_destinations(&[remembered("hub-1", "f1", "Parts")])
+            .unwrap();
+
+        let names: Vec<_> = fs::read_dir(store.destination_path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["fusion-destination.json".to_owned()]);
+
+        fs::write(&store.destination_path, b"not json").unwrap();
+        assert!(store.remembered_destinations().is_empty());
+
+        fs::write(
+            &store.destination_path,
+            br#"{"destinations":[{"workspace":"","project":"p","folder":"f","folder_name":"x"}]}"#,
+        )
+        .unwrap();
+        assert!(store.remembered_destinations().is_empty());
+    }
+
+    #[test]
+    fn each_service_keeps_its_own_destinations_and_forgetting_removes_them() {
+        let dir = TempDir::new().unwrap();
+        let fusion =
+            SessionStore::in_state_dir(dir.path(), Service::Fusion, FakeKeyring::unreachable());
+        let onshape =
+            SessionStore::in_state_dir(dir.path(), Service::Onshape, FakeKeyring::unreachable());
+        fusion
+            .remember_destinations(&[remembered("hub-1", "f1", "Parts")])
+            .unwrap();
+
+        assert!(onshape.remembered_destinations().is_empty());
+
+        fusion.forget_destinations().unwrap();
+        fusion.forget_destinations().unwrap();
+
+        assert!(fusion.remembered_destinations().is_empty());
     }
 }

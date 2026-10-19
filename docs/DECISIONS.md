@@ -50,6 +50,14 @@ decision recorded in `docs/` before work starts.
   `microversionId` in an elements listing matches the `microversionId` of an entry of
   `/documents/d/{did}/w/{wid}/documenthistory`, whose `date` the manager shows for it (Onshape's
   published element record has no date of its own).
+- [medium · easy] Export and open in Fusion 360 (`.claude/rules/cloud.md`) remembers its folder per
+  hub in `<state>/cloud/fusion-destination.json` and offers Send and open only in the folder the
+  manager is showing. Decide whether the remembered destination belongs in the model file instead
+  (a model sent to one project keeps going there, and travels with the file) or in the
+  preferences, and whether to also offer a Send and open that asks for the folder every time. The
+  same live-account run as the Onshape one above should confirm what the command assumes of
+  Autodesk: `links.webView` on a created file item and version, and that opening an uploaded STEP
+  item in Fusion imports it as a design (`FEATURES.md`, Application).
 - [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
   running app listens on for MCP clients (a local socket or named pipe per user, or streamable
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once

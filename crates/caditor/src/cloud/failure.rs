@@ -1,6 +1,8 @@
 use std::io;
 
-use caditor_cloud::{Error, Service};
+use caditor_cloud::{Error, Service, Subject};
+
+use crate::browser::OpenError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Failure {
@@ -18,11 +20,24 @@ pub enum Failure {
     Save(io::ErrorKind),
     #[error("caditor could not read the exported file it was to send: {0}. Try sending again.")]
     Read(io::ErrorKind),
+    #[error(transparent)]
+    Browser(OpenError),
 }
 
 impl Failure {
     pub fn is_stop(&self) -> bool {
         matches!(self, Self::Cloud(error) if error.is_stop())
+    }
+
+    pub fn is_folder_unusable(&self) -> bool {
+        matches!(
+            self,
+            Self::Cloud(
+                Error::NotFound {
+                    subject: Subject::Folder
+                } | Error::SendForbidden { .. }
+            )
+        )
     }
 
     pub fn is_sign_in_needed(&self) -> bool {

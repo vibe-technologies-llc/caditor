@@ -1431,3 +1431,98 @@ fn the_sign_in_asks_for_the_scope_that_creates_storage_and_a_refresh_names_none(
     let pairs = form_of(net.requests().first().unwrap());
     assert_eq!(field(&pairs, "scope"), None);
 }
+
+const WEB_ITEM: &str = "https://acme.autodesk360.com/g/projects/a.proj/data/urn:i:made";
+
+fn created_item_answer(item_links: &str, version_links: &str) -> String {
+    format!(
+        r#"{{"jsonapi":{{"version":"1.0"}},"links":{{"self":{{"href":"{DATA_API}/projects/a.proj/items/urn:i:made"}}}},
+        "data":{{"type":"items","id":"urn:i:made","attributes":{{"displayName":"plate.step"}}{item_links}}},
+        "included":[{{"type":"versions","id":"urn:v:made?version=1","attributes":{{"versionNumber":1}}{version_links}}}]}}"#
+    )
+}
+
+fn send_into_new_item(answer: &str) -> Sent {
+    let net = sending_net(EMPTY_FOLDER, 1)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(
+            Method::Post,
+            &format!("{DATA_API}/projects/a.proj/items"),
+            201,
+            answer,
+        );
+    send_once(&net).unwrap()
+}
+
+#[test]
+fn a_created_item_answers_with_its_item_and_version_ids_and_web_page() {
+    let answer = created_item_answer(
+        &format!(r#","links":{{"self":{{"href":"x"}},"webView":{{"href":"{WEB_ITEM}"}}}}"#),
+        "",
+    );
+
+    let sent = send_into_new_item(&answer);
+
+    assert_eq!(sent.item, Some(ItemId::new("urn:i:made")));
+    assert_eq!(sent.version, Some(VersionId::new("urn:v:made?version=1")));
+    assert_eq!(sent.web_link.as_deref(), Some(WEB_ITEM));
+}
+
+#[test]
+fn a_version_web_page_stands_in_when_the_item_carries_none() {
+    let answer = created_item_answer(
+        "",
+        &format!(r#","links":{{"webView":{{"href":"{WEB_ITEM}?version=1"}}}}"#),
+    );
+
+    let sent = send_into_new_item(&answer);
+
+    assert_eq!(sent.web_link, Some(format!("{WEB_ITEM}?version=1")));
+}
+
+#[test]
+fn an_answer_without_a_web_page_or_with_an_unsafe_one_gives_no_link() {
+    let none = send_into_new_item(&created_item_answer("", ""));
+    assert_eq!(none.web_link, None);
+    assert_eq!(none.item, Some(ItemId::new("urn:i:made")));
+
+    for unsafe_address in [
+        "http://acme.autodesk360.com/item",
+        "fusion360://open?x=1",
+        "https://acme.autodesk360.com/an item",
+        "",
+    ] {
+        let answer = created_item_answer(
+            &format!(r#","links":{{"webView":{{"href":"{unsafe_address}"}}}}"#),
+            "",
+        );
+
+        assert_eq!(
+            send_into_new_item(&answer).web_link,
+            None,
+            "{unsafe_address:?}"
+        );
+    }
+}
+
+#[test]
+fn a_new_version_answer_gives_the_found_item_the_new_version_and_its_web_page() {
+    let net = sending_net(HOLDING_FOLDER, 1)
+        .route(Method::Put, &part_url(1), 200, "")
+        .route(
+            Method::Post,
+            &format!("{DATA_API}/projects/a.proj/versions"),
+            201,
+            &format!(
+                r#"{{"data":{{"type":"versions","id":"urn:v:plate?version=3","attributes":{{"versionNumber":3}},
+                "links":{{"webView":{{"href":"{WEB_ITEM}?version=3"}}}}}}}}"#
+            ),
+        );
+
+    let sent = send_once(&net).unwrap();
+
+    assert_eq!(sent.outcome, SendOutcome::NewVersion { number: Some(3) });
+    assert_eq!(sent.item, Some(ItemId::new("urn:i:plate")));
+    assert_eq!(sent.version, Some(VersionId::new("urn:v:plate?version=3")));
+    assert_eq!(sent.web_link, Some(format!("{WEB_ITEM}?version=3")));
+}

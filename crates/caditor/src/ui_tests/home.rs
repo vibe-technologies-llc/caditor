@@ -154,7 +154,7 @@ fn catalogue(step: &[u8]) -> FakeProvider {
         .step_file(step)
 }
 
-fn browser() -> Opener {
+pub(super) fn browser() -> Opener {
     Arc::new(|address: &str| -> Result<(), OpenError> {
         let redirect = address
             .split("redirect_uri=")
@@ -220,17 +220,30 @@ pub(super) fn attach(harness: &mut Harness, dir: &Path, provider: &Arc<FakeProvi
     harness.frame();
 }
 
-fn with_cloud(dir: &Path, provider: &Arc<FakeProvider>) -> Harness {
-    with_services(dir, provider, services(dir))
+pub(super) fn with_cloud(dir: &Path, provider: &Arc<FakeProvider>) -> Harness {
+    with_opener(dir, provider, browser())
+}
+
+pub(super) fn with_opener(dir: &Path, provider: &Arc<FakeProvider>, opener: Opener) -> Harness {
+    with_backend(dir, provider, services(dir), opener)
 }
 
 fn with_services(dir: &Path, provider: &Arc<FakeProvider>, services: CloudServices) -> Harness {
+    with_backend(dir, provider, services, browser())
+}
+
+fn with_backend(
+    dir: &Path,
+    provider: &Arc<FakeProvider>,
+    services: CloudServices,
+    opener: Opener,
+) -> Harness {
     let preferences = preferences(dir);
     let mut workspace = App::with_preferences(preferences);
     workspace.cloud = Cloud::new(&workspace.preferences.cloud, services).with_backend(
         provider.clone(),
         Arc::new(ScriptedTransport::new()),
-        browser(),
+        opener,
     );
     started(dir, workspace)
 }
@@ -1586,14 +1599,17 @@ fn a_save_whose_picture_never_gets_drawn_still_saves_without_one() {
     assert!(harness.model.notice().is_none());
 }
 
-fn top_folder() -> FolderRef {
+pub(super) fn top_folder() -> FolderRef {
     FolderRef {
         project: ProjectId::new("p1"),
         folder: FolderId::new("top"),
     }
 }
 
-fn sendable_provider(place: Option<FolderRef>, uploads: Vec<Upload>) -> Arc<FakeProvider> {
+pub(super) fn sendable_provider(
+    place: Option<FolderRef>,
+    uploads: Vec<Upload>,
+) -> Arc<FakeProvider> {
     let hub = WorkspaceId::new("hub");
     Arc::new(
         FakeProvider::new()
@@ -1629,7 +1645,7 @@ fn open_parts_to_send(harness: &mut Harness) {
     });
 }
 
-fn outgoing_files(dir: &Path) -> Vec<String> {
+pub(super) fn outgoing_files(dir: &Path) -> Vec<String> {
     let root = dir.join("state").join("cloud").join("outgoing");
     fs::read_dir(root)
         .into_iter()

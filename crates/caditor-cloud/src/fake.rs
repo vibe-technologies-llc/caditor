@@ -1,16 +1,21 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     io::Write,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    thread,
+    time::Duration,
 };
 
 use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Outgoing, Placement,
-        Project, ProjectId, SendAs, SendOutcome, Sent, Translation, Upload, UploadId, Version,
-        Workspace, WorkspaceId,
+        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, ItemId, Outgoing,
+        Placement, Project, ProjectId, SendAs, SendOutcome, Sent, Translation, Upload, UploadId,
+        Version, VersionId, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -209,6 +214,8 @@ pub struct FakeProvider {
     versions: BTreeMap<DesignId, Vec<Version>>,
     received: Mutex<Vec<Received>>,
     working_polls: usize,
+    web_links: bool,
+    holding_sends: Option<Arc<AtomicBool>>,
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
     polled: AtomicUsize,
@@ -236,6 +243,8 @@ impl FakeProvider {
             versions: BTreeMap::new(),
             received: Mutex::new(Vec::new()),
             working_polls: 0,
+            web_links: true,
+            holding_sends: None,
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
             polled: AtomicUsize::new(0),
@@ -291,6 +300,16 @@ impl FakeProvider {
 
     pub fn working_polls(mut self, polls: usize) -> Self {
         self.working_polls = polls;
+        self
+    }
+
+    pub fn holding_sends_until(mut self, released: Arc<AtomicBool>) -> Self {
+        self.holding_sends = Some(released);
+        self
+    }
+
+    pub fn without_web_links(mut self) -> Self {
+        self.web_links = false;
         self
     }
 
@@ -554,6 +573,14 @@ impl Provider for FakeProvider {
             format!("send {} {}", outgoing.folder.folder.as_str(), outgoing.name),
         )?;
         let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+        if let Some(released) = &self.holding_sends {
+            while !released.load(Ordering::Relaxed) {
+                if !progress(0, Some(total)) {
+                    return Err(Error::Stopped);
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
         for sent in [0, total / 2, total] {
             if !progress(sent, Some(total)) {
                 return Err(Error::Stopped);
@@ -573,9 +600,26 @@ impl Provider for FakeProvider {
             bytes: outgoing.bytes.to_vec(),
             how: SendAs::File,
         });
+        let item = ItemId::new(format!(
+            "{}/{}/{}",
+            outgoing.folder.project.as_str(),
+            outgoing.folder.folder.as_str(),
+            outgoing.name
+        ));
+        let number = so_far + 1;
+        let version = VersionId::new(format!("{}?version={number}", item.as_str()));
+        let web_link = self.web_links.then(|| {
+            format!(
+                "https://fake.invalid/{}?version={number}",
+                item.as_str().replace(' ', "%20")
+            )
+        });
         Ok(Sent {
             name: outgoing.name.to_owned(),
             outcome,
+            item: Some(item),
+            version: Some(version),
+            web_link,
         })
     }
 

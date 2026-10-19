@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::{
     catalogue::{
         Account, Conversion, Design, DesignId, Download, Folder, FolderEntry, FolderId, FolderRef,
-        Outgoing, Project, ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat,
+        ItemId, Outgoing, Project, ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat,
         UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{base64_url, form, percent_encode},
@@ -283,7 +283,7 @@ impl Fusion {
         folder: &FolderRef,
         name: &str,
         storage: &str,
-    ) -> Result<SendOutcome, Error> {
+    ) -> Result<Sent, Error> {
         let body = json!({
             "jsonapi": { "version": "1.0" },
             "data": {
@@ -313,8 +313,22 @@ impl Fusion {
             "{DATA_API}/projects/{}/items",
             percent_encode(folder.project.as_str())
         );
-        self.write::<Created>(net, session, url, body, Subject::Item, name)?;
-        Ok(SendOutcome::Created)
+        let created: Created = self.write(net, session, url, body, Subject::Item, name)?;
+        let version = created
+            .included
+            .iter()
+            .find(|resource| resource.kind == "versions");
+        let web_link = created
+            .data
+            .web_link()
+            .or_else(|| version.and_then(Resource::web_link));
+        Ok(Sent {
+            name: name.to_owned(),
+            outcome: SendOutcome::Created,
+            item: Some(ItemId::new(created.data.id)),
+            version: version.map(|version| VersionId::new(version.id.clone())),
+            web_link,
+        })
     }
 
     fn create_version(
@@ -325,7 +339,7 @@ impl Fusion {
         name: &str,
         item: &str,
         storage: &str,
-    ) -> Result<SendOutcome, Error> {
+    ) -> Result<Sent, Error> {
         let body = json!({
             "jsonapi": { "version": "1.0" },
             "data": {
@@ -345,8 +359,14 @@ impl Fusion {
             percent_encode(folder.project.as_str())
         );
         let created: Created = self.write(net, session, url, body, Subject::Item, name)?;
-        Ok(SendOutcome::NewVersion {
-            number: created.data.attributes.version_number,
+        Ok(Sent {
+            name: name.to_owned(),
+            outcome: SendOutcome::NewVersion {
+                number: created.data.attributes.version_number,
+            },
+            item: Some(ItemId::new(item)),
+            version: Some(VersionId::new(created.data.id.clone())),
+            web_link: created.data.web_link(),
         })
     }
 
@@ -670,16 +690,10 @@ impl Provider for Fusion {
         let existing = self.existing_item(net, session, outgoing.folder, name)?;
         let storage = self.create_storage(net, session, outgoing.folder, name)?;
         self.upload_bytes(net, session, &storage, outgoing.bytes, progress)?;
-        let outcome = match existing {
-            Some(item) => {
-                self.create_version(net, session, outgoing.folder, name, &item, &storage)?
-            }
-            None => self.create_item(net, session, outgoing.folder, name, &storage)?,
-        };
-        Ok(Sent {
-            name: name.to_owned(),
-            outcome,
-        })
+        match existing {
+            Some(item) => self.create_version(net, session, outgoing.folder, name, &item, &storage),
+            None => self.create_item(net, session, outgoing.folder, name, &storage),
+        }
     }
 
     fn thumbnail(
@@ -815,6 +829,8 @@ struct StoredLocation {
 #[derive(Deserialize)]
 struct Created {
     data: Resource,
+    #[serde(default)]
+    included: Vec<Resource>,
 }
 
 #[derive(Deserialize)]
@@ -837,6 +853,13 @@ struct Resource {
     kind: String,
     #[serde(default)]
     attributes: Attributes,
+    links: Option<ResourceLinks>,
+}
+
+#[derive(Deserialize)]
+struct ResourceLinks {
+    #[serde(rename = "webView")]
+    web_view: Option<Link>,
 }
 
 #[derive(Deserialize, Default)]
@@ -860,6 +883,12 @@ struct Extension {
 }
 
 impl Resource {
+    fn web_link(&self) -> Option<String> {
+        let address = &self.links.as_ref()?.web_view.as_ref()?.href;
+        (address.starts_with("https://") && !address.chars().any(char::is_whitespace))
+            .then(|| address.clone())
+    }
+
     fn title(&self) -> String {
         [&self.attributes.display_name, &self.attributes.name]
             .into_iter()

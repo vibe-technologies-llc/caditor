@@ -14,13 +14,14 @@ use caditor_cloud::{
     Client, Design, FolderRef, Fusion, Network, Onshape, ProjectId, Provider, SendOutcome, Service,
     Session, Transport, WorkspaceId,
 };
+use parking_lot::Mutex;
 
 use crate::{
     browser,
     commands::Reason,
     files::FileCommand,
     model::{Action, Notice, WakerFactory},
-    preferences::CloudPreferences,
+    preferences::{CloudPreferences, PreferencesCommand},
 };
 
 mod downloads;
@@ -35,8 +36,9 @@ pub use self::{
     failure::Failure,
     jobs::Opener,
     state::{
-        CloudCommand, Connection, Destination, Downloads, Import, ImportItem, Link, Linked, Load,
-        Send, SendStage, Shipment, SigningIn, Stage, first_workspace,
+        AfterSend, CloudCommand, Connection, Destination, Downloads, Import, ImportItem, Link,
+        Linked, Load, Remembered, Send, SendStage, Shipment, SigningIn, Stage, Unopened,
+        first_workspace,
     },
     thumbnails::Thumbnail,
 };
@@ -138,6 +140,8 @@ pub struct Cloud {
     callback_port: u16,
     next_attempt: u64,
     next_import: u64,
+    next_destination_write: u64,
+    destinations_written: Arc<Mutex<u64>>,
     restoring: bool,
     use_built_in_client_ids: bool,
     pub downloads: Downloads,
@@ -181,6 +185,8 @@ impl Cloud {
             callback_port: CALLBACK_PORT,
             next_attempt: 0,
             next_import: 0,
+            next_destination_write: 0,
+            destinations_written: Arc::new(Mutex::new(0)),
             restoring: false,
             use_built_in_client_ids: true,
             downloads,
@@ -279,6 +285,14 @@ impl Cloud {
             .any(|service| self.linked(service).is_some())
             .then_some(())
             .ok_or(Refusal::NothingToSendTo)
+    }
+
+    pub fn can_open_in_fusion(&self) -> Result<(), Refusal> {
+        self.is_signed_in(Service::Fusion)?;
+        match self.linked(Service::Fusion) {
+            Some(linked) if linked.is_sending() => Err(Refusal::Sending(Service::Fusion)),
+            _ => Ok(()),
+        }
     }
 
     pub fn is_signed_in(&self, service: Service) -> Result<(), Refusal> {
@@ -397,6 +411,12 @@ impl Cloud {
                         .is_some_and(|import| !import.is_running())
                 {
                     linked.import = None;
+                }
+            }
+            CloudCommand::OpenInFusion => self.open_in_fusion(&mut actions),
+            CloudCommand::DismissUnopened(service) => {
+                if let Some(linked) = self.linked_mut(service) {
+                    linked.unopened = None;
                 }
             }
             CloudCommand::MeasureDownloads => self.measure_downloads(),
@@ -675,6 +695,63 @@ impl Cloud {
         );
     }
 
+    fn open_in_fusion(&mut self, actions: &mut Vec<Action>) {
+        let service = Service::Fusion;
+        let Some(linked) = self.linked(service) else {
+            actions.push(Action::Inform(Notice::warning(
+                Refusal::NotSignedIn(service).to_string(),
+            )));
+            return;
+        };
+        actions.push(match linked.remembered_destination() {
+            Some(remembered) => {
+                Action::File(FileCommand::SendToCloud(remembered.destination(service)))
+            }
+            None => Action::Preferences(PreferencesCommand::ShowCloudToOpen),
+        });
+    }
+
+    fn save_destinations(&mut self, service: Service, destinations: Vec<Remembered>) {
+        let Some(store) = self.store(service) else {
+            return;
+        };
+        self.next_destination_write += 1;
+        let sequence = self.next_destination_write;
+        let written = Arc::clone(&self.destinations_written);
+        self.courier.spawn(
+            service,
+            move || {
+                let mut newest = written.lock();
+                if *newest > sequence {
+                    return Ok(());
+                }
+                *newest = sequence;
+                jobs::remember_destinations(&store, &destinations)
+            },
+            |outcome| {
+                if let Err(failure) = outcome {
+                    log::warn!("the chosen destination could not be remembered: {failure}");
+                }
+                Event::Left
+            },
+        );
+    }
+
+    fn open_link(&mut self, service: Service, name: String, link: String) {
+        let opener = Arc::clone(&self.opener);
+        let address = link.clone();
+        self.courier.spawn(
+            service,
+            move || jobs::open_in_browser(&opener, &address),
+            move |outcome| Event::Opened {
+                service,
+                name: name.clone(),
+                link: link.clone(),
+                outcome,
+            },
+        );
+    }
+
     fn load_account(&mut self, service: Service) {
         let generation = self.generation(service);
         let Some(linked) = self.linked_mut(service) else {
@@ -905,6 +982,33 @@ impl Cloud {
             return;
         }
         let stop = Arc::new(AtomicBool::new(false));
+        let remembered = linked
+            .workspace
+            .clone()
+            .filter(|_| shipment.destination.opening())
+            .map(|workspace| Remembered {
+                workspace,
+                folder: shipment.destination.folder.clone(),
+                folder_name: shipment.destination.folder_name.clone(),
+            });
+        let to_save = remembered.and_then(|remembered| {
+            let kept = linked
+                .destinations
+                .iter()
+                .position(|kept| kept.workspace == remembered.workspace);
+            match kept {
+                Some(index) if linked.destinations.get(index) == Some(&remembered) => None,
+                Some(index) => {
+                    linked.destinations.remove(index);
+                    linked.destinations.push(remembered);
+                    Some(linked.destinations.clone())
+                }
+                None => {
+                    linked.destinations.push(remembered);
+                    Some(linked.destinations.clone())
+                }
+            }
+        });
         linked.sending = Some(Send {
             id,
             shipment: shipment.clone(),
@@ -930,6 +1034,9 @@ impl Cloud {
                 outcome,
             },
         );
+        if let Some(destinations) = to_save {
+            self.save_destinations(service, destinations);
+        }
     }
 
     fn cancel_send(&mut self, service: Service) {
@@ -1060,6 +1167,25 @@ impl Cloud {
                     self.delivered(service, send, outcome, actions);
                 }
             }
+            Event::Opened {
+                service,
+                name,
+                link,
+                outcome,
+            } => {
+                if let Err(failure) = outcome {
+                    if let Some(linked) = self.linked_mut(service) {
+                        linked.unopened = Some(Unopened {
+                            name: name.clone(),
+                            link,
+                        });
+                    }
+                    actions.push(Action::Inform(Notice::warning(format!(
+                        "“{name}” was sent to {service}, but caditor could not open it. \
+                         {failure} Copy its link from File › Cloud › Cloud projects…"
+                    ))));
+                }
+            }
             Event::Left => {}
             Event::Measured(outcome) => {
                 self.downloads.measuring = false;
@@ -1112,8 +1238,9 @@ impl Cloud {
         match loaded {
             Loaded::Account(result) => linked.account = settle(result),
             Loaded::Workspaces(result) => {
-                let result = result.map(|(workspaces, remembered)| {
-                    choose = [linked.workspace.as_ref(), remembered.as_ref()]
+                let result = result.map(|listing| {
+                    let workspaces = listing.workspaces;
+                    choose = [linked.workspace.as_ref(), listing.hub.as_ref()]
                         .into_iter()
                         .flatten()
                         .find(|id| workspaces.iter().any(|workspace| workspace.id == **id))
@@ -1121,6 +1248,15 @@ impl Cloud {
                         .or_else(|| {
                             first_workspace(&workspaces).map(|workspace| workspace.id.clone())
                         });
+                    for remembered in listing.destinations {
+                        if linked
+                            .destinations
+                            .iter()
+                            .all(|kept| kept.workspace != remembered.workspace)
+                        {
+                            linked.destinations.push(remembered);
+                        }
+                    }
                     workspaces
                 });
                 linked.workspaces = settle(result);
@@ -1169,13 +1305,36 @@ impl Cloud {
         match outcome {
             Ok(sent) => {
                 linked.sending = None;
+                linked.unopened = None;
                 linked.folders.remove(&shipment.destination.folder);
                 linked.roots.remove(&shipment.destination.folder.project);
-                actions.push(Action::Inform(Notice::success(delivery_words(
-                    service, &shipment, &sent,
-                ))));
+                let opening = shipment.destination.opening();
+                let link = sent.web_link.clone().filter(|_| opening);
+                let words = delivery_words(service, &shipment, &sent);
+                actions.push(Action::Inform(Notice::success(match (opening, &link) {
+                    (false, _) => words,
+                    (true, Some(_)) => format!("{words} {OPENING_WORDS}"),
+                    (true, None) => format!("{words} {NO_WEB_PAGE_WORDS}"),
+                })));
+                if let Some(link) = link {
+                    self.open_link(service, sent.name, link);
+                }
             }
             Err(failure) if failure.is_stop() => linked.sending = None,
+            Err(failure) if shipment.destination.opening() && failure.is_folder_unusable() => {
+                linked.sending = None;
+                linked
+                    .destinations
+                    .retain(|kept| kept.folder != shipment.destination.folder);
+                let kept = linked.destinations.clone();
+                self.save_destinations(service, kept);
+                actions.push(Action::Inform(Notice::warning(format!(
+                    "“{name}” was not sent: the folder “{}” in {service} is gone or does not let \
+                     caditor add files to it. Choose another folder.",
+                    shipment.destination.folder_name
+                ))));
+                actions.push(Action::Preferences(PreferencesCommand::ShowCloudToOpen));
+            }
             Err(failure) if failure.is_sign_in_needed() => {
                 self.leave(service, false);
                 actions.push(Action::Inform(Notice::warning(format!(
@@ -1242,6 +1401,10 @@ impl Cloud {
         }
     }
 }
+
+const OPENING_WORDS: &str = "Opening it in your browser, where Fusion opens the file as an import.";
+const NO_WEB_PAGE_WORDS: &str =
+    "Autodesk gave no web address for it, so open it from the folder in Fusion.";
 
 fn delivery_words(service: Service, shipment: &Shipment, sent: &caditor_cloud::Sent) -> String {
     let folder = &shipment.destination.folder_name;

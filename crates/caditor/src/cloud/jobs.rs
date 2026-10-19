@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use super::{
     downloads::{self, KEPT_DESIGNS, Usage},
     failure::Failure,
-    state::{ImportItem, SendStage, Shipment, Stage},
+    state::{ImportItem, Remembered, SendStage, Shipment, Stage},
     store::SessionStore,
     thumbnails::{self, Thumbnail},
 };
@@ -36,9 +36,15 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(120);
 
 pub type Opener = Arc<dyn Fn(&str) -> Result<(), OpenError> + Send + Sync>;
 
+pub struct Listing {
+    pub workspaces: Vec<Workspace>,
+    pub hub: Option<WorkspaceId>,
+    pub destinations: Vec<Remembered>,
+}
+
 pub enum Loaded {
     Account(Result<Account, Arc<Failure>>),
-    Workspaces(Result<(Vec<Workspace>, Option<WorkspaceId>), Arc<Failure>>),
+    Workspaces(Result<Listing, Arc<Failure>>),
     Projects(WorkspaceId, Result<Vec<Project>, Arc<Failure>>),
     Root(ProjectId, Result<Folder, Arc<Failure>>),
     Folder(FolderRef, Result<Folder, Arc<Failure>>),
@@ -89,6 +95,12 @@ pub enum Event {
         generation: u64,
         send: u64,
         outcome: Result<Sent, Failure>,
+    },
+    Opened {
+        service: Service,
+        name: String,
+        link: String,
+        outcome: Result<(), Failure>,
     },
     Left,
     Measured(Result<Usage, Failure>),
@@ -202,6 +214,11 @@ pub fn sign_out(client: &Client, store: Option<&SessionStore>) {
         log::warn!("the remembered hub could not be removed: {error}");
     }
     if let Some(store) = store
+        && let Err(error) = store.forget_destinations()
+    {
+        log::warn!("the remembered destination could not be removed: {error}");
+    }
+    if let Some(store) = store
         && let Err(error) = thumbnails::forget(store.thumbnails_dir())
     {
         log::warn!("the kept pictures of designs could not be removed: {error}");
@@ -214,13 +231,26 @@ pub fn remember_hub(store: &SessionStore, workspace: &WorkspaceId) -> Result<(),
         .map_err(|error| Failure::Save(error.kind()))
 }
 
-pub fn list_workspaces(
-    client: &Client,
-    store: Option<&SessionStore>,
-) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Failure> {
+pub fn remember_destinations(
+    store: &SessionStore,
+    destinations: &[Remembered],
+) -> Result<(), Failure> {
+    store
+        .remember_destinations(destinations)
+        .map_err(|error| Failure::Save(error.kind()))
+}
+
+pub fn open_in_browser(opener: &Opener, link: &str) -> Result<(), Failure> {
+    opener(link).map_err(Failure::Browser)
+}
+
+pub fn list_workspaces(client: &Client, store: Option<&SessionStore>) -> Result<Listing, Failure> {
     let workspaces = client.workspaces()?;
-    let remembered = store.and_then(SessionStore::remembered_hub);
-    Ok((workspaces, remembered))
+    Ok(Listing {
+        workspaces,
+        hub: store.and_then(SessionStore::remembered_hub),
+        destinations: store.map_or_else(Vec::new, SessionStore::remembered_destinations),
+    })
 }
 
 pub fn forget(store: Option<&SessionStore>) {
@@ -401,10 +431,7 @@ impl SendJob {
             SendAs::PartStudio => {
                 let translation = self.client.send_part_studio(&outgoing, &mut progress)?;
                 self.await_part_studio(&translation)?;
-                Ok(Sent {
-                    name: outgoing.name.trim().to_owned(),
-                    outcome: SendOutcome::PartStudio,
-                })
+                Ok(Sent::new(outgoing.name.trim(), SendOutcome::PartStudio))
             }
         }
     }
