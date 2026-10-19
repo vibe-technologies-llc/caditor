@@ -193,8 +193,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   expression using parameters adds the `Rho` dimension holding it, as the app's typed rho does;
   `add_sketch` takes a datum plane (`datum`) or a plane of a coordinate system (`frame` with
   `plane`) through `DatumTarget`, as New sketch on a selected datum does; `remove_sketch_items`
-  removes constraints and entities (`Transaction::remove_sketch_items` expands an entity to its
-  users, and the answer lists everything gone); `edit_sketch_constraint` changes a dimension
+  removes constraints, entities and stored gears and texts by id (`references::removable`;
+  `Transaction::remove_sketch_items` expands an entity to its users, and the answer lists
+  everything gone, `removed_gears` and `removed_texts` included); `edit_sketch_constraint` changes a dimension
   through `field::dimension_transaction` (the dimension field's parsing, units and parameters) and
   turns a constraint on or off, both after settling the sketch. Their failures are
   `SketchToolError`.
@@ -230,19 +231,24 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
   `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel; a single gear is stored
-  with literal expressions, a pair and a sprocket drawn as curves; `get_sketch` does not list
-  stored gears or texts) and copy (`Sketch::clip`
+  with literal expressions, a pair and a sprocket drawn as curves), edit_gear (a stored `gear` by
+  id, any of its seven values as a number or an expression through `amount`, checked by
+  `Gear::values` against the parameters before one `set_sketch_gear`, as the Spur gear panel's
+  update does), text (`content`, `height`, `angle`, `bold`, `italic`, `align`, at `anchor` or
+  `at`, the origin by default, written by `texting::write_into`), edit_text (a stored `text` by id,
+  checked by `Text::size`, one `set_sketch_text`) and copy (`Sketch::clip`
   then `paste`, within the sketch shifted by `clipboard::same_sketch_shift` or from `from_sketch`
   in place, `by` or `to` moving it) are `sketch_additions.rs`, each with its tool's transaction
   label. Lengths and angles are
   `Dimensioned` from `field::parse_expression` (a plain angle in degrees), kept as expressions where
-  the operation keeps one. The answer lists the entities added and removed and the sketch status.
+  the operation keeps one. The answer lists the entities added and removed, `added_gears`, `removed_gears`, `added_texts` and `removed_texts` when any (`report_stored`), and the sketch status.
 - Reads: the feature tree with `state_of`'s words, parameters, bodies with `exact_mass` and
   `extent` under the kernel interrupt (`interruptible`), faces (at most `MOST_FACES`), edges with
   `edge_measure`'s kind and length (at most `MOST_EDGES`), the distance and angle between two
   points, faces or edges by the kernel's `distance` and `angle`, a sketch with `SketchSummary`
   (a spline with its form (control, fit, conic, piece or knotted), a fit spline's spacing and a conic's rho, an ellipse or elliptical arc with its major end and
-  minor radius), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
+  minor radius, and the stored `gears` and `texts` when it has any, each with its id, centre or
+  anchor, the expressions as typed and the `values` they evaluate to in the shown sketch), and a picture through `snapshot::looking_from` and `png_bytes`, sized `SMALLEST_SIDE` to
   `LARGEST_SIDE`.
 - Files: `save` writes the model's own file; `save_as` sends the same `SaveRequest` for a new
   `.caditor` path (`Session::save_to`, refusing a file that exists), and the session follows the
@@ -276,7 +282,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `mcp/sketch_edit_tests.rs` checks elliptical arcs, conics, tangent arcs and polygons on a side,
   and each `modify_sketch` operation by positions, counts and extruded areas, with undo,
   constraints holding a move, projections following an edited body, and the refusals.
-  `mcp/sketch_cut_tests.rs` checks construction, split, break and respace (a saved model holding an
+  `mcp/sketch_stored_tests.rs` reads back, edits (with a parameter held, undo and refusals) and removes stored gears and texts; `mcp/sketch_cut_tests.rs` checks construction, split, break and respace (a saved model holding an
   evenly spaced spline); `mcp/sketch_source_tests.rs` projecting corners, axes, datums, the origin
   and other sketches, intersecting a body, a face and planes, and copying within and between
   sketches; `mcp/sketch_shape_tests.rs` tangent circles, blends, gears, pairs and sprockets, a

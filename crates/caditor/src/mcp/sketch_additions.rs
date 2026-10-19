@@ -1,15 +1,17 @@
 use caditor_expression::Dimension;
 use caditor_geometry::Vector2;
 use caditor_sketch::{
-    BlendEnd, ChainSize, Continuity, EntityId, GearCentre, GearPair, Sprocket, SpurGear,
+    BlendEnd, ChainSize, Continuity, Dimensioned, EntityId, GearCentre, GearPair, Sprocket,
+    SpurGear, Text, TextAlign,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
     blend_curving, clipboard,
-    gearing::{Part, Spur},
+    gearing::{self, Part, Spur},
     mcp::{
+        features::Amount,
         references::{self, EntityName, Named},
         session::Session,
         sketch_edits::{Planned, SketchEditError, Target, amount},
@@ -17,6 +19,7 @@ use crate::{
         writing::{self, point},
     },
     tangent_circling,
+    texting::{self, Lettering, TextAnchor},
 };
 
 const DEFAULT_MODULE: &str = "2 mm";
@@ -24,6 +27,8 @@ const DEFAULT_TEETH: u32 = 20;
 const DEFAULT_PAIR_TEETH: u32 = 30;
 const DEFAULT_PRESSURE_ANGLE: &str = "20 deg";
 const DEFAULT_ROOT_FILLET: &str = "0.75 mm";
+const DEFAULT_TEXT_HEIGHT: &str = "5 mm";
+const DEFAULT_TEXT_ANGLE: &str = "0 deg";
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -81,6 +86,68 @@ pub struct Gearing {
     pub meshing_teeth: Option<u32>,
     pub meshing_bore: Option<String>,
     pub chain: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GearEditing {
+    pub sketch: Named,
+    pub gear: EntityName,
+    pub module: Option<Amount>,
+    pub teeth: Option<Amount>,
+    pub pressure_angle: Option<Amount>,
+    pub profile_shift: Option<Amount>,
+    pub root_fillet: Option<Amount>,
+    pub bore: Option<Amount>,
+    pub turn: Option<Amount>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Alignment {
+    Left,
+    #[serde(alias = "center")]
+    Centre,
+    Right,
+}
+
+impl Alignment {
+    fn text_align(self) -> TextAlign {
+        match self {
+            Self::Left => TextAlign::Left,
+            Self::Centre => TextAlign::Centre,
+            Self::Right => TextAlign::Right,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Lettered {
+    pub sketch: Named,
+    pub content: String,
+    pub height: Option<Amount>,
+    pub angle: Option<Amount>,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    pub align: Option<Alignment>,
+    pub anchor: Option<EntityName>,
+    pub at: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextEditing {
+    pub sketch: Named,
+    pub text: EntityName,
+    pub content: Option<String>,
+    pub height: Option<Amount>,
+    pub angle: Option<Amount>,
+    pub bold: Option<bool>,
+    pub italic: Option<bool>,
+    pub align: Option<Alignment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -237,6 +304,185 @@ pub(super) fn gear(
             .map_err(|error| SketchEditError::Gear(error).into())
     })?;
     Ok(Planned::of(transaction))
+}
+
+fn given(
+    session: &Session,
+    field_name: &'static str,
+    amount_given: Option<&Amount>,
+    dimension: Dimension,
+) -> Result<Option<Dimensioned>, ToolError> {
+    amount_given
+        .map(|given| amount(session, field_name, &given.to_string(), dimension))
+        .transpose()
+}
+
+pub(super) fn edit_gear(
+    session: &Session,
+    target: &Target<'_>,
+    asked: &GearEditing,
+) -> Result<Planned, ToolError> {
+    let (id, held) = references::gear(target.name, target.definition, &asked.gear)?;
+    let mut gear = held.clone();
+    let changes = [
+        (
+            &mut gear.module,
+            given(session, "module", asked.module.as_ref(), Dimension::LENGTH)?,
+        ),
+        (
+            &mut gear.teeth,
+            given(session, "teeth", asked.teeth.as_ref(), Dimension::NONE)?,
+        ),
+        (
+            &mut gear.pressure_angle,
+            given(
+                session,
+                "pressure_angle",
+                asked.pressure_angle.as_ref(),
+                Dimension::ANGLE,
+            )?,
+        ),
+        (
+            &mut gear.profile_shift,
+            given(
+                session,
+                "profile_shift",
+                asked.profile_shift.as_ref(),
+                Dimension::NONE,
+            )?,
+        ),
+        (
+            &mut gear.root_fillet,
+            given(
+                session,
+                "root_fillet",
+                asked.root_fillet.as_ref(),
+                Dimension::LENGTH,
+            )?,
+        ),
+        (
+            &mut gear.bore,
+            given(session, "bore", asked.bore.as_ref(), Dimension::LENGTH)?,
+        ),
+        (
+            &mut gear.turn,
+            given(session, "turn", asked.turn.as_ref(), Dimension::ANGLE)?,
+        ),
+    ];
+    let mut changed = false;
+    for (slot, change) in changes {
+        if let Some(change) = change {
+            *slot = change.expression;
+            changed = true;
+        }
+    }
+    if !changed {
+        return Err(SketchEditError::NothingToEdit {
+            sketch: target.name.to_owned(),
+        }
+        .into());
+    }
+    let parameters = session.parameters();
+    gear.values(&|parameter| parameters.value(parameter))
+        .map_err(SketchEditError::GearValues)?;
+    let mut transaction = target.document.transaction(gearing::EDIT_TRANSACTION);
+    transaction.set_sketch_gear(target.feature, id, gear);
+    let mut planned = Planned::of(transaction.finish());
+    planned.details.insert("gear".to_owned(), json!(id.raw()));
+    Ok(planned)
+}
+
+pub(super) fn text(
+    session: &Session,
+    target: &Target<'_>,
+    asked: &Lettered,
+) -> Result<Planned, ToolError> {
+    Text::check_content(&asked.content).map_err(SketchEditError::TextValues)?;
+    let height_text = asked
+        .height
+        .as_ref()
+        .map_or_else(|| DEFAULT_TEXT_HEIGHT.to_owned(), ToString::to_string);
+    let angle_text = asked
+        .angle
+        .as_ref()
+        .map_or_else(|| DEFAULT_TEXT_ANGLE.to_owned(), ToString::to_string);
+    let height = amount(session, "height", &height_text, Dimension::LENGTH)?;
+    let angle = amount(session, "angle", &angle_text, Dimension::ANGLE)?;
+    let anchor = match (&asked.anchor, asked.at) {
+        (Some(named), None) => TextAnchor::Point(target.point_of(named)?),
+        (None, Some(at)) => TextAnchor::Free(point(at)?),
+        (None, None) => TextAnchor::Point(EntityId::ORIGIN),
+        (Some(_), Some(_)) => return Err(SketchEditError::TextAnchor.into()),
+    };
+    let lettering = Lettering {
+        content: asked.content.clone(),
+        height,
+        angle,
+        bold: asked.bold,
+        italic: asked.italic,
+        align: asked.align.map_or(TextAlign::Left, Alignment::text_align),
+    };
+    let parameters = session.parameters();
+    lettering
+        .text(EntityId::ORIGIN)
+        .size(&|parameter| parameters.value(parameter))
+        .map_err(SketchEditError::TextValues)?;
+    let transaction = target.reshaped(texting::TRANSACTION.to_owned(), |sketch| {
+        texting::write_into(sketch, &lettering, anchor)
+            .map(|_| ())
+            .map_err(|error| SketchEditError::TextDrawn(error).into())
+    })?;
+    Ok(Planned::of(transaction))
+}
+
+pub(super) fn edit_text(
+    session: &Session,
+    target: &Target<'_>,
+    asked: &TextEditing,
+) -> Result<Planned, ToolError> {
+    let (id, held) = references::text(target.name, target.definition, &asked.text)?;
+    let mut text = held.clone();
+    let height = given(session, "height", asked.height.as_ref(), Dimension::LENGTH)?;
+    let angle = given(session, "angle", asked.angle.as_ref(), Dimension::ANGLE)?;
+    let changed = asked.content.is_some()
+        || height.is_some()
+        || angle.is_some()
+        || asked.bold.is_some()
+        || asked.italic.is_some()
+        || asked.align.is_some();
+    if !changed {
+        return Err(SketchEditError::NothingToEdit {
+            sketch: target.name.to_owned(),
+        }
+        .into());
+    }
+    if let Some(content) = &asked.content {
+        Text::check_content(content).map_err(SketchEditError::TextValues)?;
+        text.content = content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if let Some(height) = height {
+        text.height = height.expression;
+    }
+    if let Some(angle) = angle {
+        text.angle = angle.expression;
+    }
+    if let Some(bold) = asked.bold {
+        text.bold = bold;
+    }
+    if let Some(italic) = asked.italic {
+        text.italic = italic;
+    }
+    if let Some(align) = asked.align {
+        text.align = align.text_align();
+    }
+    let parameters = session.parameters();
+    text.size(&|parameter| parameters.value(parameter))
+        .map_err(SketchEditError::TextValues)?;
+    let mut transaction = target.document.transaction(texting::EDIT_TRANSACTION);
+    transaction.set_sketch_text(target.feature, id, text);
+    let mut planned = Planned::of(transaction.finish());
+    planned.details.insert("text".to_owned(), json!(id.raw()));
+    Ok(planned)
 }
 
 pub(super) fn copy(target: &Target<'_>, asked: &Copying) -> Result<Planned, ToolError> {
