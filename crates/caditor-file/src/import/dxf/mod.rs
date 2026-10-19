@@ -1,4 +1,5 @@
 mod code_page;
+mod fit_cache;
 pub(super) mod flatten;
 pub(super) mod geometry;
 mod hatch;

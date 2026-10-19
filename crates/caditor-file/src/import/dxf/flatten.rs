@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use caditor_geometry::{Point2, Point3, Vector2};
-use caditor_sketch::{BSpline, SplineKind};
+use caditor_sketch::{BSpline, FittedSpline, SplineKind};
 
 use crate::import::{
     Drawing, DrawingCurve, ImportError, MAX_FIT_WORK,
     dxf::{
         capitalized, counted,
+        fit_cache::{Canonical, FitCache},
         geometry::{Nurbs, Shape, flat, is_full_turn, planar_circle},
         list, were,
     },
@@ -32,6 +33,7 @@ struct Tally {
     deviation: f64,
     work: usize,
     exhausted: bool,
+    cache: FitCache,
 }
 
 impl Tally {
@@ -242,6 +244,13 @@ fn spline(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCur
 
 fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
     let (start, end) = nurbs.domain()?;
+    let canonical = Canonical::of(nurbs);
+    if let Some(canonical) = &canonical
+        && let Some((control_points, deviation)) = tally.cache.find(canonical, tolerance)
+    {
+        tally.deviation = tally.deviation.max(deviation);
+        return Some(DrawingCurve::Spline { control_points });
+    }
     let count = (nurbs.spans() * SAMPLES_PER_SPAN).clamp(MIN_SAMPLES, MAX_SAMPLES);
     if !tally.charge(BSpline::fit_work(count + 1, MAX_FIT_CONTROL_POINTS)) {
         return None;
@@ -254,7 +263,12 @@ fn sampled(nurbs: &Nurbs, tolerance: f64, tally: &mut Tally) -> Option<DrawingCu
                 .map(|point| Point2::new(point.x, point.y))
         })
         .collect::<Option<_>>()?;
-    fitted(&samples, tolerance, tally)
+    let fit = fitted(&samples, tolerance, tally)?;
+    let control_points = fit.spline.control_points().to_vec();
+    if let Some(canonical) = canonical {
+        tally.cache.store(canonical, &control_points, fit.deviation);
+    }
+    Some(DrawingCurve::Spline { control_points })
 }
 
 fn same_knots(native: &[f64], given: &[f64]) -> bool {
@@ -303,15 +317,13 @@ fn planar_ellipse(
     }
 }
 
-fn fitted(samples: &[Point2], tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
+fn fitted(samples: &[Point2], tolerance: f64, tally: &mut Tally) -> Option<FittedSpline> {
     let Some(fit) = BSpline::fit(samples, tolerance, MAX_FIT_CONTROL_POINTS) else {
         tally.collapsed += 1;
         return None;
     };
     tally.deviation = tally.deviation.max(fit.deviation);
-    Some(DrawingCurve::Spline {
-        control_points: fit.spline.control_points().to_vec(),
-    })
+    Some(fit)
 }
 
 impl Tally {

@@ -15,10 +15,16 @@ paths:
   charges every kept record and every layer, linetype, block and MLINESTYLE entry `RECORD_VALUES`
   before keeping it, so bare `POINT` records end there too), `MAX_EXPANDED_OBJECTS` (block
   expansion, per object and per decoded shape, both added to the `tally` the refusal tests read),
-  `MAX_DRAWING_POINTS`, and `MAX_FIT_WORK` (`TooManySplines`: `flatten` charges every spline it
-  rebuilds by sampling or `BSpline::through` the work `BSpline::fit_work` / `through_work` say it
-  can take, samples times the attempts at doubling control points, and refuses the drawing, DXF or
-  SVG, past the limit). Curves past `MAX_READ_CURVES` are left out with a note, the rest of an item
+  `MAX_DRAWING_POINTS`, and `MAX_FIT_WORK` (`TooManySplines`, the backstop: `flatten` charges each
+  spline it actually rebuilds by sampling or `BSpline::through` the work `BSpline::fit_work` /
+  `through_work` say it can take, samples times the attempts at doubling control points, and
+  refuses the drawing, DXF or SVG, past the limit). Rebuilt splines are cached (`dxf/fit_cache.rs`)
+  by degree, knots, weights and their control points in the frame of the first distinct one
+  (translation, rotation, mirror and size divided out), so the copies a block's INSERT array makes
+  are placed from one fit and charged nothing; a copy is reused only while the stored deviation
+  scaled to its size stays within the drawing's tolerance; a copy under a non-uniform scale matches
+  nothing and is fitted.
+  Curves past `MAX_READ_CURVES` are left out with a note, the rest of an item
   past it counted in one step. The sketch's
   `MAX_DRAWING_CURVES` applies in `Drawing::arranged` to the chosen layers' curves in drawing order
   with a note (so leaving layers out brings later curves in); `drawing_transaction` never adds more.

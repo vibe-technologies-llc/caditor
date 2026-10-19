@@ -2748,8 +2748,98 @@ fn the_sketch_limit_applies_to_the_layers_chosen_so_leaving_layers_out_brings_la
 }
 
 const SPLINE_ARRAY: &[u8] = include_bytes!("../../regressions/dxf-spline-array.dxf");
+const WIGGLY_CONTROL_POINTS: usize = 60;
+
+fn wiggly_spline(frequency: f64, amplitude: f64) -> Pairs {
+    let degree = 3;
+    let mut spline = vec![
+        pair(0, "SPLINE"),
+        pair(8, "0"),
+        pair(70, 12),
+        pair(71, degree),
+    ];
+    let spans = WIGGLY_CONTROL_POINTS - degree;
+    let knots = (0..degree)
+        .map(|_| 0.0)
+        .chain((0..=spans).map(|knot| knot as f64))
+        .chain((0..degree).map(|_| spans as f64));
+    for knot in knots {
+        spline.push(pair(40, knot));
+    }
+    for index in 0..WIGGLY_CONTROL_POINTS {
+        spline.push(pair(41, if index == 7 { 2.0 } else { 1.0 }));
+    }
+    for index in 0..WIGGLY_CONTROL_POINTS {
+        let x = index as f64;
+        spline.extend([
+            pair(10, x),
+            pair(20, (x * frequency).sin() * amplitude),
+            pair(30, 0.0),
+        ]);
+    }
+    spline
+}
 
 #[test]
-fn a_block_of_splines_repeated_thousands_of_times_is_refused_quickly() {
-    assert_eq!(parse_dxf(SPLINE_ARRAY), Err(ImportError::TooManySplines));
+fn a_block_of_splines_repeated_thousands_of_times_is_read_quickly() {
+    let drawing = parse_dxf(SPLINE_ARRAY).unwrap();
+
+    assert_eq!(drawing.curves.len(), 30_733);
+}
+
+#[test]
+fn a_spline_repeated_in_a_rotated_mirrored_array_is_fitted_once() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block("Wave", (0.0, 0.0), vec![wiggly_spline(0.3, 5.0)])],
+        ),
+        section(
+            "ENTITIES",
+            vec![insert(
+                "Wave",
+                "0",
+                &[
+                    (10, 5.0),
+                    (20, 3.0),
+                    (41, -1.5),
+                    (42, 1.5),
+                    (50, 30.0),
+                    (70, 30.0),
+                    (71, 30.0),
+                    (44, 450.0),
+                    (45, 20.0),
+                ],
+            )],
+        ),
+    ]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+
+    let waves: Vec<&Vec<Point2>> = drawing
+        .curves
+        .iter()
+        .filter_map(|curve| match curve {
+            DrawingCurve::Spline { control_points } => Some(control_points),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(waves.len(), 900);
+    let step = waves[1][0] - waves[0][0];
+    for pair in waves.windows(2).take(29) {
+        for (previous, next) in pair[0].iter().zip(pair[1].iter()) {
+            assert!((*next - *previous - step).length() < 1e-6 * step.length());
+        }
+    }
+}
+
+#[test]
+fn many_different_splines_still_run_out_of_their_budget() {
+    let splines = (0..80)
+        .map(|index| wiggly_spline(0.05 + 0.01 * f64::from(index), 3e-5))
+        .collect();
+    let bytes = text(vec![header(Some(4)), section("ENTITIES", splines)]);
+
+    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManySplines));
 }
