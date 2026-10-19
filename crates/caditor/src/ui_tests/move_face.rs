@@ -1,20 +1,28 @@
 use std::f64::consts::PI;
 
-use caditor_document::{AxisReference, FeatureId, MoveFace, PrincipalAxis};
+use caditor_document::{
+    AxisReference, Edit, FeatureId, FeatureKind, MoveFace, PrincipalAxis, Transaction,
+};
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::Surface;
-use egui::{Id, Key, Modifiers};
+use egui::{Event, Id, Key, Modifiers};
 
-use super::{Harness, delete_face::holed_plate, volume_about};
+use super::{
+    CAMERA_SETTLE, Harness, delete_face::holed_plate, drag_value_arrow, extruded_plate,
+    length_value, volume_about,
+};
 use crate::{
     editing::EditingCommand,
     model::Action,
     move_face_panel,
+    move_manipulator::Handle,
     reference_picking::{Picking, Slot},
     selection::{Axis, Pickable},
+    value_gauges::Measured,
 };
 
 const PLATE: f64 = 40.0 * 40.0 * 10.0;
+const PLATE_SIDE: f64 = 40.0 * 40.0;
 const BORE: f64 = PI * 25.0 * 10.0;
 
 fn move_face_of(harness: &Harness, feature: FeatureId) -> &MoveFace {
@@ -146,4 +154,110 @@ fn a_bore_moves_along_an_axis_chosen_in_the_view_by_a_typed_distance() {
     harness.settle();
     assert!((bore_centre_x(&harness, plate) - 12.0).abs() < 1e-9);
     assert!(volume_about(&harness, plate, PLATE - BORE));
+}
+
+fn open_on_plate_top(harness: &mut Harness) -> (FeatureId, FeatureId) {
+    let (plate, top) = extruded_plate(harness);
+    harness.select([top]);
+    harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    harness.select([]);
+    let moving = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the move face is open");
+    (plate, moving)
+}
+
+fn tilt_about_x(harness: &mut Harness, moving: FeatureId) {
+    let mut kind = move_face_of(harness, moving).clone();
+    kind.axis = Some(AxisReference::Principal(PrincipalAxis::X));
+    let transaction = Transaction::new(
+        "Tilt about X",
+        vec![Edit::SetFeatureKind {
+            id: moving,
+            kind: FeatureKind::MoveFace(kind),
+        }],
+    );
+    harness.perform(Action::Apply(transaction));
+    harness.settle();
+}
+
+fn hover_arrow(harness: &mut Harness, measured: Measured) {
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let at = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Value(measured), 0.0)
+        .expect("the arrow is shown");
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn dragging_the_move_face_distance_arrow_shifts_the_faces_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let (plate, moving) = open_on_plate_top(&mut harness);
+    let undo_label = harness.model.undo_label().map(str::to_owned);
+
+    let step = drag_value_arrow(&mut harness, Measured::MoveDistance, 3.0);
+    let distance = length_value(&harness, &move_face_of(&harness, moving).distance);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Move face 1"));
+    assert!((distance - 4.0).abs() <= step, "{distance} with {step}");
+    assert!(volume_about(
+        &harness,
+        plate,
+        PLATE_SIDE * (10.0 + distance)
+    ));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label().map(str::to_owned), undo_label);
+    assert!((length_value(&harness, &move_face_of(&harness, moving).distance) - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_distance_typed_over_the_move_face_arrow_may_be_an_expression() {
+    let mut harness = Harness::new();
+    let (plate, moving) = open_on_plate_top(&mut harness);
+
+    hover_arrow(&mut harness, Measured::MoveDistance);
+    harness.type_text("2 * 3");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Move face 1"));
+    assert!((length_value(&harness, &move_face_of(&harness, moving).distance) - 6.0).abs() < 1e-9);
+    assert!(volume_about(&harness, plate, PLATE_SIDE * 16.0));
+}
+
+#[test]
+fn the_move_face_angle_arrow_stands_only_with_a_tilt_axis_and_drags_the_angle() {
+    let mut harness = Harness::new();
+    let (_, moving) = open_on_plate_top(&mut harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(Measured::MoveAngle), 0.0)
+            .is_none()
+    );
+
+    tilt_about_x(&mut harness, moving);
+    drag_value_arrow(&mut harness, Measured::MoveAngle, 10.0);
+    let angle = length_value(&harness, &move_face_of(&harness, moving).angle);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Move face 1"));
+    assert!((angle - 10.0).abs() <= 5.0, "{angle}");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

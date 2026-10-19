@@ -26,8 +26,8 @@ the body the sketch was drawn on (else the newest body).
 Either way the free ends of the curves run on straight along their last direction until they meet
 a face of the body, so a line drawn short of the walls still reaches them. A line ending on an arc
 continues from the arc's end, along its tangent; a spline or elliptical arc runs on the same way
-from its end. A web can instead carry the free ends of its arcs on round their circles
-(**Free ends**), so a curved web drawn short of a round wall follows its curve to it.
+from its end. A rib or a web can instead carry the free ends of its arcs on round their circles
+(**Free ends**), so a curved rib or web drawn short of a wall follows its curve to it.
 
 A new rib starts on the side, or in the direction, where the body is, and from the thickness last
 set on one, kept between sessions. A rib drawn on a face of the
@@ -49,9 +49,9 @@ body starts square to its sketch.
   elliptical arcs alike. A rib parallel to its sketch takes a draft of 0.1° or more (a smaller one
   is refused, 0° is none); of a rib thick to one side only, the face in the sketch plane stays
   flat and only the other face leans.
-- **Free ends** (a web only): **Straight on** runs the free ends on along their last direction;
-  **Round the arc** carries the free end of an arc on round its circle until it meets the body,
-  while a line's end still runs on straight.
+- **Free ends**: **Straight on** runs the free ends on along their last direction; **Round the
+  arc** carries the free end of an arc on round its circle until it meets the body, while a line's
+  end still runs on straight.
 - **Fill the other side of the curves** (a rib) or **Run the other way from the sketch** (a web)
   flips which way it goes; Reverse direction in the Model menu and palette does the same.
 
@@ -68,14 +68,15 @@ The rib fails alone, with the body before it kept, and says why:
 
 - it meets no face of the body, or the body lies wholly on the other side of the sketch: reverse
   it, or move its curves over the body;
-- an end runs on past the body without meeting a face (the curve named), or the rib is not closed
+- an end runs on past the body without meeting a face (the curve named; for an arc carried round
+  its circle, a circle that never meets the body), or the rib is not closed
   off by the body on the side it fills: draw the curve so that, carried on, it runs into a wall,
   or reverse it;
 - its curves lie inside the body's material, so it adds nothing;
 - the curves of the sketch close on themselves, or come back to a point they already pass
   through, fixed in the sketch;
-- a web thicker than the bend of an arc, spline or ellipse allows, or one running into itself
-  (carried round its arcs, carry its ends on straight instead);
+- a web thicker than the bend of an arc, spline or ellipse allows, or a rib or web running into
+  itself (carried round its arcs, carry its ends on straight instead);
 - a draft below 0° or of 30° or more, a draft of a rib parallel to its sketch under 0.1°, or a
   draft so steep that the bend of a curve closes up before the rib reaches the body: change the
   draft, or make it smaller.
