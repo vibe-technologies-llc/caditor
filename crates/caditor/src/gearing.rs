@@ -49,6 +49,7 @@ pub enum GearKind {
     Gear,
     Pair,
     Sprocket,
+    Meshing,
 }
 
 impl GearKind {
@@ -59,6 +60,7 @@ impl GearKind {
             Self::Gear => "Single gear",
             Self::Pair => "Gear pair",
             Self::Sprocket => "Sprocket",
+            Self::Meshing => "Meshing gear",
         }
     }
 
@@ -66,9 +68,10 @@ impl GearKind {
         match self {
             Self::Gear => "One involute spur gear",
             Self::Pair => {
-                "Two meshing gears at the right centre distance, the second to the right of the first"
+                "Two meshing gears at the right centre distance; the second follows the first"
             }
             Self::Sprocket => "A sprocket for ISO 606 roller chain",
+            Self::Meshing => "A gear meshing with another, following its values",
         }
     }
 
@@ -92,14 +95,21 @@ impl GearKind {
                 GearField::RootFillet,
                 GearField::Bore,
                 GearField::PairBore,
+                GearField::Turn,
+                GearField::Direction,
             ],
             Self::Sprocket => &[GearField::Teeth, GearField::Bore],
+            Self::Meshing => &[
+                GearField::PairTeeth,
+                GearField::PairBore,
+                GearField::Direction,
+            ],
         }
     }
 
     fn teeth_range(self) -> (u32, u32) {
         match self {
-            Self::Gear | Self::Pair => (MIN_TEETH, MAX_TEETH),
+            Self::Gear | Self::Pair | Self::Meshing => (MIN_TEETH, MAX_TEETH),
             Self::Sprocket => (MIN_SPROCKET_TEETH, MAX_SPROCKET_TEETH),
         }
     }
@@ -116,10 +126,11 @@ pub enum GearField {
     Bore,
     PairBore,
     Turn,
+    Direction,
 }
 
 impl GearField {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Module,
         Self::Teeth,
         Self::PairTeeth,
@@ -129,6 +140,7 @@ impl GearField {
         Self::Bore,
         Self::PairBore,
         Self::Turn,
+        Self::Direction,
     ];
 
     pub fn label(self) -> &'static str {
@@ -142,6 +154,7 @@ impl GearField {
             Self::Bore => "Bore",
             Self::PairBore => "Meshing bore",
             Self::Turn => "Rotation",
+            Self::Direction => "Direction",
         }
     }
 
@@ -162,6 +175,10 @@ impl GearField {
                 "How far the whole gear turns about its centre; at 0° a tooth points along the \
                  sketch's horizontal axis"
             }
+            Self::Direction => {
+                "Where the second gear's centre lies from the first's, as an angle from the \
+                 sketch's horizontal axis; at 0° it is to the right"
+            }
         }
     }
 
@@ -181,14 +198,14 @@ impl GearField {
             Self::ProfileShift => "0",
             Self::RootFillet => "0.75 mm",
             Self::Bore | Self::PairBore => "",
-            Self::Turn => "0°",
+            Self::Turn | Self::Direction => "0°",
         }
     }
 
     fn expected(self) -> Expected {
         match self {
             Self::Module | Self::RootFillet | Self::Bore | Self::PairBore => LENGTH,
-            Self::PressureAngle | Self::Turn => ANGLE,
+            Self::PressureAngle | Self::Turn | Self::Direction => ANGLE,
             Self::Teeth | Self::PairTeeth | Self::ProfileShift => PLAIN,
         }
     }
@@ -231,6 +248,7 @@ impl Spur {
             root_fillet: Expression::measure(values.root_fillet, Unit::Millimetre),
             bore: Expression::measure(values.bore, Unit::Millimetre),
             turn: Expression::measure(0.0, Unit::Degree),
+            meshing: None,
         };
         Self {
             values,
@@ -254,8 +272,39 @@ impl Spur {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Part {
     Gear(Box<Spur>),
-    Pair(GearPair),
+    Pair(Box<StoredPair>),
     Sprocket(Sprocket),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StoredPair {
+    pub driver: Spur,
+    pub placing: GearPair,
+    pub partner: Gear,
+}
+
+impl StoredPair {
+    pub fn literal(placing: GearPair) -> Self {
+        let partner = Gear::meshed(
+            EntityId::ORIGIN,
+            EntityId::ORIGIN,
+            Expression::number(f64::from(placing.partner_teeth)),
+            Expression::measure(placing.partner_bore, Unit::Millimetre),
+            Expression::measure(placing.direction.to_degrees(), Unit::Degree),
+        );
+        Self {
+            driver: Spur::literal(placing.driver),
+            placing,
+            partner,
+        }
+    }
+
+    fn outlines(&self, at: Point2) -> Result<[GearOutline; 2], GearError> {
+        let outlines = self
+            .placing
+            .outlines_turned(at, self.driver.turn.to_radians())?;
+        Ok([outlines.driver, outlines.partner])
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -293,11 +342,8 @@ impl Part {
         match self {
             Self::Gear(spur) => Ok(vec![Wheel::Gear(spur.outline(at)?)]),
             Self::Pair(pair) => {
-                let outlines = pair.outlines(at)?;
-                Ok(vec![
-                    Wheel::Gear(outlines.driver),
-                    Wheel::Gear(outlines.partner),
-                ])
+                let [driver, partner] = pair.outlines(at)?;
+                Ok(vec![Wheel::Gear(driver), Wheel::Gear(partner)])
             }
             Self::Sprocket(sprocket) => Ok(vec![Wheel::Sprocket(sprocket.outline(at)?)]),
         }
@@ -311,7 +357,14 @@ impl Part {
                     .add_stored_gear(centre, spur.stored.clone())
                     .map(|_| ())
             }
-            Self::Pair(pair) => sketch.add_gear_pair(pair, centre).map(|_| ()),
+            Self::Pair(pair) => sketch
+                .add_stored_pair(
+                    centre,
+                    pair.driver.stored.clone(),
+                    pair.partner.clone(),
+                    &pair.placing,
+                )
+                .map(|_| ()),
             Self::Sprocket(sprocket) => sketch.add_sprocket(sprocket, centre).map(|_| ()),
         }
     }
@@ -331,10 +384,10 @@ impl Part {
             ),
             Self::Pair(pair) => format!(
                 "Gear pair of {} and {} teeth, module {}, centres {} apart",
-                pair.driver.teeth,
-                pair.partner_teeth,
-                length_text(unit, pair.driver.module),
-                length_text(unit, pair.centre_distance())
+                pair.placing.driver.teeth,
+                pair.placing.partner_teeth,
+                length_text(unit, pair.placing.driver.module),
+                length_text(unit, pair.placing.centre_distance())
             ),
             Self::Sprocket(sprocket) => format!(
                 "Sprocket of {} teeth for {} chain, {} across the tips",
@@ -370,6 +423,8 @@ pub enum FieldProblem {
 pub enum PartProblem {
     #[error("Mend the {} first", .field.label().to_lowercase())]
     MendFirst { field: GearField },
+    #[error("Mend {driver}, which this gear meshes with, first")]
+    DriverBroken { driver: String },
     #[error("{}", capitalized(&.0.to_string()))]
     Unbuildable(GearError),
 }
@@ -392,7 +447,7 @@ pub enum GearingError {
 pub struct GearSettings {
     kind: GearKind,
     chain: ChainSize,
-    texts: [String; 9],
+    texts: [String; 10],
     editing: Option<EntityId>,
     loaded: Option<EntityId>,
     evaluated: Option<Result<Part, PartProblem>>,
@@ -458,8 +513,16 @@ impl GearSettings {
             _ => None,
         };
         self.loaded = None;
+        let meshing = sketch
+            .zip(self.editing)
+            .and_then(|(sketch, gear)| sketch.gear(gear))
+            .is_some_and(|gear| gear.meshing.is_some());
         if self.editing.is_some() {
-            self.set_kind(GearKind::Gear);
+            self.set_kind(if meshing {
+                GearKind::Meshing
+            } else {
+                GearKind::Gear
+            });
         }
     }
 
@@ -487,29 +550,40 @@ impl GearSettings {
                 document.expression_text(expression)
             }
         };
-        let loaded = [
-            (GearField::Module, &gear.module),
-            (GearField::Teeth, &gear.teeth),
-            (GearField::PressureAngle, &gear.pressure_angle),
-            (GearField::ProfileShift, &gear.profile_shift),
-            (GearField::RootFillet, &gear.root_fillet),
-            (GearField::Bore, &gear.bore),
-            (GearField::Turn, &gear.turn),
-        ];
+        let loaded = match &gear.meshing {
+            None => vec![
+                (GearField::Module, &gear.module),
+                (GearField::Teeth, &gear.teeth),
+                (GearField::PressureAngle, &gear.pressure_angle),
+                (GearField::ProfileShift, &gear.profile_shift),
+                (GearField::RootFillet, &gear.root_fillet),
+                (GearField::Bore, &gear.bore),
+                (GearField::Turn, &gear.turn),
+            ],
+            Some(meshing) => vec![
+                (GearField::PairTeeth, &gear.teeth),
+                (GearField::PairBore, &gear.bore),
+                (GearField::Direction, &meshing.direction),
+            ],
+        };
         for (field, expression) in loaded {
             if let Some(text) = self.text_mut(field) {
                 *text = stored(field, expression);
             }
         }
-        self.kind = GearKind::Gear;
+        self.kind = if gear.meshing.is_some() {
+            GearKind::Meshing
+        } else {
+            GearKind::Gear
+        };
         self.loaded = Some(editing);
         self.evaluated = None;
     }
 
-    pub fn evaluate(&mut self, model: &Model) -> Evaluation {
+    pub fn evaluate(&mut self, model: &Model, sketch: Option<&Sketch>) -> Evaluation {
         let kind = self.kind;
         let mut problems = Vec::new();
-        let mut read: [Option<Dimensioned>; 9] = Default::default();
+        let mut read: [Option<Dimensioned>; 10] = Default::default();
         for field in kind.fields() {
             match value_of(model, kind, *field, self.text(*field)) {
                 Ok(value) => {
@@ -530,50 +604,111 @@ impl GearSettings {
                 })
         };
         let value = |field: GearField| held(field).value;
+        let spur = || {
+            let values = SpurGear {
+                module: value(GearField::Module),
+                teeth: value(GearField::Teeth) as u32,
+                pressure_angle: value(GearField::PressureAngle),
+                profile_shift: value(GearField::ProfileShift),
+                root_fillet: value(GearField::RootFillet),
+                bore: value(GearField::Bore),
+            };
+            let turn = held(GearField::Turn);
+            Spur {
+                values,
+                turn: turn.value,
+                stored: Gear {
+                    centre: EntityId::ORIGIN,
+                    module: held(GearField::Module).expression,
+                    teeth: held(GearField::Teeth).expression,
+                    pressure_angle: held(GearField::PressureAngle).expression,
+                    profile_shift: held(GearField::ProfileShift).expression,
+                    root_fillet: held(GearField::RootFillet).expression,
+                    bore: held(GearField::Bore).expression,
+                    turn: turn.expression,
+                    meshing: None,
+                },
+            }
+        };
+        let partner = |driver: EntityId| {
+            Gear::meshed(
+                EntityId::ORIGIN,
+                driver,
+                held(GearField::PairTeeth).expression,
+                held(GearField::PairBore).expression,
+                held(GearField::Direction).expression,
+            )
+        };
+        let pair_around = |driver: Spur| StoredPair {
+            placing: GearPair {
+                driver: driver.values,
+                partner_teeth: value(GearField::PairTeeth) as u32,
+                partner_bore: value(GearField::PairBore),
+                direction: value(GearField::Direction).to_radians(),
+            },
+            partner: partner(EntityId::ORIGIN),
+            driver,
+        };
         let part = match problems.first() {
             Some((field, _)) => Err(PartProblem::MendFirst { field: *field }),
             None => {
-                let gear = SpurGear {
-                    module: value(GearField::Module),
-                    teeth: value(GearField::Teeth) as u32,
-                    pressure_angle: value(GearField::PressureAngle),
-                    profile_shift: value(GearField::ProfileShift),
-                    root_fillet: value(GearField::RootFillet),
-                    bore: value(GearField::Bore),
-                };
                 let part = match kind {
-                    GearKind::Gear => Part::Gear(Box::new(Spur {
-                        values: gear,
-                        turn: value(GearField::Turn),
-                        stored: Gear {
-                            centre: EntityId::ORIGIN,
-                            module: held(GearField::Module).expression,
-                            teeth: held(GearField::Teeth).expression,
-                            pressure_angle: held(GearField::PressureAngle).expression,
-                            profile_shift: held(GearField::ProfileShift).expression,
-                            root_fillet: held(GearField::RootFillet).expression,
-                            bore: held(GearField::Bore).expression,
-                            turn: held(GearField::Turn).expression,
-                        },
-                    })),
-                    GearKind::Pair => Part::Pair(GearPair {
-                        driver: gear,
-                        partner_teeth: value(GearField::PairTeeth) as u32,
-                        partner_bore: value(GearField::PairBore),
-                    }),
-                    GearKind::Sprocket => Part::Sprocket(Sprocket {
+                    GearKind::Gear => Ok(Part::Gear(Box::new(spur()))),
+                    GearKind::Pair => Ok(Part::Pair(Box::new(pair_around(spur())))),
+                    GearKind::Sprocket => Ok(Part::Sprocket(Sprocket {
                         chain: self.chain,
-                        teeth: gear.teeth,
-                        bore: gear.bore,
-                    }),
+                        teeth: value(GearField::Teeth) as u32,
+                        bore: value(GearField::Bore),
+                    })),
+                    GearKind::Meshing => {
+                        self.driver_of_editing(model, sketch).map(|(id, driver)| {
+                            let mut pair = pair_around(driver);
+                            pair.partner = partner(id);
+                            Part::Pair(Box::new(pair))
+                        })
+                    }
                 };
-                part.wheels(Point2::ZERO)
-                    .map(|_| part)
-                    .map_err(PartProblem::Unbuildable)
+                part.and_then(|part| {
+                    part.wheels(Point2::ZERO)
+                        .map(|_| part)
+                        .map_err(PartProblem::Unbuildable)
+                })
             }
         };
         self.evaluated = Some(part.clone());
         Evaluation { problems, part }
+    }
+
+    fn driver_of_editing(
+        &self,
+        model: &Model,
+        sketch: Option<&Sketch>,
+    ) -> Result<(EntityId, Spur), PartProblem> {
+        let broken = |driver: EntityId| PartProblem::DriverBroken {
+            driver: sketch.map_or_else(
+                || format!("Gear {driver}"),
+                |sketch| sketch.entity_label(driver),
+            ),
+        };
+        let held = sketch.zip(self.editing).and_then(|(sketch, id)| {
+            let driver = sketch.gear(id)?.driver()?;
+            Some((driver, sketch.gear(driver)?))
+        });
+        let (id, driver) = held.ok_or(PartProblem::DriverBroken {
+            driver: "the gear it meshes with".to_owned(),
+        })?;
+        let parameters = model.parameters();
+        let values = driver
+            .values(&|parameter| parameters.value(parameter))
+            .map_err(|_| broken(id))?;
+        Ok((
+            id,
+            Spur {
+                values: values.spur,
+                turn: values.turn,
+                stored: driver.clone(),
+            },
+        ))
     }
 }
 
@@ -670,6 +805,31 @@ pub fn update(
         .ok_or(GearingError::GearGone)?;
     let mut transaction = model.document().transaction(EDIT_TRANSACTION);
     transaction.set_sketch_gear(feature, gear, spur.gear_at(held.centre));
+    Ok(transaction.finish())
+}
+
+pub fn update_meshing(
+    model: &Model,
+    feature: FeatureId,
+    gear: EntityId,
+    pair: &StoredPair,
+) -> Result<Transaction, GearingError> {
+    let held = model
+        .document()
+        .feature(feature)
+        .and_then(|owner| owner.kind.sketch())
+        .ok_or(SketchGone)?
+        .gear(gear)
+        .ok_or(GearingError::GearGone)?;
+    let mut transaction = model.document().transaction(EDIT_TRANSACTION);
+    transaction.set_sketch_gear(
+        feature,
+        gear,
+        Gear {
+            centre: held.centre,
+            ..pair.partner.clone()
+        },
+    );
     Ok(transaction.finish())
 }
 
@@ -840,7 +1000,10 @@ impl Gearing {
         if let Some(gear) = self.editing {
             return match part {
                 Some(Ok(Part::Gear(spur))) => update(model, feature, gear, spur).into(),
-                Some(Ok(_)) | None => Outcome::Refused(GearingError::NotRead.into()),
+                Some(Ok(Part::Pair(pair))) => update_meshing(model, feature, gear, pair).into(),
+                Some(Ok(Part::Sprocket(_))) | None => {
+                    Outcome::Refused(GearingError::NotRead.into())
+                }
                 Some(Err(source)) => Outcome::Refused(
                     GearingError::Unusable {
                         source: source.clone(),

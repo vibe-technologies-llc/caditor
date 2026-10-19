@@ -139,15 +139,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
-- [low · medium] A gear pair and a sprocket (`sketch.md`, Spur gears) are drawn once: their
-  curves are free sketch geometry, not tied to the values in the Spur gear panel, so changing the
-  module, teeth or a parameter they use means deleting them and drawing them again. A single gear
-  is stored (`sketch.md`, Gear) and follows its values; a pair would need the partner stored as a
-  gear of its own whose module, pressure angle and root fillet follow the driver's, whose profile
-  shift is the opposite, whose centre sits the standard distance along the line of centres
-  (a constraint the sketch cannot hold without a derived dimension) and whose turn follows the
-  driver's by the tooth ratio, and a sprocket a stored form of its own with the same curve names
-  by gap and segment.
+- [low · medium] A sprocket (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
+  geometry, not tied to the values in the Spur gear panel, so changing the chain, teeth or a
+  parameter they use means deleting it and drawing it again. A gear and the two gears of a pair
+  are stored (`sketch.md`, Gear) and follow their values; a sprocket would need a stored form of
+  its own (the chain designation, teeth, bore and turn as expressions, a record kind and edits
+  beside the gear's, the pieces of `SprocketOutline` named by gap and segment the way
+  `gear_curve` names a gear's) and its panel, MCP and clipboard handling to match.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot

@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use serde_json::json;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{
@@ -190,7 +190,7 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
     let pair = modify(
         &mut client,
         &sketch,
-        json!({ "operation": "gear", "shape": "pair", "teeth": 20, "meshing_teeth": 30, "at": [5, 5] }),
+        json!({ "operation": "gear", "shape": "pair", "teeth": 20, "meshing_teeth": 30, "meshing_direction": "90 deg", "at": [5, 5] }),
     );
     let paired = described(&mut client, &sketch);
     client.tool("undo", json!({}));
@@ -231,19 +231,29 @@ fn gears_pairs_and_sprockets_are_drawn_where_asked() {
     assert_eq!(bored["change"], "Draw spur gear");
     assert_area(solid_area - bored_area, PI * 25.0);
     assert_eq!(pair["change"], "Draw gear pair");
-    let centres: Vec<[f64; 2]> = of_kind(&paired, "circle")
+    let gears = paired["gears"].as_array().unwrap();
+    let partner = gears
         .iter()
-        .filter_map(|circle| circle["at"].as_array())
-        .map(|at| [number(&at[0]), number(&at[1])])
-        .collect();
-    assert!(
-        centres.iter().any(|at| near(*at, [5.0, 5.0])),
-        "{centres:?}"
-    );
-    assert!(
-        centres.iter().any(|at| at[0] > 5.0 && close(at[1], 5.0)),
-        "{centres:?}"
-    );
+        .find(|gear| gear.get("meshes_with").is_some())
+        .unwrap();
+    let driver = gears
+        .iter()
+        .find(|gear| gear.get("meshes_with").is_none())
+        .unwrap();
+    let at = |gear: &Value| {
+        let at = gear["at"].as_array().unwrap();
+        [number(&at[0]), number(&at[1])]
+    };
+    assert_eq!(gears.len(), 2);
+    assert_eq!(partner["meshes_with"], driver["id"]);
+    assert_eq!(driver["meshing_gears"], json!([partner["id"].clone()]));
+    assert!(near(at(driver), [5.0, 5.0]), "{driver}");
+    assert!(near(at(partner), [5.0, 55.0]), "{partner}");
+    assert_eq!(partner["teeth"], "30");
+    assert_eq!(partner["direction"], "90 deg");
+    assert!(partner.get("module").is_none());
+    assert_eq!(partner["values"]["centre_distance"], json!(50.0));
+    assert_eq!(partner["values"]["profile_shift"], json!(0.0));
     assert_eq!(sprocket["change"], "Draw sprocket");
     assert!(chain_area > 0.0);
     assert!(unknown.contains("roller chain"), "{unknown}");

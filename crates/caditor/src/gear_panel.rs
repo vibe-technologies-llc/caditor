@@ -24,6 +24,11 @@ pub const DESCRIPTION: &str = "Choose what to draw and set its values, then clic
 pub const EDITING: &str = "Change the selected gear's values, then update it. Its centre stays \
                            where it is and keeps its constraints. A gear drawn here follows \
                            later changes to the parameters its values use.";
+pub const EDITING_MESHING: &str = "This gear meshes with another and follows it: its module, \
+                                   pressure angle and root fillet are the first gear's, its \
+                                   profile shift the opposite, it turns by the tooth ratio and \
+                                   sits at the standard centre distance. Change its teeth, hole \
+                                   or direction here, and the rest on the first gear.";
 pub const NEW_GEAR: &str = "Draw a new gear instead";
 pub const CHAIN: &str = "Chain";
 pub const CHAIN_ABOUT: &str = "The ISO 606 roller chain the sprocket is cut for: its pitch and \
@@ -75,7 +80,7 @@ pub fn show(
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     settings.load(context.model, context.sketch);
-    let evaluation = settings.evaluate(context.model);
+    let evaluation = settings.evaluate(context.model, context.sketch);
     let editing = settings.editing();
     let centre = context
         .sketch
@@ -111,13 +116,17 @@ pub fn show(
                 })
             });
             widgets::panel_scroll(ui, PANEL.id, |ui| {
-                let about = if editing.is_some() {
-                    EDITING
-                } else {
-                    DESCRIPTION
+                let about = match (editing, settings.kind()) {
+                    (Some(_), GearKind::Meshing) => EDITING_MESHING,
+                    (Some(_), _) => EDITING,
+                    (None, _) => DESCRIPTION,
                 };
                 wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
+                if let Some(note) = editing.and_then(|gear| followers(context.sketch, gear)) {
+                    wrapped(ui, widgets::muted(note, ui));
+                    ui.add_space(SPACE_S);
+                }
                 if editing.is_none() {
                     kinds(ui, settings);
                     ui.add_space(SPACE_S);
@@ -147,6 +156,14 @@ pub fn show(
                 spur,
             )));
         }
+        (Some(Pressed::Primary), Ok(Part::Pair(pair)), Some(gear)) => {
+            actions.push(applied(gearing::update_meshing(
+                context.model,
+                context.feature,
+                gear,
+                pair,
+            )));
+        }
         (Some(Pressed::Primary), Ok(part), None) => {
             let centre = GearCentre::Point(centre.unwrap_or(EntityId::ORIGIN));
             actions.push(applied(gearing::draw(
@@ -159,6 +176,22 @@ pub fn show(
         (Some(Pressed::Primary), ..) | (None, ..) => {}
     }
     actions
+}
+
+fn followers(sketch: Option<&Sketch>, gear: EntityId) -> Option<String> {
+    let sketch = sketch?;
+    let partners = sketch.partners_of(gear);
+    if partners.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = partners
+        .into_iter()
+        .map(|partner| sketch.entity_label(partner))
+        .collect();
+    Some(format!(
+        "{} meshes with it and follows its values.",
+        names.join(", ")
+    ))
 }
 
 fn applied(outcome: Result<Transaction, GearingError>) -> Action {
@@ -248,10 +281,10 @@ fn circles(ui: &mut Ui, part: &Part, unit: Units) {
             ]
         }
         Part::Pair(pair) => {
-            let first = pair.driver.circles();
-            let second = pair.partner().circles();
+            let first = pair.placing.driver.circles();
+            let second = pair.placing.partner().circles();
             vec![
-                ("Centre distance", pair.centre_distance()),
+                ("Centre distance", pair.placing.centre_distance()),
                 ("Pitch diameter", 2.0 * first.pitch),
                 ("Tip diameter", 2.0 * first.tip),
                 ("Meshing pitch diameter", 2.0 * second.pitch),

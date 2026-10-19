@@ -891,7 +891,26 @@ impl Sketch {
         self.gear_values
             .get(&id)
             .copied()
-            .or_else(|| self.gears.get(&id)?.literal_values())
+            .or_else(|| self.literal_gear_values(id))
+    }
+
+    fn literal_gear_values(&self, id: EntityId) -> Option<GearValues> {
+        let gear = self.gears.get(&id)?;
+        match gear.driver() {
+            None => gear.literal_values(),
+            Some(driver) => {
+                let driver = self.gears.get(&driver)?.literal_values()?;
+                gear.literal_meshed_values(&driver)
+            }
+        }
+    }
+
+    pub fn partners_of(&self, driver: EntityId) -> Vec<EntityId> {
+        self.gears
+            .iter()
+            .filter(|(_, gear)| gear.driver() == Some(driver))
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     pub fn gear_outline(&self, id: EntityId) -> Option<GearOutline> {
@@ -912,7 +931,7 @@ impl Sketch {
     }
 
     pub fn add_parametric_gear(&mut self, gear: Gear) -> Result<EntityId, SketchError> {
-        self.check_gear(&gear)?;
+        self.check_gear(None, &gear)?;
         let id = EntityId::from_raw(self.allocate());
         self.count_uses(&[gear.centre], true);
         self.gears.insert(id, gear);
@@ -921,7 +940,7 @@ impl Sketch {
 
     pub fn insert_gear(&mut self, id: EntityId, gear: Gear) -> Result<(), SketchError> {
         self.check_new_id(id.raw())?;
-        self.check_gear(&gear)?;
+        self.check_gear(Some(id), &gear)?;
         self.count_uses(&[gear.centre], true);
         self.gears.insert(id, gear);
         self.reserve_ids_below(id.raw().saturating_add(1));
@@ -929,6 +948,12 @@ impl Sketch {
     }
 
     pub fn remove_gear(&mut self, id: EntityId) -> Result<Gear, SketchError> {
+        if !self.partners_of(id).is_empty() {
+            return Err(SketchError::InUse {
+                entity: id,
+                label: self.entity_label(id),
+            });
+        }
         let removed = self
             .gears
             .remove(&id)
@@ -940,25 +965,51 @@ impl Sketch {
 
     pub fn replace_gear(&mut self, id: EntityId, gear: Gear) -> Result<Gear, SketchError> {
         let current = self.gears.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
-        if current.centre != gear.centre {
+        if current.centre != gear.centre || current.driver() != gear.driver() {
             return Err(SketchError::ChangesStructure {
                 entity: id,
                 label: self.entity_label(id),
             });
         }
-        self.check_gear(&gear)?;
+        self.check_gear(Some(id), &gear)?;
         self.gear_values.remove(&id);
         self.gears
             .insert(id, gear)
             .ok_or(SketchError::NoSuchEntity(id))
     }
 
-    fn check_gear(&self, gear: &Gear) -> Result<(), SketchError> {
+    fn check_gear(&self, id: Option<EntityId>, gear: &Gear) -> Result<(), SketchError> {
         match self.entities.get(&gear.centre) {
-            Some(Entity::Point(_)) => Ok(()),
-            Some(_) => Err(SketchError::NotAPoint(gear.centre)),
-            None => Err(SketchError::MissingEntity(gear.centre)),
+            Some(Entity::Point(_)) => {}
+            Some(_) => return Err(SketchError::NotAPoint(gear.centre)),
+            None => return Err(SketchError::MissingEntity(gear.centre)),
         }
+        if let Some(driver) = gear.driver() {
+            let held = self
+                .gears
+                .get(&driver)
+                .ok_or(SketchError::MissingEntity(driver))?;
+            if Some(driver) == id {
+                return Err(SketchError::SameEntity {
+                    entity: driver,
+                    label: self.entity_label(driver),
+                });
+            }
+            if held.meshing.is_some() {
+                return Err(SketchError::WrongKind {
+                    entity: driver,
+                    found: self.entity_label(driver),
+                    needed: "a gear that does not mesh with another",
+                });
+            }
+            if held.centre == gear.centre {
+                return Err(SketchError::SameEntity {
+                    entity: gear.centre,
+                    label: self.entity_label(gear.centre),
+                });
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn set_gear_values(&mut self, values: &BTreeMap<EntityId, GearValues>) {
@@ -1879,13 +1930,26 @@ impl Sketch {
             texts.insert(*id, size);
         }
         let mut gears = BTreeMap::new();
-        for (id, gear) in &self.gears {
+        for (id, gear) in self.gears.iter().filter(|(_, gear)| gear.meshing.is_none()) {
             let failed = |reason| SketchError::Gear {
                 gear: *id,
                 label: self.entity_label(*id),
                 reason,
             };
             gears.insert(*id, gear.values(value_of).map_err(failed)?);
+        }
+        for (id, gear) in self.gears.iter().filter(|(_, gear)| gear.meshing.is_some()) {
+            let failed = |reason| SketchError::Gear {
+                gear: *id,
+                label: self.entity_label(*id),
+                reason,
+            };
+            let driver = gear
+                .driver()
+                .and_then(|driver| gears.get(&driver))
+                .ok_or_else(|| failed(GearValueError::DriverUnknown))?;
+            let values = gear.meshed_values(driver, value_of).map_err(failed)?;
+            gears.insert(*id, values);
         }
         Ok(DimensionValues {
             values,

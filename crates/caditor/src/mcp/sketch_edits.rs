@@ -115,6 +115,14 @@ pub enum SketchEditError {
     Gear(GearError),
     #[error("the gear cannot take those values: {0}")]
     GearValues(GearValueError),
+    #[error("{gear} follows {driver}, so its {field} cannot be set: change {driver} instead")]
+    Followed {
+        gear: String,
+        driver: String,
+        field: &'static str,
+    },
+    #[error("{gear} does not mesh with another gear, so it has no direction to set")]
+    NoDirection { gear: String },
     #[error("the text cannot take those values: {0}")]
     TextValues(TextError),
     #[error("the text cannot be written: {0}")]

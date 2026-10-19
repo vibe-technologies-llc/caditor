@@ -53,8 +53,9 @@ first, so two programs never change one model at once.
   point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)), adds a
   control point to a [spline](spline),
   draws a [tangent circle](tangent-circle), a [blend curve](blend-curve), [text](text) and
-  a [spur gear](gear), gear pair or sprocket, changes the values of a gear or a text already
-  drawn (numbers or expressions naming parameters) and copies geometry with its constraints within a sketch or from
+  a [spur gear](gear), gear pair (two gears, the second following the first) or sprocket, changes
+  the values of a gear or a text already drawn (numbers or expressions naming parameters; a
+  second gear takes only its teeth, bore and direction) and copies geometry with its constraints within a sketch or from
   another, as [copy and paste](move-and-copy) do.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
   a new body as their tools do unless told. An extrusion can run up to the next face, a plane or a

@@ -334,6 +334,7 @@ fn a_copied_gear_crosses_the_clipboard_with_its_parameters_written_out_elsewhere
             root_fillet: Expression::measure(0.5, Unit::Millimetre),
             bore: Expression::measure(6.0, Unit::Millimetre),
             turn: Expression::measure(10.0, Unit::Degree),
+            meshing: None,
         })
         .unwrap();
     let clip = sketch.clip(&[gear]).unwrap();

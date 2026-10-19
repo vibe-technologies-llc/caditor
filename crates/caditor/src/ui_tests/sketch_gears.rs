@@ -205,8 +205,27 @@ fn circle_centres(sketch: &Sketch, construction: bool) -> Vec<(Point2, f64)> {
         .collect()
 }
 
+fn pair_ids(sketch: &Sketch) -> (EntityId, EntityId) {
+    let gears: Vec<(EntityId, bool)> = sketch
+        .gears()
+        .map(|(id, gear)| (id, gear.meshing.is_some()))
+        .collect();
+    assert_eq!(gears.len(), 2, "{gears:?}");
+    let driver = gears.iter().find(|(_, meshing)| !meshing).unwrap().0;
+    let partner = gears.iter().find(|(_, meshing)| *meshing).unwrap().0;
+    (driver, partner)
+}
+
+fn centres_apart(harness: &Harness, feature: caditor_document::FeatureId) -> Point2 {
+    let shown = harness.shown(feature);
+    let (driver, partner) = pair_ids(harness.sketch(feature));
+    let at = |gear: EntityId| shown.gear_outline(gear).unwrap().centre;
+    Point2::ZERO + (at(partner) - at(driver))
+}
+
 #[test]
-fn a_gear_pair_is_drawn_at_the_centre_distance_and_a_meshing_gear_that_cannot_be_cut_is_refused() {
+fn a_gear_pair_is_stored_as_two_gears_at_the_centre_distance_and_a_meshing_gear_that_cannot_be_cut_is_refused()
+ {
     let mut harness = Harness::new();
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
     let before = harness.sketch(feature).clone();
@@ -214,6 +233,7 @@ fn a_gear_pair_is_drawn_at_the_centre_distance_and_a_meshing_gear_that_cannot_be
     run_from_palette(&mut harness, SPUR_GEAR);
     harness.click("Gear pair");
     assert!(harness.shows(GearField::PairTeeth.label()));
+    assert!(harness.shows(GearField::Direction.label()));
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "8");
     assert!(harness.shows_containing("The meshing gear: 8 teeth are undercut"));
     harness.click_at(CENTRE);
@@ -222,6 +242,7 @@ fn a_gear_pair_is_drawn_at_the_centre_distance_and_a_meshing_gear_that_cannot_be
 
     harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "15 * 2");
     harness.type_into_field(gear_panel::field_id(GearField::PairBore), "6 mm");
+    harness.type_into_field(gear_panel::field_id(GearField::Direction), "90 deg");
     harness.point_at(CENTRE);
     assert!(harness.shows_containing("Gear pair of 20 and 30 teeth"));
     assert!(harness.shows_containing("centres 50 mm apart"));
@@ -229,37 +250,126 @@ fn a_gear_pair_is_drawn_at_the_centre_distance_and_a_meshing_gear_that_cannot_be
     harness.settle();
 
     let sketch = harness.sketch(feature);
-    let pitch_circles: Vec<(Point2, f64)> = circle_centres(sketch, true)
-        .into_iter()
-        .filter(|(_, radius)| (radius - 20.0).abs() < 1e-9 || (radius - 30.0).abs() < 1e-9)
-        .collect();
-    assert_eq!(entities_of_kind(sketch, "Spline").len(), 2 * (20 + 30));
-    assert_eq!(construction_circles(sketch), 8);
-    assert_eq!(circle_centres(sketch, false).len(), 1);
-    assert!(sketch.open_ends().is_empty());
-    assert_eq!(pitch_circles.len(), 2);
-    let apart = pitch_circles
-        .iter()
-        .map(|(centre, _)| centre.x)
-        .fold((f64::MAX, f64::MIN), |(low, high), x| {
-            (low.min(x), high.max(x))
-        });
-    assert!((apart.1 - apart.0 - 50.0).abs() < 1e-9);
-    assert!(
-        pitch_circles
-            .iter()
-            .all(|(centre, _)| (centre.y - pitch_circles[0].0.y).abs() < 1e-9)
-    );
-    assert!(
-        pitch_circles
-            .iter()
-            .any(|(centre, radius)| centre.distance(CENTRE) < PLACED_WITHIN && *radius == 20.0)
-    );
+    let (driver, partner) = pair_ids(sketch);
+    let held = sketch.gear(partner).unwrap();
+    let shown = harness.shown(feature);
+    let first = shown.gear_outline(driver).unwrap();
+    let second = shown.gear_outline(partner).unwrap();
+    assert_eq!(held.driver(), Some(driver));
+    assert_eq!(harness.document().expression_text(&held.teeth), "15 * 2");
+    assert_eq!(harness.document().expression_text(&held.bore), "6 mm");
+    assert_eq!(sketch.entities().len(), 2);
+    assert_eq!(entities_of_kind(sketch, "Spline").len(), 0);
+    assert!(first.centre.distance(CENTRE) < PLACED_WITHIN);
+    assert!((second.centre - first.centre).length() - 50.0 < 1e-6);
+    assert!((second.centre.x - first.centre.x).abs() < 1e-6);
+    assert!((second.centre.y - first.centre.y - 50.0).abs() < 1e-6);
+    assert_eq!(second.teeth, 30);
     assert_eq!(harness.model.undo_label(), Some(gearing::PAIR_TRANSACTION));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn editing_the_first_gear_of_a_pair_moves_and_reshapes_the_one_that_follows() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Gear pair");
+    harness.click_at(CENTRE);
+    harness.settle();
+    let (driver, partner) = pair_ids(harness.sketch(feature));
+    assert!((centres_apart(&harness, feature).x - 50.0).abs() < 1e-6);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: driver,
+    }]);
+    run_from_palette(&mut harness, SPUR_GEAR);
+    assert!(harness.shows_containing("meshes with it and follows its values"));
+    harness.type_into_field(gear_panel::field_id(GearField::Module), "3 mm");
+    harness.type_into_field(gear_panel::field_id(GearField::ProfileShift), "0.25");
+    harness.click(&gear_panel::update_label(
+        Some(harness.sketch(feature)),
+        driver,
+    ));
+    harness.settle();
+
+    let shown = harness.shown(feature);
+    let values = shown.gear_values(partner).unwrap();
+    assert!((centres_apart(&harness, feature).x - 75.0).abs() < 1e-6);
+    assert_eq!(values.spur.module, 3.0);
+    assert_eq!(values.spur.profile_shift, -0.25);
+    assert_eq!(harness.model.undo_label(), Some(gearing::EDIT_TRANSACTION));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+    assert!((centres_apart(&harness, feature).x - 50.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_meshing_gear_is_edited_for_its_teeth_and_direction_and_refuses_what_it_follows() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Gear pair");
+    harness.click_at(CENTRE);
+    harness.settle();
+    let (_, partner) = pair_ids(harness.sketch(feature));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: partner,
+    }]);
+    run_from_palette(&mut harness, SPUR_GEAR);
+    assert!(harness.shows(gear_panel::EDITING_MESHING));
+    assert!(!harness.shows(GearField::Module.label()));
+    harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "8");
+    assert!(harness.shows_containing("The meshing gear: 8 teeth are undercut"));
+    harness.type_into_field(gear_panel::field_id(GearField::PairTeeth), "40");
+    harness.type_into_field(gear_panel::field_id(GearField::Direction), "180 deg");
+    harness.click(&gear_panel::update_label(
+        Some(harness.sketch(feature)),
+        partner,
+    ));
+    harness.settle();
+
+    let apart = centres_apart(&harness, feature);
+    assert!((apart.x + 60.0).abs() < 1e-6, "{apart:?}");
+    assert!(apart.y.abs() < 1e-6);
+}
+
+#[test]
+fn deleting_the_first_gear_of_a_pair_takes_the_other_and_both_centres() {
+    let mut harness = Harness::new();
+    let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+    harness.click("Gear pair");
+    harness.click_at(CENTRE);
+    harness.settle();
+    let (driver, _) = pair_ids(harness.sketch(feature));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: driver,
+    }]);
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.settle();
+    let sketch = harness.sketch(feature);
+    assert_eq!(sketch.gears().len(), 0);
+    assert_eq!(sketch.entities().len(), 0);
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(harness.sketch(feature).gears().len(), 2);
 }
 
 #[test]

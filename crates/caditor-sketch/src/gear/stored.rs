@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 
-use super::{GearError, MAX_TEETH, MIN_TEETH, SpurGear};
+use super::{GearError, GearPair, MAX_TEETH, MIN_TEETH, SpurGear};
 use crate::{
     id::EntityId,
     text::{GEAR_CURVES, LETTER_CURVES, TEXT_BITS},
@@ -24,12 +24,27 @@ pub struct Gear {
     pub root_fillet: Expression,
     pub bore: Expression,
     pub turn: Expression,
+    pub meshing: Option<Meshing>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Meshing {
+    pub driver: EntityId,
+    pub direction: Expression,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeshPlacement {
+    pub driver: EntityId,
+    pub distance: f64,
+    pub direction: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GearValues {
     pub spur: SpurGear,
     pub turn: f64,
+    pub placement: Option<MeshPlacement>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -52,6 +67,12 @@ pub enum GearValueError {
     Turn(EvalError),
     #[error("its turn is too large to use")]
     TurnNotFinite,
+    #[error("its direction cannot be worked out: {0}")]
+    Direction(EvalError),
+    #[error("its direction is too large to use")]
+    DirectionNotFinite,
+    #[error("the gear it meshes with is not known")]
+    DriverUnknown,
     #[error("{0}")]
     Build(Box<GearError>),
 }
@@ -65,7 +86,8 @@ impl GearValueError {
             | Self::ProfileShift(error)
             | Self::RootFillet(error)
             | Self::Bore(error)
-            | Self::Turn(error) => Some(error),
+            | Self::Turn(error)
+            | Self::Direction(error) => Some(error),
             _ => None,
         }
     }
@@ -86,28 +108,58 @@ impl GearValueError {
 }
 
 impl Gear {
-    pub fn expressions(&self) -> [&Expression; 7] {
-        [
-            &self.module,
-            &self.teeth,
-            &self.pressure_angle,
-            &self.profile_shift,
-            &self.root_fillet,
-            &self.bore,
-            &self.turn,
-        ]
+    pub fn meshed(
+        centre: EntityId,
+        driver: EntityId,
+        teeth: Expression,
+        bore: Expression,
+        direction: Expression,
+    ) -> Self {
+        Self {
+            centre,
+            module: Expression::measure(0.0, Unit::Millimetre),
+            teeth,
+            pressure_angle: Expression::measure(0.0, Unit::Degree),
+            profile_shift: Expression::number(0.0),
+            root_fillet: Expression::measure(0.0, Unit::Millimetre),
+            bore,
+            turn: Expression::measure(0.0, Unit::Degree),
+            meshing: Some(Meshing { driver, direction }),
+        }
     }
 
-    pub fn expressions_mut(&mut self) -> [&mut Expression; 7] {
-        [
-            &mut self.module,
-            &mut self.teeth,
-            &mut self.pressure_angle,
-            &mut self.profile_shift,
-            &mut self.root_fillet,
-            &mut self.bore,
-            &mut self.turn,
-        ]
+    pub fn driver(&self) -> Option<EntityId> {
+        self.meshing.as_ref().map(|meshing| meshing.driver)
+    }
+
+    pub fn expressions(&self) -> Vec<&Expression> {
+        match &self.meshing {
+            None => vec![
+                &self.module,
+                &self.teeth,
+                &self.pressure_angle,
+                &self.profile_shift,
+                &self.root_fillet,
+                &self.bore,
+                &self.turn,
+            ],
+            Some(meshing) => vec![&self.teeth, &self.bore, &meshing.direction],
+        }
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match &mut self.meshing {
+            None => vec![
+                &mut self.module,
+                &mut self.teeth,
+                &mut self.pressure_angle,
+                &mut self.profile_shift,
+                &mut self.root_fillet,
+                &mut self.bore,
+                &mut self.turn,
+            ],
+            Some(meshing) => vec![&mut self.teeth, &mut self.bore, &mut meshing.direction],
+        }
     }
 
     pub fn heap_size(&self) -> usize {
@@ -134,6 +186,9 @@ impl Gear {
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
     {
+        if self.meshing.is_some() {
+            return Err(GearValueError::DriverUnknown);
+        }
         let module = self
             .module
             .evaluate_as(Dimension::LENGTH, value_of)
@@ -175,11 +230,65 @@ impl Gear {
         };
         spur.check()
             .map_err(|error| GearValueError::Build(Box::new(error)))?;
-        Ok(GearValues { spur, turn })
+        Ok(GearValues {
+            spur,
+            turn,
+            placement: None,
+        })
+    }
+
+    pub fn meshed_values<F>(
+        &self,
+        driver: &GearValues,
+        value_of: &F,
+    ) -> Result<GearValues, GearValueError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        let meshing = self.meshing.as_ref().ok_or(GearValueError::DriverUnknown)?;
+        let teeth = self
+            .teeth
+            .evaluate_as(Dimension::NONE, value_of)
+            .map_err(GearValueError::Teeth)?;
+        let bore = self
+            .bore
+            .evaluate_as(Dimension::LENGTH, value_of)
+            .map_err(GearValueError::Bore)?;
+        let direction = meshing
+            .direction
+            .evaluate_as(Dimension::ANGLE, value_of)
+            .map_err(GearValueError::Direction)?;
+        if !direction.is_finite() {
+            return Err(GearValueError::DirectionNotFinite);
+        }
+        let pair = GearPair {
+            driver: driver.spur,
+            partner_teeth: whole_teeth(teeth)?,
+            partner_bore: bore,
+            direction: direction.to_radians(),
+        };
+        let spur = pair.partner();
+        spur.check().map_err(|error| {
+            GearValueError::Build(Box::new(GearError::Partner(Box::new(error))))
+        })?;
+        Ok(GearValues {
+            spur,
+            turn: pair.partner_turn(driver.turn.to_radians()).to_degrees(),
+            placement: Some(MeshPlacement {
+                driver: meshing.driver,
+                distance: pair.centre_distance(),
+                direction,
+            }),
+        })
     }
 
     pub fn literal_values(&self) -> Option<GearValues> {
         self.values(&|_| Err(EvalError::ParameterMissing)).ok()
+    }
+
+    pub fn literal_meshed_values(&self, driver: &GearValues) -> Option<GearValues> {
+        self.meshed_values(driver, &|_| Err(EvalError::ParameterMissing))
+            .ok()
     }
 }
 

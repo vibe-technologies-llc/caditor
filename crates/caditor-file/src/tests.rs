@@ -2154,6 +2154,7 @@ fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
             root_fillet: Expression::Measure(0.4, Unit::Millimetre),
             bore: Expression::Measure(5.0, Unit::Millimetre),
             turn: Expression::Measure(12.0, Unit::Degree),
+            meshing: None,
         },
     );
     document.apply(transaction.finish()).unwrap();
@@ -2184,6 +2185,73 @@ fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
     );
     assert_eq!(held.turn, Expression::Measure(0.0, Unit::Degree));
     assert_eq!(held.teeth, Expression::Parameter(count));
+}
+
+#[test]
+fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_with_a_report() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Pair");
+    let count = transaction.add_parameter("teeth", transaction.parse("30").unwrap());
+    let sketch = transaction.add_feature("Pair", FeatureKind::from(Sketch::new(Plane::XY)));
+    let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+    let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(50.0, 0.0)));
+    let driver = transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            centre: first,
+            module: Expression::Measure(2.0, Unit::Millimetre),
+            teeth: Expression::Number(20.0),
+            pressure_angle: Expression::Measure(20.0, Unit::Degree),
+            profile_shift: Expression::Number(0.0),
+            root_fillet: Expression::Measure(0.5, Unit::Millimetre),
+            bore: Expression::Measure(0.0, Unit::Millimetre),
+            turn: Expression::Measure(0.0, Unit::Degree),
+            meshing: None,
+        },
+    );
+    let partner = transaction.add_sketch_gear(
+        sketch,
+        Gear::meshed(
+            second,
+            driver,
+            Expression::Parameter(count),
+            Expression::Measure(6.0, Unit::Millimetre),
+            Expression::Measure(15.0, Unit::Degree),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"meshed_gear\":{", "\"meshed_gearr\":{"));
+    let damaged = decode_text(&written.replace("\"15 deg\"", "\"15 ((\""));
+    let held = damaged
+        .document
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(partner))
+        .cloned()
+        .unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(written.contains("\"meshed_gear\""), "{written}");
+    assert!(
+        older.issues.join(" ").contains("(meshed_gearr)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        damaged.issues.join(" ").contains("the direction of Gear"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(held.driver(), Some(driver));
+    assert_eq!(held.teeth, Expression::Parameter(count));
+    assert_eq!(
+        held.meshing.map(|meshing| meshing.direction),
+        Some(Expression::Measure(0.0, Unit::Degree))
+    );
 }
 
 #[test]

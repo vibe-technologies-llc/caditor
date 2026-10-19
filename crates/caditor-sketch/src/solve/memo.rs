@@ -27,6 +27,7 @@ struct Key {
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
     weights: Vec<(EntityId, Vec<u64>)>,
+    meshes: Vec<(EntityId, EntityId, u64, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -366,9 +367,25 @@ impl Key {
                 ))
             })
             .collect();
+        let meshes = system
+            .meshes
+            .iter()
+            .filter(|mesh| {
+                entities.contains(&mesh.partner_centre) || entities.contains(&mesh.driver_centre)
+            })
+            .map(|mesh| {
+                (
+                    mesh.driver_centre,
+                    mesh.partner_centre,
+                    mesh.distance.to_bits(),
+                    mesh.direction.to_bits(),
+                )
+            })
+            .collect();
         Some(Self {
             scale: system.context_of(component).scale.to_bits(),
             weights,
+            meshes,
             entities,
             constraints: constraints
                 .into_iter()

@@ -455,11 +455,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   height like a length dimension; inlining a parameter rewrites a text's height and angle.
 - `Edit::AddSketchGear`, `RemoveSketchGear` and `SetSketchGear` (`TransactionBuilder::add_sketch_gear`,
   `set_sketch_gear`) do the same for a stored gear (`sketch.md`, Gear), checking the parameters any
-  of its seven expressions use. `remove_sketch_items` and `reshape_sketch` treat gears as texts,
-  a lone centre shared by texts and gears going only when all its users do. Model scale scales a
-  gear's module, root fillet and bore like length dimensions and leaves its counts and angles;
-  inlining a parameter rewrites all seven. A gear whose values cannot make one fails its sketch
-  (`SketchCause::Gear`) naming it, fixing the parameter when one failed.
+  of its expressions use (seven for a free gear, the three of a meshing one). `remove_sketch_items`
+  and `reshape_sketch` treat gears as texts, a lone centre shared by texts and gears going only
+  when all its users do. A removal also takes the meshing gears of every gear it takes, and gears
+  are removed partners first (`partners_first`) because `Sketch::remove_gear` refuses a driver
+  with partners; `reshape_sketch` renews a partner whose driver is renewed (a replaced centre) and
+  adds drivers before partners, so an undo, a journal and a reshape replay in an order the sketch
+  accepts. Model scale scales a gear's module, root fillet and bore like length dimensions and
+  leaves its counts and angles (a meshing gear's bore only, the rest follows its driver);
+  inlining a parameter rewrites every expression it stores. A gear whose values cannot make one
+  fails its sketch (`SketchCause::Gear`) naming it, fixing the parameter when one failed; a
+  partner that cannot be cut names itself and the meshing problem.
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with
   everything using it, its `split_from` included. `settle_sketch` moves the definition to a solved
