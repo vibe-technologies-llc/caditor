@@ -945,6 +945,10 @@ pub(crate) struct EmbossRecord {
     pub faces: Vec<Lenient<FaceRecord>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recessed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regions: Option<RegionsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3511,6 +3515,11 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
             recessed: !emboss.form.is_raised(),
+            regions: match &emboss.regions {
+                RegionChoice::All => None,
+                chosen @ RegionChoice::Chosen(_) => Some(regions_record(chosen)),
+            },
+            region_references: region_references_record(&emboss.regions),
         })),
         FeatureKind::ReplaceFace(replace) => {
             FeatureKindRecord::ReplaceFace(Box::new(ReplaceFaceRecord {
@@ -9031,6 +9040,12 @@ fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>
         body: FeatureId::from_raw(record.body),
         faces,
         sketch: record.sketch.map(FeatureId::from_raw),
+        regions: restore_regions(
+            record.regions.as_ref().unwrap_or(&RegionsRecord::All),
+            &record.region_references,
+            feature,
+            issues,
+        ),
         depth,
         form: if record.recessed {
             EmbossForm::Recessed

@@ -347,10 +347,7 @@ pub(crate) fn evaluate(
         draft,
         side: definition.side,
         direction: definition.direction,
-        ends: match definition.direction {
-            RibDirection::Square => definition.ends,
-            RibDirection::Parallel => RibEnds::Straight,
-        },
+        ends: definition.ends,
         reversed: definition.reversed,
         feature: feature.id().raw(),
     };

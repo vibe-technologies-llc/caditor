@@ -20,6 +20,8 @@ pub const DESCRIPTION: &str = "Shifts the chosen faces along a direction and til
                                axis, the faces beside them following";
 pub const SQUARE_TO_FACE: &str = "Square to a flat face";
 pub const NO_TILT: &str = "None: no tilt";
+pub const DISTANCE: &str = "Distance";
+pub const ANGLE: &str = "Angle";
 const DIRECTION: &str = "Direction";
 const TILT_AXIS: &str = "Tilt about";
 const DIRECTION_HOVER: &str =
@@ -133,8 +135,8 @@ impl Panel<'_, '_> {
     fn value_row(&mut self, ui: &mut Ui, reference: Reference) {
         let (id, moving) = (self.id(), self.row.moving);
         let (caption, expression, dimension, rule) = match reference {
-            Reference::Direction => ("Distance", &moving.distance, Dimension::LENGTH, Rule::Any),
-            Reference::Axis => ("Angle", &moving.angle, Dimension::ANGLE, Rule::Any),
+            Reference::Direction => (DISTANCE, &moving.distance, Dimension::LENGTH, Rule::Any),
+            Reference::Axis => (ANGLE, &moving.angle, Dimension::ANGLE, Rule::Any),
         };
         let quantity = Quantity {
             feature: id,

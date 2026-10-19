@@ -2,7 +2,7 @@ use std::fmt;
 
 use caditor_document::{Document, Evaluation, Feature, FeatureId, SolidResult};
 use caditor_kernel::{FaceId, FaceName};
-use caditor_sketch::{EntityId, Reference, Sketch};
+use caditor_sketch::{EntityId, Gear, Reference, Sketch, Text};
 use serde::Deserialize;
 
 use crate::bodies::{self, FaceKey};
@@ -58,6 +58,10 @@ pub enum ReferenceError {
          horizontal_axis and vertical_axis name the sketch's own"
     )]
     NoEntity { sketch: String, entity: EntityName },
+    #[error("{sketch} has no gear {gear}; get_sketch lists its gears")]
+    NoGear { sketch: String, gear: EntityName },
+    #[error("{sketch} has no text {text}; get_sketch lists its texts")]
+    NoText { sketch: String, text: EntityName },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -189,6 +193,52 @@ pub fn entity(
     } else {
         Err(missing())
     }
+}
+
+impl EntityName {
+    fn raw(&self) -> Option<u64> {
+        match self {
+            Self::Id(id) => Some(*id),
+            Self::Name(name) => name.trim().parse().ok(),
+        }
+    }
+}
+
+pub fn gear<'s>(
+    sketch_name: &str,
+    sketch: &'s Sketch,
+    named: &EntityName,
+) -> Result<(EntityId, &'s Gear), ReferenceError> {
+    let id = named.raw().map(EntityId::from_raw);
+    id.and_then(|id| Some((id, sketch.gear(id)?)))
+        .ok_or_else(|| ReferenceError::NoGear {
+            sketch: sketch_name.to_owned(),
+            gear: named.clone(),
+        })
+}
+
+pub fn text<'s>(
+    sketch_name: &str,
+    sketch: &'s Sketch,
+    named: &EntityName,
+) -> Result<(EntityId, &'s Text), ReferenceError> {
+    let id = named.raw().map(EntityId::from_raw);
+    id.and_then(|id| Some((id, sketch.text(id)?)))
+        .ok_or_else(|| ReferenceError::NoText {
+            sketch: sketch_name.to_owned(),
+            text: named.clone(),
+        })
+}
+
+pub fn removable(
+    sketch_name: &str,
+    sketch: &Sketch,
+    named: &EntityName,
+) -> Result<EntityId, ReferenceError> {
+    gear(sketch_name, sketch, named)
+        .map(|(id, _)| id)
+        .or_else(|_| text(sketch_name, sketch, named).map(|(id, _)| id))
+        .or_else(|_| entity(sketch_name, sketch, named))
 }
 
 pub fn entity_name(id: EntityId) -> serde_json::Value {

@@ -44,7 +44,12 @@ decision recorded in `docs/` before work starts.
   small token-exchange service; a secret is never shipped in the binary. The same run should
   confirm sending (`cloud.md`): that `POST /blobelements/d/{did}/w/{wid}` with `file`,
   `encodedFilename`, `translate=false` and `storeInDocument=true` stores the STEP file as a blob
-  element named after the file, and that the same call on `/e/{eid}` updates it.
+  element named after the file, and that the same call on `/e/{eid}` updates it. It should also
+  confirm the Part Studio send (`translate=true`, `formatName=STEP`, `storeInDocument=false` makes
+  a Part Studio whose id the polled translation lists in `resultElementIds`), and that a blob's
+  `microversionId` in an elements listing matches the `microversionId` of an entry of
+  `/documents/d/{did}/w/{wid}/documenthistory`, whose `date` the manager shows for it (Onshape's
+  published element record has no date of its own).
 - [medium · medium] In-app assistant connection (`FEATURES.md`, Application): which transport the
   running app listens on for MCP clients (a local socket or named pipe per user, or streamable
   HTTP on localhost with a token), whether connecting needs a click in the app every time or once

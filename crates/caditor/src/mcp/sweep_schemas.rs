@@ -301,7 +301,7 @@ pub fn rib() -> Value {
             "side": choice(&["symmetric", "one_side", "other_side"], "Which side of the curves the thickness lies"),
             "direction": choice(&["parallel", "square"], "Grow within the sketch plane or square to it"),
             "draft": amount("A rib's or web's draft, such as \"1 deg\": it widens by it toward the body; a rib parallel to the sketch takes at least 0.1 deg"),
-            "ends": choice(&["straight", "round_arcs"], "A web's free arc ends run on straight (the default) or round their circles"),
+            "ends": choice(&["straight", "round_arcs"], "A rib's or web's free arc ends run on straight (the default) or round their circles until they meet the body"),
             "reversed": flag("Grow towards the other side"),
             "name": name()
         }),
@@ -361,6 +361,7 @@ pub fn emboss() -> Value {
             "body": reference("The body, by id or name"),
             "faces": keys("Face keys from list_faces: flat faces of one plane, or faces of one cylinder or cone"),
             "sketch": reference("The sketch of closed outlines or text; lying parallel to a flat face, or on a plane along the axis of a round one"),
+            "regions": regions(),
             "depth": amount("How far the outlines stand out or sink in, such as \"0.5 mm\""),
             "form": choice(&["raise", "recess"], "Raise the outlines from the faces (the default) or recess them into the faces"),
             "name": name()

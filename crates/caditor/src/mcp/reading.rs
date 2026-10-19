@@ -11,7 +11,7 @@ use caditor_render::{
     Background, GraphicsSettings, ImageError, ImageRequest, OffscreenRenderer,
     RenderError as AdapterError, SurfaceSize, Viewpoint,
 };
-use caditor_sketch::{Entity, FitSpacing, Sketch, SplineKind};
+use caditor_sketch::{Entity, FitSpacing, Sketch, SplineKind, TextAlign};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -566,6 +566,14 @@ pub fn sketch(
         }
     }
     answer.insert("entities".to_owned(), Value::Array(entities(shown)));
+    let gears = gears(document, definition, shown);
+    if !gears.is_empty() {
+        answer.insert("gears".to_owned(), Value::Array(gears));
+    }
+    let texts = texts(document, definition, shown);
+    if !texts.is_empty() {
+        answer.insert("texts".to_owned(), Value::Array(texts));
+    }
     if let Some(regions) = selection::sketch_regions(evaluation, feature.id()) {
         answer.insert("regions".to_owned(), Value::Array(regions_listed(regions)));
     }
@@ -606,6 +614,87 @@ fn lies_on(document: &Document, feature: &Feature, definition: &Sketch) -> Strin
             || "a plane of its own".to_owned(),
             |principal| principal.name().to_owned(),
         )
+}
+
+fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value> {
+    definition
+        .gears()
+        .map(|(id, gear)| {
+            let mut entry = Map::new();
+            entry.insert("id".to_owned(), json!(id.raw()));
+            entry.insert("label".to_owned(), json!(definition.entity_label(id)));
+            entry.insert("center".to_owned(), entity_name(gear.centre));
+            if let Some(at) = shown.point(gear.centre) {
+                entry.insert("at".to_owned(), point2(at));
+            }
+            let expressions = [
+                ("module", &gear.module),
+                ("teeth", &gear.teeth),
+                ("pressure_angle", &gear.pressure_angle),
+                ("profile_shift", &gear.profile_shift),
+                ("root_fillet", &gear.root_fillet),
+                ("bore", &gear.bore),
+                ("turn", &gear.turn),
+            ];
+            for (name, expression) in expressions {
+                entry.insert(name.to_owned(), json!(document.expression_text(expression)));
+            }
+            if let Some(values) = shown.gear_values(id) {
+                entry.insert(
+                    "values".to_owned(),
+                    json!({
+                        "module": rounded(values.spur.module),
+                        "teeth": values.spur.teeth,
+                        "pressure_angle": rounded(values.spur.pressure_angle),
+                        "profile_shift": rounded(values.spur.profile_shift),
+                        "root_fillet": rounded(values.spur.root_fillet),
+                        "bore": rounded(values.spur.bore),
+                        "turn": rounded(values.turn),
+                    }),
+                );
+            }
+            Value::Object(entry)
+        })
+        .collect()
+}
+
+fn texts(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value> {
+    definition
+        .texts()
+        .map(|(id, text)| {
+            let mut entry = Map::new();
+            entry.insert("id".to_owned(), json!(id.raw()));
+            entry.insert("label".to_owned(), json!(definition.entity_label(id)));
+            entry.insert("anchor".to_owned(), entity_name(text.anchor));
+            if let Some(at) = shown.point(text.anchor) {
+                entry.insert("at".to_owned(), point2(at));
+            }
+            entry.insert("content".to_owned(), json!(text.content));
+            entry.insert(
+                "height".to_owned(),
+                json!(document.expression_text(&text.height)),
+            );
+            entry.insert(
+                "angle".to_owned(),
+                json!(document.expression_text(&text.angle)),
+            );
+            entry.insert("bold".to_owned(), json!(text.bold));
+            entry.insert("italic".to_owned(), json!(text.italic));
+            let align = match text.align {
+                TextAlign::Left => "left",
+                TextAlign::Centre => "centre",
+                TextAlign::Right => "right",
+            };
+            entry.insert("align".to_owned(), json!(align));
+            if let Some(size) = shown.text_size(id) {
+                entry.insert(
+                    "values".to_owned(),
+                    json!({ "height": rounded(size.height), "angle": rounded(size.angle) }),
+                );
+            }
+            Value::Object(entry)
+        })
+        .collect()
 }
 
 fn entities(sketch: &Sketch) -> Vec<Value> {

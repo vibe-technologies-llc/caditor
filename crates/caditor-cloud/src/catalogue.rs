@@ -197,9 +197,23 @@ pub struct Outgoing<'a> {
     pub bytes: &'a [u8],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SendAs {
+    #[default]
+    File,
+    PartStudio,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    Working,
+    Done,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendOutcome {
     Created,
+    PartStudio,
     NewVersion { number: Option<u32> },
 }
 

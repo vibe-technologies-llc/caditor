@@ -98,6 +98,12 @@ pub enum Error {
          it. Open the document's main workspace or one of its branches."
     )]
     VersionIsReadOnly,
+    #[error("{service} could not turn the file into a Part Studio.")]
+    PartStudioFailed { service: Service },
+    #[error("{service} is taking too long to turn the file into a Part Studio.")]
+    PartStudioTimedOut { service: Service },
+    #[error("{service} does not take a model this way.")]
+    NotOffered { service: Service },
     #[error("{service} did not take every part of the file. Try again.")]
     UploadIncomplete { service: Service },
     #[error("The file could not be written: {0}.")]

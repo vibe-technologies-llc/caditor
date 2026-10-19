@@ -3146,6 +3146,7 @@ fn waiting(
                 EditingCommand::Pick(Picking::new(id, Slot::ReplaceTarget))
             }
             MissingInput::Regions { .. }
+            | MissingInput::RegionsToEmboss { .. }
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }
             | MissingInput::FacesToDraft { .. }

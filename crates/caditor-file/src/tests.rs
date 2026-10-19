@@ -7,7 +7,7 @@ use std::{
 
 use caditor_document::{
     CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, MAX_RECORDS,
-    PlaneReference, PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
+    PlaneReference, PrincipalPlane, RegionChoice, RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -4702,7 +4702,7 @@ fn an_unreadable_deleted_face_is_left_on_the_body_and_reported() {
 }
 
 fn emboss_model() -> (Document, FeatureId) {
-    use caditor_document::{Emboss, EmbossForm};
+    use caditor_document::{Emboss, EmbossForm, RegionChoice};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
     let (mut document, base, _) = solid_model();
     let sketch = document
@@ -4722,6 +4722,7 @@ fn emboss_model() -> (Document, FeatureId) {
             body: base,
             faces: vec![top],
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("0.5 mm").unwrap(),
             form: EmbossForm::Recessed,
         }),
@@ -4746,6 +4747,99 @@ fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+fn chosen_emboss_regions() -> RegionChoice {
+    RegionChoice::Chosen(vec![caditor_kernel::RegionReference::new(
+        caditor_kernel::RegionKey::from_digest(0x0123_4567_89ab_cdef_0011_2233_4455_6677),
+        BTreeSet::from([caditor_kernel::BoundaryPiece {
+            entity: 3,
+            side: caditor_kernel::Side::Right,
+            piece: 0x7766_5544_3322_1100_fedc_ba98_7654_3210,
+        }]),
+        Some(Point2::new(2.5, 1.25)),
+    )])
+}
+
+fn with_emboss_regions(regions: RegionChoice) -> (Document, FeatureId) {
+    let (document, emboss) = emboss_model();
+    let mut kind = document.feature(emboss).unwrap().kind.clone();
+    let FeatureKind::Emboss(definition) = &mut kind else {
+        panic!("Emboss 1 is an emboss");
+    };
+    definition.regions = regions;
+    let mut document = document;
+    document
+        .apply(Transaction::single(
+            "Choose regions",
+            Edit::SetFeatureKind { id: emboss, kind },
+        ))
+        .unwrap();
+    (document, emboss)
+}
+
+#[test]
+fn the_chosen_regions_of_an_emboss_are_saved_loaded_and_journaled() {
+    let (document, emboss) = with_emboss_regions(chosen_emboss_regions());
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"regions\":{\"chosen\":[\"0123456789abcdef0011223344556677\"]}"));
+    assert!(text.contains("\"anchor\":[2.5,1.25]"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(emboss).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: emboss, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_emboss_of_every_outline_stores_no_regions_and_an_old_record_reads_as_every_outline() {
+    let (document, emboss) = emboss_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    let record = text
+        .lines()
+        .find(|line| line.contains("\"emboss\":"))
+        .unwrap();
+    assert!(!record.contains("regions"));
+    assert_eq!(
+        loaded
+            .document
+            .feature(emboss)
+            .unwrap()
+            .kind
+            .emboss()
+            .unwrap()
+            .regions,
+        RegionChoice::All
+    );
+}
+
+#[test]
+fn an_emboss_with_no_region_chosen_keeps_none_chosen_through_saving() {
+    let (document, emboss) = with_emboss_regions(RegionChoice::Chosen(Vec::new()));
+
+    let loaded = decode_text(&encode(&document).unwrap());
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded
+            .document
+            .feature(emboss)
+            .unwrap()
+            .kind
+            .emboss()
+            .unwrap()
+            .regions,
+        RegionChoice::Chosen(Vec::new())
+    );
 }
 
 #[test]

@@ -733,9 +733,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   are named apart from the edge face. A flank whose bend closes up (`TaperCloses`) is tried again
   at half, a quarter and an eighth of the depth; a kept lump reaching the flank's far cap is
   `RunsPastFlank`, as is `DraftCloses` in words. A rib's draft above 0 and under
-  `MIN_FLANK_DEGREES` is `DraftShallow`. `RibEnds` says whether a web's free arc ends run on
-  straight (`Straight`) or round their circles (`RoundArcs`); a rib parallel to its sketch keeps
-  `ends` but ignores it. The sketch is in `reference_sketches` and `features()`.
+  `MIN_FLANK_DEGREES` is `DraftShallow`. `RibEnds` says whether the free arc ends of a rib or a web run on
+  straight (`Straight`) or round their circles (`RoundArcs`). The sketch is in `reference_sketches` and `features()`.
 - `rib_tool::rib_tools` builds a generous tool per chain and keeps only what lies between the drawn
   curves and the body. Chains (`rib_tool::chains`) come from the curve ends shared at each point
   (`split::curve_links`): at a point where several ends meet, the two running straightest through
@@ -750,7 +749,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   end line is lengthened in place (one face, keeping its name), an arc end gets a line keyed
   `START_RUN` or `END_RUN` with the arc's entity. With `RibEnds::RoundArcs` a web's free arc end
   is instead carried round its circle (`bent_round`, the arc's own end moved, sharing what is left
-  of the circle with its other end less `ARC_GAP_DEGREES`), a line end still straight. A rib's region is closed round the box like a split's half
+  of the circle with its other end less `ARC_GAP_DEGREES`), a line end still straight. A rib's
+  free arc end is carried round its circle only as far as the body (`rolled_chain`, once per
+  rib before the flank retries): the circle is stepped by `ROUND_STEP_DEGREES` from the end, up to
+  the same share of the circle, until a point at the slab's middle height (`slab_middle`) is no
+  longer outside the body, where the arc's own end is put; from there a straight run along the
+  circle's tangent closes the outline to the rim as for any end, and the rim's box grows to the
+  moved arc. An end already inside the body stays, a circle that never meets the body is
+  `RunsPastEnd` naming the arc. A rib's region is closed round the box like a split's half
   space (perimeter lines `PERIMETER_ENTITIES`) and extruded by the thickness; a web's wall is
   extruded from the sketch plane past the box. The tool less the body (`boolean` difference) is
   taken apart (`Solid::lumps`) and the lumps holding seed points (just off the curves on the
@@ -1268,10 +1274,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Emboss (`emboss.rs`)
 
-- `Emboss { body, faces, sketch, depth, form }` raises (`EmbossForm::Raised`) or sinks
+- `Emboss { body, faces, sketch, regions, depth, form }` raises (`EmbossForm::Raised`) or sinks
   (`Recessed`) every closed outline of its sketch (`Selection::EvenDepth` of `solid::profile_curves`,
-  so a letter's counter stays open and curves enclosing nothing are ignored) on the chosen faces by
-  `depth`, a length above zero (an expression, scaled with the model). `faces` are `FaceReference`s
+  so a letter's counter stays open and curves enclosing nothing are ignored), or only the chosen
+  `regions` (a `RegionChoice` as an extrusion's, `RegionReference`s resolved against the sketch's
+  cached profile so a changed region is healed by the healing visitor or left out; none chosen waits
+  as `MissingInput::RegionsToEmboss`, every chosen one gone or a tie fails with `RegionGone` or
+  `RegionAmbiguous` naming the sketch) on the chosen faces by `depth`, a length above zero (an
+  expression, scaled with the model). `faces` are `FaceReference`s
   resolved as a split face's (pieces accepted, lost or tied fails); none waits as
   `MissingInput::FacesToEmboss`, no `sketch` as `SketchToEmboss`. It modifies its body
   (`modifies_body`, state before kept); its sketch is in `features()` and `reference_sketches`, its

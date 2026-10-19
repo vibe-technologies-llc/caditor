@@ -14,7 +14,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the target and a neighbour squeezed to nothing between the face and the target (levelling a step
   with its riser standing), which both need the faces either side merged into one. Move face carries the chosen faces rigidly: a fillet or chamfer along a
   moved face's edge must be chosen with it (it is not re-blended to the new angle), a moved face that
-  was tangent to one that stays is refused, and it draws no drag arrows for its distance and angle.
+  was tangent to one that stays is refused.
   Delete face closes a gap only from the faces around it: not a face whose sides lie beyond parallel
   faces (a step's riser), one face of a tangent chain whose ends meet other blends (the chain must go
   whole), a face with several loops that are not whole loops of the faces around it (a hole breaking
@@ -67,9 +67,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cone, a spline or extruded face in a tangent chain is refused (`DraftCause::NotFlat`), since each
   needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
   is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
-  (each side drafted from its own hinge) is not offered. The draft has no angle arrow on the model.
-- [low · medium] A rib parallel to its sketch runs its free arc ends on only along their tangent
-  (`RibEnds::RoundArcs` is a web's alone).
+  (each side drafted from its own hinge) is not offered.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -90,8 +88,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
 - [low · medium] Emboss raises or recesses every closed outline of a sketch on flat faces of one
-  plane and on faces of one cylinder or cone, but cannot choose which regions of the sketch, has no
-  drag arrow for its depth, gives the walls no draft, is not repeated by a pattern or mirror of
+  plane and on faces of one cylinder or cone, has no drag arrow for its depth on a wrapped one (the
+  arrow stands on flat faces only), gives the walls no draft, is not repeated by a pattern or mirror of
   features, and refuses a sphere or other doubly curved face (wrapping onto one needs the chosen
   projection of the wrapped split above). Its depth on a cone is measured square to the slope.
 - [low · hard] No plastic-part features:
@@ -152,9 +150,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (a constraint the sketch cannot hold without a derived dimension) and whose turn follows the
   driver's by the tooth ratio, and a sprocket a stored form of its own with the same curve names
   by gap and segment.
-- [low · easy] `get_sketch` (`mcp.md`) lists only a sketch's entities: a stored gear or a sketch
-  text drawn through the MCP server or the app does not appear in it, so an agent cannot read
-  back their values or edit them.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
@@ -227,11 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
   Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
   assemblies.
-- [low · medium] Onshape receives the model only as a blob element holding the STEP file
-  (`cloud.md`): it does not offer to import it as a Part Studio in the document (the same upload
-  with `translate=true` starts a translation to poll), it reports progress only before and after
-  the one request, so a large file cannot be cancelled once sent, and its blobs carry no date in
-  the manager.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees the first `BOUNCE_LAYERS`

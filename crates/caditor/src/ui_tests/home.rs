@@ -8,8 +8,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Design, DesignId, Error, Folder, FolderId, FolderRef, Project, ProjectId, Service, Upload,
-    UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
+    Design, DesignId, Error, Folder, FolderId, FolderRef, Project, ProjectId, SendAs, Service,
+    Upload, UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
@@ -1315,11 +1315,11 @@ fn the_manager_turns_cloud_off_and_back_on() {
     assert!(harness.shows(cloud_dialog::TURN_ON));
 
     harness.click(cloud_dialog::TURN_ON);
-    harness.frame();
-    harness.frame();
+    harness.wait_until("the sign-in check finishes", |harness| {
+        harness.shows(cloud_dialog::SIGN_IN)
+    });
 
     assert!(harness.workspace.preferences.cloud.enabled);
-    assert!(harness.shows(cloud_dialog::SIGN_IN));
 }
 
 #[test]
@@ -1730,6 +1730,151 @@ fn the_manager_sends_the_model_into_an_onshape_workspace() {
     assert!(sent.name.ends_with(".step"));
     assert!(sent.bytes.starts_with(b"ISO-10303-21"));
     assert!(outgoing_files(dir.path()).is_empty());
+}
+
+fn onshape_workspace() -> FolderRef {
+    FolderRef {
+        project: ProjectId::new("p1"),
+        folder: FolderId::new("w/main"),
+    }
+}
+
+fn open_onshape_workspace(harness: &mut Harness) {
+    harness.perform(Action::Cloud(CloudCommand::SignIn(Service::Onshape)));
+    harness.wait_until("signed in to Onshape", |harness| {
+        harness.workspace.cloud.linked(Service::Onshape).is_some()
+    });
+    run_from_palette(harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
+}
+
+fn onshape_provider(working_polls: usize) -> Arc<FakeProvider> {
+    Arc::new(
+        Arc::into_inner(sendable_provider(Some(onshape_workspace()), Vec::new()))
+            .unwrap()
+            .serving(Service::Onshape)
+            .working_polls(working_polls),
+    )
+}
+
+#[test]
+fn the_manager_sends_the_model_to_onshape_as_a_part_studio_once_the_translation_is_done() {
+    let dir = TempDir::new().unwrap();
+    let provider = onshape_provider(0);
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_onshape_workspace(&mut harness);
+
+    harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+    harness.wait_until("the notice says a Part Studio was made", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.ends_with("as a new Part Studio."))
+    });
+
+    let sent = provider.received().remove(0);
+    assert_eq!(sent.how, SendAs::PartStudio);
+    assert_eq!(sent.folder, onshape_workspace());
+    assert!(sent.bytes.starts_with(b"ISO-10303-21"));
+    assert!(
+        provider
+            .calls()
+            .iter()
+            .any(|call| call == "poll part studio")
+    );
+    assert!(
+        harness
+            .workspace
+            .cloud
+            .linked(Service::Onshape)
+            .is_some_and(|linked| linked.sending.is_none())
+    );
+    assert!(outgoing_files(dir.path()).is_empty());
+}
+
+#[test]
+fn a_translation_in_progress_is_shown_and_cancel_stops_waiting() {
+    let dir = TempDir::new().unwrap();
+    let provider = onshape_provider(usize::MAX);
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_onshape_workspace(&mut harness);
+
+    harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    harness.wait_until("the translation is shown", |harness| {
+        harness.shows_containing("is turning")
+    });
+    harness.click("Cancel");
+    harness.wait_until("the sending is gone", |harness| {
+        harness
+            .workspace
+            .cloud
+            .linked(Service::Onshape)
+            .is_some_and(|linked| linked.sending.is_none())
+    });
+
+    assert!(!harness.shows_containing("is turning"));
+    harness.wait_until("the exported file is removed", |_| {
+        outgoing_files(dir.path()).is_empty()
+    });
+}
+
+#[test]
+fn a_translation_that_fails_says_why_and_try_again_sends_as_a_part_studio_again() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(Arc::into_inner(onshape_provider(0)).unwrap().failing(
+        Step::Placement,
+        || Error::PartStudioFailed {
+            service: Service::Onshape,
+        },
+    ));
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_onshape_workspace(&mut harness);
+
+    harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    harness.wait_until("the failure is shown", |harness| {
+        harness.shows_containing("could not turn the file into a Part Studio")
+    });
+
+    provider.recover(Step::Placement);
+    harness.click(cloud_parts::TRY_AGAIN);
+    harness.wait_until("the second send is made", |_| {
+        provider.received().len() == 2
+    });
+
+    assert!(
+        provider
+            .received()
+            .iter()
+            .all(|sent| sent.how == SendAs::PartStudio)
+    );
+}
+
+#[test]
+fn only_onshape_offers_the_part_studio_send() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let mut harness = with_cloud(dir.path(), &provider);
+    extruded_plate(&mut harness);
+    open_parts_to_send(&mut harness);
+
+    assert!(!harness.shows(cloud_dialog::SEND_AS_PART_STUDIO));
+
+    let other = TempDir::new().unwrap();
+    let onshape = onshape_provider(0);
+    let mut harness = with_cloud(other.path(), &onshape);
+    extruded_plate(&mut harness);
+    open_onshape_workspace(&mut harness);
+
+    assert!(harness.shows(cloud_dialog::SEND_AS_PART_STUDIO));
 }
 
 #[test]

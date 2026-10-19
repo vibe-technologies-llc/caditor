@@ -30,6 +30,7 @@ const SEED_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const SEED_REACH: f64 = 0.05;
 const SEED_SHARE: f64 = 0.25;
 const ARC_GAP_DEGREES: f64 = 2.0;
+const ROUND_STEP_DEGREES: f64 = 0.5;
 const RIM_REACH: f64 = 4.0;
 const RIM_SLACK: f64 = 4.0;
 const FLANK_SAMPLES: usize = 64;
@@ -665,25 +666,15 @@ fn carried_on(chain: &RibChain, start: Point2, finish: Point2) -> (Vec<ProfileCu
     (curves, [first, last])
 }
 
-fn bent_round(curves: &mut [ProfileCurve], drawn: &[ProfileCurve], end: &End) -> Option<u64> {
+fn arc_of(drawn: &[ProfileCurve], entity: u64) -> Option<(Point2, Point2, Point2)> {
+    match drawn.iter().find(|curve| curve.entity == entity)?.shape {
+        ProfileShape::Arc { center, start, end } => Some((center, start, end)),
+        _ => None,
+    }
+}
+
+fn arc_end_moved(curves: &mut [ProfileCurve], end: &End, point: Point2) -> Option<u64> {
     let (entity, at_end) = end.order;
-    let ProfileShape::Arc {
-        center,
-        start,
-        end: finish,
-    } = drawn.iter().find(|curve| curve.entity == entity)?.shape
-    else {
-        return None;
-    };
-    let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
-    let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
-    let reach = (0.5 * (TAU - sweep - ARC_GAP_DEGREES.to_radians())).max(0.0);
-    let turned = if at_end {
-        angle(finish) + reach
-    } else {
-        angle(start) - reach
-    };
-    let point = center + Vector2::new(turned.cos(), turned.sin()) * start.distance(center);
     let moved = curves.iter_mut().find_map(|curve| match &mut curve.shape {
         ProfileShape::Arc { start, end, .. } if curve.entity == entity => {
             Some(if at_end { end } else { start })
@@ -692,6 +683,78 @@ fn bent_round(curves: &mut [ProfileCurve], drawn: &[ProfileCurve], end: &End) ->
     })?;
     *moved = point;
     Some(entity)
+}
+
+fn bent_round(curves: &mut [ProfileCurve], drawn: &[ProfileCurve], end: &End) -> Option<u64> {
+    let (center, start, finish) = arc_of(drawn, end.order.0)?;
+    let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+    let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
+    let reach = (0.5 * (TAU - sweep - ARC_GAP_DEGREES.to_radians())).max(0.0);
+    let turned = if end.order.1 {
+        angle(finish) + reach
+    } else {
+        angle(start) - reach
+    };
+    let point = center + Vector2::new(turned.cos(), turned.sin()) * start.distance(center);
+    arc_end_moved(curves, end, point)
+}
+
+fn rolled_to_body(
+    curves: &mut [ProfileCurve],
+    drawn: &[ProfileCurve],
+    end: &End,
+    outside: &dyn Fn(Point2) -> bool,
+) -> Result<End, RibError> {
+    let (entity, at_end) = end.order;
+    let Some((center, start, finish)) = arc_of(drawn, entity) else {
+        return Ok(*end);
+    };
+    if !outside(end.point) {
+        return Ok(*end);
+    }
+    let radius = start.distance(center);
+    let angle = |point: Point2| (point.y - center.y).atan2(point.x - center.x);
+    let sweep = (angle(finish) - angle(start)).rem_euclid(TAU);
+    let reach = (0.5 * (TAU - sweep - ARC_GAP_DEGREES.to_radians())).max(0.0);
+    let (from, turn) = if at_end {
+        (angle(finish), 1.0)
+    } else {
+        (angle(start), -1.0)
+    };
+    let step = ROUND_STEP_DEGREES.to_radians();
+    let steps = (reach / step).floor() as usize;
+    let on = |turned: f64| center + Vector2::new(turned.cos(), turned.sin()) * radius;
+    let found = (1..=steps).find_map(|count| {
+        let turned = from + turn * step * count as f64;
+        (!outside(on(turned))).then_some(turned)
+    });
+    let Some(turned) = found else {
+        return Err(RibError::RunsPastEnd { entity });
+    };
+    arc_end_moved(curves, end, on(turned));
+    Ok(End {
+        point: on(turned),
+        outward: Vector2::new(-turned.sin(), turned.cos()) * turn,
+        order: end.order,
+    })
+}
+
+fn rolled_chain(input: &RibInput<'_>, chain: &RibChain, level: f64) -> Result<RibChain, RibError> {
+    let classifier = input.body.classifier();
+    let outside = |point: Point2| {
+        classifier.classify(input.plane.to_world(point) + input.plane.normal() * level)
+            == PointClass::Outside
+    };
+    let mut curves = chain.curves.clone();
+    let start = rolled_to_body(&mut curves, &chain.curves, &chain.start, &outside)?;
+    let finish = rolled_to_body(&mut curves, &chain.curves, &chain.finish, &outside)?;
+    let bounds = rib_chain(curves.clone())?.bounds;
+    Ok(RibChain {
+        curves,
+        start,
+        finish,
+        bounds,
+    })
 }
 
 fn carried_by(chain: &RibChain, frame: &Frame, ends: RibEnds) -> (Vec<ProfileCurve>, [u64; 2]) {
@@ -869,6 +932,15 @@ fn circular_rim(
 }
 
 fn flanked_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result<Slab, RibError> {
+    let rolled;
+    let chain = match input.ends {
+        RibEnds::RoundArcs => {
+            rolled = rolled_chain(input, chain, slab_middle(input))?;
+            &rolled
+        }
+        RibEnds::Straight => chain,
+    };
+    let bounds = frame.bounds.union(chain.bounds.expanded(frame.margin));
     let scales: &[f64] = if input.draft > 0.0 {
         &FLANK_DEPTH_SCALES
     } else {
@@ -877,23 +949,31 @@ fn flanked_slab(input: &RibInput<'_>, frame: &Frame, chain: &RibChain) -> Result
     let mut attempts = scales.iter();
     loop {
         let Some(scale) = attempts.next() else {
-            return rib_slab(input, frame, chain, 1.0);
+            return rib_slab(input, frame, &bounds, chain, 1.0);
         };
-        match rib_slab(input, frame, chain, *scale) {
+        match rib_slab(input, frame, &bounds, chain, *scale) {
             Err(RibError::Sweep(SweepError::TaperCloses { .. })) if attempts.len() > 0 => {}
             other => return other,
         }
     }
 }
 
+fn slab_middle(input: &RibInput<'_>) -> f64 {
+    match input.side {
+        RibSide::OneSide => 0.5 * input.thickness,
+        RibSide::OtherSide => -0.5 * input.thickness,
+        RibSide::Symmetric => 0.0,
+    }
+}
+
 fn rib_slab(
     input: &RibInput<'_>,
     frame: &Frame,
+    bounds: &Aabb2,
     chain: &RibChain,
     scale: f64,
 ) -> Result<Slab, RibError> {
     let thickness = input.thickness;
-    let bounds = &frame.bounds;
     let entities = chain.entities();
     let degenerate = || RibError::Degenerate {
         entities: entities.clone(),
@@ -908,10 +988,11 @@ fn rib_slab(
         entities: entities.clone(),
     };
     let regions = rim_closed(&curves, &rim, 0, crosses)?;
-    let (low, high, middle) = match input.side {
-        RibSide::OneSide => (0.0, thickness, 0.5 * thickness),
-        RibSide::OtherSide => (-thickness, 0.0, -0.5 * thickness),
-        RibSide::Symmetric => (-0.5 * thickness, 0.5 * thickness, 0.0),
+    let middle = slab_middle(input);
+    let (low, high) = match input.side {
+        RibSide::OneSide => (0.0, thickness),
+        RibSide::OtherSide => (-thickness, 0.0),
+        RibSide::Symmetric => (-0.5 * thickness, 0.5 * thickness),
     };
     let extent = LinearExtent::new(low, high).map_err(RibError::Sweep)?;
     let mut slab =

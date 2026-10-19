@@ -263,12 +263,12 @@ fn a_web_s_free_ends_chosen_in_its_panel_carry_on_round_its_arcs_and_the_choice_
 }
 
 #[test]
-fn a_rib_parallel_to_its_sketch_offers_a_draft_but_no_free_ends() {
+fn a_rib_parallel_to_its_sketch_offers_a_draft_and_free_ends() {
     let mut harness = Harness::new();
     let (_, _) = open_web(&mut harness);
 
     choose(&mut harness, "Square to sketch", "Parallel to sketch");
 
     assert!(harness.shows(rib_panel::DRAFT));
-    assert!(!harness.shows(rib_panel::ENDS));
+    assert!(harness.shows(rib_panel::ENDS));
 }

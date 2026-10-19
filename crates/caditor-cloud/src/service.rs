@@ -60,6 +60,13 @@ impl Service {
         }
     }
 
+    pub fn sends_part_studios(self) -> bool {
+        match self {
+            Self::Fusion => false,
+            Self::Onshape => true,
+        }
+    }
+
     pub fn workspace_noun(self) -> &'static str {
         match self {
             Self::Fusion => "hub",
