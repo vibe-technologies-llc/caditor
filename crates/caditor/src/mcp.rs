@@ -48,6 +48,8 @@ mod sketch_shape_tests;
 #[cfg(test)]
 mod sketch_source_tests;
 #[cfg(test)]
+mod sketch_stored_tests;
+#[cfg(test)]
 mod sketching_tests;
 #[cfg(test)]
 mod sweep_tests;

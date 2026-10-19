@@ -325,22 +325,29 @@ pub fn write(
     anchor: TextAnchor,
 ) -> Result<Transaction, TextingError> {
     trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
-        let anchor = match anchor {
-            TextAnchor::Point(EntityId::ORIGIN) => {
-                let point = sketch.add_point(Point2::ZERO);
-                sketch
-                    .add_constraint(Constraint::Coincident(point, EntityId::ORIGIN))
-                    .map_err(|source| TextingError::Refused { source })?;
-                point
-            }
-            TextAnchor::Point(point) => point,
-            TextAnchor::Free(at) => sketch.add_point(at),
-        };
-        sketch
-            .add_text(lettering.text(anchor))
-            .map(|_| ())
-            .map_err(|source| TextingError::Refused { source })
+        write_into(sketch, lettering, anchor).map(|_| ())
     })
+}
+
+pub fn write_into(
+    sketch: &mut Sketch,
+    lettering: &Lettering,
+    anchor: TextAnchor,
+) -> Result<EntityId, TextingError> {
+    let anchor = match anchor {
+        TextAnchor::Point(EntityId::ORIGIN) => {
+            let point = sketch.add_point(Point2::ZERO);
+            sketch
+                .add_constraint(Constraint::Coincident(point, EntityId::ORIGIN))
+                .map_err(|source| TextingError::Refused { source })?;
+            point
+        }
+        TextAnchor::Point(point) => point,
+        TextAnchor::Free(at) => sketch.add_point(at),
+    };
+    sketch
+        .add_text(lettering.text(anchor))
+        .map_err(|source| TextingError::Refused { source })
 }
 
 pub fn update(

@@ -29,9 +29,10 @@ first, so two programs never change one model at once.
   them, so an edge a fillet rounded away can be named again.
 - Measure the distance between two points, faces or edges, and the angle between them when they
   have one.
-- Read a sketch: its plane, entities, constraints and dimensions, the degrees of freedom left and
-  the constraints that conflict or repeat each other, as the [sketch status](sketch-status) names
-  them.
+- Read a sketch: its plane, entities, constraints and dimensions, the stored [spur gears](gear)
+  and [text](text) with the expressions and values they hold, the degrees of freedom left
+  and the constraints that conflict or repeat each other, as the [sketch status](sketch-status)
+  names them.
 - Draw a picture of the model from a standard view, as the command line's `--export` of a `.png`
   does, to look at what it made. This needs a graphics adapter.
 - Add a [sketch](sketches) on a principal plane, a flat face, a datum plane or a plane of a
@@ -51,8 +52,9 @@ first, so two programs never change one model at once.
   plane. The same tool switches curves to construction geometry and back, splits a curve at a
   point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)), adds a
   control point to a [spline](spline),
-  draws a [tangent circle](tangent-circle), a [blend curve](blend-curve) and a [spur gear](gear),
-  gear pair or sprocket, and copies geometry with its constraints within a sketch or from
+  draws a [tangent circle](tangent-circle), a [blend curve](blend-curve), [text](text) and
+  a [spur gear](gear), gear pair or sprocket, changes the values of a gear or a text already
+  drawn (numbers or expressions naming parameters) and copies geometry with its constraints within a sketch or from
   another, as [copy and paste](move-and-copy) do.
 - Add an [extrusion](extrude) or a [revolve](revolve), which decide whether to add, cut or start
   a new body as their tools do unless told. An extrusion can run up to the next face, a plane or a

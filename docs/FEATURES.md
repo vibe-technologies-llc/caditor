@@ -150,9 +150,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (a constraint the sketch cannot hold without a derived dimension) and whose turn follows the
   driver's by the tooth ratio, and a sprocket a stored form of its own with the same curve names
   by gap and segment.
-- [low · easy] `get_sketch` (`mcp.md`) lists only a sketch's entities: a stored gear or a sketch
-  text drawn through the MCP server or the app does not appear in it, so an agent cannot read
-  back their values or edit them.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
