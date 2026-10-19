@@ -1061,6 +1061,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::Draft(_)
+            | FeatureKind::ReplaceFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)

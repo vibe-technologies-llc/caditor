@@ -29,6 +29,7 @@ use crate::{
     recompute::{FeatureError, FixTarget},
     reference_image::ImageCause,
     repeat_blend::RepeatCause,
+    replace_face::ReplaceFaceCause,
     rib::RibCause,
     scaling::ScaleCause,
     shell::ShellCause,
@@ -77,6 +78,7 @@ pub(crate) enum Cause {
     OffsetFace(OffsetFaceCause),
     MoveFace(MoveFaceCause),
     Draft(DraftCause),
+    ReplaceFace(ReplaceFaceCause),
     Shell(ShellCause),
 }
 
@@ -123,6 +125,7 @@ impl Cause {
             Self::OffsetFace(offset) => offset.reason(),
             Self::MoveFace(moving) => moving.reason(),
             Self::Draft(draft) => draft.reason(),
+            Self::ReplaceFace(replace) => replace.reason(),
             Self::Shell(shell) => shell.reason(),
         }
     }
@@ -170,6 +173,7 @@ impl Cause {
             Self::OffsetFace(offset) => offset.remedy(),
             Self::MoveFace(moving) => moving.remedy(),
             Self::Draft(draft) => draft.remedy(),
+            Self::ReplaceFace(replace) => replace.remedy(),
             Self::Shell(shell) => shell.remedy(),
         }
     }
@@ -548,6 +552,7 @@ pub(crate) enum Chosen {
     FacesToMove,
     FacesToDraft,
     FacesWithOwnAngle,
+    FacesToReplace,
     FacesToDelete,
     FacesToEmboss,
     FacesToMirror,
@@ -563,6 +568,7 @@ impl Chosen {
             Self::FacesToMove => "face to move",
             Self::FacesToDraft => "face to draft",
             Self::FacesWithOwnAngle => "face given its own draft angle",
+            Self::FacesToReplace => "face to replace",
             Self::FacesToDelete => "face to delete",
             Self::FacesToEmboss => "face to emboss",
             Self::FacesToMirror => "face to mirror",
@@ -578,6 +584,7 @@ impl Chosen {
             Self::FacesToMove => "faces to move",
             Self::FacesToDraft => "faces to draft",
             Self::FacesWithOwnAngle => "faces given their own draft angle",
+            Self::FacesToReplace => "faces to replace",
             Self::FacesToDelete => "faces to delete",
             Self::FacesToEmboss => "faces to emboss",
             Self::FacesToMirror => "faces to mirror",

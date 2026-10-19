@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{
-    feature_tests::{added, body_count, box_of, close, number, started, total_volume},
+    feature_tests::{added, body_count, box_of, close, face_where, number, started, total_volume},
     tests::Client,
 };
 
@@ -329,6 +329,62 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
     client.finish();
 }
 
+#[test]
+fn only_the_regions_chosen_by_a_point_are_embossed_and_an_edit_keeps_them() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [-5.0, 0.0], "Block");
+    let top = faces_of(&mut client, &block)
+        .into_iter()
+        .find(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
+        .unwrap();
+    let (label, _) = sketch_on(
+        &mut client,
+        json!({ "plane": "XY" }),
+        json!([
+            { "kind": "rectangle", "corner": [-4, 1], "opposite": [-1, 4] },
+            { "kind": "rectangle", "corner": [1, 5], "opposite": [4, 9] }
+        ]),
+    );
+
+    let emboss = added(
+        &mut client,
+        "add_emboss",
+        json!({
+            "body": block,
+            "faces": [top["face"]],
+            "sketch": label,
+            "depth": 1,
+            "regions": [[2.5, 7]]
+        }),
+    );
+    assert!(close(total_volume(&mut client), 1000.0 + 12.0));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": emboss, "depth": 2 }),
+    );
+    assert!(close(total_volume(&mut client), 1000.0 + 24.0));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": emboss, "regions": "all" }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        1000.0 + 2.0 * (9.0 + 12.0)
+    ));
+
+    let refused = client.tool_error(
+        "edit_feature",
+        json!({ "feature": emboss, "regions": [[-20, -20]] }),
+    );
+    assert!(refused.contains("region"), "{refused}");
+    client.finish();
+}
+
 fn drafted_block(sides: [f64; 4]) -> f64 {
     let [east, west, north, south] = sides.map(|degrees: f64| degrees.to_radians().tan());
     let area = |z: f64| (10.0 - (east + west) * z) * (10.0 - (north + south) * z);
@@ -378,6 +434,56 @@ fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
 
     let refused = client.tool_error("add_draft", json!({ "body": block, "faces": [] }));
     assert!(refused.contains("faces to draft"), "{refused}");
+    client.finish();
+}
+
+#[test]
+fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [0.0, 0.0], "Block");
+    let tower = box_of(&mut client, [2.0, 2.0, 14.0], [20.0, 0.0], "Tower");
+    let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+    let tower_top = face_where(&mut client, &tower, [0.0, 0.0, 1.0]);
+
+    let replaced = added(
+        &mut client,
+        "add_replace_face",
+        json!({
+            "body": block,
+            "faces": [top],
+            "target": { "body": tower, "face": tower_top }
+        }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        10.0 * 10.0 * 14.0 + 2.0 * 2.0 * 14.0
+    ));
+
+    let shelf = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": "6 mm", "name": "Shelf" }),
+    );
+    client.tool(
+        "move_feature",
+        json!({ "feature": shelf, "before": replaced }),
+    );
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": replaced, "target": { "datum": shelf } }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        10.0 * 10.0 * 6.0 + 2.0 * 2.0 * 14.0
+    ));
+
+    let refused = client.tool_error(
+        "add_replace_face",
+        json!({ "body": block, "faces": [], "target": "XY" }),
+    );
+    assert!(refused.contains("faces to replace"), "{refused}");
     client.finish();
 }
 

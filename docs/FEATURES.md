@@ -7,10 +7,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · hard] Bodies cannot be edited directly beyond offsetting, moving, tilting and deleting
-  faces: no replacing a face with another surface (a sketch's extrusion, a datum plane, another
-  body's face), so a face of the wrong shape on an imported STEP body (which has no feature history)
-  still means remodelling it. Move face carries the chosen faces rigidly: a fillet or chamfer along a
+- [high · hard] Replace face puts flat faces onto a plane only (a principal, datum or coordinate
+  system plane or another flat face): a curved face, or a curved target (a sketch's extrusion,
+  another body's cylinder or cone, which needs the shell's offsets to change a radius as well as
+  carry a face rigidly), is refused, as are two faces meeting along an edge that would both land on
+  the target and a neighbour squeezed to nothing between the face and the target (levelling a step
+  with its riser standing), which both need the faces either side merged into one. Move face carries the chosen faces rigidly: a fillet or chamfer along a
   moved face's edge must be chosen with it (it is not re-blended to the new angle), a moved face that
   was tangent to one that stays is refused.
   Delete face closes a gap only from the faces around it: not a face whose sides lie beyond parallel
@@ -86,8 +88,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
 - [low · medium] Emboss raises or recesses every closed outline of a sketch on flat faces of one
-  plane and on faces of one cylinder or cone, but cannot choose which regions of the sketch, has no
-  drag arrow for its depth, gives the walls no draft, is not repeated by a pattern or mirror of
+  plane and on faces of one cylinder or cone, has no drag arrow for its depth on a wrapped one (the
+  arrow stands on flat faces only), gives the walls no draft, is not repeated by a pattern or mirror of
   features, and refuses a sphere or other doubly curved face (wrapping onto one needs the chosen
   projection of the wrapped split above). Its depth on a cone is measured square to the slope.
 - [low · hard] No plastic-part features:

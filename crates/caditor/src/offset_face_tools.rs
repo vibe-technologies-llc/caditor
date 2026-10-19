@@ -29,6 +29,7 @@ pub enum FacePurpose {
     Move,
     Delete,
     Draft,
+    Replace,
 }
 
 impl Display for FacePurpose {
@@ -37,6 +38,7 @@ impl Display for FacePurpose {
             Self::Move => "move",
             Self::Delete => "delete",
             Self::Draft => "draft",
+            Self::Replace => "replace",
         })
     }
 }

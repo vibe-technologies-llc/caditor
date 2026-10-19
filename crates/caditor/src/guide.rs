@@ -68,6 +68,7 @@ pub enum Page {
     Emboss,
     MoveFace,
     Draft,
+    ReplaceFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -158,6 +159,7 @@ all_variants!(
     Emboss,
     MoveFace,
     Draft,
+    ReplaceFace,
     Primitives,
     Combine,
     MoveAndCopy,
@@ -294,6 +296,7 @@ impl Page {
             Self::Emboss => "emboss",
             Self::MoveFace => "move-face",
             Self::Draft => "draft",
+            Self::ReplaceFace => "replace-face",
             Self::Primitives => "primitives",
             Self::Combine => "combine",
             Self::MoveAndCopy => "move-and-copy",
@@ -390,6 +393,7 @@ impl Page {
             Self::Emboss => include_str!("../guide/emboss.md"),
             Self::MoveFace => include_str!("../guide/move-face.md"),
             Self::Draft => include_str!("../guide/draft.md"),
+            Self::ReplaceFace => include_str!("../guide/replace-face.md"),
             Self::Primitives => include_str!("../guide/primitives.md"),
             Self::Combine => include_str!("../guide/combine.md"),
             Self::MoveAndCopy => include_str!("../guide/move-and-copy.md"),
@@ -480,6 +484,7 @@ impl Page {
             | Self::Emboss
             | Self::MoveFace
             | Self::Draft
+            | Self::ReplaceFace
             | Self::Primitives
             | Self::Combine
             | Self::MoveAndCopy
@@ -558,6 +563,7 @@ impl Page {
             FeatureKind::Emboss(_) => Self::Emboss,
             FeatureKind::MoveFace(_) => Self::MoveFace,
             FeatureKind::Draft(_) => Self::Draft,
+            FeatureKind::ReplaceFace(_) => Self::ReplaceFace,
             FeatureKind::Primitive(_) => Self::Primitives,
             FeatureKind::Combine(_) => Self::Combine,
             FeatureKind::Move(_) => Self::MoveAndCopy,

@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
 
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
-    PasteOrigin, PatternKind, Rgb, SavedView, SolidFeature, Transaction,
+    PasteOrigin, PatternKind, RegionChoice, Rgb, SavedView, SolidFeature, Transaction,
 };
 use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -71,7 +71,7 @@ use crate::{
     primitive_tools, projecting,
     queued::{Pending, Queued, Rerun},
     reference_picking::{self, Slot},
-    reversing, saved_views,
+    replace_face_tools, reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -6206,12 +6206,18 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Draft(_)) => {
             in_view("Click faces to draft them, and again to leave one out")
         }
+        Some(FeatureKind::ReplaceFace(_)) => {
+            in_view("Click faces to replace them, and again to leave one out")
+        }
         Some(FeatureKind::DeleteFace(_)) => {
             in_view("Click faces to delete them, and again to keep one")
         }
-        Some(FeatureKind::Emboss(_)) => {
-            in_view("Click faces to emboss, and again to leave one out")
-        }
+        Some(FeatureKind::Emboss(emboss)) => match emboss.regions {
+            RegionChoice::All => in_view("Click faces to emboss, and again to leave one out"),
+            RegionChoice::Chosen(_) => in_view(
+                "Click faces and regions of the sketch to emboss, and again to leave one out",
+            ),
+        },
         Some(FeatureKind::SplitFace(_)) => {
             in_view("Click faces to split, and again to leave one out")
         }
@@ -6642,7 +6648,15 @@ fn pick_action(
     }
     let toggled = match pickable {
         Some(Pickable::Region { feature, region }) => {
-            Some(solid_tools::toggle_region(model, feature, region))
+            let emboss = model
+                .document()
+                .feature(feature)
+                .is_some_and(|owner| owner.kind.emboss().is_some());
+            Some(if emboss {
+                emboss_tools::toggle_region(model, feature, region)
+            } else {
+                solid_tools::toggle_region(model, feature, region)
+            })
         }
         Some(Pickable::BlendEdge { feature, edge }) => {
             Some(blend_tools::toggle_edge(model, feature, edge))
@@ -6660,6 +6674,9 @@ fn pick_action(
                     move_face_tools::toggle_face(model, feature, face)
                 }
                 Some(FeatureKind::Draft(_)) => draft_tools::toggle_face(model, feature, face),
+                Some(FeatureKind::ReplaceFace(_)) => {
+                    replace_face_tools::toggle_face(model, feature, face)
+                }
                 Some(FeatureKind::Emboss(_)) => emboss_tools::toggle_face(model, feature, face),
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)

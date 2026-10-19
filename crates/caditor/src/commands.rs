@@ -152,6 +152,7 @@ pub enum Command {
     Emboss,
     MoveFace,
     Draft,
+    ReplaceFace,
     SplitFace,
     Combine,
     Move,
@@ -372,6 +373,7 @@ impl Command {
                 | Self::Emboss
                 | Self::MoveFace
                 | Self::Draft
+                | Self::ReplaceFace
                 | Self::SplitFace
                 | Self::Combine
                 | Self::Move
@@ -805,6 +807,7 @@ plain_commands! {
     Emboss,
     MoveFace,
     Draft,
+    ReplaceFace,
     SplitFace,
     Combine,
     Move,
@@ -1108,6 +1111,7 @@ impl Command {
             Self::Emboss => "model.emboss",
             Self::MoveFace => "model.move_face",
             Self::Draft => "model.draft",
+            Self::ReplaceFace => "model.replace_face",
             Self::SplitFace => "model.split_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
@@ -1418,6 +1422,7 @@ impl Command {
             Self::Emboss => "Emboss or deboss",
             Self::MoveFace => "Move face",
             Self::Draft => "Draft",
+            Self::ReplaceFace => "Replace face",
             Self::SplitFace => "Split face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
@@ -1680,6 +1685,15 @@ impl Command {
                 "parting line",
                 "neutral plane",
                 "pull direction",
+            ],
+            Self::ReplaceFace => &[
+                "replace face",
+                "face to plane",
+                "flatten to plane",
+                "level face",
+                "align face",
+                "direct edit",
+                "imported body",
             ],
             Self::MoveFace => &[
                 "tilt face",
@@ -1961,6 +1975,7 @@ impl Command {
             | Self::Emboss
             | Self::MoveFace
             | Self::Draft
+            | Self::ReplaceFace
             | Self::SplitFace
             | Self::Combine
             | Self::Move
@@ -2235,6 +2250,7 @@ impl Command {
             Self::Emboss => vec![alt_shift(Key::Y)],
             Self::MoveFace => vec![alt_shift(Key::J)],
             Self::Draft => Vec::new(),
+            Self::ReplaceFace => Vec::new(),
             Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],

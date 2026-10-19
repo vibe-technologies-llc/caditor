@@ -29,6 +29,8 @@ paths:
   - "crates/caditor/src/move_face_panel.rs"
   - "crates/caditor/src/draft_tools.rs"
   - "crates/caditor/src/draft_panel.rs"
+  - "crates/caditor/src/replace_face_tools.rs"
+  - "crates/caditor/src/replace_face_panel.rs"
   - "crates/caditor/src/split_face_tools.rs"
   - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
@@ -93,7 +95,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Emboss, Move face, Draft, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Emboss, Move face, Draft, Replace face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
@@ -218,7 +220,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Emboss, Move face, Draft, Split face, Thread, Sweep, and Hole on a face, whose
+  Shell, Offset faces, Delete face, Emboss, Move face, Draft, Replace face, Split face, Thread, Sweep, and Hole on a face, whose
   `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
   (`app-input.md`, Queued actions), and runs when the shape arrives.
 
@@ -662,8 +664,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   an opened or unoffsettable face refused in a notice. The thickness arrow stands on the first opened
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
-- Hovering a row of the edges, opened, moved, drafted, deleted or split faces in an open fillet's,
-  chamfer's, shell's, offset face's, move face's, draft's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
+- Hovering a row of the edges, opened, moved, drafted, replaced, deleted or split faces in an open fillet's,
+  chamfer's, shell's, offset face's, move face's, draft's, replace face's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
@@ -715,6 +717,19 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
   colour, `draft_tools::drafted_faces`); failed or pending, the body before it. Its value arrow is
   the Draft angle (Value handles).
+- Replace face (no default key; Model menu, palette, the right-click menu's face tools) takes the
+  selected faces (`replace_face_tools::selected_faces`): the faces of the body picked first (or of
+  the body with several faces picked when another has one) are replaced, and one more pick, a
+  principal, datum or coordinate system plane or a face of another body (`datum_tools::
+  plane_reference` at the bar), is the target; several such picks are `SeveralTargets`, refused in
+  words. It creates a `ReplaceFace` with that target, or none (the feature then waits for one,
+  whose callout starts `Slot::ReplaceTarget`), and opens: a description, Faces to replace in words
+  with Leave this face out, Replace with (`plane_selector::row` of `datum_tools::listed_planes`
+  with the picker on `Slot::ReplaceTarget`, any plane or flat face made before it, this body's
+  included, `replace_face_tools::plane_change`) and Body. While open and computed it shows the
+  result as a move face does (`FaceChoice::Moving`, the replaced faces in the selected colour,
+  `replace_face_tools::replaced_faces`), a click replacing a face or leaving it out
+  (`replace_face_tools::toggle_face`); failed or pending, the body before it.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it
@@ -729,12 +744,21 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   text on a face and choosing Emboss is two steps. It creates an `Emboss` raising by the remembered
   depth (`Remembered::EmbossDepth`, 0.5 mm at first) that opens: faces in words with Leave this face
   out and Choose in the view, Outlines (a combo of the earlier sketches and Use selected on
-  `Slot::EmbossSketch`, `emboss_tools::sketch_change`), Form (Raise or Recess, a segmented row), a
-  Depth that takes units and expressions, and the Body. With none of the faces or the sketch chosen
-  it waits (`FacesToEmboss`, `SketchToEmboss`) and the tree row offers to open it. While open and
-  computed it shows the result as an offset face does (`FaceChoice::Embossing`, chosen faces in the
-  selected colour), a click embossing a face or leaving it out (`emboss_tools::toggle_face`); failed
-  or pending, the body before it with every face pickable. It draws no drag arrows yet.
+  `Slot::EmbossSketch`, `emboss_tools::sketch_change`, which takes every region again), Regions (All
+  closed or Chosen as an extrusion's, with the count, Select all, Clear and Choose in the view;
+  `emboss_panel::regions_row`), Form (Raise or Recess, a segmented row), a Depth that takes units
+  and expressions, and the Body. Regions of the sketch selected when Emboss is chosen are the ones
+  chosen (`EmbossSource::regions`, else All). With none of the faces or the sketch chosen it waits
+  (`FacesToEmboss`, `SketchToEmboss`), and with no region chosen `RegionsToEmboss`; the tree row
+  offers to open it. While open and computed it shows the result as an offset face does
+  (`FaceChoice::Embossing`, chosen faces in the selected colour), a click embossing a face or
+  leaving it out (`emboss_tools::toggle_face`); failed or pending, the body before it with every
+  face pickable. Only while Chosen, the regions of its sketch are drawn as fills over the faces
+  (`Builder::emboss_regions`, `Pickable::Region` with the emboss as `feature`, the same fills and
+  colours as an extrusion's, `selection::region_sketch` finding the sketch) and a click chooses a
+  region or leaves it out (`emboss_tools::toggle_region`, "Choose regions of <emboss>"); the palette's
+  Select all regions and Clear chosen regions and the tree's Take all regions reach it through
+  `solid_tools`. Its value arrow is the Depth (Value handles).
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
   (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that
@@ -936,6 +960,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     circle), and with `CirclesAndHeads` every counterbore, countersink and step diameter and depth is
     drawn scaled by circle over typed diameter (`HoleTop::heads`, the `Mapping`'s scale), the way the
     recompute sizes it, while a drag sets the typed value the panel shows (position over scale).
+  - An emboss's Depth (`Measured::EmbossDepth`, `Builder::emboss`), standing over the inside point of
+    the first chosen region of its sketch (`SketchRegion::reference`) projected onto the first
+    chosen flat face: raised, at the top of the material (the arrow along the face's outward
+    normal); recessed, at the floor (along the inward normal, so a deeper drag cuts deeper). Left
+    out for a wrapped emboss (faces of a cylinder or cone) and while no flat face is chosen.
   - A move face's Distance (`Measured::MoveDistance`), standing at the middle of the first chosen face
     (`face_stand`) along the Direction axis or the first flat chosen face's outward normal, and its
     Angle (`MoveAngle`), a turn arrow about the Tilt about axis standing at the middle of the first
@@ -946,7 +975,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     chosen flat face (the line where the face meets the neutral plane, worked out as the kernel's
     `tilt` does) standing at the face's middle, its radial turned back by the face's current slope
     so the foot follows where the face's middle lands, and held to the kernel's steepest draft
-    less a step. Own angle and Angle beyond have no arrow. A datum plane's Offset and Angle (an arrow along the turn at an arm of
+    less a step. Own angle and Angle beyond have no arrow. An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
     `ARROW_POINTS` from the axis).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the
     rounded or cut face: `1/cos(a/2) - 1` or `sin(a/2)` of the size for faces turned by `a`, from the

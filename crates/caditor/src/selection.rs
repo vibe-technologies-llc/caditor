@@ -5,7 +5,8 @@ use std::{
 
 pub use caditor_document::PrincipalPlane;
 use caditor_document::{
-    Document, Evaluation, FeatureId, FeatureResult, PrincipalAxis, PrincipalGeometry, SketchRegion,
+    Document, Evaluation, FeatureId, FeatureKind, FeatureResult, PrincipalAxis, PrincipalGeometry,
+    SketchRegion,
 };
 use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeName, RegionKey};
@@ -215,12 +216,20 @@ pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[Sk
         .map(Vec::as_slice)
 }
 
+pub fn region_sketch(document: &Document, feature: FeatureId) -> Option<FeatureId> {
+    match &document.feature(feature)?.kind {
+        FeatureKind::Solid(solid) => Some(solid.sketch()),
+        FeatureKind::Emboss(emboss) => emboss.sketch,
+        _ => None,
+    }
+}
+
 pub fn swept_regions<'a>(
     document: &Document,
     evaluation: &'a Evaluation,
     feature: FeatureId,
 ) -> Option<(FeatureId, &'a [SketchRegion])> {
-    let sketch = document.feature(feature)?.kind.solid()?.sketch();
+    let sketch = region_sketch(document, feature)?;
     Some((sketch, sketch_regions(evaluation, sketch)?))
 }
 
@@ -338,10 +347,8 @@ impl Pickable {
                 format!("{sketch} › Region")
             }
             Self::Region { feature, .. } => {
-                let sketch = document
-                    .feature(feature)
-                    .and_then(|owner| owner.kind.solid())
-                    .and_then(|solid| document.feature(solid.sketch()))
+                let sketch = region_sketch(document, feature)
+                    .and_then(|sketch| document.feature(sketch))
                     .map_or("the sketch", |sketch| sketch.name.as_str());
                 format!("Region of {sketch}: click to choose or leave out")
             }

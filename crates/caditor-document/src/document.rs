@@ -42,6 +42,7 @@ use crate::{
     properties::ModelProperties,
     reference_image::ReferenceImage,
     removal::Remove,
+    replace_face::ReplaceFace,
     rib::Rib,
     scaling::Scale,
     selection_sets::SelectionSets,
@@ -150,6 +151,7 @@ pub enum FeatureKind {
     OffsetFace(OffsetFace),
     MoveFace(MoveFace),
     Draft(Draft),
+    ReplaceFace(ReplaceFace),
     DeleteFace(DeleteFace),
     Emboss(Emboss),
     SplitFace(SplitFace),
@@ -219,6 +221,7 @@ impl FeatureKind {
             }
             Self::MoveFace(moving) => moving.heap_size(),
             Self::Draft(draft) => draft.heap_size(),
+            Self::ReplaceFace(replace) => replace.heap_size(),
             Self::DeleteFace(delete) => delete.heap_size(),
             Self::Emboss(emboss) => emboss.heap_size(),
             Self::SplitFace(split) => split.heap_size(),
@@ -261,6 +264,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -296,6 +300,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -331,6 +336,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -366,6 +372,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => Some(offset.body),
             Self::MoveFace(moving) => Some(moving.body),
             Self::Draft(draft) => Some(draft.body),
+            Self::ReplaceFace(replace) => Some(replace.body),
             Self::DeleteFace(delete) => Some(delete.body),
             Self::Emboss(emboss) => Some(emboss.body),
             Self::SplitFace(split) => Some(split.body),
@@ -426,6 +433,9 @@ impl FeatureKind {
             Self::Measurement(measurement) => used.extend(measurement.bodies()),
             Self::MoveFace(moving) => used.extend(moving.reference_bodies()),
             Self::Draft(draft) => used.extend(draft.neutral.body()),
+            Self::ReplaceFace(replace) => {
+                used.extend(replace.target.as_ref().and_then(PlaneReference::body));
+            }
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -455,6 +465,12 @@ impl FeatureKind {
             Self::Datum(datum) => datum.plane_datums(),
             Self::Mirror(mirror) => mirror.plane.datum().into_iter().collect(),
             Self::Draft(draft) => draft.neutral.datum().into_iter().collect(),
+            Self::ReplaceFace(replace) => replace
+                .target
+                .as_ref()
+                .and_then(PlaneReference::datum)
+                .into_iter()
+                .collect(),
             Self::Split(split) => split.along.datum().into_iter().collect(),
             Self::SplitFace(split) => split.along.datum().into_iter().collect(),
             Self::Primitive(primitive) => primitive.plane.datum().into_iter().collect(),
@@ -503,6 +519,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.axis_datums(),
             Self::Blend(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::DeleteFace(_)
@@ -538,6 +555,12 @@ impl FeatureKind {
             Self::Move(movement) => movement.frames(),
             Self::Mirror(mirror) => mirror.plane.frame().into_iter().collect(),
             Self::Draft(draft) => draft.neutral.frame().into_iter().collect(),
+            Self::ReplaceFace(replace) => replace
+                .target
+                .as_ref()
+                .and_then(PlaneReference::frame)
+                .into_iter()
+                .collect(),
             Self::Split(split) => split
                 .along
                 .plane()
@@ -609,6 +632,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -719,6 +743,7 @@ impl FeatureKind {
             Self::MoveFace(moving) => moving.sketch_entities().collect(),
             Self::Pipe(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::Rib(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -772,6 +797,7 @@ impl FeatureKind {
             Self::Emboss(emboss) => emboss.sketch.into_iter().collect(),
             Self::Sketch(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -799,6 +825,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -833,6 +860,7 @@ impl FeatureKind {
                     | Self::OffsetFace(_)
                     | Self::MoveFace(_)
                     | Self::Draft(_)
+                    | Self::ReplaceFace(_)
                     | Self::DeleteFace(_)
                     | Self::Emboss(_)
                     | Self::SplitFace(_)
@@ -853,6 +881,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -888,6 +917,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -923,6 +953,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -959,6 +990,13 @@ impl FeatureKind {
     pub fn draft(&self) -> Option<&Draft> {
         match self {
             Self::Draft(draft) => Some(draft),
+            _ => None,
+        }
+    }
+
+    pub fn replace_face(&self) -> Option<&ReplaceFace> {
+        match self {
+            Self::ReplaceFace(replace) => Some(replace),
             _ => None,
         }
     }
@@ -1041,6 +1079,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1077,6 +1116,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1113,6 +1153,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1149,6 +1190,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1183,6 +1225,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1219,6 +1262,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1253,6 +1297,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1288,6 +1333,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1323,6 +1369,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1358,6 +1405,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1393,6 +1441,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1428,6 +1477,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::MoveFace(_)
             | Self::Draft(_)
+            | Self::ReplaceFace(_)
             | Self::DeleteFace(_)
             | Self::Emboss(_)
             | Self::SplitFace(_)
@@ -1462,6 +1512,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.parameters(),
             Self::MoveFace(moving) => moving.parameters(),
             Self::Draft(draft) => draft.parameters(),
+            Self::ReplaceFace(_) => BTreeSet::new(),
             Self::DeleteFace(_) => BTreeSet::new(),
             Self::Emboss(emboss) => emboss.parameters(),
             Self::Primitive(primitive) => primitive.parameters(),
@@ -1494,6 +1545,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.uses_parameter(parameter),
             Self::MoveFace(moving) => moving.uses_parameter(parameter),
             Self::Draft(draft) => draft.uses_parameter(parameter),
+            Self::ReplaceFace(_) => false,
             Self::DeleteFace(_) => false,
             Self::Emboss(emboss) => emboss.uses_parameter(parameter),
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
@@ -1540,6 +1592,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.features(),
             Self::MoveFace(moving) => moving.features(),
             Self::Draft(draft) => draft.features(),
+            Self::ReplaceFace(replace) => replace.features(),
             Self::DeleteFace(delete) => delete.features(),
             Self::Emboss(emboss) => emboss.features(),
             Self::SplitFace(split) => split.features(),
@@ -1593,6 +1646,7 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.origin_features(),
             Self::MoveFace(moving) => moving.origin_features(),
             Self::Draft(draft) => draft.origin_features(),
+            Self::ReplaceFace(replace) => replace.origin_features(),
             Self::DeleteFace(delete) => delete.origin_features(),
             Self::Emboss(emboss) => emboss.origin_features(),
             Self::SplitFace(split) => split.origin_features(),
@@ -1729,6 +1783,7 @@ impl Feature {
             FeatureKind::OffsetFace(offset) => Some(offset.body),
             FeatureKind::MoveFace(moving) => Some(moving.body),
             FeatureKind::Draft(draft) => Some(draft.body),
+            FeatureKind::ReplaceFace(replace) => Some(replace.body),
             FeatureKind::DeleteFace(delete) => Some(delete.body),
             FeatureKind::Emboss(emboss) => Some(emboss.body),
             FeatureKind::SplitFace(split) => Some(split.body),
@@ -1800,6 +1855,7 @@ impl Feature {
             | FeatureKind::OffsetFace(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::Draft(_)
+            | FeatureKind::ReplaceFace(_)
             | FeatureKind::DeleteFace(_)
             | FeatureKind::Emboss(_)
             | FeatureKind::SplitFace(_)

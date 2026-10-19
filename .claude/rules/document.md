@@ -877,6 +877,24 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   lowest (a floor), else the first principal plane across it, with `flipped_toward` pointing the
   pull at the faces (the mean height of their edges above the plane).
 
+### Replace face (`replace_face.rs`)
+
+- `ReplaceFace { body, faces, target }` puts flat faces of its body onto the target plane (kernel
+  `replace_faces`). `target` is an `Option<PlaneReference>` (a principal, datum or coordinate
+  system plane or a flat face of any body made before it, its own included, resolved through
+  `Resolver::plane`; its datum, frame and body count as used, its face is healed as "its target
+  plane", it is renamed when pasted and anchored for model scale); none waits as
+  `MissingInput::TargetPlane`, which the app answers by picking. `faces` are `FaceReference`s
+  resolved in the body's state before it (pieces of one split face accepted; lost or tied fails,
+  none waits as `MissingInput::FacesToReplace`).
+- It has no values, so no expressions or parameters, and model scale changes nothing but the
+  anchored target. Kernel refusals become sentences naming the face, edge or corner, each with
+  what to change: a curved face, a target square to a face, a target on or past the far side of the
+  body (turning it inside out), two faces along an edge that would both lie on the target, every
+  face already on it, and a move's (a face that would vanish, faces that would cross, a neighbour
+  that cannot follow).
+- It modifies its body (`modifies_body`) and keeps every face and edge name and the state before it.
+
 ### Delete face (`delete_face.rs`)
 
 - `DeleteFace { body, faces }` resolves its `FaceReference`s in the body's state before it (lost or
@@ -1256,10 +1274,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Emboss (`emboss.rs`)
 
-- `Emboss { body, faces, sketch, depth, form }` raises (`EmbossForm::Raised`) or sinks
+- `Emboss { body, faces, sketch, regions, depth, form }` raises (`EmbossForm::Raised`) or sinks
   (`Recessed`) every closed outline of its sketch (`Selection::EvenDepth` of `solid::profile_curves`,
-  so a letter's counter stays open and curves enclosing nothing are ignored) on the chosen faces by
-  `depth`, a length above zero (an expression, scaled with the model). `faces` are `FaceReference`s
+  so a letter's counter stays open and curves enclosing nothing are ignored), or only the chosen
+  `regions` (a `RegionChoice` as an extrusion's, `RegionReference`s resolved against the sketch's
+  cached profile so a changed region is healed by the healing visitor or left out; none chosen waits
+  as `MissingInput::RegionsToEmboss`, every chosen one gone or a tie fails with `RegionGone` or
+  `RegionAmbiguous` naming the sketch) on the chosen faces by `depth`, a length above zero (an
+  expression, scaled with the model). `faces` are `FaceReference`s
   resolved as a split face's (pieces accepted, lost or tied fails); none waits as
   `MissingInput::FacesToEmboss`, no `sketch` as `SketchToEmboss`. It modifies its body
   (`modifies_body`, state before kept); its sketch is in `features()` and `reference_sketches`, its

@@ -16,7 +16,7 @@ use caditor_document::{
     Measurement, MetricSize, Mirror, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
     PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern,
     Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading, ReferenceImage,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide,
+    RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide,
     Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
     SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
     ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall,
@@ -87,10 +87,11 @@ pub enum Family {
     MoveFace,
     Draft,
     Emboss,
+    ReplaceFace,
 }
 
 impl Family {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         Self::Sketch,
         Self::Solid,
         Self::Blend,
@@ -121,6 +122,7 @@ impl Family {
         Self::MoveFace,
         Self::Draft,
         Self::Emboss,
+        Self::ReplaceFace,
     ];
 
     pub fn of(kind: &FeatureKind) -> Self {
@@ -134,6 +136,7 @@ impl Family {
             FeatureKind::MoveFace(_) => Self::MoveFace,
             FeatureKind::Draft(_) => Self::Draft,
             FeatureKind::Emboss(_) => Self::Emboss,
+            FeatureKind::ReplaceFace(_) => Self::ReplaceFace,
             FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Primitive(_) => Self::Primitive,
             FeatureKind::Pipe(_) => Self::Pipe,
@@ -196,10 +199,13 @@ pub fn feature_kind(
         }
         Family::Emboss => {
             let body = scene.body(input)?;
+            let faces = scene.faces(input, body)?;
+            let sketch = scene.existing_sketch(input)?;
             FeatureKind::Emboss(Emboss {
                 body,
-                faces: scene.faces(input, body)?,
-                sketch: scene.existing_sketch(input)?,
+                faces,
+                sketch,
+                regions: regions(input, scene, sketch)?,
                 depth: scene.distance(input)?,
                 form: if input.arbitrary()? {
                     EmbossForm::Raised
@@ -249,6 +255,18 @@ pub fn feature_kind(
                         })
                     })
                     .collect::<Result<_>>()?,
+            })
+        }
+        Family::ReplaceFace => {
+            let body = scene.body(input)?;
+            FeatureKind::ReplaceFace(ReplaceFace {
+                body,
+                faces: scene.faces(input, body)?,
+                target: if input.arbitrary()? {
+                    Some(scene.plane(input)?)
+                } else {
+                    None
+                },
             })
         }
         Family::DeleteFace => {

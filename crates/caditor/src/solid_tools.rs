@@ -18,7 +18,7 @@ use crate::{
     body_reach, body_selection,
     commands::Reason,
     editing::{self, EditingCommand, SketchEditing},
-    extrusion_detection,
+    emboss_tools, extrusion_detection,
     field::{self, CheckError},
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
@@ -103,7 +103,7 @@ impl Reason for FaceSweepError {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RegionError {
-    #[error("{name} is not an extrusion or a revolve")]
+    #[error("{name} is not an extrusion, a revolve or an emboss")]
     NotASweep { name: String },
     #[error("{name} has no region chosen")]
     NoneChosen { name: String },
@@ -952,6 +952,9 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
 }
 
 pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
+    if feature.kind.emboss().is_some() {
+        return emboss_tools::clear_regions(model, feature);
+    }
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::NotASweep {
             name: feature.name.clone(),
@@ -996,6 +999,9 @@ pub fn pieces_change(
 }
 
 pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
+    if feature.kind.emboss().is_some() {
+        return emboss_tools::select_all_regions(model, feature);
+    }
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::TakesNoRegions {
             name: feature.name.clone(),
@@ -1029,6 +1035,9 @@ pub fn take_sketch_regions(
     feature: &Feature,
     sketch: FeatureId,
 ) -> Result<Transaction, RegionError> {
+    if feature.kind.emboss().is_some() {
+        return emboss_tools::take_sketch_regions(model, feature, sketch);
+    }
     let Some(solid) = feature.kind.solid() else {
         return Err(RegionError::TakesNoRegions {
             name: feature.name.clone(),
