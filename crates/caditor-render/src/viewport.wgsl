@@ -22,6 +22,9 @@ struct View {
     floor: vec4<f32>,
     shadow_matrix: mat4x4<f32>,
     relative_from_light: mat4x4<f32>,
+    cross_matrix: mat4x4<f32>,
+    relative_from_cross: mat4x4<f32>,
+    cross_frame: vec4<f32>,
     occlusion: vec4<f32>,
     occlusion_frame: vec4<f32>,
     camera_right: vec4<f32>,
@@ -74,6 +77,7 @@ struct MeshPlacement {
 @group(2) @binding(8) var peeled_once: texture_2d<u32>;
 @group(2) @binding(9) var peeled_twice: texture_2d<u32>;
 @group(2) @binding(10) var previous_layer: texture_2d<u32>;
+@group(2) @binding(11) var crossed_depth: texture_2d<u32>;
 @group(3) @binding(0) var occlusion_map: texture_2d<f32>;
 @group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
 @group(1) @binding(8) var surface_texels: texture_2d<u32>;
@@ -681,6 +685,14 @@ fn fs_shadow(in: Varyings) -> LitTexel {
 }
 
 @fragment
+fn fs_depth(in: Varyings) -> @location(0) u32 {
+    if is_cut(in) {
+        discard;
+    }
+    return bitcast<u32>(in.position.z);
+}
+
+@fragment
 fn fs_peel(in: Varyings) -> @location(0) u32 {
     if is_cut(in) {
         discard;
@@ -1011,6 +1023,7 @@ const BOUNCE_SAMPLES: i32 = 24;
 const BOUNCE_BLOCK_STEPS: i32 = 4;
 const BOUNCE_BLOCK_LIFTS: f32 = 2.0;
 const BOUNCE_LAYERS: i32 = 3;
+const BOUNCE_CROSS_SPACINGS: f32 = 3.0;
 const GOLDEN_ANGLE: f32 = 2.39996323;
 const SHADOW_DEPTH_BIAS: f32 = 0.0005;
 const ENVIRONMENT_BRDF_LOW: vec4<f32> = vec4<f32>(-1.0, -0.0275, -0.572, 0.022);
@@ -1191,6 +1204,22 @@ fn fs_surface(in: Varyings) -> @location(0) vec4<u32> {
     return vec4<u32>(bitcast<vec3<u32>>(in.relative), packed_snorm(vec4<f32>(normal, 1.0)));
 }
 
+struct FloorSurface {
+    @location(0) surface: vec4<u32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn fs_floor_surface(in: Varyings) -> FloorSurface {
+    let hit = ground_hit(in.local);
+    if hit.w <= 0.0 || !shows_floor() {
+        discard;
+    }
+    let clip = to_clip(hit.xyz);
+    let surface = vec4<u32>(bitcast<vec3<u32>>(hit.xyz), packed_snorm(vec4<f32>(0.0, 0.0, 1.0, 1.0)));
+    return FloorSurface(surface, layered_depth(clip, FLOOR_DEPTH_BIAS, BEHIND) / clip.w);
+}
+
 @fragment
 fn fs_occlusion(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     let texel = vec2<i32>(at.xy);
@@ -1280,11 +1309,25 @@ struct BounceRay {
     start: vec3<f32>,
     lift: f32,
     depth_span: f32,
+    crossed_start: vec3<f32>,
+    crossed_lift: f32,
+    crossed_span: f32,
+}
+
+struct BounceSource {
+    position: vec3<f32>,
+    normal: vec3<f32>,
+    radiance: vec3<f32>,
+    found: bool,
+}
+
+fn light_point_by(matrix: mat4x4<f32>, relative: vec3<f32>) -> vec3<f32> {
+    let light = matrix * vec4<f32>(relative, 1.0);
+    return vec3<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5, light.z);
 }
 
 fn light_point(relative: vec3<f32>) -> vec3<f32> {
-    let light = view.shadow_matrix * vec4<f32>(relative, 1.0);
-    return vec3<f32>(light.x * 0.5 + 0.5, 0.5 - light.y * 0.5, light.z);
+    return light_point_by(view.shadow_matrix, relative);
 }
 
 fn lit_layer(layer: i32, texel: vec2<i32>) -> u32 {
@@ -1297,7 +1340,7 @@ fn lit_layer(layer: i32, texel: vec2<i32>) -> u32 {
     return textureLoad(peeled_twice, texel, 0).r;
 }
 
-fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
+fn bounce_blocked_in_light(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
     let to = light_point(source + source_normal * ray.lift);
     let size = vec2<f32>(textureDimensions(lit_depth));
     let last = vec2<i32>(size) - vec2<i32>(1);
@@ -1322,13 +1365,92 @@ fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, r
     return false;
 }
 
+fn bounce_blocked_in_cross(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
+    let to = light_point_by(view.cross_matrix, source + source_normal * ray.crossed_lift);
+    let size = vec2<f32>(textureDimensions(crossed_depth));
+    let last = vec2<i32>(size) - vec2<i32>(1);
+    let pieces = f32(BOUNCE_BLOCK_STEPS + 1);
+    let nearby = BOUNCE_CROSS_SPACINGS * reach / pieces;
+    var before = 0.0;
+    var known = false;
+    for (var step = 0; step <= BOUNCE_BLOCK_STEPS + 1; step++) {
+        let along = mix(ray.crossed_start, to, f32(step) / pieces);
+        var behind = 0.0;
+        var found = false;
+        if all(along.xy >= vec2<f32>(0.0)) && all(along.xy < vec2<f32>(1.0)) {
+            let stored = textureLoad(crossed_depth, clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last), 0).r;
+            behind = (along.z - bitcast<f32>(stored)) * ray.crossed_span;
+            found = stored != 0u;
+        }
+        let straddles = (before < -ray.crossed_lift && behind > ray.crossed_lift)
+            || (before > ray.crossed_lift && behind < -ray.crossed_lift);
+        if known && found && straddles && max(abs(before), abs(behind)) <= nearby {
+            return true;
+        }
+        before = behind;
+        known = found;
+    }
+    return false;
+}
+
+fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
+    return bounce_blocked_in_light(ray, source, source_normal, reach)
+        || bounce_blocked_in_cross(ray, source, source_normal, reach);
+}
+
+fn floor_source(at: vec2<f32>) -> BounceSource {
+    var none: BounceSource;
+    none.found = false;
+    if !shows_floor() || view.ground.y <= 0.0 || view.ground.x >= 0.0 {
+        return none;
+    }
+    let ndc = vec2<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0);
+    let near = view.relative_from_light * vec4<f32>(ndc, 0.0, 1.0);
+    let far = view.relative_from_light * vec4<f32>(ndc, 1.0, 1.0);
+    let start = near.xyz / near.w;
+    let end = far.xyz / far.w;
+    let rise = end.z - start.z;
+    if abs(rise) < 1e-6 {
+        return none;
+    }
+    let along = (view.ground.x - start.z) / rise;
+    if along < 0.0 || along > 1.0 {
+        return none;
+    }
+    let position = mix(start, end, along);
+    let spread = length(position.xy - view.ground.zw) / view.ground.y;
+    let shown = 1.0 - smoothstep(FLOOR_FADE_FROM, FLOOR_FADE_TO, spread);
+    return BounceSource(position, vec3<f32>(0.0, 0.0, 1.0), FLOOR_ALBEDO * (max(view.sun.z, 0.0) * shown), shown > 0.0);
+}
+
+fn body_source(texel: vec2<i32>, at: vec2<f32>) -> BounceSource {
+    var none: BounceSource;
+    none.found = false;
+    let albedo = textureLoad(lit_albedo, texel, 0);
+    if albedo.a <= 0.0 {
+        return none;
+    }
+    let depth = bitcast<f32>(textureLoad(lit_depth, texel, 0).r);
+    let placed = view.relative_from_light * vec4<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, depth, 1.0);
+    let normal = textureLoad(lit_normals, texel, 0).xyz * 2.0 - 1.0;
+    return BounceSource(placed.xyz / placed.w, normal, to_linear(albedo.rgb) * albedo.a, true);
+}
+
 fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32> {
     if !bounces() {
         return vec3<f32>(0.0);
     }
     let centre = light_point(relative).xy;
     let lift = view.exposure_shadow.w;
-    let ray = BounceRay(light_point(relative + normal * lift), lift, length(view.relative_from_light[2].xyz));
+    let crossed_lift = view.cross_frame.x;
+    let ray = BounceRay(
+        light_point(relative + normal * lift),
+        lift,
+        length(view.relative_from_light[2].xyz),
+        light_point_by(view.cross_matrix, relative + normal * crossed_lift),
+        crossed_lift,
+        length(view.relative_from_cross[2].xyz),
+    );
     let size = vec2<f32>(textureDimensions(lit_albedo));
     let last = vec2<i32>(size) - vec2<i32>(1);
     let spin = spin_at(pixel);
@@ -1341,22 +1463,23 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
             continue;
         }
         let texel = clamp(vec2<i32>(at * size), vec2<i32>(0), last);
-        let albedo = textureLoad(lit_albedo, texel, 0);
-        if albedo.a <= 0.0 {
+        var source: BounceSource;
+        if textureLoad(lit_depth, texel, 0).r == 0u {
+            source = floor_source(at);
+        } else {
+            source = body_source(texel, at);
+        }
+        if !source.found {
             continue;
         }
-        let depth = bitcast<f32>(textureLoad(lit_depth, texel, 0).r);
-        let placed = view.relative_from_light * vec4<f32>(at.x * 2.0 - 1.0, 1.0 - at.y * 2.0, depth, 1.0);
-        let source = placed.xyz / placed.w;
-        let source_normal = textureLoad(lit_normals, texel, 0).xyz * 2.0 - 1.0;
-        let between = relative - source;
-        let leaving = max(dot(source_normal, between), 0.0);
+        let between = relative - source.position;
+        let leaving = max(dot(source.normal, between), 0.0);
         let arriving = max(dot(normal, -between), 0.0);
-        if leaving * arriving <= 0.0 || bounce_blocked(ray, source, source_normal, length(between)) {
+        if leaving * arriving <= 0.0 || bounce_blocked(ray, source.position, source.normal, length(between)) {
             continue;
         }
         let squared = max(dot(between, between), view.bounce.z);
-        gathered += to_linear(albedo.rgb) * albedo.a * leaving * arriving / (squared * squared);
+        gathered += source.radiance * leaving * arriving / (squared * squared);
     }
     return gathered * view.bounce.w * view.bounce.x * view.sun_colour.rgb * view.sun.w;
 }
@@ -1374,6 +1497,7 @@ const GROUND_FADE_TO: f32 = 3.5;
 const FLOOR_ALBEDO: vec3<f32> = vec3<f32>(0.6, 0.6, 0.6);
 const FLOOR_FADE_FROM: f32 = 6.0;
 const FLOOR_FADE_TO: f32 = 16.0;
+const FLOOR_DEPTH_BIAS: f32 = 0.9999;
 
 fn sky(direction: vec3<f32>) -> vec3<f32> {
     let up = direction.z;

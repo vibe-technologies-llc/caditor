@@ -35,16 +35,19 @@ shading.
   below (or from the sky picture, below, when there is one), which fills shadows and gives
   metals something to reflect. At 0 only the sun lights the model.
 - **Bounced light** is sunlight thrown back by nearby lit surfaces, so a red part next to a white
-  one tints it. A wall the sun lights stops the light bounced through it, but it reaches only a
-  short way and comes only from surfaces the sun sees, so treat it as a hint of colour, not an
-  exact result.
+  one tints it. A wall stops the light bounced through it, whether or not the sun lights it and
+  even when the sun runs along it, and the visible floor bounces light onto the parts standing on
+  it. It reaches only a short way and comes only from surfaces the sun sees, so treat it as a hint
+  of colour, not an exact result.
 - **Ambient occlusion** darkens the sky and bounced light where surfaces crowd in: inside
   corners, holes, the gap under a part. It is worked out from what the view shows (ground-truth
-  ambient occlusion), so it only sees surfaces on screen; 0 turns it off, above 1 deepens it.
+  ambient occlusion), so it only sees surfaces on screen, the visible floor included, which
+  darkens the foot of a part standing on it; 0 turns it off, above 1 deepens it.
 - **Exposure** brightens or darkens the whole picture in stops.
 - **Cast shadows**: bodies shade what lies behind them from the sun.
 - **Visible floor**: draws the ground the bodies stand on, a neutral grey at the model's lowest
-  point that takes the sun's shadow and fades into the backdrop away from the model. Off at first.
+  point that takes the sun's shadow, bounces light onto the bodies and shades their feet, and
+  fades into the backdrop away from the model. Off at first.
 
 {command:view.reset_lighting} puts every setting back as it was at first, the sky picture
 included.

@@ -443,6 +443,39 @@ pub(crate) fn surfaces_pipeline(
     })
 }
 
+pub(crate) fn floor_surfaces_pipeline(
+    device: &wgpu::Device,
+    (module, layout): (&wgpu::ShaderModule, &wgpu::PipelineLayout),
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("occlusion floor"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some("vs_sky"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some("fs_floor_surface"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[Some(wgpu::ColorTargetState::from(SURFACE_FORMAT))],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

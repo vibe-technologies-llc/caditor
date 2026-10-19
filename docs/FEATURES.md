@@ -222,13 +222,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   assemblies.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
-  surfaces the sun sees, and its visibility test (`bounce_blocked`) sees the first `BOUNCE_LAYERS`
-  surfaces along each sun ray: a wall edge-on to the sun, or behind more surfaces than that, still
-  lets bounced light through.
+  surfaces the sun sees, and its visibility test still lets bounced light through a wall edge-on to
+  both the sun and the cross light (one whose normal points up the sun's slope) and one behind more
+  surfaces than `BOUNCE_LAYERS` sun layers and the cross map's one layer hold.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps, and the visible floor
-  (`render.md`) bounces no light or occlusion onto the bodies.
+  (`render.md`) takes no ambient occlusion from the bodies standing on it.
 - [medium · hard · blocked by: the in-app assistant connection decision (`DECISIONS.md`)] An
   assistant cannot work on the model open in the window: the headless server owns its own
   document. Connecting to the running app needs a transport the app listens on (off by default),

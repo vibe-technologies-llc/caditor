@@ -16,8 +16,13 @@ const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const BOUNCE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const LIT_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 pub(crate) const PEEL_LAYERS: usize = 2;
+pub(crate) const CROSS_MAP_SIDE: u32 = 1024;
 const PEELED_BINDING: u32 = 8;
 const PREVIOUS_LAYER_BINDING: u32 = 10;
+const CROSSED_BINDING: u32 = 11;
+const CROSS_TILT: f64 = 1.0;
+const SKEW_ACROSS: (f64, f64) = (0.8, 0.6);
+const MOST_VERTICAL_SUN_FOR_LEVEL: f64 = 0.99;
 const BOUNCE_REACH: f64 = 0.12;
 const NEAREST_BOUNCE_SHARE: f64 = 0.01;
 const BOUNCE_SAMPLES: f64 = 24.0;
@@ -181,10 +186,19 @@ pub(crate) struct LightFrame {
 }
 
 impl LightFrame {
+    pub(crate) fn crossing(
+        toward_light: Vector3,
+        eye: Point3,
+        casters: impl IntoIterator<Item = [Point3; 8]>,
+    ) -> Option<Self> {
+        Self::fitted(cross_direction(toward_light), eye, casters, CROSS_MAP_SIDE)
+    }
+
     pub(crate) fn fitted(
         toward_light: Vector3,
         eye: Point3,
         casters: impl IntoIterator<Item = [Point3; 8]>,
+        map_side: u32,
     ) -> Option<Self> {
         let (right, up) = toward_light.any_orthonormal_pair();
         let along = -toward_light;
@@ -219,7 +233,7 @@ impl LightFrame {
             DVec4::W,
         ];
         let matrix = DMat4::from_cols(rows[0], rows[1], rows[2], rows[3]).transpose();
-        let texel = side / f64::from(SHADOW_MAP_SIDE);
+        let texel = side / f64::from(map_side);
         Some(Self {
             matrix: matrix.as_mat4(),
             relative_from_light: matrix.inverse().as_mat4(),
@@ -232,6 +246,15 @@ impl LightFrame {
     pub(crate) fn place(&self, relative: glam::Vec3) -> glam::Vec3 {
         self.matrix.project_point3(relative)
     }
+}
+
+fn cross_direction(toward_light: Vector3) -> Vector3 {
+    let level_across = if toward_light.z.abs() < MOST_VERTICAL_SUN_FOR_LEVEL {
+        toward_light.cross(Vector3::Z).normalize_or(Vector3::X)
+    } else {
+        Vector3::new(SKEW_ACROSS.0, SKEW_ACROSS.1, 0.0)
+    };
+    (toward_light + level_across * CROSS_TILT).normalize_or(toward_light)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -247,6 +270,9 @@ pub(crate) struct LightUniform {
     floor: [f32; 4],
     shadow_matrix: Mat4,
     relative_from_light: Mat4,
+    cross_matrix: Mat4,
+    relative_from_cross: Mat4,
+    cross_frame: [f32; 4],
 }
 
 impl LightUniform {
@@ -262,16 +288,20 @@ impl LightUniform {
         floor: [0.0; 4],
         shadow_matrix: Mat4::ZERO,
         relative_from_light: Mat4::ZERO,
+        cross_matrix: Mat4::ZERO,
+        relative_from_cross: Mat4::ZERO,
+        cross_frame: [0.0; 4],
     };
 
     pub(crate) fn of(
         (lighting, view): (&Lighting, &View),
         toward_light: Vector3,
-        (frame, ground): (Option<LightFrame>, Option<Ground>),
+        (frame, cross, ground): (Option<LightFrame>, Option<LightFrame>, Option<Ground>),
     ) -> Self {
         let tan_y = view.tan_half_fov_y();
         let shadow = frame.filter(|_| lighting.shadows);
         let bounce = finite_at_least_zero(lighting.bounce);
+        let cross = cross.filter(|_| frame.is_some() && bounce > 0.0);
         let toward = toward_light.as_vec3();
         let [red, green, blue] = lighting.colour.map(finite_at_least_zero);
         Self {
@@ -288,7 +318,7 @@ impl LightUniform {
                 1.0 / SHADOW_MAP_SIDE as f32,
                 frame.map_or(0.0, |frame| frame.normal_offset),
             ],
-            bounce: match frame.filter(|_| bounce > 0.0) {
+            bounce: match frame.filter(|_| bounce > 0.0 && cross.is_some()) {
                 Some(frame) => bounce_uniform(bounce, frame.side),
                 None => [0.0; 4],
             },
@@ -299,7 +329,33 @@ impl LightUniform {
             floor: lighting.surroundings.floor_uniform(),
             shadow_matrix: frame.map_or(Mat4::ZERO, |frame| frame.matrix),
             relative_from_light: frame.map_or(Mat4::ZERO, |frame| frame.relative_from_light),
+            cross_matrix: cross.map_or(Mat4::ZERO, |cross| cross.matrix),
+            relative_from_cross: cross.map_or(Mat4::ZERO, |cross| cross.relative_from_light),
+            cross_frame: [
+                cross.map_or(0.0, |cross| cross.normal_offset),
+                0.0,
+                0.0,
+                0.0,
+            ],
         }
+    }
+
+    pub(crate) fn crossing(&self) -> Self {
+        Self {
+            shadow_matrix: self.cross_matrix,
+            relative_from_light: self.relative_from_cross,
+            exposure_shadow: [
+                self.exposure_shadow[0],
+                self.exposure_shadow[1],
+                self.exposure_shadow[2],
+                self.cross_frame[0],
+            ],
+            ..*self
+        }
+    }
+
+    pub(crate) fn shows_floor(&self) -> bool {
+        self.floor[0] > 0.5
     }
 
     pub(crate) fn with_environment(self, environment: [f32; 4]) -> Self {
@@ -333,7 +389,10 @@ impl LightUniform {
             .floats(&self.backdrop_colour)
             .floats(&self.floor)
             .mat4(self.shadow_matrix)
-            .mat4(self.relative_from_light);
+            .mat4(self.relative_from_light)
+            .mat4(self.cross_matrix)
+            .mat4(self.relative_from_cross)
+            .floats(&self.cross_frame);
     }
 }
 
@@ -389,15 +448,19 @@ struct LightTargets {
     lit_depth: wgpu::TextureView,
     peeled: Vec<wgpu::TextureView>,
     peel_depth: wgpu::TextureView,
+    crossed: wgpu::TextureView,
+    cross_depth: wgpu::TextureView,
 }
 
 impl LightTargets {
-    fn new(device: &wgpu::Device, side: u32) -> Self {
+    fn new(device: &wgpu::Device, (side, cross_side): (u32, u32)) -> Self {
         Self {
             peeled: (0..PEEL_LAYERS)
                 .map(|_| light_texture(device, "peeled depth", side, LIT_DEPTH_FORMAT))
                 .collect(),
             peel_depth: light_texture(device, "peel depth", side, SHADOW_FORMAT),
+            crossed: light_texture(device, "crossed depth", cross_side, LIT_DEPTH_FORMAT),
+            cross_depth: light_texture(device, "cross depth", cross_side, SHADOW_FORMAT),
             depth: light_texture(device, "shadow map", side, SHADOW_FORMAT),
             albedo: light_texture(device, "lit albedo", side, BOUNCE_FORMAT),
             normals: light_texture(device, "lit normals", side, BOUNCE_FORMAT),
@@ -452,6 +515,7 @@ impl LightPass {
                 },
                 bounce_entry(PEELED_BINDING, wgpu::TextureSampleType::Uint),
                 bounce_entry(PEELED_BINDING + 1, wgpu::TextureSampleType::Uint),
+                bounce_entry(CROSSED_BINDING, wgpu::TextureSampleType::Uint),
             ],
         });
         let peel_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -479,7 +543,7 @@ impl LightPass {
         sampler: wgpu::Sampler,
     ) -> Self {
         let environment_sampler = environment_textures::sampler(device);
-        let stand_in_targets = LightTargets::new(device, 1);
+        let stand_in_targets = LightTargets::new(device, (1, 1));
         let stand_in_environment = environment_textures::stand_in(device);
         let bind_group = bind_group(
             device,
@@ -541,10 +605,18 @@ impl LightPass {
             return LightPassReady::Refused;
         }
         let side = SHADOW_MAP_SIDE.min(device.limits().max_texture_dimension_2d);
-        let (targets, error) = gpu::scoped(device, || LightTargets::new(device, side));
+        let cross_side = CROSS_MAP_SIDE.min(device.limits().max_texture_dimension_2d);
+        let (targets, error) =
+            gpu::scoped(device, || LightTargets::new(device, (side, cross_side)));
         match error {
             None => {
-                self.peel_groups = Some(peel_groups(device, &self.peel_layout, &targets));
+                self.peel_groups = Some(peel_groups(
+                    device,
+                    &self.peel_layout,
+                    std::iter::once(&targets.lit_depth)
+                        .chain(&targets.peeled)
+                        .take(PEEL_LAYERS),
+                ));
                 self.targets = Some(targets);
                 self.rebind(device);
                 LightPassReady::Ready
@@ -666,39 +738,59 @@ impl LightPass {
         let targets = self.targets.as_ref()?;
         let previous = self.peel_groups.as_ref()?.get(layer)?;
         let peeled = targets.peeled.get(layer)?;
-        let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("peeled depth"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: peeled,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &targets.peel_depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(FARTHEST_SHADOW_DEPTH),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
+        let pass = layer_pass(encoder, "peeled depth", peeled, &targets.peel_depth);
         Some((pass, previous))
+    }
+
+    pub(crate) fn begin_cross_pass<'a>(
+        &'a self,
+        encoder: &'a mut wgpu::CommandEncoder,
+    ) -> Option<wgpu::RenderPass<'a>> {
+        let targets = self.targets.as_ref()?;
+        Some(layer_pass(
+            encoder,
+            "crossed depth",
+            &targets.crossed,
+            &targets.cross_depth,
+        ))
     }
 }
 
-fn peel_groups(
+fn layer_pass<'a>(
+    encoder: &'a mut wgpu::CommandEncoder,
+    label: &'static str,
+    layer: &'a wgpu::TextureView,
+    depth: &'a wgpu::TextureView,
+) -> wgpu::RenderPass<'a> {
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: layer,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(FARTHEST_SHADOW_DEPTH),
+                store: wgpu::StoreOp::Discard,
+            }),
+            stencil_ops: None,
+        }),
+        ..Default::default()
+    })
+}
+
+fn peel_groups<'a>(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
-    targets: &LightTargets,
+    previous_layers: impl Iterator<Item = &'a wgpu::TextureView>,
 ) -> Vec<wgpu::BindGroup> {
-    std::iter::once(&targets.lit_depth)
-        .chain(&targets.peeled)
-        .take(PEEL_LAYERS)
+    previous_layers
         .map(|previous| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("previous layer"),
@@ -798,10 +890,14 @@ fn bind_group(
                 .peeled
                 .iter()
                 .zip(PEELED_BINDING..)
-                .map(|(peeled, binding)| wgpu::BindGroupEntry {
+                .map(|(layer, binding)| wgpu::BindGroupEntry {
                     binding,
-                    resource: wgpu::BindingResource::TextureView(peeled),
-                }),
+                    resource: wgpu::BindingResource::TextureView(layer),
+                })
+                .chain([wgpu::BindGroupEntry {
+                    binding: CROSSED_BINDING,
+                    resource: wgpu::BindingResource::TextureView(&targets.crossed),
+                }]),
         )
         .collect::<Vec<_>>(),
     })
@@ -813,8 +909,25 @@ pub(crate) fn peel_pipeline(
     layout: &wgpu::PipelineLayout,
     buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
 ) -> wgpu::RenderPipeline {
+    layer_pipeline(
+        device,
+        module,
+        (layout, buffers),
+        ("peeled depth", "fs_peel"),
+    )
+}
+
+fn layer_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    (layout, buffers): (
+        &wgpu::PipelineLayout,
+        &[Option<wgpu::VertexBufferLayout<'_>>],
+    ),
+    (label, fragment): (&'static str, &'static str),
+) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("peeled depth"),
+        label: Some(label),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module,
@@ -833,13 +946,27 @@ pub(crate) fn peel_pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module,
-            entry_point: Some("fs_peel"),
+            entry_point: Some(fragment),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState::from(LIT_DEPTH_FORMAT))],
         }),
         multiview_mask: None,
         cache: None,
     })
+}
+
+pub(crate) fn depth_pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+) -> wgpu::RenderPipeline {
+    layer_pipeline(
+        device,
+        module,
+        (layout, buffers),
+        ("crossed depth", "fs_depth"),
+    )
 }
 
 pub(crate) fn shadow_pipeline(
@@ -976,7 +1103,7 @@ mod tests {
                     .corners()
             })
             .collect();
-        let frame = LightFrame::fitted(toward_light, eye, corners.iter().copied())
+        let frame = LightFrame::fitted(toward_light, eye, corners.iter().copied(), SHADOW_MAP_SIDE)
             .expect("the casters have a frame");
 
         for corner in corners.iter().flatten() {
@@ -990,9 +1117,44 @@ mod tests {
     }
 
     #[test]
+    fn the_cross_direction_sees_every_wall_the_sun_grazes_at_a_slant() {
+        let suns = [
+            Vector3::new(0.5, 0.0, 0.866),
+            Vector3::new(0.0, 1.0, 0.2),
+            Vector3::new(0.3, -0.4, 0.8),
+            Vector3::new(0.0, 0.0, 1.0),
+            Vector3::new(0.001, 0.0, 1.0),
+        ];
+
+        for sun in suns {
+            let sun = sun.normalize();
+            let cross = cross_direction(sun);
+            let walls: Vec<Vector3> = [
+                sun.cross(Vector3::Z).normalize_or(Vector3::X),
+                Vector3::X,
+                Vector3::Y,
+            ]
+            .into_iter()
+            .filter(|wall| wall.dot(sun).abs() < 1e-2)
+            .collect();
+
+            assert!((cross.length() - 1.0).abs() < 1e-9, "{sun} {cross}");
+            assert!(cross.dot(sun) > 0.5, "{sun} {cross}");
+            for wall in walls {
+                assert!(wall.dot(cross).abs() > 0.2, "{sun} {wall} {cross}");
+            }
+        }
+    }
+
+    #[test]
     fn no_caster_leaves_no_light_frame() {
         assert_eq!(
-            LightFrame::fitted(Vector3::Z, Point3::ZERO, std::iter::empty()),
+            LightFrame::fitted(
+                Vector3::Z,
+                Point3::ZERO,
+                std::iter::empty(),
+                SHADOW_MAP_SIDE
+            ),
             None
         );
     }
