@@ -6,12 +6,14 @@ place or a boss on the wrong spot is put right without remodelling the body. It 
 an [imported](imported-bodies) one with no history included. Select the faces, then choose Move face.
 It has no ribbon button; use the Model menu or {command:palette}.
 
-- **Distance** shifts the faces; a negative distance shifts them the other way.
+- **Distance** shifts the faces; a negative distance shifts them the other way. Typing previews it,
+  and the arrow on the first chosen face, along the direction, drags it.
 - **Direction** is what they shift along: square to the first flat face chosen (out of the body
   for a positive distance), or an axis, a straight edge, a round face's axis or a sketch line, from
   the list or with **Choose in the view**.
 - **Angle** tilts the faces about **Tilt about**, an axis or straight edge; tilt a wall about the edge
-  it stands on to lean it. A negative angle tilts the other way. The tilt comes first, then the shift.
+  it stands on to lean it. A negative angle tilts the other way. The tilt comes first, then the shift. Once an axis is chosen
+  an arrow on the edge of the first chosen face turns the faces about it when dragged.
 
 To move a hole, choose its wall (and the floor of a blind one) and a direction across the face it is
 cut into, such as the X or Y axis; {command:select.hole} picks a whole hole. To move a boss, choose
@@ -24,4 +26,6 @@ selected then.
 
 The moved faces keep their names, so later features still find them. A move that would make a face
 vanish, faces cross or a neighbour unable to follow fails the feature alone, saying which face or
-edge and what to do. Distance and Angle accept units, expressions and parameters.
+edge and what to do. Distance and Angle accept units, expressions and parameters. The arrows
+snap like other arrows and Ctrl drags freely; typing a number while holding or hovering one sets
+the value as the panel field would, and dragging is one undoable change.

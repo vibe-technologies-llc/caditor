@@ -2,29 +2,31 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern, CurveSpacing,
-    Datum, DatumPlane, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind,
-    Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection,
-    LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
-    OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor,
-    PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule,
-    SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
-    displayed_plane, face_plane, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
+    Datum, DatumPlane, Draft, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId,
+    FeatureKind, Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
+    LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES,
+    MIN_PRISM_SIDES, MoveFace, OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive,
+    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell,
+    ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name,
+    displayed_axis, displayed_plane, face_plane, flat_normal, hole_centres, hole_thread,
+    pipe_size_name, pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BendMiddles, CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeCorner,
-    PipeShape, Solid, Surface, WallSide, measured_face,
+    PipeShape, STEEPEST_DRAFT, Solid, Surface, WallSide, measured_face,
 };
 use caditor_sketch::Entity;
 
 use crate::{
     blend_panel, bodies, coil_panel,
     curve_track::{CurveTrack, TrackPoint},
-    datum_tools,
+    datum_tools, draft_panel,
     feature_fields::Rule,
     handle_snap, hole_panel, hole_tools,
     model::Model,
+    move_face_panel,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
     pattern_panel, pattern_tools, pipe_panel, reach_handles,
     reversing::Flip,
@@ -106,6 +108,9 @@ pub enum Measured {
     ThreadDepth,
     HoleEndOffset,
     OffsetDistance,
+    MoveDistance,
+    MoveAngle,
+    DraftAngle,
     PlaneOffset,
     PlaneAngle,
     BlendSize,
@@ -249,6 +254,8 @@ impl Measured {
             | Self::CircularAngle
             | Self::BlendAngle
             | Self::CountersinkAngle
+            | Self::MoveAngle
+            | Self::DraftAngle
             | Self::SlotAngle => Amount::Angle,
             Self::CircularCount | Self::PrismSides | Self::CurveCount => Amount::Count,
             Self::HoleDepth
@@ -262,6 +269,7 @@ impl Measured {
             | Self::ThreadDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
+            | Self::MoveDistance
             | Self::PlaneOffset
             | Self::BlendSize
             | Self::BlendSecond
@@ -310,6 +318,9 @@ impl Measured {
             Self::CountersinkAngle => Rule::ConeAngle,
             Self::BlendAngle => Rule::ChamferAngle,
             Self::OffsetDistance
+            | Self::MoveDistance
+            | Self::MoveAngle
+            | Self::DraftAngle
             | Self::PlaneOffset
             | Self::PlaneAngle
             | Self::EndOffset(_)
@@ -348,6 +359,9 @@ impl Measured {
             Self::ThreadDepth => hole_panel::THREAD_DEPTH,
             Self::HoleEndOffset => solid_panel::END_OFFSET,
             Self::OffsetDistance => OFFSET_DISTANCE,
+            Self::MoveDistance => move_face_panel::DISTANCE,
+            Self::MoveAngle => move_face_panel::ANGLE,
+            Self::DraftAngle => draft_panel::ANGLE,
             Self::PlaneOffset => PLANE_OFFSET,
             Self::PlaneAngle => PLANE_ANGLE,
             Self::ShellThickness => SHELL_THICKNESS,
@@ -408,6 +422,9 @@ impl Measured {
             Self::ThreadDepth => "Drag to change how deep the thread goes",
             Self::HoleEndOffset => "Drag to change how far the hole goes past the face",
             Self::OffsetDistance => "Drag to change how far the faces move",
+            Self::MoveDistance => "Drag to change how far the faces move",
+            Self::MoveAngle => "Drag to tilt the faces about the axis",
+            Self::DraftAngle => "Drag to change the draft angle",
             Self::PlaneOffset => "Drag to change the plane's offset",
             Self::PlaneAngle => "Drag to turn the plane about its axis",
             Self::ShellThickness => "Drag to change the shell's thickness",
@@ -559,6 +576,18 @@ impl Measured {
                 FeatureKind::OffsetFace(OffsetFace { distance, .. }) => Some(distance),
                 _ => None,
             },
+            Self::MoveDistance => match kind {
+                FeatureKind::MoveFace(MoveFace { distance, .. }) => Some(distance),
+                _ => None,
+            },
+            Self::MoveAngle => match kind {
+                FeatureKind::MoveFace(MoveFace { angle, .. }) => Some(angle),
+                _ => None,
+            },
+            Self::DraftAngle => match kind {
+                FeatureKind::Draft(Draft { angle, .. }) => Some(angle),
+                _ => None,
+            },
             Self::PlaneOffset => match kind {
                 FeatureKind::Datum(Datum::Plane(DatumPlane { offset, .. })) => Some(offset),
                 _ => None,
@@ -689,6 +718,9 @@ impl Measured {
             | Self::SlotAngle
             | Self::ThreadDepth
             | Self::OffsetDistance
+            | Self::MoveDistance
+            | Self::MoveAngle
+            | Self::DraftAngle
             | Self::PlaneOffset
             | Self::PlaneAngle
             | Self::BlendSize
@@ -722,6 +754,8 @@ impl Measured {
             | Self::CircularAngle
             | Self::BlendAngle
             | Self::CountersinkAngle
+            | Self::MoveAngle
+            | Self::DraftAngle
             | Self::SlotAngle => STEP_DEGREES,
             Self::CircularCount | Self::PrismSides | Self::CurveCount => 1.0,
             Self::HoleDepth
@@ -735,6 +769,7 @@ impl Measured {
             | Self::ThreadDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
+            | Self::MoveDistance
             | Self::PlaneOffset
             | Self::BlendSize
             | Self::BlendSecond
@@ -793,7 +828,13 @@ impl Measured {
                 value.max(if may_vanish { 0.0 } else { step })
             }
             Self::OffsetDistance if value == 0.0 => step,
+            Self::DraftAngle => {
+                let steepest = STEEPEST_DRAFT.to_degrees() - step;
+                value.clamp(-steepest, steepest)
+            }
             Self::OffsetDistance
+            | Self::MoveDistance
+            | Self::MoveAngle
             | Self::PlaneOffset
             | Self::PlaneAngle
             | Self::EndOffset(_)
@@ -883,6 +924,9 @@ impl Measured {
             | Self::ThreadDepth
             | Self::HoleEndOffset
             | Self::OffsetDistance
+            | Self::MoveDistance
+            | Self::MoveAngle
+            | Self::DraftAngle
             | Self::PlaneOffset
             | Self::PlaneAngle
             | Self::BlendSize
@@ -1018,6 +1062,8 @@ impl Builder<'_> {
         match kind {
             FeatureKind::Hole(hole) => self.hole(hole),
             FeatureKind::OffsetFace(offset) => self.offset(offset).into_iter().collect(),
+            FeatureKind::MoveFace(moving) => self.moving(moving),
+            FeatureKind::Draft(draft) => self.draft(draft).into_iter().collect(),
             FeatureKind::Datum(Datum::Plane(plane)) => {
                 [self.plane_offset(plane), self.plane_angle(plane)]
                     .into_iter()
@@ -1345,6 +1391,119 @@ impl Builder<'_> {
             1.0,
             value,
         ))
+    }
+
+    fn moving(&self, moving: &MoveFace) -> Vec<Gauge> {
+        let stand = || {
+            let solid = &handle_snap::before(self.model, self.feature)?.solid;
+            let faces = moving.resolve(solid).ok()?;
+            let first = *faces.first()?;
+            let (middle, _) = face_stand(solid, first)?;
+            let (rim, _) = rim_stand(solid, first)?;
+            Some((solid, faces, middle, rim))
+        };
+        let Some((solid, faces, middle, rim)) = stand() else {
+            return Vec::new();
+        };
+        let distance = self.move_distance(moving, solid, &faces, middle);
+        let angle = self.move_angle(moving, rim);
+        distance.into_iter().chain(angle).collect()
+    }
+
+    fn move_distance(
+        &self,
+        moving: &MoveFace,
+        solid: &Solid,
+        faces: &[FaceId],
+        at: Point3,
+    ) -> Option<Gauge> {
+        let value = self.length(&moving.distance)?;
+        let along = match &moving.direction {
+            Some(reference) => {
+                displayed_axis(self.shown_evaluation(), self.feature, reference)?.direction()
+            }
+            None => faces.iter().find_map(|face| flat_normal(solid, *face))?,
+        };
+        Some(Gauge::line(
+            Measured::MoveDistance,
+            (at, along.try_normalize()?),
+            1.0,
+            value,
+        ))
+    }
+
+    fn move_angle(&self, moving: &MoveFace, at: Point3) -> Option<Gauge> {
+        let value = self.angle(&moving.angle)?;
+        let axis = displayed_axis(self.shown_evaluation(), self.feature, moving.axis.as_ref()?)?;
+        let along = axis.direction().try_normalize()?;
+        let foot = axis.origin() + along * (at - axis.origin()).dot(along);
+        let swing = self.swing_to(foot, at - foot, along, along.any_orthonormal_vector())?;
+        Some(Gauge {
+            measured: Measured::MoveAngle,
+            track: Track::Turn(swing),
+            mapping: Mapping::Linear {
+                scale: 1.0,
+                offset: 0.0,
+            },
+            value,
+        })
+    }
+
+    fn swing_to(
+        &self,
+        foot: Point3,
+        reach: Vector3,
+        axis: Vector3,
+        otherwise: Vector3,
+    ) -> Option<Swing> {
+        let arm = ARROW_POINTS * (self.per_point)(foot)?;
+        let radius = reach.length().max(arm);
+        let radial = reach.try_normalize().unwrap_or(otherwise);
+        Some(Swing {
+            foot,
+            radial,
+            normal: axis.cross(radial),
+            radius,
+        })
+    }
+
+    fn draft(&self, draft: &Draft) -> Option<Gauge> {
+        let value = self.angle(&draft.angle)?;
+        let solid = &handle_snap::before(self.model, self.feature)?.solid;
+        let (face, plane) = draft
+            .resolve(solid)
+            .ok()?
+            .into_iter()
+            .find_map(|face| Some((face, face_plane(solid, face)?)))?;
+        let neutral = displayed_plane(self.shown_evaluation(), self.feature, &draft.neutral)?;
+        let pull = if draft.flipped {
+            -neutral.normal()
+        } else {
+            neutral.normal()
+        };
+        let normal = plane.normal();
+        let hinge = normal.cross(pull).try_normalize()?;
+        let across = hinge.cross(normal);
+        let toward = pull.dot(neutral.origin() - plane.origin()) / pull.dot(across);
+        let on_hinge = plane.origin() + across * toward;
+        let (at, _) = face_stand(solid, face)?;
+        let foot = on_hinge + hinge * (at - on_hinge).dot(hinge);
+        let swing = self.swing_to(foot, at - foot, hinge, across)?;
+        let (sin, cos) = normal.dot(pull).clamp(-1.0, 1.0).asin().sin_cos();
+        let radial = swing.radial * cos - hinge.cross(swing.radial) * sin;
+        Some(Gauge {
+            measured: Measured::DraftAngle,
+            track: Track::Turn(Swing {
+                radial,
+                normal: hinge.cross(radial),
+                ..swing
+            }),
+            mapping: Mapping::Linear {
+                scale: 1.0,
+                offset: 0.0,
+            },
+            value,
+        })
     }
 
     fn shown_evaluation(&self) -> &Evaluation {
@@ -2306,6 +2465,10 @@ fn face_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {
         let middle = hole_tools::middle_of(solid, face, &plane)?;
         return Some((plane.to_world(middle), plane.normal()));
     }
+    rim_stand(solid, face)
+}
+
+fn rim_stand(solid: &Solid, face: FaceId) -> Option<(Point3, Vector3)> {
     let outer = solid.face(face)?.outer_loop()?;
     let first = *solid.face_loop(outer)?.coedges().first()?;
     let edge = solid.edge(solid.coedge(first)?.edge())?;

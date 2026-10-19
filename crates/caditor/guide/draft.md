@@ -8,7 +8,8 @@ block or a pocket, then choose Draft. It has no ribbon button; use the Model men
 {command:palette}.
 
 - **Draft angle** is how far each face leans from the pull direction, narrowing the body toward it;
-  a negative angle widens it instead. 3 deg to start with.
+  a negative angle widens it instead. 3 deg to start with. The arrow on the first chosen face turns
+  it about the line where it meets the neutral plane when dragged.
 - **Own angle** lists the faces drafted at an angle of their own instead of the draft angle. **Choose
   faces** starts choosing in the view: each click on a flat face of the body gives it its own angle
   (the draft angle to start with) or the draft angle again, until Escape. Each listed face has its
@@ -34,4 +35,6 @@ The drafted faces keep their names, so later features still find them. A face al
 plane, a curved face, an angle of 89 deg or more, or a draft that would make a face vanish or faces
 cross fails the feature alone, saying which face or edge and what to do. Draft before rounding the
 edges beside the faces, since a fillet along a drafted face's edge cannot follow it. Every angle
-accepts units, expressions and parameters.
+accepts units, expressions and parameters. The arrow snaps like other arrows and Ctrl drags
+freely; typing a number while holding or hovering it sets the draft angle as the panel field would,
+and dragging is one undoable change.

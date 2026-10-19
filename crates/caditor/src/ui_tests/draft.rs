@@ -1,10 +1,16 @@
 use caditor_document::{Draft, FeatureId, PlaneReference};
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::Surface;
-use egui::{Id, Key, Modifiers};
+use egui::{Event, Id, Key, Modifiers};
 
-use super::{Harness, Wheel, extruded_plate, run_from_palette, volume_about};
-use crate::{bodies, draft_panel, reference_picking::Slot, selection::Pickable};
+use super::{
+    CAMERA_SETTLE, Harness, Wheel, drag_value_arrow, extruded_plate, length_value,
+    run_from_palette, volume_about,
+};
+use crate::{
+    bodies, draft_panel, move_manipulator::Handle, reference_picking::Slot, selection::Pickable,
+    value_gauges::Measured,
+};
 
 const SIDE: f64 = 40.0;
 const HEIGHT: f64 = 10.0;
@@ -188,4 +194,71 @@ fn flipping_the_pull_widens_the_walls_and_the_split_adds_an_angle_beyond() {
     assert!(harness.shows("Angle beyond"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert_eq!(harness.model.undo_label(), Some("Edit Draft 1"));
+}
+
+#[test]
+fn dragging_the_draft_angle_arrow_changes_the_angle_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let sides = walls(&mut harness);
+
+    harness.select(sides);
+    run_from_palette(&mut harness, "Draft");
+    harness.settle();
+    harness.select([]);
+    let draft = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the draft is open");
+
+    let step = drag_value_arrow(&mut harness, Measured::DraftAngle, 15.0);
+    let angle = length_value(&harness, &draft_of(&harness, draft).angle);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Draft 1"));
+    assert!((angle - 18.0).abs() <= step, "{angle} with steps of {step}");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(volume_about(&harness, plate, drafted([angle; 4])));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    harness.settle();
+
+    assert!((length_value(&harness, &draft_of(&harness, draft).angle) - 3.0).abs() < 1e-9);
+}
+
+#[test]
+fn an_angle_typed_over_the_draft_arrow_sets_the_draft_angle() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let sides = walls(&mut harness);
+
+    harness.select(sides);
+    run_from_palette(&mut harness, "Draft");
+    harness.settle();
+    harness.select([]);
+    let draft = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the draft is open");
+
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let at = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Value(Measured::DraftAngle), 0.0)
+        .expect("the draft angle arrow is shown");
+    harness.events.push(Event::PointerMoved(at));
+    harness.frame();
+    harness.frame();
+    harness.type_text("6");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Draft 1"));
+    assert!((length_value(&harness, &draft_of(&harness, draft).angle) - 6.0).abs() < 1e-9);
+    assert!(volume_about(&harness, plate, drafted([6.0; 4])));
 }
