@@ -15,8 +15,9 @@ command. **Make a copy** in the panel switches between the two.
 
 While a move is open, arrows and squares at the body's centre drag it along an axis or in a plane,
 and rings turn it. Drags go in round steps, an arrow or square stopping on a corner, an edge's
-middle or a round edge's centre of another body under the pointer, and an arrow also on a face
-its line meets. A ring dragged onto such a point turns the body until the spot you grabbed lines
+middle or a round edge's centre of another body under the pointer (an arrow only near that
+point's level, unless the pointer leaves the arrow's line to reach for it), and an arrow also on a
+face its line meets. A ring dragged onto such a point turns the body until the spot you grabbed lines
 up with it about the axis; hold Ctrl to drag freely. With
 the pointer on a handle, type a value and press Enter to set its field. The values land in the
 panel's fields, where they stay editable; a named value keeps its name, and one that follows other

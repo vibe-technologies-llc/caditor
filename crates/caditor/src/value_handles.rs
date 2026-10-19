@@ -6,7 +6,7 @@ use caditor_render::{Batch, View};
 use crate::{
     curve_track::CurveTrack,
     feature_fields::Rule,
-    handle_snap::{Guide, Snap},
+    handle_snap::{self, Guide, Snap},
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -401,7 +401,10 @@ impl ValueDrag {
             ) => snap
                 .along(*base, *direction)
                 .and_then(|position| self.mapping.value(position))
-                .filter(|value| snap.holds(*value, pulled, self.step))
+                .filter(|value| {
+                    let off = handle_snap::off_line(&ray, *base, *direction);
+                    snap.holds(*value, pulled, off, self.step)
+                })
                 .map(|value| (value, snap)),
             (Follow::Turn { swing, .. }, Some(snap)) => pulled_position
                 .and_then(|near| swing.snapped_near(snap, near))

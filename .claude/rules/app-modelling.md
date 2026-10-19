@@ -1075,8 +1075,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   line) takes faces, a flat one by its plane and a curved one where the handle's line meets its surface
   (`meeting_curved`: `intersect_curve_surface` over the line across the body's box, hits outside the
   face dropped, the one nearest where the pointer's ray met the face kept; none is no snap). A line
-  handle lands level with the point along its line, or on the face, a face only within `MAGNET_STEPS`
-  steps of where the drag would be (`Snap::holds`); a plane handle (`Guide::Points`) lands on the
+  handle lands level with the point along its line, or on the face, only within `MAGNET_STEPS` steps
+  of where the drag would be (`Snap::holds`), except that a point holds from anywhere once the
+  pointer's ray passes more than `OFF_TRACK_STEPS` steps off the handle's line (`off_line`): dragged
+  along an arrow over a body, the corners and hole rims under the pointer lie at other levels and
+  would otherwise jerk the value away from the pointer; a plane handle (`Guide::Points`) lands on the
   point's projection, an arrow along one axis on that coordinate. A turning handle (`Guide::Points`)
   turns to the angle bringing the point into its turned plane, the half-plane through its axis and the
   dragged foot (`Swing::snapped_near`, taking the turn of that angle nearest where the drag would be):

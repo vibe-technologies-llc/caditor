@@ -46,8 +46,10 @@ sketch from the panel's **Sketch** list does the same.
   first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
   **Thickness**, which dragged back through the curves switches the wall between Inside and
   Outside.
-- A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
-  and pulls to a face it passes, flat or curved, stopping where its line meets the face (on a
+- A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer
+  when the arrow nears its level, or at once when the pointer leaves the arrow's line to reach for
+  it, so dragging along the arrow over holes and corners goes where the pointer is; it pulls to a
+  face it passes, flat or curved, stopping where its line meets the face (on a
   cylinder, the side nearer the pointer); the readout says what it stopped at. Hold Ctrl to drag
   freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
   it is previewed as you type, and Escape leaves it as it was. A value the field itself would

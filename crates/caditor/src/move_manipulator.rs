@@ -9,7 +9,7 @@ use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
     feature_fields::Rule,
-    handle_snap::{Guide, Snap},
+    handle_snap::{self, Guide, Snap},
     hole_handles::HoleGrip,
     image_handles::ImageGrip,
     manipulator::{self, Held},
@@ -691,7 +691,8 @@ impl MoveDrag {
                 let along = snap.along(self.origin, towards)?;
                 let pulled = point_on(self.handle, &self.frame, self.origin, self.about, ray)
                     .map(|at| (at - self.grabbed).dot(towards));
-                if !snap.holds(along, pulled, self.step) {
+                let off = handle_snap::off_line(&ray, self.origin, towards);
+                if !snap.holds(along, pulled, off, self.step) {
                     return None;
                 }
                 *offset.get_mut(axis.index())? += along;

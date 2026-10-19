@@ -430,6 +430,65 @@ fn dragging_a_datum_plane_s_arrow_changes_its_offset() {
 }
 
 #[test]
+fn a_plane_s_arrow_dragged_over_holes_follows_the_pointer_instead_of_their_rims() {
+    for along in [-6.0, 6.0] {
+        let mut harness = Harness::new();
+        let mut holed = Sketch::new(Plane::XY);
+        rectangle(
+            &mut holed,
+            Point2::new(-20.0, -20.0),
+            Point2::new(20.0, 20.0),
+        );
+        for column in 0..6 {
+            for row in 0..6 {
+                let centre = Point2::new(
+                    -15.0 + 6.0 * f64::from(column),
+                    -15.0 + 6.0 * f64::from(row),
+                );
+                holed.add_circle(centre, 2.0);
+            }
+        }
+        harness.add_sketch(holed);
+        harness.select([]);
+        harness.click_tool("Extrude");
+        harness.settle();
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.settle();
+        harness.select([]);
+        harness.click("Plane");
+        harness.settle();
+        let plane = harness
+            .workspace
+            .editing
+            .solid()
+            .expect("the new plane is open");
+        let offset_of = |harness: &Harness| {
+            let Some(caditor_document::Datum::Plane(definition)) = harness
+                .document()
+                .feature(plane)
+                .and_then(|feature| feature.kind.datum())
+            else {
+                panic!("the plane stays a plane");
+            };
+            length_value(harness, &definition.offset)
+        };
+        let before = offset_of(&harness);
+
+        let step = drag_value_arrow(
+            &mut harness,
+            crate::value_gauges::Measured::PlaneOffset,
+            along,
+        );
+        let offset = offset_of(&harness);
+
+        assert!(
+            (offset - before - along).abs() <= step,
+            "dragged {along} from {before} to {offset} with steps of {step}"
+        );
+    }
+}
+
+#[test]
 fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

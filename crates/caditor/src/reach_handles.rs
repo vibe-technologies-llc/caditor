@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
-    handle_snap::{Guide, Snap},
+    handle_snap::{self, Guide, Snap},
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -359,7 +359,8 @@ impl ReachDrag {
             .map(|at| self.from + self.grown(at - self.grabbed));
         let snapped = snap.filter(|_| !free).and_then(|snap| {
             let distance = self.from + self.grown(snap.along(self.end, self.direction)?);
-            snap.holds(distance, pulled, self.step)
+            let off = handle_snap::off_line(&ray, self.end, self.direction);
+            snap.holds(distance, pulled, off, self.step)
                 .then_some((distance, snap))
         });
         let (distance, snap) = match snapped {

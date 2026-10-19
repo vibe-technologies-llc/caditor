@@ -16,6 +16,7 @@ const MIDDLE_REACH_POINTS: f64 = 12.0;
 const DEPTH_SLACK: f64 = 1e-3;
 const SQUARE_ENOUGH: f64 = 0.1;
 const MAGNET_STEPS: f64 = 2.0;
+const OFF_TRACK_STEPS: f64 = 6.0;
 const LINE_MARGIN: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,12 +60,18 @@ pub struct Snap {
 }
 
 impl Snap {
-    pub fn holds(&self, snapped: f64, pulled: Option<f64>, step: f64) -> bool {
+    pub fn holds(
+        &self,
+        snapped: f64,
+        pulled: Option<f64>,
+        off_track: Option<f64>,
+        step: f64,
+    ) -> bool {
+        let near = pulled.is_some_and(|pulled| (snapped - pulled).abs() <= MAGNET_STEPS * step);
+        let reaching_out = off_track.is_some_and(|off| off > OFF_TRACK_STEPS * step);
         match self.kind {
-            SnapKind::Face => {
-                pulled.is_some_and(|pulled| (snapped - pulled).abs() <= MAGNET_STEPS * step)
-            }
-            SnapKind::Corner | SnapKind::EdgeMiddle | SnapKind::RoundCentre => true,
+            SnapKind::Face => near,
+            SnapKind::Corner | SnapKind::EdgeMiddle | SnapKind::RoundCentre => near || reaching_out,
         }
     }
 
@@ -248,6 +255,13 @@ fn meeting_curved(
         })
         .map(|hit| hit.point)
         .min_by(|first, second| first.distance(near).total_cmp(&second.distance(near)))
+}
+
+pub fn off_line(ray: &Ray, base: Point3, direction: Vector3) -> Option<f64> {
+    let along = ray.closest_along_line(base, direction)?;
+    let nearest = base + direction.try_normalize()? * along;
+    let apart = nearest - ray.origin();
+    Some((apart - ray.direction() * apart.dot(ray.direction())).length())
 }
 
 pub fn before(model: &Model, feature: FeatureId) -> Option<&SolidResult> {
