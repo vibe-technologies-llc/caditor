@@ -329,7 +329,7 @@ pub fn mirror() -> Value {
     object(
         json!({
             "body": reference("The body mirrored"),
-            "features": features("Instead of a body: holes, cuts or bosses of one body, mirrored on it"),
+            "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, mirrored on it"),
             "faces": keys("Instead of the body or features: face keys from list_faces of the body, mirrored on it, such as a pocket's walls and floor; [] mirrors the whole body again"),
             "plane": plane(),
             "keep_original": { "type": "boolean", "description": "Keep the body as well as its image (default true)" },
@@ -366,7 +366,7 @@ pub fn linear_pattern() -> Value {
     properties.insert("body".to_owned(), reference("The body repeated"));
     properties.insert(
         "features".to_owned(),
-        features("Instead of a body: holes, cuts or bosses of one body, repeated on it"),
+        features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, repeated on it"),
     );
     properties.insert(
         "second".to_owned(),
@@ -396,7 +396,7 @@ pub fn circular_pattern() -> Value {
     object(
         json!({
             "body": reference("The body repeated"),
-            "features": features("Instead of a body: holes, cuts or bosses of one body, repeated on it"),
+            "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, repeated on it"),
             "axis": axis(),
             "count": amount("How many, the original included"),
             "angle": amount("The angle they spread over; a full turn by default"),

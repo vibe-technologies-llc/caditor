@@ -118,6 +118,9 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(shell) = kind.shell() {
         return Some(shell.body);
     }
+    if let Some(emboss) = kind.emboss() {
+        return Some(emboss.body);
+    }
     let operation = if let Some(primitive) = kind.primitive() {
         primitive.operation
     } else if let Some(pipe) = kind.pipe() {

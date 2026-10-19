@@ -33,9 +33,16 @@ the surface, out of it for Raise and into it for Recess, and a bore takes the ou
 A sphere or a torus cannot be unrolled flat, so those faces are refused.
 
 While it is open the body is shown with the emboss, and each face listed in the panel lights up in
-the view when hovered. On a flat face an arrow stands over the raised tops, or on the floor of a
+the view when hovered. An arrow stands over the raised tops, or on the floor of a
 recess, and dragging it changes the depth live, in one undoable change; the Depth field keeps
-working beside it.
+working beside it. On a flat face it points square to the face; on a cylinder or cone it stands on
+the surface under the first region chosen and points along the surface there, away from the axis
+for Raise on a cylinder and towards it for Raise in a bore.
+
+A [pattern](patterns) or [mirror](mirror) of features repeats an emboss chosen with the others in
+the tree: every copy keeps the outlines' shape and depth, moved as the pattern or mirror moves it, so
+copies off the face stand in the air or sink into nothing; a wrapped emboss is copied as it is, not
+wrapped again.
 
 The raised tops and recessed floors are faces of the feature, named from it, so a later
 [fillet](fillet-and-chamfer) can round the letters or a colour can be given to them, and they keep

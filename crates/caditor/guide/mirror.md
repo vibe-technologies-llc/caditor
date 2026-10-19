@@ -10,7 +10,7 @@ whether the original stays.
 
 ## Mirroring features
 
-With extrusions, revolves, holes or primitives chosen in the tree, Mirror mirrors those features
+With extrusions, revolves, holes, embossed outlines or primitives chosen in the tree, Mirror mirrors those features
 on the same body instead, such as a hole on one side copied to the other. Fillets, chamfers and
 a shell chosen with them round, bevel or hollow the mirrored copy the same way, as in a
 [pattern](patterns).

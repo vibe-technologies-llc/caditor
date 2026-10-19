@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 
 use caditor_document::{EmbossForm, FeatureId, RegionChoice};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Point3};
 use caditor_sketch::{Entity, Sketch};
 use egui::{Key, Modifiers};
 
@@ -9,7 +9,7 @@ use super::{
     CAMERA_SETTLE, Harness, delete_face::holed_plate, drag_value_arrow, length_value,
     pipes::undone_and_redone, rectangle, volume_about,
 };
-use crate::{selection, selection::Pickable, value_gauges::Measured};
+use crate::{move_manipulator::Handle, selection, selection::Pickable, value_gauges::Measured};
 
 const PLATE: f64 = 40.0 * 40.0 * 10.0;
 const BORE: f64 = PI * 25.0 * 10.0;
@@ -24,8 +24,22 @@ fn emboss_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Emboss
 }
 
 fn label(harness: &mut Harness) -> (FeatureId, Pickable) {
-    let mut sketch = Sketch::new(Plane::XY);
-    rectangle(&mut sketch, Point2::new(5.0, 5.0), Point2::new(15.0, 11.0));
+    label_on(
+        harness,
+        Plane::XY,
+        Point2::new(5.0, 5.0),
+        Point2::new(15.0, 11.0),
+    )
+}
+
+fn label_on(
+    harness: &mut Harness,
+    plane: Plane,
+    min: Point2,
+    max: Point2,
+) -> (FeatureId, Pickable) {
+    let mut sketch = Sketch::new(plane);
+    rectangle(&mut sketch, min, max);
     let edge = sketch
         .entities()
         .find(|(_, entity)| matches!(entity, Entity::Line { .. }))
@@ -189,6 +203,53 @@ fn a_recess_has_its_arrow_on_the_floor_and_dragging_it_deeper_cuts_deeper() {
         "{depth} with steps of {step}"
     );
     assert!(volume_about(&harness, plate, PLATE - BORE - LABEL * depth));
+}
+
+#[test]
+fn the_arrow_of_an_emboss_wrapped_into_a_bore_stands_on_its_wall_and_points_at_the_axis() {
+    let mut harness = Harness::new();
+    let (_, bore, _) = holed_plate(&mut harness);
+    let (_, edge) = label_on(
+        &mut harness,
+        Plane::XZ,
+        Point2::new(15.0, 2.0),
+        Point2::new(25.0, 8.0),
+    );
+    let emboss = opened_emboss(&mut harness, [bore, edge]);
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let depth = |harness: &Harness| length_value(harness, &emboss_of(harness, emboss).depth);
+    let handle = Handle::Value(Measured::EmbossDepth);
+    let from_axis = |point: Point3| (point.x - 20.0).hypot(point.y - 20.0);
+    let grip = |harness: &Harness, along: f64| {
+        from_axis(
+            harness
+                .workspace
+                .viewport
+                .handle_grip(handle, along)
+                .expect("the depth arrow is shown"),
+        )
+    };
+    let foot = harness
+        .workspace
+        .viewport
+        .handle_foot(handle)
+        .expect("the depth arrow stands somewhere");
+    let before = depth(&harness);
+
+    assert!((from_axis(foot) - (5.0 - before)).abs() < 1e-6);
+    assert!((grip(&harness, 1.0) - grip(&harness, 0.0) + 1.0).abs() < 1e-6);
+
+    let step = drag_value_arrow(&mut harness, Measured::EmbossDepth, 1.0);
+    let after = depth(&harness);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Emboss 1"));
+    assert!(
+        (after - before - 1.0).abs() <= 2.0 * step,
+        "{before} to {after} with steps of {step}"
+    );
+    undone_and_redone(&mut harness, "the depth drag", depth);
 }
 
 #[test]

@@ -93,12 +93,13 @@ fn extruded(sketch: FeatureId, transaction: &mut TransactionBuilder, height: &st
 }
 
 fn plate(label: Sketch, form: EmbossForm, depth: &str) -> Model {
+    slab(rectangle((0.0, 0.0), (10.0, 8.0)), label, form, depth)
+}
+
+fn slab(outline: Sketch, label: Sketch, form: EmbossForm, depth: &str) -> Model {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
-    let outline = transaction.add_feature(
-        "Outline",
-        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
-    );
+    let outline = transaction.add_feature("Outline", FeatureKind::from(outline));
     let base = extruded(outline, &mut transaction, "4 mm");
     let label = transaction.add_feature("Label", FeatureKind::from(label));
     document.apply(transaction.finish()).unwrap();
@@ -828,4 +829,107 @@ fn a_sphere_cannot_be_embossed_and_says_why() {
         "Ball surface is spherical, and a sphere cannot be unrolled flat, so the curves of Label \
          cannot be wrapped onto it."
     );
+}
+
+fn repeat(model: &mut Model, kind: PatternKind) -> FeatureId {
+    let pattern = Pattern::new(model.base, kind).repeating(vec![model.emboss]);
+    let mut transaction = model.document.transaction("Pattern");
+    let feature = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+    model.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+fn bar() -> Sketch {
+    rectangle((0.0, 0.0), (60.0, 10.0))
+}
+
+#[test]
+fn a_linear_pattern_repeats_a_raised_emboss() {
+    let mut model = slab(
+        bar(),
+        rectangle((2.0, 2.0), (6.0, 5.0)),
+        EmbossForm::Raised,
+        "1 mm",
+    );
+    let pattern = repeat(
+        &mut model,
+        PatternKind::Linear {
+            first: LinearDirection {
+                axis: AxisReference::Principal(PrincipalAxis::X),
+                count: Expression::Number(3.0),
+                spacing: Expression::parse("20 mm", &|_| None).unwrap(),
+                measured: LinearSpacing::BetweenCopies,
+                reversed: false,
+            },
+            second: None,
+        },
+    );
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.cuts(pattern).len(), 0);
+    assert!((volume(&evaluation, model.base) - (2400.0 + 3.0 * 12.0)).abs() < 1e-6);
+    let solid = evaluation.body(model.base).unwrap();
+    let bounds = solid.bounding_box().unwrap();
+    assert!((bounds.max().z - 5.0).abs() < 1e-6);
+    assert_eq!(solid.shells().count(), 1);
+}
+
+#[test]
+fn a_circular_pattern_repeats_a_raised_emboss() {
+    let mut model = slab(
+        rectangle((-30.0, -30.0), (30.0, 30.0)),
+        rectangle((10.0, -2.0), (14.0, 1.0)),
+        EmbossForm::Raised,
+        "1 mm",
+    );
+    repeat(
+        &mut model,
+        PatternKind::Circular(CircularPattern {
+            axis: Some(AxisReference::Principal(PrincipalAxis::Z)),
+            count: Expression::Number(4.0),
+            angle: Expression::parse("360 deg", &|_| None).unwrap(),
+            reversed: false,
+        }),
+    );
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.base) - (14400.0 + 4.0 * 12.0)).abs() < 1e-6);
+}
+
+#[test]
+fn a_mirror_repeats_a_recessed_emboss() {
+    let mut model = slab(
+        rectangle((-30.0, 0.0), (30.0, 10.0)),
+        rectangle((-26.0, 2.0), (-22.0, 5.0)),
+        EmbossForm::Recessed,
+        "1 mm",
+    );
+    let mirrored = Mirror::new(model.base, PlaneReference::Principal(PrincipalPlane::Yz))
+        .mirroring(vec![model.emboss]);
+    let mut transaction = model.document.transaction("Mirror");
+    let mirror = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirrored));
+    model.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.cuts(mirror).len(), 1);
+    assert!((volume(&evaluation, model.base) - (2400.0 - 2.0 * 12.0)).abs() < 1e-6);
+}
+
+#[test]
+fn an_emboss_is_repeatable_on_its_body() {
+    let model = plate(
+        rectangle((2.0, 2.0), (6.0, 5.0)),
+        EmbossForm::Raised,
+        "1 mm",
+    );
+
+    let kind = &model.document.feature(model.emboss).unwrap().kind;
+
+    assert_eq!(repeatable_on(kind), Some(model.base));
 }

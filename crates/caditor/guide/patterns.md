@@ -12,8 +12,8 @@ from one that clears the body.
 ## What is repeated
 
 - Select a face, edge or vertex of the body, or choose it in the tree, to repeat the whole body.
-- Choose extrusions, revolves, holes or primitives in the tree to repeat only those features on
-  their body, such as a row of holes.
+- Choose extrusions, revolves, holes, embossed outlines or primitives in the tree to repeat only
+  those features on their body, such as a row of holes or a raised mark.
 - Choose fillets and chamfers with them to round or bevel each copy the same way: a filleted boss
   repeated with its fillet gives every copy its fillet, a raised count too. The blend follows the
   edges of the features repeated with it (edges of the body around them, such as where a boss

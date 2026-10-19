@@ -7,15 +7,15 @@ use caditor_document::{
     LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES,
     MIN_PRISM_SIDES, MoveFace, OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive,
     PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell,
-    ShellSide, SizeRule, SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name,
-    displayed_axis, displayed_plane, face_plane, flat_normal, hole_centres, hole_thread,
-    pipe_size_name, pipe_stand, rib_stand,
+    ShellSide, SizeRule, SketchRegion, SolidFeature, SolidStart, Wall, capitalized, circle_sizes,
+    coil_size_name, displayed_axis, displayed_plane, face_plane, flat_normal, hole_centres,
+    hole_thread, pipe_size_name, pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BendMiddles, CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeCorner,
-    PipeShape, STEEPEST_DRAFT, Solid, Surface, WallSide, measured_face,
+    PipeShape, Region, STEEPEST_DRAFT, Solid, Surface, WallSide, measured_face, wrapped_stand,
 };
 use caditor_sketch::Entity;
 
@@ -1525,22 +1525,41 @@ impl Builder<'_> {
         let document = self.model.document();
         let evaluation = self.model.evaluation();
         let solid = &evaluation.body_before(self.feature)?.solid()?.solid;
-        let face = emboss
-            .resolve(solid)
-            .ok()?
-            .into_iter()
-            .find_map(|face| face_plane(solid, face))?;
+        let faces = emboss.resolve(solid).ok()?;
         let (sketch, regions) = selection::swept_regions(document, evaluation, self.feature)?;
         let sketch_plane = scene::sketch_plane(document, evaluation, sketch)?;
         let chosen = scene::chosen_regions(&emboss.regions, regions);
-        let inside = regions
+        let chosen: Vec<&SketchRegion> = regions
             .iter()
             .filter(|region| chosen.contains(&region.region.key()))
+            .collect();
+        let inside = chosen
+            .iter()
             .find_map(|region| region.reference().anchor())?;
-        let on_face = face.to_world(face.to_local(sketch_plane.to_world(inside)));
+        let (on_face, normal) = match faces
+            .iter()
+            .map(|face| face_plane(solid, *face))
+            .collect::<Option<Vec<Plane>>>()
+        {
+            Some(planes) => {
+                let face = planes.first()?;
+                (
+                    face.to_world(face.to_local(sketch_plane.to_world(inside))),
+                    face.normal(),
+                )
+            }
+            None => {
+                let face = solid.face(*faces.first()?)?;
+                let outlines: Vec<Region> =
+                    chosen.iter().map(|region| region.region.clone()).collect();
+                let (stand, outward) =
+                    wrapped_stand(&sketch_plane, &outlines, face.surface(), inside).ok()?;
+                (stand, outward * face.sense().sign())
+            }
+        };
         let outward = match emboss.form {
-            EmbossForm::Raised => face.normal(),
-            EmbossForm::Recessed => -face.normal(),
+            EmbossForm::Raised => normal,
+            EmbossForm::Recessed => -normal,
         };
         Some(Gauge::line(
             Measured::EmbossDepth,

@@ -445,6 +445,22 @@ pub fn wrap_regions_within(
     wrapped(&wrap, regions, &wrapping, feature)
 }
 
+pub fn wrapped_stand(
+    plane: &Plane,
+    regions: &[Region],
+    surface: &Surface,
+    at: Point2,
+) -> Result<(Point3, Vector3), WrapError> {
+    let wrap = Wrap::new(plane, surface)?.referenced(&region_points(regions))?;
+    let (along, _) = wrap.unrolled(at);
+    if wrap.radius_at(along) <= LINEAR_RESOLUTION {
+        return Err(WrapError::PastApex);
+    }
+    let on_surface = wrap.point(at, 0.0);
+    let outward = (wrap.point(at, 1.0) - on_surface).normalize();
+    Ok((on_surface, outward))
+}
+
 pub(super) fn wrapped(
     wrap: &Wrap<'_>,
     regions: &[Region],
