@@ -176,6 +176,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
+## Drawing import
+
+- [low · medium] A DXF or SVG drawing with more than about 3,800 different splines that are not
+  plain clamped cubics is refused as `TooManySplines` (`MAX_FIT_WORK`, `flatten`), since each is
+  sampled and fitted into a sketch spline; copies differing only by a rigid motion and size are
+  fitted once (`fit_cache.rs`), but a reversed or non-uniformly scaled copy is fitted again. Fitting
+  in parallel, or keeping such splines exactly as control-point splines where their degree and
+  knots allow, would read these drawings instead of refusing them.
 
 ## Viewer
 
