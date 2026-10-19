@@ -1315,11 +1315,11 @@ fn the_manager_turns_cloud_off_and_back_on() {
     assert!(harness.shows(cloud_dialog::TURN_ON));
 
     harness.click(cloud_dialog::TURN_ON);
-    harness.frame();
-    harness.frame();
+    harness.wait_until("the sign-in check finishes", |harness| {
+        harness.shows(cloud_dialog::SIGN_IN)
+    });
 
     assert!(harness.workspace.preferences.cloud.enabled);
-    assert!(harness.shows(cloud_dialog::SIGN_IN));
 }
 
 #[test]

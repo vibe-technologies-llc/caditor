@@ -238,24 +238,31 @@ fn a_click_outside_a_title_menu_closes_it_without_running_anything() {
 #[test]
 fn the_title_menus_open_and_stay_on_screen_from_75_to_200_percent() {
     let probes = [
-        ("History", Command::UndoHistory),
-        ("Sketch", Command::EditSketch),
-        ("Solid", Command::Thread),
-        ("Modify", Command::MirrorFaces),
-        ("Pattern", Command::PointPattern),
-        ("Reference", Command::CoordinateSystem),
-        ("Analyse", Command::Interference),
+        ("History", Command::Undo, Command::UndoHistory),
+        ("Sketch", Command::NewSketch, Command::LookAtSketch),
+        ("Solid", Command::Extrude, Command::NewPrism),
+        ("Modify", Command::Fillet, Command::MateAngle),
+        ("Pattern", Command::LinearPattern, Command::PointPattern),
+        ("Reference", Command::DatumPlane, Command::InsertImage),
+        ("Analyse", Command::Measure, Command::ToggleCentresOfMass),
     ];
     for scale in [0.75, 1.0, 1.5, 2.0] {
         let mut harness = Harness::new();
         scaled(&mut harness, scale);
         let room = Rect::from_min_size(Pos2::ZERO, SCREEN.size() / scale);
 
-        for (group, probe) in probes {
+        for (group, first, last) in probes {
             open(&mut harness, group);
 
-            let title = probe.title();
-            assert!(harness.fully_shown(&title), "{group} at {scale}");
+            let first_title = first.title();
+            assert!(
+                harness.fully_shown(&first_title),
+                "{group} first at {scale}"
+            );
+
+            let over = harness.position_of(&first_title);
+            let title = last.title();
+            harness.wheel_until_shown(over, &title, Wheel::Down);
             assert!(
                 room.contains(lowest_in(&harness, room, &title)),
                 "{group} at {scale}"
