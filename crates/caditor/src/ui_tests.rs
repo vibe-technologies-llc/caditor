@@ -140,6 +140,7 @@ mod reference_images;
 mod region_references;
 mod remembered_starts;
 mod repeating_and_growing;
+mod replace_face;
 mod ribbon_and_sketch_bar;
 mod ribs;
 mod scale_model;

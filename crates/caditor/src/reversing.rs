@@ -134,6 +134,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
         | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
         | FeatureKind::Draft(_)
+        | FeatureKind::ReplaceFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)

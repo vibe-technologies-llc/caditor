@@ -70,7 +70,7 @@ first, so two programs never change one model at once.
   one (sketch curves, body edges or a [helix](helix)), [loft](loft) through sketches, closed back to
   the first, with square ends or ending in a point, through whole sketches or single regions, wind a [coil](coil), add a [rib](rib) and
   [thread](thread) a round face.
-- [Split faces](split-face) (carrying the curves square, along an axis or wrapped), [delete faces](delete-face), [move faces](move-face) (shifted along a direction and tilted about an axis), [draft](draft) walls (from a neutral plane, split there with an angle beyond it, some faces at angles of their own), [split](split) a body along a plane, a
+- [Split faces](split-face) (carrying the curves square, along an axis or wrapped), [delete faces](delete-face), [move faces](move-face) (shifted along a direction and tilted about an axis), [draft](draft) walls (from a neutral plane, split there with an angle beyond it, some faces at angles of their own), [replace faces](replace-face) with a plane or another flat face, [split](split) a body along a plane, a
   sketch or another body, and [scale](scale) a body.
 - Round or bevel edges with a [fillet or chamfer](fillet-and-chamfer), hollow a body with a
   [shell](shell) (some walls thicker), move faces with [Offset face](offset-face), and add a box, cylinder, sphere,

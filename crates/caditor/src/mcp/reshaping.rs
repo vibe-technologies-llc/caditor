@@ -1,6 +1,6 @@
 use caditor_document::{
     AxisReference, DeleteFace, Draft, Emboss, EmbossForm, FaceAngle, FeatureId, FeatureKind,
-    MoveFace, RegionChoice, Scale, Split, SplitAlong, SplitCarry, SplitFace,
+    MoveFace, RegionChoice, ReplaceFace, Scale, Split, SplitAlong, SplitCarry, SplitFace,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_kernel::FaceReference;
@@ -20,7 +20,7 @@ use crate::{
         session::{Session, Work},
         tools::{Answer, ToolError},
     },
-    move_face_tools, scale_tools, split_face_tools,
+    move_face_tools, replace_face_tools, scale_tools, split_face_tools,
     units::LengthUnit,
 };
 
@@ -75,6 +75,15 @@ pub struct FaceSplitting {
 pub struct FaceDeleting {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FaceReplacing {
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub target: Option<PlaneChoice>,
     pub name: Option<String>,
 }
 
@@ -351,6 +360,53 @@ pub fn delete_face_built(
         asked.name,
     )
     .telling("body", json!(label)))
+}
+
+pub fn replace_face_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceReplacing,
+    base: Option<&ReplaceFace>,
+) -> Result<Built, ToolError> {
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let faces = faces_of(
+        session,
+        body,
+        (
+            asked.faces.as_deref(),
+            base.map(|base| base.faces.as_slice()),
+        ),
+        "replace",
+    )?;
+    let target = match &asked.target {
+        Some(choice) => Some(places::plane(
+            session.document(),
+            session.evaluation(),
+            choice,
+        )?),
+        None => base.and_then(|base| base.target.clone()),
+    };
+    let label = body_label(session.document(), body);
+    Ok(Built::new(
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body,
+            faces,
+            target,
+        }),
+        replace_face_tools::TITLE,
+        asked.name,
+    )
+    .telling("body", json!(label)))
+}
+
+pub fn replace_face(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceReplacing,
+) -> Result<Answer, ToolError> {
+    let built = replace_face_built(session, work, asked, None)?;
+    added(session, work, built)
 }
 
 pub fn emboss_built(

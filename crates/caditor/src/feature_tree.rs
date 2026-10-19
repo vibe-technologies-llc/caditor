@@ -42,7 +42,7 @@ use crate::{
     preferences::{DoubleClick, PreferencesCommand},
     primitive_panel, principal_tree,
     reference_picking::{Picking, Slot},
-    removal,
+    removal, replace_face_panel,
     reversing::{self, ReverseError},
     rib_panel, scale_panel,
     selection::{Pickable, Selection},
@@ -402,6 +402,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Draft(_) => &[
             "draft", "taper", "angle", "mould", "mold", "neutral", "pull",
         ],
+        FeatureKind::ReplaceFace(_) => &["replace", "face", "plane", "level", "align", "flatten"],
         FeatureKind::SplitFace(_) => &["split", "face", "part line", "imprint", "divide"],
         FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
             PrimitiveKind::Box => &["box", "block", "cube", "primitive"],
@@ -1173,6 +1174,21 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::ReplaceFace(replace) => {
+            replace_face_panel::show(
+                ui,
+                &replace_face_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    replace,
+                    opened: row.edited,
+                },
+                &mut state.reference_rows,
+                actions,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::MoveFace(moving) => {
             move_face_panel::show(
                 ui,
@@ -1367,6 +1383,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
         | FeatureKind::Draft(_)
+        | FeatureKind::ReplaceFace(_)
         | FeatureKind::SplitFace(_)
         | FeatureKind::Primitive(_)
         | FeatureKind::Pipe(_)
@@ -1502,6 +1519,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::Draft(_)
+            | FeatureKind::ReplaceFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
@@ -1533,6 +1551,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Emboss(_)
             | FeatureKind::MoveFace(_)
             | FeatureKind::Draft(_)
+            | FeatureKind::ReplaceFace(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Primitive(_)
             | FeatureKind::Pipe(_)
@@ -3123,11 +3142,15 @@ fn waiting(
             MissingInput::Axis => EditingCommand::Pick(Picking::new(id, Slot::PatternDirection)),
             MissingInput::Path => EditingCommand::Pick(Picking::new(id, Slot::SweepPath)),
             MissingInput::Profiles => EditingCommand::Pick(Picking::new(id, Slot::LoftProfiles)),
+            MissingInput::TargetPlane { .. } => {
+                EditingCommand::Pick(Picking::new(id, Slot::ReplaceTarget))
+            }
             MissingInput::Regions { .. }
             | MissingInput::RegionsToEmboss { .. }
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }
             | MissingInput::FacesToDraft { .. }
+            | MissingInput::FacesToReplace { .. }
             | MissingInput::FacesToDelete { .. }
             | MissingInput::FacesToEmboss { .. }
             | MissingInput::SketchToEmboss { .. }

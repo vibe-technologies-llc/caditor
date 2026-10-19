@@ -15,7 +15,7 @@ use crate::{
     move_face_tools::{self, Reference as MoveFaceReference},
     move_tools,
     pattern_tools::{self, Reference},
-    pipe_tools, primitive_tools, scale_tools,
+    pipe_tools, primitive_tools, replace_face_tools, scale_tools,
     selection::{Pickable, Selection},
     shell_tools, sketch_pattern_tools, solid_panel, split_face_tools, split_tools, sweep_tools,
     thread_tools,
@@ -55,6 +55,7 @@ pub enum Slot {
     MoveFaceDirection,
     MoveFaceAxis,
     DraftNeutral,
+    ReplaceTarget,
     PrimitivePlace,
     CoilAxis,
     HelixAxis,
@@ -111,6 +112,7 @@ impl Slot {
             | Self::MoveFaceDirection
             | Self::MoveFaceAxis
             | Self::DraftNeutral
+            | Self::ReplaceTarget
             | Self::PrimitivePlace
             | Self::CoilAxis
             | Self::HelixAxis
@@ -262,6 +264,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::MoveFaceDirection => format!("Click {AXIS} to shift the faces along"),
         Slot::MoveFaceAxis => format!("Click {AXIS} to tilt the faces about"),
         Slot::DraftNeutral => "Click a plane or flat face to draft from".to_owned(),
+        Slot::ReplaceTarget => "Click a plane or flat face to replace the faces with".to_owned(),
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
                                     along"
             .to_owned(),
@@ -426,6 +429,8 @@ pub enum ChangeError {
     #[error(transparent)]
     Draft(#[from] draft_tools::DraftToolError),
     #[error(transparent)]
+    ReplaceFace(#[from] replace_face_tools::ReplaceToolError),
+    #[error(transparent)]
     Pattern(#[from] pattern_tools::PatternToolError),
     #[error(transparent)]
     Pipe(#[from] pipe_tools::PipeError),
@@ -512,6 +517,10 @@ pub fn change(
         }
         (Slot::ShellOwnThickness, FeatureKind::Shell(_)) => {
             shell_tools::own_thickness_change(model, selection, feature).map_err(ChangeError::from)
+        }
+        (Slot::ReplaceTarget, FeatureKind::ReplaceFace(replace)) => {
+            replace_face_tools::plane_change(model, selection, feature, replace)
+                .map_err(ChangeError::from)
         }
         (Slot::DraftNeutral, FeatureKind::Draft(draft)) => {
             draft_tools::plane_change(model, selection, feature, draft).map_err(ChangeError::from)

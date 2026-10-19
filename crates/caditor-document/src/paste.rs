@@ -641,6 +641,12 @@ impl FeatureKind {
                 draft.body = rename(draft.body);
                 rename_plane(&mut draft.neutral, rename);
             }
+            Self::ReplaceFace(replace) => {
+                replace.body = rename(replace.body);
+                if let Some(target) = &mut replace.target {
+                    rename_plane(target, rename);
+                }
+            }
             Self::Emboss(emboss) => {
                 emboss.body = rename(emboss.body);
                 emboss.sketch = emboss.sketch.map(rename);

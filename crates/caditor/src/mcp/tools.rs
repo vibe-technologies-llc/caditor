@@ -76,6 +76,7 @@ pub enum Tool {
     AddEmboss,
     AddMoveFace,
     AddDraft,
+    AddReplaceFace,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -140,6 +141,7 @@ all_variants!(
     AddEmboss,
     AddMoveFace,
     AddDraft,
+    AddReplaceFace,
     AddSplit,
     AddScale,
     AddDatumPoint,
@@ -295,6 +297,7 @@ impl Tool {
             Self::AddEmboss => "add_emboss",
             Self::AddMoveFace => "add_move_face",
             Self::AddDraft => "add_draft",
+            Self::AddReplaceFace => "add_replace_face",
             Self::AddSplit => "add_split",
             Self::AddScale => "add_scale",
             Self::AddDatumPoint => "add_datum_point",
@@ -361,6 +364,7 @@ impl Tool {
             Self::AddEmboss => "Emboss or deboss",
             Self::AddMoveFace => "Move face",
             Self::AddDraft => "Draft",
+            Self::AddReplaceFace => "Replace face",
             Self::AddSplit => "Split body",
             Self::AddScale => "Scale body",
             Self::AddDatumPoint => "Datum point",
@@ -597,6 +601,9 @@ impl Tool {
             Self::AddDraft => {
                 "Tilts flat faces of a body about the line where each meets the neutral plane, and turns round faces (cylinders and cones) about the pull direction into cones hinged on the circle where each meets it, so each makes the draft angle with the pull direction (the neutral plane's normal, reversed by flipped), the faces around them following; beyond splits the faces at the neutral plane and drafts the part beyond it at an angle of its own. One undo step."
             }
+            Self::AddReplaceFace => {
+                "Replaces flat faces of a body with a target plane (a principal, datum or coordinate system plane, or a flat face of any body), each face turned and moved onto it keeping the side it faces, the faces around them extending or trimming to meet it, as on an imported body with no history. One undo step."
+            }
             Self::AddSplit => {
                 "Splits a body in two along a plane, a sketch's curves or another body; flipped swaps which side is kept first. One undo step."
             }
@@ -657,6 +664,7 @@ impl Tool {
             | Self::AddEmboss
             | Self::AddMoveFace
             | Self::AddDraft
+            | Self::AddReplaceFace
             | Self::AddSplit
             | Self::AddScale
             | Self::AddDatumPoint
@@ -855,6 +863,7 @@ impl Tool {
             Self::AddEmboss => sweep_schemas::emboss(),
             Self::AddMoveFace => sweep_schemas::move_face(),
             Self::AddDraft => sweep_schemas::draft(),
+            Self::AddReplaceFace => sweep_schemas::replace_face(),
             Self::AddSplit => sweep_schemas::split(),
             Self::AddScale => sweep_schemas::scale(),
             Self::AddDatumPoint => datum_schemas::datum_point(),
@@ -942,6 +951,7 @@ impl Tool {
             Self::AddEmboss => Call::AddEmboss(self.arguments(arguments)?),
             Self::AddMoveFace => Call::AddMoveFace(self.arguments(arguments)?),
             Self::AddDraft => Call::AddDraft(self.arguments(arguments)?),
+            Self::AddReplaceFace => Call::AddReplaceFace(self.arguments(arguments)?),
             Self::AddSplit => Call::AddSplit(self.arguments(arguments)?),
             Self::AddScale => Call::AddScale(self.arguments(arguments)?),
             Self::AddDatumPoint => Call::AddDatumPoint(self.arguments(arguments)?),
@@ -1015,6 +1025,7 @@ pub enum Call {
     AddEmboss(reshaping::Embossing),
     AddMoveFace(reshaping::FaceMoving),
     AddDraft(reshaping::FaceDrafting),
+    AddReplaceFace(reshaping::FaceReplacing),
     AddSplit(reshaping::Splitting),
     AddScale(reshaping::Scaling),
     AddDatumPoint(datums::DatumPointing),
@@ -1087,6 +1098,7 @@ impl Call {
             Self::AddEmboss(embossing) => reshaping::emboss(session, work, embossing),
             Self::AddMoveFace(moving) => reshaping::move_face(session, work, moving),
             Self::AddDraft(drafting) => reshaping::draft(session, work, drafting),
+            Self::AddReplaceFace(replacing) => reshaping::replace_face(session, work, replacing),
             Self::AddSplit(splitting) => reshaping::split(session, work, splitting),
             Self::AddScale(scaling) => reshaping::scale(session, work, scaling),
             Self::AddDatumPoint(pointing) => datums::datum_point(session, work, pointing),

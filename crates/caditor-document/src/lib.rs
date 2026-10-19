@@ -64,6 +64,7 @@ mod reference_image;
 mod removal;
 mod repeat_blend;
 mod repeat_shell;
+mod replace_face;
 mod rib;
 mod rib_tool;
 mod scaling;
@@ -215,6 +216,7 @@ pub use crate::{
         ImageSpot, MIN_IMAGE_OPACITY_PERCENT, PlacedImage, ReferenceImage, placed_on,
     },
     removal::Remove,
+    replace_face::{ReplaceFace, is_flat},
     rib::{
         MAX_RIB_DRAFT_DEGREES, RIB_SHAPE, Rib, direction_name as rib_direction_name,
         ends_name as rib_ends_name, facing as rib_facing, is_rib_path, rib_stand,
@@ -356,6 +358,8 @@ mod removal_tests;
 mod repeat_blend_tests;
 #[cfg(test)]
 mod repeat_shell_tests;
+#[cfg(test)]
+mod replace_face_tests;
 #[cfg(test)]
 mod rib_tests;
 #[cfg(test)]

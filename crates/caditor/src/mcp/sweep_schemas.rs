@@ -426,6 +426,21 @@ pub fn draft() -> Value {
     )
 }
 
+pub fn replace_face() -> Value {
+    object(
+        json!({
+            "body": reference("The body, by id or name"),
+            "faces": keys("Flat face keys from list_faces"),
+            "target": {
+                "description": "The plane the faces are replaced with: XY, XZ or YZ, a flat face {body, face} of any body made before, this one included, a datum plane {datum} or {frame, plane}",
+                "anyOf": [plane()]
+            },
+            "name": name()
+        }),
+        &["body", "faces", "target"],
+    )
+}
+
 pub fn split() -> Value {
     object(
         json!({

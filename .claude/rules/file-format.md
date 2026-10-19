@@ -372,7 +372,9 @@ Splits and faces:
   reference; unreadable loads as XY), `angle` (unreadable 0 deg), `flipped` and `tangent` when set,
   `beyond` (the angle beyond a parting line, only when split; unreadable 0 deg) and `own` (each a
   `face` record and its `angle`, only when any; unreadable entry left as it stands, angle 0 deg),
-  each reported; the corpus holds it in `drafts.caditor`. `split_face`: `body`, `faces` (unreadable left whole), `along`
+  each reported; the corpus holds it in `drafts.caditor`. `replace_face`: `body`, `faces`
+  (unreadable left as they stand) and `target` when chosen (plane reference; unreadable loads with
+  none, waiting for one), each reported; the corpus holds it in `replaced-faces.caditor`. `split_face`: `body`, `faces` (unreadable left whole), `along`
   (`{"plane": ref}` unreadable YZ, `{"body": id}`, `{"sketch": id}`). Wrappers: `split_face_along`
   (`direction`, axis reference; unreadable carried square), `split_face_surface` (`face`
   attachment record; unreadable along YZ), `split_face_wrapped` (wraps round a cylinder or cone).

@@ -22,7 +22,7 @@ use crate::{
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
-    pipe_tools, primitive_tools, queued, rib_tools,
+    pipe_tools, primitive_tools, queued, replace_face_tools, rib_tools,
     ribbon::{self, GroupMenu, GroupTools},
     scale_tools,
     section::SectionCommand,
@@ -355,6 +355,7 @@ fn group_buttons(
             emboss_offer(model, context, commands, actions);
             move_face_offer(model, context, commands, actions);
             draft_offer(model, context, commands, actions);
+            replace_face_offer(model, context, commands, actions);
             split_face_offer(model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
@@ -940,6 +941,24 @@ fn draft_offer(
         && let Ok(source) = source
     {
         actions.extend(draft_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
+        ));
+    }
+}
+
+fn replace_face_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.replace_face;
+    if commands.invoke(Command::ReplaceFace, source)
+        && let Ok(source) = source
+    {
+        actions.extend(replace_face_tools::create_actions(
             model.document(),
             model.evaluation(),
             source,
