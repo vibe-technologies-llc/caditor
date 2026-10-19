@@ -104,8 +104,8 @@ pub use crate::{
     shared::SharedBuffer,
     shell::{
         DeleteError, DraftError, DraftedFace, MoveError, OffsetError, ReplaceError, STEEPEST_DRAFT,
-        STEEPEST_REPLACING_TURN, ShellError, ShellSide, Walls, delete_faces, draft_faces,
-        move_faces, offset_faces, replace_faces, shell, shell_walls,
+        STEEPEST_REPLACING_TURN, ShellError, ShellSide, Walls, check_draftable, delete_faces,
+        draft_faces, move_faces, offset_faces, replace_faces, shell, shell_walls,
     },
     surface::{
         BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,

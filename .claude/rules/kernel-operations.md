@@ -701,16 +701,22 @@ paths:
   `TRAVEL_SAMPLES` per edge, so a tilt about an axis through a face's only vertex still counts;
   `NothingToMove`, `MissingFace`, `UnsupportedFace`, `UnsupportedEdge`, `Vanishes`, `Corner`,
   `EdgeCollapses`, `Invalid`, `Crosses`, `Cancelled`). It is the shell's inner solid with
-  `Offsets::rigid`: the moved faces' surfaces are their own transformed (`Surface::transformed`, so
-  any surface kind moves, splines included), their residual is the original's at the point pulled
-  back by the inverse (`Offsets::pulled_back`) with the normal carried forward, and the reach is the
-  farthest travel. A neighbour must still be one the shell can extend (the edge rebuilding and
-  `intersect_surfaces` decide).
+  `Offsets::carrying` and one `Motion::Rigid`: the moved faces' surfaces are their own
+  transformed (`Surface::transformed`, so any surface kind moves, splines included), their residual
+  is the original's at the point pulled back by the inverse (`Offsets::pulled_back`) with the
+  normal carried forward, and the reach is the farthest travel. A neighbour must still be one the
+  shell can extend (the edge rebuilding and `intersect_surfaces` decide).
 - `move_each(solid, groups)` is the same with a motion per group of faces (`Carried`: faces and
-  their `RigidTransform`; `Offsets::rigid` keeps one `Motion` per group and each face's group in
-  `Rigid`); an edge between faces of two groups is rebuilt or intersected like one between a moved
-  and a still face, since `Offsets::shared_motion` carries an edge's curve only when all its faces
-  share one motion. The reach is the farthest travel of any group. A draft is built on it.
+  their `Motion`; `Offsets::carrying` keeps one per group and each face's group in `Motions`). A
+  `Motion` is `Rigid` (a transform and its inverse) or `Tapered` (a draft's `Taper`: points carried
+  by scaling their distance from its axis by the new radius over the old at their height, pulled
+  back by the reverse, no turn of directions, its new surface given and its residual the signed
+  distance to that surface directly). An edge between faces of two groups is tried carried by each
+  group's motion in turn and otherwise rebuilt or intersected like one between a moved and a still
+  face, since `Offsets::shared_motion` takes an edge's carried curve unchecked only when all its
+  faces share one motion; a taper carries a coaxial circle (radius scaled at its height) and a line
+  in a meridian plane, nothing else. The reach is the farthest travel of any group. Draft and
+  replace face are built on it.
 - Corners touching a moved face start solving from their carried point (`Offsets::carried_with`), so
   a seam vertex of a shifted bore lands on its own side of the circle, not the antipode; hints on a
   moved face are taken on the pulled-back point and seam planes of a moved round face are carried
@@ -725,21 +731,34 @@ paths:
   the tangency unless it moves along it: shifting a top up with the fillet along its rim works,
   the top alone does not.
 
-# Drafting faces (`shell/draft.rs`)
+# Drafting faces (`shell/draft.rs`, `shell/taper.rs`)
 
-- `draft_faces(solid, faces, neutral)` tilts each `DraftedFace` (a face and its own angle in
-  radians) about the line where its plane meets the neutral plane, so that it makes that angle
-  with the pull (the neutral plane's normal): the turn is the angle less the face's present angle
-  (`asin` of the outward normal along the pull), about the axis `normal × pull`, so a positive
-  angle leans the outward normal toward the pull and narrows the body that way; a face already at
-  its angle is left out. Only planes are drafted (`NotFlat`); an angle not finite or steeper than
-  `STEEPEST_DRAFT` (89°) is `TooSteep`, a face parallel to the neutral plane `AlongNeutral`, no face
-  `NothingToDraft`, every face at its angle `AlreadyDrafted`, a face listed twice taken once.
-- Faces sharing a plane (normal and offset within the resolutions) and a turn share one motion;
-  the groups go to `move_each`, so neighbours extend or trim as they do for a move and every
-  `MoveError` (wrapped as `DraftError::Move`) and name keeping are a move's. A draft steep enough to
-  fold the body fails there rather than building a bad solid. Splitting at a parting line is the
-  document's (`split_faces` first, `document.md`).
+- `draft_faces(solid, faces, neutral)` drafts each `DraftedFace` (a face and its own angle in
+  radians) so that it makes that angle with the pull (the neutral plane's normal), a positive angle
+  leaning the outward normal toward the pull and narrowing the body that way; a face already at its
+  angle is left out. `check_draftable` (public, the document's pre-check) takes planes, and
+  cylinders and cones whose axis runs along the pull; any other surface is `NotDraftable`, a round
+  face about another axis `OffPull`. An angle not finite or steeper than `STEEPEST_DRAFT` (89°) is
+  `TooSteep`, a plane parallel to the neutral plane `AlongNeutral`, no face `NothingToDraft`, every
+  face at its angle `AlreadyDrafted`, a face listed twice taken once.
+- A plane turns rigidly about the line where it meets the neutral plane: the turn is the angle less
+  its present angle (`asin` of the outward normal along the pull), about `normal × pull`. Planes
+  sharing a plane (normal and offset within the resolutions) and a turn share one motion.
+- A cylinder or cone is rebuilt as a `Taper`: about its own axis (origin on the neutral plane, its
+  frame's normal and x-axis kept so the seam and parameter directions stay), its radius is linear in
+  the height along the axis, the same at the hinge (where the surface meets the neutral plane, so a
+  cylinder keeps the circle there) and with the slope `tan` of the new half-angle (minus the sense
+  times the axis's direction along the pull, times the angle: a boss narrows toward the pull, a hole
+  widens). The new surface is a cone, or a cylinder when the slope is nought, so a cone redrafted to
+  0 stands square and a coaxial cone takes the new angle. A radius reaching nought within the
+  face's height range (sampled along its edges) is `NarrowsToPoint`. Tapers with one axis, hinge and
+  slopes share one motion.
+- The groups go to `move_each` as `Motion`s, so neighbours extend or trim as they do for a move and
+  every `MoveError` (wrapped as `DraftError::Move`) and name keeping are a move's. A tangent chain of
+  planes and coaxial round faces (a slot or rounded outline) stays tangent: a tilted plane and a
+  tapered cylinder tangent along a generator meet along the same generator after the draft. A draft
+  steep enough to fold the body fails there rather than building a bad solid. Splitting at a
+  parting line is the document's (`split_faces` first, `document.md`).
 
 # Replacing faces (`shell/replace.rs`)
 

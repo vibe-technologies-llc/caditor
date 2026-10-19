@@ -1,6 +1,13 @@
-use caditor_document::{Draft, FeatureId, PlaneReference};
+use std::f64::consts::PI;
+
+use caditor_document::{
+    BodyOperation, Draft, Extrude, ExtrudeExtent, FeatureId, FeatureKind, PlaneReference,
+    RegionChoice, SolidFeature,
+};
+use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::Surface;
+use caditor_sketch::Sketch;
 use egui::{Event, Id, Key, Modifiers};
 
 use super::{
@@ -8,8 +15,8 @@ use super::{
     run_from_palette, volume_about,
 };
 use crate::{
-    bodies, draft_panel, move_manipulator::Handle, reference_picking::Slot, selection::Pickable,
-    value_gauges::Measured,
+    bodies, draft_panel, model::Action, move_manipulator::Handle, reference_picking::Slot,
+    selection::Pickable, value_gauges::Measured,
 };
 
 const SIDE: f64 = 40.0;
@@ -261,4 +268,120 @@ fn an_angle_typed_over_the_draft_arrow_sets_the_draft_angle() {
     assert_eq!(harness.model.undo_label(), Some("Edit Draft 1"));
     assert!((length_value(&harness, &draft_of(&harness, draft).angle) - 6.0).abs() < 1e-9);
     assert!(volume_about(&harness, plate, drafted([6.0; 4])));
+}
+
+const BOSS_RADIUS: f64 = 5.0;
+const BOSS_HEIGHT: f64 = 6.0;
+
+fn add_boss(harness: &mut Harness, plate: FeatureId) {
+    let mut outline = Sketch::new(Plane::XY);
+    outline.add_circle(Point2::new(20.0, 20.0), BOSS_RADIUS);
+    let mut transaction = harness.document().transaction("Add a boss");
+    let sketch = transaction.add_feature("Boss sketch", FeatureKind::from(outline));
+    transaction.add_feature(
+        "Boss",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(
+                Expression::parse_stored(&format!("{} mm", HEIGHT + BOSS_HEIGHT)).unwrap(),
+                false,
+            ),
+            operation: BodyOperation::Add(plate),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+}
+
+fn round_faces(harness: &mut Harness) -> Vec<Pickable> {
+    let faces: Vec<Pickable> = harness
+        .built()
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+        .collect();
+    faces
+        .into_iter()
+        .filter(|pickable| {
+            let Pickable::Face { body, face } = *pickable else {
+                return false;
+            };
+            harness
+                .model
+                .evaluation()
+                .body_result(body)
+                .and_then(|result| result.solid())
+                .and_then(|result| {
+                    let found = bodies::find_face(result, face)?;
+                    Some(result.solid.face(found)?.surface().clone())
+                })
+                .is_some_and(|surface| matches!(surface, Surface::Cylinder(_) | Surface::Cone(_)))
+        })
+        .collect()
+}
+
+fn with_drafted_boss(degrees: f64) -> f64 {
+    let top = BOSS_RADIUS - BOSS_HEIGHT * slope(degrees);
+    let boss = PI * BOSS_HEIGHT * (BOSS_RADIUS * BOSS_RADIUS + BOSS_RADIUS * top + top * top) / 3.0;
+    SIDE * SIDE * HEIGHT + boss
+}
+
+#[test]
+fn a_boss_drafted_from_the_palette_narrows_into_a_cone_from_the_plate() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    add_boss(&mut harness, plate);
+    let side = round_faces(&mut harness);
+
+    assert_eq!(side.len(), 1);
+    assert!(volume_about(&harness, plate, with_drafted_boss(0.0)));
+
+    harness.select(side);
+    run_from_palette(&mut harness, "Draft");
+    harness.settle();
+    let draft = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the draft is open");
+
+    assert_eq!(harness.model.undo_label(), Some("Create Draft 1"));
+    assert!(matches!(
+        draft_of(&harness, draft).neutral,
+        PlaneReference::Face(_)
+    ));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(volume_about(&harness, plate, with_drafted_boss(3.0)));
+    assert!(harness.shows_containing("Toward +Z"));
+
+    harness.type_into_field(Id::unique(("draft-angle", "Draft angle", draft)), "5 deg");
+    harness.settle();
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    assert!(volume_about(&harness, plate, with_drafted_boss(5.0)));
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .handle_position(Handle::Value(Measured::DraftAngle), 0.0)
+            .is_some(),
+        "the draft angle arrow stands on the round face"
+    );
+
+    close_feature(&mut harness);
+    for _ in 0..2 {
+        harness.key(Key::Z, Modifiers::COMMAND);
+        harness.frame();
+    }
+    harness.settle();
+
+    assert!(volume_about(&harness, plate, with_drafted_boss(0.0)));
 }
