@@ -1250,6 +1250,10 @@ fn delivery_words(service: Service, shipment: &Shipment, sent: &caditor_cloud::S
             "Sent “{}” to {service}, in “{folder}”, as a new file.",
             sent.name
         ),
+        SendOutcome::PartStudio => format!(
+            "Sent “{}” to {service}, in “{folder}”, as a new Part Studio.",
+            sent.name
+        ),
         SendOutcome::NewVersion {
             number: Some(number),
         } => format!(

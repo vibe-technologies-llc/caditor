@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::BTreeMap, io::Write};
 
 use jiff::Timestamp;
 use serde::Deserialize;
@@ -7,9 +7,9 @@ use serde_json::json;
 use self::scope::{DesignPlace, ElementKind, Place, Scope, UploadPlace};
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Project,
-        ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat, Version as DesignVersion,
-        Workspace, WorkspaceId, WorkspaceKind,
+        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Placement,
+        Project, ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat,
+        Version as DesignVersion, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{form, percent_encode},
     error::{Error, Subject},
@@ -96,6 +96,11 @@ impl Onshape {
         place: &Place,
     ) -> Result<Folder, Error> {
         let elements = self.elements(net, session, document, place)?;
+        let dates = if place.is_workspace() && elements.iter().any(Element::is_upload) {
+            self.history_dates(net, session, document, place)?
+        } else {
+            BTreeMap::new()
+        };
         let mut folder = Folder {
             place: place.is_workspace().then(|| FolderRef {
                 project: document.clone(),
@@ -107,7 +112,7 @@ impl Onshape {
                 .collect(),
             uploads: elements
                 .iter()
-                .filter_map(|element| element.upload(document, place))
+                .filter_map(|element| element.upload(document, place, &dates))
                 .collect(),
             ..Folder::default()
         };
@@ -143,27 +148,47 @@ impl Onshape {
         net: &dyn Transport,
         session: &Session,
         url: String,
-        name: &str,
-        bytes: &[u8],
-    ) -> Result<(), Error> {
-        let fields = [
-            ("encodedFilename", percent_encode(name)),
-            ("translate", "false".to_owned()),
-            ("storeInDocument", "true".to_owned()),
-        ]
-        .into_iter()
-        .map(|(field, value)| (field.to_owned(), value))
-        .collect();
-        let multipart = Multipart::new(fields, FILE_FIELD, name, bytes.to_vec())?;
+        file: Payload,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Response, Error> {
+        let total = u64::try_from(file.bytes.len()).unwrap_or(u64::MAX);
+        let fields = file
+            .fields
+            .into_iter()
+            .map(|(field, value)| (field.to_owned(), value))
+            .collect();
+        let multipart = Multipart::new(fields, FILE_FIELD, file.name, file.bytes.to_vec())?;
         let request =
             Request::post(url, Body::Multipart(multipart)).with_bearer(&session.access_token);
-        let response = net.send(&request)?;
-        let response = match response.status {
-            403 => return Err(Error::SendForbidden { service: SERVICE }),
-            _ => checked(SERVICE, response, Subject::Item)?,
-        };
-        let _: UploadedElement = rest::read(SERVICE, &response, Subject::Item)?;
-        Ok(())
+        let response = net.send_tracked(&request, &mut |sent, _| {
+            progress(sent.min(total), Some(total))
+        })?;
+        match response.status {
+            403 => Err(Error::SendForbidden { service: SERVICE }),
+            _ => checked(SERVICE, response, file.subject),
+        }
+    }
+
+    fn history_dates(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        document: &ProjectId,
+        place: &Place,
+    ) -> Result<BTreeMap<String, Timestamp>, Error> {
+        let url = format!(
+            "{API}/documents/d/{}/{}/documenthistory",
+            percent_encode(document.as_str()),
+            place.path()
+        );
+        match self.get::<Vec<HistoryEntry>>(net, session, url, Subject::Folder) {
+            Ok(entries) => Ok(entries
+                .into_iter()
+                .filter_map(HistoryEntry::dated)
+                .collect()),
+            Err(error @ (Error::SignedOut | Error::RateLimited { .. })) => Err(error),
+            Err(_) => Ok(BTreeMap::new()),
+        }
     }
 
     fn branches(
@@ -281,6 +306,14 @@ impl Onshape {
         scopes.push(fixed(Scope::Public, "Public documents"));
         Ok(scopes)
     }
+}
+
+fn blob_base(document: &ProjectId, place: &Place) -> String {
+    format!(
+        "{API}/blobelements/d/{}/{}",
+        percent_encode(document.as_str()),
+        place.path()
+    )
 }
 
 fn optional<T: Default>(result: Result<T, Error>) -> Result<T, Error> {
@@ -543,11 +576,7 @@ impl Provider for Onshape {
         if !progress(0, Some(total)) {
             return Err(Error::Stopped);
         }
-        let base = format!(
-            "{API}/blobelements/d/{}/{}",
-            percent_encode(document.as_str()),
-            place.path()
-        );
+        let base = blob_base(document, &place);
         let (url, outcome) = match existing {
             Some(element) => (
                 format!("{base}/e/{}", percent_encode(&element)),
@@ -555,12 +584,84 @@ impl Provider for Onshape {
             ),
             None => (base, SendOutcome::Created),
         };
-        self.upload_file(net, session, url, name, outgoing.bytes)?;
+        let payload = Payload {
+            name,
+            bytes: outgoing.bytes,
+            fields: vec![
+                ("encodedFilename", percent_encode(name)),
+                ("translate", "false".to_owned()),
+                ("storeInDocument", "true".to_owned()),
+            ],
+            subject: Subject::Item,
+        };
+        let response = self.upload_file(net, session, url, payload, progress)?;
+        let _: UploadedElement = rest::read(SERVICE, &response, Subject::Item)?;
         progress(total, Some(total));
         Ok(Sent {
             name: name.to_owned(),
             outcome,
         })
+    }
+
+    fn send_part_studio(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Translation, Error> {
+        let name = outgoing.name.trim();
+        let place = Place::from_folder_id(&outgoing.folder.folder).ok_or(Error::NotFound {
+            subject: Subject::Folder,
+        })?;
+        if !place.is_workspace() {
+            return Err(Error::VersionIsReadOnly);
+        }
+        let document = &outgoing.folder.project;
+        let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+        if !progress(0, Some(total)) {
+            return Err(Error::Stopped);
+        }
+        let payload = Payload {
+            name,
+            bytes: outgoing.bytes,
+            fields: vec![
+                ("encodedFilename", percent_encode(name)),
+                ("translate", "true".to_owned()),
+                ("formatName", STEP_FORMAT.to_owned()),
+                ("storeInDocument", "false".to_owned()),
+            ],
+            subject: Subject::Translation,
+        };
+        let response =
+            self.upload_file(net, session, blob_base(document, &place), payload, progress)?;
+        let started: TranslationState = rest::read(SERVICE, &response, Subject::Translation)?;
+        let id = started.id.ok_or(Error::Unreadable {
+            service: SERVICE,
+            subject: Subject::Translation,
+        })?;
+        progress(total, Some(total));
+        Ok(Translation {
+            source: format!("{}/{id}", document.as_str()),
+        })
+    }
+
+    fn poll_part_studio(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        translation: &Translation,
+    ) -> Result<Placement, Error> {
+        let (_, id) = translation.source.split_once('/').ok_or(Error::NotFound {
+            subject: Subject::Translation,
+        })?;
+        let url = format!("{API}/translations/{}", percent_encode(id));
+        let state: TranslationState = self.get(net, session, url, Subject::Translation)?;
+        match state.request_state.as_deref() {
+            Some(DONE) if !state.result_element_ids.is_empty() => Ok(Placement::Done),
+            Some(DONE | FAILED) => Err(Error::PartStudioFailed { service: SERVICE }),
+            _ => Ok(Placement::Working),
+        }
     }
 
     fn fetch_upload(
@@ -660,6 +761,28 @@ struct Element {
     name: Option<String>,
     #[serde(rename = "elementType")]
     element_type: Option<String>,
+    #[serde(rename = "microversionId")]
+    microversion_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct HistoryEntry {
+    #[serde(rename = "microversionId")]
+    microversion_id: Option<String>,
+    date: Option<String>,
+}
+
+impl HistoryEntry {
+    fn dated(self) -> Option<(String, Timestamp)> {
+        Some((self.microversion_id?, self.date?.parse().ok()?))
+    }
+}
+
+struct Payload<'a> {
+    name: &'a str,
+    bytes: &'a [u8],
+    fields: Vec<(&'static str, String)>,
+    subject: Subject,
 }
 
 impl Element {
@@ -673,7 +796,17 @@ impl Element {
         })
     }
 
-    fn upload(&self, document: &ProjectId, place: &Place) -> Option<Upload> {
+    fn is_upload(&self) -> bool {
+        self.element_type.as_deref() == Some(BLOB)
+            && UploadFormat::of_file_name(&label(self.name.as_deref(), "Untitled")).is_some()
+    }
+
+    fn upload(
+        &self,
+        document: &ProjectId,
+        place: &Place,
+        dates: &BTreeMap<String, Timestamp>,
+    ) -> Option<Upload> {
         if self.element_type.as_deref()? != BLOB {
             return None;
         }
@@ -683,13 +816,23 @@ impl Element {
             project: document.clone(),
             format: UploadFormat::of_file_name(&name)?,
             name,
-            modified: None,
+            modified: self
+                .microversion_id
+                .as_ref()
+                .and_then(|microversion| dates.get(microversion))
+                .copied(),
         })
     }
 }
 
 #[derive(Deserialize)]
 struct UploadedElement {}
+
+fn list_or_null<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<String>, D::Error> {
+    Option::<Vec<String>>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
 
 #[derive(Deserialize)]
 struct Branch {
@@ -726,8 +869,18 @@ struct TranslationState {
     id: Option<String>,
     #[serde(rename = "requestState")]
     request_state: Option<String>,
-    #[serde(default, rename = "resultExternalDataIds")]
+    #[serde(
+        default,
+        rename = "resultExternalDataIds",
+        deserialize_with = "list_or_null"
+    )]
     result_external_data_ids: Vec<String>,
+    #[serde(
+        default,
+        rename = "resultElementIds",
+        deserialize_with = "list_or_null"
+    )]
+    result_element_ids: Vec<String>,
 }
 
 #[cfg(test)]

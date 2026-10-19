@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Project, Sent,
-        Translation, Upload, Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Placement, Project,
+        Sent, Translation, Upload, Version, Workspace, WorkspaceId,
     },
     error::Error,
     provider::{Callback, Provider, SignIn},
@@ -152,6 +152,23 @@ impl Client {
         let session = self.fresh()?;
         self.provider
             .send(&*self.transport, &session, outgoing, progress)
+    }
+
+    pub fn send_part_studio(
+        &self,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Translation, Error> {
+        let session = self.fresh()?;
+        self.provider
+            .send_part_studio(&*self.transport, &session, outgoing, progress)
+    }
+
+    pub fn poll_part_studio(&self, translation: &Translation) -> Result<Placement, Error> {
+        self.authorised(|session| {
+            self.provider
+                .poll_part_studio(&*self.transport, session, translation)
+        })
     }
 
     fn fresh(&self) -> Result<Session, Error> {

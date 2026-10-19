@@ -881,7 +881,10 @@ fn a_model_is_uploaded_as_a_new_blob_element_of_the_workspace() {
 
     assert_eq!(sent.name, "plate.step");
     assert_eq!(sent.outcome, SendOutcome::Created);
-    assert_eq!(seen, [(0, Some(13)), (13, Some(13))]);
+    assert_eq!(seen.first(), Some(&(0, Some(13))));
+    assert_eq!(seen.last(), Some(&(13, Some(13))));
+    assert!(seen.iter().all(|(_, total)| *total == Some(13)));
+    assert!(seen.is_sorted());
     let requests = net.requests();
     let post = requests.last().unwrap();
     assert_eq!(post.method, Method::Post);
@@ -1180,4 +1183,336 @@ fn an_upload_that_is_not_ours_is_not_found() {
             subject: Subject::Upload
         })
     ));
+}
+
+fn send_part_studio_to(
+    net: &ScriptedTransport,
+    place: &FolderRef,
+    progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+) -> Result<Translation, Error> {
+    onshape().send_part_studio(
+        net,
+        &session(),
+        &Outgoing {
+            folder: place,
+            name: " plate.step ",
+            bytes: b"ISO-10303-21;",
+        },
+        progress,
+    )
+}
+
+const STARTED: &str = r#"{
+    "id":"tr5","requestState":"ACTIVE","documentId":"doc1","workspaceId":"ws9",
+    "resultElementIds":null,"resultExternalDataIds":null,"resultDocumentId":null,
+    "failureReason":null,"name":"plate.step"
+}"#;
+
+#[test]
+fn a_started_translation_with_null_result_lists_is_read() {
+    let net = ScriptedTransport::new().route(
+        Method::Post,
+        &format!("{API}/partstudios/d/doc1/w/ws9/e/e1/translations"),
+        200,
+        STARTED,
+    );
+
+    let translation = onshape()
+        .start_conversion(&net, &session(), &design("partstudios/w/ws9/e1"), None)
+        .unwrap();
+
+    assert_eq!(translation.source, "doc1/tr5");
+}
+
+#[test]
+fn a_model_sent_as_a_part_studio_is_uploaded_for_translation_and_the_translation_returned() {
+    let net = ScriptedTransport::new().route(Method::Post, &blob_url(), 200, STARTED);
+    let mut seen = Vec::new();
+
+    let translation = send_part_studio_to(&net, &workspace_place(), &mut |done, total| {
+        seen.push((done, total));
+        true
+    })
+    .unwrap();
+
+    assert_eq!(translation.source, "doc1/tr5");
+    assert_eq!(seen.first(), Some(&(0, Some(13))));
+    assert_eq!(seen.last(), Some(&(13, Some(13))));
+    let requests = net.requests();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.method == Method::Post)
+    );
+    let upload = upload_of(requests.last().unwrap());
+    assert_eq!(upload.file_name(), "plate.step");
+    assert_eq!(upload.file_bytes(), b"ISO-10303-21;");
+    for (name, value) in [
+        ("translate", "true"),
+        ("formatName", "STEP"),
+        ("storeInDocument", "false"),
+        ("encodedFilename", "plate.step"),
+    ] {
+        assert_eq!(field(upload.fields(), name).as_deref(), Some(value));
+    }
+}
+
+#[test]
+fn stopping_while_the_body_goes_out_ends_the_send_without_a_translation() {
+    let net = ScriptedTransport::new().route(Method::Post, &blob_url(), 200, STARTED);
+    let mut calls = 0;
+
+    let result = send_part_studio_to(&net, &workspace_place(), &mut |_, _| {
+        calls += 1;
+        calls < 2
+    });
+
+    assert!(result.unwrap_err().is_stop());
+}
+
+#[test]
+fn a_blob_stopped_while_the_body_goes_out_is_stopped_too() {
+    let net = ScriptedTransport::new()
+        .route(Method::Get, &elements_url(), 200, "[]")
+        .route(Method::Post, &blob_url(), 200, "{}");
+    let place = workspace_place();
+    let mut calls = 0;
+
+    let result = onshape().send(
+        &net,
+        &session(),
+        &Outgoing {
+            folder: &place,
+            name: "plate.step",
+            bytes: b"x",
+        },
+        &mut |_, _| {
+            calls += 1;
+            calls < 2
+        },
+    );
+
+    assert!(result.unwrap_err().is_stop());
+}
+
+#[test]
+fn nothing_is_translated_into_a_saved_version_and_the_upload_answers_map_to_typed_errors() {
+    let version = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::version("v1").folder_id(),
+    };
+    let net = ScriptedTransport::new();
+
+    assert!(matches!(
+        send_part_studio_to(&net, &version, &mut |_, _| true),
+        Err(Error::VersionIsReadOnly)
+    ));
+    assert!(net.requests().is_empty());
+
+    for (status, body, expected) in [
+        (403, "", "forbidden"),
+        (401, "", "signed out"),
+        (200, "not json", "unreadable"),
+        (200, r#"{"requestState":"ACTIVE"}"#, "unreadable"),
+    ] {
+        let net = ScriptedTransport::new().route(Method::Post, &blob_url(), status, body);
+
+        let kind =
+            match send_part_studio_to(&net, &workspace_place(), &mut |_, _| true).unwrap_err() {
+                Error::SendForbidden { .. } => "forbidden",
+                Error::SignedOut => "signed out",
+                Error::Unreadable { .. } => "unreadable",
+                _ => "other",
+            };
+
+        assert_eq!(kind, expected);
+    }
+}
+
+#[test]
+fn a_part_studio_translation_is_polled_until_it_made_an_element() {
+    let url = format!("{API}/translations/tr5");
+    let net = ScriptedTransport::new()
+        .route(
+            Method::Get,
+            &url,
+            200,
+            r#"{"id":"tr5","requestState":"ACTIVE","resultElementIds":null}"#,
+        )
+        .route(
+            Method::Get,
+            &url,
+            200,
+            r#"{"id":"tr5","requestState":"DONE","resultElementIds":["e12"]}"#,
+        );
+    let translation = Translation {
+        source: "doc1/tr5".to_owned(),
+    };
+
+    let first = onshape().poll_part_studio(&net, &session(), &translation);
+    let second = onshape().poll_part_studio(&net, &session(), &translation);
+
+    assert_eq!(first.unwrap(), Placement::Working);
+    assert_eq!(second.unwrap(), Placement::Done);
+}
+
+#[test]
+fn a_failed_translation_or_one_that_made_nothing_is_a_failure_to_make_a_part_studio() {
+    let translation = Translation {
+        source: "doc1/tr5".to_owned(),
+    };
+    let url = format!("{API}/translations/tr5");
+
+    for body in [
+        r#"{"requestState":"FAILED","failureReason":"x","resultElementIds":null}"#,
+        r#"{"requestState":"DONE","resultElementIds":[]}"#,
+        r#"{"requestState":"DONE","resultElementIds":null}"#,
+    ] {
+        let net = ScriptedTransport::new().route(Method::Get, &url, 200, body);
+
+        assert!(matches!(
+            onshape().poll_part_studio(&net, &session(), &translation),
+            Err(Error::PartStudioFailed { .. })
+        ));
+    }
+    assert!(matches!(
+        onshape().poll_part_studio(
+            &ScriptedTransport::new(),
+            &session(),
+            &Translation {
+                source: "tr5".to_owned()
+            }
+        ),
+        Err(Error::NotFound { .. })
+    ));
+}
+
+fn blob_listing(history: Option<&str>) -> ScriptedTransport {
+    let net = ScriptedTransport::new().route(
+        Method::Get,
+        &elements_url(),
+        200,
+        r#"[
+            {"id":"e4","name":"scan.step","elementType":"BLOB","microversionId":"mv4"},
+            {"id":"e5","name":"old.stl","elementType":"BLOB","microversionId":"mv0"},
+            {"id":"e6","name":"flat.svg","elementType":"BLOB"},
+            {"id":"e7","name":"notes.pdf","elementType":"BLOB","microversionId":"mv4"}
+        ]"#,
+    );
+    match history {
+        Some(body) => net.route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/w/ws9/documenthistory"),
+            200,
+            body,
+        ),
+        None => net,
+    }
+}
+
+#[test]
+fn a_blob_is_dated_by_the_history_entry_of_its_microversion() {
+    let net = blob_listing(Some(
+        r#"[
+            {"microversionId":"mv4","date":"2026-03-02T10:15:30.000Z","description":"Upload","userId":"u1"},
+            {"microversionId":"mv3","date":"2026-03-01T08:00:00.000Z"},
+            {"microversionId":"mv9","date":"not a date"},
+            {"date":"2026-01-01T00:00:00.000Z"}
+        ]"#,
+    ));
+
+    let folder = onshape()
+        .folder(&net, &session(), &workspace_place())
+        .unwrap();
+
+    let dated: Vec<_> = folder
+        .uploads
+        .iter()
+        .map(|upload| {
+            (
+                upload.name.as_str(),
+                upload.modified.map(|at| at.to_string()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        dated,
+        [
+            ("scan.step", Some("2026-03-02T10:15:30Z".to_owned())),
+            ("flat.svg", None),
+            ("old.stl", None),
+        ]
+    );
+}
+
+#[test]
+fn a_history_that_cannot_be_read_leaves_the_blobs_undated_but_not_the_folder_unlisted() {
+    for status in [403, 404, 500] {
+        let net = blob_listing(None).route(
+            Method::Get,
+            &format!("{API}/documents/d/doc1/w/ws9/documenthistory"),
+            status,
+            "",
+        );
+
+        let folder = onshape()
+            .folder(&net, &session(), &workspace_place())
+            .unwrap();
+
+        assert_eq!(folder.uploads.len(), 3);
+        assert!(
+            folder
+                .uploads
+                .iter()
+                .all(|upload| upload.modified.is_none())
+        );
+    }
+
+    let lost = blob_listing(None).route(
+        Method::Get,
+        &format!("{API}/documents/d/doc1/w/ws9/documenthistory"),
+        401,
+        "",
+    );
+
+    assert!(matches!(
+        onshape().folder(&lost, &session(), &workspace_place()),
+        Err(Error::SignedOut)
+    ));
+}
+
+#[test]
+fn the_history_is_asked_only_for_a_workspace_that_holds_a_blob_to_date() {
+    let history = format!("{API}/documents/d/doc1/w/ws9/documenthistory");
+    let without_blobs = ScriptedTransport::new().route(
+        Method::Get,
+        &elements_url(),
+        200,
+        r#"[{"id":"e1","name":"Frame","elementType":"PARTSTUDIO"},
+            {"id":"e7","name":"notes.pdf","elementType":"BLOB"}]"#,
+    );
+    let in_version = ScriptedTransport::new().route(
+        Method::Get,
+        &format!("{API}/documents/d/doc1/v/v1/elements"),
+        200,
+        r#"[{"id":"e4","name":"scan.step","elementType":"BLOB","microversionId":"mv4"}]"#,
+    );
+    let version = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: Place::version("v1").folder_id(),
+    };
+
+    onshape()
+        .folder(&without_blobs, &session(), &workspace_place())
+        .unwrap();
+    let kept = onshape().folder(&in_version, &session(), &version).unwrap();
+
+    assert!(
+        without_blobs
+            .requests()
+            .iter()
+            .chain(&in_version.requests())
+            .all(|request| request.url != history)
+    );
+    assert!(kept.uploads.iter().all(|upload| upload.modified.is_none()));
 }

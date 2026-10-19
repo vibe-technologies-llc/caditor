@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_cloud::{Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Upload};
+use caditor_cloud::{
+    Design, DesignId, Folder, FolderRef, Project, ProjectId, SendAs, Service, Upload,
+};
 use egui::{Label, ScrollArea, Sides, Ui};
 use jiff::Timestamp;
 
@@ -31,6 +33,7 @@ pub const OFF_NOTE: &str =
     "Cloud services are turned off, so caditor makes no cloud request and shows no cloud project.";
 pub const SHOW_ON_HOME: &str = "Show cloud projects on Home";
 pub const SEND_HERE: &str = "Send the model here";
+pub const SEND_AS_PART_STUDIO: &str = "Send as a Part Studio";
 pub const CHOOSE_A_FOLDER_TO_SEND: &str =
     "Open a folder of a project, then press Send the model here.";
 pub const CHOOSE_A_PROJECT: &str = "Choose a project to see its designs.";
@@ -590,21 +593,43 @@ fn send_row(
         view.sending.name
     );
     let enabled = reason.is_none();
-    let response = if choosing {
-        ui.add_enabled(enabled, widgets::primary_button(ui, SEND_HERE))
-    } else {
-        ui.add_enabled(enabled, widgets::button(SEND_HERE))
-    };
-    let response = response
-        .on_hover_text(hover)
-        .on_disabled_hover_text(reason.unwrap_or_default());
-    if response.clicked()
+    let disabled = reason.unwrap_or_default();
+    let mut how = None;
+    ui.horizontal_wrapped(|ui| {
+        let response = if choosing {
+            ui.add_enabled(enabled, widgets::primary_button(ui, SEND_HERE))
+        } else {
+            ui.add_enabled(enabled, widgets::button(SEND_HERE))
+        };
+        if response
+            .on_hover_text(hover)
+            .on_disabled_hover_text(&disabled)
+            .clicked()
+        {
+            how = Some(SendAs::File);
+        }
+        if service.sends_part_studios()
+            && ui
+                .add_enabled(enabled, widgets::button(SEND_AS_PART_STUDIO))
+                .on_hover_text(format!(
+                    "Export the bodies chosen for export as STEP and ask {service} to import \
+                     “{}” as a new Part Studio in this workspace",
+                    view.sending.name
+                ))
+                .on_disabled_hover_text(&disabled)
+                .clicked()
+        {
+            how = Some(SendAs::PartStudio);
+        }
+    });
+    if let Some(how) = how
         && let Some(place) = &folder.place
     {
         outcomes.push(Outcome::File(FileCommand::SendToCloud(Destination {
             service,
             folder: place.clone(),
             folder_name: folder_name.to_owned(),
+            how,
         })));
     }
     ui.add_space(SPACE_S);

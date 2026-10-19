@@ -1,11 +1,12 @@
 use std::{
+    cell::Cell,
     io::{self, Read, Write},
     sync::Arc,
     time::Duration,
 };
 
 use ureq::{
-    Agent, RequestBuilder,
+    Agent, RequestBuilder, SendBody,
     tls::{TlsConfig, TlsProvider},
     typestate::WithBody,
 };
@@ -103,6 +104,52 @@ impl Default for Network {
     }
 }
 
+fn answered(mut response: ureq::http::Response<ureq::Body>) -> Result<Response, TransportError> {
+    let status = response.status().as_u16();
+    let retry_after_seconds = retry_after(&response);
+    let body = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_ANSWER_BYTES)
+        .read_to_vec()
+        .map_err(classify)?;
+    Ok(Response {
+        status,
+        body,
+        retry_after_seconds,
+    })
+}
+
+struct Tracked<'a> {
+    bytes: &'a [u8],
+    position: usize,
+    progress: &'a mut dyn FnMut(u64, u64) -> bool,
+    stopped: &'a Cell<bool>,
+}
+
+impl Read for Tracked<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.bytes.get(self.position..).unwrap_or_default();
+        let count = remaining.len().min(buffer.len()).min(COPY_CHUNK);
+        let (Some(from), Some(into)) = (remaining.get(..count), buffer.get_mut(..count)) else {
+            return Ok(0);
+        };
+        if count == 0 {
+            return Ok(0);
+        }
+        into.copy_from_slice(from);
+        self.position += count;
+        let sent = u64::try_from(self.position).unwrap_or(u64::MAX);
+        let total = u64::try_from(self.bytes.len()).unwrap_or(u64::MAX);
+        if (self.progress)(sent, total) {
+            Ok(count)
+        } else {
+            self.stopped.set(true);
+            Err(io::Error::other("the upload was stopped"))
+        }
+    }
+}
+
 fn retry_after(response: &ureq::http::Response<ureq::Body>) -> Option<u64> {
     response
         .headers()
@@ -140,20 +187,39 @@ impl Transport for Network {
         } else {
             &self.answers
         };
-        let mut response = Self::call(agent, request)?;
-        let status = response.status().as_u16();
-        let retry_after_seconds = retry_after(&response);
-        let body = response
-            .body_mut()
-            .with_config()
-            .limit(MAX_ANSWER_BYTES)
-            .read_to_vec()
-            .map_err(classify)?;
-        Ok(Response {
-            status,
-            body,
-            retry_after_seconds,
-        })
+        answered(Self::call(agent, request)?)
+    }
+
+    fn send_tracked(
+        &self,
+        request: &Request,
+        progress: &mut dyn FnMut(u64, u64) -> bool,
+    ) -> Result<Response, TransportError> {
+        let Body::Multipart(multipart) = &request.body else {
+            return self.send(request);
+        };
+        let builder = match request.method {
+            Method::Post => self.uploads.post(&request.url),
+            Method::Put => self.uploads.put(&request.url),
+            Method::Get => return self.send(request),
+        };
+        let encoded = multipart.encoded();
+        let total = u64::try_from(encoded.len()).unwrap_or(u64::MAX);
+        let stopped = Cell::new(false);
+        let mut body = Tracked {
+            bytes: &encoded,
+            position: 0,
+            progress,
+            stopped: &stopped,
+        };
+        let outcome = authorised(builder, request)
+            .header("Content-Type", multipart.content_type())
+            .header("Content-Length", total.to_string())
+            .send(SendBody::from_reader(&mut body));
+        if stopped.get() {
+            return Err(TransportError::Stopped);
+        }
+        answered(outcome.map_err(classify)?)
     }
 
     fn fetch(
@@ -200,5 +266,66 @@ impl Transport for Network {
             retry_after_seconds,
             bytes,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_all(reader: &mut Tracked<'_>) -> io::Result<Vec<u8>> {
+        let mut all = Vec::new();
+        let mut buffer = vec![0_u8; 1 << 20];
+        loop {
+            let read = reader.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(all);
+            }
+            all.extend_from_slice(buffer.get(..read).unwrap_or_default());
+        }
+    }
+
+    #[test]
+    fn a_tracked_body_reports_every_chunk_it_hands_over() {
+        let bytes = vec![7_u8; COPY_CHUNK * 2 + 10];
+        let mut seen = Vec::new();
+        let stopped = Cell::new(false);
+        let mut progress = |sent: u64, total: u64| {
+            seen.push((sent, total));
+            true
+        };
+        let mut reader = Tracked {
+            bytes: &bytes,
+            position: 0,
+            progress: &mut progress,
+            stopped: &stopped,
+        };
+
+        let read = read_all(&mut reader).unwrap();
+
+        let chunk = COPY_CHUNK as u64;
+        let total = bytes.len() as u64;
+        assert_eq!(read, bytes);
+        assert_eq!(seen, [(chunk, total), (chunk * 2, total), (total, total)]);
+        assert!(!stopped.get());
+    }
+
+    #[test]
+    fn a_tracked_body_stops_where_progress_says_so() {
+        let bytes = vec![1_u8; COPY_CHUNK * 3];
+        let stopped = Cell::new(false);
+        let mut progress = |sent: u64, _: u64| sent < COPY_CHUNK as u64 * 2;
+        let mut reader = Tracked {
+            bytes: &bytes,
+            position: 0,
+            progress: &mut progress,
+            stopped: &stopped,
+        };
+
+        let result = read_all(&mut reader);
+
+        assert!(result.is_err());
+        assert!(stopped.get());
+        assert_eq!(reader.position, COPY_CHUNK * 2);
     }
 }

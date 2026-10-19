@@ -27,6 +27,8 @@ pub const TRY_AGAIN: &str = "Try again";
 pub const DISMISS: &str = "Dismiss";
 pub const CANCEL_IMPORT_HOVER: &str = "Stop this import; nothing is added to the model";
 pub const CANCEL_SEND_HOVER: &str = "Stop sending; nothing is added to the folder";
+pub const CANCEL_TRANSLATING_HOVER: &str =
+    "Stop waiting; the service may still finish adding the Part Studio to the document";
 pub const CANCEL_PREPARING_HOVER: &str = "Stop preparing the file; nothing is sent";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -324,12 +326,19 @@ pub fn send_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<Sen
             size_text(*sent),
             size_text(*total)
         ),
+        SendStage::Translating => {
+            format!("{service} is turning “{name}” into a Part Studio…")
+        }
         SendStage::Uploading { sent, total: None } => {
             format!("Sending “{name}” to {service}… {}", size_text(*sent))
         }
     };
+    let hover = match send.stage {
+        SendStage::Translating => CANCEL_TRANSLATING_HOVER,
+        _ => CANCEL_SEND_HOVER,
+    };
     widgets::progress(words)
-        .cancel(CANCEL_SEND_HOVER)
+        .cancel(hover)
         .wrapping()
         .show(ui)
         .then_some(SendChoice::Cloud(CloudCommand::CancelSend(service)))

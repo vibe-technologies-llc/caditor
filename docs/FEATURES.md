@@ -222,11 +222,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
   Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
   assemblies.
-- [low · medium] Onshape receives the model only as a blob element holding the STEP file
-  (`cloud.md`): it does not offer to import it as a Part Studio in the document (the same upload
-  with `translate=true` starts a translation to poll), it reports progress only before and after
-  the one request, so a large file cannot be cancelled once sent, and its blobs carry no date in
-  the manager.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
   surfaces the sun sees, and its visibility test (`bounce_blocked`) sees the first `BOUNCE_LAYERS`

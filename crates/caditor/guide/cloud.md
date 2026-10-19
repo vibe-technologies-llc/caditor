@@ -71,11 +71,18 @@ needs signing out and in once more, because sending asks Autodesk for one more p
 
 Onshape receives the model the same way: in the Cloud projects window open a document, then its
 main workspace (the first thing listed) or one of its branches, and press **Send the model here**.
-The STEP file is added to the document as a file element named after the model, not translated into
-a Part Studio, and Import beside it brings it back. If the document already holds a file element of
-that name, it is updated in place and Onshape keeps the earlier contents in the document's history.
-A saved version of a document cannot be changed, so Send is disabled there. If Onshape refuses
-(you may only be allowed to view the document), the window says so and offers Try again.
+The STEP file is added to the document as a file element named after the model, and Import beside
+it brings it back. If the document already holds a file element of that name, it is updated in place
+and Onshape keeps the earlier contents in the document's history. Beside it, **Send as a Part
+Studio** has Onshape import the same STEP file as a new Part Studio in the workspace instead; the
+file is then not kept as an element, and a second send makes a second Part Studio. The progress
+shows as the file goes up and then while Onshape turns it into a Part Studio, which can take a
+while; Cancel stops the upload at once and, once the file is up, stops waiting, though Onshape may
+still finish adding the Part Studio. A saved version of a document cannot be changed, so Send is
+disabled there. If Onshape refuses (you may only be allowed to view the document), or cannot turn
+the file into a Part Studio, the window says so and offers Try again. Files you uploaded show the
+date they were last changed when Onshape's history of the workspace tells it; a file it cannot date
+shows none.
 
 ## Onshape documents
 
@@ -101,7 +108,7 @@ have uploaded to a document (STEP, mesh and drawing files) are listed beside its
 - **Projects**: for each signed-in service, the hub to list (Fusion 360: the team hub first), a list
   of its projects or documents and, beside it, the folders and designs of the one you choose, with
   a breadcrumb to go back up and an Import button on each design and on each STEP, mesh or drawing
-  file, and **Send the model here** inside a Fusion 360 folder or an Onshape workspace. **Versions** under a Fusion 360 design lists its saved versions, newest first;
+  file, **Send the model here** inside a Fusion 360 folder or an Onshape workspace, and **Send as a Part Studio** beside it in an Onshape workspace. **Versions** under a Fusion 360 design lists its saved versions, newest first;
   Import beside one has Autodesk convert that version instead of the newest, and it is kept as
   its own file named for the version.
 - **Downloaded designs**: how many downloaded files are kept, how large they are, and Clear.
