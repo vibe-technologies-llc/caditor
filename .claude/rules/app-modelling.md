@@ -689,7 +689,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   straight edge, round face or sketch line, `move_face_tools::reference_change`). While open and
   computed it shows the result as an offset face does (`FaceChoice::Moving`, the moved faces keep
   their keys), a click moving a face or leaving it out (`move_face_tools::toggle_face`); failed or
-  pending, the body before it with every face pickable. It draws no drag arrows yet.
+  pending, the body before it with every face pickable. Its value arrows are the Distance and the
+  Angle (Value handles).
 - Draft (no default key; Model menu, palette, the right-click menu's face tools) takes the selected
   faces of one body (`draft_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`)
   and creates a `Draft` of `DEFAULT_ANGLE` (3°) from `caditor_document::default_neutral` (the
@@ -712,7 +713,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   the faces, and a click while the draft is open (`draft_tools::toggle_face`) leaves a face out of
   either list or adds it to the faces. While open and computed it shows the result as a move face
   does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
-  colour, `draft_tools::drafted_faces`); failed or pending, the body before it.
+  colour, `draft_tools::drafted_faces`); failed or pending, the body before it. Its value arrow is
+  the Draft angle (Value handles).
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it
@@ -934,7 +936,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     circle), and with `CirclesAndHeads` every counterbore, countersink and step diameter and depth is
     drawn scaled by circle over typed diameter (`HoleTop::heads`, the `Mapping`'s scale), the way the
     recompute sizes it, while a drag sets the typed value the panel shows (position over scale).
-  - An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
+  - A move face's Distance (`Measured::MoveDistance`), standing at the middle of the first chosen face
+    (`face_stand`) along the Direction axis or the first flat chosen face's outward normal, and its
+    Angle (`MoveAngle`), a turn arrow about the Tilt about axis standing at the middle of the first
+    chosen face's first edge (`rim_stand`, apart from the distance arrow, which `clear_of` would
+    otherwise drop), turning from that point at the face's distance from the axis or an arm of
+    `ARROW_POINTS` if that is less (`Builder::swing_to`); the angle arrow is left out with no Tilt
+    about axis. A draft's Draft angle (`DraftAngle`), a turn arrow about the hinge of its first
+    chosen flat face (the line where the face meets the neutral plane, worked out as the kernel's
+    `tilt` does) standing at the face's middle, its radial turned back by the face's current slope
+    so the foot follows where the face's middle lands, and held to the kernel's steepest draft
+    less a step. Own angle and Angle beyond have no arrow. A datum plane's Offset and Angle (an arrow along the turn at an arm of
     `ARROW_POINTS` from the axis).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the
     rounded or cut face: `1/cos(a/2) - 1` or `sin(a/2)` of the size for faces turned by `a`, from the

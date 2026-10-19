@@ -12,7 +12,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   body's face), so a face of the wrong shape on an imported STEP body (which has no feature history)
   still means remodelling it. Move face carries the chosen faces rigidly: a fillet or chamfer along a
   moved face's edge must be chosen with it (it is not re-blended to the new angle), a moved face that
-  was tangent to one that stays is refused, and it draws no drag arrows for its distance and angle.
+  was tangent to one that stays is refused.
   Delete face closes a gap only from the faces around it: not a face whose sides lie beyond parallel
   faces (a step's riser), one face of a tangent chain whose ends meet other blends (the chain must go
   whole), a face with several loops that are not whole loops of the faces around it (a hole breaking
@@ -65,7 +65,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cone, a spline or extruded face in a tangent chain is refused (`DraftCause::NotFlat`), since each
   needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
   is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
-  (each side drafted from its own hinge) is not offered. The draft has no angle arrow on the model.
+  (each side drafted from its own hinge) is not offered.
 - [low · medium] A rib parallel to its sketch runs its free arc ends on only along their tangent
   (`RibEnds::RoundArcs` is a web's alone).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
