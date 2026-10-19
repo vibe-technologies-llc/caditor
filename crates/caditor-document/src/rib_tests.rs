@@ -618,6 +618,114 @@ fn a_web_s_arc_whose_circle_never_meets_the_body_fails_naming_it() {
     assert!(error.remedy().contains("straight"), "{}", error.remedy());
 }
 
+fn dome_sketch(centre: (f64, f64), radius: f64, from_degrees: f64, to_degrees: f64) -> Sketch {
+    let plane =
+        Plane::with_x_axis(Point3::new(0.0, 30.0, 0.0), Vector3::NEG_Y, Vector3::X).unwrap();
+    let mut sketch = Sketch::new(plane);
+    let centre = Point2::new(centre.0, centre.1);
+    let on = |degrees: f64| {
+        let angle = f64::to_radians(degrees);
+        Point2::new(
+            centre.x + radius * angle.cos(),
+            centre.y + radius * angle.sin(),
+        )
+    };
+    sketch.add_arc(centre, on(from_degrees), on(to_degrees));
+    sketch
+}
+
+fn rib_rounding_arcs(rib: &mut Rib) {
+    rib.reversed = false;
+    rib.ends = RibEnds::RoundArcs;
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_follows_its_arc_round_the_circle_down_to_the_floor() {
+    let model = ribbed(
+        dome_sketch((50.0, 10.0), 14.0, 20.0, 160.0),
+        rib_rounding_arcs,
+    );
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let theta = 2.0 * (5.0_f64 / 14.0).acos();
+    let below = 0.5 * 14.0 * 14.0 * (theta - theta.sin());
+    let dome = std::f64::consts::PI * 14.0 * 14.0 - below;
+    let expected = BOX_VOLUME + 4.0 * dome;
+    let found = volume(&evaluation, model.body);
+    assert!(
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
+    );
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_runs_an_arc_on_along_its_tangent_unless_asked_to_round_it() {
+    let straight = ribbed(dome_sketch((50.0, 10.0), 14.0, 20.0, 160.0), |_| {});
+    let round = ribbed(
+        dome_sketch((50.0, 10.0), 14.0, 20.0, 160.0),
+        rib_rounding_arcs,
+    );
+
+    let straight = volume(&evaluate(&straight.document), straight.body);
+    let round = volume(&evaluate(&round.document), round.body);
+
+    assert!(straight > round + 1.0, "{straight} {round}");
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_rounds_a_drafted_arc_too() {
+    let flat = ribbed(
+        dome_sketch((50.0, -20.0), 40.0, 70.0, 110.0),
+        rib_rounding_arcs,
+    );
+    let drafted = ribbed(dome_sketch((50.0, -20.0), 40.0, 70.0, 110.0), |rib| {
+        rib_rounding_arcs(rib);
+        rib.draft = length("2 deg");
+    });
+
+    let evaluation = evaluate(&drafted.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(volume(&evaluation, drafted.body) > volume(&evaluate(&flat.document), flat.body));
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_keeps_running_a_line_on_straight_whatever_the_ends() {
+    let straight = ribbed(middle_sketch(), |rib| rib.reversed = true);
+    let round = ribbed(middle_sketch(), |rib| {
+        rib.reversed = true;
+        rib.ends = RibEnds::RoundArcs;
+    });
+
+    let straight = volume(&evaluate(&straight.document), straight.body);
+    let round = volume(&evaluate(&round.document), round.body);
+
+    assert!(
+        (straight - round).abs() < 1e-9 * straight,
+        "{straight} {round}"
+    );
+}
+
+#[test]
+fn a_rib_parallel_to_its_sketch_whose_arc_circle_never_meets_the_body_fails_naming_it() {
+    let model = ribbed(
+        dome_sketch((50.0, 22.0), 8.0, 20.0, 160.0),
+        rib_rounding_arcs,
+    );
+
+    let error = failure(&evaluate(&model.document), model.rib);
+
+    assert!(
+        error.reason().contains("The end of Rib 1 at Arc")
+            && error.reason().contains("runs on past"),
+        "{}",
+        error.reason()
+    );
+    assert!(error.remedy().contains("straight"), "{}", error.remedy());
+}
+
 const HYPOTENUSE_DISTANCE_AT_X10: f64 = (24.0 * 35.0 - 5.0 * 25.0) / 43.011626335213144;
 
 #[test]

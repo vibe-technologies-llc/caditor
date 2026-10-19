@@ -271,9 +271,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
         panel.thickness_row(ui);
         panel.side_row(ui);
         panel.draft_row(ui);
-        if rib.direction == RibDirection::Square {
-            panel.ends_row(ui);
-        }
+        panel.ends_row(ui);
         panel.reverse_row(ui);
     });
 }

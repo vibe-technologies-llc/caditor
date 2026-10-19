@@ -18,7 +18,7 @@ use crate::{
     mcp::{
         references::{self, EntityName, Named},
         session::{Session, Work},
-        sketch_edits::amount,
+        sketch_edits::{self, amount},
         tools::{Answer, ToolError},
         writing::{self, MOST_ITEMS, NewSketch, Pen, PlaneName, SketchingError, point},
     },
@@ -858,7 +858,7 @@ pub fn remove(
         .entities
         .iter()
         .map(|named| {
-            let id = references::entity(&feature.name, definition, named)?;
+            let id = references::removable(&feature.name, definition, named)?;
             if id.is_reference() {
                 Err(ToolError::from(SketchToolError::ReferenceGeometry))
             } else {
@@ -868,6 +868,7 @@ pub fn remove(
         .collect::<Result<_, _>>()?;
     let entities_before = entity_ids(definition);
     let constraints_before = constraint_ids(definition);
+    let sketch_before = definition.clone();
     let label = if entities.is_empty() {
         format!("Remove constraints from {}", feature.name)
     } else {
@@ -888,6 +889,7 @@ pub fn remove(
             "removed_entities".to_owned(),
             gone(&entities_before, &entity_ids(remaining)),
         );
+        sketch_edits::report_stored(&mut data, &sketch_before, remaining);
     }
     data.insert(
         "sketch_status".to_owned(),
