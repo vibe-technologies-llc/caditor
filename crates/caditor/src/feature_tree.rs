@@ -3124,6 +3124,7 @@ fn waiting(
             MissingInput::Path => EditingCommand::Pick(Picking::new(id, Slot::SweepPath)),
             MissingInput::Profiles => EditingCommand::Pick(Picking::new(id, Slot::LoftProfiles)),
             MissingInput::Regions { .. }
+            | MissingInput::RegionsToEmboss { .. }
             | MissingInput::Edges { .. }
             | MissingInput::FacesToMove { .. }
             | MissingInput::FacesToDraft { .. }

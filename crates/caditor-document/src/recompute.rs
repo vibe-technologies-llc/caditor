@@ -126,6 +126,7 @@ pub enum MissingInput {
     Path,
     Profiles,
     Regions { sketch: FeatureId },
+    RegionsToEmboss { sketch: FeatureId },
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
     FacesToDraft { body: FeatureId },
@@ -141,7 +142,7 @@ impl MissingInput {
             Self::Axis => "Waiting for an axis",
             Self::Path => "Waiting for a path",
             Self::Profiles => "Waiting for profiles",
-            Self::Regions { .. } => "Waiting for regions",
+            Self::Regions { .. } | Self::RegionsToEmboss { .. } => "Waiting for regions",
             Self::Edges { .. } => "Waiting for edges",
             Self::FacesToMove { .. }
             | Self::FacesToDraft { .. }
@@ -172,6 +173,9 @@ impl MissingInput {
                 .to_owned(),
             Self::Regions { sketch } => {
                 format!("Choose at least one region of {} to sweep.", name(sketch))
+            }
+            Self::RegionsToEmboss { sketch } => {
+                format!("Choose at least one region of {} to emboss.", name(sketch))
             }
             Self::Edges { body } => {
                 format!("Choose at least one edge of the body of {}.", name(body))

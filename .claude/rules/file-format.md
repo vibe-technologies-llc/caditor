@@ -365,7 +365,9 @@ Splits and faces:
   are), `distance` (unreadable 0 mm), `angle` (unreadable 0 deg), and `direction` and `axis` when
   chosen (axis references; unreadable left unchosen, reported); the corpus holds it in
   `moved-faces.caditor`. `emboss`: `body`, `faces` (unreadable left plain), `sketch` when chosen,
-  `depth` (unreadable 1 mm) and `recessed` when set; the corpus holds it in `embossed-faces.caditor`.
+  `depth` (unreadable 1 mm), `recessed` when set, and `regions` (`{"chosen": [keys]}`, only when not
+  every outline) with `region_references` as an extrusion's, a file without them reading as every
+  outline; the corpus holds it in `embossed-faces.caditor` and `embossed-regions.caditor`.
   `draft`: `body`, `faces` (unreadable left as they stand), `neutral` (plane
   reference; unreadable loads as XY), `angle` (unreadable 0 deg), `flipped` and `tangent` when set,
   `beyond` (the angle beyond a parting line, only when split; unreadable 0 deg) and `own` (each a

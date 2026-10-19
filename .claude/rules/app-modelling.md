@@ -729,12 +729,21 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   text on a face and choosing Emboss is two steps. It creates an `Emboss` raising by the remembered
   depth (`Remembered::EmbossDepth`, 0.5 mm at first) that opens: faces in words with Leave this face
   out and Choose in the view, Outlines (a combo of the earlier sketches and Use selected on
-  `Slot::EmbossSketch`, `emboss_tools::sketch_change`), Form (Raise or Recess, a segmented row), a
-  Depth that takes units and expressions, and the Body. With none of the faces or the sketch chosen
-  it waits (`FacesToEmboss`, `SketchToEmboss`) and the tree row offers to open it. While open and
-  computed it shows the result as an offset face does (`FaceChoice::Embossing`, chosen faces in the
-  selected colour), a click embossing a face or leaving it out (`emboss_tools::toggle_face`); failed
-  or pending, the body before it with every face pickable. It draws no drag arrows yet.
+  `Slot::EmbossSketch`, `emboss_tools::sketch_change`, which takes every region again), Regions (All
+  closed or Chosen as an extrusion's, with the count, Select all, Clear and Choose in the view;
+  `emboss_panel::regions_row`), Form (Raise or Recess, a segmented row), a Depth that takes units
+  and expressions, and the Body. Regions of the sketch selected when Emboss is chosen are the ones
+  chosen (`EmbossSource::regions`, else All). With none of the faces or the sketch chosen it waits
+  (`FacesToEmboss`, `SketchToEmboss`), and with no region chosen `RegionsToEmboss`; the tree row
+  offers to open it. While open and computed it shows the result as an offset face does
+  (`FaceChoice::Embossing`, chosen faces in the selected colour), a click embossing a face or
+  leaving it out (`emboss_tools::toggle_face`); failed or pending, the body before it with every
+  face pickable. Only while Chosen, the regions of its sketch are drawn as fills over the faces
+  (`Builder::emboss_regions`, `Pickable::Region` with the emboss as `feature`, the same fills and
+  colours as an extrusion's, `selection::region_sketch` finding the sketch) and a click chooses a
+  region or leaves it out (`emboss_tools::toggle_region`, "Choose regions of <emboss>"); the palette's
+  Select all regions and Clear chosen regions and the tree's Take all regions reach it through
+  `solid_tools`. Its value arrow is the Depth (Value handles).
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
   (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that
@@ -936,6 +945,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     circle), and with `CirclesAndHeads` every counterbore, countersink and step diameter and depth is
     drawn scaled by circle over typed diameter (`HoleTop::heads`, the `Mapping`'s scale), the way the
     recompute sizes it, while a drag sets the typed value the panel shows (position over scale).
+  - An emboss's Depth (`Measured::EmbossDepth`, `Builder::emboss`), standing over the inside point of
+    the first chosen region of its sketch (`SketchRegion::reference`) projected onto the first
+    chosen flat face: raised, at the top of the material (the arrow along the face's outward
+    normal); recessed, at the floor (along the inward normal, so a deeper drag cuts deeper). Left
+    out for a wrapped emboss (faces of a cylinder or cone) and while no flat face is chosen.
   - A move face's Distance (`Measured::MoveDistance`), standing at the middle of the first chosen face
     (`face_stand`) along the Direction axis or the first flat chosen face's outward normal, and its
     Angle (`MoveAngle`), a turn arrow about the Tilt about axis standing at the middle of the first
@@ -946,7 +960,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     chosen flat face (the line where the face meets the neutral plane, worked out as the kernel's
     `tilt` does) standing at the face's middle, its radial turned back by the face's current slope
     so the foot follows where the face's middle lands, and held to the kernel's steepest draft
-    less a step. Own angle and Angle beyond have no arrow. A datum plane's Offset and Angle (an arrow along the turn at an arm of
+    less a step. Own angle and Angle beyond have no arrow. An offset face's Distance; a datum plane's Offset and Angle (an arrow along the turn at an arm of
     `ARROW_POINTS` from the axis).
   - A fillet's or chamfer's size (along the bisector of its faces into the material, foot on the
     rounded or cut face: `1/cos(a/2) - 1` or `sin(a/2)` of the size for faces turned by `a`, from the

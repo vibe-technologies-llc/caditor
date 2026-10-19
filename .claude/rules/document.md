@@ -1256,10 +1256,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Emboss (`emboss.rs`)
 
-- `Emboss { body, faces, sketch, depth, form }` raises (`EmbossForm::Raised`) or sinks
+- `Emboss { body, faces, sketch, regions, depth, form }` raises (`EmbossForm::Raised`) or sinks
   (`Recessed`) every closed outline of its sketch (`Selection::EvenDepth` of `solid::profile_curves`,
-  so a letter's counter stays open and curves enclosing nothing are ignored) on the chosen faces by
-  `depth`, a length above zero (an expression, scaled with the model). `faces` are `FaceReference`s
+  so a letter's counter stays open and curves enclosing nothing are ignored), or only the chosen
+  `regions` (a `RegionChoice` as an extrusion's, `RegionReference`s resolved against the sketch's
+  cached profile so a changed region is healed by the healing visitor or left out; none chosen waits
+  as `MissingInput::RegionsToEmboss`, every chosen one gone or a tie fails with `RegionGone` or
+  `RegionAmbiguous` naming the sketch) on the chosen faces by `depth`, a length above zero (an
+  expression, scaled with the model). `faces` are `FaceReference`s
   resolved as a split face's (pieces accepted, lost or tied fails); none waits as
   `MissingInput::FacesToEmboss`, no `sketch` as `SketchToEmboss`. It modifies its body
   (`modifies_body`, state before kept); its sketch is in `features()` and `reference_sketches`, its

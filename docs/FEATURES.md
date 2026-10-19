@@ -86,8 +86,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
 - [low · medium] Emboss raises or recesses every closed outline of a sketch on flat faces of one
-  plane and on faces of one cylinder or cone, but cannot choose which regions of the sketch, has no
-  drag arrow for its depth, gives the walls no draft, is not repeated by a pattern or mirror of
+  plane and on faces of one cylinder or cone, has no drag arrow for its depth on a wrapped one (the
+  arrow stands on flat faces only), gives the walls no draft, is not repeated by a pattern or mirror of
   features, and refuses a sphere or other doubly curved face (wrapping onto one needs the chosen
   projection of the wrapped split above). Its depth on a cone is measured square to the slope.
 - [low · hard] No plastic-part features:

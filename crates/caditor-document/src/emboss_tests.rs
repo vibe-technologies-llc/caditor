@@ -1,6 +1,8 @@
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::{FaceReference, SamplingTolerance, Solid, Surface};
+use caditor_kernel::{
+    FaceReference, RegionKey, RegionReference, SamplingTolerance, Solid, Surface,
+};
 use caditor_sketch::{Constraint, Entity, Sketch, Text, TextAlign};
 
 use crate::*;
@@ -141,6 +143,7 @@ fn embossed(
             body: base,
             faces,
             sketch: Some(label),
+            regions: RegionChoice::All,
             depth,
             form,
         }),
@@ -255,6 +258,186 @@ fn raised_and_recessed_outlines_follow_the_depth_expression() {
 
     assert_eq!(evaluation.failed_count(), 0);
     assert!((volume(&evaluation, model.base) - (plate_volume() + 30.0)).abs() < 1e-6);
+}
+
+fn region_at(sketch: &Sketch, x: f64) -> RegionReference {
+    let region = sketch_regions(sketch)
+        .unwrap()
+        .into_iter()
+        .find(|region| {
+            let bounds = region.bounds().unwrap();
+            bounds.min().x <= x && x <= bounds.max().x
+        })
+        .unwrap();
+    RegionReference::capture(&region, region.anchor())
+}
+
+fn two_labels() -> Sketch {
+    let mut label = rectangle((1.0, 1.0), (4.0, 3.0));
+    add_rectangle(&mut label, (6.0, 4.0), (9.0, 7.0));
+    label
+}
+
+#[test]
+fn only_the_chosen_regions_of_the_sketch_are_embossed() {
+    let label = two_labels();
+    let (small, large) = (region_at(&label, 2.0), region_at(&label, 7.0));
+    let mut model = plate(label, EmbossForm::Raised, "1 mm");
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.base) - (plate_volume() + 6.0 + 9.0)).abs() < 1e-6);
+
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![large.clone()]);
+    });
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.base) - (plate_volume() + 9.0)).abs() < 1e-6);
+
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![small, large]);
+    });
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert!((volume(&evaluation, model.base) - (plate_volume() + 15.0)).abs() < 1e-6);
+}
+
+#[test]
+fn a_recess_cuts_only_the_chosen_regions() {
+    let label = two_labels();
+    let small = region_at(&label, 2.0);
+    let mut model = plate(label, EmbossForm::Recessed, "1 mm");
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![small]);
+    });
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.base) - (plate_volume() - 6.0)).abs() < 1e-6);
+}
+
+#[test]
+fn a_region_left_out_may_run_off_the_face() {
+    let mut label = rectangle((1.0, 1.0), (4.0, 3.0));
+    add_rectangle(&mut label, (6.0, 5.0), (12.0, 7.0));
+    let small = region_at(&label, 2.0);
+    let mut model = plate(label, EmbossForm::Raised, "1 mm");
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(evaluation.failed_count(), 1);
+
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![small]);
+    });
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, model.base) - (plate_volume() + 6.0)).abs() < 1e-6);
+}
+
+#[test]
+fn an_emboss_with_no_region_chosen_waits_for_regions_of_its_sketch() {
+    let mut model = plate(two_labels(), EmbossForm::Raised, "1 mm");
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(Vec::new());
+    });
+    let label = model
+        .document
+        .feature(model.emboss)
+        .unwrap()
+        .kind
+        .emboss()
+        .unwrap()
+        .sketch;
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    let waiting = MissingInput::RegionsToEmboss {
+        sketch: label.unwrap(),
+    };
+    assert_eq!(
+        evaluation.feature(model.emboss).unwrap().state,
+        FeatureState::Waiting(waiting)
+    );
+    assert_eq!(waiting.waiting_words(), "Waiting for regions");
+    assert_eq!(
+        waiting.prompt(&model.document),
+        "Choose at least one region of Label to emboss."
+    );
+}
+
+#[test]
+fn a_chosen_region_the_sketch_no_longer_has_fails_in_words() {
+    let mut model = plate(two_labels(), EmbossForm::Raised, "1 mm");
+    let gone = RegionReference::new(RegionKey::from_digest(0x1234), Default::default(), None);
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![gone]);
+    });
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.emboss);
+
+    assert_eq!(
+        error.reason(),
+        "A chosen region of Label no longer exists, because the sketch changed."
+    );
+    assert_eq!(error.remedy(), "Choose the regions again.");
+}
+
+#[test]
+fn a_chosen_region_that_changes_is_healed_and_said_so() {
+    let label = two_labels();
+    let small = region_at(&label, 2.0);
+    let mut model = plate(label, EmbossForm::Raised, "1 mm");
+    change(&mut model, |emboss| {
+        emboss.regions = RegionChoice::Chosen(vec![small]);
+    });
+    let sketch = model
+        .document
+        .feature(model.emboss)
+        .unwrap()
+        .kind
+        .emboss()
+        .unwrap()
+        .sketch
+        .unwrap();
+    evaluate(&model.document, &mut model.engine);
+
+    let mut transaction = model.document.transaction("Draw a hole");
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(2.5, 2.0)));
+    transaction.add_sketch_entity(
+        sketch,
+        Entity::Circle {
+            center: centre,
+            radius: 0.5,
+        },
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let after = evaluate(&model.document, &mut model.engine);
+
+    let healing = after
+        .feature(model.emboss)
+        .unwrap()
+        .healing
+        .clone()
+        .unwrap();
+    assert_eq!(
+        healing.reason(),
+        "After an upstream change, a chosen region of Label was matched to the most similar \
+         geometry."
+    );
+    let grown = volume(&after, model.base) - plate_volume();
+    assert!(
+        (grown - (6.0 - std::f64::consts::PI * 0.25)).abs() < 2e-2,
+        "{grown}"
+    );
+    model
+        .document
+        .apply(healing.update(&model.document).unwrap())
+        .unwrap();
+    let updated = evaluate(&model.document, &mut model.engine);
+    assert_eq!(updated.feature(model.emboss).unwrap().healing, None);
 }
 
 #[test]

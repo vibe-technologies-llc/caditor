@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 53] = [
+const KEPT: [(&str, &str); 54] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -118,6 +118,10 @@ const KEPT: [(&str, &str); 53] = [
     (
         "model-1/embossed-faces.caditor",
         "cc4a8b402d64629be2a45e51e2287d29947cb6ddd376d7bc14d2c60d6a5a250e",
+    ),
+    (
+        "model-1/embossed-regions.caditor",
+        "e4bc1d51ee9d19af18cf83df2118bf892ae14e48980e96bfdb49c49a8f8a6ffc",
     ),
     (
         "model-1/extents.caditor",
@@ -862,6 +866,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("embossed-faces"),
             saved(&embossed_faces(), "Embossed faces"),
+        ),
+        (
+            model("embossed-regions"),
+            saved(&embossed_regions(), "Embossed regions"),
         ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
@@ -2534,6 +2542,7 @@ fn embossed_faces() -> Document {
             body: base,
             faces: vec![end_cap(0xbeef)],
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("0.5 mm").unwrap(),
             form: EmbossForm::Raised,
         }),
@@ -2544,6 +2553,7 @@ fn embossed_faces() -> Document {
             body: base,
             faces: vec![end_cap(0xcafe), end_cap(0xbeef)],
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("1 mm").unwrap(),
             form: EmbossForm::Recessed,
         }),
@@ -2554,8 +2564,58 @@ fn embossed_faces() -> Document {
             body: base,
             faces: Vec::new(),
             sketch: None,
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("2 mm").unwrap(),
             form: EmbossForm::Raised,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn embossed_regions() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let region = |digest: u128, entity: u64| {
+        RegionReference::new(
+            RegionKey::from_digest(digest),
+            BTreeSet::from([BoundaryPiece {
+                entity,
+                side: Side::Right,
+                piece: digest.rotate_left(32),
+            }]),
+            Some(Point2::new(1.5, 2.5)),
+        )
+    };
+    let mut transaction = document.transaction("Emboss");
+    transaction.add_feature(
+        "Some letters",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xbeef)],
+            sketch: Some(sketch),
+            regions: RegionChoice::Chosen(vec![
+                region(0x00ab_cdef_0123_4567_89ab_cdef_0123_4567, 1),
+                region(0x0fed_cba9_8765_4321_0fed_cba9_8765_4321, 2),
+            ]),
+            depth: Expression::parse_stored("0.3 mm").unwrap(),
+            form: EmbossForm::Raised,
+        }),
+    );
+    transaction.add_feature(
+        "No letters",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            sketch: Some(sketch),
+            regions: RegionChoice::Chosen(Vec::new()),
+            depth: Expression::parse_stored("0.3 mm").unwrap(),
+            form: EmbossForm::Recessed,
         }),
     );
     document.apply(transaction.finish()).unwrap();
