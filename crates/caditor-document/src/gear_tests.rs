@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
-use caditor_sketch::{Constraint, Entity, EntityId, Gear, Sketch};
+use caditor_sketch::{ChainSize, Constraint, Entity, EntityId, Gear, Sketch, Sprocket};
 
 use crate::{solid_tests::extrude, *};
 
@@ -35,6 +35,7 @@ fn spur(centre: EntityId, teeth: Expression) -> Gear {
         bore: millimetres(8.0),
         turn: Expression::measure(0.0, Unit::Degree),
         meshing: None,
+        chain: None,
     }
 }
 
@@ -481,5 +482,185 @@ fn a_reshape_that_swaps_a_pair_for_another_removes_the_partner_first_and_adds_th
 
     assert_eq!(reshaped.partners_of(driver), vec![partner]);
     assert!(reshaped.gear(model.driver).is_none());
+    assert!(sketch_of(&model.document, model.sketch).same_content(&before));
+}
+
+fn chain_wheel(centre: EntityId, teeth: Expression) -> Gear {
+    Gear::sprocket(
+        centre,
+        ChainSize::find("08B").unwrap(),
+        teeth,
+        millimetres(10.0),
+        Expression::measure(0.0, Unit::Degree),
+    )
+}
+
+fn chained(teeth: Expression) -> Geared {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sketch");
+    let sketch = transaction.add_feature("Sprocket", FeatureKind::from(Sketch::new(Plane::XY)));
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+    transaction.add_sketch_constraint(sketch, Constraint::Coincident(centre, EntityId::ORIGIN));
+    let gear = transaction.add_sketch_gear(sketch, chain_wheel(centre, teeth));
+    document.apply(transaction.finish()).unwrap();
+    Geared {
+        document,
+        sketch,
+        centre,
+        gear,
+    }
+}
+
+#[test]
+fn a_stored_sprocket_extrudes_into_a_wheel_with_its_bore_open() {
+    let mut model = chained(Expression::number(19.0));
+    let body = extruded(&mut model);
+
+    let evaluation = evaluate(&model.document);
+    let wheel = volume(&evaluation, body);
+    let circles = Sprocket {
+        chain: ChainSize::find("08B").unwrap(),
+        teeth: 19,
+        bore: 10.0,
+    }
+    .circles();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(region_count(&evaluation, model.sketch), 2);
+    assert!(wheel > 3.0 * PI * (circles.root.powi(2) - 25.0));
+    assert!(wheel < 3.0 * PI * (circles.tip.powi(2) - 25.0));
+}
+
+#[test]
+fn a_teeth_parameter_redraws_the_sprocket_and_a_chain_change_resizes_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sketch");
+    let teeth = transaction.add_parameter("teeth", transaction.parse("17").unwrap());
+    let sketch = transaction.add_feature("Sprocket", FeatureKind::from(Sketch::new(Plane::XY)));
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+    transaction.add_sketch_constraint(sketch, Constraint::Coincident(centre, EntityId::ORIGIN));
+    let gear =
+        transaction.add_sketch_gear(sketch, chain_wheel(centre, Expression::Parameter(teeth)));
+    let body = transaction.add_feature(
+        "Sprocket body",
+        extrude(sketch, "3 mm", false, BodyOperation::NewBody),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let small = volume(&evaluate(&document), body);
+
+    let mut transaction = document.transaction("More teeth");
+    let more = transaction.parse("34").unwrap();
+    transaction.edit(Edit::SetParameterExpression {
+        id: teeth,
+        expression: more,
+    });
+    document.apply(transaction.finish()).unwrap();
+    let more_teeth = volume(&evaluate(&document), body);
+
+    let mut transaction = document.transaction("Chain");
+    transaction.set_sketch_gear(
+        sketch,
+        gear,
+        Gear {
+            chain: ChainSize::find("12B"),
+            ..chain_wheel(centre, Expression::Parameter(teeth))
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+    let wider = volume(&evaluation, body);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(more_teeth > small * 2.5, "{small} then {more_teeth}");
+    assert!(wider > more_teeth * 1.5, "{more_teeth} then {wider}");
+    assert!(document.used_parameters().contains(&teeth));
+}
+
+#[test]
+fn a_sprocket_that_cannot_be_cut_fails_the_sketch_naming_it() {
+    let model = chained(Expression::number(5.0));
+
+    let evaluation = evaluate(&model.document);
+
+    let FeatureState::Failed(error) = &evaluation.feature(model.sketch).unwrap().state else {
+        panic!("the sketch should fail");
+    };
+    assert!(
+        error
+            .reason()
+            .contains(&format!("Sprocket {} cannot be drawn", model.gear)),
+        "{}",
+        error.reason()
+    );
+}
+
+#[test]
+fn deleting_a_sprocket_takes_its_lone_centre_and_undo_brings_both_back() {
+    let mut model = chained(Expression::number(19.0));
+    let before = sketch_of(&model.document, model.sketch).clone();
+
+    let mut transaction = model.document.transaction("Delete sprocket");
+    transaction.remove_sketch_items(model.sketch, [model.gear], []);
+    let undo = model.document.apply(transaction.finish()).unwrap();
+    let after = sketch_of(&model.document, model.sketch).clone();
+    model.document.apply(undo).unwrap();
+
+    assert_eq!(after.gears().len(), 0);
+    assert!(after.entity(model.centre).is_none());
+    assert!(sketch_of(&model.document, model.sketch).same_content(&before));
+    assert!(
+        sketch_of(&model.document, model.sketch)
+            .gear(model.gear)
+            .unwrap()
+            .is_sprocket()
+    );
+}
+
+#[test]
+fn scaling_the_model_scales_only_the_bore_of_a_sprocket() {
+    let mut model = chained(Expression::number(19.0));
+
+    let scaled = model
+        .document
+        .scaled(&ModelScale {
+            factor: 2.0,
+            centre: Point3::ZERO,
+            values: ScaledValues::Plain,
+        })
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+    let held = sketch_of(&model.document, model.sketch)
+        .gear(model.gear)
+        .unwrap();
+
+    assert_eq!(model.document.expression_text(&held.bore), "20 mm");
+    assert_eq!(model.document.expression_text(&held.teeth), "19");
+    assert_eq!(held.chain, ChainSize::find("08B"));
+}
+
+#[test]
+fn a_reshaped_sketch_adds_and_changes_sprockets_in_one_undoable_step() {
+    let mut model = chained(Expression::number(19.0));
+    let before = sketch_of(&model.document, model.sketch).clone();
+    let mut after = before.clone();
+    after
+        .replace_gear(
+            model.gear,
+            chain_wheel(model.centre, Expression::number(25.0)),
+        )
+        .unwrap();
+    let point = after.add_point(Point2::new(200.0, 0.0));
+    let added = after
+        .add_parametric_gear(chain_wheel(point, Expression::number(12.0)))
+        .unwrap();
+
+    let mut transaction = model.document.transaction("Reshape");
+    transaction.reshape_sketch(model.sketch, &before, &after);
+    let undo = model.document.apply(transaction.finish()).unwrap();
+    let reshaped = sketch_of(&model.document, model.sketch).clone();
+    model.document.apply(undo).unwrap();
+
+    assert!(reshaped.same_content(&after));
+    assert!(reshaped.gear(added).unwrap().is_sprocket());
     assert!(sketch_of(&model.document, model.sketch).same_content(&before));
 }

@@ -47,7 +47,8 @@ is undercut.
 ## A sprocket
 
 A sprocket is cut for ISO 606 roller chain. Choose the **Chain** (the A and B series from 05B to
-48B, each with its pitch), then the **Teeth** (9 to 150) and an optional **Bore**. The pitch
+48B, each with its pitch), then the **Teeth** (9 to 150), an optional **Bore** and the
+**Rotation** (at 0° the first gap lies along the sketch's horizontal axis). The pitch
 circle passes through the roller centres and is the pitch over the sine of 180° over the number of
 teeth across. Each gap is a seat arc that holds the roller, a flank arc running out of it and a
 tip arc on the tip circle between gaps. The panel shows the pitch, tip, root and roller
@@ -93,6 +94,14 @@ dragging it drags the first gear with it, and a constraint that would move it el
 reported as a conflict. Deleting the first gear of a pair deletes the second as well; deleting the
 second leaves the first. Copying a pair copies the first gear alone.
 
+A sprocket is stored the same way: it keeps its chain, teeth, bore and rotation, with the
+parameters they use, and is drawn again whenever they change. Select it and choose
+{command:sketch.gear}: the panel shows the **Chain** and the values, and its button updates the
+sprocket in one change, keeping its centre and constraints. The chain is picked from the list, not
+typed, so a parameter cannot change it. A sprocket never meshes with a gear, and a tooth count
+whose teeth would come to a point, or a bore reaching the roots, fails the sketch and names it.
+Copying a sprocket copies its chain too.
+
 ## What it draws
 
 Each gear tooth flank is a spline traced along the involute within a ten-thousandth of the module,
@@ -100,10 +109,7 @@ joined to arcs at the tip and root, the root fillets and, below the base circle,
 line. A sprocket is made of arcs only. The pitch, base, root and tip circles of a gear (the pitch,
 tip and root circles of a sprocket) are drawn as construction geometry around each centre.
 
-A gear is not made of sketch curves: its outline cannot be trimmed, dimensioned or
-constrained piece by piece, only as a gear through its values and its centre. It still extrudes,
+A gear or sprocket is not made of sketch curves: its outline cannot be trimmed, dimensioned or
+constrained piece by piece, only through its values and its centre. It still extrudes,
 cuts and exports like any outline. When its values cannot make a gear, such as a tooth count with
 a fraction or fewer than 5 teeth, the sketch fails and names the gear and what to change.
-
-A sprocket is drawn once: its curves do not follow later changes to the values or the parameters
-they used. To change one, delete it and draw it again.

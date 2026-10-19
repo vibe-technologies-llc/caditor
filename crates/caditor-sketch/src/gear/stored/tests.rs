@@ -19,6 +19,7 @@ fn spur_gear(centre: EntityId) -> Gear {
         bore: Expression::measure(6.0, Unit::Millimetre),
         turn: Expression::measure(0.0, Unit::Degree),
         meshing: None,
+        chain: None,
     }
 }
 
@@ -117,7 +118,7 @@ fn solving_works_out_the_values_from_parameters_and_the_centre_from_its_constrai
     let values = solved.gear_values(gear).unwrap();
     let outline = solved.gear_outline(gear).unwrap();
 
-    assert_eq!(values.spur.teeth, 20);
+    assert_eq!(values.shape.spur().unwrap().teeth, 20);
     assert_eq!(values.turn, 15.0);
     assert_eq!(outline.centre, Point2::new(10.0, 5.0));
     assert_eq!(outline.teeth, 20);

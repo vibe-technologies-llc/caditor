@@ -25,7 +25,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::{Gear, Text, TextAlign};
+use caditor_sketch::{ChainSize, Gear, Text, TextAlign};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 57] = [
+const KEPT: [(&str, &str); 59] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -90,6 +90,10 @@ const KEPT: [(&str, &str); 57] = [
     (
         "journal-1/sliced.journal",
         "d5f3ffe41fdaf1a24552095ee7a8335337340fd0f9da665a39f0930f793cba29",
+    ),
+    (
+        "journal-1/sprockets.journal",
+        "6b95b0cdbdee3f00cec6c9f4a1ed10f79a944ab8a85f5e2e3cf788f8c912790b",
     ),
     (
         "journal-1/texts.journal",
@@ -258,6 +262,10 @@ const KEPT: [(&str, &str); 57] = [
     (
         "model-1/spline-pieces.caditor",
         "d6b13fe6a8e0771a6d16da0077d3c92e4831b9ce1c312fb0420539f3fa3d6b3b",
+    ),
+    (
+        "model-1/sprockets.caditor",
+        "cbb479281b56d2a6521f90da30c8a564f80eb954718852b0e063820279335e90",
     ),
     (
         "model-1/starts.caditor",
@@ -821,6 +829,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("texts"), saved(&texts().0, "Texts")),
         (model("gears"), saved(&gears().0, "Gears")),
         (model("gear-pairs"), saved(&gear_pairs().0, "Gear pairs")),
+        (model("sprockets"), saved(&sprockets().0, "Sprockets")),
         (
             model("text-layouts"),
             saved(&text_layouts(), "Text layouts"),
@@ -921,6 +930,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("texts"), texts_journal()),
         (journal("gears"), gears_journal()),
         (journal("gear-pairs"), gear_pairs_journal()),
+        (journal("sprockets"), sprockets_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1212,6 +1222,7 @@ fn gear_of(centre: EntityId, teeth: Expression) -> Gear {
         bore: Expression::Measure(8.0, Unit::Millimetre),
         turn: Expression::Measure(0.0, Unit::Degree),
         meshing: None,
+        chain: None,
     }
 }
 
@@ -1279,6 +1290,80 @@ fn gear_pairs_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/gear-pairs.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn sprocket_of(centre: EntityId, teeth: Expression) -> Gear {
+    Gear::sprocket(
+        centre,
+        ChainSize::DEFAULT,
+        teeth,
+        Expression::Measure(12.0, Unit::Millimetre),
+        Expression::Measure(0.0, Unit::Degree),
+    )
+}
+
+fn sprockets() -> (Document, FeatureId, EntityId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sprockets");
+    let count = transaction.add_parameter("sprocket_teeth", transaction.parse("19").unwrap());
+    let sketch = transaction.add_feature("Sprockets", FeatureKind::from(Sketch::new(Plane::XY)));
+    let first = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 0.0)));
+    let second = transaction.add_sketch_entity(sketch, Entity::Point(Point2::new(120.0, 0.0)));
+    transaction.add_sketch_constraint(sketch, Constraint::Coincident(first, EntityId::ORIGIN));
+    let plain = transaction.add_sketch_gear(sketch, sprocket_of(first, Expression::Number(17.0)));
+    transaction.add_sketch_gear(
+        sketch,
+        Gear {
+            chain: ChainSize::find("10A"),
+            turn: Expression::Measure(9.0, Unit::Degree),
+            ..sprocket_of(second, Expression::Parameter(count))
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, sketch, plain)
+}
+
+fn sprockets_journal() -> Vec<u8> {
+    let (base, sketch, plain) = sprockets();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    let mut addition = base.transaction("Draw sprocket");
+    let centre = addition.add_sketch_entity(sketch, Entity::Point(Point2::new(0.0, 90.0)));
+    addition.add_sketch_gear(sketch, sprocket_of(centre, Expression::Number(25.0)));
+    session.apply(addition.finish());
+    let edited = session.editor.document().clone();
+    let held = edited
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|drawn| drawn.gear(plain))
+        .cloned()
+        .unwrap();
+    let mut change = edited.transaction("Edit sprocket");
+    change.set_sketch_gear(
+        sketch,
+        plain,
+        Gear {
+            chain: ChainSize::find("12B"),
+            teeth: Expression::Number(21.0),
+            ..held
+        },
+    );
+    session.apply(change.finish());
+    let changed = session.editor.document().clone();
+    let mut removal = changed.transaction("Delete sprocket");
+    removal.remove_sketch_items(sketch, [plain], []);
+    session.apply(removal.finish());
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Sprockets")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/sprockets.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

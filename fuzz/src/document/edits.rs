@@ -8,7 +8,7 @@ use caditor_document::{
     SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
-use caditor_sketch::{ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
+use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::{
@@ -453,6 +453,15 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
                 scene.turn(input)?,
             ));
         }
+        if input.ratio(1u8, 4)? {
+            return Ok(Gear::sprocket(
+                some_entity(input)?,
+                *input.choose(&ChainSize::ALL)?,
+                scene.count(input)?,
+                scene.distance(input)?,
+                scene.turn(input)?,
+            ));
+        }
         Ok(Gear {
             centre: some_entity(input)?,
             module: scene.distance(input)?,
@@ -463,6 +472,7 @@ pub fn sketch_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tra
             bore: scene.distance(input)?,
             turn: scene.turn(input)?,
             meshing: None,
+            chain: None,
         })
     };
     let label = |input: &mut Unstructured| -> Result<Option<Vector2>> {

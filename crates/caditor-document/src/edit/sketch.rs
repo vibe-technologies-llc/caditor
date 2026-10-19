@@ -580,7 +580,9 @@ impl Reshape {
         let kept_alone = |id: EntityId, gear: &Gear| {
             !replaced.contains(&gear.centre)
                 && after.gear(id).is_some_and(|kept| {
-                    kept.centre == gear.centre && kept.driver() == gear.driver()
+                    kept.centre == gear.centre
+                        && kept.driver() == gear.driver()
+                        && kept.is_sprocket() == gear.is_sprocket()
                 })
         };
         let kept_gear = |id: EntityId, gear: &Gear| {

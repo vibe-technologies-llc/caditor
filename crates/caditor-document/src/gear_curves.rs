@@ -1,5 +1,5 @@
 use caditor_kernel::ProfileCurve;
-use caditor_sketch::{BORE_TOOTH, GearOutline, GearPiece, Sketch, gear_curve};
+use caditor_sketch::{BORE_TOOTH, GearPiece, Sketch, ToothedOutline, gear_curve};
 
 fn piece_curve(name: u64, piece: &GearPiece) -> Option<ProfileCurve> {
     Some(match piece {
@@ -29,7 +29,7 @@ fn piece_curve(name: u64, piece: &GearPiece) -> Option<ProfileCurve> {
     })
 }
 
-fn outline_curves(gear: caditor_sketch::EntityId, outline: &GearOutline) -> Vec<ProfileCurve> {
+fn outline_curves(gear: caditor_sketch::EntityId, outline: &ToothedOutline) -> Vec<ProfileCurve> {
     let teeth = outline
         .named_pieces()
         .into_iter()
@@ -37,11 +37,11 @@ fn outline_curves(gear: caditor_sketch::EntityId, outline: &GearOutline) -> Vec<
             piece_curve(gear_curve(gear, name.tooth, name.segment)?, piece)
         });
     let bore = outline
-        .bore
+        .bore()
         .and_then(|radius| {
             Some(ProfileCurve::circle(
                 gear_curve(gear, BORE_TOOTH, 0)?,
-                outline.centre,
+                outline.centre(),
                 radius,
             ))
         })
@@ -52,7 +52,7 @@ fn outline_curves(gear: caditor_sketch::EntityId, outline: &GearOutline) -> Vec<
 pub(crate) fn gear_curves(sketch: &Sketch) -> impl Iterator<Item = ProfileCurve> + '_ {
     sketch.gears().flat_map(|(id, _)| {
         sketch
-            .gear_outline(id)
+            .toothed_outline(id)
             .map(|outline| outline_curves(id, &outline))
             .unwrap_or_default()
     })

@@ -455,14 +455,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   height like a length dimension; inlining a parameter rewrites a text's height and angle.
 - `Edit::AddSketchGear`, `RemoveSketchGear` and `SetSketchGear` (`TransactionBuilder::add_sketch_gear`,
   `set_sketch_gear`) do the same for a stored gear (`sketch.md`, Gear), checking the parameters any
-  of its expressions use (seven for a free gear, the three of a meshing one). `remove_sketch_items`
+  of its expressions use (seven for a free gear, the three of a meshing one or of a sprocket). `remove_sketch_items`
   and `reshape_sketch` treat gears as texts, a lone centre shared by texts and gears going only
   when all its users do. A removal also takes the meshing gears of every gear it takes, and gears
   are removed partners first (`partners_first`) because `Sketch::remove_gear` refuses a driver
   with partners; `reshape_sketch` renews a partner whose driver is renewed (a replaced centre) and
   adds drivers before partners, so an undo, a journal and a reshape replay in an order the sketch
   accepts. Model scale scales a gear's module, root fillet and bore like length dimensions and
-  leaves its counts and angles (a meshing gear's bore only, the rest follows its driver);
+  leaves its counts and angles (a meshing gear's bore only, the rest follows its driver; a
+  sprocket's bore only, since the chain fixes the rest);
   inlining a parameter rewrites every expression it stores. A gear whose values cannot make one
   fails its sketch (`SketchCause::Gear`) naming it, fixing the parameter when one failed; a
   partner that cannot be cut names itself and the meshing problem.
@@ -510,8 +511,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   scaled by its height (cap height) and turned by its angle, each Bézier and line a `ProfileCurve`
   named `letter_curve` (`sketch.md`), so letters become regions and holes like drawn outlines and
   extruded side faces are named from them. A stored gear contributes the same way
-  (`gear_curves.rs`): its outline's pieces as lines, arcs and splines and its bore as a circle,
-  each named `gear_curve`. `PlacedText::polylines` facets them for the app and
+  (`gear_curves.rs`): its outline's pieces (a `ToothedOutline`, a sprocket's gaps as arcs) as lines,
+  arcs and splines and its bore as a circle, each named `gear_curve`. `PlacedText::polylines` facets them for the app and
   `lettered_at` lays out a text not yet in a sketch, for the preview.
 - An `Extrude` or `Revolve` of a sketch's regions (`RegionChoice::All`, or chosen
   `RegionReference`s resolved by `resolve_regions` so a changed region is healed or left out; fails

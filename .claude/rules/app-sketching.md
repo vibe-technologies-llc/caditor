@@ -414,8 +414,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`GearKind::fields`): Module, Teeth, Pressure angle, Profile shift, Root fillet, Bore and Rotation
   for a gear,
   with Meshing teeth, Meshing bore and Direction (of the second gear's centre from the first's, 0°
-  to the right) for a pair, and a Chain combo (`ChainSize::ALL`) with Teeth and
-  Bore for a sprocket (teeth from `MIN_SPROCKET_TEETH`). They are text fields
+  to the right) for a pair, and a Chain combo (`ChainSize::ALL`) with Teeth, Bore and Rotation for a
+  sprocket (teeth from `MIN_SPROCKET_TEETH`). They are text fields
   (`patterning::quantity`: units and expressions with parameters), kept in `Modifying`
   (`GearSettings`, which evaluates the shown fields into a `Part`) while caditor runs, and the panel
   lists the derived diameters or the refusal. The pointer previews the wheels (`Wheel`) on the point
@@ -428,11 +428,15 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   that is the origin), a pair is two stored gears (`Part::Pair(StoredPair)`: the driver as a
   `Spur`, the numbers placing the partner as a `GearPair` and the meshing `Gear` template;
   `Sketch::add_stored_pair`), so editing the first gear or a parameter either uses regenerates
-  both, and a sprocket is drawn as free curves.
+  both, and a sprocket is one stored `Gear` (`Part::Sprocket(StoredSprocket)`: the `Sprocket`
+  numbers, the turn and the `Gear::sprocket` of typed expressions, put on its centre by
+  `Sketch::add_stored_gear` as a gear is).
 - Started with one gear selected (`GearSettings::begin`), the tool edits it: the panel loads its
   values (`GearSettings::load`, expressions shown with parameter names, an empty bore as empty),
   hides the kind choice, the canvas previews and writes nothing, and the primary button "Update
-  Gear N" applies one "Edit spur gear" `SetSketchGear` keeping the centre; "Draw a new gear
+  Gear N" applies one "Edit spur gear" `SetSketchGear` keeping the centre (a selected sprocket
+  opens as `GearKind::Sprocket` with its Chain and Teeth, Bore and Rotation, "Update Sprocket N",
+  and applies one "Edit sprocket", `gearing::update_sprocket`); "Draw a new gear
   instead" drops the edit. A first gear with partners says which mesh with it and follow its
   values; a meshing gear opens as `GearKind::Meshing` with only Meshing teeth, Meshing bore and
   Direction, evaluated against its driver's values (`PartProblem::DriverBroken` when they cannot

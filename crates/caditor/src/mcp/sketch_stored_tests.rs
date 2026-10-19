@@ -307,3 +307,97 @@ fn drawn_text_is_read_back_and_edited() {
         "{remaining}"
     );
 }
+
+#[test]
+fn a_drawn_sprocket_is_read_back_with_its_chain_and_edited_for_chain_teeth_bore_and_turn() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+
+    let drawn = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "gear", "shape": "sprocket", "teeth": 18, "chain": "10b", "bore": "12 mm", "at": [5, 5] }),
+    );
+    let read = described(&mut client, &sketch);
+    let sprocket = only(&read, "gears");
+    let id = sprocket["id"].clone();
+    let small_area = extruded_area(&mut client, &sketch);
+
+    let edited = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": id, "teeth": 36, "chain": "12B", "turn": "9 deg" }),
+    );
+    let after = only(&described(&mut client, &sketch), "gears");
+    let large_area = extruded_area(&mut client, &sketch);
+    client.tool("undo", json!({}));
+    let undone = only(&described(&mut client, &sketch), "gears");
+
+    let spur_value = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": id, "module": "3 mm" }),
+    );
+    let direction = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": id, "direction": "10 deg" }),
+    );
+    let unknown = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": id, "chain": "99Z" }),
+    );
+    let few = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": id, "teeth": 5 }),
+    );
+    let removed = client.tool(
+        "remove_sketch_items",
+        json!({ "sketch": sketch, "entities": [id] }),
+    );
+    let gone = described(&mut client, &sketch);
+
+    modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "gear", "teeth": 20, "at": [0, 0] }),
+    );
+    let spur = only(&described(&mut client, &sketch), "gears");
+    let no_chain = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "edit_gear", "gear": spur["id"].clone(), "chain": "08B" }),
+    );
+    client.finish();
+
+    assert_eq!(drawn["change"], "Draw sprocket");
+    assert_eq!(drawn["added_gears"], json!([id]), "{drawn}");
+    assert_eq!(sprocket["chain"], "10B");
+    assert_eq!(sprocket["teeth"], "18");
+    assert_eq!(sprocket["bore"], "12 mm");
+    assert!(sprocket.get("module").is_none(), "{sprocket}");
+    assert_eq!(sprocket["at"], json!([5.0, 5.0]));
+    assert_eq!(sprocket["values"]["chain"], "10B");
+    assert_eq!(sprocket["values"]["teeth"], 18);
+    assert!(
+        sprocket["values"]["pitch_diameter"].is_number(),
+        "{sprocket}"
+    );
+    assert_eq!(edited["gear"], id);
+    assert_eq!(edited["change"], "Edit sprocket");
+    assert_eq!(after["chain"], "12B");
+    assert_eq!(after["teeth"], "36");
+    assert!(close(number(&after["values"]["turn"]), 9.0), "{after}");
+    assert!(large_area > 2.0 * small_area, "{large_area} {small_area}");
+    assert_eq!(undone["chain"], "10B");
+    assert!(spur_value.contains("sprocket"), "{spur_value}");
+    assert!(direction.contains("no direction"), "{direction}");
+    assert!(unknown.contains("roller chain"), "{unknown}");
+    assert!(few.contains("teeth"), "{few}");
+    assert_eq!(removed["removed_gears"], json!([id]), "{removed}");
+    assert!(gone.get("gears").is_none(), "{gone}");
+    assert!(no_chain.contains("not a sprocket"), "{no_chain}");
+}

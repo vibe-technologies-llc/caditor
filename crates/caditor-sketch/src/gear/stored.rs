@@ -1,9 +1,14 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
+use caditor_geometry::Point2;
 
-use super::{GearError, GearPair, MAX_TEETH, MIN_TEETH, SpurGear};
+use super::{
+    ChainSize, GearError, GearOutline, GearPair, GearPiece, GearPieceName, MAX_SPROCKET_TEETH,
+    MAX_TEETH, MIN_SPROCKET_TEETH, MIN_TEETH, Sprocket, SprocketOutline, SpurGear,
+};
 use crate::{
+    curve::Faceting,
     id::EntityId,
     text::{GEAR_CURVES, LETTER_CURVES, TEXT_BITS},
 };
@@ -25,6 +30,7 @@ pub struct Gear {
     pub bore: Expression,
     pub turn: Expression,
     pub meshing: Option<Meshing>,
+    pub chain: Option<ChainSize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,8 +47,117 @@ pub struct MeshPlacement {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GearShape {
+    Spur(SpurGear),
+    Sprocket(Sprocket),
+}
+
+impl GearShape {
+    pub fn teeth(&self) -> u32 {
+        match self {
+            Self::Spur(spur) => spur.teeth,
+            Self::Sprocket(sprocket) => sprocket.teeth,
+        }
+    }
+
+    pub fn bore(&self) -> f64 {
+        match self {
+            Self::Spur(spur) => spur.bore,
+            Self::Sprocket(sprocket) => sprocket.bore,
+        }
+    }
+
+    pub fn spur(&self) -> Option<&SpurGear> {
+        match self {
+            Self::Spur(spur) => Some(spur),
+            Self::Sprocket(_) => None,
+        }
+    }
+
+    pub fn sprocket(&self) -> Option<&Sprocket> {
+        match self {
+            Self::Sprocket(sprocket) => Some(sprocket),
+            Self::Spur(_) => None,
+        }
+    }
+
+    pub fn outline_turned(&self, centre: Point2, turn: f64) -> Result<ToothedOutline, GearError> {
+        match self {
+            Self::Spur(spur) => spur.outline_turned(centre, turn).map(ToothedOutline::Gear),
+            Self::Sprocket(sprocket) => sprocket
+                .outline_turned(centre, turn)
+                .map(ToothedOutline::Sprocket),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToothedOutline {
+    Gear(GearOutline),
+    Sprocket(SprocketOutline),
+}
+
+impl ToothedOutline {
+    pub fn centre(&self) -> Point2 {
+        match self {
+            Self::Gear(outline) => outline.centre,
+            Self::Sprocket(outline) => outline.centre,
+        }
+    }
+
+    pub fn tip_radius(&self) -> f64 {
+        match self {
+            Self::Gear(outline) => outline.circles.tip,
+            Self::Sprocket(outline) => outline.circles.tip,
+        }
+    }
+
+    pub fn bore(&self) -> Option<f64> {
+        match self {
+            Self::Gear(outline) => outline.bore,
+            Self::Sprocket(outline) => outline.bore,
+        }
+    }
+
+    pub fn pieces(&self) -> &[GearPiece] {
+        match self {
+            Self::Gear(outline) => &outline.pieces,
+            Self::Sprocket(outline) => &outline.pieces,
+        }
+    }
+
+    pub fn radii(&self) -> Vec<f64> {
+        match self {
+            Self::Gear(outline) => outline.circles.radii().to_vec(),
+            Self::Sprocket(outline) => outline.circles.radii().to_vec(),
+        }
+    }
+
+    pub fn named_pieces(&self) -> Vec<(GearPieceName, &GearPiece)> {
+        match self {
+            Self::Gear(outline) => outline.named_pieces(),
+            Self::Sprocket(outline) => outline.named_pieces(),
+        }
+    }
+
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Vec<Point2>> {
+        match self {
+            Self::Gear(outline) => outline.faceted(faceting),
+            Self::Sprocket(outline) => outline.faceted(faceting),
+        }
+    }
+
+    pub fn construction(&self, faceting: Faceting) -> Vec<Vec<Point2>> {
+        match self {
+            Self::Gear(outline) => outline.construction(faceting),
+            Self::Sprocket(outline) => outline.construction(faceting),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GearValues {
-    pub spur: SpurGear,
+    pub shape: GearShape,
     pub turn: f64,
     pub placement: Option<MeshPlacement>,
 }
@@ -125,7 +240,33 @@ impl Gear {
             bore,
             turn: Expression::measure(0.0, Unit::Degree),
             meshing: Some(Meshing { driver, direction }),
+            chain: None,
         }
+    }
+
+    pub fn sprocket(
+        centre: EntityId,
+        chain: ChainSize,
+        teeth: Expression,
+        bore: Expression,
+        turn: Expression,
+    ) -> Self {
+        Self {
+            centre,
+            module: Expression::measure(0.0, Unit::Millimetre),
+            teeth,
+            pressure_angle: Expression::measure(0.0, Unit::Degree),
+            profile_shift: Expression::number(0.0),
+            root_fillet: Expression::measure(0.0, Unit::Millimetre),
+            bore,
+            turn,
+            meshing: None,
+            chain: Some(chain),
+        }
+    }
+
+    pub fn is_sprocket(&self) -> bool {
+        self.chain.is_some()
     }
 
     pub fn driver(&self) -> Option<EntityId> {
@@ -134,6 +275,7 @@ impl Gear {
 
     pub fn expressions(&self) -> Vec<&Expression> {
         match &self.meshing {
+            None if self.chain.is_some() => vec![&self.teeth, &self.bore, &self.turn],
             None => vec![
                 &self.module,
                 &self.teeth,
@@ -149,6 +291,7 @@ impl Gear {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         match &mut self.meshing {
+            None if self.chain.is_some() => vec![&mut self.teeth, &mut self.bore, &mut self.turn],
             None => vec![
                 &mut self.module,
                 &mut self.teeth,
@@ -188,6 +331,9 @@ impl Gear {
     {
         if self.meshing.is_some() {
             return Err(GearValueError::DriverUnknown);
+        }
+        if let Some(chain) = self.chain {
+            return self.sprocket_values(chain, value_of);
         }
         let module = self
             .module
@@ -231,7 +377,45 @@ impl Gear {
         spur.check()
             .map_err(|error| GearValueError::Build(Box::new(error)))?;
         Ok(GearValues {
-            spur,
+            shape: GearShape::Spur(spur),
+            turn,
+            placement: None,
+        })
+    }
+
+    fn sprocket_values<F>(
+        &self,
+        chain: ChainSize,
+        value_of: &F,
+    ) -> Result<GearValues, GearValueError>
+    where
+        F: Fn(ParameterId) -> Result<Quantity, EvalError>,
+    {
+        let teeth = self
+            .teeth
+            .evaluate_as(Dimension::NONE, value_of)
+            .map_err(GearValueError::Teeth)?;
+        let bore = self
+            .bore
+            .evaluate_as(Dimension::LENGTH, value_of)
+            .map_err(GearValueError::Bore)?;
+        let turn = self
+            .turn
+            .evaluate_as(Dimension::ANGLE, value_of)
+            .map_err(GearValueError::Turn)?;
+        if !turn.is_finite() {
+            return Err(GearValueError::TurnNotFinite);
+        }
+        let sprocket = Sprocket {
+            chain,
+            teeth: whole_sprocket_teeth(teeth)?,
+            bore,
+        };
+        sprocket
+            .check()
+            .map_err(|error| GearValueError::Build(Box::new(error)))?;
+        Ok(GearValues {
+            shape: GearShape::Sprocket(sprocket),
             turn,
             placement: None,
         })
@@ -261,8 +445,9 @@ impl Gear {
         if !direction.is_finite() {
             return Err(GearValueError::DirectionNotFinite);
         }
+        let driver_shape = driver.shape.spur().ok_or(GearValueError::DriverUnknown)?;
         let pair = GearPair {
-            driver: driver.spur,
+            driver: *driver_shape,
             partner_teeth: whole_teeth(teeth)?,
             partner_bore: bore,
             direction: direction.to_radians(),
@@ -272,7 +457,7 @@ impl Gear {
             GearValueError::Build(Box::new(GearError::Partner(Box::new(error))))
         })?;
         Ok(GearValues {
-            spur,
+            shape: GearShape::Spur(spur),
             turn: pair.partner_turn(driver.turn.to_radians()).to_degrees(),
             placement: Some(MeshPlacement {
                 driver: meshing.driver,
@@ -292,18 +477,32 @@ impl Gear {
     }
 }
 
-fn whole_teeth(value: f64) -> Result<u32, GearValueError> {
+fn whole_count(value: f64) -> Result<u32, GearValueError> {
     let rounded = value.round();
     if !value.is_finite() || (value - rounded).abs() > WHOLE_TOLERANCE {
         return Err(GearValueError::TeethNotWhole { value });
     }
-    if !(f64::from(MIN_TEETH)..=f64::from(MAX_TEETH)).contains(&rounded) {
-        let teeth = rounded.clamp(0.0, f64::from(u32::MAX)) as u32;
+    Ok(rounded.clamp(0.0, f64::from(u32::MAX)) as u32)
+}
+
+fn whole_teeth(value: f64) -> Result<u32, GearValueError> {
+    let teeth = whole_count(value)?;
+    if !(MIN_TEETH..=MAX_TEETH).contains(&teeth) {
         return Err(GearValueError::Build(Box::new(
             GearError::TeethOutOfRange { teeth },
         )));
     }
-    Ok(rounded as u32)
+    Ok(teeth)
+}
+
+fn whole_sprocket_teeth(value: f64) -> Result<u32, GearValueError> {
+    let teeth = whole_count(value)?;
+    if !(MIN_SPROCKET_TEETH..=MAX_SPROCKET_TEETH).contains(&teeth) {
+        return Err(GearValueError::Build(Box::new(
+            GearError::SprocketTeethOutOfRange { teeth },
+        )));
+    }
+    Ok(teeth)
 }
 
 pub fn gear_curve(gear: EntityId, tooth: usize, segment: usize) -> Option<u64> {

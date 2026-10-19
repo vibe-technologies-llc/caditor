@@ -11,7 +11,7 @@ use caditor_render::{
     Background, GraphicsSettings, ImageError, ImageRequest, OffscreenRenderer,
     RenderError as AdapterError, SurfaceSize, Viewpoint,
 };
-use caditor_sketch::{Entity, FitSpacing, Sketch, SplineKind, TextAlign};
+use caditor_sketch::{Entity, FitSpacing, GearShape, Sketch, SplineKind, TextAlign};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -627,8 +627,16 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
             if let Some(at) = shown.point(gear.centre) {
                 entry.insert("at".to_owned(), point2(at));
             }
-            let expressions = match &gear.meshing {
-                None => {
+            if let Some(chain) = gear.chain {
+                entry.insert("chain".to_owned(), json!(chain.designation));
+            }
+            let expressions = match (&gear.meshing, gear.chain) {
+                (None, Some(_)) => vec![
+                    ("teeth", &gear.teeth),
+                    ("bore", &gear.bore),
+                    ("turn", &gear.turn),
+                ],
+                (None, None) => {
                     let partners: Vec<u64> = definition
                         .partners_of(id)
                         .into_iter()
@@ -647,7 +655,7 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
                         ("turn", &gear.turn),
                     ]
                 }
-                Some(meshing) => {
+                (Some(meshing), _) => {
                     entry.insert("meshes_with".to_owned(), json!(meshing.driver.raw()));
                     vec![
                         ("teeth", &gear.teeth),
@@ -660,15 +668,29 @@ fn gears(document: &Document, definition: &Sketch, shown: &Sketch) -> Vec<Value>
                 entry.insert(name.to_owned(), json!(document.expression_text(expression)));
             }
             if let Some(values) = shown.gear_values(id) {
-                let mut derived = json!({
-                    "module": rounded(values.spur.module),
-                    "teeth": values.spur.teeth,
-                    "pressure_angle": rounded(values.spur.pressure_angle),
-                    "profile_shift": rounded(values.spur.profile_shift),
-                    "root_fillet": rounded(values.spur.root_fillet),
-                    "bore": rounded(values.spur.bore),
-                    "turn": rounded(values.turn),
-                });
+                let mut derived = match values.shape {
+                    GearShape::Spur(spur) => json!({
+                        "module": rounded(spur.module),
+                        "teeth": spur.teeth,
+                        "pressure_angle": rounded(spur.pressure_angle),
+                        "profile_shift": rounded(spur.profile_shift),
+                        "root_fillet": rounded(spur.root_fillet),
+                        "bore": rounded(spur.bore),
+                        "turn": rounded(values.turn),
+                    }),
+                    GearShape::Sprocket(sprocket) => {
+                        let circles = sprocket.circles();
+                        json!({
+                            "chain": sprocket.chain.designation,
+                            "teeth": sprocket.teeth,
+                            "bore": rounded(sprocket.bore),
+                            "turn": rounded(values.turn),
+                            "pitch_diameter": rounded(2.0 * circles.pitch),
+                            "tip_diameter": rounded(2.0 * circles.tip),
+                            "root_diameter": rounded(2.0 * circles.root),
+                        })
+                    }
+                };
                 if let (Some(placement), Some(map)) = (values.placement, derived.as_object_mut()) {
                     map.insert(
                         "centre_distance".to_owned(),

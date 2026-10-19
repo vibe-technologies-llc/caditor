@@ -24,6 +24,10 @@ pub const DESCRIPTION: &str = "Choose what to draw and set its values, then clic
 pub const EDITING: &str = "Change the selected gear's values, then update it. Its centre stays \
                            where it is and keeps its constraints. A gear drawn here follows \
                            later changes to the parameters its values use.";
+pub const EDITING_SPROCKET: &str = "Change the selected sprocket's chain, teeth, hole or rotation, \
+                                    then update it. Its centre stays where it is and keeps its \
+                                    constraints. A sprocket drawn here follows later changes to \
+                                    the parameters its values use.";
 pub const EDITING_MESHING: &str = "This gear meshes with another and follows it: its module, \
                                    pressure angle and root fillet are the first gear's, its \
                                    profile shift the opposite, it turns by the tooth ratio and \
@@ -118,6 +122,7 @@ pub fn show(
             widgets::panel_scroll(ui, PANEL.id, |ui| {
                 let about = match (editing, settings.kind()) {
                     (Some(_), GearKind::Meshing) => EDITING_MESHING,
+                    (Some(_), GearKind::Sprocket) => EDITING_SPROCKET,
                     (Some(_), _) => EDITING,
                     (None, _) => DESCRIPTION,
                 };
@@ -154,6 +159,14 @@ pub fn show(
                 context.feature,
                 gear,
                 spur,
+            )));
+        }
+        (Some(Pressed::Primary), Ok(Part::Sprocket(sprocket)), Some(gear)) => {
+            actions.push(applied(gearing::update_sprocket(
+                context.model,
+                context.feature,
+                gear,
+                sprocket,
             )));
         }
         (Some(Pressed::Primary), Ok(Part::Pair(pair)), Some(gear)) => {
@@ -292,12 +305,12 @@ fn circles(ui: &mut Ui, part: &Part, unit: Units) {
             ]
         }
         Part::Sprocket(sprocket) => {
-            let circles = sprocket.circles();
+            let circles = sprocket.values.circles();
             vec![
                 ("Pitch diameter", 2.0 * circles.pitch),
                 ("Tip diameter", 2.0 * circles.tip),
                 ("Root diameter", 2.0 * circles.root),
-                ("Roller diameter", sprocket.chain.roller),
+                ("Roller diameter", sprocket.values.chain.roller),
             ]
         }
     };

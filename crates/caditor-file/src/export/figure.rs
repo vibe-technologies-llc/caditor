@@ -510,39 +510,37 @@ impl Figure {
             }
         }
         for (id, _) in sketch.gears() {
-            let Some(outline) = sketch.gear_outline(id) else {
+            let Some(outline) = sketch.toothed_outline(id) else {
                 continue;
             };
-            for piece in &outline.pieces {
+            for piece in outline.pieces() {
                 exported.curves += 1;
                 figure.push(Layer::Sketch, gear_shape(piece));
             }
-            if let Some(radius) = outline.bore {
+            if let Some(radius) = outline.bore() {
                 exported.curves += 1;
                 figure.push(
                     Layer::Sketch,
                     Shape::Circle {
-                        center: outline.centre,
+                        center: outline.centre(),
                         radius,
                     },
                 );
             }
             match construction {
                 Construction::OnLayer => {
-                    for radius in outline.circles.radii() {
+                    for radius in outline.radii() {
                         exported.construction += 1;
                         figure.push(
                             Layer::Construction,
                             Shape::Circle {
-                                center: outline.centre,
+                                center: outline.centre(),
                                 radius,
                             },
                         );
                     }
                 }
-                Construction::LeftOut => {
-                    exported.construction_left_out += outline.circles.radii().len()
-                }
+                Construction::LeftOut => exported.construction_left_out += outline.radii().len(),
             }
         }
         (figure, exported)

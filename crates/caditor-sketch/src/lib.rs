@@ -45,10 +45,10 @@ pub use crate::{
     fit::FittedSpline,
     gear::{
         BORE_TOOTH, ChainSize, DrawnGear, DrawnPair, Gear, GearCentre, GearCircles, GearError,
-        GearOutline, GearPair, GearPiece, GearPieceName, GearValueError, GearValues,
+        GearOutline, GearPair, GearPiece, GearPieceName, GearShape, GearValueError, GearValues,
         MAX_PRESSURE_ANGLE, MAX_SPROCKET_TEETH, MAX_TEETH, MIN_PRESSURE_ANGLE, MIN_SPROCKET_TEETH,
         MIN_TEETH, MeshPlacement, Meshing, PairOutline, Sprocket, SprocketCircles, SprocketOutline,
-        SpurGear, gear_curve,
+        SpurGear, ToothedOutline, gear_curve,
     },
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},

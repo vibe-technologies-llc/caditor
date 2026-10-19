@@ -123,6 +123,12 @@ pub enum SketchEditError {
     },
     #[error("{gear} does not mesh with another gear, so it has no direction to set")]
     NoDirection { gear: String },
+    #[error("{gear} is not a sprocket, so it has no chain to set")]
+    NoChain { gear: String },
+    #[error(
+        "{gear} is a sprocket, so its {field} cannot be set: a sprocket takes chain, teeth, bore and turn"
+    )]
+    SprocketHas { gear: String, field: &'static str },
     #[error("the text cannot take those values: {0}")]
     TextValues(TextError),
     #[error("the text cannot be written: {0}")]

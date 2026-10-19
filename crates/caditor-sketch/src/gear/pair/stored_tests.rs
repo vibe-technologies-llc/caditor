@@ -31,6 +31,7 @@ fn driver(centre: EntityId) -> Gear {
         bore: Expression::measure(0.0, Unit::Millimetre),
         turn: Expression::measure(7.0, Unit::Degree),
         meshing: None,
+        chain: None,
     }
 }
 
@@ -141,18 +142,18 @@ fn the_partner_follows_the_drivers_module_shift_and_turn_by_the_tooth_ratio() {
     let driver = solved.gear_values(first).unwrap();
     let partner = solved.gear_values(second).unwrap();
     let pair = GearPair {
-        driver: driver.spur,
+        driver: *driver.shape.spur().unwrap(),
         partner_teeth: 30,
         partner_bore: 5.0,
         direction: 0.0,
     };
 
-    assert_eq!(partner.spur.module, 2.5);
-    assert_eq!(partner.spur.pressure_angle, 20.0);
-    assert_eq!(partner.spur.root_fillet, 0.5);
-    assert_eq!(partner.spur.profile_shift, -0.3);
-    assert_eq!(partner.spur.teeth, 30);
-    assert_eq!(partner.spur.bore, 5.0);
+    assert_eq!(partner.shape.spur().unwrap().module, 2.5);
+    assert_eq!(partner.shape.spur().unwrap().pressure_angle, 20.0);
+    assert_eq!(partner.shape.spur().unwrap().root_fillet, 0.5);
+    assert_eq!(partner.shape.spur().unwrap().profile_shift, -0.3);
+    assert_eq!(partner.shape.spur().unwrap().teeth, 30);
+    assert_eq!(partner.shape.spur().unwrap().bore, 5.0);
     assert!((partner.turn.to_radians() - pair.partner_turn(7.0_f64.to_radians())).abs() < 1e-12);
 }
 
@@ -285,6 +286,7 @@ fn a_driver_cannot_go_while_its_partner_stands_and_the_link_cannot_be_rewired() 
         second,
         Gear {
             meshing: None,
+            chain: None,
             ..held.clone()
         },
     );

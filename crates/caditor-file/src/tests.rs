@@ -12,8 +12,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, FitSpacing, Gear, Sketch, SplineKind, Text,
-    TextAlign,
+    ChainSize, Constraint, ConstraintId, Entity, EntityId, FitSpacing, Gear, Sketch, SplineKind,
+    Text, TextAlign,
 };
 use tempfile::TempDir;
 
@@ -2155,6 +2155,7 @@ fn stored_gears_round_trip_and_damaged_values_fall_back_with_a_report() {
             bore: Expression::Measure(5.0, Unit::Millimetre),
             turn: Expression::Measure(12.0, Unit::Degree),
             meshing: None,
+            chain: None,
         },
     );
     document.apply(transaction.finish()).unwrap();
@@ -2207,6 +2208,7 @@ fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_
             bore: Expression::Measure(0.0, Unit::Millimetre),
             turn: Expression::Measure(0.0, Unit::Degree),
             meshing: None,
+            chain: None,
         },
     );
     let partner = transaction.add_sketch_gear(
@@ -2252,6 +2254,65 @@ fn a_meshing_gear_round_trips_as_a_kind_of_its_own_and_damaged_values_fall_back_
         held.meshing.map(|meshing| meshing.direction),
         Some(Expression::Measure(0.0, Unit::Degree))
     );
+}
+
+#[test]
+fn a_sprocket_round_trips_as_a_kind_of_its_own_and_damaged_values_or_chains_fall_back_with_a_report()
+ {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Sprocket");
+    let count = transaction.add_parameter("teeth", transaction.parse("19").unwrap());
+    let sketch = transaction.add_feature("Sprocket", FeatureKind::from(Sketch::new(Plane::XY)));
+    let centre = transaction.add_sketch_entity(sketch, Entity::Point(Point2::ZERO));
+    let sprocket = transaction.add_sketch_gear(
+        sketch,
+        Gear::sprocket(
+            centre,
+            ChainSize::find("10A").unwrap(),
+            Expression::Parameter(count),
+            Expression::Measure(8.0, Unit::Millimetre),
+            Expression::Measure(15.0, Unit::Degree),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"sprocket\":{", "\"sprocketr\":{"));
+    let damaged = decode_text(&written.replace("\"15 deg\"", "\"15 ((\""));
+    let unknown = decode_text(&written.replace("\"10A\"", "\"99Z\""));
+    let drawn = |loaded: &Loaded| {
+        loaded
+            .document
+            .feature(sketch)
+            .and_then(|feature| feature.kind.sketch())
+            .and_then(|drawn| drawn.gear(sprocket))
+            .cloned()
+    };
+    let held = drawn(&damaged).unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(written.contains("\"sprocket\""), "{written}");
+    assert!(
+        older.issues.join(" ").contains("(sprocketr)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        damaged.issues.join(" ").contains("the turn of Sprocket"),
+        "{:?}",
+        damaged.issues
+    );
+    assert!(
+        unknown.issues.join(" ").contains("99Z"),
+        "{:?}",
+        unknown.issues
+    );
+    assert_eq!(held.chain, ChainSize::find("10A"));
+    assert_eq!(held.turn, Expression::Measure(0.0, Unit::Degree));
+    assert_eq!(held.teeth, Expression::Parameter(count));
+    assert_eq!(drawn(&unknown), None);
 }
 
 #[test]

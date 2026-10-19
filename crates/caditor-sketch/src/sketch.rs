@@ -10,7 +10,10 @@ use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, MAX_SPLINE_DEGREE},
     entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
-    gear::{Gear, GearOutline, GearValueError, GearValues, gear_curve_gear, same_gear_bits},
+    gear::{
+        Gear, GearOutline, GearValueError, GearValues, ToothedOutline, gear_curve_gear,
+        same_gear_bits,
+    },
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
         arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
@@ -341,16 +344,24 @@ impl Sketch {
         match self.entities.get(&id) {
             Some(entity) => format!("{} {id}", entity.kind_name()),
             None if self.texts.contains_key(&id) => format!("Text {id}"),
-            None if self.gears.contains_key(&id) => format!("Gear {id}"),
+            None if self.gears.contains_key(&id) => self.gear_label(id),
             None => match (
                 self.text_of_letter_curve(id.raw()),
                 self.gear_of_curve(id.raw()),
             ) {
                 (Some(text), _) => format!("Text {text}"),
-                (None, Some(gear)) => format!("Gear {gear}"),
+                (None, Some(gear)) => self.gear_label(gear),
                 (None, None) => format!("Missing entity {id}"),
             },
         }
+    }
+
+    fn gear_label(&self, id: EntityId) -> String {
+        let kind = match self.gears.get(&id) {
+            Some(gear) if gear.is_sprocket() => "Sprocket",
+            _ => "Gear",
+        };
+        format!("{kind} {id}")
     }
 
     pub fn point(&self, id: EntityId) -> Option<Point2> {
@@ -913,13 +924,20 @@ impl Sketch {
             .collect()
     }
 
-    pub fn gear_outline(&self, id: EntityId) -> Option<GearOutline> {
+    pub fn toothed_outline(&self, id: EntityId) -> Option<ToothedOutline> {
         let centre = self.point(self.gears.get(&id)?.centre)?;
         let values = self.gear_values(id)?;
         values
-            .spur
+            .shape
             .outline_turned(centre, values.turn.to_radians())
             .ok()
+    }
+
+    pub fn gear_outline(&self, id: EntityId) -> Option<GearOutline> {
+        match self.toothed_outline(id)? {
+            ToothedOutline::Gear(outline) => Some(outline),
+            ToothedOutline::Sprocket(_) => None,
+        }
     }
 
     pub fn gear_of_curve(&self, raw: u64) -> Option<EntityId> {
@@ -965,7 +983,10 @@ impl Sketch {
 
     pub fn replace_gear(&mut self, id: EntityId, gear: Gear) -> Result<Gear, SketchError> {
         let current = self.gears.get(&id).ok_or(SketchError::NoSuchEntity(id))?;
-        if current.centre != gear.centre || current.driver() != gear.driver() {
+        if current.centre != gear.centre
+            || current.driver() != gear.driver()
+            || current.is_sprocket() != gear.is_sprocket()
+        {
             return Err(SketchError::ChangesStructure {
                 entity: id,
                 label: self.entity_label(id),
@@ -995,11 +1016,11 @@ impl Sketch {
                     label: self.entity_label(driver),
                 });
             }
-            if held.meshing.is_some() {
+            if held.meshing.is_some() || held.is_sprocket() {
                 return Err(SketchError::WrongKind {
                     entity: driver,
                     found: self.entity_label(driver),
-                    needed: "a gear that does not mesh with another",
+                    needed: "a spur gear that does not mesh with another",
                 });
             }
             if held.centre == gear.centre {
