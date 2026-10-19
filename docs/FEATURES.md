@@ -66,8 +66,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   needs its surface rebuilt about the neutral plane rather than turned rigidly; and a parting line
   is only the neutral plane, so a stepped parting line along chosen edges or a split face's line
   (each side drafted from its own hinge) is not offered. The draft has no angle arrow on the model.
-- [low · medium] A rib parallel to its sketch runs its free arc ends on only along their tangent
-  (`RibEnds::RoundArcs` is a web's alone).
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
