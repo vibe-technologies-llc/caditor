@@ -99,6 +99,18 @@ fn header_safe(text: &str) -> String {
     }
 }
 
+impl Body {
+    pub fn byte_count(&self) -> u64 {
+        let count = match self {
+            Self::Empty => 0,
+            Self::Form(text) | Self::Json(text) | Self::JsonApi(text) => text.len(),
+            Self::Bytes(bytes) => bytes.len(),
+            Self::Multipart(multipart) => multipart.encoded().len(),
+        };
+        u64::try_from(count).unwrap_or(u64::MAX)
+    }
+}
+
 impl std::fmt::Debug for Body {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -211,6 +223,12 @@ pub enum TransportError {
 
 pub trait Transport: Send + Sync {
     fn send(&self, request: &Request) -> Result<Response, TransportError>;
+
+    fn send_tracked(
+        &self,
+        request: &Request,
+        progress: &mut dyn FnMut(u64, u64) -> bool,
+    ) -> Result<Response, TransportError>;
 
     fn fetch(
         &self,

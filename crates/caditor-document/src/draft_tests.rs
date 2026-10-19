@@ -350,21 +350,24 @@ fn draft_errors_name_the_problem_and_the_fix() {
     ));
 }
 
-#[test]
-fn following_tangent_faces_onto_a_fillet_is_refused_in_words() {
-    let mut model = standing();
-    let evaluation = evaluate(&model.document, &mut model.engine);
-    let solid = evaluation.body_seen_by(model.draft, model.base).unwrap();
-    let corner = solid
+fn edge_through(solid: &Solid, middle: Point3) -> EdgeReference {
+    solid
         .edges()
         .find(|(_, edge)| {
             edge.curve()
                 .point(edge.interval().middle())
-                .distance(Point3::new(LONG, 0.0, 2.0))
+                .distance(middle)
                 < 1e-6
         })
         .map(|(id, _)| EdgeReference::capture(solid, id).unwrap())
-        .unwrap();
+        .unwrap()
+}
+
+fn filleted(middle: Point3) -> Model {
+    let mut model = standing();
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let solid = evaluation.body_seen_by(model.draft, model.base).unwrap();
+    let edge = edge_through(solid, middle);
     let mut transaction = model.document.transaction("Fillet");
     let fillet = transaction.add_feature(
         "Fillet 1",
@@ -372,7 +375,7 @@ fn following_tangent_faces_onto_a_fillet_is_refused_in_words() {
             kind: BlendKind::Fillet,
             body: model.base,
             groups: Vec::new(),
-            edges: vec![corner],
+            edges: vec![edge],
             size: text("1 mm"),
             form: ChamferForm::Equal,
             flipped: false,
@@ -389,33 +392,128 @@ fn following_tangent_faces_onto_a_fillet_is_refused_in_words() {
             },
         ))
         .unwrap();
-
     set_draft(&mut model, |draft, solid| {
-        let east = flat_faces(solid, true)
-            .into_iter()
-            .find(|face| {
-                solid.face(*face).is_some_and(|face| match face.surface() {
-                    Surface::Plane(plane) => {
-                        (plane.frame().normal() * face.sense().sign()).x > 0.999
-                    }
-                    _ => false,
-                })
-            })
-            .unwrap();
-        draft.faces = vec![FaceReference::capture(solid, east).unwrap()];
+        draft.faces = vec![FaceReference::capture(solid, east_wall(solid)).unwrap()];
         draft.tangent = true;
     });
+    model
+}
+
+#[test]
+fn following_tangent_faces_round_a_rounded_corner_drafts_it_with_its_walls() {
+    let mut model = filleted(Point3::new(LONG, 0.0, 2.0));
+    let slope = 3f64.to_radians().tan();
+    let area = |height: f64| {
+        let inset = height * slope;
+        let corner = 1.0 - inset;
+        (LONG - inset) * (WIDE - inset) - (1.0 - std::f64::consts::FRAC_PI_4) * corner * corner
+    };
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(
+        &evaluation,
+        model.base,
+        4.0 / 6.0 * (area(0.0) + 4.0 * area(2.0) + area(4.0)),
+    );
+}
+
+#[test]
+fn following_tangent_faces_onto_a_fillet_across_the_pull_is_refused_in_words() {
+    let mut model = filleted(Point3::new(LONG, WIDE / 2.0, 4.0));
+
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.draft);
 
     assert!(
-        error
-            .reason()
-            .ends_with("and it joins the chosen faces smoothly; only flat faces can be drafted."),
+        error.reason().ends_with(
+            "is round about an axis that does not run along the pull direction, and it joins \
+             the chosen faces smoothly, so it cannot be drafted."
+        ),
         "{}",
         error.reason()
     );
     assert!(error.remedy().starts_with("Turn off Follow tangent faces"));
+}
+
+fn bossed() -> (Document, Recompute, FeatureId) {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(rectangle()));
+    let base = transaction.add_feature("Base", extruded(outline, "4 mm", BodyOperation::NewBody));
+    let mut round = Sketch::new(Plane::XY);
+    round.add_circle(Point2::new(LONG / 2.0, WIDE / 2.0), 2.0);
+    let circle = transaction.add_feature("Circle", FeatureKind::from(round));
+    transaction.add_feature("Boss", extruded(circle, "7 mm", BodyOperation::Add(base)));
+    document.apply(transaction.finish()).unwrap();
+    (document, Recompute::default(), base)
+}
+
+fn extruded(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(text(height), false),
+        operation,
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
+        direction: None,
+    }))
+}
+
+fn round_faces(solid: &Solid) -> Vec<FaceId> {
+    solid
+        .faces()
+        .filter(|(_, face)| matches!(face.surface(), Surface::Cylinder(_) | Surface::Cone(_)))
+        .map(|(id, _)| id)
+        .collect()
+}
+
+#[test]
+fn a_boss_chosen_alone_narrows_upward_from_the_plate_it_stands_on() {
+    let (mut document, mut engine, base) = bossed();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap().clone();
+    let side = round_faces(&solid);
+    let (neutral, flipped) = default_neutral(base, &solid, &side);
+    let mut transaction = document.transaction("Draft");
+    let draft = transaction.add_feature(
+        "Draft 1",
+        FeatureKind::Draft(Draft {
+            body: base,
+            faces: vec![FaceReference::capture(&solid, side[0]).unwrap()],
+            neutral: neutral.clone(),
+            angle: text("5 deg"),
+            flipped,
+            tangent: false,
+            beyond: None,
+            own: Vec::new(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let top = 2.0 - 3.0 * 5f64.to_radians().tan();
+    let frustum = std::f64::consts::PI * 3.0 * (4.0 + 2.0 * top + top * top) / 3.0;
+
+    let evaluation = evaluate(&document, &mut engine);
+    let drafted = evaluation.body(base).unwrap();
+
+    assert_eq!(side.len(), 1);
+    assert!(matches!(neutral, PlaneReference::Face(_)));
+    assert!(!flipped);
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(draft)
+    );
+    assert_volume(&evaluation, base, LONG * WIDE * 4.0 + frustum);
+    assert!(matches!(
+        drafted.face(round_faces(drafted)[0]).unwrap().surface(),
+        Surface::Cone(_)
+    ));
 }
 
 #[test]
@@ -553,4 +651,59 @@ fn an_own_angle_too_steep_or_on_a_lost_face_fails_in_words() {
         "{}",
         error.reason()
     );
+}
+
+#[test]
+fn a_post_split_at_the_neutral_plane_narrows_both_ways_from_its_parting_circle() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut round = Sketch::new(Plane::XY);
+    round.add_circle(Point2::new(0.0, 0.0), 3.0);
+    let circle = transaction.add_feature("Circle", FeatureKind::from(round));
+    let post = transaction.add_feature(
+        "Post",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: circle,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::two_sides(text("2 mm"), text("2 mm")),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(post).unwrap().clone();
+    let mut transaction = document.transaction("Draft");
+    transaction.add_feature(
+        "Draft 1",
+        FeatureKind::Draft(Draft {
+            body: post,
+            faces: round_faces(&solid)
+                .into_iter()
+                .map(|face| FaceReference::capture(&solid, face).unwrap())
+                .collect(),
+            neutral: PlaneReference::Principal(PrincipalPlane::Xy),
+            angle: text("3 deg"),
+            flipped: false,
+            tangent: false,
+            beyond: Some(text("6 deg")),
+            own: Vec::new(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let cone = |degrees: f64| {
+        let end = 3.0 - 2.0 * degrees.to_radians().tan();
+        std::f64::consts::PI * 2.0 * (9.0 + 3.0 * end + end * end) / 3.0
+    };
+
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_volume(&evaluation, post, cone(3.0) + cone(6.0));
+    assert_eq!(round_faces(evaluation.body(post).unwrap()).len(), 2);
 }

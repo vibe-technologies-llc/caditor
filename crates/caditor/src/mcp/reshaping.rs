@@ -1,6 +1,6 @@
 use caditor_document::{
     AxisReference, DeleteFace, Draft, Emboss, EmbossForm, FaceAngle, FeatureId, FeatureKind,
-    MoveFace, Scale, Split, SplitAlong, SplitCarry, SplitFace,
+    MoveFace, RegionChoice, ReplaceFace, Scale, Split, SplitAlong, SplitCarry, SplitFace,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_kernel::FaceReference;
@@ -11,15 +11,16 @@ use crate::{
     delete_face_tools, draft_tools, emboss_tools,
     mcp::{
         features::{
-            Amount, Built, FeatureError, OffName, added, amount, body_of, face_references, length,
-            needed, parsed, signed_length, sketch_of, turn,
+            Amount, Built, FeatureError, OffName, RegionsAsk, added, amount, body_of,
+            face_references, length, needed, parsed, regions_chosen, signed_length, sketch_of,
+            turn,
         },
         places::{self, AxisChoice, PlaneChoice},
         references::{self, Named, body_label},
         session::{Session, Work},
         tools::{Answer, ToolError},
     },
-    move_face_tools, scale_tools, split_face_tools,
+    move_face_tools, replace_face_tools, scale_tools, split_face_tools,
     units::LengthUnit,
 };
 
@@ -77,6 +78,15 @@ pub struct FaceDeleting {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FaceReplacing {
+    pub body: Option<Named>,
+    pub faces: Option<Vec<String>>,
+    pub target: Option<PlaneChoice>,
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmbossFormName {
@@ -99,6 +109,7 @@ pub struct Embossing {
     pub body: Option<Named>,
     pub faces: Option<Vec<String>>,
     pub sketch: Option<Named>,
+    pub regions: Option<RegionsAsk>,
     pub depth: Option<Amount>,
     pub form: Option<EmbossFormName>,
     pub name: Option<String>,
@@ -351,6 +362,53 @@ pub fn delete_face_built(
     .telling("body", json!(label)))
 }
 
+pub fn replace_face_built(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceReplacing,
+    base: Option<&ReplaceFace>,
+) -> Result<Built, ToolError> {
+    session.evaluate(work)?;
+    let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
+    let faces = faces_of(
+        session,
+        body,
+        (
+            asked.faces.as_deref(),
+            base.map(|base| base.faces.as_slice()),
+        ),
+        "replace",
+    )?;
+    let target = match &asked.target {
+        Some(choice) => Some(places::plane(
+            session.document(),
+            session.evaluation(),
+            choice,
+        )?),
+        None => base.and_then(|base| base.target.clone()),
+    };
+    let label = body_label(session.document(), body);
+    Ok(Built::new(
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body,
+            faces,
+            target,
+        }),
+        replace_face_tools::TITLE,
+        asked.name,
+    )
+    .telling("body", json!(label)))
+}
+
+pub fn replace_face(
+    session: &mut Session,
+    work: &Work<'_>,
+    asked: FaceReplacing,
+) -> Result<Answer, ToolError> {
+    let built = replace_face_built(session, work, asked, None)?;
+    added(session, work, built)
+}
+
 pub fn emboss_built(
     session: &mut Session,
     work: &Work<'_>,
@@ -371,15 +429,25 @@ pub fn emboss_built(
         ),
         "emboss",
     )?;
-    let (sketch, _, _) = sketch_of(
+    let (sketch, sketch_name, _) = sketch_of(
         session.document(),
         asked.sketch.as_ref(),
         base.and_then(|base| base.sketch),
+    )?;
+    let regions = regions_chosen(
+        session.evaluation(),
+        (sketch, sketch_name),
+        asked.regions.as_ref(),
+        match base {
+            Some(base) if base.sketch == Some(sketch) => base.regions.clone(),
+            Some(_) | None => RegionChoice::All,
+        },
     )?;
     let emboss = Emboss {
         body,
         faces,
         sketch: Some(sketch),
+        regions,
         depth: needed(
             depth.or_else(|| base.map(|base| base.depth.clone())),
             "depth",

@@ -199,8 +199,8 @@ paths:
 - `Scene::lighting` (`lighting.rs`, `Lighting`: a `LightDirection` in the view's or the model's
   frame, colour, strength, environment, exposure in stops, shadows, bounce, occlusion, surroundings)
   switches faces carrying a finish to `rendered` (uniform fields `sun`, `sun_colour`, `exposure_shadow`, `bounce`,
-  `shadow_matrix`, `relative_from_light`, after the section planes; `uses_rendered_shading` reads
-  the exposure scale, zero without lighting, so every pixel of a scene without lighting is as
+  `shadow_matrix`, `relative_from_light`, `cross_matrix`, `relative_from_cross`, `cross_frame`,
+  after the section planes; `uses_rendered_shading` reads the exposure scale, zero without lighting, so every pixel of a scene without lighting is as
   before). `rendered` is Cook-Torrance: GGX, height-correlated Smith visibility, Schlick Fresnel
   with F0 mixed from 4% to the colour by metalness, Lambert diffuse weighted by one less Fresnel
   and metalness, times the sun and its shadow; the procedural `sky` (blue above, a sunlit ground's
@@ -226,9 +226,9 @@ paths:
   (tangents of the half field of view) and the camera vectors, which the occlusion uniform carries
   whenever lighting is on.
 - `Lighting::surroundings` (`Surroundings`: an optional plain `backdrop` colour and a `floor` flag,
-  uniform fields `backdrop_colour` and `floor`) changes only what the sky pass draws, never how
-  bodies are lit: the picture or the procedural sky keeps lighting them whichever backdrop is
-  seen. A plain colour (sRGB, drawn exactly as given: no exposure, no tone mapping) replaces the
+  uniform fields `backdrop_colour` and `floor`) changes only what the sky pass draws and, for the
+  visible floor, the bounce and occlusion the bodies receive from it (below): the picture or the
+  procedural sky keeps lighting them whichever backdrop is seen. A plain colour (sRGB, drawn exactly as given: no exposure, no tone mapping) replaces the
   gradient or the picture behind the bodies and is flat, so the unseen ground's shadow does not
   darken it. The visible floor is the shadow-catching ground (`Ground::under`) drawn: a neutral
   grey (`FLOOR_ALBEDO`, times the exposure, tone mapped) at the bodies' lowest point, taking the
@@ -294,9 +294,33 @@ paths:
   never radiance, so sources still come from `lit_depth`; shadows alone draw no layers. The upper
   bound tells a wall crossed from a shadow travelled through: a surface farther above than the
   segment is long shades the path without standing in it. A wall edge-on to the sun covers no
-  texel of any layer, and one behind more than `PEEL_LAYERS` surfaces is missed. The targets are
-  made lazily inside `gpu::scoped`; a refusal draws without shadows and bounce and reports
-  `RenderFault::LightRefused` once. Image siblings make their own.
+  texel of any layer, so with bounce on one more depth map is drawn along the cross direction
+  (`cross_direction`, `LightFrame::crossing`): the sun tilted `CROSS_TILT` toward the horizontal
+  square to it (a skewed horizontal for an overhead sun), which turns every vertical wall the sun
+  runs along to 45 degrees from the cross light; only a wall whose normal points up the sun's slope
+  is edge-on to both. It is fitted to the casters alone, `CROSS_MAP_SIDE` across, with
+  `LightUniform::crossing` giving the pass its own view uniform (`cross_view_uniform`: the cross
+  matrices in place of the sun's `shadow_matrix` and `relative_from_light`, and its own normal
+  offset) and `fs_depth` drawing one `R32Uint` target (`crossed_depth`, binding 11), unpeeled. Its
+  test (`bounce_blocked_in_cross`) is not the sun's, whose one-sided "behind a surface" rule would
+  count any wall beside a segment once the light comes in low: the segment's lifted ends and
+  `BOUNCE_BLOCK_STEPS` points between are walked pair by pair, and a pair on opposite sides of the
+  stored surface, each within `BOUNCE_CROSS_SPACINGS` steps of it, has crossed a wall, thin or
+  not. A wall edge-on to the cross light too, or behind the cross map's one layer, is still
+  missed. The sun's test runs first and the cross test only on what it lets through. The
+  targets are made lazily inside `gpu::scoped`; a refusal draws without shadows and bounce and
+  reports `RenderFault::LightRefused` once. Image siblings make their own.
+- The visible floor (`Surroundings::floor`, only while it is drawn, the eye above it) is also a
+  source of bounced light and a surface of ambient occlusion, though it is no mesh. A texel of the
+  light maps holding no depth is sun all the way down, so `floor_source` meets its sun ray with the
+  ground plane (`relative_from_light`, the light frame holds the ground's shadows): an up-facing
+  patch of `FLOOR_ALBEDO` times the sun's height and the floor's fade, gathered by `bounced` like a
+  body's texel and tested for visibility the same way. A texel a body covers shades the floor
+  under it, so shadows need no further work. Under occlusion, `fs_floor_surface` (`vs_sky`, a full
+  screen triangle, pipeline `floor_surfaces`) writes the ground hit of each pixel into the surface
+  target after the meshes, with its own depth (`FLOOR_DEPTH_BIAS` leaves a body's feet in front of
+  it), so the horizons of a body's lower parts find it. The floor itself is lit by the sky pass and
+  takes no occlusion from the bodies.
 - Ambient occlusion (`occlusion.rs`, `Lighting::occlusion` above zero) is GTAO over what the view
   shows. Before the scene pass, three single-sampled passes over targets the size of the scene
   targets (`Occlusion`, made lazily in `gpu::scoped`, a refusal reporting

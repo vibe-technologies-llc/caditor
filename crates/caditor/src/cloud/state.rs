@@ -5,8 +5,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, Service, Upload,
-    Version, Workspace, WorkspaceId, WorkspaceKind,
+    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, SendAs, Service,
+    Upload, Version, Workspace, WorkspaceId, WorkspaceKind,
 };
 
 use super::{downloads::Usage, failure::Failure, thumbnails::Thumbnail};
@@ -122,6 +122,7 @@ pub struct Destination {
     pub service: Service,
     pub folder: FolderRef,
     pub folder_name: String,
+    pub how: SendAs,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +136,7 @@ pub struct Shipment {
 pub enum SendStage {
     Starting,
     Uploading { sent: u64, total: Option<u64> },
+    Translating,
     Failed(Arc<Failure>),
 }
 

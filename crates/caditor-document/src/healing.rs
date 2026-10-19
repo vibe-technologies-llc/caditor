@@ -271,6 +271,20 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
             visit_plane(&mut draft.neutral, "its neutral plane", visitor);
         }
+        FeatureKind::ReplaceFace(replace) => {
+            let count = replace.faces.len();
+            for (index, face) in replace.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its replaced face".to_owned()
+                } else {
+                    format!("replaced face {} of {count}", index + 1)
+                };
+                visitor.face(replace.body, face, &what);
+            }
+            if let Some(target) = &mut replace.target {
+                visit_plane(target, "its target plane", visitor);
+            }
+        }
         FeatureKind::Emboss(emboss) => {
             let count = emboss.faces.len();
             for (index, face) in emboss.faces.iter_mut().enumerate() {
@@ -280,6 +294,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                     format!("embossed face {} of {count}", index + 1)
                 };
                 visitor.face(emboss.body, face, &what);
+            }
+            if let Some(sketch) = emboss.sketch {
+                visitor.regions(sketch, &mut emboss.regions);
             }
         }
         FeatureKind::MoveFace(moving) => {

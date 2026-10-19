@@ -8,9 +8,9 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Outgoing, Project,
-        ProjectId, SendOutcome, Sent, Translation, Upload, UploadId, Version, Workspace,
-        WorkspaceId,
+        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, Outgoing, Placement,
+        Project, ProjectId, SendAs, SendOutcome, Sent, Translation, Upload, UploadId, Version,
+        Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -121,6 +121,26 @@ impl Transport for ScriptedTransport {
         })
     }
 
+    fn send_tracked(
+        &self,
+        request: &Request,
+        progress: &mut dyn FnMut(u64, u64) -> bool,
+    ) -> Result<Response, TransportError> {
+        let total = request.body.byte_count();
+        let stopped = [total / 2, total]
+            .into_iter()
+            .any(|sent| !progress(sent, total));
+        let (status, body) = self.answer(request)?;
+        if stopped {
+            return Err(TransportError::Stopped);
+        }
+        Ok(Response {
+            status,
+            body,
+            retry_after_seconds: None,
+        })
+    }
+
     fn fetch(
         &self,
         request: &Request,
@@ -163,6 +183,7 @@ pub enum Step {
     Thumbnail,
     Versions,
     Send,
+    Placement,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +191,7 @@ pub struct Received {
     pub folder: FolderRef,
     pub name: String,
     pub bytes: Vec<u8>,
+    pub how: SendAs,
 }
 
 type Failure = fn() -> Error;
@@ -190,6 +212,7 @@ pub struct FakeProvider {
     failures: Mutex<Vec<(Step, Failure)>>,
     calls: Mutex<Vec<String>>,
     polled: AtomicUsize,
+    placed: AtomicUsize,
 }
 
 impl Default for FakeProvider {
@@ -216,6 +239,7 @@ impl FakeProvider {
             failures: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
             polled: AtomicUsize::new(0),
+            placed: AtomicUsize::new(0),
         }
     }
 
@@ -305,7 +329,11 @@ impl FakeProvider {
             .received
             .lock()
             .iter()
-            .filter(|sent| sent.folder == *folder && sent.name.eq_ignore_ascii_case(name))
+            .filter(|sent| {
+                sent.how == SendAs::File
+                    && sent.folder == *folder
+                    && sent.name.eq_ignore_ascii_case(name)
+            })
             .count();
         let earlier = u32::try_from(earlier).unwrap_or(u32::MAX);
         earlier.saturating_add(u32::from(self.listed(folder, name)))
@@ -543,11 +571,58 @@ impl Provider for FakeProvider {
             folder: outgoing.folder.clone(),
             name: outgoing.name.to_owned(),
             bytes: outgoing.bytes.to_vec(),
+            how: SendAs::File,
         });
         Ok(Sent {
             name: outgoing.name.to_owned(),
             outcome,
         })
+    }
+
+    fn send_part_studio(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        outgoing: &Outgoing<'_>,
+        progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Translation, Error> {
+        self.enter(
+            Step::Send,
+            format!(
+                "send part studio {} {}",
+                outgoing.folder.folder.as_str(),
+                outgoing.name
+            ),
+        )?;
+        let total = u64::try_from(outgoing.bytes.len()).unwrap_or(u64::MAX);
+        for sent in [0, total / 2, total] {
+            if !progress(sent, Some(total)) {
+                return Err(Error::Stopped);
+            }
+        }
+        self.placed.store(0, Ordering::Relaxed);
+        self.received.lock().push(Received {
+            folder: outgoing.folder.clone(),
+            name: outgoing.name.to_owned(),
+            bytes: outgoing.bytes.to_vec(),
+            how: SendAs::PartStudio,
+        });
+        Ok(Translation {
+            source: format!("{}/fake-translation", outgoing.folder.project.as_str()),
+        })
+    }
+
+    fn poll_part_studio(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _translation: &Translation,
+    ) -> Result<Placement, Error> {
+        self.enter(Step::Placement, "poll part studio".to_owned())?;
+        if self.placed.fetch_add(1, Ordering::Relaxed) < self.working_polls {
+            return Ok(Placement::Working);
+        }
+        Ok(Placement::Done)
     }
 
     fn thumbnail(

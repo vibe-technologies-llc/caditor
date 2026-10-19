@@ -4,9 +4,9 @@ use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_geometry::Plane;
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceId, FaceName, FaceReference, FaceSplitError,
-    LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile, ProfileError, Region, Selection, Solid,
-    SplitPiece, SweepError, WrapBand, WrapError, boolean, extrude, split_faces,
-    wrap_regions_within,
+    LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile, ProfileError, Region, RegionReference,
+    Selection, Solid, SplitPiece, SweepError, WrapBand, WrapError, boolean, extrude,
+    resolve_regions, split_faces, wrap_regions_within,
 };
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
     },
-    solid::{SolidResult, profile_curves},
+    solid::{RegionChoice, SolidResult, profile_curves},
     split::SweptError,
     split_face::{
         Context as SplitContext, Round, Unrolled, sketch_result, wrap_failure, wrapping_surface,
@@ -49,6 +49,7 @@ pub struct Emboss {
     pub body: FeatureId,
     pub faces: Vec<FaceReference>,
     pub sketch: Option<FeatureId>,
+    pub regions: RegionChoice,
     pub depth: Expression,
     pub form: EmbossForm,
 }
@@ -96,6 +97,16 @@ impl Emboss {
                 .map(FaceReference::heap_size)
                 .sum::<usize>()
             + self.depth.heap_size()
+            + match &self.regions {
+                RegionChoice::All => 0,
+                RegionChoice::Chosen(references) => {
+                    size_of_val(references.as_slice())
+                        + references
+                            .iter()
+                            .map(RegionReference::heap_size)
+                            .sum::<usize>()
+                }
+            }
     }
 }
 
@@ -179,13 +190,18 @@ impl Context<'_> {
             SweptError::Profile(ProfileError::NoClosedProfile { .. }) | SweptError::NotOneChain => {
                 self.error_at(EmbossCause::NoOutlines { name: name.clone() }, sketch)
             }
+            SweptError::Profile(ProfileError::Cancelled(_)) => Failure::Cancelled,
             other => self.unbuilt(&other),
         };
         if curves.is_empty() {
             return Err(failed(SweptError::NoCurves));
         }
-        let regions = Profile::new(&curves)
-            .and_then(|profile| profile.select(&Selection::EvenDepth))
+        let profile = result
+            .profile()
+            .map_err(|error| failed(SweptError::Profile(error)))?;
+        let selection = self.selection(sketch, &name, profile)?;
+        let regions = profile
+            .select(&selection)
             .map_err(|error| failed(SweptError::Profile(error)))?;
         if regions.is_empty() {
             return Err(failed(SweptError::NotOneChain));
@@ -195,6 +211,34 @@ impl Context<'_> {
             plane: geometry.plane(),
             regions,
         })
+    }
+
+    fn selection(
+        &self,
+        sketch: FeatureId,
+        name: &str,
+        profile: &Profile,
+    ) -> Result<Selection, Failure> {
+        let references = match &self.definition.regions {
+            RegionChoice::All => return Ok(Selection::EvenDepth),
+            RegionChoice::Chosen(references) => references,
+        };
+        if references.is_empty() {
+            return Err(Failure::Waiting(MissingInput::RegionsToEmboss { sketch }));
+        }
+        resolve_regions(references, profile.regions())
+            .map(|resolved| Selection::Regions(resolved.keys))
+            .map_err(|error| match error {
+                ProfileError::AmbiguousRegion { candidates, .. } => {
+                    self.error(EmbossCause::RegionAmbiguous {
+                        sketch: name.to_owned(),
+                        candidates: candidates.len(),
+                    })
+                }
+                _ => self.error(EmbossCause::RegionGone {
+                    sketch: name.to_owned(),
+                }),
+            })
     }
 
     fn ground(
@@ -480,6 +524,8 @@ pub(crate) enum EmbossCause {
     DepthNotPositive,
     DepthTooBig,
     NoOutlines { name: String },
+    RegionGone { sketch: String },
+    RegionAmbiguous { sketch: String, candidates: usize },
     MixedFaces { body: String, sketch: String },
     NotParallel { sketch: String },
     NotAlongAxis { sketch: String, round: Round },
@@ -499,6 +545,13 @@ impl EmbossCause {
             Self::NoOutlines { name } => format!(
                 "{name} has no closed outline or text to emboss: its curves do not enclose any \
                  region."
+            ),
+            Self::RegionGone { sketch } => {
+                format!("A chosen region of {sketch} no longer exists, because the sketch changed.")
+            }
+            Self::RegionAmbiguous { sketch, candidates } => format!(
+                "A chosen region of {sketch} was divided, and {candidates} of the new regions \
+                 match it equally."
             ),
             Self::MixedFaces { body, sketch } => format!(
                 "The chosen faces of {body} do not lie in one plane or on one cylinder or cone, \
@@ -543,6 +596,9 @@ impl EmbossCause {
             }
             Self::NoOutlines { name } => {
                 format!("Close the outlines in {name}, or write some text in it.")
+            }
+            Self::RegionGone { .. } | Self::RegionAmbiguous { .. } => {
+                "Choose the regions again.".to_owned()
             }
             Self::MixedFaces { .. } => {
                 "Choose faces of one plane, or of one cylinder or cone, only.".to_owned()

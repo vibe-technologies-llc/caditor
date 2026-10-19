@@ -1,9 +1,10 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Document, Edit, Emboss, EmbossForm, Evaluation, FeatureId, FeatureKind, Transaction,
+    Document, Edit, Emboss, EmbossForm, Evaluation, Feature, FeatureId, FeatureKind, RegionChoice,
+    Transaction,
 };
-use caditor_kernel::{FaceId, FaceReference, Solid};
+use caditor_kernel::{FaceId, FaceReference, RegionKey, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -14,7 +15,9 @@ use crate::{
     last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     queued::{self, Pending},
-    selection::{Pickable, Selection},
+    scene,
+    selection::{self, Pickable, Selection},
+    solid_tools::RegionError,
 };
 
 pub const TITLE: &str = "Emboss";
@@ -60,6 +63,7 @@ pub struct EmbossSource {
     pub faces: Vec<FaceKey>,
     pub attached: Option<FaceReference>,
     pub sketch: Option<FeatureId>,
+    pub regions: Vec<RegionKey>,
     pub left_out: Vec<Pickable>,
 }
 
@@ -106,6 +110,13 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
         }
     }
     let sketch = chosen_sketch(model, selection)?;
+    let regions = selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::SketchRegion { region, .. } => Some(region),
+            _ => None,
+        })
+        .collect();
     let mut attached = None;
     if faces.is_empty() {
         let attachment = sketch
@@ -123,8 +134,27 @@ pub fn source(model: &Model, selection: &Selection) -> Result<EmbossSource, Embo
         faces,
         attached,
         sketch,
+        regions,
         left_out,
     })
+}
+
+fn chosen_regions(evaluation: &Evaluation, source: &EmbossSource) -> RegionChoice {
+    let chosen: BTreeSet<RegionKey> = source.regions.iter().copied().collect();
+    let Some(regions) = source
+        .sketch
+        .and_then(|sketch| selection::sketch_regions(evaluation, sketch))
+    else {
+        return RegionChoice::All;
+    };
+    if chosen.is_empty()
+        || !regions
+            .iter()
+            .any(|region| chosen.contains(&region.region.key()))
+    {
+        return RegionChoice::All;
+    }
+    RegionChoice::Chosen(scene::region_references(&chosen, regions))
 }
 
 pub fn create(
@@ -151,6 +181,7 @@ pub fn create(
             body: source.body,
             faces,
             sketch: source.sketch,
+            regions: chosen_regions(evaluation, source),
             depth: starts.length(Remembered::EmbossDepth, DEFAULT_DEPTH),
             form: EmbossForm::Raised,
         }),
@@ -231,9 +262,135 @@ pub fn sketch_change(
         feature,
         Emboss {
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             ..emboss.clone()
         },
     )
+}
+
+pub fn with_regions(emboss: &Emboss, regions: RegionChoice) -> Emboss {
+    Emboss {
+        regions,
+        ..emboss.clone()
+    }
+}
+
+pub fn chosen_region_keys(model: &Model, feature: FeatureId) -> Option<BTreeSet<RegionKey>> {
+    let emboss = model.document().feature(feature)?.kind.emboss()?;
+    let (_, regions) = selection::swept_regions(model.document(), model.evaluation(), feature)?;
+    Some(scene::chosen_regions(&emboss.regions, regions))
+}
+
+pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Option<Transaction> {
+    let document = model.document();
+    let owner = document.feature(feature)?;
+    let emboss = owner.kind.emboss()?;
+    let (_, regions) = selection::swept_regions(document, model.evaluation(), feature)?;
+    let mut chosen = scene::chosen_regions(&emboss.regions, regions);
+    if !chosen.remove(&region) {
+        chosen.insert(region);
+    }
+    let choice = RegionChoice::Chosen(scene::region_references(&chosen, regions));
+    Some(Transaction::single(
+        format!("Choose regions of {}", owner.name),
+        Edit::SetFeatureKind {
+            id: feature,
+            kind: FeatureKind::Emboss(with_regions(emboss, choice)),
+        },
+    ))
+}
+
+pub fn choose_every_region(model: &Model, feature: FeatureId) -> Result<Transaction, EmbossError> {
+    let document = model.document();
+    let gone = EmbossError::Gone { feature };
+    let emboss = document
+        .feature(feature)
+        .and_then(|owner| owner.kind.emboss())
+        .ok_or_else(|| gone.clone())?;
+    let (_, regions) =
+        selection::swept_regions(document, model.evaluation(), feature).ok_or(gone)?;
+    let keys = scene::chosen_regions(&RegionChoice::All, regions);
+    let chosen = RegionChoice::Chosen(scene::region_references(&keys, regions));
+    change(model, feature, with_regions(emboss, chosen))
+}
+
+pub fn select_all_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
+    let Some(emboss) = feature.kind.emboss() else {
+        return Err(RegionError::TakesNoRegions {
+            name: feature.name.clone(),
+        });
+    };
+    if matches!(emboss.regions, RegionChoice::All) {
+        return Err(RegionError::AlreadyEvery {
+            name: feature.name.clone(),
+        });
+    }
+    let sketch = emboss
+        .sketch
+        .and_then(|sketch| model.document().feature(sketch))
+        .map_or("the sketch", |sketch| sketch.name.as_str());
+    Ok(Transaction::single(
+        format!("Select all regions of {sketch} for {}", feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Emboss(with_regions(emboss, RegionChoice::All)),
+        },
+    ))
+}
+
+pub fn take_sketch_regions(
+    model: &Model,
+    feature: &Feature,
+    sketch: FeatureId,
+) -> Result<Transaction, RegionError> {
+    let Some(emboss) = feature.kind.emboss() else {
+        return Err(RegionError::TakesNoRegions {
+            name: feature.name.clone(),
+        });
+    };
+    if emboss.sketch == Some(sketch) {
+        return select_all_regions(model, feature);
+    }
+    let document = model.document();
+    let name = document
+        .feature(sketch)
+        .filter(|candidate| candidate.kind.sketch().is_some())
+        .map(|sketch| sketch.name.clone())
+        .ok_or(RegionError::NotASketch { feature: sketch })?;
+    let transaction = Transaction::single(
+        format!("Take all regions of {name} for {}", feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Emboss(Emboss {
+                sketch: Some(sketch),
+                regions: RegionChoice::All,
+                ..emboss.clone()
+            }),
+        },
+    );
+    field::checked(document, transaction)
+}
+
+pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, RegionError> {
+    let Some(emboss) = feature.kind.emboss() else {
+        return Err(RegionError::TakesNoRegions {
+            name: feature.name.clone(),
+        });
+    };
+    let nothing_chosen =
+        chosen_region_keys(model, feature.id()).is_some_and(|keys| keys.is_empty());
+    if nothing_chosen {
+        return Err(RegionError::NoneChosen {
+            name: feature.name.clone(),
+        });
+    }
+    Ok(Transaction::single(
+        format!("Clear the chosen regions of {}", feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Emboss(with_regions(emboss, RegionChoice::Chosen(Vec::new()))),
+        },
+    ))
 }
 
 pub fn chosen_faces(solid: &Solid, emboss: &Emboss) -> BTreeSet<FaceKey> {

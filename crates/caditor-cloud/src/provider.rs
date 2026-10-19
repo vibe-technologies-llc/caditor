@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Project, Sent,
-        Translation, Upload, Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Placement, Project,
+        Sent, Translation, Upload, Version, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -120,6 +120,29 @@ pub trait Provider: Send + Sync {
         outgoing: &Outgoing<'_>,
         progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
     ) -> Result<Sent, Error>;
+
+    fn send_part_studio(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _outgoing: &Outgoing<'_>,
+        _progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+    ) -> Result<Translation, Error> {
+        Err(Error::NotOffered {
+            service: self.service(),
+        })
+    }
+
+    fn poll_part_studio(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _translation: &Translation,
+    ) -> Result<Placement, Error> {
+        Err(Error::NotOffered {
+            service: self.service(),
+        })
+    }
 
     fn thumbnail(
         &self,

@@ -14,8 +14,8 @@ use std::{
 
 use caditor_cloud::{
     Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Outgoing,
-    Project, ProjectId, Provider, Sent, Service, Session, Transport, Version, Workspace,
-    WorkspaceId,
+    Placement, Project, ProjectId, Provider, SendAs, SendOutcome, Sent, Service, Session,
+    Transport, Version, Workspace, WorkspaceId,
 };
 use parking_lot::Mutex;
 
@@ -343,13 +343,19 @@ impl ImportJob {
     }
 
     fn pause(&self, total: Duration) -> Result<(), Failure> {
-        let until = Instant::now() + total;
-        while Instant::now() < until {
-            self.check_stopped()?;
-            thread::sleep(STOP_CHECK);
-        }
-        Ok(())
+        pause(&self.stop, total)
     }
+}
+
+fn pause(stop: &AtomicBool, total: Duration) -> Result<(), Failure> {
+    let until = Instant::now() + total;
+    while Instant::now() < until {
+        if stop.load(Ordering::Relaxed) {
+            return Err(Error::Stopped.into());
+        }
+        thread::sleep(STOP_CHECK);
+    }
+    Ok(())
 }
 
 pub struct SendJob {
@@ -386,16 +392,45 @@ impl SendJob {
             let finished = total == Some(sent);
             if finished || last.is_none_or(|at| at.elapsed() >= PROGRESS_EVERY) {
                 last = Some(Instant::now());
-                self.courier.send(Event::SendProgress {
-                    service: self.service,
-                    generation: self.generation,
-                    send: self.id,
-                    stage: SendStage::Uploading { sent, total },
-                });
+                self.report(SendStage::Uploading { sent, total });
             }
             !self.stop.load(Ordering::Relaxed)
         };
-        Ok(self.client.send(&outgoing, &mut progress)?)
+        match self.shipment.destination.how {
+            SendAs::File => Ok(self.client.send(&outgoing, &mut progress)?),
+            SendAs::PartStudio => {
+                let translation = self.client.send_part_studio(&outgoing, &mut progress)?;
+                self.await_part_studio(&translation)?;
+                Ok(Sent {
+                    name: outgoing.name.trim().to_owned(),
+                    outcome: SendOutcome::PartStudio,
+                })
+            }
+        }
+    }
+
+    fn await_part_studio(&self, translation: &caditor_cloud::Translation) -> Result<(), Failure> {
+        let service = self.service;
+        let deadline = Instant::now() + CONVERSION_PATIENCE;
+        loop {
+            self.report(SendStage::Translating);
+            if self.client.poll_part_studio(translation)? == Placement::Done {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(Error::PartStudioTimedOut { service }.into());
+            }
+            pause(&self.stop, POLL_EVERY)?;
+        }
+    }
+
+    fn report(&self, stage: SendStage) {
+        self.courier.send(Event::SendProgress {
+            service: self.service,
+            generation: self.generation,
+            send: self.id,
+            stage,
+        });
     }
 }
 

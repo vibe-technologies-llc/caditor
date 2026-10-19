@@ -46,7 +46,9 @@ a `Transport`; the app never speaks a service's protocol itself.
   `folder`, `versions` (a design's saved versions, newest first; none for a service whose versions
   are folders), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
   `poll_conversion`, `fetch`, `fetch_upload` (an `Upload` streamed as it is stored, with no
-  conversion), `send` (an `Outgoing` into a folder, with progress and stop) and
+  conversion), `send` (an `Outgoing` into a folder, with progress and stop),
+  `send_part_studio`/`poll_part_studio` (a service that can import the file as its own model
+  rather than store it: `NotOffered` by default; Onshape only) and
   `thumbnail`
   (a design's picture as the bytes the service sent, `Ok(None)` when it has none; the default is
   none, so a service without one implements nothing). A service is one variant of `Service`
@@ -58,7 +60,9 @@ a `Transport`; the app never speaks a service's protocol itself.
 - `Transport` (`transport.rs`) is `send` (a bounded answer body, JSON or a
   picture's bytes; a request is a GET, POST or PUT whose body is empty, a form, JSON, JSON:API
   (`application/vnd.api+json`), bytes or a `Multipart` of text fields and one file, whose boundary
-  is random per upload and whose names reach the headers percent-encoded unless plain ASCII) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
+  is random per upload and whose names reach the headers percent-encoded unless plain ASCII),
+  `send_tracked` (the same for a multipart, reporting the body's bytes as they go out and stopping
+  when progress says so; `Network` streams it, other bodies fall back to `send`) and `fetch` (a streamed body into a sink with progress and stop); its errors are `TransportError`s. `Network` (`network.rs`) is
   ureq over rustls with the pure-Rust graviola crypto provider and bundled roots: no OpenSSL, no
   `ring`, no C. HTTPS only, at most five redirects, an answer capped at 16 MiB, separate timeouts
   for answers, downloads and uploads (a request carrying bytes or a multipart, which also wait
@@ -156,8 +160,13 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   root, never the designs. A `DesignId` is `<partstudios|assemblies>/<w|v>/<id>/<element>`,
   since the translation endpoint needs all of them. Drawings and Part Studio parts are
   not offered; a blob element whose name ends in a known `UploadFormat` extension is an `Upload`
-  (`w|v/<id>/<element>`, `UploadPlace`), listed beside the designs, with no date since an element
-  carries none.
+  (`w|v/<id>/<element>`, `UploadPlace`), listed beside the designs. An element carries no date, so
+  a workspace's blobs are dated from `/documents/d/{did}/w/{wid}/documenthistory` (read only when
+  the workspace holds a blob of a known format): the entry whose `microversionId` is the element's
+  own gives `date`. A history that cannot be read, or has no such entry, leaves the blob undated;
+  only a lost sign-in or a rate limit fails the folder. A version's blobs are never dated. That the
+  element's `microversionId` matches a history entry is unverified against a live server
+  (`docs/DECISIONS.md`).
 - Import: a `translations` request with `formatName: STEP` and `storeInDocument: false` (the
   document is never changed), `Translation::source` being `<document>/<translation>`, polled until
   `requestState` is `DONE` with a `resultExternalDataIds` entry, then
@@ -174,10 +183,23 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   which Onshape keeps as a new microversion in its history, so `SendOutcome::NewVersion` has no
   number) with the file part, `encodedFilename` (the name percent-encoded), `translate=false` and
   `storeInDocument=true`, so Onshape stores the file as it is and never translates it into a Part
-  Studio. 403 is `SendForbidden`, 401 `SignedOut`. Progress is reported before and after the one
-  request, and stopping works only before it. The fields and endpoints are from Onshape's published
-  import guide and tested only against that shape, never a live server (`docs/DECISIONS.md`). Importing the
-  file as a Part Studio (`translate=true`, polled) is not offered (`docs/FEATURES.md`).
+  Studio. 403 is `SendForbidden`, 401 `SignedOut`. The body goes out through
+  `Transport::send_tracked`, whose `Network` implementation hands the encoded multipart to ureq as a
+  reader with an explicit `Content-Length` and reports each chunk handed over (`Tracked`, at most
+  64 KiB at a time); progress returning false ends the read, the transfer is dropped and the result
+  is `TransportError::Stopped`, so a large file can be cancelled mid-send and nothing is created.
+  The provider reports the file's own bytes (the body's few hundred bytes of framing are capped
+  away), and the full size again once the answer is read.
+- Sending as a Part Studio (`Provider::send_part_studio`, `poll_part_studio`, `SendAs::PartStudio`;
+  `Service::sends_part_studios` gates the manager's Send as a Part Studio button): the same
+  multipart `POST /blobelements/d/{did}/w/{wid}` with `translate=true`, `formatName=STEP`,
+  `storeInDocument=false` and `encodedFilename`, no existing element involved (each send makes a new
+  Part Studio). The answer is a translation request (`id`, `requestState`, with `resultElementIds`
+  and `resultExternalDataIds` null until done, which `TranslationState` reads as empty), returned as
+  a `Translation` (`<document>/<id>`). `poll_part_studio` reads `/translations/{id}`: `DONE` with a
+  `resultElementIds` entry is `Placement::Done`; `FAILED`, or `DONE` with none, is
+  `Error::PartStudioFailed`; anything else is `Placement::Working`. Onshape's published API has no
+  way to cancel a translation, so Cancel only stops waiting.
 
 ## The app service (`cloud.rs`)
 
@@ -227,9 +249,14 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   item so the body is.
 - Sending is one job (`SendJob`) of a `Shipment` (a `Destination` of service, folder and the
   folder's name for words, the file name and the exported STEP file), run at most one at a time per
-  service (`Linked::sending`, `Send` with `SendStage`: `Starting`, `Uploading`, `Failed`). The job
-  reads the file, `Client::send`s it with progress throttled like a download's, and removes the
-  file whatever came of it; Cancel stops it between parts. On success the destination folder and the
+  service (`Linked::sending`, `Send` with `SendStage`: `Starting`, `Uploading`, `Translating`,
+  `Failed`). The job reads the file, `Client::send`s it with progress throttled like a download's,
+  and removes the file whatever came of it; Cancel stops it between parts, and for Onshape inside
+  the request body. A `Destination` carries its `SendAs`: `File` is the above, `PartStudio`
+  (Onshape's Send as a Part Studio button) `Client::send_part_studio`s and then polls
+  `poll_part_studio` every two seconds for ten minutes at most (`Error::PartStudioTimedOut`),
+  reporting `Translating`, Cancel stopping the wait between polls; the outcome is
+  `SendOutcome::PartStudio`, worded as a new Part Studio. Try again keeps the `SendAs`. On success the destination folder and the
   project's root are dropped from `Linked` so the manager lists the new file, and a notice says
   whether it is a new file or version N; a sign-in that has ended signs the connection out with a
   notice; any other failure stays as `SendStage::Failed` with Try again, which exports again. The

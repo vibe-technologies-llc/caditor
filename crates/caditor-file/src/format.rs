@@ -23,12 +23,12 @@ use caditor_document::{
     PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation,
     PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
-    RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
-    group_name, material_name, unscaled, untwisted, view_name,
+    ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis,
+    RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar, SavedView, SavedViews,
+    Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
+    SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    TurnCentre, Wall, folder_label, group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -334,6 +334,7 @@ pub(crate) enum FeatureKindRecord {
     MoveFace(Box<MoveFaceRecord>),
     Draft(Box<DraftRecord>),
     Emboss(Box<EmbossRecord>),
+    ReplaceFace(Box<ReplaceFaceRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -922,6 +923,14 @@ pub(crate) struct DraftRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ReplaceFaceRecord {
+    pub body: u64,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<Lenient<PlaneReferenceRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FaceAngleRecord {
     pub face: FaceRecord,
     pub angle: String,
@@ -936,6 +945,10 @@ pub(crate) struct EmbossRecord {
     pub faces: Vec<Lenient<FaceRecord>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recessed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regions: Option<RegionsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region_references: RegionReferencesRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1092,7 +1105,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 90] = [
+pub(crate) const FEATURE_KINDS: [&str; 91] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1183,6 +1196,7 @@ pub(crate) const FEATURE_KINDS: [&str; 90] = [
     "move_face",
     "draft",
     "emboss",
+    "replace_face",
 ];
 
 #[derive(Debug, Clone)]
@@ -3522,7 +3536,26 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
             recessed: !emboss.form.is_raised(),
+            regions: match &emboss.regions {
+                RegionChoice::All => None,
+                chosen @ RegionChoice::Chosen(_) => Some(regions_record(chosen)),
+            },
+            region_references: region_references_record(&emboss.regions),
         })),
+        FeatureKind::ReplaceFace(replace) => {
+            FeatureKindRecord::ReplaceFace(Box::new(ReplaceFaceRecord {
+                body: replace.body.raw(),
+                faces: replace
+                    .faces
+                    .iter()
+                    .map(|face| Lenient::Read(face_record(face)))
+                    .collect(),
+                target: replace
+                    .target
+                    .as_ref()
+                    .map(|target| Lenient::Read(plane_reference_record(target))),
+            }))
+        }
         FeatureKind::MoveFace(moving) => FeatureKindRecord::MoveFace(Box::new(MoveFaceRecord {
             body: moving.body.raw(),
             faces: moving
@@ -7157,6 +7190,9 @@ fn restore_kind(
             FeatureKind::MoveFace(restore_move_face(record, name, issues))
         }
         FeatureKindRecord::Draft(record) => FeatureKind::Draft(restore_draft(record, name, issues)),
+        FeatureKindRecord::ReplaceFace(record) => {
+            FeatureKind::ReplaceFace(restore_replace_face(record, name, issues))
+        }
         FeatureKindRecord::Sweep(record) => {
             FeatureKind::Solid(SolidFeature::Sweep(restore_sweep(record, name, issues)))
         }
@@ -9013,6 +9049,46 @@ fn restore_draft(record: &DraftRecord, feature: &str, issues: &mut Vec<String>) 
     }
 }
 
+fn restore_replace_face(
+    record: &ReplaceFaceRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> ReplaceFace {
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces replaced by “{feature}” could not be read and were left as they stand."
+        ));
+    }
+    let target = record.target.as_ref().and_then(|target| {
+        let restored = match target {
+            Lenient::Read(plane) => restore_plane_reference(plane),
+            Lenient::Unreadable(_) => None,
+        };
+        if restored.is_none() {
+            issues.push(format!(
+                "The target plane of “{feature}” could not be read, so it waits for a target to \
+                 be chosen again."
+            ));
+        }
+        restored
+    });
+    ReplaceFace {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        target,
+    }
+}
+
 fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>) -> Emboss {
     let depth = restore_value(&record.depth, "depth", "1 mm", feature, issues);
     let faces: Vec<FaceReference> = record
@@ -9034,6 +9110,12 @@ fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>
         body: FeatureId::from_raw(record.body),
         faces,
         sketch: record.sketch.map(FeatureId::from_raw),
+        regions: restore_regions(
+            record.regions.as_ref().unwrap_or(&RegionsRecord::All),
+            &record.region_references,
+            feature,
+            issues,
+        ),
         depth,
         form: if record.recessed {
             EmbossForm::Recessed

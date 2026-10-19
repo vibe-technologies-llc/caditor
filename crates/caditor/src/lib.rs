@@ -176,6 +176,8 @@ mod reference_picking;
 mod reference_rows;
 mod removal;
 mod repeating;
+mod replace_face_panel;
+mod replace_face_tools;
 mod reversing;
 mod rib_panel;
 mod rib_tools;

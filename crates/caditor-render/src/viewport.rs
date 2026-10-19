@@ -13,13 +13,13 @@ use crate::{
     kept::{KeptView, Shown, ViewCopy},
     lighting::{
         EnvironmentBound, Ground, LightFrame, LightPass, LightPassReady, LightUniform, PEEL_LAYERS,
-        peel_pipeline, shadow_pipeline,
+        SHADOW_MAP_SIDE, depth_pipeline, peel_pipeline, shadow_pipeline,
     },
     lines::{LINE_POINT_SLOTS, LINE_POINT_STRIDE, LineStrips, line_instances},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, StyleLayout, UploadBudget, pack_color},
     occlusion::{
         MOST_PIXELS, Occlusion, OcclusionLayouts, OcclusionPasses, OcclusionReady,
-        OcclusionUniform, PassArea, screen_pipeline, surfaces_pipeline,
+        OcclusionUniform, PassArea, floor_surfaces_pipeline, screen_pipeline, surfaces_pipeline,
     },
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     pictures::PictureCache,
@@ -54,7 +54,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 736;
+const VIEW_UNIFORM_SIZE: u64 = 880;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -254,8 +254,10 @@ struct Pipelines {
     pictures_in_front: wgpu::RenderPipeline,
     shadows: wgpu::RenderPipeline,
     peels: wgpu::RenderPipeline,
+    depths: wgpu::RenderPipeline,
     sky: wgpu::RenderPipeline,
     surfaces: wgpu::RenderPipeline,
+    floor_surfaces: wgpu::RenderPipeline,
     occlusion: wgpu::RenderPipeline,
     occlusion_blur: wgpu::RenderPipeline,
     pick: PickPipelines,
@@ -1136,6 +1138,7 @@ pub struct ViewportRenderer {
     set_aside: Vec<(u32, Pipelines)>,
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
+    cross_view_uniform: Uniform,
     grid_uniform: Uniform,
     quad_indices: QuadIndices,
     batches: Vec<GpuBatch>,
@@ -1220,6 +1223,7 @@ impl ViewportRenderer {
             set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
+            cross_view_uniform: Uniform::new(device, &view_layout, "cross view", VIEW_UNIFORM_SIZE),
             occlusion_view_uniform: Uniform::new(
                 device,
                 &view_layout,
@@ -1553,6 +1557,12 @@ impl ViewportRenderer {
                 "pick view",
                 VIEW_UNIFORM_SIZE,
             ),
+            cross_view_uniform: Uniform::new(
+                device,
+                &self.view_layout,
+                "cross view",
+                VIEW_UNIFORM_SIZE,
+            ),
             grid_uniform: Uniform::new(device, &self.grid_layout, "grid", GRID_UNIFORM_SIZE),
             quad_indices: self.quad_indices.clone(),
             batches: Vec::new(),
@@ -1688,6 +1698,22 @@ impl ViewportRenderer {
             (transform, Strokes::Finished),
         );
         self.view_uniform.write(queue, &self.staging);
+        if plan.light.bounces() {
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                plan.pixels_per_point,
+                (
+                    self.shading,
+                    plan.reflection,
+                    &plan.section[..],
+                    &plan.light.crossing(),
+                    &plan.occluded,
+                ),
+                (transform, Strokes::Finished),
+            );
+            self.cross_view_uniform.write(queue, &self.staging);
+        }
         if plan.occluded.occludes() {
             let margined = image::margined_tile_transform(tile, plan.size, MOST_PIXELS);
             view_uniform(
@@ -1776,6 +1802,11 @@ impl ViewportRenderer {
             pass.set_bind_group(2, previous, &[]);
             self.meshes.draw_all(&mut pass, &self.pipelines.peels);
         }
+        let Some(mut pass) = self.light_pass.begin_cross_pass(encoder) else {
+            return;
+        };
+        pass.set_bind_group(0, &self.cross_view_uniform.bind_group, &[]);
+        self.meshes.draw_all(&mut pass, &self.pipelines.depths);
     }
 
     fn draw_occlusion(
@@ -1795,6 +1826,10 @@ impl ViewportRenderer {
         };
         self.occlusion.draw(encoder, &passes, |pass| {
             self.meshes.draw_all(pass, &self.pipelines.surfaces);
+            if self.light.shows_floor() {
+                pass.set_pipeline(&self.pipelines.floor_surfaces);
+                pass.draw(0..3, 0..1);
+            }
         });
     }
 
@@ -2057,6 +2092,22 @@ impl ViewportRenderer {
             (WHOLE_VIEW, Strokes::Finished),
         );
         changed |= self.view_uniform.write(queue, &self.staging);
+        if self.light.bounces() {
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                pixels_per_point,
+                (
+                    self.shading,
+                    scene.reflection,
+                    &scene.section,
+                    &self.light.crossing(),
+                    &self.occluded,
+                ),
+                (WHOLE_VIEW, Strokes::Finished),
+            );
+            self.cross_view_uniform.write(queue, &self.staging);
+        }
         let prepared = viewport.pick_at.map(|cursor| {
             (
                 cursor,
@@ -2124,24 +2175,27 @@ impl ViewportRenderer {
         };
         let casters: Vec<[Point3; 8]> = self.meshes.placed_corners().collect();
         let ground = Ground::under(&casters);
-        let frame = match ready {
+        let (frame, cross) = match ready {
             LightPassReady::Ready => {
                 let shadows = ground
                     .map(|ground| ground.shadows_of(toward_light, &casters))
                     .unwrap_or_default();
-                LightFrame::fitted(
+                let frame = LightFrame::fitted(
                     toward_light,
                     view.eye(),
                     casters.iter().chain(&shadows).copied(),
-                )
+                    SHADOW_MAP_SIDE,
+                );
+                let cross = LightFrame::crossing(toward_light, view.eye(), casters.iter().copied());
+                (frame, cross)
             }
-            LightPassReady::Refused | LightPassReady::NewlyRefused => None,
+            LightPassReady::Refused | LightPassReady::NewlyRefused => (None, None),
         };
         let environment = scene.backdrop.as_ref().map_or([0.0; 4], |backdrop| {
             self.light_pass
                 .environment_uniform(backdrop.turn, backdrop.stops)
         });
-        self.light = LightUniform::of((lighting, view), toward_light, (frame, ground))
+        self.light = LightUniform::of((lighting, view), toward_light, (frame, cross, ground))
             .with_environment(environment);
         matches!(ready, LightPassReady::NewlyRefused)
     }
@@ -2785,6 +2839,7 @@ impl Pipelines {
             pictures_in_front: picture("pictures in front", wgpu::CompareFunction::Always),
             shadows: shadow_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
             peels: peel_pipeline(device, &module, &peel_pipeline_layout, &meshes),
+            depths: depth_pipeline(device, &module, &mesh_pipeline_layout, &meshes),
             sky: build_pipeline(
                 device,
                 &PipelineSpec {
@@ -2807,6 +2862,7 @@ impl Pipelines {
                 &meshes,
                 FACE_DEPTH_BIAS,
             ),
+            floor_surfaces: floor_surfaces_pipeline(device, (&module, &scene_layout)),
             occlusion: screen_pipeline(
                 device,
                 (&module, &occlusion_pipeline_layout),

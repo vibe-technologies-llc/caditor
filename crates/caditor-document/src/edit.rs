@@ -1172,6 +1172,7 @@ impl Document {
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
             | (FeatureKind::MoveFace(_), FeatureKind::MoveFace(_))
             | (FeatureKind::Draft(_), FeatureKind::Draft(_))
+            | (FeatureKind::ReplaceFace(_), FeatureKind::ReplaceFace(_))
             | (FeatureKind::DeleteFace(_), FeatureKind::DeleteFace(_))
             | (FeatureKind::Emboss(_), FeatureKind::Emboss(_))
             | (FeatureKind::SplitFace(_), FeatureKind::SplitFace(_))

@@ -4,7 +4,7 @@ use caditor_geometry::RigidTransform;
 use thiserror::Error;
 
 use super::{
-    Carried, OFFSET_TOLERANCE, Offsets, ShellError,
+    Carried, Motion, OFFSET_TOLERANCE, Offsets, ShellError,
     collapse::loop_edges,
     inner::{Naming, inner_solid},
 };
@@ -82,21 +82,21 @@ pub fn move_faces(
 ) -> Result<Solid, MoveError> {
     move_each(
         solid,
-        &[Carried {
+        vec![Carried {
             faces,
-            motion: *motion,
+            motion: Motion::rigid(*motion),
         }],
     )
 }
 
-pub(super) fn move_each(solid: &Solid, groups: &[Carried<'_>]) -> Result<Solid, MoveError> {
+pub(super) fn move_each(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> {
     carried(solid, groups).or_else(|error| {
         interrupt::check()?;
         Err(error)
     })
 }
 
-fn travel(solid: &Solid, faces: &[FaceId], motion: &RigidTransform) -> f64 {
+fn travel(solid: &Solid, faces: &[FaceId], motion: &Motion) -> f64 {
     let edges: BTreeSet<EdgeId> = faces
         .iter()
         .flat_map(|face| loop_edges(solid, *face))
@@ -110,11 +110,11 @@ fn travel(solid: &Solid, faces: &[FaceId], motion: &RigidTransform) -> f64 {
                 .map(|parameter| edge.curve().point(parameter))
                 .collect::<Vec<_>>()
         })
-        .map(|point| motion.apply_point(point).distance(point))
+        .map(|point| motion.carried(point).distance(point))
         .fold(0.0, f64::max)
 }
 
-fn carried(solid: &Solid, groups: &[Carried<'_>]) -> Result<Solid, MoveError> {
+fn carried(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> {
     if groups.iter().all(|group| group.faces.is_empty()) {
         return Err(MoveError::NothingToMove);
     }
@@ -128,7 +128,7 @@ fn carried(solid: &Solid, groups: &[Carried<'_>]) -> Result<Solid, MoveError> {
     if !reach.is_finite() || reach <= LINEAR_RESOLUTION {
         return Err(MoveError::Unmoved);
     }
-    let offsets = Offsets::rigid(solid, groups, reach.max(OFFSET_TOLERANCE));
+    let offsets = Offsets::carrying(solid, groups, reach.max(OFFSET_TOLERANCE));
     let inner = inner_solid(&offsets, Naming::Kept)?;
     if let Some(face) = inner.dropped.iter().next() {
         return Err(MoveError::Vanishes(*face));

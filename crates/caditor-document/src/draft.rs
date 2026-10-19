@@ -1,11 +1,11 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId};
-use caditor_geometry::Plane;
+use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
     DraftError, DraftedFace, EdgeId, Face, FaceId, FaceName, FaceReference, FaceSplitError,
-    LINEAR_RESOLUTION, MoveError, STEEPEST_DRAFT, Solid, SplitPiece, Surface, draft_faces,
-    split_faces, tangent_faces,
+    LINEAR_RESOLUTION, MoveError, STEEPEST_DRAFT, Solid, SplitPiece, Surface, check_draftable,
+    draft_faces, split_faces, tangent_faces,
 };
 
 use crate::{
@@ -150,7 +150,7 @@ enum Side {
     Beyond,
 }
 
-fn boundary_heights(solid: &Solid, face: FaceId, plane: &Plane) -> Vec<f64> {
+fn boundary_points(solid: &Solid, face: FaceId) -> Vec<Point3> {
     let Some(definition) = solid.face(face) else {
         return Vec::new();
     };
@@ -168,9 +168,16 @@ fn boundary_heights(solid: &Solid, face: FaceId, plane: &Plane) -> Vec<f64> {
         .flat_map(|edge| {
             edge.interval()
                 .split(BOUNDARY_SAMPLES)
-                .map(|parameter| plane.signed_distance(edge.curve().point(parameter)))
+                .map(|parameter| edge.curve().point(parameter))
                 .collect::<Vec<_>>()
         })
+        .collect()
+}
+
+fn boundary_heights(solid: &Solid, face: FaceId, plane: &Plane) -> Vec<f64> {
+    boundary_points(solid, face)
+        .into_iter()
+        .map(|point| plane.signed_distance(point))
         .collect()
 }
 
@@ -281,24 +288,33 @@ impl Context<'_> {
         Plane::new(plane.origin(), pull).ok_or_else(|| self.error(DraftCause::Unsplit))
     }
 
-    fn check_flat(
+    fn check_draftable(
         &self,
         solid: &Solid,
         faces: &[Tilted],
         picked: &[FaceId],
+        neutral: &Plane,
     ) -> Result<(), Failure> {
-        let curved = faces.iter().map(|chosen| chosen.face).find(|face| {
-            solid
-                .face(*face)
-                .is_some_and(|definition| !matches!(definition.surface(), Surface::Plane(_)))
-        });
-        match curved {
-            Some(face) => Err(self.error(DraftCause::NotFlat {
-                face: self.describe(solid, face),
-                chained: !picked.contains(&face),
-            })),
-            None => Ok(()),
+        for face in faces.iter().map(|chosen| chosen.face) {
+            let chained = !picked.contains(&face);
+            match check_draftable(solid, face, neutral) {
+                Ok(()) => {}
+                Err(DraftError::NotDraftable(_)) => {
+                    return Err(self.error(DraftCause::NotDraftable {
+                        face: self.describe(solid, face),
+                        chained,
+                    }));
+                }
+                Err(DraftError::OffPull(_)) => {
+                    return Err(self.error(DraftCause::OffPull {
+                        face: self.describe(solid, face),
+                        chained,
+                    }));
+                }
+                Err(error) => return Err(self.failure(solid, &error)),
+            }
         }
+        Ok(())
     }
 
     fn own_angles(&self, solid: &Solid) -> Result<Vec<Tilted>, Failure> {
@@ -343,10 +359,17 @@ impl Context<'_> {
             DraftError::TooSteep(_) => self.error(DraftCause::Steep {
                 angled: Angled::Along,
             }),
-            DraftError::NotFlat(of) => self.error(DraftCause::NotFlat {
+            DraftError::NotDraftable(of) => self.error(DraftCause::NotDraftable {
                 face: face(of),
                 chained: false,
             }),
+            DraftError::OffPull(of) => self.error(DraftCause::OffPull {
+                face: face(of),
+                chained: false,
+            }),
+            DraftError::NarrowsToPoint(of) => {
+                self.error(DraftCause::NarrowsToPoint { face: face(of) })
+            }
             DraftError::AlongNeutral(of) => self.error(DraftCause::AlongNeutral { face: face(of) }),
             DraftError::AlreadyDrafted | DraftError::Move(MoveError::Unmoved) => {
                 self.error(DraftCause::AlreadyDrafted)
@@ -367,7 +390,7 @@ impl Context<'_> {
                 body: self.definition.body,
             }),
             MoveError::MissingFace(_) => self.error(DraftCause::FaceGone { body }),
-            MoveError::UnsupportedFace(of) => self.error(DraftCause::NotFlat {
+            MoveError::UnsupportedFace(of) => self.error(DraftCause::NotDraftable {
                 face: face(of),
                 chained: false,
             }),
@@ -453,7 +476,9 @@ impl Context<'_> {
 pub(crate) enum DraftCause {
     Steep { angled: Angled },
     FaceGone { body: String },
-    NotFlat { face: String, chained: bool },
+    NotDraftable { face: String, chained: bool },
+    OffPull { face: String, chained: bool },
+    NarrowsToPoint { face: String },
     AlongNeutral { face: String },
     AlreadyDrafted,
     Unsplit,
@@ -480,17 +505,22 @@ impl DraftCause {
             Self::FaceGone { body } => {
                 format!("A face to draft is no longer part of the body of {body}.")
             }
-            Self::NotFlat { face, chained } => {
-                let how = if *chained {
-                    ", and it joins the chosen faces smoothly"
-                } else {
-                    ""
-                };
-                format!(
-                    "{} is curved{how}; only flat faces can be drafted.",
-                    capitalized(face)
-                )
-            }
+            Self::NotDraftable { face, chained } => format!(
+                "{} is curved in a way that cannot be drafted{}; only flat faces and round faces \
+                 about the pull direction can be.",
+                capitalized(face),
+                joining(*chained)
+            ),
+            Self::OffPull { face, chained } => format!(
+                "{} is round about an axis that does not run along the pull direction{}, so it \
+                 cannot be drafted.",
+                capitalized(face),
+                joining(*chained)
+            ),
+            Self::NarrowsToPoint { face } => format!(
+                "{} would narrow to a point with this draft.",
+                capitalized(face)
+            ),
             Self::AlongNeutral { face } => format!(
                 "{} is parallel to the neutral plane, so it has no line to tilt about.",
                 capitalized(face)
@@ -527,12 +557,15 @@ impl DraftCause {
             Self::FaceGone { .. } => {
                 "Choose the faces again, or undo the change that removed it.".to_owned()
             }
-            Self::NotFlat { chained: true, .. } => {
+            Self::NotDraftable { chained: true, .. } | Self::OffPull { chained: true, .. } => {
                 "Turn off Follow tangent faces, or draft before rounding the edges between these \
                  faces."
                     .to_owned()
             }
-            Self::NotFlat { chained: false, .. } => "Leave this face out.".to_owned(),
+            Self::NotDraftable { chained: false, .. } => "Leave this face out.".to_owned(),
+            Self::OffPull { chained: false, .. } => {
+                "Leave this face out, or choose a neutral plane square to its axis.".to_owned()
+            }
             Self::AlongNeutral { .. } => {
                 "Leave this face out, or choose a neutral plane that crosses it.".to_owned()
             }
@@ -546,12 +579,21 @@ impl DraftCause {
                     .to_owned()
             }
             Self::Vanishes { .. }
+            | Self::NarrowsToPoint { .. }
             | Self::EdgeCollapses { .. }
             | Self::Invalid { .. }
             | Self::Crosses { .. } => {
                 "Enter a smaller angle, or move the neutral plane closer to the faces.".to_owned()
             }
         }
+    }
+}
+
+fn joining(chained: bool) -> &'static str {
+    if chained {
+        ", and it joins the chosen faces smoothly"
+    } else {
+        ""
     }
 }
 
@@ -635,7 +677,7 @@ pub(crate) fn evaluate(
         .chain(owned.iter().copied())
         .collect();
     picked.extend(owned.iter().map(|own| own.face));
-    context.check_flat(solid, &faces, &picked)?;
+    context.check_draftable(solid, &faces, &picked, &neutral)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -662,9 +704,10 @@ pub fn flipped_toward(plane: &Plane, solid: &Solid, faces: &[FaceId]) -> bool {
     mean < 0.0
 }
 
-fn floor_beside(solid: &Solid, face: FaceId) -> Option<FaceId> {
-    let normal = face_plane(solid, face)?.normal();
-    let definition = solid.face(face)?;
+fn neighbours(solid: &Solid, face: FaceId) -> Vec<FaceId> {
+    let Some(definition) = solid.face(face) else {
+        return Vec::new();
+    };
     let edges: BTreeSet<EdgeId> = definition
         .loops()
         .iter()
@@ -677,9 +720,42 @@ fn floor_beside(solid: &Solid, face: FaceId) -> Option<FaceId> {
         .into_iter()
         .flat_map(|edge| edge_faces(solid, edge))
         .filter(|other| *other != face)
+        .collect()
+}
+
+fn floor_beside(solid: &Solid, face: FaceId) -> Option<FaceId> {
+    let normal = face_plane(solid, face)?.normal();
+    neighbours(solid, face)
+        .into_iter()
         .filter_map(|other| Some((other, face_plane(solid, other)?.normal())))
         .filter(|(_, beside)| beside.dot(normal).abs() <= SQUARE_TO_WALL)
         .min_by(|(_, a), (_, b)| a.z.total_cmp(&b.z))
+        .map(|(other, _)| other)
+}
+
+fn round_axis(solid: &Solid, face: FaceId) -> Option<Vector3> {
+    match solid.face(face)?.surface() {
+        Surface::Cylinder(cylinder) => Some(cylinder.frame().normal()),
+        Surface::Cone(cone) => Some(cone.frame().normal()),
+        _ => None,
+    }
+}
+
+fn floor_of_round(solid: &Solid, face: FaceId) -> Option<FaceId> {
+    let axis = round_axis(solid, face)?;
+    let points = boundary_points(solid, face);
+    let middle =
+        points.iter().fold(Point3::ZERO, |sum, point| sum + *point) / points.len().max(1) as f64;
+    neighbours(solid, face)
+        .into_iter()
+        .filter_map(|other| Some((other, face_plane(solid, other)?)))
+        .filter(|(_, end)| end.normal().dot(axis).abs() >= 1.0 - SQUARE_TO_WALL)
+        .min_by(|(_, a), (_, b)| {
+            let facing_away = |end: &Plane| end.signed_distance(middle) <= 0.0;
+            facing_away(a)
+                .cmp(&facing_away(b))
+                .then(a.normal().z.total_cmp(&b.normal().z))
+        })
         .map(|(other, _)| other)
 }
 
@@ -687,19 +763,24 @@ pub fn default_neutral(body: FeatureId, solid: &Solid, faces: &[FaceId]) -> (Pla
     let first_flat = faces
         .iter()
         .find_map(|face| Some((*face, face_plane(solid, *face)?)));
-    let on_floor = first_flat.and_then(|(face, _)| {
-        let floor = floor_beside(solid, face)?;
-        FaceAttachment::capture(body, solid, floor)
-    });
+    let first_axis = faces.iter().find_map(|face| round_axis(solid, *face));
+    let floor = match first_flat {
+        Some((face, _)) => floor_beside(solid, face),
+        None => faces.iter().find_map(|face| floor_of_round(solid, *face)),
+    };
+    let on_floor = floor.and_then(|floor| FaceAttachment::capture(body, solid, floor));
     let (reference, plane) = match on_floor {
         Some((attachment, plane)) => (PlaneReference::Face(attachment), plane),
         None => {
             let principal = [PrincipalPlane::Xy, PrincipalPlane::Xz, PrincipalPlane::Yz]
                 .into_iter()
                 .find(|principal| {
-                    first_flat.is_none_or(|(_, wall)| {
-                        principal.plane().normal().dot(wall.normal()).abs() < ACROSS_WALL
-                    })
+                    let normal = principal.plane().normal();
+                    match (first_flat, first_axis) {
+                        (Some((_, wall)), _) => normal.dot(wall.normal()).abs() < ACROSS_WALL,
+                        (None, Some(axis)) => normal.dot(axis).abs() > ACROSS_WALL,
+                        (None, None) => true,
+                    }
                 })
                 .unwrap_or(PrincipalPlane::Xy);
             (PlaneReference::Principal(principal), principal.plane())

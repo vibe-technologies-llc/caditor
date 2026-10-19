@@ -124,6 +124,10 @@ const KEPT: [(&str, &str); 55] = [
         "cc4a8b402d64629be2a45e51e2287d29947cb6ddd376d7bc14d2c60d6a5a250e",
     ),
     (
+        "model-1/embossed-regions.caditor",
+        "e4bc1d51ee9d19af18cf83df2118bf892ae14e48980e96bfdb49c49a8f8a6ffc",
+    ),
+    (
         "model-1/extents.caditor",
         "079e3aa06ee8c687d2462c189baf9cb8a61920c7b54af61b2995a61f1fa31e28",
     ),
@@ -218,6 +222,10 @@ const KEPT: [(&str, &str); 55] = [
     (
         "model-1/reference-images.caditor",
         "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
+    ),
+    (
+        "model-1/replaced-faces.caditor",
+        "10a7960a405fc6dacbed55c51033b2e282b90b8759a85e2a947ae7ac40479422",
     ),
     (
         "model-1/ribs.caditor",
@@ -869,8 +877,16 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
         (model("drafts"), saved(&drafts(), "Drafts")),
         (
+            model("replaced-faces"),
+            saved(&replaced_faces(), "Replaced faces"),
+        ),
+        (
             model("embossed-faces"),
             saved(&embossed_faces(), "Embossed faces"),
+        ),
+        (
+            model("embossed-regions"),
+            saved(&embossed_regions(), "Embossed regions"),
         ),
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
@@ -2616,6 +2632,7 @@ fn embossed_faces() -> Document {
             body: base,
             faces: vec![end_cap(0xbeef)],
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("0.5 mm").unwrap(),
             form: EmbossForm::Raised,
         }),
@@ -2626,6 +2643,7 @@ fn embossed_faces() -> Document {
             body: base,
             faces: vec![end_cap(0xcafe), end_cap(0xbeef)],
             sketch: Some(sketch),
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("1 mm").unwrap(),
             form: EmbossForm::Recessed,
         }),
@@ -2636,8 +2654,58 @@ fn embossed_faces() -> Document {
             body: base,
             faces: Vec::new(),
             sketch: None,
+            regions: RegionChoice::All,
             depth: Expression::parse_stored("2 mm").unwrap(),
             form: EmbossForm::Raised,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn embossed_regions() -> Document {
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let sketch = document
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .unwrap();
+    let region = |digest: u128, entity: u64| {
+        RegionReference::new(
+            RegionKey::from_digest(digest),
+            BTreeSet::from([BoundaryPiece {
+                entity,
+                side: Side::Right,
+                piece: digest.rotate_left(32),
+            }]),
+            Some(Point2::new(1.5, 2.5)),
+        )
+    };
+    let mut transaction = document.transaction("Emboss");
+    transaction.add_feature(
+        "Some letters",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xbeef)],
+            sketch: Some(sketch),
+            regions: RegionChoice::Chosen(vec![
+                region(0x00ab_cdef_0123_4567_89ab_cdef_0123_4567, 1),
+                region(0x0fed_cba9_8765_4321_0fed_cba9_8765_4321, 2),
+            ]),
+            depth: Expression::parse_stored("0.3 mm").unwrap(),
+            form: EmbossForm::Raised,
+        }),
+    );
+    transaction.add_feature(
+        "No letters",
+        FeatureKind::Emboss(Emboss {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            sketch: Some(sketch),
+            regions: RegionChoice::Chosen(Vec::new()),
+            depth: Expression::parse_stored("0.3 mm").unwrap(),
+            form: EmbossForm::Recessed,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -2679,6 +2747,50 @@ fn drafts() -> Document {
                 face: end_cap(0xfade),
                 angle: Expression::parse_stored("6 deg").unwrap(),
             }],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn replaced_faces() -> Document {
+    use caditor_document::{FaceAttachment, PlaneReference, PrincipalPlane, ReplaceFace};
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let mut transaction = document.transaction("Replace face");
+    let plane = transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: Expression::parse_stored("12 mm").unwrap(),
+        })),
+    );
+    transaction.add_feature(
+        "Replace face",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xbeef), end_cap(0xfeed)],
+            target: Some(PlaneReference::Datum(plane)),
+        }),
+    );
+    transaction.add_feature(
+        "Replace face waiting for a target",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xfade)],
+            target: None,
+        }),
+    );
+    transaction.add_feature(
+        "Replace face with a face",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            target: Some(PlaneReference::Face(FaceAttachment {
+                body: base,
+                face: end_cap(0xd00d),
+            })),
         }),
     );
     document.apply(transaction.finish()).unwrap();

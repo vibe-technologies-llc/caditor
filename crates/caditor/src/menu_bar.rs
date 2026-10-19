@@ -48,6 +48,7 @@ const MODEL_SHAPING: [&[Command]; 1] = [&[
     Command::Emboss,
     Command::MoveFace,
     Command::Draft,
+    Command::ReplaceFace,
     Command::SplitFace,
     Command::Combine,
 ]];

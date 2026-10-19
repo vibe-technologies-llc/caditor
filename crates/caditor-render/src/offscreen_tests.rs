@@ -4037,6 +4037,77 @@ fn frame_costs_of_drawing_a_large_scene() {
     });
 }
 
+#[test]
+#[ignore = "a timing benchmark: cargo test --release -p caditor-render frame_costs -- --ignored --nocapture"]
+fn frame_costs_of_the_rendered_view() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let bench = Bench::new(&device, &queue);
+
+    let mut scene = small_meshes();
+    for instance in &mut scene.meshes {
+        instance.faces = instance
+            .faces
+            .iter()
+            .map(|style| FaceStyle {
+                finish: Some(MATTE),
+                ..*style
+            })
+            .collect();
+    }
+    scene.silhouettes.clear();
+    let viewpoint = Viewpoint::looking_from(
+        Vector3::new(0.6, -0.8, 0.7),
+        Point3::new(300.0, 240.0, 0.0),
+        900.0,
+    )
+    .unwrap();
+    let lit = |shadows: bool, bounce: f32, occlusion: f32, floor: bool| {
+        let mut shown = scene.clone();
+        shown.lighting = Some(crate::Lighting {
+            shadows,
+            bounce,
+            occlusion,
+            environment: 0.3,
+            surroundings: crate::Surroundings {
+                backdrop: None,
+                floor,
+            },
+            ..lit_by(0.4, 0.9)
+        });
+        shown
+    };
+    let moving = |shown: Scene| {
+        move |frame: u32| BenchFrame {
+            scene: Cow::Owned(shown.clone()),
+            viewpoint: turned(viewpoint, frame),
+            pick_at: None,
+        }
+    };
+
+    bench.time(
+        "rendered view, shadows only",
+        None,
+        moving(lit(true, 0.0, 0.0, false)),
+    );
+    bench.time(
+        "rendered view, with bounce",
+        None,
+        moving(lit(true, 1.0, 0.0, false)),
+    );
+    bench.time(
+        "rendered view, with bounce and occlusion",
+        None,
+        moving(lit(true, 1.0, 1.0, false)),
+    );
+    bench.time(
+        "rendered view, with bounce, occlusion and the floor",
+        None,
+        moving(lit(true, 1.0, 1.0, true)),
+    );
+}
+
 fn styled_box(color: Color, first_pick: usize) -> MeshInstance {
     MeshInstance {
         mesh: Arc::new(box_mesh(20.0)),
@@ -5524,6 +5595,144 @@ fn a_wall_the_sun_does_not_light_still_stops_the_light_it_would_bounce_there() {
     assert!(
         walled * 2 < open,
         "{open_plain:?} {open_bounced:?} {walled_plain:?} {walled_bounced:?}"
+    );
+}
+
+fn upright_quad_mesh(y: f64, half_width: f64, height: f64) -> ShadedMesh {
+    let corner = |x: f64, z: f64| MeshPoint {
+        position: Point3::new(x * half_width, y, z * height),
+        normal: Vector3::Y,
+    };
+    ShadedMesh::new([MeshFace {
+        points: vec![
+            corner(-1.0, 0.0),
+            corner(1.0, 0.0),
+            corner(1.0, 1.0),
+            corner(-1.0, 1.0),
+        ],
+        triangles: vec![[0, 1, 2], [0, 2, 3]],
+    }])
+}
+
+#[test]
+fn a_wall_edge_on_to_the_sun_still_stops_the_light_it_would_bounce_there() {
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let source = Arc::new(cuboid_mesh(Vector3::new(10.0, 4.0, 10.0)));
+    let screen = Arc::new(upright_quad_mesh(-0.5, 30.0, 18.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let red = Color::from_rgb8(220, 30, 30);
+    let dark = Color::from_rgb8(20, 20, 20);
+    let wall = RigidTransform::translation(Vector3::new(-20.0, 4.0, 10.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-6.0, -2.0, 0.0)];
+    let scene_with = |bounce: f32, screened: bool| Scene {
+        meshes: [
+            Some(finished_mesh(&floor, white, MATTE, None)),
+            Some(finished_mesh(&source, red, MATTE, wall)),
+            screened.then(|| finished_mesh(&screen, dark, MATTE, None)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+    let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+    let tint = |screened: bool| {
+        let plain = rendered_pixels(&scene_with(0.0, screened), &view, &spots)?;
+        let bounced = rendered_pixels(&scene_with(4.0, screened), &view, &spots)?;
+        Some((warmth(bounced[0]) - warmth(plain[0]), plain, bounced))
+    };
+
+    let Some((open, open_plain, open_bounced)) = tint(false) else {
+        return;
+    };
+    let (screened, screened_plain, screened_bounced) = tint(true).unwrap();
+
+    assert!(open > 10, "{open_plain:?} {open_bounced:?}");
+    assert!(
+        screened * 2 < open,
+        "{open_plain:?} {open_bounced:?} {screened_plain:?} {screened_bounced:?}"
+    );
+}
+
+#[test]
+fn the_visible_floor_bounces_light_onto_the_foot_of_a_body_and_not_while_it_is_hidden() {
+    let cube = Arc::new(box_mesh(10.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(0.0, -10.0, 2.0)];
+    let scene_with = |bounce: f32, floor: bool| Scene {
+        meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            surroundings: crate::Surroundings {
+                backdrop: None,
+                floor,
+            },
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(hidden) = rendered_pixels(&scene_with(4.0, false), &view, &spots) else {
+        return;
+    };
+    let shown = rendered_pixels(&scene_with(4.0, true), &view, &spots).unwrap();
+    let shown_without_bounce = rendered_pixels(&scene_with(0.0, true), &view, &spots).unwrap();
+
+    assert!(
+        brightness(shown[0]) > brightness(hidden[0]) + 20,
+        "{hidden:?} {shown:?}"
+    );
+    assert!(
+        brightness(shown[0]) > brightness(shown_without_bounce[0]) + 20,
+        "{shown_without_bounce:?} {shown:?}"
+    );
+}
+
+#[test]
+fn the_visible_floor_occludes_the_sky_for_the_foot_of_a_body_and_not_while_it_is_hidden() {
+    let cube = Arc::new(box_mesh(10.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let raised = RigidTransform::translation(Vector3::new(0.0, 0.0, 10.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(0.0, -10.0, 0.5), Point3::new(0.0, -10.0, 18.0)];
+    let scene_with = |floor: bool| Scene {
+        meshes: vec![finished_mesh(&cube, white, MATTE, raised)],
+        lighting: Some(crate::Lighting {
+            strength: 0.0,
+            occlusion: 1.0,
+            environment: 1.0,
+            surroundings: crate::Surroundings {
+                backdrop: None,
+                floor,
+            },
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+
+    let Some(hidden) = rendered_pixels(&scene_with(false), &view, &spots) else {
+        return;
+    };
+    let shown = rendered_pixels(&scene_with(true), &view, &spots).unwrap();
+
+    assert!(
+        brightness(shown[0]) + 20 < brightness(hidden[0]),
+        "{hidden:?} {shown:?}"
+    );
+    assert!(
+        brightness(shown[1]).abs_diff(brightness(hidden[1])) < 15,
+        "{hidden:?} {shown:?}"
     );
 }
 

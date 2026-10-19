@@ -131,13 +131,15 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
-  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, a `depth` and a `form` of `raise` or
+  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, its `regions` as an extrusion's points or `"all"`, a `depth` and a `form` of `raise` or
   `recess`), move face (`add_move_face`: a signed `distance`
   along `direction`, `"normal"` or an axis as `places::axis` takes it, and an `angle` about `axis`,
   `"none"` or an axis; an edit keeps what it is not given), draft (`add_draft`: `faces`, an
   `angle`, a `neutral` plane as `places::plane` takes it, else `draft_tools::default_neutral_on`,
   the pull pointed at the faces unless `flipped` is given, `tangent`, `beyond` an angle or `"off"`
-  and `own_angles` of `{face, angle}` replacing the list), split (along a plane,
+  and `own_angles` of `{face, angle}` replacing the list), replace face (`add_replace_face`:
+  `faces` and a `target` plane as `places::plane` takes it; an edit keeps what it is not given),
+  split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
 - `datums.rs` places datums one way each, the way chosen by which arguments are given (two ways at
   once refused, `DatumError::TwoWays`; an edit keeps the way unless another is given): planes
@@ -296,7 +298,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   volume, with undo, renaming and refusals, and checks extrusion ends (curved faces, second sides), regions, walls, directions, offsets and tapers,
   revolves up to a plane, edits naming the edges and faces a fillet or shell received, and the edge,
   face and mirrored faces a pipe, an extrusion up to a face and a mirror received, and hole standards, heads, threads, steps, slots, drill points and circle sizing. `mcp/sweep_tests.rs` checks pipes, sweeps, lofts, coils,
-  threads, scales, splits, split faces, deleted, moved and drafted faces by volumes, body and face
+  threads, scales, splits, split faces, deleted, moved, drafted and replaced faces by volumes, body and face
   counts.
   `mcp/datum_tests.rs` places datum planes, axes, points and coordinate systems every way and
   edits them, probing each with a box placed on, mated to or turned about it, and mates bodies by
