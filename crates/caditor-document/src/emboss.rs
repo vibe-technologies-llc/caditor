@@ -513,10 +513,11 @@ pub(crate) fn evaluate(
     };
     let embossed = boolean(solid, &tool, operation)
         .map_err(|error| context.combine_failure(solid, &tool, &error))?;
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        embossed,
-    )))
+    let result = SolidResult::new(definition.body, embossed);
+    Ok(FeatureResult::Solid(match definition.form {
+        EmbossForm::Raised => result.joining([tool]),
+        EmbossForm::Recessed => result.cutting([tool]),
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq)]

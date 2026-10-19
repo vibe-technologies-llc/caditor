@@ -89,6 +89,9 @@ paths:
   away from its axis, the wrap's start and end caps lying at the one the sketch's side faces. An
   inward distance leaving no radius is `ReachesAxis`. The document's emboss builds its raised or
   recessed material with it.
+- `wrapped_stand(plane, regions, surface, at)` (`wrap.rs`) gives where a sketch point lands on the
+  surface the same regions wrap onto (the reference of their reach included) and the unit normal
+  there pointing away from the axis, for the emboss's depth arrow; the errors are the wrap's.
 - `wrap_chain(plane, curves, surface, solid, faces, feature)` (`wrap_cut.rs`) builds the tool that
   cuts the chosen faces along one open chain wrapped the same way (`NotOneChain` otherwise). Ends
   inside the faces' reach are carried straight on until they leave it (`EndRunsRound` when one runs

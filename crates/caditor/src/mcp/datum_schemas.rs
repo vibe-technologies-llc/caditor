@@ -135,7 +135,7 @@ pub fn curve_pattern() -> Value {
     object(
         json!({
             "body": reference("The body repeated"),
-            "features": features("Instead of a body: holes, cuts or bosses of one body, repeated on it"),
+            "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, repeated on it"),
             "sketch": reference("The sketch whose curves, joined end to end, the copies follow"),
             "count": amount("How many, the original included; 4 by default"),
             "spacing": amount("How far apart the copies stand along the curve; gives spread false"),
@@ -153,7 +153,7 @@ pub fn point_pattern() -> Value {
     object(
         json!({
             "body": reference("The body repeated"),
-            "features": features("Instead of a body: holes, cuts or bosses of one body, repeated on it"),
+            "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, repeated on it"),
             "sketch": reference("The sketch whose lone points place the copies"),
             "from": point(),
             "skipped": skipped(),

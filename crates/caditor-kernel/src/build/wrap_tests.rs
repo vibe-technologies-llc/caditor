@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -199,4 +199,20 @@ fn a_band_wraps_into_a_valid_solid() {
     let tool = wrap_regions_within(&plane, &outline, &surface, Some(band), TOOL).unwrap();
 
     assert_eq!(tool.validate(), Ok(()));
+}
+
+#[test]
+fn a_point_of_the_outlines_stands_on_the_surface_looking_away_from_the_axis() {
+    let (_, cylinder) = wall_of(&rod());
+    let surface = Surface::Cylinder(cylinder);
+    let plane = tangent_plane(RADIUS, Vector3::X);
+    let outline = regions(&rectangle(5, (10.0, -6.0), (20.0, 6.0)));
+
+    let (centre, _) = wrapped_stand(&plane, &outline, &surface, Point2::new(15.0, 0.0)).unwrap();
+    let (point, outward) =
+        wrapped_stand(&plane, &outline, &surface, Point2::new(15.0, 4.0)).unwrap();
+
+    assert!((point.x.hypot(point.y) - RADIUS).abs() < 1e-9);
+    assert!((outward - Vector3::new(point.x, point.y, 0.0) / RADIUS).length() < 1e-9);
+    assert!((centre.x - RADIUS).abs() < 1e-9);
 }

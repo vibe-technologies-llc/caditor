@@ -53,7 +53,7 @@ pub use crate::{
         SweepOrientation, SweepShape, WindingAxis, WrapBand, WrapError, extrude, extrude_along,
         extrude_flared, extrude_tapered, heights, heights_along, loft, loft_through, next_face,
         pipe, pipe_stand, revolve, stop_at_body, sweep, sweep_shaped, wrap_chain, wrap_regions,
-        wrap_regions_within,
+        wrap_regions_within, wrapped_stand,
     },
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec, HelixError,

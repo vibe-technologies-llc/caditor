@@ -758,7 +758,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   colours as an extrusion's, `selection::region_sketch` finding the sketch) and a click chooses a
   region or leaves it out (`emboss_tools::toggle_region`, "Choose regions of <emboss>"); the palette's
   Select all regions and Clear chosen regions and the tree's Take all regions reach it through
-  `solid_tools`. Its value arrow is the Depth (Value handles).
+  `solid_tools`. Its value arrow is the Depth (Value handles): it stands over the first chosen region on
+  the face's plane, or on a wrapped emboss's cylinder or cone where the region's anchor lands
+  (kernel `wrapped_stand`), pointing along the surface normal there, towards the axis for a bore.
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
   (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that

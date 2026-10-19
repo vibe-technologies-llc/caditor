@@ -1292,6 +1292,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   features hold the letters' tops and floors. `describe_origin` words them "<emboss> top" (raised) or
   "floor" (recessed) and "<emboss> side from <curve>". The tool spans from `EMBED` (0.01 mm) on the
   other side of the face to `depth` on the chosen one, so it crosses the face rather than lying on it.
+  The tool is also kept as the result's `joins` (raised) or `cuts` (recessed), which patterns and
+  mirrors of features repeat as a rigid copy (`repeatable_on`), never wrapped again.
   - Flat faces (all `face_plane`s in one plane, `tolerance::same_plane`): the sketch must be parallel
     to the plane (`NotParallel`); the tool is kernel `extrude` of the regions between the heights
     that put the face plane at 0, whatever plane the sketch lies in.
@@ -1338,8 +1340,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
 - With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
-  primitive, pipe, coil or loft adding to or removing from a body, a hole, a fillet or chamfer, or
-  a shell) it repeats their tools instead: for each, in tree order, the tools kept in its result
+  primitive, pipe, coil or loft adding to or removing from a body, a hole, an emboss, a fillet or
+  chamfer, or a shell) it repeats their tools instead: for each, in tree order, the tools kept in its result
   (`SolidResult::cuts` of a removal or hole, `joins` of an addition) are placed at every copy and
   unioned without the original (kernel `pattern_copies`), then cut from or joined to the body as it
   stands. A blend is repeated as Repeated blends below, a shell as Repeated shells. The repeated features are in `features()` and a

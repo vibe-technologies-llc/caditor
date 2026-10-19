@@ -36,7 +36,7 @@ pub use self::{
         sweep_shaped,
     },
     taper::{MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered},
-    wrap::{WrapBand, WrapError, wrap_regions, wrap_regions_within},
+    wrap::{WrapBand, WrapError, wrap_regions, wrap_regions_within, wrapped_stand},
     wrap_cut::wrap_chain,
 };
 use crate::{
