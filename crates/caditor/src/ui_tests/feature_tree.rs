@@ -1,5 +1,6 @@
 use caditor_document::{
-    Document, Edit, Feature, FeatureId, FeatureKind, RollbackBar, SolidFeature, Transaction,
+    Document, Edit, Feature, FeatureId, FeatureKind, PlaneReference, RollbackBar, SolidFeature,
+    Split, SplitAlong, Transaction,
 };
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
@@ -181,6 +182,75 @@ fn a_modifying_features_row_frames_the_body_it_changes_and_lights_the_faces_it_m
         target.x < 100.0,
         "the view is framed on the filleted body: {target:?}"
     );
+}
+
+#[test]
+fn a_split_off_body_s_row_lights_that_body_alone_not_the_body_it_was_split_from() {
+    let mut harness = Harness::new();
+    let mut blocks = Sketch::new(Plane::XY);
+    rectangle(
+        &mut blocks,
+        Point2::new(-30.0, 0.0),
+        Point2::new(-10.0, 20.0),
+    );
+    rectangle(&mut blocks, Point2::new(10.0, 0.0), Point2::new(30.0, 20.0));
+    harness.add_sketch(blocks);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let mut transaction = harness.document().transaction("Split");
+    let split = transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(Split {
+            body: extrude,
+            along: SplitAlong::Plane(PlaneReference::Principal(
+                caditor_document::PrincipalPlane::Yz,
+            )),
+            flipped: false,
+        }),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+    let colours = |harness: &mut Harness, wanted: FeatureId| {
+        let built = harness.built();
+        let picks: Vec<_> = built
+            .picks
+            .pickables()
+            .filter(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == wanted))
+            .map(|pickable| built.picks.id_of(pickable))
+            .collect();
+        let mut found: Vec<_> = built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .filter(|face| picks.contains(&face.pick))
+            .map(|face| format!("{:?}", face.color))
+            .collect();
+        found.sort();
+        found
+    };
+    let kept_plain = colours(&mut harness, extrude);
+    let split_plain = colours(&mut harness, split);
+
+    harness.workspace.panels.choose_only(split);
+    harness.frame();
+    harness.frame();
+    let kept_lit = colours(&mut harness, extrude);
+    let split_lit = colours(&mut harness, split);
+
+    assert!(!kept_plain.is_empty() && !split_plain.is_empty());
+    assert_eq!(kept_lit, kept_plain, "the body split from stays unlit");
+    assert_ne!(split_lit, split_plain, "the split-off body is lit");
 }
 
 #[test]

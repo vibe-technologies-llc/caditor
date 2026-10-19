@@ -536,13 +536,20 @@ struct Problem {
 fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId> {
     let bodies: Vec<FeatureId> = rows
         .iter()
-        .filter_map(|row| document.feature(*row)?.body())
+        .filter_map(|row| row_body(document.feature(*row)?))
         .collect();
     let mut lit = rows;
     lit.extend(bodies);
     lit.sort_unstable();
     lit.dedup();
     lit
+}
+
+fn row_body(feature: &Feature) -> Option<FeatureId> {
+    match feature.makes_body() {
+        true => Some(feature.id()),
+        false => feature.body(),
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -556,7 +563,7 @@ impl LitRows {
         let mut lit = Self::default();
         for row in rows {
             lit.rows.push(*row);
-            let Some(body) = document.feature(*row).and_then(Feature::body) else {
+            let Some(body) = document.feature(*row).and_then(row_body) else {
                 continue;
             };
             let made = match body == *row {

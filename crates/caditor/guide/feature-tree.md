@@ -32,7 +32,8 @@ Click a row to choose it; Ctrl-click and Shift-click choose several. While the t
 Shift-click takes only the rows shown. Escape with nothing selected in the view, or a click on
 empty space in the view, lets go of the chosen rows. Choosing or hovering a row lights what it
 made in the view: a body's row the whole body, a row that changes a body, such as a hole or a
-fillet, only the faces it made, so each hole lights on its own.
+fillet, only the faces it made, so each hole lights on its own. A split lights the body it split
+off, never the body it was split from.
 
 The eye on a row hides or shows what it made. The principal planes, axes and origin have a group
 row of their own, read as hidden while they step aside after the first body (see

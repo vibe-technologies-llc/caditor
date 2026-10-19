@@ -681,9 +681,12 @@ paths:
   (fillet, shell, hole, cut extrusion) lights only the faces whose `FaceOrigin` names it on that
   body's shown result and the edges bounding them (`bodies::made_by`, joined to the hovered items),
   so two holes of one body light apart; one that made no face there (combine, move, remove) lights
-  the whole body (`viewport::LitRows`, kept until the rows, revision or evaluation change). Fit view
+  the whole body (`viewport::LitRows`, kept until the rows, revision or evaluation change). A row
+  whose feature makes a body of its own lights and frames that body alone (`viewport::row_body`): a
+  split's row, which is also its split-off body's row in the Bodies group, never lights the body it
+  was split from. Fit view
   still frames the whole body of such a row: `viewport::with_their_bodies` adds each row's
-  `Feature::body`, as `visibility::hideable_rows` does.
+  `row_body`, as `visibility::hideable_rows` does.
   The view's selection stays as it was, and nothing is highlighted while a sketch or feature is open
   for editing. A feature or body row under the pointer (`PanelState::hovered_row`,
   `ViewportState::hover_row`) is lit the same way while hovered, without counting as chosen.
