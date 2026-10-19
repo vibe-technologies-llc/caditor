@@ -21,8 +21,8 @@ use crate::{
         writing::{apply, with_feature},
     },
     mirror_tools, move_face_tools, move_tools, offset_face_tools, pattern_tools, pipe_tools,
-    primitive_tools, rib_tools, scale_tools, shell_tools, solid_tools, split_face_tools,
-    split_tools, thread_tools,
+    primitive_tools, replace_face_tools, rib_tools, scale_tools, shell_tools, solid_tools,
+    split_face_tools, split_tools, thread_tools,
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -138,6 +138,7 @@ pub fn tool_for(kind: &FeatureKind) -> Option<Tool> {
         FeatureKind::Emboss(_) => Tool::AddEmboss,
         FeatureKind::MoveFace(_) => Tool::AddMoveFace,
         FeatureKind::Draft(_) => Tool::AddDraft,
+        FeatureKind::ReplaceFace(_) => Tool::AddReplaceFace,
         FeatureKind::Split(_) => Tool::AddSplit,
         FeatureKind::Scale(_) => Tool::AddScale,
         FeatureKind::Sketch(_)
@@ -268,6 +269,9 @@ fn rebuilt(
         FeatureKind::Draft(base) => {
             reshaping::draft_built(session, work, decoded(tool, values)?, Some(base))?
         }
+        FeatureKind::ReplaceFace(base) => {
+            reshaping::replace_face_built(session, work, decoded(tool, values)?, Some(base))?
+        }
         FeatureKind::Split(base) => {
             reshaping::split_built(session, work, decoded(tool, values)?, Some(base))?
         }
@@ -309,6 +313,7 @@ fn edit_transaction(
         FeatureKind::Emboss(emboss) => emboss_tools::edit(document, feature, emboss),
         FeatureKind::MoveFace(moving) => move_face_tools::edit(document, feature, moving),
         FeatureKind::Draft(draft) => draft_tools::edit(document, feature, draft),
+        FeatureKind::ReplaceFace(replace) => replace_face_tools::edit(document, feature, replace),
         FeatureKind::Split(split) => split_tools::edit(document, feature, split),
         FeatureKind::Scale(scale) => scale_tools::edit(document, feature, scale),
         FeatureKind::Mate(mate) => mate_tools::edit(document, feature, mate),

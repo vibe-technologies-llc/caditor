@@ -54,7 +54,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 53] = [
+const KEPT: [(&str, &str); 54] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -210,6 +210,10 @@ const KEPT: [(&str, &str); 53] = [
     (
         "model-1/reference-images.caditor",
         "d7e693bdc1a275426b2507a33a627d7108a9e0753c9976ae82f24ca4e816d0b4",
+    ),
+    (
+        "model-1/replaced-faces.caditor",
+        "10a7960a405fc6dacbed55c51033b2e282b90b8759a85e2a947ae7ac40479422",
     ),
     (
         "model-1/ribs.caditor",
@@ -859,6 +863,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (model("moved-faces"), saved(&moved_faces(), "Moved faces")),
         (model("drafts"), saved(&drafts(), "Drafts")),
+        (
+            model("replaced-faces"),
+            saved(&replaced_faces(), "Replaced faces"),
+        ),
         (
             model("embossed-faces"),
             saved(&embossed_faces(), "Embossed faces"),
@@ -2597,6 +2605,50 @@ fn drafts() -> Document {
                 face: end_cap(0xfade),
                 angle: Expression::parse_stored("6 deg").unwrap(),
             }],
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn replaced_faces() -> Document {
+    use caditor_document::{FaceAttachment, PlaneReference, PrincipalPlane, ReplaceFace};
+    let (mut document, _, _) = blended_model();
+    let base = named(&document, "Base");
+    let mut transaction = document.transaction("Replace face");
+    let plane = transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: Expression::parse_stored("12 mm").unwrap(),
+        })),
+    );
+    transaction.add_feature(
+        "Replace face",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xbeef), end_cap(0xfeed)],
+            target: Some(PlaneReference::Datum(plane)),
+        }),
+    );
+    transaction.add_feature(
+        "Replace face waiting for a target",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xfade)],
+            target: None,
+        }),
+    );
+    transaction.add_feature(
+        "Replace face with a face",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![end_cap(0xcafe)],
+            target: Some(PlaneReference::Face(FaceAttachment {
+                body: base,
+                face: end_cap(0xd00d),
+            })),
         }),
     );
     document.apply(transaction.finish()).unwrap();

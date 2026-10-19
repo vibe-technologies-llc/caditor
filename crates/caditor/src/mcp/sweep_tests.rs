@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::{
-    feature_tests::{added, body_count, box_of, close, number, started, total_volume},
+    feature_tests::{added, body_count, box_of, close, face_where, number, started, total_volume},
     tests::Client,
 };
 
@@ -378,6 +378,56 @@ fn walls_are_drafted_from_their_floor_and_one_takes_an_angle_of_its_own() {
 
     let refused = client.tool_error("add_draft", json!({ "body": block, "faces": [] }));
     assert!(refused.contains("faces to draft"), "{refused}");
+    client.finish();
+}
+
+#[test]
+fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [10.0, 10.0, 10.0], [0.0, 0.0], "Block");
+    let tower = box_of(&mut client, [2.0, 2.0, 14.0], [20.0, 0.0], "Tower");
+    let top = face_where(&mut client, &block, [0.0, 0.0, 1.0]);
+    let tower_top = face_where(&mut client, &tower, [0.0, 0.0, 1.0]);
+
+    let replaced = added(
+        &mut client,
+        "add_replace_face",
+        json!({
+            "body": block,
+            "faces": [top],
+            "target": { "body": tower, "face": tower_top }
+        }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        10.0 * 10.0 * 14.0 + 2.0 * 2.0 * 14.0
+    ));
+
+    let shelf = added(
+        &mut client,
+        "add_datum_plane",
+        json!({ "base": "XY", "offset": "6 mm", "name": "Shelf" }),
+    );
+    client.tool(
+        "move_feature",
+        json!({ "feature": shelf, "before": replaced }),
+    );
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": replaced, "target": { "datum": shelf } }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        10.0 * 10.0 * 6.0 + 2.0 * 2.0 * 14.0
+    ));
+
+    let refused = client.tool_error(
+        "add_replace_face",
+        json!({ "body": block, "faces": [], "target": "XY" }),
+    );
+    assert!(refused.contains("faces to replace"), "{refused}");
     client.finish();
 }
 

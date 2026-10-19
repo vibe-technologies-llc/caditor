@@ -40,7 +40,7 @@ use crate::{
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
     reference_image::{self, PlacedImage},
-    removal, rib, scaling, shell,
+    removal, replace_face, rib, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split, split_face,
     thread::{self, ThreadResult},
@@ -129,6 +129,8 @@ pub enum MissingInput {
     Edges { body: FeatureId },
     FacesToMove { body: FeatureId },
     FacesToDraft { body: FeatureId },
+    FacesToReplace { body: FeatureId },
+    TargetPlane { body: FeatureId },
     FacesToDelete { body: FeatureId },
     FacesToEmboss { body: FeatureId },
     SketchToEmboss { body: FeatureId },
@@ -145,9 +147,11 @@ impl MissingInput {
             Self::Edges { .. } => "Waiting for edges",
             Self::FacesToMove { .. }
             | Self::FacesToDraft { .. }
+            | Self::FacesToReplace { .. }
             | Self::FacesToDelete { .. }
             | Self::FacesToEmboss { .. }
             | Self::FacesToSplit { .. } => "Waiting for faces",
+            Self::TargetPlane { .. } => "Waiting for a target",
             Self::SketchToEmboss { .. } => "Waiting for a sketch",
         }
     }
@@ -182,6 +186,13 @@ impl MissingInput {
             Self::FacesToDraft { body } => {
                 format!("Choose the faces of the body of {} to draft.", name(body))
             }
+            Self::FacesToReplace { body } => {
+                format!("Choose the faces of the body of {} to replace.", name(body))
+            }
+            Self::TargetPlane { body } => format!(
+                "Choose the plane or flat face to replace the faces of the body of {} with.",
+                name(body)
+            ),
             Self::FacesToDelete { body } => {
                 format!("Choose the faces of the body of {} to delete.", name(body))
             }
@@ -1929,6 +1940,9 @@ impl Evaluator for ModelEvaluator {
                 move_face::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Draft(definition) => draft::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::ReplaceFace(definition) => {
+                replace_face::evaluate(feature, definition, inputs, cancel)
+            }
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Primitive(definition) => {
                 primitive::evaluate(feature, definition, inputs, cancel)

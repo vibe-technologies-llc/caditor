@@ -274,7 +274,8 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
         | FeatureKind::DeleteFace(_)
         | FeatureKind::Emboss(_)
         | FeatureKind::MoveFace(_)
-        | FeatureKind::Draft(_) => Vec::new(),
+        | FeatureKind::Draft(_)
+        | FeatureKind::ReplaceFace(_) => Vec::new(),
         FeatureKind::Blend(blend) => blend_values(blend),
         FeatureKind::Shell(shell) => vec![found(
             ValueSlot::ShellThickness,

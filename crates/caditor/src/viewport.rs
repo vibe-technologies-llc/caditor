@@ -71,7 +71,7 @@ use crate::{
     primitive_tools, projecting,
     queued::{Pending, Queued, Rerun},
     reference_picking::{self, Slot},
-    reversing, saved_views,
+    replace_face_tools, reversing, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -6206,6 +6206,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Draft(_)) => {
             in_view("Click faces to draft them, and again to leave one out")
         }
+        Some(FeatureKind::ReplaceFace(_)) => {
+            in_view("Click faces to replace them, and again to leave one out")
+        }
         Some(FeatureKind::DeleteFace(_)) => {
             in_view("Click faces to delete them, and again to keep one")
         }
@@ -6660,6 +6663,9 @@ fn pick_action(
                     move_face_tools::toggle_face(model, feature, face)
                 }
                 Some(FeatureKind::Draft(_)) => draft_tools::toggle_face(model, feature, face),
+                Some(FeatureKind::ReplaceFace(_)) => {
+                    replace_face_tools::toggle_face(model, feature, face)
+                }
                 Some(FeatureKind::Emboss(_)) => emboss_tools::toggle_face(model, feature, face),
                 Some(FeatureKind::SplitFace(_)) => {
                     split_face_tools::toggle_face(model, feature, face)

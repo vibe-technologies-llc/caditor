@@ -29,6 +29,8 @@ paths:
   - "crates/caditor/src/move_face_panel.rs"
   - "crates/caditor/src/draft_tools.rs"
   - "crates/caditor/src/draft_panel.rs"
+  - "crates/caditor/src/replace_face_tools.rs"
+  - "crates/caditor/src/replace_face_panel.rs"
   - "crates/caditor/src/split_face_tools.rs"
   - "crates/caditor/src/split_face_panel.rs"
   - "crates/caditor/src/primitive_tools.rs"
@@ -93,7 +95,7 @@ paths:
 # Modelling tools in the app
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
-Delete face, Emboss, Move face, Draft, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
+Delete face, Emboss, Move face, Draft, Replace face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
 pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
@@ -218,7 +220,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Undo that returns to it (`app-sketching.md`, Editing context). Escape on an open feature still
   keeps its changes and closes it.
 - A tool whose body has no shape yet while a recompute runs (Move, Mirror, Combine, Fillet, Chamfer,
-  Shell, Offset faces, Delete face, Emboss, Move face, Draft, Split face, Thread, Sweep, and Hole on a face, whose
+  Shell, Offset faces, Delete face, Emboss, Move face, Draft, Replace face, Split face, Thread, Sweep, and Hole on a face, whose
   `hole_tools::create_actions` needs the body's state at the bar) is queued, not refused
   (`app-input.md`, Queued actions), and runs when the shape arrives.
 
@@ -662,8 +664,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   an opened or unoffsettable face refused in a notice. The thickness arrow stands on the first opened
   flat face's rim pointing into the wall: inward for Inside, outward for Outside, outward at half
   scale for Both sides.
-- Hovering a row of the edges, opened, moved, drafted, deleted or split faces in an open fillet's,
-  chamfer's, shell's, offset face's, move face's, draft's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
+- Hovering a row of the edges, opened, moved, drafted, replaced, deleted or split faces in an open fillet's,
+  chamfer's, shell's, offset face's, move face's, draft's, replace face's, delete face's, emboss's or split face's panel lights that edge or face (its pieces when split) as hovered
   (`widgets::removable_row_hovered`, `RowCache::preview`, handed to `ViewportState::preview_entities`
   each frame).
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's list
@@ -713,6 +715,19 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   either list or adds it to the faces. While open and computed it shows the result as a move face
   does (`FaceChoice::Moving`, the drafted faces of both lists and the tangent chain in the selected
   colour, `draft_tools::drafted_faces`); failed or pending, the body before it.
+- Replace face (no default key; Model menu, palette, the right-click menu's face tools) takes the
+  selected faces (`replace_face_tools::selected_faces`): the faces of the body picked first (or of
+  the body with several faces picked when another has one) are replaced, and one more pick, a
+  principal, datum or coordinate system plane or a face of another body (`datum_tools::
+  plane_reference` at the bar), is the target; several such picks are `SeveralTargets`, refused in
+  words. It creates a `ReplaceFace` with that target, or none (the feature then waits for one,
+  whose callout starts `Slot::ReplaceTarget`), and opens: a description, Faces to replace in words
+  with Leave this face out, Replace with (`plane_selector::row` of `datum_tools::listed_planes`
+  with the picker on `Slot::ReplaceTarget`, any plane or flat face made before it, this body's
+  included, `replace_face_tools::plane_change`) and Body. While open and computed it shows the
+  result as a move face does (`FaceChoice::Moving`, the replaced faces in the selected colour,
+  `replace_face_tools::replaced_faces`), a click replacing a face or leaving it out
+  (`replace_face_tools::toggle_face`); failed or pending, the body before it.
 - Delete face (Alt+Shift+Q) takes the selected faces of one body
   (`delete_face_tools::selected_faces`, through `offset_face_tools::faces_of_one_body`) and creates a
   `DeleteFace` that opens (faces in words with Keep this face; no values). While open and computed it

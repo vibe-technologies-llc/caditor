@@ -4,7 +4,9 @@ A STEP model or a mesh brought in with {command:file.import} becomes one import 
 see [importing](importing). Imported bodies can be filleted, cut and combined like any other,
 [Delete face](delete-face) removes a fillet, chamfer, hole or boss they came with, and
 [Move face](move-face) shifts or tilts their faces: a hole to another place, a wall to another angle.
-[Draft](draft) leans their walls by a draft angle so a mould releases them.
+[Draft](draft) leans their walls by a draft angle so a mould releases them, and
+[Replace face](replace-face) puts a face onto another plane: a top to a datum plane's height, a wall
+to the plane of another body's face.
 
 Open an import in the tree to see where it came from and to place it: **Placed in** the world or a
 [coordinate system](coordinate-systems), turns about X, Y and Z, moves along them, and a

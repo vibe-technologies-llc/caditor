@@ -13,6 +13,9 @@ mod moving_tests;
 mod offset;
 #[cfg(test)]
 mod offset_tests;
+mod replace;
+#[cfg(test)]
+mod replace_tests;
 mod split;
 #[cfg(test)]
 mod tests;
@@ -53,6 +56,7 @@ pub use delete::{DeleteError, delete_faces};
 pub use draft::{DraftError, DraftedFace, STEEPEST_DRAFT, draft_faces};
 pub use moving::{MoveError, move_faces};
 pub use offset::{OffsetError, offset_faces};
+pub use replace::{ReplaceError, STEEPEST_REPLACING_TURN, replace_faces};
 pub use walls::{ShellSide, Walls};
 
 #[derive(Debug, Clone, PartialEq, Error)]

@@ -4854,6 +4854,74 @@ fn an_unreadable_neutral_plane_or_drafted_face_is_replaced_and_reported() {
     );
 }
 
+fn replacing_model() -> (Document, FeatureId) {
+    use caditor_document::{PlaneReference, PrincipalPlane, ReplaceFace};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Replace face");
+    let replace = transaction.add_feature(
+        "Replace face 1",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![top],
+            target: Some(PlaneReference::Principal(PrincipalPlane::Xz)),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, replace)
+}
+
+#[test]
+fn a_replaced_face_is_saved_and_loaded_as_a_record_of_its_own() {
+    let (document, replace) = replacing_model();
+    let text = encode(&document).unwrap();
+    assert!(
+        text.contains(
+            "\"replace_face\":{\"body\":1,\"faces\":[{\"face\":\
+             \"0000000000000000000000000000beef\",\"neighbours\":[\"00000000000000000000000000000002\"],\
+             \"origin\":{\"end_cap\":{\"feature\":1}}}],\"target\":{\"principal\":\"xz\"}}"
+        ),
+        "{text}"
+    );
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(replace).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: replace, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_target_plane_or_replaced_face_is_reported() {
+    let (document, replace) = replacing_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("0000000000000000000000000000beef", "not a digest", 1)
+        .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"xw\"}", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "Some faces replaced by “Replace face 1” could not be read and were left as they \
+             stand.",
+            "The target plane of “Replace face 1” could not be read, so it waits for a target \
+             to be chosen again."
+        ]
+    );
+    let restored = loaded.document.feature(replace).unwrap();
+    let restored = restored.kind.replace_face().unwrap();
+    assert!(restored.faces.is_empty());
+    assert_eq!(restored.target, None);
+}
+
 fn moving_model() -> (Document, FeatureId) {
     use caditor_document::{AxisReference, MoveFace, PrincipalAxis};
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

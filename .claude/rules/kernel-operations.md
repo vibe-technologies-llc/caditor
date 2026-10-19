@@ -741,6 +741,26 @@ paths:
   fold the body fails there rather than building a bad solid. Splitting at a parting line is the
   document's (`split_faces` first, `document.md`).
 
+# Replacing faces (`shell/replace.rs`)
+
+- `replace_faces(solid, faces, target)` puts each chosen flat face onto the target plane, keeping
+  the side it faces: the target's normal is taken signed to agree with the face's outward normal,
+  and the face turns about the line where its plane meets the target (by the angle between the
+  normals, about `normal × target`) or, parallel, shifts along it, then a residual shift along the
+  target's normal lands it exactly. Faces sharing a plane share one motion; the groups go to
+  `move_each`, so neighbours extend or trim as they do for a move and every `MoveError` (wrapped as
+  `ReplaceError::Move`) and name keeping are a move's.
+- Refusals before building: no face `NothingToReplace`, a face not of the solid `MissingFace`, a
+  curved face `NotFlat` (curved targets and faces are roadmap entries), a target leaning
+  `STEEPEST_REPLACING_TURN` (89°) or more from a face `SquareToTarget`, a target on or past the far
+  side of the body from a face (every sampled point of the edges not bounding it on or outside the
+  target) `BeyondBody`, a replaced face meeting along an edge a face of another group or an unmoved
+  face already on the target `Merging` (the two would become one face, which needs a topology
+  change), every face already on the target `AlreadyOnTarget`. A face listed twice is taken once.
+- A face beside the replaced one squeezed to nothing between it and the target (levelling a step
+  with its riser standing) fails in the move as an edge collapsing; merging the faces either side is
+  a roadmap entry.
+
 # Delete faces (`shell/delete.rs`)
 
 - `delete_faces(solid, faces)` removes faces and closes the gap by extending the faces around them:
