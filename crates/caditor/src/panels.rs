@@ -8,7 +8,7 @@ use egui::Id;
 
 use crate::{
     appearance::{SPACE_L, SPACE_S},
-    bodies_tree,
+    bodies_tree, combine_panel,
     commands::{Command, CommandFrame},
     editing::SketchEditing,
     feature_tree::{self, RowHeights, TreeOffers},
@@ -448,6 +448,10 @@ pub fn show(
                 ui.add_space(SPACE_S);
                 if editing.is_choosing_plane() {
                     new_sketch_panel::show(ui, model, actions);
+                    ui.add_space(SPACE_L);
+                }
+                if let Some(combining) = editing.combining() {
+                    combine_panel::show_choosing(ui, model, combining, actions);
                     ui.add_space(SPACE_L);
                 }
                 let features = model.document().features().len();

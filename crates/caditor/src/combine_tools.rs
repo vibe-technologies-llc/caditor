@@ -10,18 +10,26 @@ use crate::{
     editing::{self, EditingCommand},
     model::{Action, Model},
     queued::Pending,
-    selection::Selection,
+    selection::{self, Selection},
+    visibility,
 };
 
 pub const TITLE: &str = "Combine";
 pub const DESCRIPTION: &str = "Join, cut or intersect two bodies into one";
+pub const CHOOSE_TARGET_PROMPT: &str = "Click the body to combine into";
+pub const STOP_CHOOSING_HOVER: &str =
+    "Click the bodies to combine in the view, or click here to stop choosing (Esc)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CombineError {
-    #[error("Select faces or edges of two bodies, or two bodies in the tree")]
+    #[error("The model needs two shown bodies to combine")]
     NeedTwo,
+    #[error("No other shown body to combine the selected one with")]
+    NoOtherBody,
     #[error("Select faces or edges of two bodies only, or two bodies in the tree")]
     MoreThanTwo,
+    #[error("Choose two different bodies to combine")]
+    SameBody,
     #[error("{}", Pending::BodiesShape)]
     NoShape,
 }
@@ -42,6 +50,42 @@ pub struct BodyPair {
     pub tool: FeatureId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CombineStart {
+    Pair(BodyPair),
+    Choose(Option<FeatureId>),
+}
+
+pub fn tool_prompt(model: &Model, target: FeatureId) -> String {
+    format!(
+        "Click the body to combine into {}",
+        selection::body_name(model.document(), target)
+    )
+}
+
+pub fn choosable(model: &Model) -> Vec<FeatureId> {
+    let document = model.document();
+    let evaluation = model.evaluation();
+    document
+        .bodies_standing_in(evaluation)
+        .into_iter()
+        .filter(|body| {
+            visibility::is_shown(document, *body) && bodies::shown(evaluation, *body).is_some()
+        })
+        .collect()
+}
+
+pub fn pair(model: &Model, target: FeatureId, tool: FeatureId) -> Result<BodyPair, CombineError> {
+    if target == tool {
+        return Err(CombineError::SameBody);
+    }
+    let evaluation = model.evaluation();
+    if bodies::shown(evaluation, target).is_none() || bodies::shown(evaluation, tool).is_none() {
+        return Err(CombineError::NoShape);
+    }
+    Ok(BodyPair { target, tool })
+}
+
 pub fn operation_hover(operation: CombineOperation) -> &'static str {
     match operation {
         CombineOperation::Join => "Add the tool body to the target",
@@ -54,7 +98,7 @@ pub fn selected_bodies(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
-) -> Result<BodyPair, CombineError> {
+) -> Result<CombineStart, CombineError> {
     let document = model.document();
     let standing = |id: &FeatureId| {
         document
@@ -68,26 +112,40 @@ pub fn selected_bodies(
             .filter(|id| tree.contains(id))
             .collect()
     } else {
-        body_selection::bodies_in(selection)
+        let viewed: Vec<FeatureId> = body_selection::bodies_in(selection)
             .into_iter()
             .filter(standing)
-            .collect()
+            .collect();
+        if viewed.is_empty() {
+            tree.iter().copied().filter(standing).collect()
+        } else {
+            viewed
+        }
     };
     match ordered.as_slice() {
-        [target, tool] => {
-            let evaluation = model.evaluation();
-            if bodies::shown(evaluation, *target).is_none()
-                || bodies::shown(evaluation, *tool).is_none()
-            {
-                return Err(CombineError::NoShape);
+        [target, tool] => pair(model, *target, *tool).map(CombineStart::Pair),
+        [target] => {
+            let others = choosable(model).into_iter().any(|body| body != *target);
+            if bodies::shown(model.evaluation(), *target).is_none() {
+                Err(CombineError::NoShape)
+            } else if others {
+                Ok(CombineStart::Choose(Some(*target)))
+            } else {
+                Err(CombineError::NoOtherBody)
             }
-            Ok(BodyPair {
-                target: *target,
-                tool: *tool,
-            })
         }
-        [] | [_] => Err(CombineError::NeedTwo),
+        [] if choosable(model).len() >= 2 => Ok(CombineStart::Choose(None)),
+        [] => Err(CombineError::NeedTwo),
         _ => Err(CombineError::MoreThanTwo),
+    }
+}
+
+pub fn start_actions(model: &Model, start: CombineStart) -> Vec<Action> {
+    match start {
+        CombineStart::Pair(pair) => create_actions(model, pair),
+        CombineStart::Choose(target) => {
+            vec![Action::Editing(EditingCommand::ChooseCombined(target))]
+        }
     }
 }
 

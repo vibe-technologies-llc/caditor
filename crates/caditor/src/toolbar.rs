@@ -1191,9 +1191,19 @@ fn combine_button(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let pair = &context.offers.combine;
-    let invoked = commands.invoke(Command::Combine, pair);
-    let help = match pair {
+    if context.editing.combining().is_some() {
+        let button =
+            tool_button(ui, icons::command(Command::Combine), combine_tools::TITLE).selected(true);
+        let help = Ok::<_, Infallible>(combine_tools::STOP_CHOOSING_HOVER.to_owned());
+        let invoked = commands.invoke(Command::Combine, &Ok::<_, &'static str>(()));
+        if ribbon::explained(ui.add(button), combine_tools::TITLE, &help).clicked() || invoked {
+            actions.push(Action::Editing(EditingCommand::CancelCombine));
+        }
+        return;
+    }
+    let start = &context.offers.combine;
+    let invoked = commands.invoke(Command::Combine, start);
+    let help = match start {
         Ok(_) => Ok(commands.with_keys(Command::Combine, combine_tools::DESCRIPTION)),
         Err(reason) => Err(Blocked::ToFix {
             what: combine_tools::DESCRIPTION.to_owned(),
@@ -1202,9 +1212,9 @@ fn combine_button(
     };
     let response = tool(ui, commands, Command::Combine, combine_tools::TITLE, &help);
     if (response.clicked() || invoked)
-        && let Ok(pair) = pair
+        && let Ok(start) = start
     {
-        actions.extend(combine_tools::create_actions(model, *pair));
+        actions.extend(combine_tools::start_actions(model, *start));
     }
 }
 

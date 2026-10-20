@@ -642,6 +642,7 @@ pub enum Context {
     Panel(SidePanel),
     Sketch,
     ChoosingPlane,
+    ChoosingBodies,
     TreeRow(Page),
 }
 
@@ -652,6 +653,7 @@ impl Context {
             Self::Feature(page) | Self::TreeRow(page) => page,
             Self::Panel(panel) => Page::of_panel(panel),
             Self::Sketch | Self::ChoosingPlane => Page::Sketches,
+            Self::ChoosingBodies => Page::Combine,
         }
     }
 }
@@ -659,6 +661,7 @@ impl Context {
 pub struct Situation<'a> {
     pub tool: Option<Tool>,
     pub choosing_plane: bool,
+    pub choosing_bodies: bool,
     pub open_feature: Option<&'a FeatureKind>,
     pub panels: &'a [SidePanel],
     pub tree_row: Option<&'a FeatureKind>,
@@ -676,6 +679,7 @@ pub fn context(situation: &Situation<'_>) -> Option<Context> {
         .or_else(|| situation.panels.first().copied().map(Context::Panel))
         .or_else(|| situation.tool.map(|_| Context::Sketch))
         .or_else(|| situation.choosing_plane.then_some(Context::ChoosingPlane))
+        .or_else(|| situation.choosing_bodies.then_some(Context::ChoosingBodies))
         .or_else(|| {
             situation
                 .tree_row
@@ -1146,6 +1150,7 @@ mod tests {
         let mut situation = Situation {
             tool: Some(Tool::Line),
             choosing_plane: false,
+            choosing_bodies: false,
             open_feature: None,
             panels: &panels,
             tree_row: None,
@@ -1159,5 +1164,8 @@ mod tests {
         assert_eq!(context(&situation), None);
         situation.choosing_plane = true;
         assert_eq!(context(&situation).map(Context::page), Some(Page::Sketches));
+        situation.choosing_plane = false;
+        situation.choosing_bodies = true;
+        assert_eq!(context(&situation).map(Context::page), Some(Page::Combine));
     }
 }

@@ -1,8 +1,11 @@
+use std::convert::Infallible;
+
 use caditor_document::{Combine, CombineOperation, Feature, FeatureId, Transaction};
 use egui::{Id, Ui};
 
 use crate::{
     combine_tools,
+    editing::{Combining, EditingCommand},
     feature_fields::{self, Choice, Segment},
     field::{self, CheckError},
     icons,
@@ -17,6 +20,11 @@ pub const ADD_TOOL_BODY: &str = "Add another tool body";
 const NOT_A_BODY: &str = "A body that is no longer there";
 pub const SWAP: &str = "Swap target and tool";
 const SWAP_HOVER: &str = "Make the tool body the target and the target the tool, in one change";
+const CHOOSING_DESCRIPTION: &str = "Click the body to combine into in the view, then the body to \
+                                    combine with it, or choose them here";
+pub const UNCHOSEN: &str = "Click a body or choose one";
+pub const CANCEL: &str = "Cancel";
+const CANCEL_HOVER: &str = "Stop choosing bodies to combine (Esc)";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 enum CombineChangeError {
@@ -297,4 +305,59 @@ fn keep_tool_row(
             change(model, feature.id(), kept),
         ));
     }
+}
+
+pub fn show_choosing(ui: &mut Ui, model: &Model, combining: Combining, actions: &mut Vec<Action>) {
+    let document = model.document();
+    let bodies = combine_tools::choosable(model);
+    let choices = |except: Option<FeatureId>, command: fn(FeatureId) -> EditingCommand| {
+        bodies
+            .iter()
+            .filter(|body| Some(**body) != except)
+            .filter_map(|body| {
+                Some(Choice {
+                    label: document.body_label(*body)?,
+                    selected: false,
+                    change: Ok::<_, Infallible>(Action::Editing(command(*body))),
+                })
+            })
+            .collect()
+    };
+    widgets::card(ui, |ui| {
+        ui.label(widgets::section_title(combine_tools::TITLE));
+        widgets::properties(ui, "combine-choosing", |ui| {
+            feature_fields::description_row(ui, CHOOSING_DESCRIPTION);
+            widgets::caption(ui, Role::Target.caption());
+            let target = combining
+                .target
+                .and_then(|target| document.body_label(target))
+                .unwrap_or_else(|| UNCHOSEN.to_owned());
+            let chosen =
+                feature_fields::combo(ui, Id::unique("combine-choosing-target"), target, || {
+                    choices(combining.target, |body| {
+                        EditingCommand::ChooseCombined(Some(body))
+                    })
+                });
+            actions.extend(chosen);
+            ui.end_row();
+            if let Some(target) = combining.target {
+                widgets::caption(ui, Role::Tool.caption());
+                let chosen = feature_fields::combo(
+                    ui,
+                    Id::unique("combine-choosing-tool"),
+                    UNCHOSEN,
+                    || choices(Some(target), EditingCommand::CombineWith),
+                );
+                actions.extend(chosen);
+                ui.end_row();
+            }
+        });
+        if ui
+            .add(widgets::button(CANCEL))
+            .on_hover_text(CANCEL_HOVER)
+            .clicked()
+        {
+            actions.push(Action::Editing(EditingCommand::CancelCombine));
+        }
+    });
 }

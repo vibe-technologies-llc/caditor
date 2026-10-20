@@ -3,7 +3,7 @@ use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 use crate::{
     blend_tools::{self, BlendError, EdgeSource},
     coil_tools::{self, CoilStart},
-    combine_tools::{self, BodyPair, CombineError},
+    combine_tools::{self, CombineError, CombineStart},
     datum_tools::{self, DatumFromSelectionError},
     delete_face_tools, draft_tools,
     editing::SketchEditing,
@@ -79,7 +79,7 @@ pub struct Offers {
     pub replace_face: Result<ReplaceSource, ReplaceSourceError>,
     pub split_face: Result<SplitFaceSource, SplitFaceError>,
     pub primitive: Result<PrimitiveSource, PrimitiveError>,
-    pub combine: Result<BodyPair, CombineError>,
+    pub combine: Result<CombineStart, CombineError>,
     pub movement: Result<FeatureId, move_tools::BodyChoiceError>,
     pub mirror: Result<MirrorSource, MirrorToolError>,
     pub mirror_faces: Result<FaceMirrorSource, MirrorToolError>,

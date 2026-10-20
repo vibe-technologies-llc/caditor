@@ -1163,10 +1163,19 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Combine
 
-- Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two shown
-  bodies, or two bodies are chosen in the tree. Picked in the view, the first picked is the target and
-  the other the tool (`Selection::in_pick_order` through `body_selection::bodies_in`); in the tree, the
-  earlier body is the target. It creates a Join and opens the panel: Operation (Join, Cut, Intersect),
+- Combine (Alt+J) creates a Join at once when the selection touches faces, edges or vertices of exactly
+  two shown bodies, or two bodies are chosen in the tree. Picked in the view, the first picked is the
+  target and the other the tool (`Selection::in_pick_order` through `body_selection::bodies_in`); in
+  the tree, the earlier body is the target. With one body named (it becomes the target) or none, while
+  two shown bodies stand (`combine_tools::choosable`), it enters choosing instead
+  (`EditingCommand::ChooseCombined`, `SketchEditing::combining`), since a plain click replaces the
+  selection and two bodies are hard to select: the view prompts for the target, then for the body to
+  combine into it; a click on a body (`EditingCommand::CombineWith`) sets the target, and on a second
+  body creates the Join, a click on the target again unsets it. A card above the tree
+  (`combine_panel::show_choosing`) lists the target and tool bodies to choose from the keyboard, with
+  Cancel; Esc, Cancel or the lit Combine button stops; opening a sketch or feature ends it. Box
+  selection, the view's menu and sketch region picks are off meanwhile. Fewer than two shown bodies
+  refuse in words (`CombineError::NeedTwo`, `NoOtherBody`). The created Join opens the panel: Operation (Join, Cut, Intersect),
   Target and Tool lists (`Document::bodies_before`, each leaving out bodies the other rows hold), Swap
   target and tool (`combine_panel::SWAP`, `swapped`) in one edit, Also with further tool bodies, and
   Keep tool. Nothing is chosen in the view while it is open.

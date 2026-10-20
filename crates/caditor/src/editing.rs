@@ -7,6 +7,7 @@ use caditor_expression::ParameterId;
 use caditor_sketch::Sketch;
 
 use crate::{
+    combine_tools,
     commands::{Command, Reason},
     model::{Action, Model, Notice, NoticeKind},
     queued::{Queued, Rerun},
@@ -284,6 +285,9 @@ pub enum EditingCommand {
     NewSketchOnFace(FaceChoice),
     NewSketchOnDatum(DatumTarget),
     CancelNewSketch,
+    ChooseCombined(Option<FeatureId>),
+    CombineWith(FeatureId),
+    CancelCombine,
     Enter(FeatureId),
     Finish,
     CancelSketch,
@@ -305,6 +309,7 @@ pub struct Context {
     pub sketch: Option<FeatureId>,
     pub solid: Option<FeatureId>,
     pub choosing_plane: bool,
+    pub choosing_bodies: bool,
     pub projecting: bool,
     pub intersecting: bool,
     pub selecting: bool,
@@ -322,8 +327,14 @@ impl Context {
     pub fn picks_shown_regions(self) -> bool {
         self.sketch.is_none()
             && !self.choosing_plane
+            && !self.choosing_bodies
             && (self.choosing_profiles || (self.solid.is_none() && !self.choosing_in_view))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Combining {
+    pub target: Option<FeatureId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,6 +428,7 @@ pub struct SketchEditing {
     picking: Option<Picking>,
     calibration_from: Option<ImageSpot>,
     choosing_plane: bool,
+    combining: Option<Combining>,
     modes: ShapeModes,
     session: u64,
     switched: Option<Switched>,
@@ -470,6 +482,7 @@ impl SketchEditing {
             sketch: self.feature(),
             solid: self.solid(),
             choosing_plane: self.choosing_plane,
+            choosing_bodies: self.combining.is_some(),
             projecting: self.active.is_some_and(|active| active.tool.projects()),
             intersecting: self.active.is_some_and(|active| active.tool.intersects()),
             selecting: self
@@ -486,6 +499,10 @@ impl SketchEditing {
 
     pub fn is_choosing_plane(&self) -> bool {
         self.choosing_plane
+    }
+
+    pub fn combining(&self) -> Option<Combining> {
+        self.combining
     }
 
     pub fn picking(&self) -> Option<Picking> {
@@ -535,9 +552,19 @@ impl SketchEditing {
             EditingCommand::NewSketch(None) => {
                 self.leave_sketch();
                 self.solid = None;
+                self.combining = None;
                 self.choosing_plane = true;
             }
             EditingCommand::CancelNewSketch => self.choosing_plane = false,
+            EditingCommand::ChooseCombined(target) => {
+                self.leave_sketch();
+                self.solid = None;
+                self.picking = None;
+                self.choosing_plane = false;
+                self.combining = Some(Combining { target });
+            }
+            EditingCommand::CombineWith(body) => self.combine_with(body, model, since),
+            EditingCommand::CancelCombine => self.combining = None,
             EditingCommand::Enter(feature) => self.enter(feature, model, since),
             EditingCommand::Finish => self.finish(model),
             EditingCommand::CancelSketch => self.cancel_sketch(model),
@@ -681,6 +708,7 @@ impl SketchEditing {
                 self.solid = None;
                 self.picking = None;
                 self.choosing_plane = false;
+                self.combining = None;
                 self.active = Some(ActiveSketch {
                     feature: entered.feature,
                     tool: Tool::Select,
@@ -693,6 +721,7 @@ impl SketchEditing {
             {
                 self.leave_sketch();
                 self.choosing_plane = false;
+                self.combining = None;
                 self.solid = Some(opened);
             }
             Closed::Sketch(_) | Closed::Feature(_) => {}
@@ -787,6 +816,7 @@ impl SketchEditing {
         }
         self.leave_sketch();
         self.choosing_plane = false;
+        self.combining = None;
         if self.solid() == Some(feature) {
             return;
         }
@@ -837,6 +867,7 @@ impl SketchEditing {
             self.leave_sketch();
             self.solid = None;
             self.choosing_plane = false;
+            self.combining = None;
             self.switched = None;
         }
         let document = model.document();
@@ -851,7 +882,43 @@ impl SketchEditing {
         {
             self.solid = None;
         }
+        if let Some(combining) = &mut self.combining
+            && combining
+                .target
+                .is_some_and(|target| !document.bodies_standing().contains(&target))
+        {
+            combining.target = None;
+        }
         self.drop_stale_picking();
+    }
+
+    fn combine_with(&mut self, body: FeatureId, model: &mut Model, since: UndoMark) {
+        let Some(combining) = self.combining else {
+            return;
+        };
+        let target = match combining.target {
+            Some(target) if target != body => target,
+            Some(_) => {
+                self.combining = Some(Combining { target: None });
+                return;
+            }
+            None => {
+                self.combining = Some(Combining { target: Some(body) });
+                return;
+            }
+        };
+        match combine_tools::pair(model, target, body) {
+            Ok(pair) => {
+                self.combining = None;
+                let (transaction, feature) = combine_tools::create(model.document(), pair);
+                model.perform(Action::Apply(transaction));
+                self.open_solid(feature, model, since);
+            }
+            Err(reason) => model.perform(Action::Inform(Notice::warning(format!(
+                "{}: {reason}.",
+                combine_tools::TITLE
+            )))),
+        }
     }
 
     fn create(&mut self, plane: PrincipalPlane, model: &mut Model, since: UndoMark) {
@@ -894,6 +961,7 @@ impl SketchEditing {
             return;
         }
         self.choosing_plane = false;
+        self.combining = None;
         self.solid = None;
         if self.entered().map(|entered| entered.feature) != Some(feature) {
             let added = model

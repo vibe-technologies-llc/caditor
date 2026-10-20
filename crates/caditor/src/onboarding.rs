@@ -209,7 +209,10 @@ pub fn applicable(situation: &Situation<'_>) -> Vec<Hint> {
         ) {
             hints.push(Hint::Constrain);
         }
-    } else if !situation.editing.is_choosing_plane() && situation.editing.solid().is_none() {
+    } else if !situation.editing.is_choosing_plane()
+        && situation.editing.combining().is_none()
+        && situation.editing.solid().is_none()
+    {
         if document.features().len() == 0 {
             hints.push(Hint::Start);
         }

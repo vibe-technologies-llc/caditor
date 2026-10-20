@@ -31,6 +31,7 @@ use crate::{
     canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Waited},
     clipboard,
     comb::CombDrawing,
+    combine_tools,
     commands::{CameraMove, Command, CommandFrame, Pasted, Reason, StandardView},
     delete_face_tools, dimensioning,
     display::Displayed,
@@ -2685,6 +2686,7 @@ impl ViewportState {
             && editing.solid().is_none()
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
+            && editing.combining().is_none()
         {
             if self.paint
                 && self.style.picks_faces()
@@ -5086,6 +5088,7 @@ impl ViewportState {
 
     fn menu_selects(&self, editing: &SketchEditing) -> bool {
         !editing.is_choosing_plane()
+            && editing.combining().is_none()
             && editing.picking().is_none()
             && editing
                 .active()
@@ -5308,6 +5311,8 @@ impl ViewportState {
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
+        } else if editing.combining().is_some() {
+            actions.push(Action::Editing(EditingCommand::CancelCombine));
         } else if editing.picking().is_some() {
             actions.push(Action::Editing(EditingCommand::StopPicking));
         } else if self.drawing.has_heading() {
@@ -5952,6 +5957,12 @@ impl ViewportState {
                 CHOOSE_PLANE_PROMPT.to_owned(),
                 HintList::parsed(CHOOSE_PLANE_HINT),
             ))
+        } else if let Some(combining) = editing.combining() {
+            let prompt = match combining.target {
+                Some(target) => combine_tools::tool_prompt(model, target),
+                None => combine_tools::CHOOSE_TARGET_PROMPT.to_owned(),
+            };
+            Some((prompt, HintList::parsed(CHOOSE_PLANE_HINT)))
         } else if let Some(picking) = editing.picking() {
             Some((
                 reference_picking::prompt(model, picking),
@@ -6702,6 +6713,15 @@ fn pick_action(
     };
     if let Some(toggled) = toggled {
         return Some(toggled.map(Action::Apply).into_iter().collect());
+    }
+    if editing.combining().is_some() {
+        return Some(
+            pickable
+                .and_then(Pickable::body)
+                .map(|body| Action::Editing(EditingCommand::CombineWith(body)))
+                .into_iter()
+                .collect(),
+        );
     }
     if !editing.is_choosing_plane() {
         return None;
