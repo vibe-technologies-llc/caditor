@@ -30,7 +30,14 @@ Applications, AppImages, Downloads or `/opt`; on Windows in Program Files). When
 name its program or AppImage in [Preferences](preferences) › General › Exports. The files are kept
 for a week.
 
-With cloud features on, the Export dialog also has **Open in Fusion 360**, which sends the bodies
+{command:file.open_in_fusion_app} sends the bodies straight to the Fusion 360 app on this computer:
+it writes them as STEP to a folder of caditor's own, without asking for a file, and opens Fusion 360
+with it as a new design. It needs no sign-in and no cloud features; the Export dialog has the same
+button, and the format and resolution chosen there do not apply to it. Fusion 360 has to be
+installed, and on Linux something has to be set up to open `fusion360://` links. The files are kept
+for a week.
+
+With cloud features on, the Export dialog also has **Upload to Fusion 360**, which sends the bodies
 chosen for export as STEP to your Fusion 360 folder and opens the file in your browser (see
 [Cloud](cloud)). The format and resolution chosen in the dialog do not apply to it.
 

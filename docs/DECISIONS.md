@@ -50,7 +50,7 @@ decision recorded in `docs/` before work starts.
   `microversionId` in an elements listing matches the `microversionId` of an entry of
   `/documents/d/{did}/w/{wid}/documenthistory`, whose `date` the manager shows for it (Onshape's
   published element record has no date of its own).
-- [medium · easy] Export and open in Fusion 360 (`.claude/rules/cloud.md`) remembers its folder per
+- [medium · easy] Upload to Fusion 360 and open online (`.claude/rules/cloud.md`) remembers its folder per
   hub in `<state>/cloud/fusion-destination.json` and offers Send and open only in the folder the
   manager is showing. Decide whether the remembered destination belongs in the model file instead
   (a model sent to one project keeps going there, and travels with the file) or in the

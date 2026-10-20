@@ -22,7 +22,7 @@ use caditor_file::{
 use caditor_geometry::Vector3;
 use caditor_kernel::Solid;
 use caditor_render::{ImageError, SurfaceSize};
-use egui::{ScrollArea, Sides, Ui};
+use egui::{Align, Layout, ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
 
 use crate::{
@@ -41,7 +41,8 @@ use crate::{
 };
 
 const BODY_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
-pub const FUSION_LABEL: &str = "Open in Fusion 360";
+pub const FUSION_APP_LABEL: &str = "Open in Fusion 360";
+pub const FUSION_LABEL: &str = "Upload to Fusion 360";
 const DIALOG_ID: &str = "export";
 const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
                         Recompute the model first to include the latest changes.";
@@ -63,6 +64,7 @@ pub enum ExportCommand {
     SetThreads(ExportThreads),
     Choose,
     OpenInSlicer,
+    OpenInFusionApp,
     OpenInFusion,
     Cancel,
 }
@@ -394,7 +396,10 @@ impl Exporter {
             }
             ExportCommand::Show => self.open = true,
             ExportCommand::Hide => self.open = false,
-            ExportCommand::Choose | ExportCommand::OpenInSlicer | ExportCommand::OpenInFusion => {}
+            ExportCommand::Choose
+            | ExportCommand::OpenInSlicer
+            | ExportCommand::OpenInFusionApp
+            | ExportCommand::OpenInFusion => {}
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::SetStlEncoding(stl) => self.stl = stl,
@@ -833,26 +838,34 @@ pub fn dialog(
         };
         warnings(ui, model, FAILED_OUTCOME, blocker);
         widgets::footer(ui, |ui| {
-            let export = widgets::primary_button(ui, "Export…");
-            let response = ui.add_enabled(blocker.is_none(), export);
-            let response = match blocker {
-                Some(blocker) => response.on_disabled_hover_text(blocker),
-                None => response,
-            };
-            if response.clicked() {
-                command = Some(ExportCommand::Choose);
-            }
-            if slicer_button(ui, blocker, slicer_missing) {
-                command = Some(ExportCommand::OpenInSlicer);
-            }
-            if let Some(offer) = fusion
-                && fusion_button(ui, blocker, offer)
-            {
-                command = Some(ExportCommand::OpenInFusion);
-            }
-            if ui.add(widgets::button("Cancel")).clicked() {
-                command = Some(ExportCommand::Hide);
-            }
+            ui.with_layout(
+                Layout::right_to_left(Align::Center).with_main_wrap(true),
+                |ui| {
+                    let export = widgets::primary_button(ui, "Export…");
+                    let response = ui.add_enabled(blocker.is_none(), export);
+                    let response = match blocker {
+                        Some(blocker) => response.on_disabled_hover_text(blocker),
+                        None => response,
+                    };
+                    if response.clicked() {
+                        command = Some(ExportCommand::Choose);
+                    }
+                    if slicer_button(ui, blocker, slicer_missing) {
+                        command = Some(ExportCommand::OpenInSlicer);
+                    }
+                    if fusion_app_button(ui, blocker) {
+                        command = Some(ExportCommand::OpenInFusionApp);
+                    }
+                    if let Some(offer) = fusion
+                        && fusion_button(ui, blocker, offer)
+                    {
+                        command = Some(ExportCommand::OpenInFusion);
+                    }
+                    if ui.add(widgets::button("Cancel")).clicked() {
+                        command = Some(ExportCommand::Hide);
+                    }
+                },
+            );
         });
         command
     });
@@ -876,6 +889,19 @@ fn slicer_button(ui: &mut Ui, blocker: Option<&str>, missing: Option<&FindError>
         ));
     match refusal {
         Some(refusal) => response.on_disabled_hover_text(refusal).clicked(),
+        None => response.clicked(),
+    }
+}
+
+fn fusion_app_button(ui: &mut Ui, blocker: Option<&str>) -> bool {
+    let response = ui
+        .add_enabled(blocker.is_none(), widgets::button(FUSION_APP_LABEL))
+        .on_hover_text(
+            "Export the chosen bodies as STEP, without asking for a file, and open them in the \
+             Fusion 360 app on this computer",
+        );
+    match blocker {
+        Some(blocker) => response.on_disabled_hover_text(blocker).clicked(),
         None => response.clicked(),
     }
 }

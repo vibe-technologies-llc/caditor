@@ -78,6 +78,7 @@ pub enum Command {
     ExportImage,
     ExportAgain,
     OpenInSlicer,
+    OpenInFusionApp,
     ImportParameters,
     ExportParameters,
     ImportConfigurations,
@@ -699,6 +700,7 @@ plain_commands! {
     ExportImage,
     ExportAgain,
     OpenInSlicer,
+    OpenInFusionApp,
     ImportParameters,
     ExportParameters,
     ImportConfigurations,
@@ -986,6 +988,7 @@ impl Command {
             Self::RevertToSaved => "file.revert",
             Self::ExportAgain => "file.export_again",
             Self::OpenInSlicer => "file.open_in_slicer",
+            Self::OpenInFusionApp => "file.open_in_fusion_app",
             Self::Open => "file.open",
             Self::Save => "file.save",
             Self::SaveAs => "file.save_as",
@@ -1337,6 +1340,7 @@ impl Command {
             Self::RevertToSaved => "Revert to the saved version",
             Self::ExportAgain => "Export again",
             Self::OpenInSlicer => "Open in OrcaSlicer",
+            Self::OpenInFusionApp => "Open in Fusion 360",
             Self::Open => "Open…",
             Self::Save => "Save",
             Self::SaveAs => "Save as…",
@@ -1629,7 +1633,7 @@ impl Command {
             Self::OnshapeSignOut => "Sign out of Onshape",
             Self::CloudRefresh => "Refresh cloud projects",
             Self::CloudSend => "Send model to the cloud…",
-            Self::CloudOpenInFusion => "Export and open in Fusion 360",
+            Self::CloudOpenInFusion => "Upload to Fusion 360 and open online",
             Self::Guide => "User guide",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
@@ -1801,6 +1805,7 @@ impl Command {
                 "print",
                 "send to slicer",
             ],
+            Self::OpenInFusionApp => &["fusion", "autodesk", "step", "desktop", "app", "cad"],
             Self::Import => &["dxf", "svg", "step", "stl", "obj", "3mf"],
             Self::Configurations => &["variants", "family table", "design table"],
             Self::ImportConfigurations | Self::ExportConfigurations => &[
@@ -1876,6 +1881,7 @@ impl Command {
             | Self::RevertToSaved
             | Self::ExportAgain
             | Self::OpenInSlicer
+            | Self::OpenInFusionApp
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
@@ -2365,6 +2371,7 @@ impl Command {
             | Self::RevertToSaved
             | Self::ExportAgain
             | Self::OpenInSlicer
+            | Self::OpenInFusionApp
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport

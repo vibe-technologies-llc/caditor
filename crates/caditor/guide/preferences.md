@@ -36,7 +36,8 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
 - **Exports**: whether the export dialogs keep their format, options and folder between sessions
   (the default) or only until caditor closes, and **Forget remembered choices**, after which the
   next session's dialogs start from caditor's defaults, and **Slicer program**, the OrcaSlicer
-  program or AppImage that Open in OrcaSlicer starts when caditor does not find it by itself. See
+  program or AppImage that Open in OrcaSlicer starts when caditor does not find it by itself; while
+  the field is empty it says where caditor found OrcaSlicer, or that it did not. See
   [exporting](exporting).
 - **Cloud**: whether [cloud services](cloud) are used at all (turn them off here to hide every
   cloud button, sign out and make no cloud request), whether projects show on Home, and the

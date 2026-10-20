@@ -25,6 +25,7 @@ paths:
   - "crates/caditor/src/model_properties.rs"
   - "crates/caditor/src/window_export.rs"
   - "crates/caditor/src/slicer.rs"
+  - "crates/caditor/src/fusion_app.rs"
   - "crates/caditor/src/save_preview.rs"
 ---
 
@@ -167,7 +168,7 @@ paths:
   image export (`export::warnings`).
 - The dialog stays open behind the save dialog so cancelling keeps the choices, and closes when the
   export starts, which runs on its own thread, cancellable from the status bar and palette.
-- With cloud on, the footer also has Open in Fusion 360 (`ExportCommand::OpenInFusion`), which
+- With cloud on, the footer also has Upload to Fusion 360 (`ExportCommand::OpenInFusion`), which
   `files::show` routes to `CloudCommand::OpenInFusion` after hiding the dialog, since `Files` cannot
   start the cloud send (`cloud.md`).
 - A binary STL (the default encoding; text keeps each body a named solid) moved near the origin says
@@ -237,6 +238,38 @@ paths:
   notice adds "OrcaSlicer is opening it.", or the launch error as a failure; a result for another
   model's session says nothing was opened. Tests swap the finder and launcher
   (`find_slicers_with`, `launch_slicers_with`), so no test starts a real slicer.
+- Preferences › General › Exports › Slicer program shows in its empty field what the last search
+  found (`PreferencesView::slicer`, `slicer_hint`): the program's path, that the slicer was not found
+  where it is usually installed, that the named program is missing, or that it is still being
+  looked for; never a claim it was found that nothing checked.
+
+## Open in the Fusion 360 app
+
+- Open in Fusion 360 (`Command::OpenInFusionApp`, File › Export, the palette, and the Export
+  dialog's Open in Fusion 360, `ExportCommand::OpenInFusionApp`) needs no sign-in and no cloud
+  setting: it exports the bodies chosen for export as STEP, without asking for a file, and hands
+  the file to the Fusion 360 app on this computer. It is not the cloud send (`cloud.md`, titled
+  Upload to Fusion 360 and open online), which uploads to the user's Autodesk account.
+- `fusion_app.rs` holds the hand-over: Autodesk's documented link
+  `fusion360://host/?command=open&file=<percent-encoded path>` (`address`; backslashes become
+  forward slashes, every byte but letters, digits and `-._~` is encoded, a path that is not text is
+  `LaunchError::NotText`), opened through `browser::launch` (`xdg-open` or `gio open` on Unix,
+  `rundll32 url.dll,FileProtocolHandler` on Windows) with no shell. Windows takes the link handler
+  as present, since Fusion registers it and a registry probe would wrongly lock out an install
+  that registers it differently; Windows itself asks which app to use when none is. Unix checks
+  `xdg-mime query default x-scheme-handler/fusion360` (`opens_links`) before exporting anything and
+  refuses with `PrepareError::NoHandler` in words.
+- `files/fusion_app.rs` (`FusionApp` in `Files`) is the slicer's flow without the finding: the
+  refusals are no body, every body left out, an export running, a recompute running or a send
+  already preparing (`FusionAppRefusal`); `fusion_app::prepare` makes `<state>/fusion/` on the files
+  worker (`slicer::make_folder`, which removes files there older than a week), then the export runs
+  as any other, writing `<state>/fusion/<model stem>.step`, leaving `LastExport` alone. On
+  `Event::Exported` for that path (`sent_to_fusion_app`) a written file is handed over and the
+  export notice adds "Fusion 360 is opening it.", or the error as a failure; a result for another
+  model's session says nothing was opened. Tests swap the launcher (`launch_fusion_app_with`, which
+  also treats the link handler as present), so no test starts Fusion.
+- The Export dialog's footer wraps its buttons (`Layout::with_main_wrap`) so four buttons still fit
+  at 200%.
 
 ## Drawing export
 

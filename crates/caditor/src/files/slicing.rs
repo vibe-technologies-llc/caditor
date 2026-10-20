@@ -78,7 +78,6 @@ impl Files {
         self.slicing.launcher = launcher;
     }
 
-    #[cfg(test)]
     pub fn found_slicer(&self) -> Option<&Result<Installation, FindError>> {
         self.slicing.found.as_ref()
     }

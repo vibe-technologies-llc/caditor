@@ -42,12 +42,12 @@ fn start(program: &str, leading: &[&str], address: &str) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-fn launch(address: &str) -> io::Result<()> {
+pub(crate) fn launch(address: &str) -> io::Result<()> {
     start("xdg-open", &[], address).or_else(|_| start("gio", &["open"], address))
 }
 
 #[cfg(windows)]
-fn launch(address: &str) -> io::Result<()> {
+pub(crate) fn launch(address: &str) -> io::Result<()> {
     start("rundll32", &["url.dll,FileProtocolHandler"], address)
 }
 

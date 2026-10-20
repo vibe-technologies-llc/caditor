@@ -212,15 +212,17 @@ pub fn prepare(
     let installation = installation?;
     let slicer = installation.slicer;
     let folder = folder.ok_or(PrepareError::NoFolder { slicer })?;
-    fs::create_dir_all(folder).map_err(|error| PrepareError::Folder {
-        slicer,
-        kind: error.kind(),
-    })?;
-    remove_old_files(folder, SystemTime::now());
+    make_folder(folder).map_err(|kind| PrepareError::Folder { slicer, kind })?;
     Ok(Prepared {
         installation,
         folder: folder.to_path_buf(),
     })
+}
+
+pub fn make_folder(folder: &Path) -> Result<(), io::ErrorKind> {
+    fs::create_dir_all(folder).map_err(|error| error.kind())?;
+    remove_old_files(folder, SystemTime::now());
+    Ok(())
 }
 
 fn remove_old_files(folder: &Path, now: SystemTime) {

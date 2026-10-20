@@ -145,6 +145,7 @@ pub fn command(command: Command) -> &'static str {
         Command::RevertToSaved => phosphor::ARROW_U_DOWN_LEFT,
         Command::ExportAgain => phosphor::REPEAT_ONCE,
         Command::OpenInSlicer => phosphor::PRINTER,
+        Command::OpenInFusionApp => phosphor::ARROW_SQUARE_OUT,
         Command::Open => phosphor::FOLDER_OPEN,
         Command::Save => phosphor::FLOPPY_DISK,
         Command::SaveAs => phosphor::FLOPPY_DISK_BACK,

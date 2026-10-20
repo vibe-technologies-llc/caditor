@@ -222,7 +222,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps.
 - [medium · medium · blocked by: a live Fusion 360 and Autodesk account to confirm the open
-  behaviour against (`DECISIONS.md`)] Export and open in Fusion 360 (`cloud.md`) opens only the
+  behaviour against (`DECISIONS.md`)] Upload to Fusion 360 and open online (`cloud.md`) opens only the
   uploaded file's web page, through `browser::open` on every platform. What remains:
   - Fusion's desktop URL handler on Windows (`fusion360://`, the target Autodesk's "Open in Fusion"
     links use; its exact parameters, likely the item's lineage URN and hub, are unconfirmed) started
@@ -233,7 +233,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
     web link (its document and element ids; the documented document URL is its open target), the
     remembered destination is a workspace, and `Service` words the command for it.
   - Send the model here still sends an `Untitled` model as `Untitled.step` without asking for a
-    name; only Export and open in Fusion 360 asks.
+    name; only Upload to Fusion 360 and open online asks.
   - Confirm against a live Fusion that Data Management returns `links.webView` on an
     `items:autodesk.core:File` item and version (the reading in `fusion.rs` is tested only against
     the documented shape), whether opening an uploaded STEP item creates a design by import, and

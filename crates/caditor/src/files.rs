@@ -41,6 +41,7 @@ use self::{
         changed_on_disk, closing, confirm_replace, finishing_exports, guard, opening, recovery,
         show_report,
     },
+    fusion_app::FusionApp,
     parameters::{ParameterImportDraft, ParametersCommand},
     recent_pictures::{Outcome as RecentPicture, RecentPictures},
     remembered::{ExportFolders, RememberedExports},
@@ -86,6 +87,7 @@ use crate::{
 pub mod cloud_send;
 pub mod configurations;
 mod dialogs;
+pub mod fusion_app;
 pub mod parameters;
 mod pictures;
 mod recent_pictures;
@@ -204,6 +206,7 @@ pub enum FileCommand {
     RevertToSaved,
     ExportAgain,
     OpenInSlicer,
+    OpenInFusionApp,
     FindSlicer,
     SendToCloud(Destination),
     NameCloudSend(CloudNameCommand),
@@ -827,6 +830,10 @@ enum Event {
         chosen: Option<PathBuf>,
         result: Result<slicer::Prepared, PrepareError>,
     },
+    FusionAppReady {
+        session: u64,
+        result: Result<PathBuf, crate::fusion_app::PrepareError>,
+    },
     RecentChecked {
         missing: Vec<PathBuf>,
     },
@@ -1153,6 +1160,7 @@ pub struct Files {
     recent_pictures: RecentPictures,
     own_threads_running: Arc<AtomicUsize>,
     slicing: Slicing,
+    fusion_app: FusionApp,
     cloud_sending: CloudSending,
 }
 
@@ -1219,6 +1227,7 @@ impl Files {
             recent_pictures: RecentPictures::default(),
             own_threads_running: Arc::default(),
             slicing: Slicing::default(),
+            fusion_app: FusionApp::default(),
             cloud_sending: CloudSending::default(),
         }
     }
@@ -1504,6 +1513,7 @@ impl Files {
                         self.pick(Purpose::Export(self.exporter.format()), model);
                     }
                     ExportCommand::OpenInSlicer => self.open_in_slicer(model),
+                    ExportCommand::OpenInFusionApp => self.open_in_fusion_app(model),
                     ExportCommand::Show => self.find_slicer(),
                     _ => {}
                 }
@@ -1599,6 +1609,7 @@ impl Files {
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
             FileCommand::OpenInSlicer => self.open_in_slicer(model),
+            FileCommand::OpenInFusionApp => self.open_in_fusion_app(model),
             FileCommand::FindSlicer => self.find_slicer(),
             FileCommand::SendToCloud(destination) => self.send_to_cloud(destination, model),
             FileCommand::NameCloudSend(command) => self.name_cloud_send(command, model),
@@ -2163,6 +2174,7 @@ impl Files {
                 }
                 let slicer = self.sent_to_slicer(&path);
                 let cloud = self.sent_to_cloud(&path);
+                let fusion_app = self.sent_to_fusion_app(&path);
                 let wrote = !report.written(&path).is_empty();
                 let notice = self.exporter.reported(&path, report);
                 let notice = match (slicer, cloud) {
@@ -2172,9 +2184,13 @@ impl Files {
                     (_, Some(destination)) => {
                         self.exported_for_cloud(destination, &path, wrote, notice)
                     }
+                    _ if fusion_app && wrote => self.open_exported_in_fusion_app(&path, notice),
                     _ => notice,
                 };
                 model.set_notice(notice);
+            }
+            Event::FusionAppReady { session, result } => {
+                self.fusion_app_ready(session, result, model)
             }
             Event::SlicerFound { chosen, result } => self.slicer_found(chosen, result),
             Event::SlicerSearchFailed => log::error!("looking for the slicer failed"),
@@ -3933,6 +3949,7 @@ pub fn menu(
     };
     let again = files.export_again_name(model);
     let sendable = files.slicer_availability(model);
+    let openable_in_fusion = files.fusion_app_availability(model);
     let revertible = model.saved_version().map(|_| ());
     let file_menu = menu_bar::top_menu(ui, "File", |ui| {
         entries.item(ui, Command::Home);
@@ -4023,6 +4040,7 @@ pub fn menu(
                 Some(EXPORT_AGAIN_HINT),
             );
             entries.hinted(ui, Command::OpenInSlicer, slicing::HINT);
+            entries.hinted(ui, Command::OpenInFusionApp, fusion_app::HINT);
             if cloud {
                 entries.hinted(
                     ui,
@@ -4063,6 +4081,11 @@ pub fn menu(
     if commands.invoke(Command::OpenInSlicer, &sendable) || chosen.contains(&Command::OpenInSlicer)
     {
         actions.push(Action::File(FileCommand::OpenInSlicer));
+    }
+    if commands.invoke(Command::OpenInFusionApp, &openable_in_fusion)
+        || chosen.contains(&Command::OpenInFusionApp)
+    {
+        actions.push(Action::File(FileCommand::OpenInFusionApp));
     }
     if commands.invoke_detailed(Command::ExportAgain, again.clone().ok(), &again)
         || chosen.contains(&Command::ExportAgain)

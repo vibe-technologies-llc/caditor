@@ -77,6 +77,7 @@ mod files;
 mod filleting;
 mod font_fallbacks;
 mod fonts;
+mod fusion_app;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
 mod gear_panel;

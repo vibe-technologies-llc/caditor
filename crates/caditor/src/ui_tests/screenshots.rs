@@ -26,7 +26,7 @@ use crate::{
     datum_tools,
     drawing_export::{DrawingCommand, DrawingSource, Layout},
     editing::{EditingCommand, Tool},
-    export::ExportCommand,
+    export::{self, ExportCommand},
     files::FileCommand,
     history::HistoryCommand,
     hole_tools,
@@ -706,7 +706,7 @@ fn cloud_send_scenes(gpu: &Gpu, out: &Path, look: Look) {
     super::extruded_plate(&mut harness);
     harness.command(FileCommand::Export(ExportCommand::Show));
     shoot(&mut harness, gpu, out, "export-open-in-fusion", look);
-    harness.click("Open in Fusion 360");
+    harness.click(export::FUSION_LABEL);
     harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
     harness.click("Parts");
     harness.wait_until("the folder is listed", |harness| {

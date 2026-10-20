@@ -20,7 +20,7 @@ use crate::{
     graphics::{self, Hardware},
     icons, lighting_panel,
     scene_palette::{self, Canvas, Contrast},
-    slicer::Slicer,
+    slicer::{FindError, Installation, Slicer},
     themes::{Look, UserThemes},
     units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
     view_aids::EdgeWeight,
@@ -49,11 +49,13 @@ pub struct PreferencesView<'a> {
     pub restored: Option<&'a Restored>,
     pub themes: &'a UserThemes,
     pub search: &'a str,
+    pub slicer: Option<&'a Result<Installation, FindError>>,
 }
 
 pub struct Shown<'a> {
     pub preferences: &'a Preferences,
     pub query: &'a str,
+    pub slicer: Option<&'a Result<Installation, FindError>>,
 }
 
 pub fn reset_name(section: Section) -> String {
@@ -196,7 +198,11 @@ fn body(
         .min_height(tallest)
         .show(ui, |ui| {
             ui.scope(|ui| {
-                let shown = Shown { preferences, query };
+                let shown = Shown {
+                    preferences,
+                    query,
+                    slicer: view.slicer,
+                };
                 if query.is_empty() {
                     tab_body(ui, &shown, view, tab, command);
                 } else {
@@ -595,7 +601,12 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
         }
         ui.end_row();
         widgets::property(ui, "Slicer program", |ui| {
-            slicer_program_field(ui, preferences.slicer_program.as_deref(), command);
+            slicer_program_field(
+                ui,
+                preferences.slicer_program.as_deref(),
+                shown.slicer,
+                command,
+            );
         });
     });
 }
@@ -603,6 +614,7 @@ fn exports(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesComma
 fn slicer_program_field(
     ui: &mut Ui,
     stored: Option<&Path>,
+    found: Option<&Result<Installation, FindError>>,
     command: &mut Option<PreferencesCommand>,
 ) {
     let slicer = Slicer::SUPPORTED;
@@ -616,7 +628,7 @@ fn slicer_program_field(
         ui.add(
             TextEdit::singleline(&mut text)
                 .id(Id::unique(SLICER_PROGRAM_FIELD_EDIT))
-                .hint_text(format!("{slicer}, found automatically"))
+                .hint_text(slicer_hint(slicer, found))
                 .desired_width(f32::INFINITY),
         )
     })
@@ -631,6 +643,21 @@ fn slicer_program_field(
         }
     } else if response.has_focus() || response.changed() {
         ui.data_mut(|data| data.insert_temp(draft_id, text));
+    }
+}
+
+fn slicer_hint(slicer: Slicer, found: Option<&Result<Installation, FindError>>) -> String {
+    match found {
+        Some(Ok(installation)) => {
+            format!("{slicer}, found at {}", installation.program().display())
+        }
+        Some(Err(FindError::NotFound { .. })) => {
+            format!("{slicer} was not found where it is usually installed")
+        }
+        Some(Err(FindError::ChosenMissing { .. })) => {
+            format!("{slicer} is not at the program named")
+        }
+        None => format!("Looking for {slicer}…"),
     }
 }
 
@@ -1342,4 +1369,41 @@ fn in_the_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesC
             );
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::slicer::Launch;
+
+    #[test]
+    fn the_slicer_field_says_what_the_search_found_and_never_claims_more() {
+        let slicer = Slicer::OrcaSlicer;
+        let program = PathBuf::from("orca-slicer");
+        let found = Ok(Installation {
+            slicer,
+            launch: Launch::Program(program.clone()),
+        });
+        let missing = Err(FindError::NotFound { slicer });
+        let chosen = Err(FindError::ChosenMissing {
+            slicer,
+            path: program,
+        });
+
+        assert_eq!(
+            slicer_hint(slicer, Some(&found)),
+            "OrcaSlicer, found at orca-slicer"
+        );
+        assert_eq!(
+            slicer_hint(slicer, Some(&missing)),
+            "OrcaSlicer was not found where it is usually installed"
+        );
+        assert_eq!(
+            slicer_hint(slicer, Some(&chosen)),
+            "OrcaSlicer is not at the program named"
+        );
+        assert_eq!(slicer_hint(slicer, None), "Looking for OrcaSlicer…");
+    }
 }

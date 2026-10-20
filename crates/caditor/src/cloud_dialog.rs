@@ -686,7 +686,7 @@ fn send_row(
     {
         ui.label(widgets::muted(
             format!(
-                "Export and open in Fusion 360 sends to “{}”.",
+                "Upload to Fusion 360 and open online sends to “{}”.",
                 remembered.folder_name
             ),
             ui,

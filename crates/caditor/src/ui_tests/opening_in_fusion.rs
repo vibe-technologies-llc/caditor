@@ -33,7 +33,7 @@ use crate::{
     preferences::{PreferenceChange, PreferencesCommand},
 };
 
-const COMMAND: &str = "Export and open in Fusion 360";
+const COMMAND: &str = "Upload to Fusion 360 and open online";
 
 type Opened = Arc<Mutex<Vec<String>>>;
 

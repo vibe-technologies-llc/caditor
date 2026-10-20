@@ -1257,6 +1257,7 @@ pub fn show(
             restored: restored.as_ref(),
             themes: files.themes(),
             search: preferences_search,
+            slicer: files.found_slicer(),
         };
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)

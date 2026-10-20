@@ -227,7 +227,7 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   hub in use wins, then the remembered one if it is still listed, then `first_workspace` (the team
   hub first); a vanished hub keeps its file, so it returns with the hub. Only a deliberate choice writes it (`ChooseWorkspace`, never the automatic pick); an
   explicit sign-out or turning cloud off deletes it with the session, an ended sign-in does not.
-- Export and open in Fusion 360 (`CloudOpenInFusion`, `CloudCommand::OpenInFusion`; File › Cloud,
+- Upload to Fusion 360 and open online (`CloudOpenInFusion`, `CloudCommand::OpenInFusion`; File › Cloud,
   File › Export and the palette, gated by `Cloud::can_open_in_fusion` and
   `Files::cloud_send_availability`, so a refusal names its reason before anything is exported) is
   the ordinary send with a `Destination` whose `after` is `AfterSend::OpenOnTheWeb`. The folder is
@@ -242,7 +242,7 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   (`ShowCloudToOpen`). The decision to keep it per hub in the state directory, not in the model
   file or the preferences, is recorded as open in `docs/DECISIONS.md`. Sign-out and turning cloud
   off delete the file with the hub's.
-- The Export dialog has the command as an Open in Fusion 360 button beside Open in OrcaSlicer
+- The Export dialog has the command as an Upload to Fusion 360 button beside Open in OrcaSlicer
   (`ExportCommand::OpenInFusion`, `export::FUSION_LABEL`). `Files` cannot start a cloud send, so
   `files::show` turns the outcome into `Export(Hide)` and `CloudCommand::OpenInFusion` and nothing
   reaches `Files::perform`. `app::show` hands it the command's own verdict (`Cloud::can_open_in_fusion`

@@ -84,7 +84,7 @@ the file into a Part Studio, the window says so and offers Try again. Files you 
 date they were last changed when Onshape's history of the workspace tells it; a file it cannot date
 shows none.
 
-## Export and open in Fusion 360
+## Upload to Fusion 360 and open online
 
 {command:file.cloud_open_in_fusion} (File › Cloud, File › Export and the command palette once you
 are signed in to Fusion 360) does the whole trip in one step: it exports the model as STEP like
@@ -92,7 +92,7 @@ Send the model here, puts it in your Fusion 360 folder and opens the file's page
 browser. Fusion opens an uploaded STEP file as an import, so look there for it to arrive as a
 design.
 
-The Export dialog has the same trip as **Open in Fusion 360**, beside Open in OrcaSlicer; it is
+The Export dialog has the same trip as **Upload to Fusion 360**, beside Open in OrcaSlicer; it is
 missing when cloud features are off and greyed out, with the reason, until the command could run.
 
 A model that has not been saved has no name, so before sending, caditor asks what the file should
@@ -147,7 +147,7 @@ have uploaded to a document (STEP, mesh and drawing files) are listed beside its
 
 Every command has a name in the command palette: Home, Cloud projects, Sign in to Fusion 360, Sign
 out of Fusion 360, Sign in to Onshape, Sign out of Onshape, Refresh cloud projects, Send model to
-the cloud and Export and open in Fusion 360.
+the cloud and Upload to Fusion 360 and open online.
 
 ## Turning it off
 
