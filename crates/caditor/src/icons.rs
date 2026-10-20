@@ -410,6 +410,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CloudSignOut | Command::OnshapeSignOut => phosphor::SIGN_OUT,
         Command::CloudRefresh => phosphor::ARROWS_CLOCKWISE,
         Command::CloudSend => phosphor::CLOUD_ARROW_UP,
+        Command::CloudOpenInFusion => phosphor::ARROW_SQUARE_OUT,
         Command::Guide => GUIDE,
         Command::About => phosphor::INFO,
         Command::Messages => phosphor::CHAT_TEXT,

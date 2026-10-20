@@ -84,6 +84,29 @@ the file into a Part Studio, the window says so and offers Try again. Files you 
 date they were last changed when Onshape's history of the workspace tells it; a file it cannot date
 shows none.
 
+## Export and open in Fusion 360
+
+{command:file.cloud_open_in_fusion} (File › Cloud, File › Export and the command palette once you
+are signed in to Fusion 360) does the whole trip in one step: it exports the model as STEP like
+Send the model here, puts it in your Fusion 360 folder and opens the file's page in your web
+browser. Fusion opens an uploaded STEP file as an import, so look there for it to arrive as a
+design.
+
+The first time, the Cloud projects window opens: open a project, open the folder the model belongs
+in and press **Send and open in Fusion 360**. caditor remembers that folder for the hub you are
+using, also after restarting, and the next run needs no window at all. The file is named after the
+model, so sending again is a new version of the same file rather than a second one. To use another
+folder, press **Send and open in Fusion 360** in it; the window says which folder the command sends
+to. Signing out forgets the folder.
+
+The command is refused, with the reason, before anything is exported, when cloud features are off,
+you are not signed in, there is no body to send, a body is left out of the export or another model is
+still being sent. If the remembered folder is gone or no longer lets you add files, the notice
+says so, the folder is forgotten and the window opens to choose another. If your browser cannot be
+started, the file is still in Fusion; the notice says so and the Cloud projects window offers **Copy
+link** for its address. If Autodesk gives no web address for the file, the notice says to open it
+from the folder in Fusion. Cancel works as it does for any send, and nothing is opened.
+
 ## Onshape documents
 
 Home shows Onshape below Fusion 360. {command:file.onshape_sign_in} opens Onshape's own sign-in
@@ -108,15 +131,15 @@ have uploaded to a document (STEP, mesh and drawing files) are listed beside its
 - **Projects**: for each signed-in service, the hub to list (Fusion 360: the team hub first), a list
   of its projects or documents and, beside it, the folders and designs of the one you choose, with
   a breadcrumb to go back up and an Import button on each design and on each STEP, mesh or drawing
-  file, **Send the model here** inside a Fusion 360 folder or an Onshape workspace, and **Send as a Part Studio** beside it in an Onshape workspace. **Versions** under a Fusion 360 design lists its saved versions, newest first;
+  file, **Send the model here** inside a Fusion 360 folder or an Onshape workspace, **Send and open in Fusion 360** beside it in a Fusion 360 folder, and **Send as a Part Studio** beside it in an Onshape workspace. **Versions** under a Fusion 360 design lists its saved versions, newest first;
   Import beside one has Autodesk convert that version instead of the newest, and it is kept as
   its own file named for the version.
 - **Downloaded designs**: how many downloaded files are kept, how large they are, and Clear.
 - **Cloud features**: whether projects show on Home, and Turn off cloud features.
 
 Every command has a name in the command palette: Home, Cloud projects, Sign in to Fusion 360, Sign
-out of Fusion 360, Sign in to Onshape, Sign out of Onshape, Refresh cloud projects and Send model to
-the cloud.
+out of Fusion 360, Sign in to Onshape, Sign out of Onshape, Refresh cloud projects, Send model to
+the cloud and Export and open in Fusion 360.
 
 ## Turning it off
 

@@ -23,6 +23,7 @@ identifier!(FolderId);
 identifier!(DesignId);
 identifier!(UploadId);
 identifier!(VersionId);
+identifier!(ItemId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -221,4 +222,19 @@ pub enum SendOutcome {
 pub struct Sent {
     pub name: String,
     pub outcome: SendOutcome,
+    pub item: Option<ItemId>,
+    pub version: Option<VersionId>,
+    pub web_link: Option<String>,
+}
+
+impl Sent {
+    pub fn new(name: impl Into<String>, outcome: SendOutcome) -> Self {
+        Self {
+            name: name.into(),
+            outcome,
+            item: None,
+            version: None,
+            web_link: None,
+        }
+    }
 }

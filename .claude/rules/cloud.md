@@ -9,6 +9,7 @@ paths:
   - "crates/caditor/src/home.rs"
   - "crates/caditor/src/browser.rs"
   - "crates/caditor/src/ui_tests/home.rs"
+  - "crates/caditor/src/ui_tests/opening_in_fusion.rs"
 ---
 
 # Home and cloud services
@@ -38,8 +39,10 @@ a `Transport`; the app never speaks a service's protocol itself.
   `Version` (a design's saved version, `number` and time), `Translation` and `Download`, whose
   strings only their provider reads. A `Folder` also names its `place`, the `FolderRef` a file can be
   put in (a Fusion folder's own; none for a project top that lists several folders, and for an
-  Onshape version, which cannot change; an Onshape workspace is its own place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name and
-  a `SendOutcome`, `Created` or `NewVersion { number }`) what came of it. Ids are newtypes, never
+  Onshape version, which cannot change; an Onshape workspace is its own place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name, a
+  `SendOutcome`, `Created` or `NewVersion { number }`, and what opening it needs: the `ItemId` and
+  `VersionId` Fusion made or found and the https `web_link` its answer carried, each absent when the
+  service does not say) what came of it. Ids are newtypes, never
   positional.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
@@ -77,7 +80,7 @@ a `Transport`; the app never speaks a service's protocol itself.
   answers the browser with a static page that holds nothing from the request.
 - Errors are `Error` (typed; Display is words that say what to do next, never internals).
   `fake.rs` (feature `test-support`) holds `ScriptedTransport` and `FakeProvider` for the tests of
-  this crate and the app.
+  this crate and the app; the provider can hold sends until released and answer without web links.
 
 ## Fusion 360 (`fusion.rs`)
 
@@ -120,7 +123,10 @@ made before `data:create` was added goes on working for everything but sending (
   or `POST …/versions` with the existing `item` and the storage makes a new version of it. A 403
   is `SendForbidden`, a 409 `NameTaken` (a name Autodesk will not reuse), a part the storage
   refuses or a completion that fails `UploadIncomplete`, a link count that is not the part count or
-  a non-https link `Unreadable`. Progress returning false stops it with `Error::Stopped` before
+  a non-https link `Unreadable`. The answer of the item or version `POST` is read for the `Sent`:
+  the created item's `data.id` with the first `included` version, or the found item's id with the
+  new version's `data.id`, and `links.webView.href` of the item, else of the version, kept only
+  when it is https and holds no whitespace. Onshape fills none of these. Progress returning false stops it with `Error::Stopped` before
   the completion, so no item is made and the storage object it leaves behind is never listed. The
   flow is tested only against the documented JSON shapes, like the rest of this module.
 - The app registered with Autodesk is a deployment fact, not code: a public-client app with the
@@ -221,6 +227,31 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   hub in use wins, then the remembered one if it is still listed, then `first_workspace` (the team
   hub first); a vanished hub keeps its file, so it returns with the hub. Only a deliberate choice writes it (`ChooseWorkspace`, never the automatic pick); an
   explicit sign-out or turning cloud off deletes it with the session, an ended sign-in does not.
+- Export and open in Fusion 360 (`CloudOpenInFusion`, `CloudCommand::OpenInFusion`; File › Cloud,
+  File › Export and the palette, gated by `Cloud::can_open_in_fusion` and
+  `Files::cloud_send_availability`, so a refusal names its reason before anything is exported) is
+  the ordinary send with a `Destination` whose `after` is `AfterSend::OpenOnTheWeb`. The folder is
+  remembered per hub, in memory in `Linked::destinations` and in
+  `<state>/cloud/fusion-destination.json` (`SessionStore`, a list of hub, project, folder and
+  folder name written atomically by a courier job, each write carrying a sequence so a late older
+  write is skipped, read by the job that lists the hubs and never overriding what this run already
+  holds). It is remembered when a send with `after` starts from the manager's Send and open in
+  Fusion 360 button (primary when the dialog was opened by the command with nothing remembered;
+  the manager says which folder the command sends to). With a folder remembered for the hub in
+  use the command runs `FileCommand::SendToCloud` at once; with none it opens the manager
+  (`ShowCloudToOpen`). The decision to keep it per hub in the state directory, not in the model
+  file or the preferences, is recorded as open in `docs/DECISIONS.md`. Sign-out and turning cloud
+  off delete the file with the hub's.
+- Opening is the web page only, on every platform: after `Delivered` carries a `web_link`, the
+  courier runs the injectable `Opener` (`browser::open`, https only, no shell) in a job, never on
+  the UI thread, so the upload is never undone by a failure to open. The success notice says the
+  file opens in Fusion as an import (unconfirmed against a live Fusion) or, with no `web_link`,
+  that Autodesk gave no address. A failed open (`Failure::Browser`) is a notice and
+  `Linked::unopened`, which the manager shows at the head of the Fusion section with Copy link and
+  Dismiss until the next send or Dismiss. A send with `after` that fails with a missing folder or
+  `SendForbidden` forgets the remembered folder, says so naming the folder and the file, and opens
+  the manager to choose another; any other failure stays `SendStage::Failed` with Try again, as a
+  plain send. Fusion's desktop URL handler is not used (`docs/FEATURES.md`).
 - The session is JSON kept by `SessionStore` (`cloud/store.rs`) in the operating system's keyring
   (`cloud/keyring.rs`, below), one entry per service, and in `<state>/cloud/<service>-session.json`
   (`caditor_file::write_privately`, an owner-only file, new or replaced; a test holds the mode) only
@@ -330,7 +361,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   ("Edited 3 days ago"), SI sizes, the import status. Every control is a widget-kit one, named for
   screen readers, and every cloud action is a palette command (`Home`, `Cloud`, `CloudSignIn`,
   `CloudSignOut`, `OnshapeSignIn`, `OnshapeSignOut`, `CloudRefresh`, which refreshes every signed-in
-  service, and `CloudSend`, which opens the manager to choose a folder; File › Cloud lists it) refused with a reason when it cannot run.
+  service, `CloudSend`, which opens the manager to choose a folder, and `CloudOpenInFusion`; File ›
+  Cloud lists both) refused with a reason when it cannot run.
 
 ## The keyring (`cloud/keyring.rs`)
 
@@ -371,8 +403,11 @@ dependency builds C.
 
 `caditor-cloud` tests every provider call against Autodesk- and Onshape-shaped JSON through
 `ScriptedTransport`, PKCE against RFC 7636, the listener over a real socket and the client's
-refresh and retry. `ui_tests/home.rs` drives the app with a `FakeProvider` through a real loopback
-sign-in: the page, its order, one-click import into a model, failure and Try again, sending a model
+refresh and retry. `ui_tests/opening_in_fusion.rs` drives the open command with a `FakeProvider` and an injected
+`Opener` that records addresses, so no test starts a browser: the first run choosing a folder, the
+second making version 2 without asking, Cancel, a browser that fails, an answer without an address,
+a vanished folder, sign-out and the refusals. `ui_tests/home.rs` drives the app with a
+`FakeProvider` through a real loopback sign-in: the page, its order, one-click import into a model, failure and Try again, sending a model
 (a new file, then a new version, into an Onshape workspace, nothing sent without a body or from a project top, a refusal and
 Try again, the palette command, opt-out), restart, sign-out, opt-out (no call reaches the
 provider), the manager and Preferences. The live handshake

@@ -597,10 +597,7 @@ impl Provider for Onshape {
         let response = self.upload_file(net, session, url, payload, progress)?;
         let _: UploadedElement = rest::read(SERVICE, &response, Subject::Item)?;
         progress(total, Some(total));
-        Ok(Sent {
-            name: name.to_owned(),
-            outcome,
-        })
+        Ok(Sent::new(name, outcome))
     }
 
     fn send_part_studio(

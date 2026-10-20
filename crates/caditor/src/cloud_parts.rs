@@ -293,6 +293,33 @@ pub fn import_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<C
         .then_some(CloudCommand::CancelImport(service))
 }
 
+pub const COPY_LINK: &str = "Copy link";
+
+pub fn unopened_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<CloudCommand> {
+    let unopened = linked.unopened.as_ref()?;
+    let mut dismissed = None;
+    widgets::callout(ui, Tone::Warning, |ui| {
+        ui.add(
+            Label::new(format!(
+                "“{}” is in {service}, but caditor could not open it in the browser. Copy its \
+                 link and paste it there.",
+                unopened.name
+            ))
+            .wrap(),
+        );
+        ui.horizontal(|ui| {
+            let copy = widgets::small_button(ui, icons::COPY, COPY_LINK);
+            if ui.add(copy).clicked() {
+                ui.ctx().copy_text(unopened.link.clone());
+            }
+            if ui.add(widgets::button(DISMISS)).clicked() {
+                dismissed = Some(CloudCommand::DismissUnopened(service));
+            }
+        });
+    });
+    dismissed
+}
+
 pub fn send_status(ui: &mut Ui, service: Service, linked: &Linked) -> Option<SendChoice> {
     let send = linked.sending.as_ref()?;
     let name = &send.shipment.name;

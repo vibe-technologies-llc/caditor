@@ -418,6 +418,11 @@ impl Workspace {
                     self.cloud_dialog = Some(CloudDialog::choosing_where_to_send());
                 }
             }
+            PreferencesCommand::ShowCloudToOpen => {
+                if self.preferences.cloud.enabled {
+                    self.cloud_dialog = Some(CloudDialog::choosing_where_to_open());
+                }
+            }
             PreferencesCommand::CloseCloud => self.cloud_dialog = None,
             PreferencesCommand::ShowAbout => self.about_open = true,
             PreferencesCommand::CloseAbout => self.about_open = false,
@@ -1126,6 +1131,17 @@ pub fn show(
     }
     if commands.invoke(Command::CloudSend, &cloud.can_send_anywhere()) {
         actions.push(Action::Preferences(PreferencesCommand::ShowCloudToSend));
+    }
+    let openable = cloud
+        .can_open_in_fusion()
+        .map_err(|refusal| refusal.to_string())
+        .and_then(|()| {
+            files
+                .cloud_send_availability(model)
+                .map_err(|refusal| refusal.to_string())
+        });
+    if commands.invoke(Command::CloudOpenInFusion, &openable) {
+        actions.push(Action::Cloud(CloudCommand::OpenInFusion));
     }
     for (sign_in, sign_out, service) in [
         (Command::CloudSignIn, Command::CloudSignOut, Service::Fusion),

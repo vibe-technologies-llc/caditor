@@ -3995,6 +3995,11 @@ pub fn menu(
                 );
                 ui.separator();
                 entries.hinted(ui, Command::CloudSend, cloud_send::HINT);
+                entries.hinted(
+                    ui,
+                    Command::CloudOpenInFusion,
+                    cloud_send::OPEN_IN_FUSION_HINT,
+                );
             });
         }
         menu_bar::submenu(ui, icons::command(Command::Export), EXPORT_MENU, |ui| {
@@ -4012,6 +4017,13 @@ pub fn menu(
                 Some(EXPORT_AGAIN_HINT),
             );
             entries.hinted(ui, Command::OpenInSlicer, slicing::HINT);
+            if cloud {
+                entries.hinted(
+                    ui,
+                    Command::CloudOpenInFusion,
+                    cloud_send::OPEN_IN_FUSION_HINT,
+                );
+            }
             entries.hinted(ui, Command::ExportImage, IMAGE_HINT);
             for (command, unoffered, hint) in [
                 (Command::ExportSketch, NOT_A_SKETCH, SKETCH_HINT),
@@ -4160,6 +4172,7 @@ pub fn menu(
         Command::OnshapeSignOut,
         Command::CloudRefresh,
         Command::CloudSend,
+        Command::CloudOpenInFusion,
     ] {
         if chosen.contains(&command) {
             commands.trigger(command);

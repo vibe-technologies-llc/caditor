@@ -336,6 +336,7 @@ pub enum Command {
     OnshapeSignOut,
     CloudRefresh,
     CloudSend,
+    CloudOpenInFusion,
     Guide,
     About,
     Messages,
@@ -711,6 +712,7 @@ plain_commands! {
     OnshapeSignOut,
     CloudRefresh,
     CloudSend,
+    CloudOpenInFusion,
     Guide,
     About,
     Messages,
@@ -1303,6 +1305,7 @@ impl Command {
             Self::OnshapeSignOut => "file.onshape_sign_out",
             Self::CloudRefresh => "file.cloud_refresh",
             Self::CloudSend => "file.cloud_send",
+            Self::CloudOpenInFusion => "file.cloud_open_in_fusion",
             Self::Guide => "help.guide",
             Self::About => "help.about",
             Self::Messages => "help.messages",
@@ -1607,6 +1610,7 @@ impl Command {
             Self::OnshapeSignOut => "Sign out of Onshape",
             Self::CloudRefresh => "Refresh cloud projects",
             Self::CloudSend => "Send model to the cloud…",
+            Self::CloudOpenInFusion => "Export and open in Fusion 360",
             Self::Guide => "User guide",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
@@ -1749,6 +1753,9 @@ impl Command {
             Self::CloudSend => &[
                 "upload", "fusion", "autodesk", "step", "push", "share", "cloud",
             ],
+            Self::CloudOpenInFusion => &[
+                "send", "upload", "autodesk", "step", "browser", "web", "cloud",
+            ],
             Self::ToggleProjection | Self::AutomaticProjection => {
                 &["perspective", "orthographic", "parallel"]
             }
@@ -1853,7 +1860,8 @@ impl Command {
             | Self::OnshapeSignIn
             | Self::OnshapeSignOut
             | Self::CloudRefresh
-            | Self::CloudSend => Category::File,
+            | Self::CloudSend
+            | Self::CloudOpenInFusion => Category::File,
             Self::Welcome
             | Self::Guide
             | Self::About
@@ -2418,6 +2426,7 @@ impl Command {
             | Self::OnshapeSignOut
             | Self::CloudRefresh
             | Self::CloudSend
+            | Self::CloudOpenInFusion
             | Self::About
             | Self::Messages
             | Self::Mate
