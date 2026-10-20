@@ -1,7 +1,7 @@
 # Preferences
 
 {command:file.preferences} opens Preferences. Changes apply at once and are saved for the next
-start. **Restore defaults** resets only the tab you are on, and offers Undo. A section you have
+start; a text field applies when you leave it or close Preferences. **Restore defaults** resets only the tab you are on, and offers Undo. A section you have
 changed shows a reset button at the right of its title, which puts back that section's defaults
 alone and also offers Undo.
 

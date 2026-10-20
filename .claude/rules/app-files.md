@@ -242,6 +242,11 @@ paths:
   found (`PreferencesView::slicer`, `slicer_hint`): the program's path, that the slicer was not found
   where it is usually installed, that the named program is missing, or that it is still being
   looked for; never a claim it was found that nothing checked.
+- The text fields of Preferences that apply on leaving the field (Slicer program, the client IDs)
+  keep what is typed as a draft in egui's memory until the stored value equals it, and closing the
+  dialog (Close, Escape) applies every draft still differing (`preferences::pending_changes`)
+  before hiding it, so a change is never lost for want of clicking out of the field
+  (`closing_preferences_keeps_a_field_still_being_typed_in`).
 
 ## Open in the Fusion 360 app
 

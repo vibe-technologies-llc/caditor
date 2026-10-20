@@ -1392,6 +1392,26 @@ fn the_autodesk_app_can_be_typed_in_preferences() {
 }
 
 #[test]
+fn closing_preferences_keeps_a_field_still_being_typed_in() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = without_app(dir.path());
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.type_into_field(egui::Id::unique(SEARCH_FIELD), "client id");
+
+    harness.draft_into_field(egui::Id::unique(CLIENT_ID_FIELD_EDIT), "my-client-id");
+    harness.click("Close");
+    harness.frame();
+
+    assert!(!harness.workspace.preferences_open);
+    assert_eq!(
+        harness.workspace.preferences.cloud.fusion_client_id,
+        "my-client-id"
+    );
+}
+
+#[test]
 fn home_at_startup_is_a_preference_and_the_footer_turns_it_off() {
     let dir = TempDir::new().unwrap();
     let mut harness = with_cloud(dir.path(), &fusion_provider(b""));

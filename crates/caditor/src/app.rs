@@ -1262,6 +1262,13 @@ pub fn show(
         if *preferences_open
             && let Some(command) = preferences::dialog(ui.ctx(), preferences, &view)
         {
+            if command == PreferencesCommand::Hide {
+                actions.extend(
+                    preferences::pending_changes(ui.ctx(), preferences)
+                        .into_iter()
+                        .map(|change| Action::Preferences(PreferencesCommand::Change(change))),
+                );
+            }
             actions.push(Action::Preferences(command));
         }
         if let Some(editor) = shortcut_editor

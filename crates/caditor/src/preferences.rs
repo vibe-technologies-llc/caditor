@@ -19,7 +19,7 @@ pub use self::{
         Startup, TooltipDelay, Transitions, ZoomToward,
     },
     cloud::CloudPreferences,
-    dialog::{PreferencesView, Shown, change, choice, dialog, pick, section},
+    dialog::{PreferencesView, Shown, change, choice, dialog, pending_changes, pick, section},
     sections::Section,
 };
 pub use crate::themes::{Accent, Appearance, BodyColour, GridColour, Theme, ViewChoice};

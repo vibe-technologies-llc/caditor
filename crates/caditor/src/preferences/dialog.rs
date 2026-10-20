@@ -523,14 +523,48 @@ fn client_id_field(
          caditor carries.",
         service.company()
     ));
-    if response.lost_focus() {
-        ui.data_mut(|data| data.remove_temp::<String>(draft_id));
-        if text.trim() != stored {
-            change(command, PreferenceChange::ClientId(service, text));
-        }
-    } else if response.has_focus() || response.changed() {
-        ui.data_mut(|data| data.insert_temp(draft_id, text));
+    let differs = text.trim() != stored;
+    if response.lost_focus() && differs {
+        change(command, PreferenceChange::ClientId(service, text.clone()));
     }
+    keep_draft(ui, draft_id, text, differs);
+}
+
+fn keep_draft(ui: &Ui, draft_id: Id, text: String, differs: bool) {
+    ui.data_mut(|data| {
+        if differs {
+            data.insert_temp(draft_id, text);
+        } else {
+            data.remove_temp::<String>(draft_id);
+        }
+    });
+}
+
+pub fn pending_changes(ctx: &egui::Context, preferences: &Preferences) -> Vec<PreferenceChange> {
+    let draft = |key: &str| ctx.data(|data| data.get_temp::<String>(Id::unique(key)));
+    let mut pending = Vec::new();
+    for service in Service::ALL {
+        let key = match service {
+            Service::Fusion => CLIENT_ID_FIELD,
+            Service::Onshape => ONSHAPE_CLIENT_ID_FIELD,
+        };
+        if let Some(text) = draft(key)
+            && text.trim() != preferences.cloud.client_id(service)
+        {
+            pending.push(PreferenceChange::ClientId(service, text));
+        }
+    }
+    let stored_program = preferences
+        .slicer_program
+        .as_deref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    if let Some(text) = draft(SLICER_PROGRAM_FIELD)
+        && text.trim() != stored_program
+    {
+        pending.push(PreferenceChange::SlicerProgram(text));
+    }
+    pending
 }
 
 fn feature_tree(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand>) {
@@ -636,14 +670,11 @@ fn slicer_program_field(
         "The {slicer} program or AppImage that File › Export › Open in {slicer} starts. Leave \
          empty to look for {slicer} where it is usually installed"
     ));
-    if response.lost_focus() {
-        ui.data_mut(|data| data.remove_temp::<String>(draft_id));
-        if text.trim() != stored.as_deref().unwrap_or_default() {
-            change(command, PreferenceChange::SlicerProgram(text));
-        }
-    } else if response.has_focus() || response.changed() {
-        ui.data_mut(|data| data.insert_temp(draft_id, text));
+    let differs = text.trim() != stored.as_deref().unwrap_or_default();
+    if response.lost_focus() && differs {
+        change(command, PreferenceChange::SlicerProgram(text.clone()));
     }
+    keep_draft(ui, draft_id, text, differs);
 }
 
 fn slicer_hint(slicer: Slicer, found: Option<&Result<Installation, FindError>>) -> String {
