@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use caditor_document::{
     AxisReference, Datum, DatumFrame, FeatureId, FeatureKind, MeasuredItem, PointReference,
     PrincipalAxis, PrincipalPlane, Reading, displayed_frame,
@@ -6,8 +8,8 @@ use caditor_geometry::{Plane, Point3, Vector3};
 use egui::{Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, drag_screen, extruded_plate, move_of, open_combo, opened_move,
-    run_from_palette, top_edge_along_x, vertex_at,
+    CAMERA_SETTLE, FILE_TIMEOUT, Harness, drag_screen, extruded_plate, move_of, open_combo,
+    opened_move, run_from_palette, top_edge_along_x, vertex_at,
 };
 use crate::{
     measurement_tools::Keepable,
@@ -304,10 +306,17 @@ fn measure_reads_a_body_s_centroid_in_the_chosen_coordinate_system_and_keeps_it_
     harness.wait_until("the centroid is read in the coordinate system", |harness| {
         harness.shows("-20.000, 20.000, -5.000 mm")
     });
-    harness.settle();
-    harness.click_button("More for Centroid");
-    harness.show_new_windows();
-    harness.click(&Keepable::of_mass_row("Centroid", Some(system))[0].menu_label());
+    let keep_along_x = Keepable::of_mass_row("Centroid", Some(system))[0].menu_label();
+    let deadline = Instant::now() + FILE_TIMEOUT;
+    while !harness.shows(&keep_along_x) {
+        assert!(
+            Instant::now() < deadline,
+            "the centroid's menu did not stay open"
+        );
+        harness.settle();
+        harness.click_button("More for Centroid");
+    }
+    harness.click(&keep_along_x);
     harness.settle();
 
     let kept = harness
