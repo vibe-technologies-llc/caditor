@@ -30,6 +30,10 @@ Applications, AppImages, Downloads or `/opt`; on Windows in Program Files). When
 name its program or AppImage in [Preferences](preferences) › General › Exports. The files are kept
 for a week.
 
+With cloud features on, the Export dialog also has **Open in Fusion 360**, which sends the bodies
+chosen for export as STEP to your Fusion 360 folder and opens the file in your browser (see
+[Cloud](cloud)). The format and resolution chosen in the dialog do not apply to it.
+
 A model with modelled [threads](thread) offers **Threads**: **Modelled** (the default) cuts them
 into the exported bodies, recomputing them in the background while they are shown as cosmetic;
 **As shown** exports them as the view shows them. The command line always exports them modelled.

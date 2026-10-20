@@ -262,6 +262,9 @@ pub(super) fn open_home(harness: &mut Harness) {
 }
 
 pub(super) fn sign_in(harness: &mut Harness) {
+    harness.wait_until("the sign-in button is shown", |harness| {
+        harness.shows(home::SIGN_IN)
+    });
     harness.click(home::SIGN_IN);
     harness.wait_until("signed in", |harness| {
         harness.workspace.cloud.linked(Service::Fusion).is_some()

@@ -233,11 +233,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   - Onshape behind the same command: `Provider::send` for Onshape fills `Sent`'s item, version and
     web link (its document and element ids; the documented document URL is its open target), the
     remembered destination is a workspace, and `Service` words the command for it.
-  - An `Untitled` model is sent as `Untitled.step` without asking for a name first, as Send the
-    model here does; the plan was to ask in the dialog.
-  - The Export dialog's button beside Open in OrcaSlicer: `ExportCommand` is handled in `Files`,
-    which has no way to start the cloud send, so the dialog needs an outcome the app routes to
-    `CloudCommand::OpenInFusion`.
+  - Send the model here still sends an `Untitled` model as `Untitled.step` without asking for a
+    name; only Export and open in Fusion 360 asks.
   - Confirm against a live Fusion that Data Management returns `links.webView` on an
     `items:autodesk.core:File` item and version (the reading in `fusion.rs` is tested only against
     the documented shape), whether opening an uploaded STEP item creates a design by import, and

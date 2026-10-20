@@ -35,7 +35,7 @@ use egui::{ColorImage, Ui};
 use parking_lot::Mutex;
 
 use self::{
-    cloud_send::CloudSending,
+    cloud_send::{CloudNameCommand, CloudSending},
     configurations::{ConfigurationFileCommand, ConfigurationImportDraft},
     dialogs::{
         changed_on_disk, closing, confirm_replace, finishing_exports, guard, opening, recovery,
@@ -49,7 +49,7 @@ use self::{
 };
 use crate::{
     bodies::{self, FaceKey},
-    cloud::Destination,
+    cloud::{CloudCommand, Destination},
     commands::{Command, CommandFrame, Reason, RecentSlot},
     configuration_export::ConfigurationFile,
     drawing_export::{
@@ -206,6 +206,7 @@ pub enum FileCommand {
     OpenInSlicer,
     FindSlicer,
     SendToCloud(Destination),
+    NameCloudSend(CloudNameCommand),
     CancelOpen,
     CancelImport,
     CancelPick,
@@ -818,6 +819,7 @@ enum Event {
     CloudSendPrepared {
         session: u64,
         destination: Destination,
+        name: Option<String>,
         folder: Result<PathBuf, io::ErrorKind>,
     },
     SlicerReady {
@@ -1296,6 +1298,7 @@ impl Files {
             || self.report.is_some()
             || self.arranging.is_some()
             || self.scaling.is_some()
+            || self.cloud_naming().is_some()
             || self.showing_recovery()
             || self.exporter.is_open()
             || self.image.is_open()
@@ -1371,6 +1374,7 @@ impl Files {
         self.report = None;
         self.arranging = None;
         self.scaling = None;
+        self.close_cloud_naming();
         self.recovery_open = false;
         self.confirm_discard = None;
     }
@@ -1597,6 +1601,7 @@ impl Files {
             FileCommand::OpenInSlicer => self.open_in_slicer(model),
             FileCommand::FindSlicer => self.find_slicer(),
             FileCommand::SendToCloud(destination) => self.send_to_cloud(destination, model),
+            FileCommand::NameCloudSend(command) => self.name_cloud_send(command, model),
             FileCommand::KeepDrawingConstruction(keep) => {
                 self.drawing_construction = if keep {
                     Construction::OnLayer
@@ -2176,8 +2181,9 @@ impl Files {
             Event::CloudSendPrepared {
                 session,
                 destination,
+                name,
                 folder,
-            } => self.cloud_send_prepared(session, destination, folder, model),
+            } => self.cloud_send_prepared(session, destination, name, folder, model),
             Event::SlicerReady {
                 session,
                 chosen,
@@ -4309,6 +4315,7 @@ pub fn show(
     model: &Model,
     files: &Files,
     view: Option<SurfaceSize>,
+    fusion: Option<Result<(), &str>>,
     actions: &mut Vec<Action>,
 ) {
     let ctx = ui.ctx().clone();
@@ -4340,11 +4347,18 @@ pub fn show(
             .map(FileCommand::ImportOptions);
     } else if let Some(scaling) = &files.scaling {
         command = import_unit::dialog(&ctx, model, scaling).map(FileCommand::ImportUnit);
+    } else if let Some(naming) = files.cloud_naming() {
+        command = cloud_send::name_dialog(&ctx, naming).map(FileCommand::NameCloudSend);
     } else if files.showing_recovery() {
         command = recovery(&ctx, files);
     } else if files.exporter.is_open() {
-        command = export::dialog(&ctx, model, &files.exporter, files.slicer_missing())
-            .map(FileCommand::Export);
+        match export::dialog(&ctx, model, &files.exporter, files.slicer_missing(), fusion) {
+            Some(ExportCommand::OpenInFusion) => {
+                actions.push(Action::File(FileCommand::Export(ExportCommand::Hide)));
+                actions.push(Action::Cloud(CloudCommand::OpenInFusion));
+            }
+            other => command = other.map(FileCommand::Export),
+        }
     } else if files.image.is_open() {
         command =
             image_export::dialog(&ctx, model, &files.image, view).map(FileCommand::ExportImage);
