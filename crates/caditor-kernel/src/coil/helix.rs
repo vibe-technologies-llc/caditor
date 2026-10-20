@@ -104,6 +104,10 @@ pub struct HelixTurn {
 }
 
 impl HelixTurn {
+    pub(super) fn new(curve: Curve, range: Interval, axis: (Point3, Vector3)) -> Self {
+        Self { curve, range, axis }
+    }
+
     pub fn curve(&self) -> &Curve {
         &self.curve
     }
@@ -171,11 +175,7 @@ pub fn helix(spec: &HelixSpec) -> Result<Vec<HelixTurn>, HelixError> {
         .map(|piece| {
             let curve = motion.helix(at, piece)?;
             let range = Interval::new(0.0, piece.spans() as f64).ok_or(GeometryError::NonFinite)?;
-            Ok(HelixTurn {
-                curve,
-                range,
-                axis: spec.axis(),
-            })
+            Ok(HelixTurn::new(curve, range, spec.axis()))
         })
         .collect()
 }

@@ -4,7 +4,7 @@ use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{
     EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, Solid,
-    SweepOrientation, SweepShape, sweep_shaped,
+    SpiralSpec, SweepOrientation, SweepShape, sweep_shaped,
 };
 use caditor_sketch::EntityId;
 
@@ -326,6 +326,14 @@ fn helix_path(inputs: &Inputs<'_>, helix: FeatureId) -> Result<Path, Failure> {
         owner: format!(" of {helix_name}"),
         up: result.frame.normal(),
     })
+}
+
+pub(crate) fn spiral_of(inputs: &Inputs<'_>, path: &SweepPath) -> Option<(String, SpiralSpec)> {
+    let helix = path.helix()?;
+    let FeatureResult::Helix(result) = inputs.features.get(&helix)?.as_ref() else {
+        return None;
+    };
+    Some((feature_name(inputs, helix), result.spiral?))
 }
 
 pub(crate) fn path_of(

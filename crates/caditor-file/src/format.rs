@@ -14,8 +14,8 @@ use caditor_document::{
     Document, Draft, EdgeGroup, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
     FaceAngle, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair,
     FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Helix,
-    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
+    HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
+    HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
     MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
     MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
     Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
@@ -328,6 +328,7 @@ pub(crate) enum FeatureKindRecord {
     AlongHelix(Box<AlongHelixRecord>),
     HelixStart(Box<HelixStartRecord>),
     HelixPoint(Box<HelixPointRecord>),
+    FlatSpiral(Box<FlatSpiralRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
@@ -374,6 +375,11 @@ pub(crate) struct HelixStartRecord {
 pub(crate) struct HelixPointRecord {
     pub feature: FeatureKindRecord,
     pub point: Lenient<PointReferenceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FlatSpiralRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1105,7 +1111,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 91] = [
+pub(crate) const FEATURE_KINDS: [&str; 92] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1190,6 +1196,7 @@ pub(crate) const FEATURE_KINDS: [&str; 91] = [
     "along_helix",
     "helix_start",
     "helix_point",
+    "flat_spiral",
     "shaped_rib",
     "sweep_shape",
     "loft_ends",
@@ -4086,6 +4093,15 @@ fn starts_where_its_frame_points(start: &Expression) -> bool {
 
 fn helix_record(helix: &Helix) -> FeatureKindRecord {
     let text = Expression::to_stored_text;
+    if helix.is_flat() {
+        let helical = Helix {
+            kind: HelixKind::Helix,
+            ..helix.clone()
+        };
+        return FeatureKindRecord::FlatSpiral(Box::new(FlatSpiralRecord {
+            feature: helix_record(&helical),
+        }));
+    }
     if let Some(point) = &helix.start_point {
         let typed = Helix {
             start_point: None,
@@ -4162,6 +4178,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
     let diameter = restore_value(&record.diameter, "diameter", "20 mm", feature, issues);
     let taper = restore_value(&record.taper, "taper angle", "0 deg", feature, issues);
     Helix {
+        kind: HelixKind::Helix,
         axis: restore_winding_axis(&record.axis, feature, issues),
         reversed: record.reversed,
         diameter,
@@ -6766,6 +6783,17 @@ fn restore_kind(
                 }
                 _ => issues.push(format!(
                     "“{name}” was to start at a point, but it is not a helix, so that was left \
+                     out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::FlatSpiral(flat) => {
+            let mut kind = restore_kind(&flat.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => helix.kind = HelixKind::FlatSpiral,
+                _ => issues.push(format!(
+                    "“{name}” was to be a flat spiral, but it is not a helix, so that was left \
                      out."
                 )),
             }

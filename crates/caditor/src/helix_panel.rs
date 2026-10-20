@@ -1,6 +1,6 @@
 use caditor_document::{
-    CoilSizing, CoilTurning, Feature, FeatureId, Helix, Transaction, capitalized, describe_axis,
-    describe_point,
+    CoilSizing, CoilTurning, Feature, FeatureId, Helix, HelixKind, Transaction, capitalized,
+    describe_axis, describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -17,6 +17,12 @@ use crate::{
 
 pub const DESCRIPTION: &str = "A helix curve winding around an axis from the axis's start along \
                                it, for a sweep or pipe to follow";
+pub const SPIRAL_DESCRIPTION: &str = "A flat spiral curve winding out from its inner diameter in \
+                                      the plane square to an axis, like a clock spring, for a \
+                                      sweep or pipe to follow";
+pub const SHAPE: &str = "Shape";
+pub const INNER_DIAMETER: &str = "Inner diameter";
+pub const OUTER_DIAMETER: &str = "Outer diameter";
 pub const START_ANGLE: &str = "Start angle";
 pub const STARTS_AT: &str = "Starts at";
 pub const BY_ANGLE: &str = "The start angle below";
@@ -25,12 +31,38 @@ const START_POINT_HOVER: &str =
 const START_POINT_REMOVE_HOVER: &str = "Start at the typed angle again";
 const PICK_HOVER: &str = "Wind around the selected axis, straight edge, round face or sketch line";
 
-fn sizing_hover(sizing: CoilSizing) -> &'static str {
-    match sizing {
-        CoilSizing::TurnsAndPitch => "Type how many turns and how far apart they are",
-        CoilSizing::HeightAndTurns => "Type how high the helix rises and how many turns it makes",
-        CoilSizing::HeightAndPitch => {
+fn sizing_hover(kind: HelixKind, sizing: CoilSizing) -> &'static str {
+    match (kind, sizing) {
+        (_, CoilSizing::TurnsAndPitch) => "Type how many turns and how far apart they are",
+        (HelixKind::Helix, CoilSizing::HeightAndTurns) => {
+            "Type how high the helix rises and how many turns it makes"
+        }
+        (HelixKind::Helix, CoilSizing::HeightAndPitch) => {
             "Type how high the helix rises and how far apart its turns are"
+        }
+        (HelixKind::FlatSpiral, CoilSizing::HeightAndTurns) => {
+            "Type how wide the spiral reaches and how many turns it makes"
+        }
+        (HelixKind::FlatSpiral, CoilSizing::HeightAndPitch) => {
+            "Type how wide the spiral reaches and how far apart its turns are"
+        }
+    }
+}
+
+fn sizing_name(kind: HelixKind, sizing: CoilSizing) -> &'static str {
+    match (kind, sizing) {
+        (HelixKind::FlatSpiral, CoilSizing::HeightAndTurns) => "Outer diameter and turns",
+        (HelixKind::FlatSpiral, CoilSizing::HeightAndPitch) => "Outer diameter and pitch",
+        (_, sizing) => sizing.name(),
+    }
+}
+
+fn kind_hover(kind: HelixKind) -> &'static str {
+    match kind {
+        HelixKind::Helix => "Wind along the axis, rising a pitch each turn",
+        HelixKind::FlatSpiral => {
+            "Wind outward in the plane square to the axis, growing a pitch each turn, like a \
+             clock spring"
         }
     }
 }
@@ -115,13 +147,29 @@ impl Panel<'_> {
         self.actions.extend(drafting.into_actions(self.id()));
     }
 
+    fn kind_row(&mut self, ui: &mut Ui) {
+        let current = self.helix.kind;
+        let segments = HelixKind::ALL
+            .into_iter()
+            .map(|kind| Segment {
+                label: kind.name(),
+                hover: kind_hover(kind),
+                change: (kind != current)
+                    .then(|| self.change(helix_tools::with_kind(self.model, self.helix, kind))),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, SHAPE, &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
     fn sizing_rows(&mut self, ui: &mut Ui) {
+        let kind = self.helix.kind;
         let current = self.helix.length.sizing();
         let segments = CoilSizing::ALL
             .into_iter()
             .map(|sizing| Segment {
-                label: sizing.name(),
-                hover: sizing_hover(sizing),
+                label: sizing_name(kind, sizing),
+                hover: sizing_hover(kind, sizing),
                 change: (sizing != current)
                     .then(|| self.change(helix_tools::sized_by(self.model, self.helix, sizing))),
             })
@@ -136,6 +184,11 @@ impl Panel<'_> {
                 (Dimension::NONE, Rule::CoilTurns)
             } else {
                 (Dimension::LENGTH, Rule::AboveZero)
+            };
+            let caption = if self.helix.is_flat() && key == "height" {
+                OUTER_DIAMETER
+            } else {
+                caption
             };
             let helix = self.helix.clone();
             self.value_row(
@@ -158,7 +211,12 @@ impl Panel<'_> {
             Dimension::LENGTH,
             Rule::AboveZero,
         );
-        self.value_row(ui, DIAMETER, field, move |diameter| Helix {
+        let caption = if self.helix.is_flat() {
+            INNER_DIAMETER
+        } else {
+            DIAMETER
+        };
+        self.value_row(ui, caption, field, move |diameter| Helix {
             diameter,
             ..helix.clone()
         });
@@ -260,11 +318,22 @@ pub fn show(
         actions,
     };
     widgets::properties(ui, ("helix-properties", feature.id()), |ui| {
-        feature_fields::description_row(ui, DESCRIPTION);
+        let flat = helix.is_flat();
+        feature_fields::description_row(
+            ui,
+            if flat {
+                SPIRAL_DESCRIPTION
+            } else {
+                DESCRIPTION
+            },
+        );
+        panel.kind_row(ui);
         panel.axis_row(ui);
         panel.sizing_rows(ui);
         panel.diameter_row(ui);
-        panel.taper_row(ui);
+        if !flat {
+            panel.taper_row(ui);
+        }
         panel.start_row(ui);
         panel.turning_row(ui);
     });

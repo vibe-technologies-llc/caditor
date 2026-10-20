@@ -176,6 +176,7 @@ pub enum Command {
     DatumPoint,
     CoordinateSystem,
     Helix,
+    FlatSpiral,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -394,6 +395,7 @@ impl Command {
                 | Self::DatumPoint
                 | Self::CoordinateSystem
                 | Self::Helix
+                | Self::FlatSpiral
                 | Self::Construction
                 | Self::SplitCurve
                 | Self::BreakCurves
@@ -833,6 +835,7 @@ plain_commands! {
     DatumPoint,
     CoordinateSystem,
     Helix,
+    FlatSpiral,
     InsertImage,
     ScaleModel,
     Configurations,
@@ -1137,6 +1140,7 @@ impl Command {
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
             Self::Helix => "model.helix",
+            Self::FlatSpiral => "model.flat_spiral",
             Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
@@ -1449,6 +1453,7 @@ impl Command {
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
             Self::Helix => "Helix",
+            Self::FlatSpiral => "Flat spiral",
             Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
@@ -1676,6 +1681,15 @@ impl Command {
             Self::Coil => &["spring", "helix", "spiral", "screw", "winding", "wire"],
             Self::Helix => &[
                 "spiral", "thread", "screw", "spring", "curve", "path", "coil",
+            ],
+            Self::FlatSpiral => &[
+                "clock spring",
+                "watch spring",
+                "spiral",
+                "scroll",
+                "coil",
+                "curve",
+                "path",
             ],
             Self::Rib => &["web", "stiffener", "gusset", "brace", "strengthen", "wall"],
             Self::Fillet => &["round", "blend"],
@@ -2010,6 +2024,7 @@ impl Command {
             | Self::DatumPoint
             | Self::CoordinateSystem
             | Self::Helix
+            | Self::FlatSpiral
             | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
@@ -2448,7 +2463,8 @@ impl Command {
             | Self::CurvePattern
             | Self::PointPattern
             | Self::Coil
-            | Self::Helix => Vec::new(),
+            | Self::Helix
+            | Self::FlatSpiral => Vec::new(),
         }
     }
 

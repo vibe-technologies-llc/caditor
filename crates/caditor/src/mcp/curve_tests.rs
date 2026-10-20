@@ -1,6 +1,6 @@
 use std::{f64::consts::PI, fs};
 
-use caditor_document::Helix;
+use caditor_document::{CoilLength, Helix, HelixKind};
 use caditor_expression::Expression;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -83,6 +83,46 @@ fn helices_are_wound_edited_and_followed() {
     let three = client.tool_error("add_helix", json!({ "turns": 2, "pitch": 3, "height": 6 }));
 
     assert!(three.contains("two of"), "{three}");
+    client.finish();
+}
+
+#[test]
+fn a_flat_spiral_is_wound_by_its_outer_diameter_and_carries_a_pipe() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+
+    let spiral = added(
+        &mut client,
+        "add_helix",
+        json!({ "axis": "Z", "flat": true, "diameter": 10, "outer_diameter": 40, "turns": 3 }),
+    );
+    let saved = saved_helix(&mut client, &folder);
+
+    assert_eq!(saved.kind, HelixKind::FlatSpiral);
+    assert!(matches!(saved.length, CoilLength::HeightAndTurns { .. }));
+
+    let touching = client.tool(
+        "add_pipe",
+        json!({ "path": { "helix": spiral }, "size": 6 }),
+    );
+
+    assert!(
+        touching.to_string().contains("would touch along Spiral 1"),
+        "{touching}"
+    );
+
+    client.tool("undo", json!({}));
+    added(
+        &mut client,
+        "add_pipe",
+        json!({ "path": { "helix": spiral }, "size": 1 }),
+    );
+
+    let height = client.tool_error("edit_feature", json!({ "feature": spiral, "height": 5 }));
+    let outer = client.tool_error("add_helix", json!({ "outer_diameter": 40 }));
+
+    assert!(height.contains("outer_diameter"), "{height}");
+    assert!(outer.contains("flat: true"), "{outer}");
     client.finish();
 }
 

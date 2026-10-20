@@ -210,6 +210,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Loft => LOFT,
         Command::Coil => COIL,
         Command::Helix => HELIX,
+        Command::FlatSpiral => FLAT_SPIRAL,
         Command::Rib => RIB,
         Command::Fillet => blend(BlendKind::Fillet),
         Command::Chamfer => blend(BlendKind::Chamfer),
@@ -424,6 +425,7 @@ const PIPE: &str = phosphor::PIPE_WRENCH;
 const LOFT: &str = phosphor::LAMP_PENDANT;
 const COIL: &str = phosphor::SPIRAL;
 const HELIX: &str = phosphor::WAVE_SINE;
+const FLAT_SPIRAL: &str = phosphor::HURRICANE;
 const RIB: &str = phosphor::COLUMNS;
 const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
@@ -594,6 +596,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Pipe(_) => PIPE,
         FeatureKind::Loft(_) => LOFT,
         FeatureKind::Coil(_) => COIL,
+        FeatureKind::Helix(helix) if helix.is_flat() => FLAT_SPIRAL,
         FeatureKind::Helix(_) => HELIX,
         FeatureKind::Rib(_) => RIB,
         FeatureKind::Blend(blend) => self::blend(blend.kind),

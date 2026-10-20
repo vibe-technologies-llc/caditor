@@ -2,10 +2,13 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
-use caditor_kernel::{HelixError, HelixSpec, HelixTurn, LINEAR_RESOLUTION, helix};
+use caditor_kernel::{
+    HelixError, HelixSpec, HelixTurn, LEAST_COIL_TURNS, LINEAR_RESOLUTION, MAX_COIL_TURNS,
+    SpiralError, SpiralSpec, helix, spiral,
+};
 
 use crate::{
-    coil::{self, CoilCause, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
+    coil::{self, CoilCause, CoilLength, CoilSpan, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
     datum::{AxisReference, PointReference},
     document::{Feature, FeatureId},
     primitive::Context,
@@ -13,9 +16,36 @@ use crate::{
 };
 
 pub const HELIX_SHAPE: &str = "helix";
+pub const SPIRAL_SHAPE: &str = "flat spiral";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum HelixKind {
+    #[default]
+    Helix,
+    FlatSpiral,
+}
+
+impl HelixKind {
+    pub const ALL: [Self; 2] = [Self::Helix, Self::FlatSpiral];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Helix => "Helix",
+            Self::FlatSpiral => "Flat spiral",
+        }
+    }
+
+    pub fn shape(self) -> &'static str {
+        match self {
+            Self::Helix => HELIX_SHAPE,
+            Self::FlatSpiral => SPIRAL_SHAPE,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Helix {
+    pub kind: HelixKind,
     pub axis: AxisReference,
     pub reversed: bool,
     pub diameter: Expression,
@@ -30,6 +60,7 @@ pub struct Helix {
 pub struct HelixResult {
     pub frame: Plane,
     pub turns: Vec<HelixTurn>,
+    pub spiral: Option<SpiralSpec>,
 }
 
 impl HelixResult {
@@ -47,6 +78,7 @@ impl HelixResult {
 impl Helix {
     pub fn new(axis: AxisReference, diameter: Expression) -> Self {
         Self {
+            kind: HelixKind::Helix,
             axis,
             reversed: false,
             diameter,
@@ -59,6 +91,17 @@ impl Helix {
             start: Expression::measure(0.0, Unit::Degree),
             start_point: None,
         }
+    }
+
+    pub fn flat_spiral(axis: AxisReference, inner_diameter: Expression) -> Self {
+        Self {
+            kind: HelixKind::FlatSpiral,
+            ..Self::new(axis, inner_diameter)
+        }
+    }
+
+    pub fn is_flat(&self) -> bool {
+        self.kind == HelixKind::FlatSpiral
     }
 
     pub fn expressions(&self) -> Vec<&Expression> {
@@ -161,22 +204,91 @@ fn failure(context: &Context<'_>, feature: &Feature, error: &HelixError) -> Fail
     }
 }
 
+fn spiral_failure(context: &Context<'_>, feature: &Feature, error: &SpiralError) -> Failure {
+    let name = feature.name.clone();
+    match error {
+        SpiralError::TooFewTurns { .. } | SpiralError::TooManyTurns { .. } => {
+            context.error(CoilCause::TurnsRangeOf { name })
+        }
+        SpiralError::TooLarge => context.error(CoilCause::TooFar { name }),
+        SpiralError::NonFinite
+        | SpiralError::NoRadius
+        | SpiralError::NoPitch
+        | SpiralError::Unfitted
+        | SpiralError::Geometry(_) => {
+            log::warn!("{name} could not be built: {error}");
+            context.error(CoilCause::SpiralUnbuildable { name })
+        }
+    }
+}
+
+fn outward(
+    context: &Context<'_>,
+    feature: &Feature,
+    inner: f64,
+    outer: &Expression,
+) -> Result<f64, Failure> {
+    let outer = context.size(outer, "outer diameter")?;
+    if outer <= inner + 2.0 * LINEAR_RESOLUTION {
+        return Err(context.error(CoilCause::OuterWithinInner {
+            name: feature.name.clone(),
+        }));
+    }
+    Ok(0.5 * (outer - inner))
+}
+
+fn spiral_span(
+    context: &Context<'_>,
+    feature: &Feature,
+    inner: f64,
+    length: &CoilLength,
+) -> Result<CoilSpan, Failure> {
+    match length {
+        CoilLength::TurnsAndPitch { .. } => coil::span(context, length),
+        CoilLength::HeightAndTurns { height, turns } => {
+            let width = outward(context, feature, inner, height)?;
+            let turns = coil::number(context, turns, "turns")?;
+            Ok(CoilSpan {
+                height: width,
+                pitch: width / turns,
+                turns,
+            })
+        }
+        CoilLength::HeightAndPitch { height, pitch } => {
+            let width = outward(context, feature, inner, height)?;
+            let pitch = context.size(pitch, "pitch")?;
+            let turns = width / pitch;
+            if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
+                return Err(context.error(CoilCause::OuterPitchTurns {
+                    name: feature.name.clone(),
+                    width,
+                    pitch,
+                    turns,
+                }));
+            }
+            Ok(CoilSpan {
+                height: width,
+                pitch,
+                turns,
+            })
+        }
+    }
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Helix,
     inputs: &Inputs<'_>,
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
+    if definition.is_flat() {
+        return evaluate_spiral(feature, definition, inputs, cancel);
+    }
     let context = Context::new(feature, inputs, HELIX_SHAPE);
     let diameter = context.size(&definition.diameter, "diameter")?;
     let span = coil::span(&context, &definition.length)?;
     let taper = coil::taper(&context, &definition.taper)?;
-    let axis = context.resolver().axis(&definition.axis)?;
-    let frame = definition.frame(axis).ok_or_else(|| {
-        context.error(CoilCause::NoDirection {
-            name: feature.name.clone(),
-        })
-    })?;
+    let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
@@ -191,7 +303,54 @@ pub(crate) fn evaluate(
         start_angle: start,
     };
     let turns = helix(&spec).map_err(|error| failure(&context, feature, &error))?;
-    Ok(FeatureResult::Helix(HelixResult { frame, turns }))
+    Ok(FeatureResult::Helix(HelixResult {
+        frame,
+        turns,
+        spiral: None,
+    }))
+}
+
+fn evaluate_spiral(
+    feature: &Feature,
+    definition: &Helix,
+    inputs: &Inputs<'_>,
+    cancel: &CancelToken,
+) -> Result<FeatureResult, Failure> {
+    let context = Context::new(feature, inputs, SPIRAL_SHAPE);
+    let diameter = context.size(&definition.diameter, "inner diameter")?;
+    let span = spiral_span(&context, feature, diameter, &definition.length)?;
+    let frame = frame_of(&context, feature, definition)?;
+    let start = start_angle(&context, feature, definition, &frame)?;
+    if cancel.is_cancelled() {
+        return Err(Failure::Cancelled);
+    }
+    let spec = SpiralSpec {
+        frame,
+        radius: 0.5 * diameter,
+        pitch: span.pitch,
+        turns: span.turns,
+        hand: definition.turning.hand(),
+        start_angle: start,
+    };
+    let turns = spiral(&spec).map_err(|error| spiral_failure(&context, feature, &error))?;
+    Ok(FeatureResult::Helix(HelixResult {
+        frame,
+        turns,
+        spiral: Some(spec),
+    }))
+}
+
+fn frame_of(
+    context: &Context<'_>,
+    feature: &Feature,
+    definition: &Helix,
+) -> Result<Plane, Failure> {
+    let axis = context.resolver().axis(&definition.axis)?;
+    definition.frame(axis).ok_or_else(|| {
+        context.error(CoilCause::NoDirection {
+            name: feature.name.clone(),
+        })
+    })
 }
 
 fn start_angle(

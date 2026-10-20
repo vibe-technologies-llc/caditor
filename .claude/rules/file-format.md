@@ -249,7 +249,11 @@ Extrusions and revolves:
   the helix starts at (unreadable: the helix loads starting at its typed angle, reported), written
   only when `start_point` is set; an older reader reports the helix as from a newer version rather
   than starting it elsewhere; a wrapped kind that is not a helix loads without it, reported. The
-  corpus holds it in `helix-points.caditor`.
+  corpus holds it in `helix-points.caditor`. `flat_spiral`: the outermost wrapper around a
+  `helix`, `helix_start` or `helix_point` record (`feature`), written only for a
+  `HelixKind::FlatSpiral`, whose `length` height is the outer diameter; an older reader reports the
+  spiral as from a newer version rather than winding a helix; a wrapped kind that is not a helix
+  loads without it, reported. The corpus holds it in `flat-spirals.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

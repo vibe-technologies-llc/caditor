@@ -22,6 +22,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
+- [medium · hard] Measuring a pipe along a helix or flat spiral exactly is slow: in the
+  unoptimised test build a 1 mm round pipe along three turns of a helix (10 mm radius, 4 mm pitch)
+  takes 1.6 s to build and 215 s more for `mass_properties` at `MeshQuality::SMOOTH`
+  (`SolidResult::exact_mass`, which `list_bodies` reads), and along three turns of a flat spiral
+  (5 mm inner radius, 5 mm pitch) 4.2 s and 277 s, one to three faces given up and taken from the
+  mesh: the swept faces' integrals barely converge within `FACE_EVALUATIONS`.
 - [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
   the eight-edge rim of a pocket with rounded corners in a cylinder takes about 66 ms
   (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 40 ms of

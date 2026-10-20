@@ -10,7 +10,7 @@ use caditor_document::{
     CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
     CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, Draft, EdgeGroup, Emboss, EmbossForm,
     Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
-    FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
+    FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot,
     Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem,
     Measurement, MetricSize, Mirror, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
@@ -316,6 +316,7 @@ pub fn feature_kind(
             operation: operation(input, scene)?,
         }),
         Family::Helix => FeatureKind::Helix(Helix {
+            kind: *input.choose(&HelixKind::ALL)?,
             axis: scene.axis(input)?,
             reversed: input.arbitrary()?,
             diameter: scene.distance(input)?,

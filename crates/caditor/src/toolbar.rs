@@ -1,6 +1,8 @@
 use std::{convert::Infallible, fmt::Display};
 
-use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, RegionChoice, describe_axis};
+use caditor_document::{
+    BlendKind, Datum, Document, HelixKind, PrimitiveKind, RegionChoice, describe_axis,
+};
 use egui::{Id, Response, Ui, Vec2};
 
 use crate::{
@@ -194,6 +196,7 @@ impl Group {
                     Command::DatumPoint,
                     Command::CoordinateSystem,
                     Command::Helix,
+                    Command::FlatSpiral,
                 ],
                 &[Command::InsertImage],
             ],
@@ -632,10 +635,15 @@ fn helix_offer(
     actions: &mut Vec<Action>,
 ) {
     let source = &context.offers.helix;
-    if commands.invoke(Command::Helix, source)
-        && let Ok(source) = source
-    {
-        actions.extend(helix_tools::create_actions(model, source));
+    for (command, kind) in [
+        (Command::Helix, HelixKind::Helix),
+        (Command::FlatSpiral, HelixKind::FlatSpiral),
+    ] {
+        if commands.invoke(command, source)
+            && let Ok(source) = source
+        {
+            actions.extend(helix_tools::create_actions(model, source, kind));
+        }
     }
 }
 

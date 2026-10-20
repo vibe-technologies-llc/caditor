@@ -1,7 +1,7 @@
 use caditor_document::{
     CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurveSpacing, DEFAULT_PITCH,
-    DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, Pattern, PatternKind,
-    PointReference, PointsPattern, is_curve_path,
+    DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind, Pattern,
+    PatternKind, PointReference, PointsPattern, is_curve_path,
 };
 use caditor_expression::Expression;
 use caditor_sketch::Sketch;
@@ -30,10 +30,12 @@ use crate::{
 pub struct Helixing {
     pub axis: Option<AxisChoice>,
     pub reversed: Option<bool>,
+    pub flat: Option<bool>,
     pub diameter: Option<Amount>,
     pub turns: Option<Amount>,
     pub pitch: Option<Amount>,
     pub height: Option<Amount>,
+    pub outer_diameter: Option<Amount>,
     pub taper: Option<Amount>,
     pub start_angle: Option<Amount>,
     pub start_point: Option<PointChoice>,
@@ -76,6 +78,10 @@ pub enum CurveToolError {
     NotAPath { sketch: String },
     #[error("{sketch} has no lone points to place copies at; draw points with add_sketch_geometry")]
     NoPoints { sketch: String },
+    #[error("a flat spiral has no height; give its outer_diameter instead")]
+    FlatHeight,
+    #[error("only a flat spiral has an outer diameter; give the helix's height, or flat: true")]
+    HelixOuterDiameter,
 }
 
 fn solved(evaluation: &Evaluation, sketch: FeatureId) -> Option<&Sketch> {
@@ -104,6 +110,9 @@ pub fn helix_built(
     let height = parsed(session, asked.height.as_ref(), |session, height| {
         length(session, "height", height)
     })?;
+    let outer = parsed(session, asked.outer_diameter.as_ref(), |session, outer| {
+        length(session, "outer_diameter", outer)
+    })?;
     let taper = parsed(session, asked.taper.as_ref(), |session, taper| {
         turn(session, "taper", taper)
     })?;
@@ -131,6 +140,19 @@ pub fn helix_built(
     if let Some(reversed) = asked.reversed {
         helix.reversed = reversed;
     }
+    if let Some(flat) = asked.flat {
+        helix.kind = if flat {
+            HelixKind::FlatSpiral
+        } else {
+            HelixKind::Helix
+        };
+    }
+    let reach = match (helix.is_flat(), height, outer) {
+        (true, Some(_), _) => return Err(CurveToolError::FlatHeight.into()),
+        (false, _, Some(_)) => return Err(CurveToolError::HelixOuterDiameter.into()),
+        (true, None, outer) => outer,
+        (false, height, None) => height,
+    };
     if let Some(diameter) = diameter {
         helix.diameter = diameter;
     }
@@ -148,7 +170,7 @@ pub fn helix_built(
             choice,
         )?);
     }
-    helix.length = coil_length(&helix.length, (turns, pitch, height))?;
+    helix.length = coil_length(&helix.length, (turns, pitch, reach))?;
     if let Some(clockwise) = asked.clockwise {
         helix.turning = if clockwise {
             CoilTurning::Clockwise
@@ -156,11 +178,8 @@ pub fn helix_built(
             CoilTurning::CounterClockwise
         };
     }
-    Ok(Built::new(
-        FeatureKind::Helix(helix),
-        helix_tools::TITLE,
-        asked.name,
-    ))
+    let title = helix_tools::title(helix.kind);
+    Ok(Built::new(FeatureKind::Helix(helix), title, asked.name))
 }
 
 pub fn helix(session: &mut Session, work: &Work<'_>, asked: Helixing) -> Result<Answer, ToolError> {

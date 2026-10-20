@@ -11496,6 +11496,56 @@ fn a_helix_started_at_a_point_wraps_its_record_so_an_older_reader_leaves_it_out(
 }
 
 #[test]
+fn a_flat_spiral_wraps_its_helix_record_so_an_older_reader_leaves_it_out() {
+    use caditor_document::{
+        AxisReference, CoilLength, Helix, HelixKind, Pipe, PrincipalAxis, SweepPath,
+    };
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Spiral");
+    let spiral = transaction.add_feature(
+        "Spiral 1",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::HeightAndTurns {
+                height: parse("60 mm"),
+                turns: parse("4"),
+            },
+            start: parse("30 deg"),
+            ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Spring",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix: spiral },
+            parse("1 mm"),
+            parse("0 mm"),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("flat_spiral", "flat_spiril"));
+    let restored = loaded
+        .document
+        .feature(spiral)
+        .and_then(|feature| feature.kind.helix())
+        .unwrap();
+
+    assert!(
+        text.contains("\"flat_spiral\":{\"feature\":{\"helix_start\":{\"feature\":{\"helix\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"height_and_turns\":{"), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(restored.kind, HelixKind::FlatSpiral);
+    assert!(older.document.feature(spiral).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
     let (document, helix, _) = helix_model();
     let text = encode(&document)

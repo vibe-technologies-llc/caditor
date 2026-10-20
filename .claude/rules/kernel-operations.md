@@ -915,6 +915,24 @@ paths:
   `HelixSpec::point_at` is the analytic point an angle round from the start (the app's arrows stand
   on it). Refusals as a coil's for the values it shares (a non-finite start angle `NonFinite`), a
   taper drawing it into the axis `ReachesAxis`.
+- `spiral(SpiralSpec)` (`coil/spiral.rs`) winds a flat (Archimedean) spiral in the frame's plane:
+  radius from the inner `radius` growing by `pitch` a turn, `hand`, `start_angle` and pieces as a
+  helix's (`HelixTurn`s winding about the frame's normal, so a sweep or pipe follows it as a
+  helix). Each span is a rational quadratic through the spiral's points at its ends with the
+  spiral's tangents there (the shoulder where they cross) and through the spiral's crossing of
+  the line from the chord's middle to the shoulder (`crossing`, by halving), so it is G1 and close
+  to fifth order; the weights are scaled from span to span (`evenly_paced`) so the parameter's
+  pace is continuous too, which a sweep's stations need to converge. The spans a turn start at
+  `SPANS_PER_TURN` and double, up to sixteen times as many, until every span's radial deviation at
+  four samples is within `SPIRAL_TOLERANCE` (`LINEAR_RESOLUTION`), else `Unfitted`.
+  `SpiralSpec::point_at`, `radius_at`, `outer_radius` and `length` (the closed form of its arc
+  length) are analytic; `turns_clear_of(across)` and `least_pitch_for(across)` say whether a
+  section that wide in the spiral's plane keeps its turns apart: the section square to the path
+  meets the meridian stretched by `sqrt(r² + b²) / r` (b the pitch over a turn), worst at the inner
+  turn and the one outside it, plus the coil's `LEAST_GAP`. Refusals: non-finite values, no
+  radius or pitch, turns out of range, a reach past `MAX_SIZE`. `coil/spiral_tests.rs` holds its
+  points to the spiral, its length to the closed form, and a pipe along it to a valid watertight
+  solid of the volume the screw motion's flux gives.
 - `CoilSpec::volume` is the analytic volume (section area times the centroid's travel round the
   axis, the mean radius with a taper); `coil/tests.rs` holds tessellated volumes to it within 1e-3,
   a groove cut into a shaft to the half disc's, and names, hands and refusals.

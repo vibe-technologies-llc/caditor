@@ -1,5 +1,8 @@
 mod faces;
 mod helix;
+mod spiral;
+#[cfg(test)]
+mod spiral_tests;
 #[cfg(test)]
 mod tests;
 
@@ -8,7 +11,10 @@ use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 use caditor_geometry::{Plane, Point2};
 use thiserror::Error;
 
-pub use self::helix::{HelixError, HelixSpec, HelixTurn, helix};
+pub use self::{
+    helix::{HelixError, HelixSpec, HelixTurn, helix},
+    spiral::{SPIRAL_TOLERANCE, SpiralError, SpiralSpec, spiral},
+};
 use crate::{
     error::GeometryError,
     interrupt::Interrupted,
