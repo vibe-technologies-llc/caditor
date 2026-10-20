@@ -41,11 +41,11 @@ sketch from the panel's **Sketch** list does the same.
   different heights, and Up to face takes a curved face.
 - While it is open, drag the arrow at the end in the view to change its distance. A named
   distance keeps its name; one that follows other parameters does not drag (see
-  [parameters](parameters)). An arrow at the edge of the end drags the **Taper**, one standing on
-  an Up to face or Up to next end drags how far it goes past the face (Up to next only when the
-  first face it meets is flat and square to the sketch), and a thin wall has an arrow for its
-  **Thickness**, which dragged back through the curves switches the wall between Inside and
-  Outside.
+  [parameters](parameters)). An arrow at the edge of the end drags the **Taper** (square to the
+  sketch only), one standing on an Up to face or Up to next end drags how far it goes past the face
+  (Up to next only when the first face it meets is flat and square to the sketch), and a thin wall
+  has an arrow for its **Thickness**, which dragged back through the curves switches the wall
+  between Inside and Outside.
 - A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer
   when the arrow nears its level, or at once when the pointer leaves the arrow's line to reach for
   it, so dragging along the arrow over holes and corners goes where the pointer is; it pulls to a
@@ -73,7 +73,10 @@ outward; a region made of one whole closed spline or ellipse cannot take one, bu
 of several pieces can.
 
 **Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
-edge, sketch line or axis you select, measuring the distance along it.
+edge, sketch line or axis you select, measuring the distance along it. A taper along a direction
+is measured from it: the outline steps in by the taper for every unit travelled along the
+direction, keeping its shape in each slice parallel to the sketch, so a side running along the
+lean slopes by the taper from the direction and one facing the lean a little less.
 
 ## Result
 

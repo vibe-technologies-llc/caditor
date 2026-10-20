@@ -66,6 +66,19 @@ paths:
   `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, a piece used up, an arc
   shrunk to nothing, corners no longer meeting, a loop turned over or loops crossing at a cap
   `TaperCloses`.
+- `extrude_tapered_along(plane, regions, extent, angle, direction, feature)` is the same sweep
+  slanted like `extrude_along`: every section parallel to the sketch is the square taper's section
+  slid along the direction, and the taper is measured from the direction, the profile stepping in
+  by `tan(angle)` for each unit travelled along it (`tan(angle)` times the direction's length per
+  unit of height). Square to the sketch that is the ordinary taper; slanted, a wall running along
+  the lean drafts by the angle from the direction and one facing it by about the angle times the
+  lean's cosine (the offset is measured in the sketch's plane, as the slid sections need). Lines
+  sweep planes through the line, the direction and the step in; an arc or circle sweeps an oblique
+  circular cone, exactly a rational quadratic `BSplineSurface` ruled between its circles at the
+  segment's two heights (`taper_bent::leaning_cone`, whole turn in four quarters, the seam at a
+  circle's start or opposite an arc's middle); splines and ellipses keep their ruled rows, lifted
+  along the direction. It refuses what the square taper refuses, a direction in the sketch plane
+  being `DirectionAlongSketch`; below `STRAIGHT_TAPER` it is `extrude_along`.
 - `extrude_flared(plane, regions, extent, flank, feature)` is the same sweep with the profile
   drawing in by `1 / tan(flank)` per unit of height, so the sides lean `flank` from the sketch
   plane instead of from its normal: a draft of a thin wall's broad faces, where the angle is

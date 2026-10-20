@@ -80,9 +80,6 @@ pub(crate) enum SquareEnd {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SolidCause {
-    TaperWithDirection {
-        feature: String,
-    },
     WallWithSide,
     OnlyRemovalCutsSeveral,
     Target {
@@ -339,10 +336,6 @@ impl SolidCause {
     pub(crate) fn reason(&self) -> String {
         let most = MAX_SIZE / 1_000.0;
         match self {
-            Self::TaperWithDirection { feature } => format!(
-                "A tapered extrusion runs square to its sketch, and {feature} follows a \
-                 direction."
-            ),
             Self::WallWithSide => {
                 "A thin wall follows the whole of its curves, so it cannot keep one side of the \
                  revolution axis."
@@ -657,9 +650,6 @@ impl SolidCause {
 
     pub(crate) fn remedy(&self) -> String {
         match self {
-            Self::TaperWithDirection { .. } => {
-                "Set the taper to 0°, or run the extrusion square to the sketch.".to_owned()
-            }
             Self::WallWithSide => "Turn the whole profile, or turn off the thin wall.".to_owned(),
             Self::OnlyRemovalCutsSeveral => {
                 "Choose Remove from body, or leave out the other bodies.".to_owned()

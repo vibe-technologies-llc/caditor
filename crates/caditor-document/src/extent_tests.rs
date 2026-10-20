@@ -1442,9 +1442,14 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
     let bounds = evaluation.body(leaning).unwrap().bounding_box().unwrap();
     assert!((bounds.max().x - (10.0 + rise)).abs() < 1e-9);
     assert!((volume(&evaluation, to_level) - 500.0).abs() < 1e-6);
-    assert_eq!(
-        failure(&evaluation, tapered).reason(),
-        "A tapered extrusion runs square to its sketch, and Tapered follows a direction."
+    let tapered_body = evaluation.body(tapered).unwrap();
+    tapered_body.validate().unwrap();
+    let top = 10.0 - 2.0 * 10.0 * 5.0_f64.to_radians().tan();
+    let frustum = rise / 3.0 * (100.0 + top * top + 10.0 * top);
+    let found = volume(&evaluation, tapered);
+    assert!(
+        (found - frustum).abs() < 1e-3 * frustum,
+        "{found} {frustum}"
     );
     assert_eq!(
         failure(&evaluation, flat).reason(),
@@ -1457,5 +1462,63 @@ fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
             .kind
             .features()
             .contains(&guide)
+    );
+}
+
+#[test]
+fn a_disc_tapered_along_a_slanted_edge_joins_the_plate_it_stands_on() {
+    let mut model = plate_at(0.0);
+    let mut guide = Sketch::new(Plane::YZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(5.0, 10.0));
+    let guide = add(&mut model.document, "Guide", FeatureKind::from(guide));
+    let disc = add(
+        &mut model.document,
+        "Disc",
+        FeatureKind::from(circle(at(10.0), (10.0, 10.0), 4.0)),
+    );
+    let peg = add(
+        &mut model.document,
+        "Peg",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: disc,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(millimetres(10.0), false),
+            operation: BodyOperation::Add(model.plate),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: Some(Box::new(degrees(10.0))),
+            wall: None,
+            direction: Some(Box::new(AxisReference::Sketch {
+                sketch: guide,
+                entity: slant,
+            })),
+        })),
+    );
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert!(
+        matches!(
+            evaluation.feature(peg).unwrap().state,
+            FeatureState::UpToDate
+        ),
+        "{:?}",
+        evaluation.feature(peg).unwrap().state
+    );
+    let plate = evaluation.body(model.plate).unwrap();
+    plate.validate().unwrap();
+    let height = 10.0 * 10.0 / 125.0_f64.sqrt();
+    let top = 4.0 - 10.0 * 10.0_f64.to_radians().tan();
+    let cone = PI * height / 3.0 * (16.0 + 4.0 * top + top * top);
+    let expected = 16_000.0 + cone;
+    let found = volume(&evaluation, model.plate);
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+    let bounds = plate.bounding_box().unwrap();
+    assert!(
+        (bounds.max().z - (10.0 + height)).abs() < 1e-6,
+        "{bounds:?}"
     );
 }

@@ -1,4 +1,6 @@
-use caditor_geometry::{Plane, Point3};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
+
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use crate::{
     bspline::BSpline,
@@ -20,53 +22,62 @@ pub(super) struct Rung {
     pub inset: f64,
 }
 
-fn lifted(plane: &Plane, bend: &Bend, fraction: f64, rung: Rung) -> Point3 {
-    plane.to_world(bend.offset_point(fraction, rung.inset)) + plane.normal() * rung.height
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Rise<'a> {
+    pub plane: &'a Plane,
+    pub direction: Vector3,
 }
 
-fn row(
-    plane: &Plane,
-    bend: &Bend,
-    rung: Rung,
-    fractions: &[f64],
-) -> Result<BSplineCurve, GeometryError> {
-    let points: Vec<Point3> = fractions
-        .iter()
-        .map(|fraction| lifted(plane, bend, *fraction, rung))
-        .collect();
-    BSpline::interpolating_at(CUBIC, fractions, &points)
-}
+impl Rise<'_> {
+    pub(super) fn point(&self, point: Point2, height: f64) -> Point3 {
+        self.plane.to_world(point) + self.direction * height
+    }
 
-fn strays(plane: &Plane, bend: &Bend, rung: Rung, row: &BSplineCurve, nodes: &[f64]) -> Vec<f64> {
-    nodes
-        .windows(2)
-        .map(|pair| {
-            let fraction = pair.iter().sum::<f64>() * 0.5;
-            row.point(fraction)
-                .distance(lifted(plane, bend, fraction, rung))
-        })
-        .collect()
+    fn lifted(&self, bend: &Bend, fraction: f64, rung: Rung) -> Point3 {
+        self.point(bend.offset_point(fraction, rung.inset), rung.height)
+    }
+
+    fn row(
+        &self,
+        bend: &Bend,
+        rung: Rung,
+        fractions: &[f64],
+    ) -> Result<BSplineCurve, GeometryError> {
+        let points: Vec<Point3> = fractions
+            .iter()
+            .map(|fraction| self.lifted(bend, *fraction, rung))
+            .collect();
+        BSpline::interpolating_at(CUBIC, fractions, &points)
+    }
+
+    fn strays(&self, bend: &Bend, rung: Rung, row: &BSplineCurve, nodes: &[f64]) -> Vec<f64> {
+        nodes
+            .windows(2)
+            .map(|pair| {
+                let fraction = pair.iter().sum::<f64>() * 0.5;
+                row.point(fraction)
+                    .distance(self.lifted(bend, fraction, rung))
+            })
+            .collect()
+    }
 }
 
 pub(super) fn offset_surface(
-    plane: &Plane,
+    rise: Rise<'_>,
     bend: &Bend,
     rungs: [Rung; 2],
     overrun: [f64; 2],
 ) -> Result<Surface, SweepError> {
     let [low, high] = rungs;
     let rows = |nodes: &[f64]| -> Result<(BSplineCurve, BSplineCurve), GeometryError> {
-        Ok((
-            row(plane, bend, low, nodes)?,
-            row(plane, bend, high, nodes)?,
-        ))
+        Ok((rise.row(bend, low, nodes)?, rise.row(bend, high, nodes)?))
     };
     let deviations = |nodes: &[f64]| -> Option<Vec<f64>> {
         let (bottom, top) = rows(nodes).ok()?;
         Some(
-            strays(plane, bend, low, &bottom, nodes)
+            rise.strays(bend, low, &bottom, nodes)
                 .into_iter()
-                .zip(strays(plane, bend, high, &top, nodes))
+                .zip(rise.strays(bend, high, &top, nodes))
                 .map(|(near, far)| near.max(far))
                 .collect(),
         )
@@ -99,4 +110,64 @@ fn ruled(bottom: &BSplineCurve, top: &BSplineCurve) -> Result<BSplineSurface, Ge
         points,
         None,
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Ring {
+    pub height: f64,
+    pub radius: f64,
+}
+
+const QUARTERS: usize = 4;
+
+pub(super) fn leaning_cone(
+    rise: Rise<'_>,
+    center: Point2,
+    seam: f64,
+    rings: [Ring; 2],
+) -> Result<Surface, SweepError> {
+    if rings
+        .iter()
+        .any(|ring| !ring.radius.is_finite() || ring.radius <= 0.0)
+    {
+        return Err(SweepError::Unassembled);
+    }
+    let middle_weight = FRAC_PI_4.cos();
+    let mut offsets = Vec::with_capacity(2 * QUARTERS + 1);
+    let mut weights = Vec::with_capacity(2 * QUARTERS + 1);
+    for quarter in 0..QUARTERS {
+        let angle = seam + FRAC_PI_2 * quarter as f64;
+        offsets.push(Point2::from_angle(angle));
+        weights.push(1.0);
+        offsets.push(Point2::from_angle(angle + FRAC_PI_4) / middle_weight);
+        weights.push(middle_weight);
+    }
+    offsets.push(Point2::from_angle(seam));
+    weights.push(1.0);
+    let mut knots = vec![0.0; 3];
+    for quarter in 1..QUARTERS {
+        let knot = quarter as f64 / QUARTERS as f64;
+        knots.extend([knot, knot]);
+    }
+    knots.extend([1.0; 3]);
+    let columns = offsets.len();
+    let points: Vec<Point3> = rings
+        .iter()
+        .flat_map(|ring| {
+            offsets
+                .iter()
+                .map(move |offset| rise.point(center + *offset * ring.radius, ring.height))
+        })
+        .collect();
+    let weights: Vec<f64> = weights.iter().chain(&weights).copied().collect();
+    Ok(BSplineSurface::new(
+        2,
+        1,
+        knots,
+        RULED_KNOTS.to_vec(),
+        columns,
+        points,
+        Some(weights),
+    )?
+    .into())
 }

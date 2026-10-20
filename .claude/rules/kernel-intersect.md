@@ -80,7 +80,10 @@ paths:
     across the span's corner diagonals; through the span tree on a large net), from any other
     surface when its centre's projection lies farther than its half diagonal (a projection onto
     a spline off its surface is a full seed search). A cylinder patch's box is
-    the union of its two end arcs' boxes, exact for a ruled surface of constant radius.
+    the union of its two end arcs' boxes, exact for a ruled surface of constant radius. A spline
+    patch running across a closed surface's seam (a face widened past it) is bounded by the boxes
+    of its pieces either side (`BSplineSurface::bounds`, `seam_pieces`), never the whole net,
+    or subdivision near the seam would never prune.
   - Arrangement points lying on both surfaces (an edge of one solid piercing a face of the other)
     are also seeds (`intersect_surfaces_through`), so a short branch near a patch corner is found
     when no subdivision leaf seeds it; a failing hint is ignored.

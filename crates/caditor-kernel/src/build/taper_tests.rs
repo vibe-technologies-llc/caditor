@@ -412,3 +412,168 @@ fn no_taper_is_the_plain_extrusion() {
         extrude(&Plane::XY, &square, extent, FEATURE)
     );
 }
+
+fn leaning(direction: Vector3) -> f64 {
+    direction.length() / direction.z
+}
+
+#[test]
+fn a_square_tapered_along_a_slant_is_a_sheared_frustum_stepping_in_by_the_distance_travelled() {
+    let square = regions(&rectangle(1, (-5.0, -5.0), (5.0, 5.0)));
+    let slant = Vector3::new(1.0, 0.0, 1.0);
+    let angle = 10.0_f64.to_radians();
+
+    let solid = extrude_tapered_along(
+        &Plane::XY,
+        &square,
+        LinearExtent::one_side(4.0).unwrap(),
+        angle,
+        slant,
+        FEATURE,
+    )
+    .unwrap();
+
+    let inset = 4.0 * leaning(slant) * angle.tan();
+    let top = 10.0 - 2.0 * inset;
+    assert_near(volume(&solid), frustum(4.0, 100.0, top * top));
+    let bounds = solid.bounding_box().unwrap();
+    assert!((bounds.max().x - (9.0 - inset)).abs() < 1e-9, "{bounds:?}");
+    assert!((bounds.max().z - 4.0).abs() < 1e-9);
+    assert_eq!(solid.faces().count(), 6);
+    let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
+    assert_eq!(names.len(), 6);
+}
+
+#[test]
+fn a_disc_tapered_along_a_slant_is_an_oblique_frustum_of_a_cone() {
+    let disc = regions(&[circle(1, (2.0, 1.0), 5.0)]);
+    let slant = Vector3::new(0.0, 1.0, 2.0);
+    let angle = 5.0_f64.to_radians();
+
+    let narrowing = extrude_tapered_along(
+        &Plane::XY,
+        &disc,
+        LinearExtent::one_side(8.0).unwrap(),
+        angle,
+        slant,
+        FEATURE,
+    )
+    .unwrap();
+    let widening = extrude_tapered_along(
+        &Plane::XY,
+        &disc,
+        LinearExtent::one_side(-3.0).unwrap(),
+        -angle,
+        slant,
+        FEATURE,
+    )
+    .unwrap();
+
+    let cone = |height: f64, top: f64| PI * height / 3.0 * (25.0 + 5.0 * top + top * top);
+    let narrowed = 5.0 - 8.0 * leaning(slant) * angle.tan();
+    assert_near(volume(&narrowing), cone(8.0, narrowed));
+    let widened = 5.0 + 3.0 * leaning(slant) * angle.tan();
+    assert_near(volume(&widening), cone(3.0, widened));
+    let bounds = narrowing.bounding_box().unwrap();
+    assert!(
+        (bounds.max().y - (1.0 + 4.0 + narrowed)).abs() < 1e-6,
+        "{bounds:?}"
+    );
+    assert!(
+        narrowing
+            .faces()
+            .any(|(_, face)| matches!(face.surface(), Surface::BSpline(_)))
+    );
+}
+
+#[test]
+fn a_rounded_slot_with_a_hole_tapers_along_a_slant_as_much_as_square_to_its_sketch() {
+    let curves = vec![
+        line(1, (0.0, 0.0), (10.0, 0.0)),
+        arc(2, (10.0, 3.0), (10.0, 0.0), (10.0, 6.0)),
+        line(3, (10.0, 6.0), (0.0, 6.0)),
+        arc(4, (0.0, 3.0), (0.0, 6.0), (0.0, 0.0)),
+        circle(5, (5.0, 3.0), 1.0),
+    ];
+    let slot = regions(&curves);
+    let slant = Vector3::new(-1.0, 2.0, 3.0);
+    let angle = 8.0_f64.to_radians();
+    let extent = LinearExtent::symmetric(4.0).unwrap();
+
+    let solid = extrude_tapered_along(&Plane::XY, &slot, extent, angle, slant, FEATURE).unwrap();
+
+    let inset = 2.0 * leaning(slant) * angle.tan();
+    let area = |inset: f64| {
+        let radius = 3.0 - inset;
+        10.0 * 2.0 * radius + PI * radius * radius - PI * (1.0 + inset).powi(2)
+    };
+    let half = 2.0 / 6.0 * (area(0.0) + 4.0 * area(0.5 * inset) + area(inset));
+    assert_near(volume(&solid), 2.0 * half);
+}
+
+#[test]
+fn a_spline_and_a_corner_arc_taper_along_a_slant_by_the_volume_of_the_square_taper() {
+    let curves = vec![
+        spline(1, &[(0.0, 0.0), (2.0, 5.0), (6.0, 5.0), (8.0, 0.0)]),
+        line(2, (8.0, 0.0), (0.0, 0.0)),
+    ];
+    let bump = regions(&curves);
+    let quarter = regions(&[
+        line(1, (0.0, 0.0), (6.0, 0.0)),
+        arc(2, (0.0, 0.0), (6.0, 0.0), (0.0, 6.0)),
+        line(3, (0.0, 6.0), (0.0, 0.0)),
+    ]);
+    let slant = Vector3::new(0.5, -0.5, 1.0);
+    let angle = 3.0_f64.to_radians();
+    let square_angle = (angle.tan() * leaning(slant)).atan();
+    let extent = LinearExtent::one_side(2.0).unwrap();
+
+    for profile in [&bump, &quarter] {
+        let along =
+            extrude_tapered_along(&Plane::XY, profile, extent, angle, slant, FEATURE).unwrap();
+        let square = extrude_tapered(&Plane::XY, profile, extent, square_angle, FEATURE).unwrap();
+
+        assert_near(volume(&along), volume(&square));
+    }
+}
+
+#[test]
+fn a_taper_along_a_direction_refuses_what_a_square_taper_refuses() {
+    let square = regions(&rectangle(1, (0.0, 0.0), (4.0, 4.0)));
+    let slant = Vector3::new(1.0, 0.0, 1.0);
+    let extent = LinearExtent::one_side(2.0).unwrap();
+    let tilted = Plane::new(Point3::new(0.0, 0.0, 3.0), Vector3::new(0.3, 0.0, 1.0)).unwrap();
+    let level = Plane::new(Point3::new(0.0, 0.0, 3.0), Vector3::Z).unwrap();
+    let up_to = |plane: Plane| {
+        LinearExtent::between(LinearBound::Offset(0.0), LinearBound::Plane(plane)).unwrap()
+    };
+
+    let to_level =
+        extrude_tapered_along(&Plane::XY, &square, up_to(level), 0.1, slant, FEATURE).unwrap();
+
+    let top = 4.0 - 2.0 * 3.0 * leaning(slant) * 0.1_f64.tan();
+    assert_near(volume(&to_level), frustum(3.0, 16.0, top * top));
+    assert_eq!(
+        extrude_tapered_along(&Plane::XY, &square, up_to(tilted), 0.1, slant, FEATURE),
+        Err(SweepError::TaperedTiltedEnd)
+    );
+    assert_eq!(
+        extrude_tapered_along(&Plane::XY, &square, extent, 0.1, Vector3::X, FEATURE),
+        Err(SweepError::DirectionAlongSketch)
+    );
+    assert!(matches!(
+        extrude_tapered_along(
+            &Plane::XY,
+            &square,
+            LinearExtent::one_side(10.0).unwrap(),
+            20.0_f64.to_radians(),
+            slant,
+            FEATURE,
+        ),
+        Err(SweepError::TaperCloses { .. })
+    ));
+    assert_eq!(
+        extrude_tapered_along(&Plane::XY, &square, extent, 0.0, slant, FEATURE),
+        extrude_along(&Plane::XY, &square, extent, slant, FEATURE)
+    );
+}

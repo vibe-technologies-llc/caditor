@@ -27,15 +27,6 @@ const FLAT: f64 = 0.5 * LINEAR_RESOLUTION;
 const PCURVE_SAMPLING_ANGLE: f64 = 0.1;
 const MAX_PCURVE_BISECTIONS: usize = 24;
 
-pub(super) fn offset_plane(plane: &Plane, offset: f64) -> Result<Plane, SweepError> {
-    Plane::from_frame(
-        plane.origin() + plane.normal() * offset,
-        plane.normal(),
-        plane.x_axis(),
-    )
-    .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Level {
     at_origin: f64,
@@ -156,7 +147,11 @@ pub(super) struct Cap {
     direction: Vector3,
 }
 
-fn moved_plane(sketch: &Plane, direction: Vector3, height: f64) -> Result<Plane, SweepError> {
+pub(super) fn moved_plane(
+    sketch: &Plane,
+    direction: Vector3,
+    height: f64,
+) -> Result<Plane, SweepError> {
     Plane::from_frame(
         sketch.origin() + direction * height,
         sketch.normal(),
@@ -340,6 +335,15 @@ pub fn extrude(
     sweep(plane, plane.normal(), regions, extent, feature)
 }
 
+pub(super) fn travel(plane: &Plane, direction: Vector3) -> Result<Vector3, SweepError> {
+    let rise = direction.dot(plane.normal());
+    let unit = direction.length();
+    if !rise.is_finite() || !unit.is_finite() || rise.abs() <= ALONG_DIRECTION * unit {
+        return Err(SweepError::DirectionAlongSketch);
+    }
+    Ok(direction / rise)
+}
+
 pub fn extrude_along(
     plane: &Plane,
     regions: &[Region],
@@ -347,12 +351,7 @@ pub fn extrude_along(
     direction: Vector3,
     feature: u64,
 ) -> Result<Solid, SweepError> {
-    let rise = direction.dot(plane.normal());
-    let unit = direction.length();
-    if !rise.is_finite() || !unit.is_finite() || rise.abs() <= ALONG_DIRECTION * unit {
-        return Err(SweepError::DirectionAlongSketch);
-    }
-    sweep(plane, direction / rise, regions, extent, feature)
+    sweep(plane, travel(plane, direction)?, regions, extent, feature)
 }
 
 fn sweep(

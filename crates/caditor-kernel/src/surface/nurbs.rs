@@ -195,6 +195,23 @@ struct Basis<const WIDTH: usize> {
     values: [[f64; WIDTH]; 3],
 }
 
+fn seam_pieces(range: Interval, domain: Interval, closed: bool) -> Option<Vec<Interval>> {
+    let period = domain.length();
+    let inside = range.start() >= domain.start() && range.end() <= domain.end();
+    if !closed || inside || period.is_nan() || period <= 0.0 || range.length() >= period {
+        return None;
+    }
+    let start = domain.start() + (range.start() - domain.start()).rem_euclid(period);
+    let end = start + range.length();
+    if end <= domain.end() {
+        return Some(vec![Interval::new(start, end)?]);
+    }
+    Some(vec![
+        Interval::new(start, domain.end())?,
+        Interval::new(domain.start(), end - period)?,
+    ])
+}
+
 impl BSplineSurface {
     pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
         found(SharedBuffer::slice(&self.u_knots));
@@ -1023,6 +1040,20 @@ impl BSplineSurface {
     }
 
     pub(crate) fn bounds(&self, u_range: Interval, v_range: Interval) -> Aabb {
+        if let Some(pieces) = seam_pieces(u_range, self.u_domain, self.u_closed) {
+            return pieces
+                .into_iter()
+                .map(|piece| self.bounds(piece, v_range))
+                .reduce(Aabb::union)
+                .unwrap_or_else(|| Aabb::from_point(Point3::ZERO));
+        }
+        if let Some(pieces) = seam_pieces(v_range, self.v_domain, self.v_closed) {
+            return pieces
+                .into_iter()
+                .map(|piece| self.bounds(u_range, piece))
+                .reduce(Aabb::union)
+                .unwrap_or_else(|| Aabb::from_point(Point3::ZERO));
+        }
         let wraps = |range: Interval, domain: Interval, closed: bool| {
             closed && (range.start() < domain.start() || range.end() > domain.end())
         };
@@ -2024,6 +2055,67 @@ mod tests {
         }
 
         assert_eq!(missed, 0);
+    }
+
+    fn tube() -> BSplineSurface {
+        let ring = [
+            (1.0, 0.0, 1.0),
+            (1.0, 1.0, FRAC_1_SQRT_2),
+            (0.0, 1.0, 1.0),
+            (-1.0, 1.0, FRAC_1_SQRT_2),
+            (-1.0, 0.0, 1.0),
+            (-1.0, -1.0, FRAC_1_SQRT_2),
+            (0.0, -1.0, 1.0),
+            (1.0, -1.0, FRAC_1_SQRT_2),
+            (1.0, 0.0, 1.0),
+        ];
+        let mut points = Vec::new();
+        let mut weights = Vec::new();
+        for height in [0.0, 6.0] {
+            for (x, y, weight) in ring {
+                points.push(Point3::new(x * 4.0, y * 4.0, height));
+                weights.push(weight);
+            }
+        }
+        BSplineSurface::new(
+            2,
+            1,
+            vec![
+                0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+            ],
+            vec![0.0, 0.0, 1.0, 1.0],
+            9,
+            points,
+            Some(weights),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_range_across_the_seam_is_bounded_by_the_pieces_either_side_of_it() {
+        let tube = tube();
+        let heights = Interval::UNIT;
+
+        let across = tube.bounds(Interval::new(-0.01, 0.01).unwrap(), heights);
+        let past = tube.bounds(Interval::new(1.01, 1.02).unwrap(), heights);
+        let whole = tube.bounds(Interval::new(-0.5, 0.5).unwrap(), heights);
+
+        assert_eq!(tube.u_period(), Some(1.0));
+        for uv in [(-0.01, 0.0), (0.0, 1.0), (0.01, 0.5)] {
+            let point = tube.evaluate(uv.0, uv.1).point;
+            let inside =
+                point.cmpge(across.min() - 1e-9).all() && point.cmple(across.max() + 1e-9).all();
+            assert!(inside, "{point}");
+        }
+        assert!(
+            across.min().x > 3.9 && across.max().y - across.min().y < 1.0,
+            "{across:?}"
+        );
+        assert!(
+            past.min().x > 3.9 && past.max().y < 1.0 && past.min().y > 0.0,
+            "{past:?}"
+        );
+        assert!(whole.min().x < -3.9 && whole.max().x > 3.9);
     }
 
     #[test]

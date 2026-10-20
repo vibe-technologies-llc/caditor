@@ -268,6 +268,19 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
     assert!((volume - 100.0 * rise).abs() < 0.01 * volume, "{volume}");
     assert!(named);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    assert!(harness.shows("Taper"));
+    harness.type_into_field(Id::unique(("solid-field", "taper", leaning)), "5 deg");
+    harness.settle();
+    let tapered = harness.body_volume(leaning);
+
+    let top = 10.0 - 20.0 * 5.0_f64.to_radians().tan();
+    let frustum = rise / 3.0 * (100.0 + top * top + 10.0 * top);
+    assert!(
+        (tapered - frustum).abs() < 0.01 * frustum,
+        "{tapered} {frustum}"
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {

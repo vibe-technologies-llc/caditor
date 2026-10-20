@@ -25,7 +25,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] An end up to the next face or a curved face follows curved or several faces
   only on one side and without an offset (two sides or an offset need one flat face). An end
   cannot end on a whole body (where the profile last leaves it); an extrusion along a direction
-  takes no taper, up to next or curved face; a revolve turns up to a face or plane only when it
+  takes no up to next or curved face; a revolve turns up to a face or plane only when it
   holds the axis, never up to a curved face or the next face it meets; and a hole stops at the
   next face only where that face is flat.
 - [medium · hard] Blends: ends at steps and T-junctions refused, and a lofted chain (an edge that is

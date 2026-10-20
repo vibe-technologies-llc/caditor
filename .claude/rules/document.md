@@ -562,10 +562,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - An `Extrude`'s optional `direction` (boxed `AxisReference`: edge, axis, round face's axis or
   sketch line) runs it along that line (kernel `extrude_along`), the way that leaves the sketch on
   its forward side; a direction in the sketch plane fails naming it. Distances are along the
-  direction, while up-to planes, offsets and through all work by height; up to next, a curved face
-  and a taper run square only and fail in words. The axis's body, datum, frame and sketch count as
-  used (`SolidFeature::model_axis`), healing keeps it.
-- `taper` (an angle, boxed with the wall) goes to kernel `extrude_tapered`; at or past
+  direction, while up-to planes, offsets and through all work by height; up to next and a curved
+  face run square only and fail in words. A taper along a direction goes to kernel
+  `extrude_tapered_along`, measured from the direction (the profile steps in by the taper's tangent
+  per unit along it). The axis's body, datum, frame and sketch count as used
+  (`SolidFeature::model_axis`), healing keeps it.
+- `taper` (an angle, boxed with the wall) goes to kernel `extrude_tapered` (`extrude_tapered_along`
+  with a direction); at or past
   `MAX_TAPER_DEGREES` it fails before the kernel, and every taper refusal names the extrusion and
   what to change. `wall` (`Wall`: a thickness expression and the kernel's `WallSide`) sweeps
   `wall_regions` of every non-construction curve instead of regions (the region choice is ignored,

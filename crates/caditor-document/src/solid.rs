@@ -14,8 +14,8 @@ use caditor_kernel::{
     LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
     MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region,
     RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError,
-    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_along,
-    extrude_tapered, heights, heights_along, mass_properties_tessellating, next_face,
+    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered,
+    extrude_tapered_along, heights, heights_along, mass_properties_tessellating, next_face,
     resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
@@ -1253,12 +1253,9 @@ pub(crate) fn evaluate(
                 None => 0.0,
             };
             match along {
-                Some(_) if taper != 0.0 => {
-                    return Err(context.error(SolidCause::TaperWithDirection {
-                        feature: feature.name.clone(),
-                    }));
+                Some(direction) => {
+                    extrude_tapered_along(&plane, &regions, extent, taper, direction, raw)
                 }
-                Some(direction) => extrude_along(&plane, &regions, extent, direction, raw),
                 None => extrude_tapered(&plane, &regions, extent, taper, raw),
             }
         }

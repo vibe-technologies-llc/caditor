@@ -35,7 +35,10 @@ pub use self::{
         PipeShape, PipeStand, SweepOrientation, SweepShape, WindingAxis, pipe, pipe_stand, sweep,
         sweep_shaped,
     },
-    taper::{MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered},
+    taper::{
+        MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered,
+        extrude_tapered_along,
+    },
     wrap::{WrapBand, WrapError, wrap_regions, wrap_regions_within, wrapped_stand},
     wrap_cut::wrap_chain,
 };
