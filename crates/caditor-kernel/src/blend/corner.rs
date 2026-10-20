@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use caditor_geometry::{Plane, Point3, Vector3};
 
-use super::{BlendError, CLEARANCE, Topology, leaving};
+use super::{
+    BlendError, CLEARANCE, Topology, face_normal, face_set, faces_at, leaving, neighbours,
+    smooth_within,
+};
 use crate::{
     build::{
         SweepError,
@@ -13,10 +16,13 @@ use crate::{
     naming::{EdgeName, FaceName, FaceOrigin, VertexName},
     sense::Sense,
     surface::{PlaneSurface, Sphere, Surface},
+    tolerance::LINEAR_RESOLUTION,
     topology::{EdgeId, FaceId, Solid, VertexId},
 };
 
 const SINGULAR: f64 = 1e-9;
+const SAME_RADIUS: f64 = LINEAR_RESOLUTION;
+const ON_AXIS: f64 = 10.0 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Corner {
@@ -24,7 +30,7 @@ pub(super) struct Corner {
     pub setbacks: BTreeMap<EdgeId, f64>,
     faces: [FaceId; 3],
     normals: [Vector3; 3],
-    edges: [(EdgeId, [usize; 2], Vector3); 3],
+    edges: [(Option<EdgeId>, [usize; 2], Vector3); 3],
     apex: Point3,
     center: Point3,
     radius: f64,
@@ -109,7 +115,7 @@ pub(super) fn find(
             return None;
         }
         setbacks.insert(*edge, setback);
-        edges.push((*edge, pair, direction));
+        edges.push((Some(*edge), pair, direction));
     }
     let [e0, e1, e2] = edges[..] else {
         return None;
@@ -120,6 +126,140 @@ pub(super) fn find(
         faces,
         normals,
         edges: [e0, e1, e2],
+        apex,
+        center,
+        radius,
+    })
+}
+
+struct Rounded {
+    face: FaceId,
+    origin: Point3,
+    axis: Vector3,
+}
+
+fn rounded(solid: &Solid, face: FaceId, radius: f64) -> Option<Rounded> {
+    let Surface::Cylinder(cylinder) = solid.face(face)?.surface() else {
+        return None;
+    };
+    ((cylinder.radius() - radius).abs() <= SAME_RADIUS).then(|| Rounded {
+        face,
+        origin: cylinder.frame().origin(),
+        axis: cylinder.frame().normal(),
+    })
+}
+
+impl Rounded {
+    fn distance_to(&self, point: Point3) -> f64 {
+        (point - self.origin)
+            .reject_from_normalized(self.axis)
+            .length()
+    }
+
+    fn rests_on(&self, plane: (Vector3, f64), radius: f64) -> bool {
+        let (normal, offset) = plane;
+        normal.dot(self.axis).abs() <= SINGULAR
+            && (offset - normal.dot(self.origin) - radius).abs() <= SAME_RADIUS
+    }
+}
+
+fn plane_of(solid: &Solid, face: FaceId) -> Option<(Vector3, f64)> {
+    let definition = solid.face(face)?;
+    let Surface::Plane(plane) = definition.surface() else {
+        return None;
+    };
+    let normal = plane.frame().normal() * definition.sense().sign();
+    Some((normal, normal.dot(plane.frame().origin())))
+}
+
+pub(super) fn after_blends(
+    solid: &Solid,
+    topology: &Topology,
+    convex: &BTreeMap<EdgeId, bool>,
+    radius: f64,
+    vertex: VertexId,
+) -> Option<Corner> {
+    let chosen: Vec<EdgeId> = topology
+        .edges_at(vertex)
+        .iter()
+        .filter(|edge| convex.contains_key(edge))
+        .copied()
+        .collect();
+    let [edge] = chosen[..] else {
+        return None;
+    };
+    let straight = solid
+        .edge(edge)
+        .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)));
+    if convex.get(&edge) != Some(&true) || !straight {
+        return None;
+    }
+    let own = face_set(solid, edge);
+    let [first, second] = own.iter().copied().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    let point = solid.vertex(vertex)?.point();
+    let others: Vec<FaceId> = faces_at(solid, topology, vertex)
+        .difference(&own)
+        .copied()
+        .collect();
+    let [one, other] = others[..] else {
+        return None;
+    };
+    let planes = [plane_of(solid, first)?, plane_of(solid, second)?];
+    let (one, other) = (rounded(solid, one, radius)?, rounded(solid, other, radius)?);
+    let rises_from = |round: &Rounded, plane: (Vector3, f64)| {
+        face_normal(solid, round.face, point).is_some_and(|normal| smooth_within(normal, plane.0))
+    };
+    let (over_first, over_second) = if rises_from(&one, planes[0]) && rises_from(&other, planes[1])
+    {
+        (one, other)
+    } else if rises_from(&one, planes[1]) && rises_from(&other, planes[0]) {
+        (other, one)
+    } else {
+        return None;
+    };
+    let tops: Vec<(FaceId, (Vector3, f64))> = neighbours(solid, over_first.face)
+        .intersection(&neighbours(solid, over_second.face))
+        .filter(|face| !own.contains(face))
+        .filter_map(|face| Some((*face, plane_of(solid, *face)?)))
+        .filter(|(_, plane)| {
+            over_first.rests_on(*plane, radius) && over_second.rests_on(*plane, radius)
+        })
+        .collect();
+    let [(top, top_plane)] = tops[..] else {
+        return None;
+    };
+    let normals = [planes[0].0, planes[1].0, top_plane.0];
+    let apex = meet([planes[0], planes[1], top_plane])?;
+    let offset = meet([
+        (normals[0], -radius),
+        (normals[1], -radius),
+        (normals[2], -radius),
+    ])?;
+    let center = apex + offset;
+    if over_first.distance_to(center) > ON_AXIS || over_second.distance_to(center) > ON_AXIS {
+        return None;
+    }
+    let direction = -leaving(solid, edge, vertex)?;
+    let along = |face: usize| -> Option<Vector3> {
+        let line = normals.get(face)?.cross(top_plane.0).try_normalize()?;
+        Some(if line.dot(offset) < 0.0 { -line } else { line })
+    };
+    let setback = (center - point).dot(direction);
+    if setback.abs() > ON_AXIS {
+        return None;
+    }
+    Some(Corner {
+        vertex,
+        setbacks: BTreeMap::from([(edge, setback)]),
+        faces: [first, second, top],
+        normals,
+        edges: [
+            (Some(edge), [0, 1], direction),
+            (None, [0, 2], along(0)?),
+            (None, [1, 2], along(1)?),
+        ],
         apex,
         center,
         radius,
@@ -324,7 +464,10 @@ impl Corner {
         }
         for (edge, (id, [a, b], direction)) in self.edges.iter().enumerate() {
             let plane = Plane::new(self.center, *direction).ok_or_else(failed)?;
-            let name = blend_names.get(id).copied().unwrap_or_default();
+            let name = id
+                .and_then(|id| blend_names.get(&id))
+                .copied()
+                .unwrap_or_default();
             builder.face(
                 &[
                     at(&along, edge)?,
