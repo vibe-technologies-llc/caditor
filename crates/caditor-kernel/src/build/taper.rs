@@ -1,14 +1,17 @@
-use std::{collections::BTreeSet, f64::consts::FRAC_PI_2};
+use std::{
+    collections::BTreeSet,
+    f64::consts::{FRAC_PI_2, PI, TAU},
+};
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
 
 use crate::{
     build::{
         LinearExtent, SweepError,
-        extrude::{Level, extrude, offset_plane, settled},
+        extrude::{Level, extrude, extrude_along, moved_plane, settled, travel},
         lift,
         plan::{Plan, PlanCoedge, PlanFace, outward_sense},
-        taper_bent::{Rung, offset_surface},
+        taper_bent::{Ring, Rise, Rung, leaning_cone, offset_surface},
     },
     curve::{Curve, IntersectionCurve},
     error::GeometryError,
@@ -29,6 +32,7 @@ pub const MAX_TAPER_DEGREES: f64 = 89.0;
 pub const MIN_FLANK_DEGREES: f64 = 0.1;
 const JOINT_SAMPLES: usize = 12;
 const RELATIVE_TOLERANCE: f64 = 1e-7;
+const FULL_CIRCLE_SLACK: f64 = 1e-9;
 
 fn is_smooth(before: &Course, after: &Course) -> bool {
     let (leaving, entering) = (before.end_tangent(), after.start_tangent());
@@ -48,6 +52,7 @@ impl Taper {
 
 struct Sweep<'a> {
     plane: &'a Plane,
+    direction: Vector3,
     levels: Vec<f64>,
     taper: Taper,
     feature: u64,
@@ -56,8 +61,27 @@ struct Sweep<'a> {
 }
 
 impl Sweep<'_> {
+    fn rise(&self) -> Rise<'_> {
+        Rise {
+            plane: self.plane,
+            direction: self.direction,
+        }
+    }
+
     fn point(&self, point: Point2, height: f64) -> Point3 {
-        self.plane.to_world(point) + self.plane.normal() * height
+        self.rise().point(point, height)
+    }
+
+    fn level_plane(&self, height: f64) -> Result<Plane, SweepError> {
+        moved_plane(self.plane, self.direction, height)
+    }
+
+    fn is_square(&self) -> bool {
+        self.direction == self.plane.normal()
+    }
+
+    fn height(&self, level: usize) -> f64 {
+        self.levels.get(level).copied().unwrap_or_default()
     }
 
     fn offset(&self, profile_loop: &TaperedLoop, height: f64) -> Result<Vec<Course>, SweepError> {
@@ -98,7 +122,7 @@ impl Sweep<'_> {
         trimmed: [&Course; 2],
     ) -> Result<Surface, SweepError> {
         match course {
-            Course::Plain(strand) => self.strand_surface(strand, going),
+            Course::Plain(strand) => self.strand_surface(strand, going, segment),
             Course::Bent { bend, .. } => {
                 let rung = |index: usize| {
                     let height = self.levels.get(index).copied().unwrap_or_default();
@@ -110,20 +134,26 @@ impl Sweep<'_> {
                 let rungs = [rung(segment), rung(segment + 1)];
                 let [low, high] = trimmed.map(Course::overrun);
                 let overrun = [low[0].max(high[0]), low[1].max(high[1])];
-                offset_surface(self.plane, bend, rungs, overrun)
+                offset_surface(self.rise(), bend, rungs, overrun)
             }
             Course::Trimmed(_) => Err(SweepError::Unassembled),
         }
     }
 
-    fn strand_surface(&self, strand: &Strand, going: f64) -> Result<Surface, SweepError> {
+    fn strand_surface(
+        &self,
+        strand: &Strand,
+        going: f64,
+        segment: usize,
+    ) -> Result<Surface, SweepError> {
         let normal = self.plane.normal();
         let zero_direction = SweepError::Geometry(GeometryError::ZeroDirection);
         match *strand {
             Strand::Line { start, .. } => {
                 let tangent = strand.start_tangent();
                 let along = lift(self.plane, tangent);
-                let rising = normal + lift(self.plane, tangent.perp()) * (self.taper.rate * going);
+                let rising =
+                    self.direction + lift(self.plane, tangent.perp()) * (self.taper.rate * going);
                 let frame = Plane::from_frame(
                     self.point(start, self.taper.reference),
                     along.cross(rising),
@@ -131,6 +161,31 @@ impl Sweep<'_> {
                 )
                 .ok_or(zero_direction)?;
                 Ok(PlaneSurface::new(frame)?.into())
+            }
+            Strand::Arc {
+                center,
+                radius,
+                from,
+                sweep,
+            } if !self.is_square() => {
+                let seam = if sweep.abs() >= TAU - FULL_CIRCLE_SLACK {
+                    from
+                } else {
+                    from + 0.5 * sweep + PI
+                };
+                let ring = |level: usize| {
+                    let height = self.height(level);
+                    Ring {
+                        height,
+                        radius: radius - sweep.signum() * self.taper.inset(height),
+                    }
+                };
+                leaning_cone(
+                    self.rise(),
+                    center,
+                    seam,
+                    [ring(segment), ring(segment + 1)],
+                )
             }
             Strand::Arc {
                 center,
@@ -238,7 +293,35 @@ pub fn extrude_tapered(
     if angle.abs().to_degrees() >= MAX_TAPER_DEGREES {
         return Err(SweepError::TaperTooSteep);
     }
-    tapered(plane, regions, extent, angle.tan(), feature)
+    tapered(plane, plane.normal(), regions, extent, angle.tan(), feature)
+}
+
+pub fn extrude_tapered_along(
+    plane: &Plane,
+    regions: &[Region],
+    extent: LinearExtent,
+    angle: f64,
+    direction: Vector3,
+    feature: u64,
+) -> Result<Solid, SweepError> {
+    if !angle.is_finite() {
+        return Err(SweepError::NonFinite);
+    }
+    if angle.abs() < STRAIGHT_TAPER {
+        return extrude_along(plane, regions, extent, direction, feature);
+    }
+    if angle.abs().to_degrees() >= MAX_TAPER_DEGREES {
+        return Err(SweepError::TaperTooSteep);
+    }
+    let rising = travel(plane, direction)?;
+    tapered(
+        plane,
+        rising,
+        regions,
+        extent,
+        angle.tan() * rising.length(),
+        feature,
+    )
 }
 
 pub fn extrude_flared(
@@ -254,11 +337,19 @@ pub fn extrude_flared(
     if flank.to_degrees() < MIN_FLANK_DEGREES || flank >= FRAC_PI_2 {
         return Err(SweepError::FlankOutOfRange);
     }
-    tapered(plane, regions, extent, flank.tan().recip(), feature)
+    tapered(
+        plane,
+        plane.normal(),
+        regions,
+        extent,
+        flank.tan().recip(),
+        feature,
+    )
 }
 
 fn tapered(
     plane: &Plane,
+    direction: Vector3,
     regions: &[Region],
     extent: LinearExtent,
     rate: f64,
@@ -267,8 +358,8 @@ fn tapered(
     if regions.is_empty() {
         return Err(SweepError::NoRegions);
     }
-    let start = settled(Level::of(plane, extent.start())?, regions).flat_height();
-    let end = settled(Level::of(plane, extent.end())?, regions).flat_height();
+    let start = settled(Level::along(plane, direction, extent.start())?, regions).flat_height();
+    let end = settled(Level::along(plane, direction, extent.end())?, regions).flat_height();
     let (Some(start), Some(end)) = (start, end) else {
         return Err(SweepError::TaperedTiltedEnd);
     };
@@ -291,6 +382,7 @@ fn tapered(
     let segments = levels.len() - 1;
     let sweep = Sweep {
         plane,
+        direction,
         levels,
         taper: Taper { reference, rate },
         feature,
@@ -348,14 +440,14 @@ fn tapered(
             sweep.levels.last().copied().unwrap_or_default(),
         );
         plan.face(PlanFace {
-            surface: PlaneSurface::new(offset_plane(plane, low)?.flipped())?.into(),
+            surface: PlaneSurface::new(sweep.level_plane(low)?.flipped())?.into(),
             sense: Sense::Same,
             name: low_cap.0,
             origin: Some(low_cap.1),
             loops: bottom_loops,
         });
         plan.face(PlanFace {
-            surface: PlaneSurface::new(offset_plane(plane, high)?)?.into(),
+            surface: PlaneSurface::new(sweep.level_plane(high)?)?.into(),
             sense: Sense::Same,
             name: high_cap.0,
             origin: Some(high_cap.1),
@@ -450,7 +542,7 @@ fn tapered_loop(
     };
     let mut rings: Vec<Vec<(usize, Sense)>> = Vec::with_capacity(at_levels.len());
     for (level, (courses, height)) in at_levels.iter().zip(&sweep.levels).enumerate() {
-        let level_plane = offset_plane(sweep.plane, *height)?;
+        let level_plane = sweep.level_plane(*height)?;
         let mut ring = Vec::with_capacity(count);
         for (index, course) in courses.iter().enumerate() {
             let (curve, range, reversed) = course.curve()?;

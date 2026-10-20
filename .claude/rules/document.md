@@ -562,15 +562,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - An `Extrude`'s optional `direction` (boxed `AxisReference`: edge, axis, round face's axis or
   sketch line) runs it along that line (kernel `extrude_along`), the way that leaves the sketch on
   its forward side; a direction in the sketch plane fails naming it. Distances are along the
-  direction, while up-to planes, offsets and through all work by height; up to next, a curved face
-  and a taper run square only and fail in words. The axis's body, datum, frame and sketch count as
-  used (`SolidFeature::model_axis`), healing keeps it.
-- `taper` (an angle, boxed with the wall) goes to kernel `extrude_tapered`; at or past
-  `MAX_TAPER_DEGREES` it fails before the kernel, and every taper refusal names the extrusion and
-  what to change. `wall` (`Wall`: a thickness expression and the kernel's `WallSide`) sweeps
-  `wall_regions` of every non-construction curve instead of regions (the region choice is ignored,
-  an open sketch works); failures are worded per `WallError`, and a revolve keeping one side of its
-  axis with a wall fails in words. Both count among the feature's expressions.
+  direction, while up-to planes, offsets and through all work by height. Up to next casts its rays
+  along the direction (kernel `next_face_along`), and a curved or several next faces, or a chosen
+  curved face, stop the tool swept along it by `stop_at_body` as square to the sketch, with the
+  same refusals (two sides or an offset need one flat face). A taper along a direction goes to
+  kernel `extrude_tapered_along`, measured from the direction (the profile steps in by the taper's
+  tangent per unit along it). The axis's body, datum, frame and sketch count as used
+  (`SolidFeature::model_axis`), healing keeps it.
+- `taper` (an angle, boxed with the wall) goes to kernel `extrude_tapered` (`extrude_tapered_along`
+  with a direction); at or past `MAX_TAPER_DEGREES` it fails before the kernel, and every taper
+  refusal names the extrusion and what to change. `wall` (`Wall`: a thickness expression and the
+  kernel's `WallSide`) sweeps `wall_regions` of every non-construction curve instead of regions (the
+  region choice is ignored, an open sketch works); failures are worded per `WallError`, and a
+  revolve keeping one side of its axis with a wall fails in words. Both count among the feature's
+  expressions.
 - A feature whose body others change keeps making a new body.
 
 ### Sweep (`sweep.rs`)

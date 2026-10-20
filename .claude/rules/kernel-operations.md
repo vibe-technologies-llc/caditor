@@ -66,6 +66,19 @@ paths:
   `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, a piece used up, an arc
   shrunk to nothing, corners no longer meeting, a loop turned over or loops crossing at a cap
   `TaperCloses`.
+- `extrude_tapered_along(plane, regions, extent, angle, direction, feature)` is the same sweep
+  slanted like `extrude_along`: every section parallel to the sketch is the square taper's section
+  slid along the direction, and the taper is measured from the direction, the profile stepping in
+  by `tan(angle)` for each unit travelled along it (`tan(angle)` times the direction's length per
+  unit of height). Square to the sketch that is the ordinary taper; slanted, a wall running along
+  the lean drafts by the angle from the direction and one facing it by about the angle times the
+  lean's cosine (the offset is measured in the sketch's plane, as the slid sections need). Lines
+  sweep planes through the line, the direction and the step in; an arc or circle sweeps an oblique
+  circular cone, exactly a rational quadratic `BSplineSurface` ruled between its circles at the
+  segment's two heights (`taper_bent::leaning_cone`, whole turn in four quarters, the seam at a
+  circle's start or opposite an arc's middle); splines and ellipses keep their ruled rows, lifted
+  along the direction. It refuses what the square taper refuses, a direction in the sketch plane
+  being `DirectionAlongSketch`; below `STRAIGHT_TAPER` it is `extrude_along`.
 - `extrude_flared(plane, regions, extent, flank, feature)` is the same sweep with the profile
   drawing in by `1 / tan(flank)` per unit of height, so the sides lean `flank` from the sketch
   plane instead of from its normal: a draft of a thin wall's broad faces, where the angle is
@@ -246,14 +259,18 @@ paths:
   boss between centroids is met) to the first crossing, grouping faces met by plane (coplanar
   fragments are one face): several groups `SeveralFaces`, one curved face `Curved`, else the plane
   with its outward normal and whether the rays enter. Undecided rays are skipped; none decided is
-  `Undecided`, every ray missing `Nothing`, some `Partly`.
+  `Undecided`, every ray missing `Nothing`, some `Partly`. `next_face_along(solid, plane, regions,
+  direction, reversed)` casts the same rays along a slanted direction, the solid's vertices carried
+  back to the sketch along it for their corner rays; a direction in the sketch plane is
+  `AlongSketch`.
 - `stop_at_body(tool, body, plane, regions, reversed, far)` cuts a sweep made to `far` back to
   where it first meets a body: it classifies up to `MAX_START_PROBES` points just ahead of the
   profile (all outside entering, all inside leaving, else `Straddles`), takes the difference with
   the body when entering or the intersection when leaving, and keeps the shells whose mesh reaches
   back to the start plane (`Solid::shell_spans`, `keeping_shells`, which renumbers and keeps every
   name). A void shell is `Enclosed`, a kept shell reaching `far` `PassesBeside`, nothing kept
-  `Nothing`.
+  `Nothing`. Spans and `far` are heights square to the sketch, so a tool swept along a slanted
+  direction (`extrude_along`, `extrude_tapered_along`) is cut back the same way.
 
 # Booleans (`boolean/`)
 

@@ -1136,6 +1136,37 @@ fn a_small_boss_between_the_sampled_rays_still_makes_the_next_face_several() {
 }
 
 #[test]
+fn the_next_face_along_a_slant_is_the_one_the_leaning_profile_meets() {
+    let body = slab(10.0, 20.0, (20.0, 0.0), (30.0, 10.0));
+    let below = regions(&rectangle(1, (0.0, 2.0), (5.0, 6.0)));
+    let above = regions(&rectangle(1, (30.0, 2.0), (35.0, 6.0)));
+    let lean = Vector3::new(2.0, 0.0, 1.0);
+
+    let square = next_face(&body, &Plane::XY, &below, false);
+    let along = next_face_along(&body, &Plane::XY, &below, lean, false).unwrap();
+    let backwards = next_face_along(&body, &sketch_at(25.0), &above, lean, true).unwrap();
+    let astride = next_face_along(
+        &body,
+        &Plane::XY,
+        &below,
+        Vector3::new(1.75, 0.0, 1.0),
+        false,
+    );
+    let flat = next_face_along(&body, &Plane::XY, &below, Vector3::X, false);
+
+    assert_eq!(square, Err(ReachError::Nothing));
+    assert!(along.entering);
+    assert!((face_height(&body, along.face) - 10.0).abs() < 1e-12);
+    assert!(backwards.entering);
+    assert!((face_height(&body, backwards.face) - 20.0).abs() < 1e-12);
+    let Err(ReachError::SeveralFaces(faces)) = astride else {
+        panic!("expected the bottom and the side, found {astride:?}");
+    };
+    assert_eq!(faces.len(), 2);
+    assert_eq!(flat, Err(ReachError::AlongSketch));
+}
+
+#[test]
 fn a_curved_next_face_is_refused() {
     let yz = Plane::from_frame(Point3::new(-10.0, 0.0, 10.0), Vector3::X, Vector3::Y).unwrap();
     let rod = extrude(

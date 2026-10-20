@@ -27,7 +27,7 @@ pub use self::{
     loft::{LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft, loft_through},
     reach::{
         Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
-        stop_at_body,
+        next_face_along, stop_at_body,
     },
     revolve::revolve,
     sweep::{
@@ -35,7 +35,10 @@ pub use self::{
         PipeShape, PipeStand, SweepOrientation, SweepShape, WindingAxis, pipe, pipe_stand, sweep,
         sweep_shaped,
     },
-    taper::{MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered},
+    taper::{
+        MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered,
+        extrude_tapered_along,
+    },
     wrap::{WrapBand, WrapError, wrap_regions, wrap_regions_within, wrapped_stand},
     wrap_cut::wrap_chain,
 };

@@ -52,9 +52,9 @@ pub use crate::{
         MIN_FLANK_DEGREES, NextFace, PathSegment, PathSweepError, PipeCorner, PipeError,
         PipeSection, PipeShape, PipeStand, ReachError, StopError, Stopped, SweepError,
         SweepOrientation, SweepShape, WindingAxis, WrapBand, WrapError, extrude, extrude_along,
-        extrude_flared, extrude_tapered, heights, heights_along, loft, loft_through, next_face,
-        pipe, pipe_stand, revolve, stop_at_body, sweep, sweep_shaped, wrap_chain, wrap_regions,
-        wrap_regions_within, wrapped_stand,
+        extrude_flared, extrude_tapered, extrude_tapered_along, heights, heights_along, loft,
+        loft_through, next_face, next_face_along, pipe, pipe_stand, revolve, stop_at_body, sweep,
+        sweep_shaped, wrap_chain, wrap_regions, wrap_regions_within, wrapped_stand,
     },
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec, HelixError,

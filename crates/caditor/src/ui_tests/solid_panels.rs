@@ -268,6 +268,59 @@ fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
     assert!((volume - 100.0 * rise).abs() < 0.01 * volume, "{volume}");
     assert!(named);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    assert!(harness.shows("Taper"));
+    harness.type_into_field(Id::unique(("solid-field", "taper", leaning)), "5 deg");
+    harness.settle();
+    let tapered = harness.body_volume(leaning);
+
+    let top = 10.0 - 20.0 * 5.0_f64.to_radians().tan();
+    let frustum = rise / 3.0 * (100.0 + top * top + 10.0 * top);
+    assert!(
+        (tapered - frustum).abs() < 0.01 * frustum,
+        "{tapered} {frustum}"
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_extrusion_along_a_line_runs_up_to_the_next_face_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut guide = Sketch::new(Plane::XZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(-10.0, 10.0));
+    let guide = harness.add_sketch(guide);
+    let boss = extrusion_above_plate(&mut harness, 30.0);
+
+    harness.select([Pickable::SketchEntity {
+        feature: guide,
+        entity: slant,
+    }]);
+    choose(
+        &mut harness,
+        crate::solid_panel::SQUARE,
+        crate::solid_panel::ALONG,
+    );
+    choose(&mut harness, "New body", "Add to body");
+    harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
+    harness.settle();
+    open_combo(&mut harness, "End");
+    harness.click_lowest("Up to next");
+    harness.settle();
+    let reaching = extent_of(&harness, boss);
+    let operation = harness.solid(boss).operation();
+    let volume = harness.body_volume(plate);
+
+    assert_eq!(operation, BodyOperation::Add(plate));
+    assert_eq!(
+        reaching,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::up_to_next(),
+            reversed: true
+        }
+    );
+    assert!((volume - 18_000.0).abs() < 1.0, "{volume}");
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {

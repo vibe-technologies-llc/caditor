@@ -14,9 +14,9 @@ use caditor_kernel::{
     LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
     MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region,
     RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError,
-    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_along,
-    extrude_tapered, heights, heights_along, mass_properties_tessellating, next_face,
-    resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
+    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered,
+    extrude_tapered_along, heights, heights_along, mass_properties_tessellating, next_face,
+    next_face_along, resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -37,7 +37,7 @@ use crate::{
         MissingInput, SketchResult,
     },
     shell::ShellRecipe,
-    solid_cause::{CurveProblem, Gap, SolidCause, SquareEnd, TargetFor},
+    solid_cause::{CurveProblem, Gap, SolidCause, TargetFor},
     sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
     trouble::{self, Adjust, boolean_trouble},
@@ -1253,12 +1253,9 @@ pub(crate) fn evaluate(
                 None => 0.0,
             };
             match along {
-                Some(_) if taper != 0.0 => {
-                    return Err(context.error(SolidCause::TaperWithDirection {
-                        feature: feature.name.clone(),
-                    }));
+                Some(direction) => {
+                    extrude_tapered_along(&plane, &regions, extent, taper, direction, raw)
                 }
-                Some(direction) => extrude_along(&plane, &regions, extent, direction, raw),
                 None => extrude_tapered(&plane, &regions, extent, taper, raw),
             }
         }
@@ -1968,7 +1965,6 @@ impl Ends<'_> {
             )),
             ExtrudeEnd::ThroughAll => self.through_all(side),
             ExtrudeEnd::UpToNext { offset } => {
-                self.square_only(SquareEnd::UpToNext)?;
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_next(side, offset)
             }
@@ -1976,10 +1972,7 @@ impl Ends<'_> {
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_face(target, side, offset)
             }
-            ExtrudeEnd::UpToSurface { face } => {
-                self.square_only(SquareEnd::UpToCurved)?;
-                self.up_to_surface(face, side)
-            }
+            ExtrudeEnd::UpToSurface { face } => self.up_to_surface(face, side),
         }
     }
 
@@ -2110,7 +2103,13 @@ impl Ends<'_> {
             return Err(self.error(SolidCause::NextNeedsBody));
         };
         let solid = self.body(body)?;
-        let found = match next_face(solid, &self.plane, self.regions, side.reversed()) {
+        let reached = match self.along {
+            Some(direction) => {
+                next_face_along(solid, &self.plane, self.regions, direction, side.reversed())
+            }
+            None => next_face(solid, &self.plane, self.regions, side.reversed()),
+        };
+        let found = match reached {
             Ok(found) => found,
             Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) if offset == 0.0 => {
                 return self.stop_at(body, side);
@@ -2202,6 +2201,9 @@ impl Ends<'_> {
                 face: describe(*face),
             }),
             ReachError::Undecided => self.error(SolidCause::ReachUndecided { body, side }),
+            ReachError::AlongSketch => {
+                sweep_failure(self.context, "extrusion", &SweepError::DirectionAlongSketch)
+            }
         }
     }
 
@@ -2230,13 +2232,6 @@ impl Ends<'_> {
     fn rise(&self) -> f64 {
         self.along
             .map_or(1.0, |direction| direction.dot(self.plane.normal()))
-    }
-
-    fn square_only(&self, end: SquareEnd) -> Result<(), Failure> {
-        if self.along.is_none() {
-            return Ok(());
-        }
-        Err(self.error(SolidCause::SquareOnly { end }))
     }
 
     fn check_ahead(&self, target: Plane, side: Side, name: &str) -> Result<(), Failure> {

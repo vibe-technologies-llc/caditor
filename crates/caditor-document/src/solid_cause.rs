@@ -72,17 +72,8 @@ pub(crate) struct Gap {
     pub distance: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SquareEnd {
-    UpToNext,
-    UpToCurved,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SolidCause {
-    TaperWithDirection {
-        feature: String,
-    },
     WallWithSide,
     OnlyRemovalCutsSeveral,
     Target {
@@ -279,9 +270,6 @@ pub(crate) enum SolidCause {
         body: String,
         side: Side,
     },
-    SquareOnly {
-        end: SquareEnd,
-    },
     EndAlong {
         name: String,
     },
@@ -339,10 +327,6 @@ impl SolidCause {
     pub(crate) fn reason(&self) -> String {
         let most = MAX_SIZE / 1_000.0;
         match self {
-            Self::TaperWithDirection { feature } => format!(
-                "A tapered extrusion runs square to its sketch, and {feature} follows a \
-                 direction."
-            ),
             Self::WallWithSide => {
                 "A thin wall follows the whole of its curves, so it cannot keep one side of the \
                  revolution axis."
@@ -591,13 +575,6 @@ impl SolidCause {
                 "The next face of the body of {body} {} could not be found.",
                 side.ahead()
             ),
-            Self::SquareOnly { end } => {
-                let end = match end {
-                    SquareEnd::UpToNext => "Up to next",
-                    SquareEnd::UpToCurved => "An end up to a curved face",
-                };
-                format!("{end} runs square to the sketch, so it cannot follow a direction.")
-            }
             Self::EndAlong { name } => format!(
                 "{} runs along the direction of the extrusion, so the extrusion never reaches it.",
                 crate::datum::capitalized(name)
@@ -657,9 +634,6 @@ impl SolidCause {
 
     pub(crate) fn remedy(&self) -> String {
         match self {
-            Self::TaperWithDirection { .. } => {
-                "Set the taper to 0°, or run the extrusion square to the sketch.".to_owned()
-            }
             Self::WallWithSide => "Turn the whole profile, or turn off the thin wall.".to_owned(),
             Self::OnlyRemovalCutsSeveral => {
                 "Choose Remove from body, or leave out the other bodies.".to_owned()
@@ -810,10 +784,6 @@ impl SolidCause {
             }
             Self::ReachUndecided { .. } => {
                 "Use Up to face to choose where it stops, or enter a distance.".to_owned()
-            }
-            Self::SquareOnly { .. } => {
-                "Run the extrusion square to the sketch, or use Up to face or a distance."
-                    .to_owned()
             }
             Self::EndNotAhead { side, .. } => format!(
                 "{}, or choose a face or plane beyond the sketch.",

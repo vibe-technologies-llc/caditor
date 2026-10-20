@@ -73,7 +73,12 @@ outward; a region made of one whole closed spline or ellipse cannot take one, bu
 of several pieces can.
 
 **Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
-edge, sketch line or axis you select, measuring the distance along it.
+edge, sketch line or axis you select, measuring the distance along it. Every end works along it,
+Up to next and a curved face too, finding the face the outline meets as it leans; such an
+extrusion has no arrows in the view, so its distances and taper are set in the panel. A taper
+along a direction is measured from it: the outline steps in by the taper for every unit travelled
+along the direction, keeping its shape in each slice parallel to the sketch, so a side running
+along the lean slopes by the taper from the direction and one facing the lean a little less.
 
 ## Result
 

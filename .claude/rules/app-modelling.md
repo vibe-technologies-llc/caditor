@@ -396,11 +396,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     between the two or takes another face.
 - Direction row (`solid_panel::SQUARE`, `ALONG`): Along takes the one selected edge, axis, round face or
   sketch line (`datum_tools::only_axis`), else chooses one in the view (`Slot::ExtrudeDirection`), with
-  a button back to square; an extrusion along a direction has no reach arrows.
+  a button back to square; an extrusion along a direction has no reach arrows and offers every end
+  kind as a square one does.
 - An extrusion's and revolve's Start row (`solid_panel::start_rows`): the sketch plane with a Start
   offset field (key `start`, zero clears), or Face or plane, taken like an end
   (`solid_panel::start_change`, `Slot::StartPlane`). An extrusion then has a Taper field (key `taper`,
-  below `MAX_TAPER_DEGREES` either way, `Rule::Taper`; zero clears).
+  below `MAX_TAPER_DEGREES` either way, `Rule::Taper`; zero clears), square to the sketch or along a
+  direction alike.
 - A Fill switch (Solid, Thin wall) under Regions turns the sweep into a wall of the sketch's curves
   (`solid_tools::with_wall`, `DEFAULT_WALL_THICKNESS` centred; a revolve's Profile switch is hidden and
   its side cleared), with Thickness (key `wall-thickness`) and Wall (Inside, Outside, Centred); Regions
@@ -1040,7 +1042,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     on the face (the middle of a flat face, `hole_tools::middle_of`; the middle of a curved face's
     first edge) along its outward normal, inward for Inside walls and outward for Outside and Both
     sides (half the thickness for the latter), left out for a face that matches several or none; an
-    extrusion's Taper (shown with no taper too, zero clearing it) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
+    extrusion's Taper (shown with no taper too, zero clearing it; not along a direction) and an end Up to face's or Up to next's Past the face (an Up to next end stands on the first
     face's plane the recompute recorded, `ReachedEnd::level_over`; none when that face is slanted or
     curved).
   - A primitive's sizes (`primitive_arrows`, the mapping worked out from the footprint and anchor),
