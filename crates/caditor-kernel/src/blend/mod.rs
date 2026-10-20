@@ -1598,6 +1598,41 @@ pub fn tangent_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
     chosen.into_iter().collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EdgeConvexity {
+    Convex,
+    Concave,
+    Smooth,
+}
+
+pub fn edge_convexity(solid: &Solid, edge: EdgeId) -> Option<EdgeConvexity> {
+    let faces = edge_faces(solid, edge);
+    let [(first, forward), (second, _)] = faces.as_slice() else {
+        return None;
+    };
+    if first == second {
+        return None;
+    }
+    let definition = solid.edge(edge)?;
+    let middle = definition.interval().at(0.5);
+    let at = definition.curve().point(middle);
+    let along = definition.curve().evaluate(middle).first;
+    let along = if *forward { along } else { -along };
+    let a = face_normal(solid, *first, at)?;
+    let b = face_normal(solid, *second, at)?;
+    if a.dot(b) > 0.0 && a.angle_between(b) <= TANGENT_FACE_ANGLE {
+        return Some(EdgeConvexity::Smooth);
+    }
+    let turn = a.cross(b).dot(along);
+    if turn > 0.0 {
+        Some(EdgeConvexity::Convex)
+    } else if turn < 0.0 {
+        Some(EdgeConvexity::Concave)
+    } else {
+        None
+    }
+}
+
 fn bounding_edges(solid: &Solid, face: FaceId) -> BTreeSet<EdgeId> {
     solid
         .face(face)

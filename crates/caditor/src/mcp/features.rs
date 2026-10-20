@@ -2,10 +2,10 @@ use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
-    CombineOperation, Document, EdgeGroup, Edit, Evaluation, FaceThickness, FeatureId, FeatureKind,
-    LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind, PlaneReference,
-    Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
-    Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
+    CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceThickness, FeatureId,
+    FeatureKind, LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind,
+    PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis,
+    RevolveExtent, Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -121,6 +121,9 @@ pub struct Filleting {
     pub edges: Option<Vec<String>>,
     pub faces: Option<Vec<String>>,
     pub all_edges: Option<bool>,
+    pub convex_edges: Option<bool>,
+    pub concave_edges: Option<bool>,
+    pub edges_made_by: Option<Vec<Named>>,
     pub radius: Option<Amount>,
     pub name: Option<String>,
 }
@@ -132,6 +135,9 @@ pub struct Chamfering {
     pub edges: Option<Vec<String>>,
     pub faces: Option<Vec<String>>,
     pub all_edges: Option<bool>,
+    pub convex_edges: Option<bool>,
+    pub concave_edges: Option<bool>,
+    pub edges_made_by: Option<Vec<Named>>,
     pub distance: Option<Amount>,
     pub second_distance: Option<Amount>,
     pub angle: Option<Amount>,
@@ -364,10 +370,10 @@ pub enum FeatureError {
     Missing { field: &'static str },
     #[error(
         "say which edges to {verb}: edge keys from list_edges, face keys from list_faces (every \
-         edge around those faces) or all_edges"
+         edge around those faces), all_edges, convex_edges, concave_edges or edges_made_by"
     )]
     NoEdges { verb: &'static str },
-    #[error("give no edges or faces with all_edges, which takes every edge of the body")]
+    #[error("give no edges, faces or rules with all_edges, which takes every edge of the body")]
     AllEdgesAndMore,
     #[error("a chamfer takes a second_distance or an angle, not both")]
     TwoChamferForms,
@@ -877,11 +883,43 @@ struct EdgeChoice<'a> {
     edges: Option<&'a [String]>,
     faces: Option<&'a [String]>,
     all_edges: Option<bool>,
+    rules: AskedRules<'a>,
+}
+
+#[derive(Clone, Copy)]
+struct AskedRules<'a> {
+    convex: Option<bool>,
+    concave: Option<bool>,
+    made_by: Option<&'a [Named]>,
+}
+
+impl AskedRules<'_> {
+    fn is_given(&self) -> bool {
+        self.convex.is_some() || self.concave.is_some() || self.made_by.is_some()
+    }
+
+    fn resolved(&self, session: &Session) -> Result<Vec<EdgeRule>, ToolError> {
+        let mut rules = Vec::new();
+        if self.convex == Some(true) {
+            rules.push(EdgeRule::Convex);
+        }
+        if self.concave == Some(true) {
+            rules.push(EdgeRule::Concave);
+        }
+        for named in self.made_by.unwrap_or_default() {
+            let made = references::feature(session.document(), named)?;
+            rules.push(EdgeRule::MadeBy(made.id()));
+        }
+        Ok(rules)
+    }
 }
 
 impl EdgeChoice<'_> {
     fn is_given(&self) -> bool {
-        self.edges.is_some() || self.faces.is_some() || self.all_edges.is_some()
+        self.edges.is_some()
+            || self.faces.is_some()
+            || self.all_edges.is_some()
+            || self.rules.is_given()
     }
 }
 
@@ -901,10 +939,11 @@ fn captured_edges(
     let edge_keys = choice.edges.unwrap_or_default();
     let face_keys = choice.faces.unwrap_or_default();
     let all_edges = choice.all_edges.unwrap_or(false);
-    if all_edges && !(edge_keys.is_empty() && face_keys.is_empty()) {
+    let rules = choice.rules.resolved(session)?;
+    if all_edges && !(edge_keys.is_empty() && face_keys.is_empty() && rules.is_empty()) {
         return Err(FeatureError::AllEdgesAndMore.into());
     }
-    if !all_edges && edge_keys.is_empty() && face_keys.is_empty() {
+    if !all_edges && edge_keys.is_empty() && face_keys.is_empty() && rules.is_empty() {
         return Err(FeatureError::NoEdges { verb }.into());
     }
     let edges = edge_references(session, body, edge_keys)?;
@@ -915,6 +954,7 @@ fn captured_edges(
     if all_edges {
         groups.push(EdgeGroup::Body);
     }
+    groups.extend(rules.into_iter().map(EdgeGroup::Rule));
     Ok((edges, groups))
 }
 
@@ -998,6 +1038,11 @@ pub fn fillet_built(
                 edges: asked.edges.as_deref(),
                 faces: asked.faces.as_deref(),
                 all_edges: asked.all_edges,
+                rules: AskedRules {
+                    convex: asked.convex_edges,
+                    concave: asked.concave_edges,
+                    made_by: asked.edges_made_by.as_deref(),
+                },
             },
             BlendSize {
                 field: "radius",
@@ -1048,6 +1093,11 @@ pub fn chamfer_built(
                 edges: asked.edges.as_deref(),
                 faces: asked.faces.as_deref(),
                 all_edges: asked.all_edges,
+                rules: AskedRules {
+                    convex: asked.convex_edges,
+                    concave: asked.concave_edges,
+                    made_by: asked.edges_made_by.as_deref(),
+                },
             },
             BlendSize {
                 field: "distance",

@@ -415,6 +415,12 @@ paths:
   and tube ends are not; a boss is no hole. `tangent_faces(solid, faces)` spreads across every edge
   where the two faces' normals agree within `TANGENT_FACE_ANGLE` (0.01 rad, looser than blending's
   test so fitted imported blends count) at a quarter, half and three quarters along it.
+  `edge_convexity(solid, edge)` says `Convex`, `Concave` or `Smooth` for an edge between two faces,
+  at the middle of the edge: smooth when the outward normals agree within `TANGENT_FACE_ANGLE`,
+  else convex when (first normal x second normal) . tangent, the tangent taken along the first
+  face's coedge, is positive and concave when negative; an edge with one face, a repeated face or
+  other than two faces, or a normal that cannot be found, has none. The document's convex and
+  concave edge rules use it (`document.md`).
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a pair
   that cannot be united stays apart; a pair whose boxes lie more than `APART_TOOLS` apart is joined

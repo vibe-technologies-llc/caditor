@@ -94,7 +94,7 @@ pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
     blend::{
         Blend, BlendKind, BlendRecipe, BlendUnresolved, BlendedEdge, ChamferForm, EdgeGroup,
-        GroupResolution,
+        EdgeRule, GroupResolution,
     },
     body_appearance::{
         BodyAppearance, DEFAULT_BODY_COLOUR, DensityError, FaceColour, FaceSplits, Finish,

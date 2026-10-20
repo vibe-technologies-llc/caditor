@@ -11102,13 +11102,56 @@ fn a_blend_of_every_edge_of_faces_or_a_body_is_a_kind_older_readers_report() {
     assert!(!older.issues.is_empty());
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
     assert!(
-        damaged.issues[0].contains("faces whose edges"),
+        damaged.issues[0].contains("faces or kinds of edges"),
         "{:?}",
         damaged.issues
     );
     assert_eq!(
         format::restore_transaction(through_binary(&journaled)),
         Some(grouped)
+    );
+}
+
+#[test]
+fn a_blend_by_a_rule_over_a_kind_of_edge_round_trips_and_older_readers_report_it() {
+    use caditor_document::{EdgeGroup, EdgeRule};
+    let (mut document, blend) = filleted_model();
+    let maker = document
+        .features()
+        .find(|feature| feature.name == "Base")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    let mut kind = document.feature(blend).unwrap().kind.clone();
+    if let FeatureKind::Blend(definition) = &mut kind {
+        definition.groups = vec![
+            EdgeGroup::Rule(EdgeRule::Convex),
+            EdgeGroup::Rule(EdgeRule::Concave),
+            EdgeGroup::Rule(EdgeRule::MadeBy(maker)),
+        ];
+    }
+    let ruled = Transaction::single("Rules", Edit::SetFeatureKind { id: blend, kind });
+
+    document.apply(ruled.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let saved = document.feature(blend).map(|feature| feature.kind.clone());
+    let loaded = decode_text(&text);
+    let unknown = decode_text(&text.replace("\"concave\"", "\"a_rule_of_a_later_version\""));
+    let journaled = serde_json::to_string(&format::transaction_record(&ruled)).unwrap();
+
+    assert!(text.contains("\"convex\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded
+            .document
+            .feature(blend)
+            .map(|feature| feature.kind.clone()),
+        saved
+    );
+    assert_eq!(unknown.issues.len(), 1, "{:?}", unknown.issues);
+    assert!(unknown.issues[0].contains("kinds of edges"));
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(ruled)
     );
 }
 

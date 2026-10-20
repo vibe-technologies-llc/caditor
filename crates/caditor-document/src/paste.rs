@@ -4,6 +4,7 @@ use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 
 use crate::{
     attachment::SketchAttachment,
+    blend::{EdgeGroup, EdgeRule},
     body_appearance::BodyAppearance,
     body_pieces::{PieceKey, PieceLooks},
     datum::{
@@ -633,7 +634,14 @@ impl FeatureKind {
                 each(&mut sweep.other_bodies);
                 sweep.path = sweep.path.with_features_renamed(&rename);
             }
-            Self::Blend(blend) => blend.body = rename(blend.body),
+            Self::Blend(blend) => {
+                blend.body = rename(blend.body);
+                for group in &mut blend.groups {
+                    if let EdgeGroup::Rule(EdgeRule::MadeBy(feature)) = group {
+                        *feature = rename(*feature);
+                    }
+                }
+            }
             Self::Shell(shell) => shell.body = rename(shell.body),
             Self::OffsetFace(offset) => offset.body = rename(offset.body),
             Self::DeleteFace(delete) => delete.body = rename(delete.body),

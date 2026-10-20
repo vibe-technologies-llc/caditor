@@ -386,6 +386,9 @@ pub fn command(command: Command) -> &'static str {
             blend(BlendKind::Chamfer)
         }
         Command::FlipChamfer => phosphor::ARROWS_LEFT_RIGHT,
+        Command::AddConvexEdges | Command::AddConcaveEdges | Command::AddEdgesOfSelectedFeature => {
+            blend(BlendKind::Fillet)
+        }
         Command::WrapSplitCurves => phosphor::CYLINDER,
         Command::ReverseDirection => phosphor::ARROW_U_DOWN_LEFT,
         Command::FilterFeatures => SEARCH,

@@ -38,7 +38,8 @@ mod topology;
 
 pub use crate::{
     blend::{
-        BlendError, BlendShape, blend, blend_chain, measured_face, tangent_chain, tangent_faces,
+        BlendError, BlendShape, EdgeConvexity, blend, blend_chain, edge_convexity, measured_face,
+        tangent_chain, tangent_faces,
     },
     boolean::{
         BooleanError, BooleanOperation, BooleanSite, FaceSplitError, Interference, boolean,

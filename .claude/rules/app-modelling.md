@@ -635,7 +635,16 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   expanded on every recompute (`document.md`), so an edge a later change adds is rounded too; the panel
   lists it as "All edges of <face>" or "All edges of <body>" (`blend_panel::group_row`). A click on an
   edge an `EdgeGroup` stands for (`blend_tools::toggle_edge`) replaces the group with its current edges
-  less the clicked one's chain. Edges and openable faces (flat, cylinder, cone, sphere, torus:
+  less the clicked one's chain.
+- A rule over a kind of edge (`EdgeRule`: convex, concave, made by a feature; `document.md`) is added
+  from the panel's Add edges by rule list (`blend_panel::rule_row`: Every convex edge, Every
+  concave edge, Every edge made by each earlier feature that made an edge of the body; one already
+  taken is shown chosen; Convex and Concave matching no edge are disabled with the reason, and a
+  feature matching none is not listed) and
+  from the palette: Add every convex edge, Add every concave edge, Add every edge made by the
+  selected face's feature (`blend_tools::add_rule`, `made_by_selected`, offered on the open or
+  current fillet or chamfer, refused in words when taken or matching no edge, one undoable
+  change). The panel lists it as "Every convex edge (12 edges now)" (`blend_panel::group_row`). Edges and openable faces (flat, cylinder, cone, sphere, torus:
   `openable_face`, `BodyFace::openable`) of the body before the feature (`BodyMeshes::body_before`)
   are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in Preview while open; a click
   toggles one, and opening a face drops its own thickness (`shell_tools::without_own_thickness`).

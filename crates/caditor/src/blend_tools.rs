@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Document, EdgeGroup, Edit, Evaluation, Feature, FeatureId,
-    FeatureKind, GroupResolution, Resolution, SolidResult, Transaction,
+    Blend, BlendKind, ChamferForm, Document, EdgeGroup, EdgeRule, Edit, Evaluation, Feature,
+    FeatureId, FeatureKind, GroupResolution, Resolution, SolidResult, Transaction, origin_feature,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::{
@@ -83,6 +83,14 @@ pub enum BlendError {
     EdgesGone,
     #[error("Some of the selected edges are no longer part of the model")]
     SomeEdgesGone,
+    #[error("The feature is not a fillet or a chamfer")]
+    NotABlend { feature: FeatureId },
+    #[error("{name} already takes {rule}")]
+    RuleTaken { name: String, rule: String },
+    #[error("{body} has no edges to match {rule}, so there is nothing to add")]
+    RuleEmpty { body: String, rule: String },
+    #[error("Select a face of the body made by the feature whose edges to add first")]
+    NoFaceOfFeature,
     #[error("The feature is not a chamfer")]
     NotAChamfer { feature: FeatureId },
     #[error("{name} is already {form}")]
@@ -530,11 +538,11 @@ pub fn with_selected_edges(
         .flat_map(|found| blend_chain(solid, found))
         .collect();
     let mut grouped: BTreeSet<FaceId> = blend
-        .group_resolutions(solid)
+        .group_resolutions(model.document(), solid)
         .iter()
         .filter_map(|resolution| match resolution {
             GroupResolution::Face(face) => Some(face.found().to_vec()),
-            GroupResolution::Body => None,
+            GroupResolution::Body | GroupResolution::Rule { .. } => None,
         })
         .flatten()
         .collect();
@@ -583,6 +591,122 @@ pub fn with_selected_edges(
             },
         )
     })
+}
+
+pub fn rule_words(document: &Document, rule: EdgeRule) -> String {
+    match rule {
+        EdgeRule::Convex => "every convex edge".to_owned(),
+        EdgeRule::Concave => "every concave edge".to_owned(),
+        EdgeRule::MadeBy(feature) => format!(
+            "every edge made by {}",
+            document
+                .feature(feature)
+                .map_or("a deleted feature", |made| made.name.as_str())
+        ),
+    }
+}
+
+pub fn rule_added(blend: &Blend, rule: EdgeRule) -> Blend {
+    let mut groups = blend.groups.clone();
+    groups.push(EdgeGroup::Rule(rule));
+    Blend {
+        groups,
+        ..blend.clone()
+    }
+}
+
+pub fn rule_taken(blend: &Blend, rule: EdgeRule) -> bool {
+    blend.groups.contains(&EdgeGroup::Rule(rule))
+}
+
+pub fn rule_check(
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+    rule: EdgeRule,
+) -> Result<(), BlendError> {
+    let document = model.document();
+    let words = || rule_words(document, rule);
+    if rule_taken(blend, rule) {
+        return Err(BlendError::RuleTaken {
+            name: feature.name.clone(),
+            rule: words(),
+        });
+    }
+    let input = bodies::input(model.evaluation(), feature.id())
+        .ok_or(BlendError::NoShape { body: blend.body })?;
+    if rule.edges(document, &input.solid).is_empty() {
+        return Err(BlendError::RuleEmpty {
+            body: document
+                .body_name(blend.body)
+                .map_or_else(|| feature.name.clone(), Cow::into_owned),
+            rule: words(),
+        });
+    }
+    Ok(())
+}
+
+fn blend_of(feature: &Feature) -> Result<&Blend, BlendError> {
+    feature.kind.blend().ok_or(BlendError::NotABlend {
+        feature: feature.id(),
+    })
+}
+
+pub fn add_rule(
+    model: &Model,
+    feature: &Feature,
+    rules: &[EdgeRule],
+) -> Result<Transaction, BlendError> {
+    let blend = blend_of(feature)?;
+    let mut changed = blend.clone();
+    for rule in rules {
+        rule_check(model, feature, &changed, *rule)?;
+        changed = rule_added(&changed, *rule);
+    }
+    let document = model.document();
+    let words: Vec<String> = rules
+        .iter()
+        .map(|rule| rule_words(document, *rule))
+        .collect();
+    Ok(Transaction::single(
+        format!("Add {} to {}", words.join(" and "), feature.name),
+        Edit::SetFeatureKind {
+            id: feature.id(),
+            kind: FeatureKind::Blend(changed),
+        },
+    ))
+}
+
+pub fn made_by_selected(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, BlendError> {
+    let blend = blend_of(feature)?;
+    let input = bodies::input(model.evaluation(), feature.id())
+        .ok_or(BlendError::NoShape { body: blend.body })?;
+    let mut makers = Vec::new();
+    for pickable in selection.iter() {
+        let Pickable::Face { body, face } = pickable else {
+            continue;
+        };
+        if body != blend.body {
+            continue;
+        }
+        let maker = bodies::find_face(input, face)
+            .and_then(|found| input.solid.face(found)?.origin())
+            .map(origin_feature);
+        if let Some(maker) = maker
+            && !makers.contains(&maker)
+        {
+            makers.push(maker);
+        }
+    }
+    if makers.is_empty() {
+        return Err(BlendError::NoFaceOfFeature);
+    }
+    let rules: Vec<EdgeRule> = makers.into_iter().map(EdgeRule::MadeBy).collect();
+    add_rule(model, feature, &rules)
 }
 
 #[cfg(test)]

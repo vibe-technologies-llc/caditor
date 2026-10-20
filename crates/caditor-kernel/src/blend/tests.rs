@@ -1545,3 +1545,73 @@ fn an_inside_corner_whose_floor_edges_were_chamfered_is_chamfered_down_to_them()
         before + 4.0 * removed_by_corner_chamfer(4.0, 0.5, 0.75),
     );
 }
+
+fn convexities(solid: &Solid) -> Vec<Option<EdgeConvexity>> {
+    solid
+        .edges()
+        .map(|(edge, _)| edge_convexity(solid, edge))
+        .collect()
+}
+
+#[test]
+fn every_edge_of_a_box_is_convex() {
+    let solid = cuboid(Vector3::new(10.0, 10.0, 10.0));
+
+    let found = convexities(&solid);
+
+    assert_eq!(found.len(), 12);
+    assert!(
+        found
+            .iter()
+            .all(|found| *found == Some(EdgeConvexity::Convex))
+    );
+}
+
+#[test]
+fn a_hollow_box_has_twelve_convex_and_twelve_concave_edges() {
+    let solid = hollow_cuboid(10.0, 4.0);
+
+    let found = convexities(&solid);
+
+    let convex = found
+        .iter()
+        .filter(|found| **found == Some(EdgeConvexity::Convex))
+        .count();
+    let concave = found
+        .iter()
+        .filter(|found| **found == Some(EdgeConvexity::Concave))
+        .count();
+    assert_eq!(convex, 12);
+    assert_eq!(concave, 12);
+}
+
+#[test]
+fn a_cylinder_has_convex_rims_and_a_seam_with_no_convexity() {
+    let solid = cylinder(3.0, 5.0);
+
+    let found = convexities(&solid);
+
+    let convex = found
+        .iter()
+        .filter(|found| **found == Some(EdgeConvexity::Convex))
+        .count();
+    assert_eq!(convex, 2);
+    assert!(found.contains(&None));
+}
+
+#[test]
+fn a_filleted_edge_meets_its_neighbours_smoothly() {
+    let solid = cuboid(Vector3::new(10.0, 10.0, 10.0));
+    let top = edges_where(&solid, |middle| {
+        (middle.z - 10.0).abs() < 1e-9 && (middle.x - 5.0).abs() < 1e-9
+    });
+    let rounded = run(&solid, &top, BlendShape::Fillet { radius: 2.0 });
+
+    let found = convexities(&rounded);
+
+    let smooth = found
+        .iter()
+        .filter(|found| **found == Some(EdgeConvexity::Smooth))
+        .count();
+    assert!(smooth >= 2);
+}

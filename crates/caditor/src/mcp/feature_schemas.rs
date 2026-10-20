@@ -225,6 +225,26 @@ fn edge_choice(size: &str, size_description: &str) -> serde_json::Map<String, Va
         "all_edges".to_owned(),
         json!({ "type": "boolean", "description": "Every edge of the body" }),
     );
+    properties.insert(
+        "convex_edges".to_owned(),
+        json!({
+            "type": "boolean",
+            "description": "Every convex edge of the body, kept as edits add or remove convex edges"
+        }),
+    );
+    properties.insert(
+        "concave_edges".to_owned(),
+        json!({
+            "type": "boolean",
+            "description": "Every concave edge of the body, kept as edits add or remove concave edges"
+        }),
+    );
+    properties.insert(
+        "edges_made_by".to_owned(),
+        features(
+            "Features, by id or name, whose edges to take: every edge they made, kept as edits change them",
+        ),
+    );
     properties.insert(size.to_owned(), amount(size_description));
     properties.insert("name".to_owned(), name());
     properties

@@ -9,16 +9,17 @@ use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
     CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, DeleteFace, EdgeGroup, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft,
-    LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace, OffsetFace,
-    Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey, PieceLooks, Pieces,
-    Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
-    PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
-    Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
-    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
+    DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace,
+    OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey,
+    PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern,
+    PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis,
+    RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
+    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
+    point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -54,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 59] = [
+const KEPT: [(&str, &str); 60] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -122,6 +123,10 @@ const KEPT: [(&str, &str); 59] = [
     (
         "model-1/drafts.caditor",
         "dcb865f43993e3a12a35e0ac8abecded8dc91ac2fc081c2da43674d7e0f0d10d",
+    ),
+    (
+        "model-1/edge-rules.caditor",
+        "fb14fcd45c697696cb3a0e1032a2de11cca32d99e0b26f5627983fc2a6728b57",
     ),
     (
         "model-1/embossed-faces.caditor",
@@ -879,6 +884,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&modelled_threads(), "Modelled threads"),
         ),
         (model("faces"), saved(&faces(), "Faces")),
+        (model("edge-rules"), saved(&edge_rules(), "Edge rules")),
         (
             model("deleted-faces"),
             saved(&deleted_faces(), "Deleted faces"),
@@ -2569,6 +2575,31 @@ fn shell_walls() -> Document {
                 thickness: parse("$0 / 4"),
                 side,
                 faces,
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn edge_rules() -> Document {
+    let (mut document, fillet, _) = blended_model();
+    let base = named(&document, "Base");
+    let FeatureKind::Blend(rounded) = document.feature(fillet).unwrap().kind.clone() else {
+        panic!("a blend");
+    };
+    let mut transaction = document.transaction("Edge rules");
+    let rules = [
+        ("Convex edges", EdgeRule::Convex),
+        ("Concave edges", EdgeRule::Concave),
+        ("Edges of Base", EdgeRule::MadeBy(base)),
+    ];
+    for (name, rule) in rules {
+        transaction.add_feature(
+            name,
+            FeatureKind::Blend(caditor_document::Blend {
+                groups: vec![EdgeGroup::Rule(rule)],
+                ..rounded.clone()
             }),
         );
     }

@@ -34,7 +34,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   feet; no variable radius; a round corner only for three convex straight edges meeting at three
   planes (other corners mitre). Missing as shapes
   of their own: a full-round fillet across a narrow face between two others, a fillet sized by
-  chord length, a fillet that runs by a rule over every edge of a kind, setback corners where three
+  chord length, setback corners where three
   fillets meet, a tangency weight, and a curvature-continuous (G2) fillet.
 - [medium · hard] Shell: no spline, extrusion or revolution faces, as walls or openings (the kernel
   has no fitted offset surface); a curved face (cylinder, cone, sphere, torus) opens only on the

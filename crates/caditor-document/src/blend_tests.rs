@@ -1409,6 +1409,209 @@ fn a_fillet_of_a_whole_body_rounds_every_edge_it_has_now() {
     assert_eq!(rounded_count(&grouped.document, &after, grouped.fillet), 14);
 }
 
+struct Pocketed {
+    document: Document,
+    engine: Recompute,
+    base: FeatureId,
+    pocket: FeatureId,
+}
+
+fn pocketed_box() -> Pocketed {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (10.0, 8.0))),
+    );
+    let base = transaction.add_feature("Base", extruded(outline, "4", BodyOperation::NewBody));
+    document.apply(transaction.finish()).unwrap();
+
+    let top = Plane::from_frame(
+        Point3::new(0.0, 0.0, 4.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut footprint = rectangle((3.0, 2.0), (7.0, 6.0));
+    footprint.set_plane(top);
+    let mut transaction = document.transaction("Pocket");
+    let footprint = transaction.add_feature("Pocket sketch", FeatureKind::from(footprint));
+    let pocket = transaction.add_feature(
+        "Pocket",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: footprint,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(mm("2"), true),
+            operation: BodyOperation::Remove(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    Pocketed {
+        document,
+        engine: Recompute::default(),
+        base,
+        pocket,
+    }
+}
+
+fn ruled_edges(pocketed: &mut Pocketed, rule: EdgeRule) -> Vec<Point3> {
+    let evaluation = evaluate(&pocketed.document, &mut pocketed.engine);
+    let solid = evaluation.body(pocketed.base).unwrap();
+    let blend = Blend {
+        kind: BlendKind::Fillet,
+        body: pocketed.base,
+        edges: Vec::new(),
+        groups: vec![EdgeGroup::Rule(rule)],
+        size: mm("0.2"),
+        form: ChamferForm::Equal,
+        flipped: false,
+    };
+    let mut middles: Vec<Point3> = blend
+        .resolve(&pocketed.document, solid)
+        .unwrap()
+        .into_iter()
+        .map(|id| {
+            let edge = solid.edge(id).unwrap();
+            edge.curve().point(edge.interval().middle())
+        })
+        .collect();
+    middles.sort_by(|a, b| a.to_array().partial_cmp(&b.to_array()).unwrap());
+    middles
+}
+
+fn inside_the_pocket(middle: &Point3) -> bool {
+    (3.0..=7.0).contains(&middle.x) && (2.0..=6.0).contains(&middle.y) && middle.z < 4.0 - 1e-9
+}
+
+#[test]
+fn the_convex_rule_takes_the_outer_edges_and_the_pocket_rim_but_nothing_inside_it() {
+    let mut pocketed = pocketed_box();
+
+    let convex = ruled_edges(&mut pocketed, EdgeRule::Convex);
+
+    assert_eq!(convex.len(), 16);
+    assert!(!convex.iter().any(inside_the_pocket));
+}
+
+#[test]
+fn the_concave_rule_takes_only_the_floor_and_the_corners_of_the_pocket() {
+    let mut pocketed = pocketed_box();
+
+    let concave = ruled_edges(&mut pocketed, EdgeRule::Concave);
+
+    assert_eq!(concave.len(), 8);
+    assert!(concave.iter().all(inside_the_pocket));
+}
+
+#[test]
+fn a_feature_rule_takes_the_edges_that_feature_made() {
+    let mut pocketed = pocketed_box();
+    let base = pocketed.base;
+    let pocket = pocketed.pocket;
+
+    let made_by_pocket = ruled_edges(&mut pocketed, EdgeRule::MadeBy(pocket));
+    let made_by_base = ruled_edges(&mut pocketed, EdgeRule::MadeBy(base));
+
+    assert_eq!(made_by_pocket.len(), 12);
+    assert_eq!(made_by_base.len(), 12);
+    assert!(
+        made_by_pocket
+            .iter()
+            .all(|middle| made_by_base.iter().all(|other| other != middle))
+    );
+    assert_eq!(
+        made_by_pocket
+            .iter()
+            .filter(|middle| (middle.z - 4.0).abs() < 1e-9)
+            .count(),
+        4
+    );
+}
+
+#[test]
+fn a_rule_stays_empty_for_a_kind_of_edge_the_body_lacks() {
+    let mut grouped = grouped_fillet(|_| EdgeGroup::Rule(EdgeRule::Concave));
+
+    let evaluation = evaluate(&grouped.document, &mut grouped.engine);
+
+    assert!(matches!(
+        evaluation.feature(grouped.fillet).unwrap().state,
+        FeatureState::Waiting(_)
+    ));
+}
+
+#[test]
+fn a_fillet_of_the_edges_a_feature_made_follows_an_upstream_change() {
+    let mut grouped = grouped_fillet(|_| EdgeGroup::Body);
+    let base = grouped.base;
+    let mut changed = grouped
+        .document
+        .feature(grouped.fillet)
+        .unwrap()
+        .kind
+        .blend()
+        .unwrap()
+        .clone();
+    changed.groups = vec![EdgeGroup::Rule(EdgeRule::MadeBy(base))];
+    grouped
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: grouped.fillet,
+                kind: FeatureKind::Blend(changed),
+            },
+        ))
+        .unwrap();
+    let before = evaluate(&grouped.document, &mut grouped.engine);
+    let rounded = volume(&before, grouped.base);
+
+    add_hole_in(&mut grouped.document, grouped.outline);
+    let after = evaluate(&grouped.document, &mut grouped.engine);
+
+    assert_eq!(
+        rounded_count(&grouped.document, &before, grouped.fillet),
+        12
+    );
+    assert_eq!(
+        after.feature(grouped.fillet).unwrap().state,
+        FeatureState::UpToDate
+    );
+    assert_eq!(rounded_count(&grouped.document, &after, grouped.fillet), 14);
+    assert!(volume(&after, grouped.base) < rounded - PI * 1.5 * 1.5 * 4.0 + 0.2);
+}
+
+#[test]
+fn a_feature_rule_makes_the_blend_depend_on_that_feature() {
+    let mut pocketed = pocketed_box();
+    let pocket = pocketed.pocket;
+    let base = pocketed.base;
+    let mut transaction = pocketed.document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            edges: Vec::new(),
+            groups: vec![EdgeGroup::Rule(EdgeRule::MadeBy(pocket))],
+            size: mm("0.2"),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    pocketed.document.apply(transaction.finish()).unwrap();
+
+    let kind = &pocketed.document.feature(fillet).unwrap().kind;
+
+    assert!(kind.dependencies().contains(&pocket));
+}
+
 #[test]
 fn a_lost_face_fails_the_blend_in_words_about_the_face() {
     let mut grouped = grouped_fillet(top_face);

@@ -307,6 +307,9 @@ pub enum Command {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    AddConvexEdges,
+    AddConcaveEdges,
+    AddEdgesOfSelectedFeature,
     WrapSplitCurves,
     ReverseDirection,
     FilterFeatures,
@@ -924,6 +927,9 @@ plain_commands! {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    AddConvexEdges,
+    AddConcaveEdges,
+    AddEdgesOfSelectedFeature,
     WrapSplitCurves,
     ReverseDirection,
     FilterFeatures,
@@ -1276,6 +1282,9 @@ impl Command {
             Self::ChamferTwoDistances => "model.chamfer_two_distances",
             Self::ChamferDistanceAngle => "model.chamfer_distance_angle",
             Self::FlipChamfer => "model.flip_chamfer",
+            Self::AddConvexEdges => "model.add_convex_edges",
+            Self::AddConcaveEdges => "model.add_concave_edges",
+            Self::AddEdgesOfSelectedFeature => "model.add_edges_of_selected_feature",
             Self::WrapSplitCurves => "model.wrap_split_curves",
             Self::ReverseDirection => "model.reverse_direction",
             Self::FilterFeatures => "model.filter_features",
@@ -1581,6 +1590,11 @@ impl Command {
             Self::ChamferTwoDistances => "Chamfer by two distances",
             Self::ChamferDistanceAngle => "Chamfer by a distance and an angle",
             Self::FlipChamfer => "Flip the chamfer's faces",
+            Self::AddConvexEdges => "Add every convex edge to the fillet or chamfer",
+            Self::AddConcaveEdges => "Add every concave edge to the fillet or chamfer",
+            Self::AddEdgesOfSelectedFeature => {
+                "Add every edge made by the selected face's feature to the fillet or chamfer"
+            }
             Self::WrapSplitCurves => "Wrap the split face's curves round its faces",
             Self::ReverseDirection => "Reverse the direction",
             Self::FilterFeatures => "Filter the feature tree",
@@ -2053,6 +2067,9 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::AddConvexEdges
+            | Self::AddConcaveEdges
+            | Self::AddEdgesOfSelectedFeature
             | Self::WrapSplitCurves
             | Self::ReverseDirection
             | Self::FilterFeatures
@@ -2402,6 +2419,9 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::AddConvexEdges
+            | Self::AddConcaveEdges
+            | Self::AddEdgesOfSelectedFeature
             | Self::WrapSplitCurves
             | Self::ReverseDirection
             | Self::AddParameter
