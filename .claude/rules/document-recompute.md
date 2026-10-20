@@ -201,6 +201,9 @@ paths:
   Only a finished, complete draft is kept (`Recomputer::take_draft`). A draft never pre-empts the
   model: submitted while a model submission is unanswered it waits for that report, and any model
   submission drops a waiting draft and stops a running one.
+- `Model::poll_recompute` takes the draft result (`take_draft_result`) after polling the worker, so
+  the frame its report wakes draws it: the app redraws only on input or a wake, and a draft taken a
+  poll later stayed unseen while the pointer and keys were still (a value typed after Extrude by key).
 - A task on the cache (`Recomputer::submit_on_cache`, a `CacheTask`: the app's search for the
   picks of pasted features) runs on the same worker after the queued draft and model submission,
   on a draft copy of the cache, so it evaluates only what the model's results do not cover. Its

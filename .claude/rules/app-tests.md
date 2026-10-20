@@ -34,6 +34,9 @@ paths:
   scene after it is the finished one. `point_at` (so `click_at`) and `open_combo` settle first when
   work is running, because a result landing between working out a position and the press shifts
   the panel; `open_combo` also holds the pointer still until the list stops moving.
+- A harness's model wakes count into `Harness::wakes`; `frames_while_woken` runs a frame only after
+  a wake or queued input, as the app does, until a second passes without one, so a test sees what
+  a still pointer would (`a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_pointer`).
 - `settle` does not wait for workers outside the model; a test waits for them itself: Measure's
   readout (`Measurements::is_measuring`), the journal (`Model::flush_journal` before reading the
   recovery folder), the file worker (`Files::wait_for_jobs`), and a harness's storage worker

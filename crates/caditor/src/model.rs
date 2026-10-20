@@ -1568,16 +1568,18 @@ impl Model {
         let finished = self.pastes.poll(self.revision());
         let judged = self.pasting_finished(finished) | judged;
         let polled = self.display.dragging.poll();
-        let stored = judged
-            | self.poll_storage()
-            | self.display.meshing.poll()
-            | self.dragged(polled)
-            | self.take_draft_result();
+        let stored =
+            judged | self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
+        let recomputed = self.poll_recomputer();
+        stored | recomputed | self.take_draft_result()
+    }
+
+    fn poll_recomputer(&mut self) -> bool {
         let Some(recomputer) = self.recomputer.as_mut().filter(|_| !self.evaluations_held) else {
-            return stored;
+            return false;
         };
         match recomputer.poll() {
-            Ok(Some(update)) if update.revision < self.revision_offset => stored,
+            Ok(Some(update)) if update.revision < self.revision_offset => false,
             Ok(Some(update)) => {
                 if update.revision == self.revision() {
                     self.status = match update.outcome {
@@ -1603,7 +1605,7 @@ impl Model {
                 self.mesh_bodies();
                 true
             }
-            Ok(None) => stored,
+            Ok(None) => false,
             Err(error) => {
                 log::error!("{error}");
                 self.recomputer = None;

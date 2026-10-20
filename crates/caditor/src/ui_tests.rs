@@ -1,6 +1,9 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -237,6 +240,7 @@ impl Wheel {
 const STILL_FRAMES: usize = 60;
 const WINDOW_SETTLE_FRAMES: usize = 5;
 const FILE_TIMEOUT: Duration = Duration::from_secs(10);
+const WAKELESS_QUIET: Duration = Duration::from_secs(1);
 const TOOLTIP_FRAMES: usize = 20;
 const CAMERA_SETTLE: Duration = Duration::from_secs(5);
 const DRAWN: f64 = 1e-3;
@@ -359,9 +363,20 @@ fn no_wake() -> WakerFactory {
     Box::new(|| Box::new(|| {}))
 }
 
+fn counted_wakes(wakes: &Arc<AtomicUsize>) -> WakerFactory {
+    let wakes = Arc::clone(wakes);
+    Box::new(move || {
+        let wakes = Arc::clone(&wakes);
+        Box::new(move || {
+            wakes.fetch_add(1, Ordering::SeqCst);
+        })
+    })
+}
+
 struct Harness {
     context: egui::Context,
     model: Model,
+    wakes: Arc<AtomicUsize>,
     files: Files,
     dialogs: ScriptedDialogs,
     workspace: Workspace,
@@ -444,8 +459,9 @@ impl Harness {
     ) -> Self {
         let recovery_dir = dir.map(|dir| dir.join("recovery"));
         let dialogs = ScriptedDialogs::default();
+        let wakes = Arc::new(AtomicUsize::new(0));
         let services = Services {
-            make_waker: no_wake(),
+            make_waker: counted_wakes(&wakes),
             storage: StorageConfig {
                 recovery_dir: recovery_dir.clone(),
                 ..StorageConfig::default()
@@ -464,6 +480,7 @@ impl Harness {
         let mut harness = Self {
             context: egui::Context::default(),
             model,
+            wakes,
             files,
             dialogs,
             workspace,
@@ -742,6 +759,21 @@ impl Harness {
             || self.model.masses_pending()
             || self.model.requested_meshes_pending()
             || self.model.pictures().pending()
+    }
+
+    fn frames_while_woken(&mut self) {
+        let mut seen = self.wakes.load(Ordering::SeqCst);
+        let mut quiet_since = Instant::now();
+        while quiet_since.elapsed() < WAKELESS_QUIET {
+            let wakes = self.wakes.load(Ordering::SeqCst);
+            if wakes == seen && self.events.is_empty() {
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
+            }
+            seen = wakes;
+            quiet_since = Instant::now();
+            self.frame();
+        }
     }
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {

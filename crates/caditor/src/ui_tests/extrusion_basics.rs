@@ -1,9 +1,9 @@
 use caditor_document::{BodyOperation, ExtrudeExtent, Feature, RegionChoice, SolidFeature};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
-use egui::{Id, Key, Modifiers};
+use egui::{Event, Id, Key, Modifiers};
 
-use super::{CAMERA_SETTLE, Harness, distance_of, extruded_plate, rectangle};
+use super::{CAMERA_SETTLE, Harness, distance_of, draft_volume, extruded_plate, rectangle};
 use crate::{model::Action, selection::Pickable};
 
 #[test]
@@ -367,4 +367,31 @@ fn extruding_with_the_button_leaves_the_distance_field_unfocused() {
         harness.focused(),
         Some(Id::unique(("solid-field", "distance", extrude)))
     );
+}
+
+#[test]
+fn a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_pointer() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+
+    harness.key(Key::E, Modifiers::ALT);
+    harness.settle();
+    harness.frame();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    let distance = Id::unique(("solid-field", "distance", extrude));
+
+    assert_eq!(harness.focused(), Some(distance));
+
+    harness.events.push(Event::Text("25".to_owned()));
+    harness.frames_while_woken();
+    let previewed = draft_volume(&harness, extrude).expect("the typed distance is previewed");
+
+    assert!((previewed - 40.0 * 40.0 * 25.0).abs() < 1.0, "{previewed}");
 }
