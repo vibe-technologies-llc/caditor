@@ -153,8 +153,10 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `MatePair` follows from the parts given (flush, concentric, both, an angle, a round face resting
   on a plane, a flat face on a round one, a point on a point or plane), the moving parts on the
   moved body and the targets off it; an edit keeps the pair's kind (`MateError::KindKept`).
-  `curves.rs` adds helices (`Helix`, two of turns, pitch and height through `coil_length`, a
-  `start_angle` or a `start_point` that replaces it, each given clearing the other), curve patterns (`sketch_pattern_tools::kind` for a sketch passing
+  `curves.rs` adds helices (`Helix`, `flat` choosing `HelixKind::FlatSpiral`, whose
+  `outer_diameter` takes the place of `height`, either given to the other kind refused in words,
+  `CurveToolError::FlatHeight`, `HelixOuterDiameter`; two of turns, pitch and height through
+  `coil_length`, a `start_angle` or a `start_point` that replaces it, each given clearing the other), curve patterns (`sketch_pattern_tools::kind` for a sketch passing
   `is_curve_path`, spread or `spacing`, following or keeping the turn) and point patterns
   (`PointsPattern` from a base point, the sketch needing lone points).
 - `edit_feature` (`edits.rs`) edits a feature with the arguments of the tool adding its kind

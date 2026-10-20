@@ -96,7 +96,7 @@ paths:
 
 Tools without a ribbon button (it stays one row) live in the Model menu and the palette: Offset face,
 Delete face, Emboss, Move face, Draft, Replace face, Split face, the primitives, Pipe, Loft, Coil, Rib, Thread, Copy body, Split body, Mate body, Mirror faces, Curve and Point
-pattern, Coordinate system, Helix, Scale model and Configurations. Sweep has a button in the Solid group
+pattern, Coordinate system, Helix, Flat spiral, Scale model and Configurations. Sweep has a button in the Solid group
 and a Model menu row, and is in the right-click menu of selected sketch curves
 (`view_menu::SKETCH_TOOLS`), as Pipe, Loft and Rib are. Panel rows, keys and wordings are in the
 `*_panel.rs` files; this file holds the behaviour behind them.
@@ -588,8 +588,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Reference group menu, Model menu, palette) makes a `Helix` of `coil_tools::DEFAULT_DIAMETER`, five
   turns at a pitch of 5 mm, counter-clockwise, and opens it; with no axis selected it winds round Z
   and starts choosing one (`Slot::HelixAxis`), as a coil does. It makes no body.
-- Panel (`helix_panel.rs`): a description, Axis with Reverse direction, Sized by and its two fields,
-  Diameter, Taper, Starts at (`STARTS_AT`: a `Slot::HelixStart` picker for a corner, round edge,
+  `Command::FlatSpiral` (Flat spiral, beside it in the same places, `helix_tools::create_actions`
+  with `HelixKind::FlatSpiral`) makes the same feature as a flat spiral named "Spiral N"
+  (`helix_tools::title`).
+- Panel (`helix_panel.rs`): a description (`SPIRAL_DESCRIPTION` for a flat spiral), Shape
+  (`SHAPE`, Helix or Flat spiral, `helix_tools::with_kind`, which first sizes it by turns and pitch
+  so a height never becomes an outer diameter), Axis with Reverse direction, Sized by and its two
+  fields (a flat spiral's height field captioned `OUTER_DIAMETER`, its sizings "Outer diameter and
+  turns" and "and pitch", resized by `helix_tools::spiral_span` through
+  `coil_tools::resized_length` since its turns are the outer minus the inner radius over the
+  pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper (left out for a flat spiral),
+  Starts at (`STARTS_AT`: a `Slot::HelixStart` picker for a corner, round edge,
   sketch point or datum point made before the helix, `datum_tools::only_point`, through
   `helix_tools::start_point_change`; its remove button, `with_start_point(None)`, returns to the
   typed angle; a point on the axis is applied and fails the helix in words, the kernel never sees
@@ -1032,6 +1041,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     `HelixSpec` made of the displayed axis (`Builder::helix`): the diameter from the axis along
     `HelixSpec::start_frame`'s x axis, so it follows the start angle, at half speed; the pitch
     upward from `HelixSpec::point_at` a turn round, the height from its end, left out as a coil's.
+    A flat spiral's arrows stand on `SpiralSpec` instead (`Builder::spiral` in `value_gauges.rs`):
+    the inner diameter as the helix's, the pitch outward from where it starts, the outer diameter
+    (`CoilHeight`, captioned and hovered as one, `is_flat_spiral`) from the axis through its end at
+    half speed; its pitch and outer diameter never reverse it (`Measured::reversed`).
   - A rib's Thickness (`Measured::RibThickness`), standing on the first chain of the rib's sketch
     (`caditor_document::rib_stand`): for a rib parallel to its sketch on the first curve (a quarter
     of the way along) across the sketch, along or against its normal for One side and Other side,

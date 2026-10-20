@@ -58,8 +58,8 @@ pub use crate::{
     },
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec, HelixError,
-        HelixSpec, HelixTurn, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, coil,
-        helix,
+        HelixSpec, HelixTurn, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS,
+        SPIRAL_TOLERANCE, SpiralError, SpiralSpec, coil, helix, spiral,
     },
     coordinates::Coordinates,
     curve::{

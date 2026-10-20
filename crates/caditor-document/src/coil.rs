@@ -305,7 +305,11 @@ impl Coil {
     }
 }
 
-fn number(context: &Context<'_>, expression: &Expression, what: &str) -> Result<f64, Failure> {
+pub(crate) fn number(
+    context: &Context<'_>,
+    expression: &Expression,
+    what: &str,
+) -> Result<f64, Failure> {
     let value = context.value_as(expression, what, Dimension::NONE)?;
     if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&value) {
         let shape = context.shape();
@@ -451,6 +455,18 @@ pub(crate) enum CoilCause {
     StartOnAxis {
         name: String,
     },
+    OuterWithinInner {
+        name: String,
+    },
+    OuterPitchTurns {
+        name: String,
+        width: f64,
+        pitch: f64,
+        turns: f64,
+    },
+    SpiralUnbuildable {
+        name: String,
+    },
 }
 
 impl CoilCause {
@@ -491,6 +507,20 @@ impl CoilCause {
             Self::StartOnAxis { name } => {
                 format!("The start point of {name} lies on its axis, so it has no angle round it.")
             }
+            Self::OuterWithinInner { name } => {
+                format!("The outer diameter of {name} is not larger than its inner diameter.")
+            }
+            Self::OuterPitchTurns {
+                name,
+                width,
+                pitch,
+                turns,
+            } => format!(
+                "{name} grows {width} mm out to its outer diameter, which at a pitch of {pitch} mm \
+                 makes {turns:.2} turns; a flat spiral makes from {LEAST_COIL_TURNS} to \
+                 {MAX_COIL_TURNS}."
+            ),
+            Self::SpiralUnbuildable { name } => format!("{name} cannot be built with these sizes."),
         }
     }
 
@@ -532,6 +562,13 @@ impl CoilCause {
             Self::NoDirection { .. } => "Choose another axis.".to_owned(),
             Self::StartOnAxis { .. } => {
                 "Pick a point off the axis, or type a start angle instead.".to_owned()
+            }
+            Self::OuterWithinInner { .. } => {
+                "Make the outer diameter larger than the inner diameter.".to_owned()
+            }
+            Self::OuterPitchTurns { .. } => "Change the outer diameter or the pitch.".to_owned(),
+            Self::SpiralUnbuildable { .. } => {
+                "Change its inner diameter, turns or pitch.".to_owned()
             }
         }
     }

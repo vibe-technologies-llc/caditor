@@ -228,6 +228,10 @@ pub fn sized_length(model: &Model, length: &CoilLength, sizing: CoilSizing) -> C
         pitch: DEFAULT_PITCH,
         turns: DEFAULT_TURNS,
     });
+    resized_length(length, sizing, span)
+}
+
+pub fn resized_length(length: &CoilLength, sizing: CoilSizing, span: CoilSpan) -> CoilLength {
     let kept = |expression: Option<&Expression>| expression.cloned();
     let fresh = CoilLength::of(sizing, rounded(span));
     match (sizing, &fresh) {

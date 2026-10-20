@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 60] = [
+const KEPT: [(&str, &str); 61] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -143,6 +143,10 @@ const KEPT: [(&str, &str); 60] = [
     (
         "model-1/faces.caditor",
         "37c964744927f008ee9f4c449e6ac47935ae79f7f64aac3138bbe00b2b0a7831",
+    ),
+    (
+        "model-1/flat-spirals.caditor",
+        "69de63fecfc61688b6fb61d699aa11262d34a33caa8e7eb81fd492f2cf2657ac",
     ),
     (
         "model-1/gear-pairs.caditor",
@@ -863,6 +867,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("helix-starts"),
             saved(&helix_starts(), "Helix starts"),
+        ),
+        (
+            model("flat-spirals"),
+            saved(&flat_spirals(), "Flat spirals"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
@@ -2123,6 +2131,33 @@ fn helix_starts() -> Document {
         FeatureKind::Pipe(Pipe::new(
             SweepPath::Helix { helix },
             parse("2 mm"),
+            parse("0 mm"),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn flat_spirals() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Flat spirals");
+    let spiral = transaction.add_feature(
+        "Clock spring",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::HeightAndTurns {
+                height: parse("60 mm"),
+                turns: parse("4"),
+            },
+            turning: CoilTurning::Clockwise,
+            ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Spring",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix: spiral },
+            parse("1.5 mm"),
             parse("0 mm"),
         )),
     );

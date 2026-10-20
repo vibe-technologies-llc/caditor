@@ -1,14 +1,16 @@
 use std::f64::consts::TAU;
 
 use caditor_document::{
-    AxisReference, Edit, FeatureId, Helix, PointReference, PrincipalAxis, SweepPath, Transaction,
+    AxisReference, CoilLength, Edit, FeatureId, FeatureState, Helix, HelixKind, PointReference,
+    PrincipalAxis, SweepPath, Transaction,
 };
+use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Entity, Sketch};
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, drag_value_arrow, length_value, pipes::undone_and_redone,
+    CAMERA_SETTLE, Harness, choose, drag_value_arrow, length_value, pipes::undone_and_redone,
     run_from_palette,
 };
 use crate::{
@@ -16,6 +18,7 @@ use crate::{
     editing::EditingCommand,
     helix_panel, helix_tools, icons,
     model::Action,
+    pipe_tools,
     selection::{Axis, Pickable},
     solid_panel,
     value_gauges::Measured,
@@ -313,4 +316,107 @@ fn a_point_on_the_helix_axis_fails_the_helix_in_words_naming_the_remedy() {
         reason,
         "The start point of Helix 1 lies on its axis, so it has no angle round it."
     );
+}
+
+fn reason_of(harness: &Harness, feature: FeatureId) -> Option<String> {
+    harness
+        .model
+        .evaluation()
+        .feature(feature)
+        .and_then(|status| match &status.state {
+            FeatureState::Failed(error) => Some(error.reason()),
+            _ => None,
+        })
+}
+
+#[test]
+fn a_flat_spiral_from_the_palette_sized_by_its_outer_diameter_carries_a_pipe_once_thin_enough() {
+    let mut harness = Harness::new();
+    harness.select([Pickable::Axis(Axis::Z)]);
+
+    run_from_palette(&mut harness, "flat spiral");
+    harness.settle();
+
+    let spiral = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the spiral is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Spiral 1"));
+    assert_eq!(helix_of(&harness, spiral).kind, HelixKind::FlatSpiral);
+    assert!(harness.shows(helix_panel::SPIRAL_DESCRIPTION));
+    assert!(harness.shows(helix_panel::INNER_DIAMETER));
+    assert!(!harness.shows(coil_panel::TAPER));
+
+    choose(&mut harness, "Turns and pitch", "Outer diameter and turns");
+    let resized = helix_of(&harness, spiral).length;
+    assert!(harness.shows(helix_panel::OUTER_DIAMETER));
+    assert_eq!(
+        resized.height().map(|outer| length_value(&harness, outer)),
+        Some(coil_tools::DEFAULT_DIAMETER + 2.0 * caditor_document::DEFAULT_PITCH * 5.0)
+    );
+
+    harness.type_into_field(Id::unique(("helix-field", spiral, "height")), "50");
+    harness.settle();
+    let spec = helix_tools::points(harness.model.evaluation(), spiral);
+    let end = spec.last().copied().expect("the spiral is built");
+    assert!(matches!(
+        helix_of(&harness, spiral).length,
+        CoilLength::HeightAndTurns { .. }
+    ));
+    assert!((end.truncate().length() - 25.0).abs() < 1e-9, "{end}");
+    assert!(spec.iter().all(|point| point.z.abs() < 1e-9));
+
+    harness.perform(Action::Editing(EditingCommand::CloseSolid));
+    harness.select([Pickable::Datum(spiral)]);
+    run_from_palette(&mut harness, "pipe");
+    harness.settle();
+
+    let pipe = harness.workspace.editing.solid().expect("the pipe is open");
+    assert_eq!(
+        harness
+            .document()
+            .feature(pipe)
+            .and_then(|feature| feature.kind.pipe())
+            .map(|pipe| pipe.path.clone()),
+        Some(SweepPath::Helix { helix: spiral })
+    );
+    assert_eq!(pipe_tools::DEFAULT_SIZE, 10.0);
+    let refused = reason_of(&harness, pipe).expect("a 10 mm pipe touches itself");
+    assert!(
+        refused.starts_with("The turns of Pipe 1 would touch along Spiral 1"),
+        "{refused}"
+    );
+    assert!(harness.shows_containing("would touch along Spiral 1"));
+
+    harness.type_into_field(Id::unique(("pipe-field", pipe, "size")), "1.5");
+    harness.settle();
+
+    assert_eq!(reason_of(&harness, pipe), None);
+    assert!(harness.body_volume(pipe) > 0.0);
+}
+
+#[test]
+fn turning_a_helix_into_a_flat_spiral_keeps_its_turns_and_pitch_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let helix = open_vertical_helix(&mut harness);
+    harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "3");
+    harness.settle();
+
+    choose(&mut harness, "Helix", "Flat spiral");
+    let turned = helix_of(&harness, helix);
+    let points = helix_tools::points(harness.model.evaluation(), helix);
+
+    assert_eq!(turned.kind, HelixKind::FlatSpiral);
+    assert_eq!(turned.length.turns(), Some(&Expression::number(3.0)));
+    assert_eq!(harness.model.undo_label(), Some("Edit Helix 1"));
+    assert!(harness.shows(helix_panel::SPIRAL_DESCRIPTION));
+    assert!(points.iter().all(|point| point.z.abs() < 1e-9));
+    let end = points.last().copied().expect("the spiral is built");
+    assert!(
+        (end.truncate().length() - (RADIUS + 3.0 * caditor_document::DEFAULT_PITCH)).abs() < 1e-9,
+        "{end}"
+    );
+    let kind = |harness: &Harness| f64::from(u8::from(helix_of(harness, helix).is_flat()));
+    undone_and_redone(&mut harness, "the shape", kind);
 }

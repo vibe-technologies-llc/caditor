@@ -13,7 +13,7 @@ use crate::{
     primitive::{Context, combined},
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FixTarget, Inputs},
     solid::BodyOperation,
-    sweep::{Path, SweepPath, failed, path_failure, path_of},
+    sweep::{Path, SweepPath, failed, path_failure, path_of, spiral_of},
     sweep_cause::{Follower, Segments, SweepCause},
 };
 
@@ -200,6 +200,29 @@ fn failure(feature: &Feature, path: &Path, shape: PipeShape, error: &PipeError) 
     }
 }
 
+fn clear_turns(
+    feature: &Feature,
+    inputs: &Inputs<'_>,
+    path: &SweepPath,
+    size: f64,
+) -> Result<(), Failure> {
+    let Some((spiral, spec)) = spiral_of(inputs, path) else {
+        return Ok(());
+    };
+    if spec.turns_clear_of(size) {
+        return Ok(());
+    }
+    Err(failed(
+        SweepCause::SpiralTurnsTouch {
+            name: feature.name.clone(),
+            spiral,
+            pitch: spec.pitch,
+            least: spec.least_pitch_for(size),
+        },
+        FixTarget::Feature(feature.id()),
+    ))
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Pipe,
@@ -216,6 +239,7 @@ pub(crate) fn evaluate(
         .transpose()?;
     let bend = context.size_or_zero(&definition.bend, "bend radius")?;
     let path = path_of(feature, inputs, &definition.path)?;
+    clear_turns(feature, inputs, &definition.path, size)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

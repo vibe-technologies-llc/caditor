@@ -72,6 +72,7 @@ const MODEL_DATUMS: [&[Command]; 2] = [
         Command::DatumPoint,
         Command::CoordinateSystem,
         Command::Helix,
+        Command::FlatSpiral,
     ],
     &[Command::InsertImage],
 ];

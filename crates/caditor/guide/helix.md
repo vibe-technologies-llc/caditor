@@ -6,6 +6,11 @@ rectangle for a flat-wound spring, or run a pipe along it for a coil with a sect
 does not offer. It makes no body. It is in the Reference group of the ribbon, the Model menu and the
 command palette.
 
+{command:model.flat_spiral} adds the same feature as a **flat spiral**: a curve winding outward in
+the plane square to the axis, its turns a steady pitch apart, like a clock spring or a watch's
+hairspring. Pipe a round or square wire along it, or sweep a strip, for a spiral spring. The
+**Shape** row of the panel turns a helix into a flat spiral and back.
+
 The axis is a principal axis, a datum axis, a coordinate system's axis, a straight edge, the axis
 of a round face (a cylinder or cone) or a line of a sketch. Select it, then choose Helix. With
 nothing selected the helix winds around the Z axis and starts choosing its axis in the view: click
@@ -20,6 +25,9 @@ drawn on the YZ plane is carried along it instead.
 
 ## Panel
 
+- **Shape**: **Helix** rises along the axis; **Flat spiral** winds outward in the plane square to
+  it. Changing it keeps the turns and the pitch (sizing by them if a height or outer diameter was
+  typed).
 - **Axis** names the axis wound around: choose another from the list, use the selected one, or
   choose in the view. **Reverse direction** makes the helix rise the other way along it.
 - **Sized by** picks which two of turns, pitch and height you type, as for a coil; turns need not
@@ -42,6 +50,18 @@ drawn on the YZ plane is carried along it instead.
 Every size takes units and expressions. The helix is drawn in the view like a datum and hides with
 the datums.
 
+## Flat spirals
+
+A flat spiral lies in the plane through the axis's start square to the axis. It starts at its
+**Inner diameter**, on the side the axis's X direction points to (or at the start angle or point),
+and grows outward by its **Pitch** each turn, an Archimedean spiral. **Sized by** picks two of
+turns, pitch and **Outer diameter**: an outer diameter and turns spread the turns evenly between
+the two diameters, an outer diameter and a pitch make as many turns as fit (they need not be
+whole). An outer diameter no larger than the inner one fails saying so. A flat spiral has no taper;
+**Reverse direction** turns its plane over, so it winds the other way round from the same start, as
+**Turning** does. Its arrows drag the inner diameter, the pitch (outward from where it starts) and
+the outer diameter (at its end).
+
 While the helix is open, arrows in the view drag its sizes: one from the axis toward where the
 helix starts for the diameter, one at the helix a turn up for the pitch (when it is sized by a
 pitch) and one at its end for the height (when it is sized by a height); dragging either back
@@ -56,8 +76,13 @@ then choose Sweep, or click it while the Path row is choosing. The profile winds
 it rises, keeping its place against the axis (a triangle pointing at the axis keeps pointing at
 it), so a thread profile stays a thread profile all the way.
 
-- The profile's turns must stay apart: a profile taller than the pitch runs into itself and the
-  sweep fails saying so.
+- The profile's turns must stay apart: a profile taller than the pitch (wider than it, along a
+  flat spiral) runs into itself and the sweep fails saying so.
+- A pipe along a flat spiral must leave a gap between its turns: one as thick as the pitch fails
+  before it is built, naming the least pitch its section needs (a little more than its size, more
+  where the inner turns are tight).
+- A profile drawn on the XZ plane across where a flat spiral round Z starts is carried round it,
+  as along a helix.
 - A profile reaching across the axis cannot wind around it and fails.
 - Keep the profile **Square to path**; kept parallel to its sketch it would slide along itself.
 

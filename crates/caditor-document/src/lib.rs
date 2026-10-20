@@ -142,7 +142,7 @@ pub use crate::{
     emboss::{Emboss, EmbossForm},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
-    helix::{HELIX_SHAPE, Helix, HelixResult},
+    helix::{HELIX_SHAPE, Helix, HelixKind, HelixResult, SPIRAL_SHAPE},
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
         MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, TappedThread, centres as hole_centres,
@@ -374,6 +374,8 @@ mod shell_tests;
 mod sketch_tests;
 #[cfg(test)]
 mod solid_tests;
+#[cfg(test)]
+mod spiral_tests;
 #[cfg(test)]
 mod split_edge_reference_tests;
 #[cfg(test)]

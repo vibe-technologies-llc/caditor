@@ -388,7 +388,14 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Pipe(_) => &["pipe", "tube", "tubing", "handrail", "cable", "sweep"],
         FeatureKind::Loft(_) => &["loft", "blend", "skin", "transition"],
         FeatureKind::Coil(_) => &["coil", "spring", "helix", "spiral", "winding"],
-        FeatureKind::Helix(_) => &["helix", "spiral", "curve", "thread path"],
+        FeatureKind::Helix(_) => &[
+            "helix",
+            "spiral",
+            "flat spiral",
+            "clock spring",
+            "curve",
+            "thread path",
+        ],
         FeatureKind::Rib(_) => &["rib", "web", "stiffener", "gusset", "brace"],
         FeatureKind::Blend(blend) => match blend.kind {
             BlendKind::Fillet => &["fillet", "round"],

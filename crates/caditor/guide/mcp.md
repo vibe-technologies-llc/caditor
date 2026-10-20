@@ -85,7 +85,7 @@ first, so two programs never change one model at once.
   [mate](mate) a body onto another, a plane, an axis or a point.
 - Add [datum](datums) planes, axes and points in each of the ways their tools offer (through
   points, midway, touching a curved face, where lines cross and so on), a
-  [coordinate system](coordinate-systems) and a [helix](helix).
+  [coordinate system](coordinate-systems) and a [helix](helix) or flat spiral.
 - Change any of those features afterwards, as its card in the app does: the assistant gives only
   what changes, such as a fillet's radius or a pattern's count, and the rest stays as it was.
 - Rename, suppress, reorder and delete features in the [feature tree](feature-tree). Deleting a

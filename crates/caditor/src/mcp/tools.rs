@@ -554,7 +554,7 @@ impl Tool {
                 "Moves a body by its geometry onto another body, a plane, an axis or a point, and keeps it there when that changes: a flat face flush with a plane (at a distance), an axis concentric with another, both at once, a round face resting on a plane, a flat face resting on a round face, a point on a point or plane, or a face or axis turned to an angle. One undo step."
             }
             Self::AddHelix => {
-                "Adds a helix about an axis, sized by its diameter and two of turns, pitch and height, optionally tapered, for pipes and sweeps to follow. One undo step."
+                "Adds a helix about an axis, sized by its diameter and two of turns, pitch and height, optionally tapered, or with flat a flat spiral (a clock spring) in the plane square to the axis, sized by its inner diameter and two of turns, pitch and outer diameter, for pipes and sweeps to follow. One undo step."
             }
             Self::AddCurvePattern => {
                 "Repeats a body, or holes, cuts and bosses of one body, along the curves of a sketch joined end to end, spread evenly or a spacing apart, keeping or following the curve's turn. One undo step."

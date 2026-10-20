@@ -119,6 +119,12 @@ pub(crate) enum SweepCause {
         name: String,
         shape: PipeShape,
     },
+    SpiralTurnsTouch {
+        name: String,
+        spiral: String,
+        pitch: f64,
+        least: f64,
+    },
     BendTooLong {
         at: Segments,
     },
@@ -275,6 +281,15 @@ impl SweepCause {
                 "The wall of {name} is too thick: it must be thinner than {}.",
                 wall_limit_words(*shape)
             ),
+            Self::SpiralTurnsTouch {
+                name,
+                spiral,
+                pitch,
+                least,
+            } => format!(
+                "The turns of {name} would touch along {spiral}: at a pitch of {pitch:.3} mm its \
+                 section needs more than {least:.3} mm between turns."
+            ),
             Self::BendTooLong { at } => format!(
                 "Rounding the corner between {}{} to the bend radius needs more than the length \
                  of the curves there.",
@@ -400,6 +415,9 @@ impl SweepCause {
             }
             Self::UnusableShape { .. } => "Enter an end scale nearer 1.".to_owned(),
             Self::WallTooThick { .. } => "Make the wall thinner or the pipe larger.".to_owned(),
+            Self::SpiralTurnsTouch { name, spiral, .. } => {
+                format!("Make the pitch of {spiral} larger, or {name} smaller.")
+            }
             Self::BendTooLong { .. } => {
                 "Make the bend radius smaller, or lengthen the curves at the corner.".to_owned()
             }

@@ -1,9 +1,9 @@
 use caditor_document::{
-    AxisReference, CoilLength, CoilSizing, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS, Document,
-    Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixResult, PointReference,
-    Transaction,
+    AxisReference, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind,
+    HelixResult, PointReference, Transaction,
 };
-use caditor_expression::Expression;
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
 
 use crate::{
@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub const TITLE: &str = "Helix";
+pub const SPIRAL_TITLE: &str = "Spiral";
 const POINTS_PER_TURN: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -43,13 +44,22 @@ pub enum HelixError {
     Check(#[from] CheckError),
 }
 
+pub fn title(kind: HelixKind) -> &'static str {
+    match kind {
+        HelixKind::Helix => TITLE,
+        HelixKind::FlatSpiral => SPIRAL_TITLE,
+    }
+}
+
 pub fn create(
     document: &Document,
     start: &CoilStart,
     unit: LengthUnit,
+    kind: HelixKind,
 ) -> (Transaction, FeatureId) {
-    let name = editing::next_feature_name(document, TITLE);
+    let name = editing::next_feature_name(document, title(kind));
     let helix = Helix {
+        kind,
         length: CoilLength::TurnsAndPitch {
             turns: Expression::number(DEFAULT_TURNS),
             pitch: unit.default_length(DEFAULT_PITCH),
@@ -64,8 +74,8 @@ pub fn create(
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(model: &Model, start: &CoilStart) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), start, model.length_unit());
+pub fn create_actions(model: &Model, start: &CoilStart, kind: HelixKind) -> Vec<Action> {
+    let (transaction, feature) = create(model.document(), start, model.length_unit(), kind);
     let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
@@ -164,10 +174,49 @@ pub fn with_turning(helix: &Helix, turning: CoilTurning) -> Helix {
 }
 
 pub fn sized_by(model: &Model, helix: &Helix, sizing: CoilSizing) -> Helix {
+    let length = if helix.is_flat() {
+        coil_tools::resized_length(&helix.length, sizing, spiral_span(model, helix))
+    } else {
+        coil_tools::sized_length(model, &helix.length, sizing)
+    };
     Helix {
-        length: coil_tools::sized_length(model, &helix.length, sizing),
+        length,
         ..helix.clone()
     }
+}
+
+fn value(model: &Model, expression: Option<&Expression>, dimension: Dimension) -> Option<f64> {
+    let parameters = &model.evaluation().parameters;
+    expression?
+        .evaluate_as(dimension, &|id| parameters.value(id))
+        .ok()
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
+    let length = &helix.length;
+    let inner = value(model, Some(&helix.diameter), Dimension::LENGTH).unwrap_or(DEFAULT_DIAMETER);
+    let width = value(model, length.height(), Dimension::LENGTH)
+        .map(|outer| 0.5 * (outer - inner))
+        .filter(|width| *width > 0.0);
+    let pitch = value(model, length.pitch(), Dimension::LENGTH);
+    let turns = value(model, length.turns(), Dimension::NONE);
+    let (pitch, turns) = match (width, pitch, turns) {
+        (Some(width), Some(pitch), _) => (pitch, width / pitch),
+        (Some(width), None, Some(turns)) => (width / turns, turns),
+        (_, Some(pitch), Some(turns)) => (pitch, turns),
+        _ => (DEFAULT_PITCH, DEFAULT_TURNS),
+    };
+    CoilSpan {
+        height: inner + 2.0 * pitch * turns,
+        pitch,
+        turns,
+    }
+}
+
+pub fn with_kind(model: &Model, helix: &Helix, kind: HelixKind) -> Helix {
+    let turned = sized_by(model, helix, CoilSizing::TurnsAndPitch);
+    Helix { kind, ..turned }
 }
 
 fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<&HelixResult> {

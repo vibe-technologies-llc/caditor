@@ -15,7 +15,8 @@ use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BendMiddles, CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeCorner,
-    PipeShape, Region, STEEPEST_DRAFT, Solid, Surface, WallSide, measured_face, wrapped_stand,
+    PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface, WallSide, measured_face,
+    wrapped_stand,
 };
 use caditor_sketch::Entity;
 
@@ -24,7 +25,7 @@ use crate::{
     curve_track::{CurveTrack, TrackPoint},
     datum_tools, draft_panel, emboss_panel,
     feature_fields::Rule,
-    handle_snap, hole_panel, hole_tools,
+    handle_snap, helix_panel, hole_panel, hole_tools,
     model::Model,
     move_face_panel,
     move_manipulator::{ARROW_POINTS, Reach, step_for},
@@ -235,9 +236,14 @@ fn winding_mut(kind: &mut FeatureKind) -> Option<(&mut Expression, &mut CoilLeng
 
 fn winding_noun(kind: &FeatureKind) -> &'static str {
     match kind {
+        FeatureKind::Helix(helix) if helix.is_flat() => "spiral",
         FeatureKind::Helix(_) => "helix",
         _ => "coil",
     }
+}
+
+fn is_flat_spiral(kind: &FeatureKind) -> bool {
+    kind.helix().is_some_and(Helix::is_flat)
 }
 
 fn circular_mut(kind: &mut FeatureKind) -> Option<&mut CircularPattern> {
@@ -380,9 +386,11 @@ impl Measured {
             Self::CircularAngle => pattern_panel::TOTAL_ANGLE,
             Self::CircularCount | Self::CurveCount => pattern_panel::FIRST.count,
             Self::CurveSpacing => pattern_panel::FIRST.spacing,
+            Self::CoilDiameter if is_flat_spiral(kind) => helix_panel::INNER_DIAMETER,
             Self::CoilDiameter => coil_panel::DIAMETER,
             Self::CoilSection => return Some(capitalized(coil_size_name(kind.coil()?.shape))),
             Self::CoilPitch => coil_panel::PITCH,
+            Self::CoilHeight if is_flat_spiral(kind) => helix_panel::OUTER_DIAMETER,
             Self::CoilHeight => coil_panel::HEIGHT,
             Self::RibThickness => rib_panel::THICKNESS,
             Self::EmbossDepth => emboss_panel::DEPTH,
@@ -455,6 +463,9 @@ impl Measured {
                 }
                 None => "Drag to change the pattern's spacing",
             },
+            Self::CoilDiameter if is_flat_spiral(kind) => {
+                "Drag to change the spiral's inner diameter"
+            }
             Self::CoilDiameter => {
                 return format!("Drag to change the {}'s diameter", winding_noun(kind));
             }
@@ -466,6 +477,9 @@ impl Measured {
             },
             Self::CoilPitch => {
                 return format!("Drag to change the {}'s pitch", winding_noun(kind));
+            }
+            Self::CoilHeight if is_flat_spiral(kind) => {
+                "Drag to change the spiral's outer diameter"
             }
             Self::CoilHeight => {
                 return format!("Drag to change the {}'s height", winding_noun(kind));
@@ -885,7 +899,7 @@ impl Measured {
             }
             Self::CoilPitch | Self::CoilHeight => match &mut reversed {
                 FeatureKind::Coil(coil) => coil.reversed = !coil.reversed,
-                FeatureKind::Helix(helix) => helix.reversed = !helix.reversed,
+                FeatureKind::Helix(helix) if !helix.is_flat() => helix.reversed = !helix.reversed,
                 _ => return None,
             },
             Self::PrimitiveSize(index) => {
@@ -1863,12 +1877,83 @@ impl Builder<'_> {
         gauges
     }
 
+    fn spiral_span(&self, length: &CoilLength, inner: f64) -> Option<(f64, f64)> {
+        let width = |outer: &Expression| Some(0.5 * (self.length(outer)? - inner));
+        let (pitch, turns) = match length {
+            CoilLength::TurnsAndPitch { turns, pitch } => (self.length(pitch)?, self.count(turns)?),
+            CoilLength::HeightAndTurns { height, turns } => {
+                let turns = self.count(turns)?;
+                (width(height)? / turns, turns)
+            }
+            CoilLength::HeightAndPitch { height, pitch } => {
+                let pitch = self.length(pitch)?;
+                (pitch, width(height)? / pitch)
+            }
+        };
+        (pitch.is_finite() && pitch > 0.0 && turns.is_finite() && turns > 0.0)
+            .then_some((pitch, turns))
+    }
+
+    fn spiral(&self, helix: &Helix, diameter: f64, start: f64) -> Vec<Gauge> {
+        let Some((pitch, turns)) = self.spiral_span(&helix.length, diameter) else {
+            return Vec::new();
+        };
+        let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
+            .and_then(|axis| helix.frame(axis))
+        else {
+            return Vec::new();
+        };
+        let spec = SpiralSpec {
+            frame,
+            radius: diameter / 2.0,
+            pitch,
+            turns,
+            hand: helix.turning.hand(),
+            start_angle: start.to_radians(),
+        };
+        let Some(started) = spec.start_frame() else {
+            return Vec::new();
+        };
+        let mut gauges = vec![Gauge::line(
+            Measured::CoilDiameter,
+            (started.origin(), started.x_axis()),
+            0.5,
+            diameter,
+        )];
+        if helix.length.pitch().is_some()
+            && let Some(first) = spec.start()
+        {
+            gauges.push(Gauge::line(
+                Measured::CoilPitch,
+                (first, started.x_axis()),
+                1.0,
+                pitch,
+            ));
+        }
+        if helix.length.height().is_some()
+            && let Some(end) = spec.point_at(spec.sweep())
+            && let Some(outward) = (end - started.origin()).try_normalize()
+        {
+            gauges.push(Gauge::line(
+                Measured::CoilHeight,
+                (started.origin(), outward),
+                0.5,
+                2.0 * spec.outer_radius(),
+            ));
+        }
+        gauges
+    }
+
     fn helix(&self, helix: &Helix) -> Vec<Gauge> {
-        let (Some(diameter), Some(taper), Some(start)) = (
-            self.length(&helix.diameter),
-            self.angle(&helix.taper),
-            self.angle(&helix.start),
-        ) else {
+        let (Some(diameter), Some(start)) =
+            (self.length(&helix.diameter), self.angle(&helix.start))
+        else {
+            return Vec::new();
+        };
+        if helix.is_flat() {
+            return self.spiral(helix, diameter, start);
+        }
+        let Some(taper) = self.angle(&helix.taper) else {
             return Vec::new();
         };
         let Some((pitch, turns)) = self.coil_span(&helix.length) else {

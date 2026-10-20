@@ -691,7 +691,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
 ### Helix (`helix.rs`)
 
-- `Helix { axis, reversed, diameter, length, taper, turning, start, start_point }` is a curve feature: the axis,
+- `Helix { kind, axis, reversed, diameter, length, taper, turning, start, start_point }` is a curve feature: the axis,
   sizing (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved,
   counted, healed ("axis it winds around"), pasted, inlined and anchored for model scale the same
   way (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x
@@ -713,6 +713,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   can be hidden. Refusals are sentences: a taper drawing it into its axis, too few or many turns, a
   taper too steep, too far from the origin; the rest are logged and worded as sizes it cannot be
   built with. A sweep or pipe follows it (`SweepPath::Helix`).
+- `kind` is `HelixKind::Helix` (the default, `Helix::new`) or `FlatSpiral` (`Helix::flat_spiral`,
+  `Helix::is_flat`): an Archimedean spiral in the frame's plane, wound by kernel `spiral` from a
+  `SpiralSpec` (context shape `SPIRAL_SHAPE`, "flat spiral"). Its `diameter` is the inner
+  diameter, its pitch the radial growth per turn, and a `length` height is its outer diameter
+  (`helix::spiral_span`: turns are half the outer less the inner diameter over the pitch, an outer
+  diameter not larger than the inner fails, `CoilCause::OuterWithinInner`, and turns out of range
+  are `OuterPitchTurns`); `taper` is kept but unused. The start angle, start point, hand and
+  `reversed` act as a helix's. `HelixResult::spiral` holds the spec (`None` for a helix).
+- A pipe along a flat spiral refuses turns its section would touch before building
+  (`pipe::clear_turns`, `SweepCause::SpiralTurnsTouch` naming the pipe, the spiral, the pitch and
+  `SpiralSpec::least_pitch_for` its size); a sweep's profile too wide for the pitch fails as
+  running into itself, as along a helix.
 ### Rib (`rib.rs`, `rib_tool.rs`)
 
 - `Rib { sketch, body, thickness, draft, side, direction, ends, reversed }` joins thin walls along the

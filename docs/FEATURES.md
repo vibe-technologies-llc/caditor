@@ -48,11 +48,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ending at a point or leaving its end profiles square, but takes no guide rails or centreline, no
   end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
   middle profile.
-- [medium · hard] No flat spiral or varying helix: Helix gives a sweep or pipe a helix of one
-  pitch (tapered or not, started at an angle round its axis or at a picked point) to follow, but a
-  flat spiral (a clock spring) has no tool at all, and a helix cannot change its pitch along the
-  way, so a closed-end spring's closed and ground ends cannot be swept. Turns cannot touch (a
-  closed coil, or a profile as tall as the pitch swept along a helix, needs a pitch a hair larger).
+- [medium · hard] No varying helix: Helix gives a sweep or pipe a helix (tapered or not) or a flat
+  spiral of one pitch to follow, but neither can change its pitch along the way, so a closed-end
+  spring's closed and ground ends cannot be swept. Turns cannot touch (a closed coil, a profile as
+  tall as the pitch swept along a helix or as wide as it along a flat spiral, or a pipe as thick
+  as a flat spiral's pitch, needs a pitch a hair larger).
 - [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
   the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
   its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
