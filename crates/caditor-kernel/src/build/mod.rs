@@ -27,7 +27,7 @@ pub use self::{
     loft::{LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft, loft_through},
     reach::{
         Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
-        stop_at_body,
+        next_face_along, stop_at_body,
     },
     revolve::revolve,
     sweep::{

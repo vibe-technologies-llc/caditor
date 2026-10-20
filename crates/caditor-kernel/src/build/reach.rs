@@ -74,6 +74,8 @@ pub enum ReachError {
     Curved(FaceId),
     #[error("no ray from the profile crosses the solid cleanly")]
     Undecided,
+    #[error("the direction of the extrusion runs along its sketch")]
+    AlongSketch,
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }
@@ -153,11 +155,19 @@ fn profile_size(regions: &[Region]) -> f64 {
         .map_or(1.0, |bounds| bounds.size().length())
 }
 
-fn vertex_origins(solid: &Solid, plane: &Plane, regions: &[Region]) -> Vec<Point2> {
+fn vertex_origins(
+    solid: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    travel: Vector3,
+) -> Vec<Point2> {
     let nudge = VERTEX_NUDGE * profile_size(regions);
     let origins: Vec<Point2> = solid
         .vertices()
-        .map(|(_, vertex)| plane.to_local(vertex.point()))
+        .map(|(_, vertex)| {
+            let point = vertex.point();
+            plane.to_local(point - travel * plane.signed_distance(point))
+        })
         .flat_map(|projected| {
             NUDGES
                 .iter()
@@ -175,16 +185,36 @@ pub fn next_face(
     regions: &[Region],
     reversed: bool,
 ) -> Result<NextFace, ReachError> {
-    let direction = if reversed {
-        -plane.normal()
-    } else {
-        plane.normal()
-    };
+    reach_next(solid, plane, regions, plane.normal(), reversed)
+}
+
+pub fn next_face_along(
+    solid: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    direction: Vector3,
+    reversed: bool,
+) -> Result<NextFace, ReachError> {
+    let rise = direction.dot(plane.normal());
+    if !rise.is_finite() || rise.abs() <= LINEAR_RESOLUTION * direction.length() {
+        return Err(ReachError::AlongSketch);
+    }
+    reach_next(solid, plane, regions, direction / rise, reversed)
+}
+
+fn reach_next(
+    solid: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    travel: Vector3,
+    reversed: bool,
+) -> Result<NextFace, ReachError> {
+    let direction = if reversed { -travel } else { travel };
     let mut origins = ray_origins(regions);
     if origins.is_empty() {
         return Err(ReachError::NoRegions);
     }
-    origins.extend(vertex_origins(solid, plane, regions));
+    origins.extend(vertex_origins(solid, plane, regions, travel));
     let classifier = solid.classifier();
     let mut met: Vec<(FaceId, bool)> = Vec::new();
     let (mut decided, mut missed) = (0_usize, 0_usize);

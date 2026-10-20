@@ -396,7 +396,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     between the two or takes another face.
 - Direction row (`solid_panel::SQUARE`, `ALONG`): Along takes the one selected edge, axis, round face or
   sketch line (`datum_tools::only_axis`), else chooses one in the view (`Slot::ExtrudeDirection`), with
-  a button back to square; an extrusion along a direction has no reach arrows.
+  a button back to square; an extrusion along a direction has no reach arrows and offers every end
+  kind as a square one does.
 - An extrusion's and revolve's Start row (`solid_panel::start_rows`): the sketch plane with a Start
   offset field (key `start`, zero clears), or Face or plane, taken like an end
   (`solid_panel::start_change`, `Slot::StartPlane`). An extrusion then has a Taper field (key `taper`,

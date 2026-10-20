@@ -72,12 +72,6 @@ pub(crate) struct Gap {
     pub distance: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SquareEnd {
-    UpToNext,
-    UpToCurved,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SolidCause {
     WallWithSide,
@@ -275,9 +269,6 @@ pub(crate) enum SolidCause {
     ReachUndecided {
         body: String,
         side: Side,
-    },
-    SquareOnly {
-        end: SquareEnd,
     },
     EndAlong {
         name: String,
@@ -584,13 +575,6 @@ impl SolidCause {
                 "The next face of the body of {body} {} could not be found.",
                 side.ahead()
             ),
-            Self::SquareOnly { end } => {
-                let end = match end {
-                    SquareEnd::UpToNext => "Up to next",
-                    SquareEnd::UpToCurved => "An end up to a curved face",
-                };
-                format!("{end} runs square to the sketch, so it cannot follow a direction.")
-            }
             Self::EndAlong { name } => format!(
                 "{} runs along the direction of the extrusion, so the extrusion never reaches it.",
                 crate::datum::capitalized(name)
@@ -800,10 +784,6 @@ impl SolidCause {
             }
             Self::ReachUndecided { .. } => {
                 "Use Up to face to choose where it stops, or enter a distance.".to_owned()
-            }
-            Self::SquareOnly { .. } => {
-                "Run the extrusion square to the sketch, or use Up to face or a distance."
-                    .to_owned()
             }
             Self::EndNotAhead { side, .. } => format!(
                 "{}, or choose a face or plane beyond the sketch.",

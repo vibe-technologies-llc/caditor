@@ -1522,3 +1522,189 @@ fn a_disc_tapered_along_a_slanted_edge_joins_the_plate_it_stands_on() {
         "{bounds:?}"
     );
 }
+
+fn leaning(
+    sketch: FeatureId,
+    extent: ExtrudeExtent,
+    operation: BodyOperation,
+    direction: AxisReference,
+) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent,
+        operation,
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
+        direction: Some(Box::new(direction)),
+    }))
+}
+
+fn guide_line(document: &mut Document, end: (f64, f64)) -> AxisReference {
+    let mut guide = Sketch::new(Plane::XZ);
+    let entity = guide.add_line(Point2::new(0.0, 0.0), Point2::new(end.0, end.1));
+    let sketch = add(document, "Guide", FeatureKind::from(guide));
+    AxisReference::Sketch { sketch, entity }
+}
+
+#[test]
+fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
+    let mut model = plate_at(10.0);
+    let slant = guide_line(&mut model.document, (5.0, 10.0));
+    let boss = add(
+        &mut model.document,
+        "Boss sketch",
+        FeatureKind::from(rectangle(Plane::XY, (5.0, 5.0), (15.0, 15.0))),
+    );
+    let reaching = add(
+        &mut model.document,
+        "Reaching",
+        leaning(
+            boss,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Add(model.plate),
+            slant.clone(),
+        ),
+    );
+
+    let mut document = Document::default();
+    let steep = guide_line(&mut document, (1.0, 4.0));
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        leaning(
+            strip,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Add(rod),
+            steep.clone(),
+        ),
+    );
+    let both = add(
+        &mut document,
+        "Both ways",
+        leaning(
+            strip,
+            ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_next(),
+                backward: ExtrudeEnd::Distance(millimetres(2.0)),
+            },
+            BodyOperation::Add(rod),
+            steep,
+        ),
+    );
+
+    let flat = evaluate(&model.document, &mut Recompute::default());
+    let curved = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        flat.feature(reaching).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    flat.body(model.plate).unwrap().validate().unwrap();
+    let found = volume(&flat, model.plate);
+    assert!((found - 17_000.0).abs() < 1e-6, "{found}");
+    assert!(matches!(
+        curved.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    curved.body(rod).unwrap().validate().unwrap();
+    let expected = 500.0 * PI + 40.0 - under_the_rod(2.0);
+    let found = volume(&curved, rod);
+    assert!(
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
+    );
+    assert_eq!(
+        failure(&curved, both).reason(),
+        "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
+         sides can only stop at one flat face."
+    );
+}
+
+#[test]
+fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
+    let mut document = Document::default();
+    let steep = guide_line(&mut document, (1.0, 4.0));
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(rod).unwrap();
+    let side = FaceAttachment {
+        body: rod,
+        face: caditor_kernel::FaceReference::capture(solid, curved_face(solid)).unwrap(),
+    };
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        leaning(
+            strip,
+            one_side(ExtrudeEnd::up_to_surface(side.clone()), false),
+            BodyOperation::NewBody,
+            steep.clone(),
+        ),
+    );
+    let mut tapered = leaning(
+        strip,
+        one_side(ExtrudeEnd::up_to_surface(side), false),
+        BodyOperation::NewBody,
+        steep,
+    );
+    if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut tapered {
+        extrude.taper = Some(Box::new(degrees(0.5)));
+    }
+    let tapered = add(&mut document, "Tapered stand", tapered);
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    evaluation.body(stand).unwrap().validate().unwrap();
+    let expected = 40.0 - under_the_rod(2.0);
+    let found = volume(&evaluation, stand);
+    assert!(
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
+    );
+    assert!(matches!(
+        evaluation.feature(tapered).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    evaluation.body(tapered).unwrap().validate().unwrap();
+    let narrowed = volume(&evaluation, tapered);
+    assert!(
+        narrowed < found && narrowed > 0.7 * found,
+        "{narrowed} {found}"
+    );
+}

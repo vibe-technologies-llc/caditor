@@ -1074,7 +1074,7 @@ impl Context<'_> {
         };
         let found = next_face(body, &plane, &footprint, false).map_err(|error| match error {
             ReachError::Cancelled(_) => Failure::Cancelled,
-            ReachError::NoRegions | ReachError::Undecided => unusable(),
+            ReachError::NoRegions | ReachError::Undecided | ReachError::AlongSketch => unusable(),
             ReachError::Nothing => self.error(HoleCause::NextNothing {
                 at: at.to_owned(),
                 body: body_name.to_owned(),
