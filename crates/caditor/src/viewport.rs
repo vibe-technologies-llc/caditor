@@ -1802,11 +1802,18 @@ impl ViewportState {
         })
     }
 
-    pub fn image(&self, model: &Model, editing: &SketchEditing, size: SurfaceSize) -> ImageView {
+    pub fn image(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        size: SurfaceSize,
+        left_out: &[FeatureId],
+    ) -> ImageView {
+        let kept = (!left_out.is_empty()).then(|| self.bodies.without(left_out));
         let sources = Sources {
             document: model.document(),
             evaluation: model.evaluation(),
-            bodies: &self.bodies,
+            bodies: kept.as_ref().unwrap_or(&self.bodies),
             sketches: &model.display().sketches,
             style: self.style,
             aids: ViewAids::default(),

@@ -1132,14 +1132,39 @@ fn body_choice(
     bodies: &[Body],
     command: &mut Option<ExportCommand>,
 ) {
+    let named: Vec<(FeatureId, &str)> = bodies
+        .iter()
+        .map(|body| (body.id, body.source.name.as_str()))
+        .collect();
+    *command = match body_list(ui, &named, &exporter.left_out) {
+        Some(BodyPick::All(included)) => Some(ExportCommand::IncludeAll(included)),
+        Some(BodyPick::One { body, included }) => Some(ExportCommand::Include { body, included }),
+        None => command.take(),
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyPick {
+    All(bool),
+    One { body: FeatureId, included: bool },
+}
+
+pub fn shown_bodies(model: &Model) -> Vec<(FeatureId, String)> {
+    Exporter::bodies(model)
+        .filter(|body| !model.document().body_hidden(body.id))
+        .map(|body| (body.id, body.source.name))
+        .collect()
+}
+
+pub fn body_list(
+    ui: &mut Ui,
+    bodies: &[(FeatureId, &str)],
+    left_out: &BTreeSet<FeatureId>,
+) -> Option<BodyPick> {
     ui.add_space(SPACE_M);
-    let all = bodies
-        .iter()
-        .all(|body| !exporter.left_out.contains(&body.id));
-    let none = bodies
-        .iter()
-        .all(|body| exporter.left_out.contains(&body.id));
-    let picked = Sides::new()
+    let all = bodies.iter().all(|(id, _)| !left_out.contains(id));
+    let none = bodies.iter().all(|(id, _)| left_out.contains(id));
+    let mut pick = Sides::new()
         .show(
             ui,
             |ui| ui.label(widgets::section_title("Bodies")),
@@ -1155,25 +1180,24 @@ fn body_choice(
                 none_chosen.or(all_chosen)
             },
         )
-        .1;
-    if let Some(included) = picked {
-        *command = Some(ExportCommand::IncludeAll(included));
-    }
+        .1
+        .map(BodyPick::All);
     widgets::card(ui, |ui| {
         ScrollArea::vertical()
             .max_height(widgets::list_height(ui.ctx(), BODY_LIST_HEIGHT))
             .show(ui, |ui| {
-                for body in bodies {
-                    let mut included = !exporter.left_out.contains(&body.id);
-                    if widgets::checkbox(ui, &mut included, &body.source.name).changed() {
-                        *command = Some(ExportCommand::Include {
-                            body: body.id,
+                for (id, name) in bodies {
+                    let mut included = !left_out.contains(id);
+                    if widgets::checkbox(ui, &mut included, *name).changed() {
+                        pick = Some(BodyPick::One {
+                            body: *id,
                             included,
                         });
                     }
                 }
             });
     });
+    pick
 }
 
 #[cfg(test)]

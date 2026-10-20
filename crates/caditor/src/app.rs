@@ -2495,9 +2495,10 @@ impl Session {
     fn export_image(&mut self, model: &mut Model, files: &mut Files) {
         if let Some(job) = files.image_job() {
             let workspace = &self.workspace;
-            let image = workspace
-                .viewport
-                .image(model, &workspace.editing, job.size);
+            let image =
+                workspace
+                    .viewport
+                    .image(model, &workspace.editing, job.size, &job.left_out);
             let started = self.renderer.render_image(&ImageRequest {
                 size: job.size,
                 view: &image.view,

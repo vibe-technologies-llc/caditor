@@ -313,6 +313,11 @@ paths:
 
 - Choices (`ImageChoices`: size, scale, background) last for the session and are remembered as
   below. A side beyond `MAX_IMAGE_SIDE` disables Export with the reason on hover.
+- With two or more shown bodies the dialog lists them as the model export's does
+  (`export::body_list`, shared; `export::shown_bodies` leaves out hidden ones). The unticked ones
+  (`ImageExporter::left_out`, cleared with the session like the model export's, not remembered)
+  travel in the `RenderJob`, and `ViewportState::image` draws with `BodyMeshes::without` them; the
+  sketches, datums and everything else the view shows are drawn as before.
 
 ## Export memory
 

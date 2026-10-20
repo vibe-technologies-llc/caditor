@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, Sketch};
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{Harness, extruded_plate, rectangle, run_from_palette};
+use super::{Harness, add_peg, extruded_plate, rectangle, run_from_palette};
 use crate::{
     commands::Command,
     export::ExportCommand,
@@ -575,10 +575,11 @@ fn an_exported_image_is_drawn_in_the_palette_of_the_light_view_it_shows() {
     harness.frame();
     let view = harness.workspace.viewport.view_pixels().unwrap();
 
-    let image = harness
-        .workspace
-        .viewport
-        .image(&harness.model, &harness.workspace.editing, view);
+    let image =
+        harness
+            .workspace
+            .viewport
+            .image(&harness.model, &harness.workspace.editing, view, &[]);
     let mut shown = harness.built().scene;
     shown.grid = None;
 
@@ -596,10 +597,11 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     let (_, top) = extruded_plate(&mut harness);
     harness.select([top]);
     let view = harness.workspace.viewport.view_pixels().unwrap();
-    let image = harness
-        .workspace
-        .viewport
-        .image(&harness.model, &harness.workspace.editing, view);
+    let image =
+        harness
+            .workspace
+            .viewport
+            .image(&harness.model, &harness.workspace.editing, view, &[]);
     harness.select([]);
     let mut plain = harness.built().scene;
     plain.grid = None;
@@ -681,4 +683,47 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     assert!(!dir.path().join("huge.png").exists());
     assert!(!harness.files.is_exporting_image());
     assert!(!harness.files.is_blocking());
+}
+
+#[test]
+fn an_exported_image_leaves_out_the_bodies_unticked_in_its_dialog() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.settle();
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    harness.frame();
+
+    assert!(!harness.shows("Bodies"));
+
+    harness.command(FileCommand::ExportImage(ImageCommand::Hide));
+    let peg = add_peg(&mut harness);
+    harness.settle();
+    harness.command(FileCommand::ExportImage(ImageCommand::Show));
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Bodies"));
+    assert!(harness.shows("Peg"));
+
+    let view = harness.workspace.viewport.view_pixels().unwrap();
+    let all =
+        harness
+            .workspace
+            .viewport
+            .image(&harness.model, &harness.workspace.editing, view, &[]);
+    let without_peg =
+        harness
+            .workspace
+            .viewport
+            .image(&harness.model, &harness.workspace.editing, view, &[peg]);
+    let without_both = harness.workspace.viewport.image(
+        &harness.model,
+        &harness.workspace.editing,
+        view,
+        &[plate, peg],
+    );
+
+    assert_eq!(all.scene.meshes.len(), 2);
+    assert_eq!(without_peg.scene.meshes.len(), 1);
+    assert!(without_both.scene.meshes.is_empty());
 }

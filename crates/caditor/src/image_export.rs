@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
@@ -9,7 +10,7 @@ use std::{
     thread,
 };
 
-use caditor_document::CancelToken;
+use caditor_document::{CancelToken, FeatureId};
 use caditor_file::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png};
 use caditor_render::{Background, ImageBands, ImageError, MAX_IMAGE_SIDE, SurfaceSize};
 use egui::{Id, Ui};
@@ -34,7 +35,7 @@ const DEFAULT_CUSTOM: SurfaceSize = SurfaceSize {
     height: 1080,
 };
 const LEFT_OUT: &str = "The image shows the model as the view does now, without highlights, the \
-                        grid, labels or the view cube.";
+                        grid, labels or the view cube, and only the bodies ticked above.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageChoices {
@@ -99,14 +100,17 @@ pub enum ImageCommand {
     Height(u32),
     Scale(ImageScale),
     Background(Background),
+    Include { body: FeatureId, included: bool },
+    IncludeAll(bool),
     Choose(SurfaceSize),
     Cancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderJob {
     pub size: SurfaceSize,
     pub background: Background,
+    pub left_out: Vec<FeatureId>,
 }
 
 #[derive(Debug)]
@@ -143,6 +147,8 @@ pub struct ImageExporter {
     custom: SurfaceSize,
     scale: ImageScale,
     background: Background,
+    left_out: BTreeSet<FeatureId>,
+    session: u64,
     folder: Option<PathBuf>,
     chosen: Option<SurfaceSize>,
     stage: Stage,
@@ -156,6 +162,8 @@ impl Default for ImageExporter {
             custom: DEFAULT_CUSTOM,
             scale: ImageScale::default(),
             background: Background::default(),
+            left_out: BTreeSet::new(),
+            session: 0,
             folder: None,
             chosen: None,
             stage: Stage::Idle,
@@ -170,6 +178,13 @@ impl ImageExporter {
 
     pub fn is_running(&self) -> bool {
         !matches!(self.stage, Stage::Idle)
+    }
+
+    pub fn sync(&mut self, model: &Model) {
+        if self.session != model.session() {
+            self.session = model.session();
+            self.left_out.clear();
+        }
     }
 
     pub fn folder(&self) -> Option<PathBuf> {
@@ -193,7 +208,7 @@ impl ImageExporter {
         self.folder = folder;
     }
 
-    pub fn perform(&mut self, command: ImageCommand) {
+    pub fn perform(&mut self, command: ImageCommand, model: &Model) {
         match command {
             ImageCommand::Show => self.open = true,
             ImageCommand::Hide => self.open = false,
@@ -202,6 +217,20 @@ impl ImageExporter {
             ImageCommand::Height(height) => self.custom.height = height,
             ImageCommand::Scale(scale) => self.scale = scale,
             ImageCommand::Background(background) => self.background = background,
+            ImageCommand::Include { body, included } => {
+                if included {
+                    self.left_out.remove(&body);
+                } else {
+                    self.left_out.insert(body);
+                }
+            }
+            ImageCommand::IncludeAll(true) => self.left_out.clear(),
+            ImageCommand::IncludeAll(false) => {
+                self.left_out = export::shown_bodies(model)
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .collect();
+            }
             ImageCommand::Choose(size) => self.chosen = Some(size),
             ImageCommand::Cancel => match &mut self.stage {
                 Stage::Queued(queued) | Stage::Rendering(queued) => queued.cancelled = true,
@@ -234,6 +263,7 @@ impl ImageExporter {
             job: RenderJob {
                 size,
                 background: self.background,
+                left_out: self.left_out.iter().copied().collect(),
             },
             cancelled: false,
         });
@@ -242,7 +272,7 @@ impl ImageExporter {
     pub fn render_job(&mut self) -> Option<RenderJob> {
         match std::mem::replace(&mut self.stage, Stage::Idle) {
             Stage::Queued(queued) => {
-                let job = queued.job;
+                let job = queued.job.clone();
                 self.stage = Stage::Rendering(queued);
                 Some(job)
             }
@@ -524,6 +554,7 @@ pub fn dialog(
             size_choice(ui, exporter, view, &mut command);
             scale_choice(ui, exporter, &mut command);
             background_choice(ui, exporter, &mut command);
+            body_choice(ui, model, exporter, &mut command);
             ui.add_space(SPACE_M);
             ui.label(widgets::muted(LEFT_OUT, ui));
             if let Ok(size) = &blocker {
@@ -555,6 +586,31 @@ pub fn dialog(
     });
     let closed = response.should_close().then_some(ImageCommand::Hide);
     response.inner.or(closed)
+}
+
+fn body_choice(
+    ui: &mut Ui,
+    model: &Model,
+    exporter: &ImageExporter,
+    command: &mut Option<ImageCommand>,
+) {
+    let shown = export::shown_bodies(model);
+    if shown.len() < 2 {
+        return;
+    }
+    let named: Vec<(FeatureId, &str)> = shown
+        .iter()
+        .map(|(id, name)| (*id, name.as_str()))
+        .collect();
+    match export::body_list(ui, &named, &exporter.left_out) {
+        Some(export::BodyPick::All(included)) => {
+            *command = Some(ImageCommand::IncludeAll(included))
+        }
+        Some(export::BodyPick::One { body, included }) => {
+            *command = Some(ImageCommand::Include { body, included });
+        }
+        None => {}
+    }
 }
 
 fn size_choice(

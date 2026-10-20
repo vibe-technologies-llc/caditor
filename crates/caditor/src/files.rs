@@ -1377,7 +1377,7 @@ impl Files {
 
     pub fn close_dialogs(&mut self, model: &Model) {
         self.exporter.perform(ExportCommand::Hide, model);
-        self.image.perform(ImageCommand::Hide);
+        self.image.perform(ImageCommand::Hide, model);
         self.drawing.hide();
         self.history.close();
         self.report = None;
@@ -1502,7 +1502,7 @@ impl Files {
                 if let Some(waiting) = &mut self.waiting_for_exports {
                     waiting.stop();
                     self.exporter.perform(ExportCommand::Cancel, model);
-                    self.image.perform(ImageCommand::Cancel);
+                    self.image.perform(ImageCommand::Cancel, model);
                 }
             }
             FileCommand::KeepExporting => self.waiting_for_exports = None,
@@ -1521,7 +1521,7 @@ impl Files {
                 }
             }
             FileCommand::ExportImage(command) => {
-                self.image.perform(command);
+                self.image.perform(command, model);
                 if matches!(command, ImageCommand::Choose(_)) {
                     self.pick(Purpose::Image, model);
                 }
@@ -1948,6 +1948,7 @@ impl Files {
 
     pub fn poll(&mut self, model: &mut Model, editing: &mut SketchEditing) -> bool {
         self.exporter.sync(model);
+        self.image.sync(model);
         let mut changed = false;
         if self
             .closing
