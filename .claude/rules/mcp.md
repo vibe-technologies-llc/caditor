@@ -98,7 +98,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   (`editing::next_feature_name`): a revolve (`RevolveAxis::Sketch` or `Model`, full turn without an
   angle, `up_to` a plane (`RevolveExtent::UpTo`, `reversed` kept on an edit), `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
   fillets and chamfers (`EdgeReference::capture_in` per edge key,
-  `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`), shell (`face_thicknesses`, replaced as a list), offset face,
+  `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`, `EdgeGroup::Rule` for `convex_edges`, `concave_edges` and each feature of `edges_made_by`, which combine with edges and faces but not with `all_edges`), shell (`face_thicknesses`, replaced as a list), offset face,
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
   `hole_tools::middle_of` and adding to that body by default), mirror (of a body, of features or of `faces`) and linear or circular
   pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as

@@ -567,3 +567,42 @@ fn a_mirror_reflects_the_chosen_faces_of_a_body() {
     assert!(both.contains("not both"), "{both}");
     client.finish();
 }
+
+#[test]
+fn a_fillet_takes_the_convex_edges_or_the_edges_a_feature_made_by_rule() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let whole = 40.0 * 30.0 * 20.0;
+
+    let all = added(
+        &mut client,
+        "add_fillet",
+        json!({ "body": block, "all_edges": true, "radius": 1 }),
+    );
+    let by_all = total_volume(&mut client);
+    client.tool("delete_features", json!({ "features": [all] }));
+    assert!(close(total_volume(&mut client), whole));
+
+    added(
+        &mut client,
+        "add_fillet",
+        json!({ "body": block, "convex_edges": true, "radius": 1 }),
+    );
+    assert!(close(total_volume(&mut client), by_all));
+
+    let both = client.tool_error(
+        "add_chamfer",
+        json!({ "body": block, "all_edges": true, "convex_edges": true, "distance": 1 }),
+    );
+    assert!(
+        both.contains("which takes every edge of the body"),
+        "{both}"
+    );
+    let unknown = client.tool_error(
+        "add_chamfer",
+        json!({ "body": block, "edges_made_by": ["Nothing"], "distance": 1 }),
+    );
+    assert!(unknown.contains("There is no feature"), "{unknown}");
+    client.finish();
+}

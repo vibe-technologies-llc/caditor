@@ -794,11 +794,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   expressions whatever the kind (`Blend::expressions`, `parameters`, `uses_parameter`, inlining,
   pasting), while recompute evaluates only what the kind needs (`chamfer_form`).
 - Besides `edges`, a blend holds `groups` (`EdgeGroup`): a face (`FaceReference`, pieces of one
-  split face accepted) or the whole body, expanded each recompute to the edges it has then
-  (`GroupResolution::edges`: boundary edges, or every edge, seams and edges between pieces of one
-  face left out, each once). Resolved edges and group edges are joined once (`Blend::resolve`). A
+  split face accepted), the whole body or a rule (`EdgeRule`), expanded each recompute to the edges
+  it has then (`GroupResolution::edges`: boundary edges, or every edge, seams and edges between
+  pieces of one face left out, each once). A rule is `Convex` or `Concave` (every edge of the body
+  by `caditor_kernel::edge_convexity`, from the two faces' outward normals and the edge tangent at
+  the middle of the edge; a smooth edge, one with a repeated face or one with other than two faces
+  has none and is skipped) or `MadeBy(feature)`: an edge belongs to the latest feature, in tree
+  order, among those that made its two faces (`origin_feature`: the pattern for a copy), so a
+  pocket's rim, floor and corners are the pocket's and the base keeps the rest; faces with no
+  origin or a feature no longer in the document count for none. `MadeBy` is a dependency of the
+  blend (`Blend::features`, renamed on paste) and a rule matching nothing leaves the blend waiting
+  for edges like an empty selection. `group_resolutions` takes the document (`MadeBy` needs the
+  tree order) and a rule resolves to the `Rule { rule, edges }` it found. Resolved edges and group edges are joined once (`Blend::resolve`). A
   lost or tied face fails with `BlendUnresolved::Faces`; a face group's origins count among
-  `origin_features` and healing visits it. `entry_count`, `remove_entry`, `entry_edges` treat edges
+  `origin_features` and healing visits it (a rule has no face to heal). `entry_count`, `remove_entry`, `entry_edges` treat edges
   then groups as one list, the panel's.
 - A `Shell` holds the opened faces, a `thickness`, a `ShellSide` (`Inside`, `Outside`,
   `BothSides`, handed to the kernel's `Walls`) and `faces`, a list of `FaceThickness` (a

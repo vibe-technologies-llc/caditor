@@ -1,5 +1,6 @@
 use caditor_document::{
-    BodyOperation, Edit, ExtrudeExtent, FeatureKind, RegionChoice, SolidFeature,
+    BodyOperation, EdgeGroup, EdgeRule, Edit, ExtrudeExtent, FeatureKind, RegionChoice,
+    SolidFeature,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -7,8 +8,8 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, blend_of, draft_volume, extruded_plate, rectangle, removed_about,
-    run_from_palette, top_edge_along_x,
+    CAMERA_SETTLE, Harness, blend_of, choose, draft_volume, extruded_plate, rectangle,
+    removed_about, run_from_palette, top_edge_along_x,
 };
 use crate::{model::Action, selection::Pickable};
 
@@ -385,4 +386,73 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
     harness.settle();
     assert!(harness.shows(&whole));
     assert!(!harness.shows(&split));
+}
+
+#[test]
+fn a_fillet_takes_every_convex_edge_by_a_rule_chosen_in_its_panel_and_keeps_the_rule() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
+
+    choose(
+        &mut harness,
+        crate::blend_panel::ADD_BY_RULE,
+        "Every convex edge",
+    );
+
+    assert_eq!(
+        blend_of(&harness, fillet).groups,
+        vec![EdgeGroup::Rule(EdgeRule::Convex)]
+    );
+    assert!(harness.shows("Every convex edge (12 edges now)"));
+    assert!(removed_about(&harness, plate, 360.0 * spandrel(1.0)));
+    assert_eq!(harness.model.undo_label(), Some("Edit Fillet 1"));
+
+    run_from_palette(&mut harness, "Add every concave edge");
+    harness.settle();
+
+    assert_eq!(blend_of(&harness, fillet).groups.len(), 1);
+}
+
+#[test]
+fn the_palette_adds_every_convex_edge_to_an_open_chamfer() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Chamfer");
+    harness.settle();
+    let chamfer = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the chamfer is open");
+
+    run_from_palette(&mut harness, "Add every convex edge");
+    harness.settle();
+
+    assert_eq!(
+        blend_of(&harness, chamfer).groups,
+        vec![EdgeGroup::Rule(EdgeRule::Convex)]
+    );
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Add every convex edge to Chamfer 1")
+    );
 }

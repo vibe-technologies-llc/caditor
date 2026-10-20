@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
-    BlendError, BlendShape, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName, FaceOrigin,
-    FaceReference, Solid, VertexId, blend, faces_around_vertices,
+    BlendError, BlendShape, EdgeConvexity, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName,
+    FaceOrigin, FaceReference, Solid, VertexId, blend, edge_convexity, faces_around_vertices,
 };
 
 use crate::{
-    describe::{describe_edge, edge_faces},
+    describe::{describe_edge, edge_faces, origin_feature},
     document::{Document, Feature, FeatureId},
     failure::{Cause, Chosen, Expected, Unmatched},
     origins,
@@ -90,22 +90,81 @@ impl ChamferForm {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeRule {
+    Convex,
+    Concave,
+    MadeBy(FeatureId),
+}
+
+impl EdgeRule {
+    pub fn edges(self, document: &Document, solid: &Solid) -> Vec<EdgeId> {
+        let candidates = blendable(solid, solid.edges().map(|(id, _)| id));
+        match self {
+            Self::Convex => with_convexity(solid, candidates, EdgeConvexity::Convex),
+            Self::Concave => with_convexity(solid, candidates, EdgeConvexity::Concave),
+            Self::MadeBy(feature) => {
+                let order = feature_order(document);
+                candidates
+                    .into_iter()
+                    .filter(|edge| maker_of(solid, *edge, &order) == Some(feature))
+                    .collect()
+            }
+        }
+    }
+
+    pub fn feature(self) -> Option<FeatureId> {
+        match self {
+            Self::MadeBy(feature) => Some(feature),
+            Self::Convex | Self::Concave => None,
+        }
+    }
+}
+
+fn with_convexity(solid: &Solid, edges: Vec<EdgeId>, wanted: EdgeConvexity) -> Vec<EdgeId> {
+    edges
+        .into_iter()
+        .filter(|edge| edge_convexity(solid, *edge) == Some(wanted))
+        .collect()
+}
+
+fn feature_order(document: &Document) -> BTreeMap<FeatureId, usize> {
+    document
+        .features()
+        .enumerate()
+        .map(|(position, feature)| (feature.id(), position))
+        .collect()
+}
+
+fn maker_of(solid: &Solid, edge: EdgeId, order: &BTreeMap<FeatureId, usize>) -> Option<FeatureId> {
+    edge_faces(solid, edge)
+        .into_iter()
+        .filter_map(|face| solid.face(face)?.origin())
+        .map(origin_feature)
+        .filter_map(|feature| Some((*order.get(&feature)?, feature)))
+        .max()
+        .map(|(_, feature)| feature)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EdgeGroup {
     Face(FaceReference),
     Body,
+    Rule(EdgeRule),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GroupResolution {
     Face(Resolution<FaceId>),
     Body,
+    Rule { rule: EdgeRule, edges: Vec<EdgeId> },
 }
 
 impl GroupResolution {
     pub fn edges(&self, solid: &Solid) -> Vec<EdgeId> {
         let faces: Vec<FaceId> = match self {
             Self::Body => return blendable(solid, solid.edges().map(|(id, _)| id)),
+            Self::Rule { edges, .. } => return edges.clone(),
             Self::Face(resolution @ (Resolution::One(_) | Resolution::Pieces(_))) => {
                 resolution.found().to_vec()
             }
@@ -244,7 +303,12 @@ impl Blend {
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
-        BTreeSet::from([self.body])
+        let mut used = BTreeSet::from([self.body]);
+        used.extend(self.groups.iter().filter_map(|group| match group {
+            EdgeGroup::Rule(rule) => rule.feature(),
+            EdgeGroup::Face(_) | EdgeGroup::Body => None,
+        }));
+        used
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
@@ -253,7 +317,7 @@ impl Blend {
             .flat_map(origins::of_edge)
             .chain(self.groups.iter().flat_map(|group| match group {
                 EdgeGroup::Face(face) => origins::of_face(face),
-                EdgeGroup::Body => BTreeSet::new(),
+                EdgeGroup::Body | EdgeGroup::Rule(_) => BTreeSet::new(),
             }))
             .collect()
     }
@@ -274,7 +338,7 @@ impl Blend {
         }
     }
 
-    pub fn group_resolutions(&self, solid: &Solid) -> Vec<GroupResolution> {
+    pub fn group_resolutions(&self, document: &Document, solid: &Solid) -> Vec<GroupResolution> {
         self.groups
             .iter()
             .map(|group| match group {
@@ -284,6 +348,10 @@ impl Blend {
                     }))
                 }
                 EdgeGroup::Body => GroupResolution::Body,
+                EdgeGroup::Rule(rule) => GroupResolution::Rule {
+                    rule: *rule,
+                    edges: rule.edges(document, solid),
+                },
             })
             .collect()
     }
@@ -293,7 +361,7 @@ impl Blend {
             .iter()
             .map(|resolution| resolution.found().to_vec())
             .chain(
-                self.group_resolutions(solid)
+                self.group_resolutions(document, solid)
                     .iter()
                     .map(|resolution| resolution.edges(solid)),
             )
@@ -320,12 +388,12 @@ impl Blend {
         document: &Document,
         solid: &Solid,
     ) -> Result<Vec<EdgeId>, BlendUnresolved> {
-        let groups = self.group_resolutions(solid);
+        let groups = self.group_resolutions(document, solid);
         let faces = groups
             .iter()
             .filter_map(|resolution| match resolution {
                 GroupResolution::Face(face) => Some(face.clone()),
-                GroupResolution::Body => None,
+                GroupResolution::Body | GroupResolution::Rule { .. } => None,
             })
             .collect();
         tally(faces).map_err(BlendUnresolved::Faces)?;

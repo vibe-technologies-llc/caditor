@@ -7,6 +7,18 @@ face or body itself is kept, not the edges it had then: an edge a later change a
 or body (a hole cut into the face, say) is rounded too, and the panel lists such an entry as
 **All edges of** the face or body.
 
+A fillet or chamfer can also take edges by a rule, kept as the model changes. **Add edges by rule**
+in the panel offers **Every convex edge** (the outside corners of the body, including the rim of a
+pocket), **Every concave edge** (inside corners, such as a pocket's floor and walls) and **Every
+edge made by** one of the features before it, which takes the edges that feature made where it
+cut or joined the body, such as a pocket's rim, floor and corners. Edges that continue smoothly
+(already rounded, say) are left out of the convex and concave rules. The panel lists the rule with
+the number of edges it takes now, and an edge a later change adds or removes follows the rule.
+{command:model.add_convex_edges} and {command:model.add_concave_edges} do the same from the
+palette, and {command:model.add_edges_of_selected_feature} takes the edges made by the feature of
+each selected face. A rule that matches no edge now is refused, saying so. Leaving out one edge of
+a rule turns that entry into its edges as they are now, like a face or body taken whole.
+
 While it is open, the edges of the body before it can be clicked in the view to add or leave them
 out; the panel lists the chosen ones in words, each with a button to leave it out, and hovering
 one lights it in the view. Leaving out one edge of a face or body taken whole turns that entry into

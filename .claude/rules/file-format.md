@@ -300,7 +300,9 @@ Edge treatments:
   would switch back to, `form` (`two_distances` with `second`, or `distance_angle` with `angle`;
   unreadable 1 mm and 45 deg), `flipped` when set. An equal chamfer stays `chamfer`.
 - `blend_groups`: inner `fillet`, `chamfer` or `shaped_chamfer` of its edges alone, `groups`, each
-  `face` (face record) or `body`; unreadable group left out.
+  `face` (face record), `body`, `convex`, `concave` or `made_by` (the feature's id); unreadable
+  group left out, reported, so an older reader reads a rule as unreadable and drops it. The corpus
+  holds the rules in `edge-rules.caditor`.
 
 Datums:
 

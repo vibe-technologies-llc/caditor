@@ -5,7 +5,7 @@ use std::{
 };
 
 use caditor_document::{
-    BlendKind, CombineOperation, Datum, Document, Edit, EditError, Feature, FeatureError,
+    BlendKind, CombineOperation, Datum, Document, EdgeRule, Edit, EditError, Feature, FeatureError,
     FeatureId, FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput,
     PatternKind, PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature,
     SolidResult, Transaction, TreeRow,
@@ -2820,7 +2820,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 20] = [
+    let changes: [(Command, FeatureChange<'_>); 23] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2880,6 +2880,15 @@ fn feature_commands(
         }),
         (Command::FlipChamfer, &|feature| {
             blend_tools::flip_change(document, feature).map_err(TreeError::Blend)
+        }),
+        (Command::AddConvexEdges, &|feature| {
+            blend_tools::add_rule(model, feature, &[EdgeRule::Convex]).map_err(TreeError::Blend)
+        }),
+        (Command::AddConcaveEdges, &|feature| {
+            blend_tools::add_rule(model, feature, &[EdgeRule::Concave]).map_err(TreeError::Blend)
+        }),
+        (Command::AddEdgesOfSelectedFeature, &|feature| {
+            blend_tools::made_by_selected(model, selection, feature).map_err(TreeError::Blend)
         }),
         (Command::WrapSplitCurves, &|feature| {
             split_face_tools::wrap_command(model, feature).map_err(TreeError::SplitFace)

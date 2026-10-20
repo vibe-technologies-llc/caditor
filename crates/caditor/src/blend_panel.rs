@@ -1,6 +1,6 @@
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Document, Feature, FeatureId, GroupResolution, Resolution,
-    SolidResult, Transaction,
+    Blend, BlendKind, ChamferForm, Document, EdgeRule, Feature, FeatureId, GroupResolution,
+    Resolution, SolidResult, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{EdgeId, FaceId};
@@ -10,13 +10,13 @@ use crate::{
     blend_tools::{self, BlendError, FORMS, FormChoice, KINDS},
     bodies,
     editing::EditingCommand,
-    feature_fields::{self, ListChoosing, Quantity, Rule, Segment},
+    feature_fields::{self, Choice, ListChoosing, Quantity, Rule, Segment},
     feature_tree::count,
     field,
     model::{Action, Model},
     reference_rows::{ReferenceRows, RowCache},
     selection::{Pickable, Selection},
-    widgets,
+    trimming, widgets,
 };
 
 fn change(model: &Model, feature: FeatureId, blend: Blend) -> Result<Transaction, BlendError> {
@@ -255,6 +255,11 @@ fn group_row(
             candidates.len()
         ),
         GroupResolution::Face(Resolution::Missing) => FACE_GONE.to_owned(),
+        GroupResolution::Rule { rule, edges } => format!(
+            "{} ({} now)",
+            trimming::capitalized(&blend_tools::rule_words(document, *rule)),
+            count(edges.len(), "edge", "edges")
+        ),
     }
 }
 
@@ -284,7 +289,7 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
         .map(|resolution| edge_row(document, input, resolution))
         .chain(
             blend
-                .group_resolutions(solid)
+                .group_resolutions(document, solid)
                 .iter()
                 .map(|resolution| group_row(document, input, blend, resolution)),
         )
@@ -337,6 +342,7 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
                 ));
             }
         }
+        rule_row(ui, model, feature, blend, actions);
         let chosen = feature_fields::list_in_view(
             ui,
             opened,
@@ -359,6 +365,50 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
         cache.preview(previewed);
     }
     ui.end_row();
+}
+
+pub const ADD_BY_RULE: &str = "Add edges by rule";
+
+fn rule_choices(
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+) -> Vec<Choice<EdgeRule, BlendError>> {
+    let document = model.document();
+    let makers = document
+        .features()
+        .take_while(|earlier| earlier.id() != feature.id())
+        .map(|earlier| EdgeRule::MadeBy(earlier.id()))
+        .filter(|rule| {
+            blend_tools::rule_taken(blend, *rule)
+                || blend_tools::rule_check(model, feature, blend, *rule).is_ok()
+        });
+    [EdgeRule::Convex, EdgeRule::Concave]
+        .into_iter()
+        .chain(makers)
+        .map(|rule| Choice {
+            label: trimming::capitalized(&blend_tools::rule_words(document, rule)),
+            selected: blend_tools::rule_taken(blend, rule),
+            change: blend_tools::rule_check(model, feature, blend, rule).map(|()| rule),
+        })
+        .collect()
+}
+
+fn rule_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    let id = Id::unique(("blend-rules", feature.id()));
+    let chosen = feature_fields::combo(ui, id, ADD_BY_RULE, || rule_choices(model, feature, blend));
+    if let Some(rule) = chosen {
+        actions.push(feature_fields::applied(
+            &feature.name,
+            change(model, feature.id(), blend_tools::rule_added(blend, rule)),
+        ));
+    }
 }
 
 fn edge_pickables(model: &Model, feature: FeatureId, blend: &Blend, index: usize) -> Vec<Pickable> {

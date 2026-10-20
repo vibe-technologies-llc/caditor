@@ -11,11 +11,11 @@ use caditor_document::{
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
     CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Document, Draft, EdgeGroup, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAngle, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair,
-    FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME, Helix,
-    Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
+    Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
+    FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME,
+    Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
+    HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH,
     MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
     MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem,
     Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
@@ -558,6 +558,9 @@ pub(crate) struct BlendGroupsRecord {
 pub(crate) enum EdgeGroupRecord {
     Face(FaceRecord),
     Body,
+    Convex,
+    Concave,
+    MadeBy(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3126,6 +3129,11 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     Lenient::Read(match group {
                         EdgeGroup::Face(face) => EdgeGroupRecord::Face(face_record(face)),
                         EdgeGroup::Body => EdgeGroupRecord::Body,
+                        EdgeGroup::Rule(EdgeRule::Convex) => EdgeGroupRecord::Convex,
+                        EdgeGroup::Rule(EdgeRule::Concave) => EdgeGroupRecord::Concave,
+                        EdgeGroup::Rule(EdgeRule::MadeBy(feature)) => {
+                            EdgeGroupRecord::MadeBy(feature.raw())
+                        }
                     })
                 })
                 .collect(),
@@ -6875,18 +6883,28 @@ fn restore_kind(
                             .map(EdgeGroup::Face)
                     }
                     Lenient::Read(EdgeGroupRecord::Body) => Some(EdgeGroup::Body),
+                    Lenient::Read(EdgeGroupRecord::Convex) => {
+                        Some(EdgeGroup::Rule(EdgeRule::Convex))
+                    }
+                    Lenient::Read(EdgeGroupRecord::Concave) => {
+                        Some(EdgeGroup::Rule(EdgeRule::Concave))
+                    }
+                    Lenient::Read(EdgeGroupRecord::MadeBy(feature)) => Some(EdgeGroup::Rule(
+                        EdgeRule::MadeBy(FeatureId::from_raw(*feature)),
+                    )),
                     Lenient::Unreadable(_) => None,
                 })
                 .collect();
             if groups.len() < grouped.groups.len() {
                 issues.push(format!(
-                    "Some faces whose edges “{name}” rounds could not be read and were left out."
+                    "Some of the faces or kinds of edges “{name}” rounds could not be read and \
+                     were left out."
                 ));
             }
             match &mut kind {
                 FeatureKind::Blend(blend) => blend.groups = groups,
                 _ => issues.push(format!(
-                    "“{name}” was to round every edge of faces or a body, but it is not a fillet \
+                    "“{name}” was to round every edge of faces, a body or a kind of edge, but it is not a fillet \
                      or chamfer, so that was left out."
                 )),
             }
