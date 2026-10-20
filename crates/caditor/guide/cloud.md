@@ -92,6 +92,14 @@ Send the model here, puts it in your Fusion 360 folder and opens the file's page
 browser. Fusion opens an uploaded STEP file as an import, so look there for it to arrive as a
 design.
 
+The Export dialog has the same trip as **Open in Fusion 360**, beside Open in OrcaSlicer; it is
+missing when cloud features are off and greyed out, with the reason, until the command could run.
+
+A model that has not been saved has no name, so before sending, caditor asks what the file should
+be called. The window starts from the name you gave the last time (or Untitled); press Enter or
+**Send and open** to go on, or Cancel to send nothing. Type the name without `.step`, as it is
+added. A saved model is sent under its own name without asking.
+
 The first time, the Cloud projects window opens: open a project, open the folder the model belongs
 in and press **Send and open in Fusion 360**. caditor remembers that folder for the hub you are
 using, also after restarting, and the next run needs no window at all. The file is named after the

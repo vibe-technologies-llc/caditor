@@ -420,6 +420,7 @@ fn screenshots() {
         drop(beyond);
 
         cloud_scenes(&gpu, &out, look);
+        cloud_send_scenes(&gpu, &out, look);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut moving = Harness::styled(look, dir.path(), false);
@@ -689,6 +690,30 @@ fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
     harness.click("Bikes");
     harness.wait_until("the designs are listed", |harness| harness.shows("Wheels"));
     shoot(&mut harness, gpu, out, "cloud-manager", look);
+}
+
+fn cloud_send_scenes(gpu: &Gpu, out: &Path, look: Look) {
+    let dir = TempDir::new().expect("a temporary directory");
+    let provider = super::home::sendable_provider(Some(super::home::top_folder()), Vec::new());
+    let mut harness = Harness::styled(look, dir.path(), false);
+    super::home::attach(&mut harness, dir.path(), &provider);
+    super::home::open_home(&mut harness);
+    super::home::sign_in(&mut harness);
+    harness.workspace.home.close();
+    super::extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    shoot(&mut harness, gpu, out, "export-open-in-fusion", look);
+    harness.click("Open in Fusion 360");
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows("Send and open in Fusion 360")
+    });
+    harness.click("Send and open in Fusion 360");
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows("Send and open")
+    });
+    shoot(&mut harness, gpu, out, "cloud-send-name", look);
 }
 
 fn file_scenes(gpu: &Gpu, out: &Path, look: Look) {

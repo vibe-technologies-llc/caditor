@@ -1234,7 +1234,17 @@ pub fn show(
     if open_shortcuts {
         actions.push(Action::Preferences(PreferencesCommand::ShowShortcuts));
     }
-    files::show(ui, model, files, viewport.view_pixels(), actions);
+    let fusion_offer = cloud
+        .is_enabled()
+        .then(|| openable.as_ref().copied().map_err(String::as_str));
+    files::show(
+        ui,
+        model,
+        files,
+        viewport.view_pixels(),
+        fusion_offer,
+        actions,
+    );
     if files.is_picking() && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
         actions.push(Action::File(FileCommand::CancelPick));
     }

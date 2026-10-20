@@ -11,6 +11,7 @@ use caditor_cloud::{
     Error, Service, Subject,
     fake::{FakeProvider, Step},
 };
+use egui::{Event, Key, Modifiers};
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -26,6 +27,8 @@ use crate::{
     cloud::{CloudCommand, Opener},
     cloud_dialog, cloud_parts,
     commands::Command,
+    export::{self, ExportCommand},
+    files::{FileCommand, cloud_send},
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand},
 };
@@ -86,6 +89,60 @@ fn choose_the_folder_and_send_and_open(harness: &mut Harness) {
         harness.shows(cloud_dialog::SEND_AND_OPEN)
     });
     harness.click(cloud_dialog::SEND_AND_OPEN);
+    confirm_the_name(harness);
+}
+
+fn confirm_the_name(harness: &mut Harness) {
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+    harness.click(cloud_send::NAME_SEND);
+}
+
+fn choose_the_folder_without_naming(harness: &mut Harness) {
+    run_from_palette(harness, COMMAND);
+    harness.frame();
+    harness.frame();
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_AND_OPEN)
+    });
+    harness.click(cloud_dialog::SEND_AND_OPEN);
+}
+
+fn name_the_file(harness: &mut Harness, name: &str) {
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+    harness.type_into_field(cloud_send::name_field_id(), name);
+}
+
+fn type_the_name(harness: &mut Harness, name: &str) {
+    let field = cloud_send::name_field_id();
+    harness
+        .context
+        .memory_mut(|memory| memory.request_focus(field));
+    harness.frame();
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.events.push(Event::Text(name.to_owned()));
+    harness.frame();
+    harness.frame();
+}
+
+fn typed_name(harness: &Harness) -> Option<&str> {
+    harness
+        .files
+        .cloud_naming()
+        .map(cloud_send::CloudNaming::text)
+}
+
+fn save_as(harness: &mut Harness, path: PathBuf) {
+    harness.answer_dialog(Some(path));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
 }
 
 fn wait_for_the_send_to_end(harness: &mut Harness) {
@@ -156,6 +213,7 @@ fn the_second_run_sends_to_the_remembered_folder_as_version_two_and_opens_it_wit
     close_the_manager(&mut harness);
 
     run_from_palette(&mut harness, COMMAND);
+    confirm_the_name(&mut harness);
     harness.wait_until("the second file is opened", |_| opened.lock().len() == 2);
     wait_for_the_send_to_end(&mut harness);
 
@@ -387,5 +445,237 @@ fn with_cloud_off_the_command_is_refused_and_no_request_is_made() {
     assert!(notice_text(&harness).contains("Cloud services are turned off"));
     assert!(harness.workspace.cloud_dialog.is_none());
     assert!(provider.calls().is_empty());
+    assert!(opened.lock().is_empty());
+}
+
+#[test]
+fn an_untitled_model_asks_for_a_name_first_and_is_sent_under_it() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, COMMAND);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_AND_OPEN)
+    });
+
+    harness.click(cloud_dialog::SEND_AND_OPEN);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+
+    assert!(harness.shows("Name the file for Fusion 360"));
+    assert_eq!(typed_name(&harness), Some("Untitled"));
+    assert!(harness.files.is_blocking());
+    assert!(provider.received().is_empty());
+    assert!(outgoing_files(dir.path()).is_empty());
+
+    name_the_file(&mut harness, "Bracket");
+    harness.wait_until("the file is opened", |_| opened.lock().len() == 1);
+    wait_for_the_send_to_end(&mut harness);
+
+    let sent = provider.received().remove(0);
+    assert_eq!(sent.name, "Bracket.step");
+    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert!(notice_text(&harness).contains("Bracket.step"));
+}
+
+#[test]
+fn the_name_dialog_starts_from_untitled_and_the_second_run_from_the_name_sent_before() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    choose_the_folder_and_send_and_open(&mut harness);
+    harness.wait_until("the first file is opened", |_| opened.lock().len() == 1);
+    wait_for_the_send_to_end(&mut harness);
+    close_the_manager(&mut harness);
+
+    assert_eq!(
+        provider.received().first().map(|sent| sent.name.as_str()),
+        Some("Untitled.step")
+    );
+
+    run_from_palette(&mut harness, COMMAND);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+    name_the_file(&mut harness, "Plate.STEP");
+    harness.wait_until("the second file is opened", |_| opened.lock().len() == 2);
+    wait_for_the_send_to_end(&mut harness);
+
+    let names: Vec<_> = provider
+        .received()
+        .into_iter()
+        .map(|received| received.name)
+        .collect();
+    assert_eq!(names, ["Untitled.step", "Plate.step"]);
+
+    run_from_palette(&mut harness, COMMAND);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+
+    assert_eq!(typed_name(&harness), Some("Plate.STEP"));
+}
+
+#[test]
+fn a_name_that_cannot_be_a_file_name_is_told_and_cannot_be_sent() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    choose_the_folder_without_naming(&mut harness);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+
+    type_the_name(&mut harness, "a/b");
+
+    assert!(harness.shows_containing("cannot contain"));
+
+    harness.click(cloud_send::NAME_SEND);
+    harness.frame();
+
+    assert!(harness.shows(cloud_send::NAME_SEND));
+    assert!(provider.received().is_empty());
+
+    type_the_name(&mut harness, "  ");
+
+    assert!(harness.shows_containing("Type a name"));
+    assert!(opened.lock().is_empty());
+}
+
+#[test]
+fn cancelling_the_name_sends_nothing_and_exports_nothing() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    choose_the_folder_without_naming(&mut harness);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND)
+    });
+
+    harness.click(cloud_send::NAME_CANCEL);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert!(!harness.files.is_blocking());
+    assert!(provider.received().is_empty());
+    assert!(outgoing_files(dir.path()).is_empty());
+    assert!(opened.lock().is_empty());
+}
+
+#[test]
+fn a_saved_model_is_sent_under_its_own_name_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    save_as(&mut harness, dir.path().join("plate.caditor"));
+
+    choose_the_folder_without_naming(&mut harness);
+    harness.wait_until("the file is opened", |_| opened.lock().len() == 1);
+
+    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert_eq!(
+        provider.received().first().map(|sent| sent.name.as_str()),
+        Some("plate.step")
+    );
+}
+
+#[test]
+fn a_plain_send_of_an_untitled_model_does_not_ask_for_a_name() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, _) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "Cloud projects");
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+
+    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert_eq!(
+        provider.received().first().map(|sent| sent.name.as_str()),
+        Some("Untitled.step")
+    );
+}
+
+#[test]
+fn the_export_dialog_opens_the_model_in_fusion_through_the_same_command() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.frame();
+
+    assert!(harness.shows(export::FUSION_LABEL));
+
+    harness.click(export::FUSION_LABEL);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.shows("Export…"));
+    assert!(harness.workspace.cloud_dialog.is_some());
+    assert!(harness.shows(cloud_dialog::CHOOSE_A_FOLDER_TO_OPEN));
+
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_AND_OPEN)
+    });
+    harness.click(cloud_dialog::SEND_AND_OPEN);
+    confirm_the_name(&mut harness);
+    harness.wait_until("the file is opened", |_| opened.lock().len() == 1);
+    close_the_manager(&mut harness);
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.frame();
+    harness.click(export::FUSION_LABEL);
+    confirm_the_name(&mut harness);
+    harness.wait_until("the second file is opened", |_| opened.lock().len() == 2);
+
+    assert!(harness.workspace.cloud_dialog.is_none());
+    assert_eq!(provider.received().len(), 2);
+}
+
+#[test]
+fn the_export_dialog_button_is_refused_with_its_reason_until_signed_in_and_hidden_with_cloud_off() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let opened = Opened::default();
+    let mut harness = with_opener(dir.path(), &provider, recording(&opened, opens));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.frame();
+
+    assert!(harness.shows(export::FUSION_LABEL));
+
+    harness.click(export::FUSION_LABEL);
+    harness.frame();
+
+    assert!(harness.shows("Export…"));
+    assert!(harness.workspace.cloud_dialog.is_none());
+    assert!(provider.calls().is_empty());
+
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::CloudEnabled(false),
+    )));
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Export…"));
+    assert!(!harness.shows(export::FUSION_LABEL));
     assert!(opened.lock().is_empty());
 }

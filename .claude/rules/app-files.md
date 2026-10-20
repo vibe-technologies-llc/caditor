@@ -167,6 +167,9 @@ paths:
   image export (`export::warnings`).
 - The dialog stays open behind the save dialog so cancelling keeps the choices, and closes when the
   export starts, which runs on its own thread, cancellable from the status bar and palette.
+- With cloud on, the footer also has Open in Fusion 360 (`ExportCommand::OpenInFusion`), which
+  `files::show` routes to `CloudCommand::OpenInFusion` after hiding the dialog, since `Files` cannot
+  start the cloud send (`cloud.md`).
 - A binary STL (the default encoding; text keeps each body a named solid) moved near the origin says
   by how much and how to move it back, in a notice that outlasts edits (`export::moved_note`; the
   command line prints a warning).

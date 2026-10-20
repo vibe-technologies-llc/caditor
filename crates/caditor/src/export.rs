@@ -30,7 +30,7 @@ use crate::{
     commands::{Command, CommandFrame},
     configuration_export::{self, ConfigurationExported, ConfigurationFile, ConfigurationJob},
     feature_tree::count,
-    files::FileCommand,
+    files::{FileCommand, cloud_send},
     icons,
     image_export::ReadPixels,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus, display_name},
@@ -41,6 +41,7 @@ use crate::{
 };
 
 const BODY_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
+pub const FUSION_LABEL: &str = "Open in Fusion 360";
 const DIALOG_ID: &str = "export";
 const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
                         Recompute the model first to include the latest changes.";
@@ -62,6 +63,7 @@ pub enum ExportCommand {
     SetThreads(ExportThreads),
     Choose,
     OpenInSlicer,
+    OpenInFusion,
     Cancel,
 }
 
@@ -392,7 +394,7 @@ impl Exporter {
             }
             ExportCommand::Show => self.open = true,
             ExportCommand::Hide => self.open = false,
-            ExportCommand::Choose | ExportCommand::OpenInSlicer => {}
+            ExportCommand::Choose | ExportCommand::OpenInSlicer | ExportCommand::OpenInFusion => {}
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::SetStlEncoding(stl) => self.stl = stl,
@@ -796,6 +798,7 @@ pub fn dialog(
     model: &Model,
     exporter: &Exporter,
     slicer_missing: Option<&FindError>,
+    fusion: Option<Result<(), &str>>,
 ) -> Option<ExportCommand> {
     let response = widgets::dialog(ctx, DIALOG_ID, "Export", DialogWidth::Medium, |ui| {
         let bodies: Vec<Body> = Exporter::bodies(model).collect();
@@ -842,6 +845,11 @@ pub fn dialog(
             if slicer_button(ui, blocker, slicer_missing) {
                 command = Some(ExportCommand::OpenInSlicer);
             }
+            if let Some(offer) = fusion
+                && fusion_button(ui, blocker, offer)
+            {
+                command = Some(ExportCommand::OpenInFusion);
+            }
             if ui.add(widgets::button("Cancel")).clicked() {
                 command = Some(ExportCommand::Hide);
             }
@@ -866,6 +874,19 @@ fn slicer_button(ui: &mut Ui, blocker: Option<&str>, missing: Option<&FindError>
             "Export the chosen bodies as 3MF at this resolution, without asking for a file, and \
              open them in {slicer}"
         ));
+    match refusal {
+        Some(refusal) => response.on_disabled_hover_text(refusal).clicked(),
+        None => response.clicked(),
+    }
+}
+
+fn fusion_button(ui: &mut Ui, blocker: Option<&str>, offer: Result<(), &str>) -> bool {
+    let refusal = blocker
+        .map(str::to_owned)
+        .or_else(|| offer.err().map(str::to_owned));
+    let response = ui
+        .add_enabled(refusal.is_none(), widgets::button(FUSION_LABEL))
+        .on_hover_text(cloud_send::OPEN_IN_FUSION_HINT);
     match refusal {
         Some(refusal) => response.on_disabled_hover_text(refusal).clicked(),
         None => response.clicked(),
