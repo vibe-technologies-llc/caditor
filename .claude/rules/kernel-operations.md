@@ -503,6 +503,18 @@ paths:
   same kind sharing one flat face (concave edges round a boss's outside corner, convex edges into
   an inside corner), both ends are mitred (`mitre`): each tool extends past the vertex and is
   clipped by the plane through it bisecting the two edges.
+- An end at a corner earlier blends made (`out_through_blends`: the uprights of a box whose top
+  edges were filleted before, a pocket's corners over its rounded floor) extends out through them
+  when every sharp edge there is of the edge's kind, at least one end face rises smoothly from one
+  of the edge's own faces (an earlier fillet) and the others are flat faces the tool leaves through:
+  past the farthest of `BOUNDARY_SAMPLES` points along each rising face's edges by `END_MARGIN`
+  of the reach, and only when that point lies outside the body for a convex edge, inside it for a
+  concave one (so an inner edge under rounded top edges is not stretched up into the air). The
+  tool then trims the earlier fillets where it crosses them: any fillet or chamfer size, its face
+  meeting theirs along their intersection curve. The extension only measures the rising faces'
+  edges, so it trusts a face to reach no farther inside than along its boundary. With only one
+  top edge filleted the upright's chain grows on over that fillet's end arc instead, so a size
+  above the arc's radius is `TooLarge` naming the arc.
 - An end clipped by a curved face (a notch's floor edge running out through a round wall) is
   `End::Trimmed` when that face is a cylinder, cone, sphere or torus (`round_end.rs`, `Round`): near
   the end (`Cut`: from the vertex, `behind` back along the edge, `span` across) the tool loses what
@@ -514,12 +526,21 @@ paths:
   (`beside_ends`), anchored at the corner those three share, and its feet may cross the edges to
   those faces without `TooLarge`; an end beside a face neither flat nor round keeps none.
 - Refused corners, each pinned by a test: a convex edge rising from bevelled concave edges ends,
-  after the fill, where two fill faces meet and is `UnsupportedEnd`; feet meeting exactly across a
+  after the fill, where two fill faces meet and is `UnsupportedEnd`, as is the upright of a boss
+  whose foot an earlier blend rounded (the fills' seam there is concave); feet meeting exactly across a
   fill are `TooLarge`; fills that use up a whole face (a pocket's walls) lose the edges on it
   (`Lost`). A circular edge whose extended sweep would pass a full turn is `WrapsAround`.
   `survey.rs` (ignored) chamfers every corner of twenty bodies.
 - Three convex straight edges filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.
+- A convex straight edge filleted, alone at its vertex, with the radius of the two earlier
+  cylinder fillets that rise from its faces there and rest on one flat face (`after_blends`: the
+  uprights of a box whose top edges were filleted at the same radius) gets the same spherical
+  corner: the three planes are its faces and that flat face, the virtual edges along the earlier
+  fillets only give the setback planes' directions, and it applies only when the ball's centre lies
+  on both cylinders' axes and level with the vertex (`ON_AXIS`), so the edge's tool ends flush there.
+  The body equals filleting all the edges at once. A smaller or larger radius meets the earlier
+  fillets along a crease (`out_through_blends`, above), not a smooth blend.
 - Three convex straight (`Sweep::Along`) edges chamfered at a vertex of three planes end on a flat
   triangle (`chamfer_corner.rs`), as other CAD tools make it, rather than the three half-spaces
   meeting in a point: on each face the two chamfers' foot lines meet at a point, and the corner

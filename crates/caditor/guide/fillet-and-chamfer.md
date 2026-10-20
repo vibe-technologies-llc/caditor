@@ -13,6 +13,13 @@ one lights it in the view. Leaving out one edge of a face or body taken whole tu
 its edges as they are now, less the one left out. Edges that continue smoothly are taken together
 as a chain.
 
+An edge ending where earlier fillets meet, such as an upright edge of a box whose top edges are
+already rounded, is rounded or bevelled up into them. A fillet of the same radius ends in the
+round ball corner that filleting all the edges at once makes; any other size, or a chamfer, meets
+the earlier fillets along the curve where they cross. An upright edge of a boss whose foot was
+rounded earlier cannot be closed off there yet: the fillet fails, saying to move it above the one
+that rounded the foot.
+
 An edge chosen along an extruded or revolved side keeps all of itself when its sketch curve is
 later cut in two by [Trim](trim-and-extend) or split: every piece along the old edge stays rounded,
 and the panel lists the edge as split into pieces. An edge chosen after the cut stays on its own

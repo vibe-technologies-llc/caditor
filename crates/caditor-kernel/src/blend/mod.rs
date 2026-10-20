@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod blended_corner_tests;
 mod chain;
 mod chamfer_corner;
 mod corner;
@@ -45,7 +47,7 @@ use crate::{
     profile::{Profile, ProfileCurve, ProfileError, ProfileShape, Selection},
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
-    topology::{EdgeId, FaceContainment, FaceId, Solid, SolidClassifier, VertexId},
+    topology::{EdgeId, FaceContainment, FaceId, PointClass, Solid, SolidClassifier, VertexId},
 };
 
 const DIRECTION_TOLERANCE: f64 = 1e-7;
@@ -62,6 +64,7 @@ const CLEARANCE: f64 = 0.25;
 const SMALLEST_RADIUS: f64 = 10.0 * LINEAR_RESOLUTION;
 const APART_TOOLS: f64 = 10.0 * LINEAR_RESOLUTION;
 const SMALLEST_ANGLE: f64 = 1e-6;
+const BOUNDARY_SAMPLES: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlendShape {
@@ -801,6 +804,7 @@ fn end_at(
     let point = solid.vertex(vertex).ok_or(refused.clone())?.point();
     let [end_face] = others[..] else {
         return out_through_corner(around, geometry, vertex, point, out, &others, reach)
+            .or_else(|| out_through_blends(around, geometry, vertex, point, out, &others, reach))
             .map(|end| (end, None))
             .ok_or(refused);
     };
@@ -867,6 +871,107 @@ fn out_through_corner(
         extension = extension.max(extension_past(cosine, reach));
     }
     Some(End::Extended(extension))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Meeting {
+    Smooth,
+    Convex,
+    Concave,
+}
+
+impl Meeting {
+    fn sharp(convex: bool) -> Self {
+        if convex { Self::Convex } else { Self::Concave }
+    }
+}
+
+fn meeting_at(solid: &Solid, edge: EdgeId, point: Point3) -> Option<Meeting> {
+    let definition = solid.edge(edge)?;
+    let sides = edge_faces(solid, edge);
+    let [(first, first_same), (second, _)] = sides.as_slice() else {
+        return None;
+    };
+    let parameter = definition
+        .curve()
+        .closest_parameter(point, definition.interval());
+    let tangent = definition
+        .curve()
+        .evaluate(parameter)
+        .first
+        .try_normalize()?;
+    let normals = [
+        face_normal(solid, *first, point)?,
+        face_normal(solid, *second, point)?,
+    ];
+    if smooth_within(normals[0], normals[1]) {
+        return Some(Meeting::Smooth);
+    }
+    let inward = normals[0].cross(if *first_same { tangent } else { -tangent });
+    Some(Meeting::sharp(normals[1].dot(inward) < 0.0))
+}
+
+fn farthest_along(solid: &Solid, face: FaceId, point: Point3, out: Vector3) -> Option<f64> {
+    bounding_edges(solid, face)
+        .into_iter()
+        .filter_map(|edge| solid.edge(edge))
+        .flat_map(|edge| {
+            let interval = edge.interval();
+            (0..=BOUNDARY_SAMPLES).map(move |index| {
+                let fraction = index as f64 / BOUNDARY_SAMPLES as f64;
+                edge.curve().point(interval.at(fraction))
+            })
+        })
+        .map(|sample| (sample - point).dot(out))
+        .reduce(f64::max)
+}
+
+fn out_through_blends(
+    around: &Surroundings<'_>,
+    geometry: &Blended,
+    vertex: VertexId,
+    point: Point3,
+    out: Vector3,
+    end_faces: &[FaceId],
+    reach: f64,
+) -> Option<End> {
+    let solid = around.solid;
+    let kind = Meeting::sharp(geometry.convex);
+    let alike_all_round = around.topology.edges_at(vertex).iter().all(|edge| {
+        meeting_at(solid, *edge, point)
+            .is_some_and(|meeting| meeting == kind || meeting == Meeting::Smooth)
+    });
+    if end_faces.len() < 2 || !alike_all_round {
+        return None;
+    }
+    let own = [
+        face_normal(solid, geometry.faces[0], point)?,
+        face_normal(solid, geometry.faces[1], point)?,
+    ];
+    let mut extension: f64 = 0.0;
+    let mut rising = false;
+    for face in end_faces {
+        let normal = face_normal(solid, *face, point)?;
+        if own.iter().any(|own| smooth_within(*own, normal)) {
+            rising = true;
+            let farthest = farthest_along(solid, *face, point, out)?;
+            extension = extension.max(farthest + END_MARGIN * reach);
+            continue;
+        }
+        let cosine = normal.dot(out);
+        let free = geometry.convex == (cosine > 0.0);
+        if !is_planar(solid, *face) || !free || cosine.abs() < SHALLOWEST_END {
+            return None;
+        }
+        extension = extension.max(extension_past(cosine, reach));
+    }
+    let beyond = point + out * extension;
+    let wanted = if geometry.convex {
+        PointClass::Outside
+    } else {
+        PointClass::Inside
+    };
+    (rising && solid.classify_point(beyond) == wanted).then_some(End::Extended(extension))
 }
 
 fn is_planar(solid: &Solid, face: FaceId) -> bool {
@@ -1776,6 +1881,7 @@ fn apply_plan(
                 .into_iter()
                 .filter_map(|vertex| {
                     corner::find(solid, topology, &convex, radius, vertex)
+                        .or_else(|| corner::after_blends(solid, topology, &convex, radius, vertex))
                         .map(|corner| (vertex, corner))
                 })
                 .collect();

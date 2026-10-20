@@ -84,18 +84,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   narrowed to nothing should vanish. Fillets fail more corners than chamfers: a concave edge with
   the convex edge rising from its end (`AfterFill(TooLarge)`) and a notch's floor edge with its
   wall edges (`Boolean(Invalid(PcurveEnds))`).
-- [medium · hard] An edge ending at a corner that two earlier fillets share cannot be blended at
-  all: a 40×30×20 box whose four top edges were filleted 2 mm refuses every fillet or chamfer of
-  its vertical edges, of any size, as `UnsupportedEnd` at the top vertex, where the vertical edge
-  meets the fillets along their tangent line; the refusal names the earlier blend and says to move
-  the feature above it (`Context::earlier_blend_at`,
-  `an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_above_it`). Corners
-  two earlier chamfers made work (`out_through_corner`). With one top edge filleted the verticals
-  at its ends take a chamfer or a smaller fillet, but a fillet larger than the top one (3 mm under
-  a 2 mm fillet) is `TooLarge`, its foot on the side face crossing the end of the top fillet. Top
-  edges first, then the verticals, is an order other modellers take routinely. The end needs
-  closing against the earlier fillets' corner faces (`blend/mod.rs`, ends at a vertex whose faces
-  are curved and neither one round face to clip by nor planes the tool can run out through).
+- [medium · hard] An edge ending at a corner earlier fillets made meets them along a crease, or is
+  refused. The uprights of a 40×30×20 box whose top edges were filleted 2 mm take any fillet or
+  chamfer, but only a 2 mm fillet ends in a smooth ball corner (`corner::after_blends`); a 1 mm one
+  meets the top fillets along their intersection, a crease of about 50° where the three faces meet
+  (`out_through_blends`), where other modellers roll the ball on along the seam between the top
+  fillets (a pipe surface pinched to a point at the top face; the seam is smooth there, so
+  `blend_chain` never follows it and the lofted path cannot end on it). A pocket's corners over its
+  rounded floor are creased at every size, the equal radius included (`after_blends` is convex
+  only). The upright of a boss whose foot an earlier fillet rounded is still `UnsupportedEnd` at
+  its foot, the refusal naming the earlier blend and saying to move the feature above it
+  (`an_upright_of_a_boss_whose_foot_was_rounded_is_refused_at_its_foot`,
+  `an_upright_rising_from_a_foot_an_earlier_blend_rounded_names_it_and_says_to_move_above_it`):
+  the foot's fills meet in a concave seam under a convex edge, and extending the edge's tool
+  down would cut into the plate.
 - [medium · hard] The top rim of a box tapered to widen upwards, whose slanted corner edges were
   filleted less than about twice the rim fillet, is refused: a 40×40×30 box tapered -4° with
   3 mm corners refuses a 2 mm rim fillet as `Rounding(Untraced)` and with 2.2 mm corners as

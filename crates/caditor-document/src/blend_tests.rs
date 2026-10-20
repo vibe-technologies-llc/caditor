@@ -701,6 +701,7 @@ fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
 
 struct Boss {
     document: Document,
+    base: FeatureId,
     boss: FeatureId,
     fillet: FeatureId,
 }
@@ -738,6 +739,7 @@ fn filleted_boss() -> Boss {
     document.apply(transaction.finish()).unwrap();
     Boss {
         document,
+        base,
         boss,
         fillet,
     }
@@ -749,6 +751,7 @@ fn a_fillet_on_an_edge_another_feature_made_depends_on_that_feature() {
         document,
         boss,
         fillet,
+        ..
     } = filleted_boss();
 
     let index = document.feature_index(fillet).unwrap();
@@ -1662,8 +1665,20 @@ fn the_top_rim_of_a_tapered_box_is_filleted_after_its_corners_and_bottom_rim() {
     assert!(volume(&topped, block) < before - 50.0);
 }
 
+fn fillet_of(body: FeatureId, edges: Vec<EdgeReference>, size: &str) -> FeatureKind {
+    FeatureKind::Blend(Blend {
+        kind: BlendKind::Fillet,
+        body,
+        groups: Vec::new(),
+        edges,
+        size: mm(size),
+        form: ChamferForm::Equal,
+        flipped: false,
+    })
+}
+
 #[test]
-fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_above_it() {
+fn the_uprights_of_a_box_rounded_on_top_are_filleted_after_it() {
     let Model {
         mut document,
         mut engine,
@@ -1679,38 +1694,52 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
         .map(|(x, y)| edge_at(solid, Point3::new(x, y, 4.0)))
         .to_vec();
     let mut transaction = document.transaction("Fillet");
-    transaction.add_feature(
-        "Rim fillet",
-        FeatureKind::Blend(Blend {
-            kind: BlendKind::Fillet,
-            body: base,
-            groups: Vec::new(),
-            edges: rim,
-            size: Expression::parse_stored("0.5 mm").unwrap(),
-            form: ChamferForm::Equal,
-            flipped: false,
-        }),
-    );
+    transaction.add_feature("Rim fillet", fillet_of(base, rim, "0.5"));
     document.apply(transaction.finish()).unwrap();
     let evaluation = evaluate(&document, &mut engine);
     let rounded = evaluation.body(base).unwrap();
     let verticals = [(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)]
         .map(|(x, y)| edge_at(rounded, Point3::new(x, y, 1.0)))
         .to_vec();
+    let before = volume(&evaluation, base);
 
     let mut transaction = document.transaction("Fillet");
-    let corners = transaction.add_feature(
-        "Fillet 2",
-        FeatureKind::Blend(Blend {
-            kind: BlendKind::Fillet,
-            body: base,
-            groups: Vec::new(),
-            edges: verticals,
-            size: Expression::parse_stored("1 mm").unwrap(),
-            form: ChamferForm::Equal,
-            flipped: false,
-        }),
-    );
+    transaction.add_feature("Fillet 2", fillet_of(base, verticals, "0.25"));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.body(base).unwrap().validate(), Ok(()));
+    assert!(volume(&evaluation, base) < before - 4.0 * spandrel(0.25) * 3.5);
+}
+
+#[test]
+fn an_upright_rising_from_a_foot_an_earlier_blend_rounded_names_it_and_says_to_move_above_it() {
+    let Boss {
+        mut document,
+        base,
+        fillet,
+        ..
+    } = filleted_boss();
+    let removal = document.deletion(&[fillet], "Delete");
+    document.apply(removal).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap();
+    let foot = [(3.0, 2.0), (4.0, 3.0), (3.0, 4.0), (2.0, 3.0)]
+        .map(|(x, y)| edge_at(solid, Point3::new(x, y, 4.0)))
+        .to_vec();
+    let mut transaction = document.transaction("Fillet");
+    transaction.add_feature("Foot fillet", fillet_of(base, foot, "0.5"));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let rounded = evaluation.body(base).unwrap();
+    let verticals = [(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0)]
+        .map(|(x, y)| edge_at(rounded, Point3::new(x, y, 5.5)))
+        .to_vec();
+
+    let mut transaction = document.transaction("Fillet");
+    let corners = transaction.add_feature("Fillet 2", fillet_of(base, verticals, "0.25"));
     document.apply(transaction.finish()).unwrap();
     let evaluation = evaluate(&document, &mut engine);
     let error = failure(&evaluation, corners);
@@ -1718,13 +1747,13 @@ fn an_edge_ending_at_a_corner_an_earlier_blend_cut_names_it_and_says_to_move_abo
     assert!(
         error
             .reason()
-            .ends_with("Rim fillet already blended the corner there."),
+            .ends_with("Foot fillet already blended the corner there."),
         "{}",
         error.reason()
     );
     assert_eq!(
         error.remedy(),
-        "Move Fillet 2 above Rim fillet in the tree, so the corner is blended after this edge, or \
+        "Move Fillet 2 above Foot fillet in the tree, so the corner is blended after this edge, or \
          leave this edge out."
     );
 }
