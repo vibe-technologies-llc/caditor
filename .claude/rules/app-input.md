@@ -81,6 +81,9 @@ paths:
   Expression fields parse, evaluate and check the dimension before building a transaction; sketch
   dimensions go through `field::dimension_transaction`. Feature values and sketch dimensions are
   `field::NamedField`s, so `name = expression` names the value (`app-modelling.md`).
+- Any field can be asked to take focus by its id from elsewhere (`field::ask_focus`, kept in egui
+  temp data and lapsing after `ASKED_FOCUS_PASSES` if the field is never drawn), as Extrude does
+  for its Distance (`app-modelling.md`).
 - Focus arriving at a `commit_field` selects its whole text (`field::select_all`; arrival is tracked
   per field in egui temp data, since `gained_focus` never reports a request made between frames).
   Invalid text keeps its cursor.

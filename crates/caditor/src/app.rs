@@ -669,6 +669,11 @@ pub fn show(
     panels.double_click = preferences.double_click;
     let chosen_rows = panels.chosen();
     let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
+    let bodies_to_export = if tree_bodies.is_empty() {
+        body_selection::bodies_in(viewport.selection())
+    } else {
+        tree_bodies.clone()
+    };
     let offers = selection_offers.refresh(
         model,
         viewport.selection(),
@@ -727,6 +732,7 @@ pub fn show(
         chrome,
         toggles,
         cloud: cloud.is_enabled(),
+        bodies: &bodies_to_export,
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {

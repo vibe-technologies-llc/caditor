@@ -315,3 +315,56 @@ fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through
     assert!(closed.scene.overlay_meshes.is_empty());
     assert_eq!(closed.scene.meshes.len(), 1);
 }
+
+#[test]
+fn extruding_by_key_selects_the_distance_field_so_a_typed_value_replaces_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+
+    harness.key(Key::E, Modifiers::ALT);
+    harness.settle();
+    harness.frame();
+
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    let distance = Id::unique(("solid-field", "distance", extrude));
+
+    assert_eq!(harness.focused(), Some(distance));
+
+    harness.type_text("25");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(distance_of(&harness, extrude), "25");
+}
+
+#[test]
+fn extruding_with_the_button_leaves_the_distance_field_unfocused() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+
+    harness.click_tool("Extrude");
+    harness.settle();
+    harness.frame();
+
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+
+    assert_ne!(
+        harness.focused(),
+        Some(Id::unique(("solid-field", "distance", extrude)))
+    );
+}

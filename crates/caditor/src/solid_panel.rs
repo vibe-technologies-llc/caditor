@@ -33,6 +33,12 @@ use crate::{
     sweep_tools, widgets,
 };
 
+pub const DISTANCE_SALT: &str = "distance";
+
+pub fn field_id(salt: &str, feature: FeatureId) -> Id {
+    Id::unique(("solid-field", salt, feature))
+}
+
 struct PlaneRow<'a> {
     caption: &'a str,
     current: Option<&'a PlaneReference>,
@@ -348,7 +354,7 @@ impl Panel<'_> {
         let id = self.id();
         let quantity = Quantity {
             feature: id,
-            id: Id::unique(("solid-field", salt, id)),
+            id: field_id(salt, id),
             expression,
             dimension,
             rule,
@@ -740,7 +746,7 @@ impl Panel<'_> {
                     distance: DISTANCE,
                     face: "Up to",
                     offset: END_OFFSET,
-                    salt: "distance",
+                    salt: DISTANCE_SALT,
                     side: Side::One,
                     rule: Rule::FlipWhenNegative,
                 };

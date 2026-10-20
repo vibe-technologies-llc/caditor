@@ -213,9 +213,15 @@ paths:
 ## Open in a slicer
 
 - Open in OrcaSlicer (`Command::OpenInSlicer`, File › Export, the palette, and the Export dialog's
-  Open in OrcaSlicer beside Export…, `ExportCommand::OpenInSlicer`) exports the bodies chosen for
-  export as 3MF with the dialog's resolution and threads, This configuration only, without asking
-  for a file, then starts the slicer with it. OrcaSlicer is the only `slicer::Slicer` so far; a new
+  Open in OrcaSlicer beside Export…, `ExportCommand::OpenInSlicer`) exports as 3MF with the
+  dialog's resolution and threads, This configuration only, without asking for a file, then starts
+  the slicer with it. The bodies are the ones selected in the view or chosen in the tree when the
+  command is run from the menu or palette (`FileCommand::OpenInSlicer(bodies)`, taken by `app::show`
+  as the tree's bodies, else `body_selection::bodies_in`, handed to `files::menu` through
+  `MenuContext::bodies`), else the ones chosen in the Export dialog, whose button sends no bodies.
+  A selection naming no body that can be exported counts as no selection
+  (`Exporter::has_chosen_body`, `start_among`), and the bodies are kept in `Slicing::only` across
+  the preparing step, so the dialog's choices are never changed by it. OrcaSlicer is the only `slicer::Slicer` so far; a new
   one is a variant with its program names, install places and launch.
 - `slicer.rs` finds and starts it, platform parts in its `os` pair. `find` takes the program named
   in Preferences › General › Exports (`slicer.program`, empty by default; a path that does not exist
@@ -252,8 +258,9 @@ paths:
 
 - Open in Fusion 360 (`Command::OpenInFusionApp`, File › Export, the palette, and the Export
   dialog's Open in Fusion 360, `ExportCommand::OpenInFusionApp`) needs no sign-in and no cloud
-  setting: it exports the bodies chosen for export as STEP, without asking for a file, and hands
-  the file to the Fusion 360 app on this computer. It is not the cloud send (`cloud.md`, titled
+  setting: it exports as STEP, without asking for a file, and hands the file to the Fusion 360 app
+  on this computer. Its bodies are chosen as the slicer's are (`FileCommand::OpenInFusionApp(bodies)`,
+  `FusionApp::only`): the selection, else the Export dialog's choices. It is not the cloud send (`cloud.md`, titled
   Upload to Fusion 360 and open online), which uploads to the user's Autodesk account.
 - `fusion_app.rs` holds the hand-over: Autodesk's documented link
   `fusion360://host/?command=open&file=<percent-encoded path>` (`address`; backslashes become

@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use caditor_document::FeatureId;
 use caditor_file::ExportFormat;
 
 use super::{Event, Files};
@@ -14,8 +15,9 @@ use crate::{
     model::{Model, Notice, RecomputeStatus},
 };
 
-pub const HINT: &str = "Export the bodies chosen for export as STEP, without asking for a file, \
-                        and open them in the Fusion 360 app on this computer";
+pub const HINT: &str = "Export the selected bodies, else the ones chosen in the Export dialog, as \
+                        STEP, without asking for a file, and open them in the Fusion 360 app on \
+                        this computer";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FusionAppRefusal {
@@ -50,6 +52,7 @@ pub struct FusionApp {
     launcher: Launcher,
     handler: LinkHandler,
     sending: Option<Sending>,
+    only: Vec<FeatureId>,
 }
 
 impl Default for FusionApp {
@@ -58,6 +61,7 @@ impl Default for FusionApp {
             launcher: Arc::new(fusion_app::launch),
             handler: Arc::new(fusion_app::opens_links),
             sending: None,
+            only: Vec::new(),
         }
     }
 }
@@ -69,7 +73,11 @@ impl Files {
         self.fusion_app.handler = Arc::new(|| true);
     }
 
-    pub fn fusion_app_availability(&self, model: &Model) -> Result<(), FusionAppRefusal> {
+    pub fn fusion_app_availability(
+        &self,
+        model: &Model,
+        only: &[FeatureId],
+    ) -> Result<(), FusionAppRefusal> {
         if self.fusion_app.sending.is_some() {
             return Err(FusionAppRefusal::Sending);
         }
@@ -79,17 +87,17 @@ impl Files {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return Err(FusionAppRefusal::WaitingForRecompute);
         }
-        if self.exporter.has_chosen_body(model) {
+        if self.exporter.has_chosen_body(model, only) {
             Ok(())
-        } else if Exporter::default().has_chosen_body(model) {
+        } else if Exporter::default().has_chosen_body(model, &[]) {
             Err(FusionAppRefusal::AllLeftOut)
         } else {
             Err(FusionAppRefusal::NoBodies)
         }
     }
 
-    pub(super) fn open_in_fusion_app(&mut self, model: &mut Model) {
-        if let Err(refusal) = self.fusion_app_availability(model) {
+    pub(super) fn open_in_fusion_app(&mut self, model: &mut Model, only: Vec<FeatureId>) {
+        if let Err(refusal) = self.fusion_app_availability(model, &only) {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
@@ -101,6 +109,7 @@ impl Files {
         let handler = Arc::clone(&self.fusion_app.handler);
         let session = model.session();
         self.fusion_app.sending = Some(Sending::Preparing);
+        self.fusion_app.only = only;
         self.spawn(
             move || Event::FusionAppReady {
                 session,
@@ -133,7 +142,8 @@ impl Files {
             ));
             return;
         }
-        if let Err(refusal) = self.fusion_app_availability(model) {
+        let only = std::mem::take(&mut self.fusion_app.only);
+        if let Err(refusal) = self.fusion_app_availability(model, &only) {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
@@ -141,7 +151,7 @@ impl Files {
         self.fusion_app.sending = Some(Sending::Exporting { path: path.clone() });
         let finished = self.export_finished();
         self.exporter
-            .start(path, ExportFormat::Step, Vec::new(), model, finished);
+            .start_among(path, ExportFormat::Step, Vec::new(), model, &only, finished);
         self.exporter.perform(ExportCommand::Hide, model);
     }
 

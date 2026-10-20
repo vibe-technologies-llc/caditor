@@ -7,7 +7,7 @@ use std::{
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
-use super::{Harness, extruded_plate, offer, run_from_palette, sample_document};
+use super::{Harness, add_peg, extruded_plate, offer, run_from_palette, sample_document};
 use crate::{
     app::Workspace,
     commands::Command,
@@ -155,7 +155,7 @@ fn a_missing_slicer_is_named_and_a_failed_start_says_which_program() {
         Err(missing.to_string().into())
     );
 
-    harness.command(FileCommand::OpenInSlicer);
+    harness.command(FileCommand::OpenInSlicer(Vec::new()));
     harness.wait_until("the missing slicer is said", |harness| {
         notice_text(harness).is_some_and(|(_, kind)| kind == NoticeKind::Error)
     });
@@ -178,7 +178,7 @@ fn a_missing_slicer_is_named_and_a_failed_start_says_which_program() {
     extruded_plate(&mut harness);
     wait_until_found(&mut harness);
 
-    harness.command(FileCommand::OpenInSlicer);
+    harness.command(FileCommand::OpenInSlicer(Vec::new()));
     harness.wait_until("the failed start is said", |harness| {
         notice_text(harness).is_some_and(|(_, kind)| kind == NoticeKind::Error)
     });
@@ -212,4 +212,30 @@ fn naming_the_slicer_program_in_preferences_looks_for_it_there() {
         Some(PathBuf::from("/opt/Orca.AppImage"))
     );
     assert_eq!(asked.lock().first(), Some(&None));
+}
+
+#[test]
+fn bodies_named_by_the_command_are_the_only_ones_sent_to_the_slicer() {
+    let dir = TempDir::new().unwrap();
+    let program = dir.path().join("orca-slicer");
+    let (mut harness, launched, _) = with_slicer(dir.path(), Ok(installed(&program)), Ok(()));
+    let (plate, top) = extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    wait_until_found(&mut harness);
+    harness.settle();
+
+    harness.command(FileCommand::OpenInSlicer(vec![plate]));
+    harness.wait_until("the slicer is started", |_| !launched.lock().is_empty());
+    harness.frame();
+
+    assert!(notice_text(&harness).is_some_and(|(text, _)| text.starts_with("Exported 1 body to")));
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "open in orcaslicer");
+    harness.wait_until("the slicer is started again", |_| {
+        launched.lock().len() == 2
+    });
+    harness.frame();
+
+    assert!(notice_text(&harness).is_some_and(|(text, _)| text.starts_with("Exported 1 body to")));
 }

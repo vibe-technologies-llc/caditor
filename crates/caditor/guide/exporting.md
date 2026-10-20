@@ -23,8 +23,10 @@ last one ended. [Preferences](preferences) › General › Exports can keep them
 runs, or forget them.
 
 {command:file.open_in_slicer} sends the bodies straight to OrcaSlicer for printing: it writes them
-as 3MF to a folder of caditor's own, without asking for a file, and starts OrcaSlicer with it. The
-Export dialog has the same button beside Export…, using the resolution and bodies chosen there.
+as 3MF to a folder of caditor's own, without asking for a file, and starts OrcaSlicer with it. With
+bodies selected in the view or chosen in the feature tree, only those are sent; with none, the
+bodies chosen in the Export dialog. The Export dialog has the same button beside Export…, using
+the resolution and bodies chosen there.
 caditor finds OrcaSlicer where it is usually installed (on the path, from Flathub, or an AppImage in
 Applications, AppImages, Downloads or `/opt`; on Windows in Program Files). When it is elsewhere,
 name its program or AppImage in [Preferences](preferences) › General › Exports. The files are kept
@@ -32,7 +34,8 @@ for a week.
 
 {command:file.open_in_fusion_app} sends the bodies straight to the Fusion 360 app on this computer:
 it writes them as STEP to a folder of caditor's own, without asking for a file, and opens Fusion 360
-with it as a new design. It needs no sign-in and no cloud features; the Export dialog has the same
+with it as a new design. Like the OrcaSlicer button it sends the selected bodies, else the ones
+chosen in the Export dialog. It needs no sign-in and no cloud features; the Export dialog has the same
 button, and the format and resolution chosen there do not apply to it. Fusion 360 has to be
 installed, and on Linux something has to be set up to open `fusion360://` links. The files are kept
 for a week.

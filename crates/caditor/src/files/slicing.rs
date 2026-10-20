@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use caditor_document::FeatureId;
 use caditor_file::{ExportFormat, Settings};
 
 use super::{Event, Files};
@@ -14,8 +15,8 @@ use crate::{
     slicer::{self, FindError, Finder, Installation, Launcher, PrepareError, Prepared, Slicer},
 };
 
-pub const HINT: &str = "Export the bodies chosen for export as 3MF, without asking for a file, \
-                        and open them in OrcaSlicer";
+pub const HINT: &str = "Export the selected bodies, else the ones chosen in the Export dialog, as 3MF, \
+                        without asking for a file, and open them in OrcaSlicer";
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SlicerRefusal {
@@ -53,6 +54,7 @@ pub struct Slicing {
     finder: Finder,
     launcher: Launcher,
     sending: Option<Sending>,
+    only: Vec<FeatureId>,
 }
 
 impl Default for Slicing {
@@ -63,6 +65,7 @@ impl Default for Slicing {
             finder: Arc::new(slicer::find),
             launcher: Arc::new(slicer::launch),
             sending: None,
+            only: Vec::new(),
         }
     }
 }
@@ -86,7 +89,11 @@ impl Files {
         self.slicing.found.as_ref()?.as_ref().err()
     }
 
-    pub fn slicer_availability(&self, model: &Model) -> Result<(), SlicerRefusal> {
+    pub fn slicer_availability(
+        &self,
+        model: &Model,
+        only: &[FeatureId],
+    ) -> Result<(), SlicerRefusal> {
         let slicer = Slicer::SUPPORTED;
         if let Some(missing) = self.slicer_missing() {
             return Err(missing.clone().into());
@@ -100,9 +107,9 @@ impl Files {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return Err(SlicerRefusal::WaitingForRecompute);
         }
-        if self.exporter.has_chosen_body(model) {
+        if self.exporter.has_chosen_body(model, only) {
             Ok(())
-        } else if Exporter::default().has_chosen_body(model) {
+        } else if Exporter::default().has_chosen_body(model, &[]) {
             Err(SlicerRefusal::AllLeftOut(slicer))
         } else {
             Err(SlicerRefusal::NoBodies(slicer))
@@ -140,8 +147,8 @@ impl Files {
         }
     }
 
-    pub(super) fn open_in_slicer(&mut self, model: &mut Model) {
-        match self.slicer_availability(model) {
+    pub(super) fn open_in_slicer(&mut self, model: &mut Model, only: Vec<FeatureId>) {
+        match self.slicer_availability(model, &only) {
             Ok(()) | Err(SlicerRefusal::Missing(_)) => {}
             Err(refusal) => {
                 model.set_notice(Notice::warning(format!("{refusal}.")));
@@ -157,6 +164,7 @@ impl Files {
             .map(|dir| dir.join(slicer::FOLDER));
         let session = model.session();
         self.slicing.sending = Some(Sending::Preparing);
+        self.slicing.only = only;
         self.spawn(
             move || {
                 let found = finder(Slicer::SUPPORTED, chosen.as_deref());
@@ -204,7 +212,8 @@ impl Files {
             )));
             return;
         }
-        if let Err(refusal) = self.slicer_availability(model) {
+        let only = std::mem::take(&mut self.slicing.only);
+        if let Err(refusal) = self.slicer_availability(model, &only) {
             model.set_notice(Notice::warning(format!("{refusal}.")));
             return;
         }
@@ -216,8 +225,14 @@ impl Files {
             installation: prepared.installation,
         });
         let finished = self.export_finished();
-        self.exporter
-            .start(path, ExportFormat::ThreeMf, Vec::new(), model, finished);
+        self.exporter.start_among(
+            path,
+            ExportFormat::ThreeMf,
+            Vec::new(),
+            model,
+            &only,
+            finished,
+        );
         self.exporter.perform(ExportCommand::Hide, model);
     }
 

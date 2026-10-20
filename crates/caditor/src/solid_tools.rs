@@ -859,6 +859,13 @@ pub fn create_actions(
     actions
 }
 
+pub fn opened_solid(actions: &[Action]) -> Option<FeatureId> {
+    actions.iter().find_map(|action| match action {
+        Action::Editing(EditingCommand::OpenSolid(feature)) => Some(*feature),
+        _ => None,
+    })
+}
+
 pub fn edit(document: &Document, feature: FeatureId, solid: SolidFeature) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
     let fields = solid_panel::captioned(&solid);

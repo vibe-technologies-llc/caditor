@@ -205,8 +205,8 @@ pub enum FileCommand {
     LoadRecentPicture(PathBuf),
     RevertToSaved,
     ExportAgain,
-    OpenInSlicer,
-    OpenInFusionApp,
+    OpenInSlicer(Vec<FeatureId>),
+    OpenInFusionApp(Vec<FeatureId>),
     FindSlicer,
     SendToCloud(Destination),
     NameCloudSend(CloudNameCommand),
@@ -1512,8 +1512,10 @@ impl Files {
                     ExportCommand::Choose => {
                         self.pick(Purpose::Export(self.exporter.format()), model);
                     }
-                    ExportCommand::OpenInSlicer => self.open_in_slicer(model),
-                    ExportCommand::OpenInFusionApp => self.open_in_fusion_app(model),
+                    ExportCommand::OpenInSlicer => self.open_in_slicer(model, Vec::new()),
+                    ExportCommand::OpenInFusionApp => {
+                        self.open_in_fusion_app(model, Vec::new());
+                    }
                     ExportCommand::Show => self.find_slicer(),
                     _ => {}
                 }
@@ -1608,8 +1610,8 @@ impl Files {
             FileCommand::LoadRecentPicture(path) => self.load_recent_picture(path),
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
-            FileCommand::OpenInSlicer => self.open_in_slicer(model),
-            FileCommand::OpenInFusionApp => self.open_in_fusion_app(model),
+            FileCommand::OpenInSlicer(only) => self.open_in_slicer(model, only),
+            FileCommand::OpenInFusionApp(only) => self.open_in_fusion_app(model, only),
             FileCommand::FindSlicer => self.find_slicer(),
             FileCommand::SendToCloud(destination) => self.send_to_cloud(destination, model),
             FileCommand::NameCloudSend(command) => self.name_cloud_send(command, model),
@@ -3929,6 +3931,7 @@ pub fn menu(
     ui: &mut Ui,
     model: &Model,
     (files, editing, cloud): (&Files, &SketchEditing, bool),
+    bodies: &[FeatureId],
     entries: &mut MenuEntries<'_>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
@@ -3948,8 +3951,8 @@ pub fn menu(
         Ok(())
     };
     let again = files.export_again_name(model);
-    let sendable = files.slicer_availability(model);
-    let openable_in_fusion = files.fusion_app_availability(model);
+    let sendable = files.slicer_availability(model, bodies);
+    let openable_in_fusion = files.fusion_app_availability(model, bodies);
     let revertible = model.saved_version().map(|_| ());
     let file_menu = menu_bar::top_menu(ui, "File", |ui| {
         entries.item(ui, Command::Home);
@@ -4080,12 +4083,12 @@ pub fn menu(
     }
     if commands.invoke(Command::OpenInSlicer, &sendable) || chosen.contains(&Command::OpenInSlicer)
     {
-        actions.push(Action::File(FileCommand::OpenInSlicer));
+        actions.push(Action::File(FileCommand::OpenInSlicer(bodies.to_vec())));
     }
     if commands.invoke(Command::OpenInFusionApp, &openable_in_fusion)
         || chosen.contains(&Command::OpenInFusionApp)
     {
-        actions.push(Action::File(FileCommand::OpenInFusionApp));
+        actions.push(Action::File(FileCommand::OpenInFusionApp(bodies.to_vec())));
     }
     if commands.invoke_detailed(Command::ExportAgain, again.clone().ok(), &again)
         || chosen.contains(&Command::ExportAgain)

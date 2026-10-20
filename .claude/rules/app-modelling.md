@@ -304,6 +304,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   refused as `FaceSweepError::NearlyFlat`, naming the face, its slope and the Horizontal or
   Vertical constraint that makes it flat. A selected face
   never falls through to the last sketch.
+- Extrude run as a command (its key, the palette or a menu, not a click on its button) selects the new
+  extrusion's Distance field (`field::ask_focus` with `solid_panel::field_id`, asked from
+  `toolbar::solid_buttons` for the feature `solid_tools::opened_solid` finds among the actions), so
+  a typed value replaces the default at once; an extrusion with no Distance field (Through all, Up
+  to face, Symmetric) takes no focus, and the request lapses after `ASKED_FOCUS_PASSES`.
 - Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches refused,
   `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis) do they guess the
   open extrusion's sketch, else the last shown sketch, and only while it has an even-depth region no

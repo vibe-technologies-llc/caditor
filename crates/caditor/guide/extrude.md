@@ -17,6 +17,9 @@ body, or cuts them into one.
   some of its regions, only the remaining ones are taken, so each part of a sketch can be
   extruded on its own with its own taper and distance.
 
+When Extrude is run from its key, the palette or a menu, its **Distance** field is selected, so
+typing a number sets the distance at once; clicking the button leaves the focus where it was.
+
 In the open panel, click regions in the view to add or leave them out (Shift adds without
 leaving the others out), {command:model.clear_chosen_regions} starts from none and
 {command:model.select_all_regions}, or **Select all** beside the count of chosen regions, takes

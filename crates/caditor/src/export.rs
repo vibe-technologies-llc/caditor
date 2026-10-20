@@ -336,14 +336,22 @@ impl Exporter {
         !self.left_out.contains(&body)
     }
 
-    pub fn has_chosen_body(&self, model: &Model) -> bool {
+    pub fn has_chosen_body(&self, model: &Model, only: &[FeatureId]) -> bool {
         let evaluation = model.evaluation();
+        let narrowed = self.narrowed_to(model, only);
         evaluation.bodies().any(|(id, _)| {
-            self.includes(id)
-                && evaluation
-                    .body_result(id)
-                    .is_some_and(|result| result.solid().is_some())
+            (if narrowed {
+                only.contains(&id)
+            } else {
+                self.includes(id)
+            }) && evaluation
+                .body_result(id)
+                .is_some_and(|result| result.solid().is_some())
         })
+    }
+
+    fn narrowed_to(&self, model: &Model, only: &[FeatureId]) -> bool {
+        Self::bodies(model).any(|body| only.contains(&body.id))
     }
 
     pub fn sync(&mut self, model: &Model) {
@@ -445,12 +453,24 @@ impl Exporter {
         model: &Model,
         finished: Finished,
     ) {
+        self.start_among(path, format, configurations, model, &[], finished);
+    }
+
+    pub fn start_among(
+        &mut self,
+        path: PathBuf,
+        format: ExportFormat,
+        configurations: Vec<ConfigurationFile>,
+        model: &Model,
+        only: &[FeatureId],
+        finished: Finished,
+    ) {
         if !configurations.is_empty() {
             self.start_configurations(path, format, model, configurations, finished);
             return;
         }
         let (chosen, bodies): (Vec<FeatureId>, Vec<ExportSource>) = self
-            .chosen(model)
+            .chosen_among(model, only)
             .map(|body| (body.id, body.source))
             .unzip();
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -707,8 +727,19 @@ impl Exporter {
         })
     }
 
-    fn chosen<'a>(&'a self, model: &'a Model) -> impl Iterator<Item = Body> + 'a {
-        Self::bodies(model).filter(|body| !self.left_out.contains(&body.id))
+    fn chosen_among<'a>(
+        &'a self,
+        model: &'a Model,
+        only: &'a [FeatureId],
+    ) -> impl Iterator<Item = Body> + 'a {
+        let narrowed = self.narrowed_to(model, only);
+        Self::bodies(model).filter(move |body| {
+            if narrowed {
+                only.contains(&body.id)
+            } else {
+                !self.left_out.contains(&body.id)
+            }
+        })
     }
 }
 

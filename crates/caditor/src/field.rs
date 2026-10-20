@@ -33,6 +33,31 @@ pub fn text_inset() -> f32 {
 }
 
 const SUGGESTING: &str = "suggesting";
+const ASKED_FOCUS_KEY: &str = "asked-field-focus";
+const ASKED_FOCUS_PASSES: u64 = 30;
+
+#[derive(Debug, Clone, Copy)]
+struct AskedFocus {
+    field: Id,
+    pass: u64,
+}
+
+pub fn ask_focus(ctx: &egui::Context, field: Id) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|data| data.insert_temp(Id::unique(ASKED_FOCUS_KEY), AskedFocus { field, pass }));
+}
+
+fn asked_focus(ctx: &egui::Context, field: Id) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|data| data.get_temp::<AskedFocus>(Id::unique(ASKED_FOCUS_KEY)))
+        .is_some_and(|asked| asked.field == field && asked.pass + ASKED_FOCUS_PASSES > pass)
+}
+
+fn focus_arrived(ctx: &egui::Context, field: Id) {
+    if asked_focus(ctx, field) {
+        ctx.data_mut(|data| data.remove::<AskedFocus>(Id::unique(ASKED_FOCUS_KEY)));
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 struct Suggesting {
@@ -143,6 +168,7 @@ fn field<T, E: Display>(
     value: bool,
     validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
+    let focus = focus || asked_focus(ui.ctx(), id);
     let editing = ui.memory(|memory| memory.has_focus(id));
     let editing_parameter = completion::take_editing(ui, id);
     let suggesting_key = id.with(SUGGESTING);
@@ -193,6 +219,9 @@ fn field<T, E: Display>(
     if focus {
         response.request_focus();
         response.scroll_to_me(Some(Align::Center));
+    }
+    if response.has_focus() {
+        focus_arrived(ui.ctx(), id);
     }
     if completed.held {
         response.request_focus();

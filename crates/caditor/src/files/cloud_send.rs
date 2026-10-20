@@ -209,9 +209,9 @@ impl Files {
         if matches!(model.status(), RecomputeStatus::Running { .. }) {
             return Err(CloudSendRefusal::WaitingForRecompute);
         }
-        if self.exporter.has_chosen_body(model) {
+        if self.exporter.has_chosen_body(model, &[]) {
             Ok(())
-        } else if export::Exporter::default().has_chosen_body(model) {
+        } else if export::Exporter::default().has_chosen_body(model, &[]) {
             Err(CloudSendRefusal::AllLeftOut)
         } else {
             Err(CloudSendRefusal::NoBodies)

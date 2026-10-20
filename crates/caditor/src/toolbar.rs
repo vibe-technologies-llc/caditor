@@ -13,6 +13,7 @@ use crate::{
     editing::{EditingCommand, SketchEditing},
     emboss_tools,
     feature_tree::count,
+    field,
     files::FileCommand,
     helix_tools, hole_tools, icons,
     last_values::Starts,
@@ -31,6 +32,7 @@ use crate::{
     selection::Selection,
     shell_tools,
     sketch_placement::SketchTarget,
+    solid_panel,
     solid_tools::{self, FaceProfile, Sweep},
     split_face_tools, split_tools, sweep_tools, thread_tools,
     toggles::ToggleStates,
@@ -589,18 +591,27 @@ fn solid_buttons(
         if !(response.clicked() || invoked) {
             continue;
         }
-        match (face, &source) {
-            (Some(Ok(profile)), _) => {
-                actions.extend(solid_tools::create_on_faces_actions(model, sweep, profile));
-            }
-            (None, Ok(Some(source))) => actions.extend(solid_tools::create_actions(
+        let created = match (face, &source) {
+            (Some(Ok(profile)), _) => solid_tools::create_on_faces_actions(model, sweep, profile),
+            (None, Ok(Some(source))) => solid_tools::create_actions(
                 model,
                 sweep,
                 solid_tools::with_selected_outline(model, sweep, source.clone(), context.selection),
                 &Starts::of(model),
-            )),
-            (Some(Err(_)), _) | (None, Err(_) | Ok(None)) => {}
+            ),
+            (Some(Err(_)), _) | (None, Err(_) | Ok(None)) => Vec::new(),
+        };
+        if sweep == Sweep::Extrude
+            && invoked
+            && !response.clicked()
+            && let Some(feature) = solid_tools::opened_solid(&created)
+        {
+            field::ask_focus(
+                ui.ctx(),
+                solid_panel::field_id(solid_panel::DISTANCE_SALT, feature),
+            );
         }
+        actions.extend(created);
     }
 }
 

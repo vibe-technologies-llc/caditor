@@ -8,7 +8,7 @@ use std::{
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
-use super::{Harness, extruded_plate, offer, run_from_palette, sample_document};
+use super::{Harness, add_peg, extruded_plate, offer, run_from_palette, sample_document};
 use crate::{
     app::Workspace,
     commands::Command,
@@ -125,7 +125,7 @@ fn a_refused_hand_over_is_said_after_the_export() {
     let (mut harness, _) = with_fusion_app(dir.path(), Err(refused.clone()));
     extruded_plate(&mut harness);
 
-    harness.command(FileCommand::OpenInFusionApp);
+    harness.command(FileCommand::OpenInFusionApp(Vec::new()));
     harness.wait_until("the refusal is said", |harness| {
         notice_text(harness).is_some_and(|(_, kind)| kind == NoticeKind::Error)
     });
@@ -133,4 +133,49 @@ fn a_refused_hand_over_is_said_after_the_export() {
     assert!(notice_text(&harness).is_some_and(
         |(text, _)| text.ends_with(&format!(" {refused}.")) && text.contains("Untitled.step")
     ));
+}
+
+#[test]
+fn bodies_named_by_the_command_are_the_only_ones_handed_over() {
+    let dir = TempDir::new().unwrap();
+    let (mut harness, launched) = with_fusion_app(dir.path(), Ok(()));
+    let (plate, _) = extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    harness.settle();
+
+    harness.command(FileCommand::OpenInFusionApp(vec![plate]));
+    harness.wait_until("Fusion 360 is handed the file", |_| {
+        !launched.lock().is_empty()
+    });
+    harness.frame();
+
+    assert!(notice_text(&harness).is_some_and(|(text, _)| text.starts_with("Exported 1 body to")));
+
+    harness.command(FileCommand::OpenInFusionApp(Vec::new()));
+    harness.wait_until("Fusion 360 is handed the file again", |_| {
+        launched.lock().len() == 2
+    });
+    harness.frame();
+
+    assert!(
+        notice_text(&harness).is_some_and(|(text, _)| text.starts_with("Exported 2 bodies to"))
+    );
+}
+
+#[test]
+fn the_palette_hands_over_only_the_selected_body() {
+    let dir = TempDir::new().unwrap();
+    let (mut harness, launched) = with_fusion_app(dir.path(), Ok(()));
+    let (_, top) = extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    harness.settle();
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "open in fusion 360");
+    harness.wait_until("Fusion 360 is handed the file", |_| {
+        !launched.lock().is_empty()
+    });
+    harness.frame();
+
+    assert!(notice_text(&harness).is_some_and(|(text, _)| text.starts_with("Exported 1 body to")));
 }

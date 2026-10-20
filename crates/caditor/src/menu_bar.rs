@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use caditor_document::{SavedViews, SelectionSets};
+use caditor_document::{FeatureId, SavedViews, SelectionSets};
 use egui::{
     Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
     StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, pos2, vec2,
@@ -171,6 +171,7 @@ pub struct MenuContext<'a> {
     pub chrome: Chrome,
     pub toggles: ToggleStates,
     pub cloud: bool,
+    pub bodies: &'a [FeatureId],
 }
 
 pub fn show(
@@ -199,6 +200,7 @@ pub fn show(
                     ui,
                     model,
                     (context.files, context.editing, context.cloud),
+                    context.bodies,
                     &mut entries,
                     commands,
                     actions,
