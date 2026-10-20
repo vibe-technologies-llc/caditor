@@ -3,7 +3,7 @@ use std::path::Path;
 use caditor_cloud::Service;
 use caditor_document::Rgb;
 use caditor_file::Retention;
-use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText, vec2};
+use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
     Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour, NewBodies,
@@ -468,8 +468,8 @@ fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
                 command,
             );
         });
-        ui.add_enabled_ui(cloud.enabled, |ui| {
-            widgets::property(ui, "On Home", |ui| {
+        widgets::property(ui, "On Home", |ui| {
+            ui.add_enabled_ui(cloud.enabled, |ui| {
                 toggle(
                     ui,
                     cloud.on_home,
@@ -479,19 +479,14 @@ fn cloud(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<PreferencesCommand
                     command,
                 );
             });
-            widgets::property(ui, "Own apps", |ui| {
-                ui.horizontal(|ui| {
-                    let width = ((ui.available_width() - ui.spacing().item_spacing.x)
-                        / Service::ALL.len() as f32)
-                        .max(0.0);
-                    for service in Service::ALL {
-                        ui.allocate_ui(vec2(width, 0.0), |ui| {
-                            client_id_field(ui, service, cloud.client_id(service), command);
-                        });
-                    }
+        });
+        for service in Service::ALL {
+            widgets::property(ui, service.app_name(), |ui| {
+                ui.add_enabled_ui(cloud.enabled, |ui| {
+                    client_id_field(ui, service, cloud.client_id(service), command);
                 });
             });
-        });
+        }
     });
 }
 
@@ -513,7 +508,7 @@ fn client_id_field(
         ui.add(
             TextEdit::singleline(&mut text)
                 .id(Id::unique(edit_key))
-                .hint_text(format!("{} app ID", service.company()))
+                .hint_text("Built-in client ID")
                 .desired_width(f32::INFINITY),
         )
     })

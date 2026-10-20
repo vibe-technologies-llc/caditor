@@ -38,7 +38,8 @@ use crate::{
     panels::{Painting, Renaming},
     pattern_tools::{self, Shape},
     preferences::{
-        PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, Theme, ViewChoice,
+        PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, SEARCH_FIELD, Theme,
+        ViewChoice,
     },
     reference_picking::{Picking, Slot},
     samples::Sample,
@@ -641,6 +642,8 @@ fn screenshots() {
 
         model.perform(Action::Preferences(PreferencesCommand::Show));
         shoot(&mut model, &gpu, &out, "preferences", look);
+        model.type_into_field(egui::Id::unique(SEARCH_FIELD), "cloud");
+        shoot(&mut model, &gpu, &out, "preferences-cloud", look);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
 
