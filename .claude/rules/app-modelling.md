@@ -137,7 +137,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     place once meshed (`BodyMeshes::draft`, `OpenDraft`). A draft replacing one of the same feature and
     revision keeps the evaluation it replaces until its own arrives (`Model::preview`), so a drag never
     falls back to the committed body between steps. A removal's tools are the draft's
-    (`Model::draft_cuts`).
+    (`Model::draft_cuts`). Its face looks (colours, opacities, finishes) are read from the draft's
+    evaluation too, so a face only the draft makes, such as a second piece of a split face, takes the
+    colour of the face it came from.
   - A feature making no body (open datum `scene::drafted`, open thread `placed_threads`) is drawn from
     `Model::draft_evaluation_of`, handed to the scene as `Sources::draft` with `Revisions::draft` and
     `Model::draft_generation` in its key.

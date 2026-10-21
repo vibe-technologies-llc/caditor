@@ -206,8 +206,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   pointing at the eye passes the gate while `Ray::closest_along_line` divides by an `apart` near
   zero and the dragged value amplifies the pointer's motion many times over. Gating on the eye ray,
   or dragging in the plane facing the camera through the arrow, bounds it.
-- [low · easy] Faces that exist only in a draft preview take the body's base colour until the value
-  is committed, since the face looks come from the committed evaluation (`scene.rs`).
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.

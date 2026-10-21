@@ -1,8 +1,15 @@
-use caditor_document::{Edit, FeatureId, Transaction};
-use egui::{Event, Id, Pos2};
+use caditor_document::{
+    BodyOperation, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind, RegionChoice,
+    SolidFeature, Transaction,
+};
+use caditor_expression::Expression;
+use caditor_geometry::{Plane, Point2};
+use caditor_sketch::Sketch;
+use egui::{Event, Id, Key, Modifiers, Pos2};
 
 use super::{
-    Harness, extruded_plate, painted_faces, run_from_palette, scroll_in_view, set_high_contrast,
+    Harness, extruded_plate, painted_faces, rectangle, run_from_palette, scroll_in_view,
+    set_high_contrast,
 };
 use crate::{model::Action, scene_palette, selection::Pickable};
 
@@ -389,4 +396,77 @@ fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
             .is_default()
     );
     assert_eq!(unpainted, 0);
+}
+
+#[test]
+fn faces_that_only_a_preview_makes_take_the_colour_of_the_face_they_were_cut_from() {
+    let red = caditor_render::Color::from_rgb8(200, 64, 52);
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face, .. } = top else {
+        panic!("{top:?}");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), plate).unwrap();
+    let reference = caditor_kernel::FaceReference::capture(
+        &shown.solid,
+        crate::bodies::find_face(shown, face).unwrap(),
+    )
+    .unwrap();
+    harness.model.perform(Action::Apply(Transaction::single(
+        "Red top",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: caditor_document::BodyAppearance {
+                faces: vec![caditor_document::FaceColour {
+                    face: reference,
+                    colour: caditor_document::Rgb::new(200, 64, 52),
+                    opacity: None,
+                    finish: None,
+                }],
+                ..Default::default()
+            },
+        },
+    )));
+    harness.settle();
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(
+        &mut outline,
+        Point2::new(0.0, 15.0),
+        Point2::new(40.0, 25.0),
+    );
+    let mut transaction = harness.document().transaction("Cut a slot");
+    let sketch = transaction.add_feature("Slot sketch", FeatureKind::from(outline));
+    let slot = transaction.add_feature(
+        "Slot",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
+            operation: BodyOperation::Remove(plate),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+
+    assert_eq!(painted_faces(&mut harness, red), 1);
+
+    harness.perform(Action::Editing(crate::editing::EditingCommand::OpenSolid(
+        slot,
+    )));
+    let distance = Id::unique(("solid-field", "distance", slot));
+    harness
+        .context
+        .memory_mut(|memory| memory.request_focus(distance));
+    harness.frame();
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.events.push(Event::Text("100 mm".to_owned()));
+    harness.frames_while_woken();
+    harness.settle();
+
+    assert_eq!(painted_faces(&mut harness, red), 2);
 }

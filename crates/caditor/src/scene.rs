@@ -1203,10 +1203,13 @@ pub fn build_keeping(
             }
             Some(_) | None => {}
         }
-        let mesh = match bodies.draft() {
-            Some(draft) if draft.body == body && editing.is_none() => draft.mesh.as_ref(),
-            Some(_) | None => mesh,
-        };
+        let drafted_body = bodies
+            .draft()
+            .filter(|shown| shown.body == body && editing.is_none());
+        let mesh = drafted_body.map_or(mesh, |shown| shown.mesh.as_ref());
+        let looked_in = draft
+            .filter(|_| drafted_body.is_some())
+            .unwrap_or(evaluation);
         let health = healths.of_body(body);
         let color = match editing {
             Some(_) => None,
@@ -1222,7 +1225,7 @@ pub fn build_keeping(
             Some(color) if color == palette.body(painted_by(&appearance, builder.body)) => parts
                 .face_looks(
                     &mut previous_looks,
-                    (document, evaluation),
+                    (document, looked_in),
                     (body, &appearance, builder.body),
                     (palette, finishes),
                 ),
