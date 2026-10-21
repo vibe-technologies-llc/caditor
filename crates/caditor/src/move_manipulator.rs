@@ -194,7 +194,7 @@ pub struct MoveHandles {
     pub feature: FeatureId,
     origin: Point3,
     reach: f64,
-    forward: Vector3,
+    sight: Vector3,
     turning: Turning,
     frame: Plane,
 }
@@ -262,7 +262,7 @@ impl MoveHandles {
             feature,
             origin,
             reach,
-            forward: view.forward(),
+            sight: view.sight_at(origin),
             turning,
             frame,
         })
@@ -282,7 +282,7 @@ impl MoveHandles {
 
     fn arrow(&self, axis: MoveAxis) -> Option<(Point3, Point3)> {
         let direction = self.direction(axis);
-        (direction.dot(self.forward).abs() < END_ON).then(|| {
+        (direction.dot(self.sight).abs() < END_ON).then(|| {
             (
                 self.origin + direction * GAP_POINTS * self.per_point(),
                 self.origin + direction * self.reach,
@@ -291,7 +291,7 @@ impl MoveHandles {
     }
 
     fn square(&self, normal: MoveAxis) -> Option<[Point3; 4]> {
-        if self.direction(normal).dot(self.forward).abs() < EDGE_ON {
+        if self.direction(normal).dot(self.sight).abs() < EDGE_ON {
             return None;
         }
         let [first, second] = <[MoveAxis; 2]>::try_from(Handle::Across(normal).moves()).ok()?;
@@ -323,7 +323,7 @@ impl MoveHandles {
             }
             _ => return None,
         };
-        if normal.dot(self.forward).abs() < EDGE_ON {
+        if normal.dot(self.sight).abs() < EDGE_ON {
             return None;
         }
         let radius = RING_REACH * self.reach;
@@ -495,7 +495,7 @@ impl MoveHandles {
                 tip,
                 direction: manipulator.direction(axis),
                 per_point: manipulator.per_point(),
-                forward: manipulator.forward,
+                forward: manipulator.sight,
             };
             arrow.add_to(batch, colour);
         }
@@ -1056,10 +1056,31 @@ mod tests {
             feature: FeatureId::from_raw(3),
             origin: Point3::ZERO,
             reach: ARROW_POINTS * view.units_per_pixel_at(depth),
-            forward: view.forward(),
+            sight: view.sight_at(Point3::ZERO),
             turning: Turning::Axes,
             frame: Plane::XY,
         }
+    }
+
+    #[test]
+    fn an_arrow_pointing_at_the_eye_from_off_centre_is_left_out_in_perspective() {
+        let eye = Vector3::new(500.0, 300.0, 0.0);
+        let viewpoint = Viewpoint::looking_from(eye, Point3::ZERO, eye.length()).unwrap();
+        let view = View::new(viewpoint, 800.0, 600.0);
+        let origin = Point3::new(0.0, 300.0, 0.0);
+        let depth = view.view_depth(origin);
+        let handles = MoveHandles {
+            feature: FeatureId::from_raw(3),
+            origin,
+            reach: ARROW_POINTS * view.units_per_pixel_at(depth),
+            sight: view.sight_at(origin),
+            turning: Turning::Axes,
+            frame: Plane::XY,
+        };
+
+        assert!(Vector3::X.dot(view.forward()).abs() < END_ON);
+        assert!(handles.arrow(MoveAxis::X).is_none());
+        assert!(handles.arrow(MoveAxis::Y).is_some());
     }
 
     #[test]

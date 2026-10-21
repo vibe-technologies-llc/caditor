@@ -1214,6 +1214,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   box, following its preview (`move_manipulator.rs`): an arrow along each world axis in the axis colours
   (`ScenePalette::axis`) and a square per plane, on the front layer in the overlay batch at a constant
   size in points (`ARROW_POINTS`); an arrow pointing at the eye or a square seen edge-on is left out.
+  "At the eye" is judged against the ray from the eye to the arrow (`View::sight_at`, the camera's
+  forward in orthographic), as every arrow's gate does (the reach and value arrows too), so an
+  off-centre arrow in perspective never gets a drag that amplifies the pointer.
   Hit-testing is on the UI thread in screen space (`MoveHandles::hit`, arrows within `HIT_POINTS`
   winning over squares), needing no pick; the hovered or dragged handle turns
   `ScenePalette::handle_highlighted`, the hover says what a drag does, and a click on a handle selects

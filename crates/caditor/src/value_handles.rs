@@ -100,7 +100,8 @@ impl ValueHandles {
                     per_point: 1.0,
                 };
                 let per_point = per_point_at(probe.foot())?;
-                let seen = probe.direction().dot(forward).abs() < END_ON;
+                let sight = view.sight_at(probe.foot());
+                let seen = probe.direction().dot(sight).abs() < END_ON;
                 seen.then_some(Shown { per_point, ..probe })
             })
             .take(MOST_GAUGES)

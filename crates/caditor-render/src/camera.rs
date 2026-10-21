@@ -308,6 +308,15 @@ impl View {
         self.viewpoint.forward()
     }
 
+    pub fn sight_at(&self, point: Point3) -> Vector3 {
+        match self.projection {
+            Projection::Orthographic => self.forward(),
+            Projection::Perspective => (point - self.eye())
+                .try_normalize()
+                .unwrap_or_else(|| self.forward()),
+        }
+    }
+
     pub fn near_plane(&self) -> f64 {
         match self.projection {
             Projection::Perspective => self.viewpoint.distance * NEAR_PLANE_FRACTION,
@@ -1385,6 +1394,22 @@ mod tests {
         camera.pan(DVec2::new(5.0, 5.0), f64::NAN);
 
         assert_eq!(camera.viewpoint(), before);
+    }
+
+    #[test]
+    fn the_line_of_sight_runs_from_the_eye_in_perspective_and_along_forward_in_orthographic() {
+        let viewpoint =
+            Viewpoint::looking_from(Vector3::new(5.0, 3.0, 0.0), Point3::ZERO, 10.0).unwrap();
+        let perspective = View::new(viewpoint, 800.0, 600.0);
+        let orthographic = perspective.with_projection(Projection::Orthographic);
+        let off_centre = Point3::new(0.0, 8.0, 0.0);
+
+        let seen = perspective.sight_at(off_centre);
+        let expected = (off_centre - perspective.eye()).normalize();
+
+        assert!((seen - expected).length() < 1e-12);
+        assert!(seen.dot(perspective.forward()) < 1.0 - 1e-6);
+        assert_eq!(orthographic.sight_at(off_centre), orthographic.forward());
     }
 
     #[test]

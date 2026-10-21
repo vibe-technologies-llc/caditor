@@ -220,7 +220,7 @@ impl ReachHandles {
             let shown = view.is_drawn_at(depth)
                 && per_point.is_finite()
                 && per_point > 0.0
-                && direction.dot(forward).abs() < END_ON;
+                && direction.dot(view.sight_at(end)).abs() < END_ON;
             shown.then_some(ReachArrow {
                 reach,
                 end,

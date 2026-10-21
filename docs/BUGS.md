@@ -192,12 +192,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge-on in perspective the angle is wildly sensitive. `ValueHandles` `Follow::Turn` has the same
   weakness. Typing the angle or orbiting away works; an angle taken from the pointer's motion round
   the axis on screen would work edge-on.
-- [medium · medium] The end-on gate for arrows (`reach_handles.rs`, `value_handles.rs`,
-  `handle_snap.rs`, `move_manipulator.rs`) compares the arrow's direction with the camera's
-  `forward`, not with the ray from the eye to the arrow, so in perspective an off-centre arrow
-  pointing at the eye passes the gate while `Ray::closest_along_line` divides by an `apart` near
-  zero and the dragged value amplifies the pointer's motion many times over. Gating on the eye ray,
-  or dragging in the plane facing the camera through the arrow, bounds it.
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.
