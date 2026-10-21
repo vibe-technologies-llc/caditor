@@ -242,8 +242,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] An empty sketch with dependents is kept without a word when it is left
   (`Editor::remove_empty`, `editing.rs`), where an empty one without is removed with an Undo
   notice.
-- [low · easy] The command palette lists paging only by Up and Down: PageUp and PageDown do not
-  move through a long list (`palette.rs`).
 - [low · easy] A sketch segment lying exactly on the extension of a box or lasso edge is taken as
   crossing it: `segments_cross` (`sketch_drag.rs`) returns true when all four cross products are
   zero, collinear but disjoint segments included; a one-dimensional overlap test for that case fixes

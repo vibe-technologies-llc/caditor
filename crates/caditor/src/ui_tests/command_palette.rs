@@ -233,6 +233,32 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
 }
 
 #[test]
+fn page_down_and_page_up_move_the_palette_highlight_by_a_page() {
+    let mut harness = Harness::new();
+    harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.show_new_windows();
+    assert_eq!(harness.workspace.palette.highlighted(), 0);
+
+    harness.key(Key::PageDown, Modifiers::NONE);
+    harness.frame();
+    let paged = harness.workspace.palette.highlighted();
+    assert!(paged > 1);
+
+    harness.key(Key::PageDown, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(harness.workspace.palette.highlighted(), 2 * paged);
+
+    harness.key(Key::PageUp, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(harness.workspace.palette.highlighted(), paged);
+
+    harness.key(Key::PageUp, Modifiers::NONE);
+    harness.key(Key::PageUp, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(harness.workspace.palette.highlighted(), 0);
+}
+
+#[test]
 fn recent_models_notices_and_recompute_are_commands() {
     let dir = TempDir::new().unwrap();
     let root = canonical(&dir);

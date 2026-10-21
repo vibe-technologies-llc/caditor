@@ -283,7 +283,8 @@ paths:
   available ("unavailable now" versus "only works while a sketch is edited"). The chosen command is
   triggered next frame. Enter or a click on an entry that is not ready closes the palette and posts
   its detail line as a warning notice (`Palette::take_refusal`), so the next key reaches the view or
-  panel it was meant for.
+  panel it was meant for. Up and Down move the highlight by a row, PageUp and PageDown by
+  `palette::rows_in_a_page` (the rows the list shows at its height), clamped to the list.
 - Matching ranks a start of the title, then starts of words, then text inside, then other names
   (`Command::keywords`; a feature's kind words from `feature_tree::kind_words`), then scattered
   letters (`palette::fit_with_keywords`), so a synonym never outranks a title it also matches.

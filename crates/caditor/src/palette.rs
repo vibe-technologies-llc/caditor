@@ -170,6 +170,11 @@ impl Palette {
         self.highlighted = 0;
     }
 
+    #[cfg(test)]
+    pub fn highlighted(&self) -> usize {
+        self.highlighted
+    }
+
     pub fn take_chosen(&mut self) -> Option<Command> {
         self.chosen.take()
     }
@@ -430,13 +435,16 @@ impl Palette {
         if !self.open {
             return;
         }
-        let (up, down, enter) = ctx.input_mut(|input| {
+        let (up, down, page_up, page_down, enter) = ctx.input_mut(|input| {
             (
                 input.consume_key(Modifiers::NONE, Key::ArrowUp),
                 input.consume_key(Modifiers::NONE, Key::ArrowDown),
+                input.consume_key(Modifiers::NONE, Key::PageUp),
+                input.consume_key(Modifiers::NONE, Key::PageDown),
                 input.consume_key(Modifiers::NONE, Key::Enter),
             )
         });
+        let page = rows_in_a_page(ctx);
         let response = widgets::search_dialog(ctx, "command-palette", DialogWidth::Wide, |ui| {
             let field = ui
                 .horizontal(|ui| {
@@ -463,6 +471,12 @@ impl Palette {
             if up {
                 self.highlighted = self.highlighted.saturating_sub(1);
             }
+            if page_down {
+                self.highlighted = (self.highlighted + page).min(last);
+            }
+            if page_up {
+                self.highlighted = self.highlighted.saturating_sub(page);
+            }
             self.highlighted = self.highlighted.min(last);
             ui.add_space(SPACE_S);
             ui.separator();
@@ -488,7 +502,7 @@ impl Palette {
                             }
                             let highlighted = index == self.highlighted;
                             let row = row(ui, entry, highlighted);
-                            if highlighted && (up || down) {
+                            if highlighted && (up || down || page_up || page_down) {
                                 row.scroll_to_me(None);
                             }
                             if row.clicked() {
@@ -517,6 +531,10 @@ impl Palette {
             self.open = false;
         }
     }
+}
+
+fn rows_in_a_page(ctx: &egui::Context) -> usize {
+    ((widgets::list_height(ctx, LIST_HEIGHT) / ROW_HEIGHT) as usize).max(1)
 }
 
 fn command_entry(
