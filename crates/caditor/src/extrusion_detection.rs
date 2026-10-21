@@ -5,7 +5,7 @@ use caditor_document::{
 };
 
 use crate::{
-    body_reach::{self, REACH_BUDGET, Verdict},
+    body_reach::{self, REACH_BUDGET, Reaches, Verdict},
     solid_tools::Reach,
 };
 
@@ -71,29 +71,54 @@ pub fn extrusion(
         }
     }
 
+    let joining = |found: &Option<Reaches>| {
+        let found = found.as_ref()?;
+        let reached = found.reaching(chosen)?;
+        Some(
+            match found.meets_only_along_an_edge(reach.evaluation, reached) {
+                true => Err(reached.body),
+                false => Ok(reached.body),
+            },
+        )
+    };
     let forward = sweep(false);
-    if let Some(reached) = forward.as_ref().and_then(|found| found.reaching(chosen)) {
-        return Detected {
-            operation: BodyOperation::Add(reached.body),
-            extent: directed(template, false).extent,
-            told,
-        };
-    }
-    if forward.is_some() {
-        let backward = sweep(true);
-        if let Some(reached) = backward.as_ref().and_then(|found| found.reaching(chosen)) {
+    let edgewise = match joining(&forward) {
+        Some(Ok(body)) => {
             return Detected {
-                operation: BodyOperation::Add(reached.body),
-                extent: directed(template, true).extent,
-                told: Some(format!(
-                    "The extrusion points toward {}; the other way reached no body.",
-                    label(reached.body)
-                )),
+                operation: BodyOperation::Add(body),
+                extent: directed(template, false).extent,
+                told,
             };
         }
+        Some(Err(body)) => Some(body),
+        None => None,
+    };
+    if forward.is_some()
+        && let Some(Ok(body)) = joining(&sweep(true))
+    {
+        let other_way = if edgewise == Some(body) {
+            "would meet it only along an edge"
+        } else {
+            "reached no body"
+        };
+        return Detected {
+            operation: BodyOperation::Add(body),
+            extent: directed(template, true).extent,
+            told: Some(format!(
+                "The extrusion points toward {}; the other way {other_way}.",
+                label(body)
+            )),
+        };
+    }
+    let operation = chosen.map_or(BodyOperation::NewBody, BodyOperation::Add);
+    if let (BodyOperation::NewBody, Some(body)) = (operation, edgewise) {
+        told = Some(format!(
+            "The extrusion would meet {} only along an edge, so it makes a new body.",
+            label(body)
+        ));
     }
     Detected {
-        operation: chosen.map_or(BodyOperation::NewBody, BodyOperation::Add),
+        operation,
         extent: directed(template, false).extent,
         told,
     }

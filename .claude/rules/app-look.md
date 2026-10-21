@@ -667,8 +667,9 @@ paths:
 - Whatever is selected in the view marks the rows of the features it belongs to as selected: a face
   the feature row that made it (`viewport::tree_row_of`, the double-click's `feature_of`: a hole's
   bore, a fillet's or chamfer's surface, a shell's wall or a pattern's copy marks that feature, not
-  the extrusion whose body it changed) and its body's Bodies row, an edge or vertex its body's feature
-  row and Bodies row, a sketch curve, region or constraint its sketch, a datum its own
+  the extrusion whose body it changed) and its body's Bodies row, an edge the row of the latest
+  feature that made one of its faces (`viewport::edge_feature`: a boss's rim marks the boss, not the
+  plate it joined) and its body's Bodies row, a vertex its body's feature row and Bodies row, a sketch curve, region or constraint its sketch, a datum its own
   (`Pickable::owner`, `PanelState::follow_view_selection` on each change of the selection's generation
   or the evaluation, `in_view` for feature rows, `bodies_in_view` for Bodies rows); the first newly
   marked feature row is scrolled into view. The mark is only a look (`reads_selected`,

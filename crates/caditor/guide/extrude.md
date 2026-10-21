@@ -106,7 +106,9 @@ along the lean slopes by the taper from the direction and one facing the lean a 
   polygon larger than the pipe it sits on, where it adds outward instead). A cut whose default distance
   more than clears the body starts as **Through all**.
 - A new extrusion that would run away from a body but would reach it the other way points toward it
-  and adds to it, and a notice says so. One that already reaches a body is never turned.
+  and adds to it, and a notice says so. One that already reaches a body is never turned, unless it
+  would meet the body only along an edge, which cannot be joined: a ring drawn round the top of a
+  boss hangs down from its rim instead, or, when neither way joins, makes a new body.
 - **Fill**: Solid fills the regions; **Thin wall** makes a wall of the sketch's curves with a
   thickness, inside, outside or centred. A sketch of open curves starts as a thin wall.
 

@@ -176,3 +176,63 @@ fn a_sketch_larger_than_the_boss_it_lies_on_adds_even_though_the_body_is_wider()
     assert_eq!(harness.solid(flange).operation(), BodyOperation::Add(plate));
     assert!(harness.shows_containing("spans the whole face"));
 }
+
+fn boss_on_the_plate(harness: &mut Harness) -> (FeatureId, f64) {
+    let (plate, _) = extruded_plate(harness);
+    let mut raised = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+    );
+    raised.add_circle(Point2::new(20.0, 20.0), 6.0);
+    harness.add_sketch(raised);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, egui::Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let top = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .and_then(|solid| solid.bounding_box())
+        .expect("the plate has a body")
+        .max()
+        .z;
+    (plate, top)
+}
+
+#[test]
+fn a_ring_round_the_top_of_a_boss_hangs_down_from_its_rim_instead_of_meeting_it_along_an_edge() {
+    let mut harness = Harness::new();
+    let (plate, top) = boss_on_the_plate(&mut harness);
+    let before = harness.body_volume(plate);
+    let mut ring =
+        Sketch::new(Plane::from_frame(Point3::new(0.0, 0.0, top), Vector3::Z, Vector3::X).unwrap());
+    ring.add_circle(Point2::new(20.0, 20.0), 6.0);
+    ring.add_circle(Point2::new(20.0, 20.0), 9.0);
+    let sketch = harness.add_sketch(ring);
+    harness.settle();
+    let annulus = crate::selection::sketch_regions(harness.model.evaluation(), sketch)
+        .expect("the ring has regions")
+        .iter()
+        .find(|region| region.region.contains(Point2::new(27.5, 20.0)))
+        .map(|region| region.region.key())
+        .expect("a region lies between the circles");
+    harness.select([Pickable::SketchRegion {
+        feature: sketch,
+        region: annulus,
+    }]);
+
+    harness.click("Extrude");
+    harness.settle();
+    let ring = harness.workspace.editing.solid().expect("the ring is open");
+
+    assert_eq!(harness.solid(ring).operation(), BodyOperation::Add(plate));
+    assert!(matches!(
+        extent(&harness, ring),
+        ExtrudeExtent::OneSide { reversed: true, .. }
+    ));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.body_volume(plate) > before);
+    assert!(harness.shows_containing("only along an edge"));
+}

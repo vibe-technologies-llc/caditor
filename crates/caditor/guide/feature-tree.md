@@ -33,7 +33,8 @@ Shift-click takes only the rows shown. Escape with nothing selected in the view,
 empty space in the view, lets go of the chosen rows. Choosing or hovering a row lights what it
 made in the view: a body's row the whole body, a row that changes a body, such as a hole or a
 fillet, only the faces it made, so each hole lights on its own. A split lights the body it split
-off, never the body it was split from.
+off, never the body it was split from. The other way round, selecting a face or edge in the view
+marks the row of the feature that made it: the rim of a boss joined to a plate marks the boss.
 
 The eye on a row hides or shows what it made. The principal planes, axes and origin have a group
 row of their own, read as hidden while they step aside after the first body (see

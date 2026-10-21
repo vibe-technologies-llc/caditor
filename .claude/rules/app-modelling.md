@@ -328,7 +328,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   unmeshed body, an unsupported sweep, a failed or timed-out check, `Verdict::Unknown`):
   - Direction: with the forward sweep reaching no body (or not the selected one) and the reversed
     sweep reaching one, the extrusion turns toward it (`reversed`) and adds to it, and a notice says
-    so. A forward sweep touching or overlapping a body is never turned.
+    so. A forward sweep touching or overlapping a body is never turned, unless it touches only along
+    an edge, which cannot be added (`Reaches::meets_only_along_an_edge`: the kernel's union of the
+    sweep and the body it touches is `NonManifold`, as with a ring drawn round the top of a boss;
+    run only for the body about to be added to, under a `REACH_BUDGET` of its own, and taken as
+    joining when it runs out): the reversed sweep is tried as above and the notice says the other
+    way meets it only along an edge, else the extrusion makes a new body and says why.
   - A cut that would remove nothing: when the sweep into the face's body is judged to miss it
     (`Verdict::Misses`: apart, or only touching), as with a profile drawn off the face, the
     extrusion does not cut; it takes the outward direction and a notice says the sketch lies off the

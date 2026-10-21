@@ -1,5 +1,7 @@
 use caditor_document::FeatureId;
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::FaceOrigin;
+use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
 use super::{Harness, extruded_plate, top_edge_along_x};
@@ -108,4 +110,59 @@ fn a_face_of_the_extrusion_itself_still_marks_the_extrusion_row() {
 
     assert!(harness.workspace.panels.reads_selected(extrude));
     assert!(harness.workspace.panels.reads_body_selected(extrude));
+}
+
+fn boss_on_plate(harness: &mut Harness) -> (FeatureId, FeatureId) {
+    let (plate, _) = extruded_plate(harness);
+    let mut raised = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+    );
+    raised.add_circle(Point2::new(20.0, 20.0), 6.0);
+    harness.add_sketch(raised);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let boss = close_open_feature(harness);
+    (plate, boss)
+}
+
+fn edge_described(harness: &mut Harness, wanted: &str) -> Pickable {
+    harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Edge { .. })
+                && pickable
+                    .describe(harness.document(), harness.model.evaluation())
+                    .contains(wanted)
+        })
+        .unwrap_or_else(|| panic!("an edge reads {wanted}"))
+}
+
+#[test]
+fn an_edge_a_boss_made_on_a_plate_marks_the_boss_row_and_not_the_plate_s() {
+    let mut harness = Harness::new();
+    let (plate, boss) = boss_on_plate(&mut harness);
+    let rim = edge_described(&mut harness, "Extrude 2 end face");
+
+    let marked = marked_rows(&mut harness, rim, [boss, plate]);
+
+    assert_eq!(marked, [true, false]);
+    assert!(harness.workspace.panels.reads_body_selected(plate));
+}
+
+#[test]
+fn an_edge_of_the_plate_alone_still_marks_the_plate_row() {
+    let mut harness = Harness::new();
+    let (plate, boss) = boss_on_plate(&mut harness);
+    let edge = top_edge_along_x(&harness, plate, 0.0);
+
+    let marked = marked_rows(
+        &mut harness,
+        Pickable::Edge { body: plate, edge },
+        [boss, plate],
+    );
+
+    assert_eq!(marked, [false, true]);
 }

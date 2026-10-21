@@ -6544,7 +6544,7 @@ pub fn feature_of(pickable: Pickable, model: &Model) -> Option<FeatureId> {
 
 pub fn tree_row_of(pickable: Pickable, model: &Model) -> Option<FeatureId> {
     match pickable {
-        Pickable::Face { .. } => feature_of(pickable, model)
+        Pickable::Face { .. } | Pickable::Edge { .. } => feature_of(pickable, model)
             .filter(|feature| model.document().feature(*feature).is_some())
             .or_else(|| pickable.owner()),
         _ => pickable.owner(),

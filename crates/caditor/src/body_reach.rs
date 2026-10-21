@@ -10,9 +10,10 @@ use caditor_document::{
 use caditor_expression::Expression;
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector2};
 use caditor_kernel::{
-    AngularExtent, Axis2, Interference, Interrupt, LINEAR_RESOLUTION, LinearExtent, Profile,
-    ProfileCurve, Region, SamplingTolerance, Selection, Solid, extrude, interference,
-    interruptible, mass_properties_tessellating, resolve_regions, revolve, wall_regions,
+    AngularExtent, Axis2, BooleanError, BooleanOperation, Interference, Interrupt,
+    LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve, Region, SamplingTolerance, Selection,
+    Solid, boolean, extrude, interference, interruptible, mass_properties_tessellating,
+    resolve_regions, revolve, wall_regions,
 };
 use caditor_sketch::{Reference, Sketch};
 
@@ -66,16 +67,20 @@ pub fn reaches(
             examined,
             reached: Vec::new(),
             length,
+            tool: None,
         });
     }
     let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
-    let reached = interruptible(interrupt, || {
-        swept.contacts(sketch, solid, &near, footprint_of)
+    let (reached, tool) = interruptible(interrupt, || {
+        let tool = swept.tool(sketch, solid)?;
+        let reached = swept.contacts(&tool, sketch, solid, &near, footprint_of);
+        Some((reached, tool))
     })?;
     Some(Reaches {
         examined,
         reached,
         length,
+        tool: Some(Arc::new(tool)),
     })
 }
 
@@ -106,6 +111,7 @@ pub struct Reaches {
     examined: Vec<FeatureId>,
     reached: Vec<Reached>,
     length: Option<f64>,
+    tool: Option<Arc<Solid>>,
 }
 
 impl Reaches {
@@ -114,6 +120,21 @@ impl Reaches {
             Some(body) => self.reached.iter().find(|reached| reached.body == body),
             None => self.most(),
         }
+    }
+
+    pub fn meets_only_along_an_edge(&self, evaluation: &Evaluation, reached: &Reached) -> bool {
+        let (Touch::Contact, Some(tool)) = (reached.touch, self.tool.as_deref()) else {
+            return false;
+        };
+        let Some(body) = Standing::of(evaluation, reached.body) else {
+            return false;
+        };
+        let deadline = Instant::now() + REACH_BUDGET;
+        let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
+        let joined = interruptible(interrupt, || {
+            boolean(tool, body.solid, BooleanOperation::Union)
+        });
+        matches!(joined, Err(BooleanError::NonManifold(_)))
     }
 
     pub fn verdict(&self, body: FeatureId) -> Verdict {
@@ -408,15 +429,15 @@ impl Swept {
 
     fn contacts(
         &self,
+        tool: &Solid,
         sketch: &Sketch,
         solid: &SolidFeature,
         near: &[Standing<'_>],
         footprint_of: Option<FeatureId>,
-    ) -> Option<Vec<Reached>> {
-        let tool = self.tool(sketch, solid)?;
+    ) -> Vec<Reached> {
         let touches: Vec<(&Standing<'_>, Result<Solid, Touch>)> = near
             .iter()
-            .filter_map(|body| match interference(&tool, body.solid) {
+            .filter_map(|body| match interference(tool, body.solid) {
                 Ok(Interference::Apart) => None,
                 Ok(Interference::Overlapping(overlap)) => Some((body, Ok(overlap))),
                 Ok(Interference::Touching(_)) => Some((body, Err(Touch::Contact))),
@@ -428,7 +449,7 @@ impl Swept {
             .filter(|(_, overlap)| overlap.is_ok())
             .count()
             > 1;
-        let reached = touches
+        touches
             .into_iter()
             .map(|(body, overlap)| {
                 let overlap_is_solid = overlap.is_ok();
@@ -448,8 +469,7 @@ impl Swept {
                     },
                 }
             })
-            .collect();
-        Some(reached)
+            .collect()
     }
 
     fn length(&self) -> Option<f64> {
