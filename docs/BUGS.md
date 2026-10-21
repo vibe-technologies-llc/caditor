@@ -242,10 +242,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] An empty sketch with dependents is kept without a word when it is left
   (`Editor::remove_empty`, `editing.rs`), where an empty one without is removed with an Undo
   notice.
-- [low · easy] A sketch segment lying exactly on the extension of a box or lasso edge is taken as
-  crossing it: `segments_cross` (`sketch_drag.rs`) returns true when all four cross products are
-  zero, collinear but disjoint segments included; a one-dimensional overlap test for that case fixes
-  it.
 - [low · easy] Fillet and chamfer refuse an edge that does not have exactly two named faces
   (`EdgeReference::capture_in`) with "no longer part of the model" (`BlendError::SomeEdgesGone`,
   `blend_tools.rs`), which is untrue of an edge that is there; the refusal itself follows the

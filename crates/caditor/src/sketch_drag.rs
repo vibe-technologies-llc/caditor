@@ -913,7 +913,23 @@ fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
     let side = |p: Vector2, q: Vector2, r: Vector2| (q - p).perp_dot(r - p);
     let (first, second) = (side(a, b, c), side(a, b, d));
     let (third, fourth) = (side(c, d, a), side(c, d, b));
+    if first == 0.0 && second == 0.0 && third == 0.0 && fourth == 0.0 {
+        return collinear_segments_overlap(a, b, c, d);
+    }
     first * second <= 0.0 && third * fourth <= 0.0
+}
+
+fn collinear_segments_overlap(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
+    let along_x = (a - b).x.abs().max((c - d).x.abs()) >= (a - b).y.abs().max((c - d).y.abs());
+    let coordinate = |p: Vector2| if along_x { p.x } else { p.y };
+    let span = |p: Vector2, q: Vector2| {
+        (
+            coordinate(p).min(coordinate(q)),
+            coordinate(p).max(coordinate(q)),
+        )
+    };
+    let ((low, high), (other_low, other_high)) = (span(a, b), span(c, d));
+    low <= other_high && other_low <= high
 }
 
 fn kept_pieces(outline: &[Point2], screen: &impl Screen) -> Option<Vec<(Vector2, Vector2)>> {
@@ -1079,6 +1095,66 @@ mod tests {
     fn ends(sketch: &Sketch, line: EntityId) -> (EntityId, EntityId) {
         let points = sketch.entity(line).unwrap().points();
         (points[0], points[1])
+    }
+
+    #[test]
+    fn collinear_segments_cross_only_where_they_overlap() {
+        let at = |x: f64, y: f64| Vector2::new(x, y);
+
+        assert!(!segments_cross(
+            at(0.0, 0.0),
+            at(1.0, 1.0),
+            at(2.0, 2.0),
+            at(3.0, 3.0)
+        ));
+        assert!(!segments_cross(
+            at(0.0, 0.0),
+            at(0.0, 1.0),
+            at(0.0, 2.0),
+            at(0.0, 3.0)
+        ));
+        assert!(segments_cross(
+            at(0.0, 0.0),
+            at(2.0, 2.0),
+            at(1.0, 1.0),
+            at(3.0, 3.0)
+        ));
+        assert!(segments_cross(
+            at(0.0, 0.0),
+            at(1.0, 1.0),
+            at(1.0, 1.0),
+            at(2.0, 2.0)
+        ));
+        assert!(segments_cross(
+            at(3.0, 3.0),
+            at(0.0, 0.0),
+            at(1.0, 1.0),
+            at(2.0, 2.0)
+        ));
+        assert!(segments_cross(
+            at(0.0, 0.0),
+            at(2.0, 0.0),
+            at(1.0, -1.0),
+            at(1.0, 1.0)
+        ));
+        assert!(!segments_cross(
+            at(0.0, 0.0),
+            at(1.0, 0.0),
+            at(2.0, -1.0),
+            at(2.0, 1.0)
+        ));
+        assert!(!segments_cross(
+            at(1.0, 1.0),
+            at(1.0, 1.0),
+            at(2.0, 2.0),
+            at(3.0, 3.0)
+        ));
+        assert!(segments_cross(
+            at(2.0, 2.0),
+            at(2.0, 2.0),
+            at(1.0, 1.0),
+            at(3.0, 3.0)
+        ));
     }
 
     #[test]
