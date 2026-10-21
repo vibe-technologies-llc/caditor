@@ -82,6 +82,10 @@ paths:
 - `Harness::repaint_after` is the repaint delay egui reported for the last frame (`Duration::MAX`
   when nothing asked); `ViewportState::set_uploading` and `set_upload_stopped` are called by the
   test itself, which reads the renderer's side with `take_upload_request`.
+- `body_reach::REACH_BUDGET`, the UI thread's 150 ms wall-clock allowance for deciding what a new
+  extrusion reaches, is a minute under test, so a loaded machine never runs it out in the middle of
+  a detection test (`ui_tests/extrusion_detection.rs`); what a run-out says is covered by the unit
+  test on `extrusion_detection::extrusion` with an unevaluated model.
 
 ## Timing tests
 

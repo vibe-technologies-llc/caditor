@@ -19,7 +19,11 @@ use caditor_sketch::{Reference, Sketch};
 
 use crate::{editing, visibility};
 
-pub const REACH_BUDGET: Duration = Duration::from_millis(150);
+pub const REACH_BUDGET: Duration = if cfg!(test) {
+    Duration::from_secs(60)
+} else {
+    Duration::from_millis(150)
+};
 const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_SLACK_PER_SIZE: f64 = 1e-3;
 const BOX_SLACK: f64 = 100.0 * LINEAR_RESOLUTION;
