@@ -2,7 +2,9 @@
 
 {command:model.mirror} adds a mirrored copy of a body. Select the body (a face, edge or vertex of
 it), and with it the plane to mirror across: a principal or datum plane or a flat face. With no
-plane selected, it mirrors across the YZ plane.
+plane selected, it mirrors across the YZ plane. With several bodies selected, or chosen in the tree, each
+is mirrored across the same plane by a mirror of its own, all in one undoable change; the panel of the
+first opens, and the others are edited from their rows in the tree.
 
 The panel chooses the plane from a list of the principal, datum and coordinate system planes
 before it, or from the selection or the view, and **Keep the original** decides

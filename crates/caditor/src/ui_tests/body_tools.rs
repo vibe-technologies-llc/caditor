@@ -15,6 +15,53 @@ use crate::{
 };
 
 #[test]
+fn several_selected_bodies_are_mirrored_across_one_plane_in_one_undoable_change() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let peg_edge = harness
+        .model
+        .evaluation()
+        .body(peg)
+        .unwrap()
+        .edges()
+        .next()
+        .map(|(_, edge)| edge.name())
+        .unwrap();
+
+    harness.select([
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+        Pickable::Edge {
+            body: peg,
+            edge: peg_edge,
+        },
+    ]);
+    harness.hover("Mirror body");
+    assert!(harness.shows_containing("Mirror 2 bodies across"));
+    harness.click("Mirror body");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Create 2 mirrors"));
+    assert!(harness.shows("Mirror across"));
+    let mirrored: Vec<FeatureId> = harness
+        .document()
+        .features()
+        .filter_map(|feature| match &feature.kind {
+            FeatureKind::Mirror(mirror) => Some(mirror.body),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(mirrored, [plate, peg]);
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!((low.x + 60.0).abs() < 1e-6 && (high.x - 60.0).abs() < 1e-6);
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!((low.x + 40.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+}
+
+#[test]
 fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_the_panel() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

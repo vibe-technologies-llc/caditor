@@ -1244,6 +1244,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   or point, a datum after the bar or several planes are refused. The panel chooses a principal, datum or
   coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
   `MirrorPlane`) or the palette's Mirror across selected.
+  With several bodies selected or chosen in the tree (`move_tools::chosen_bodies_beside`) it makes one
+  Mirror per body across the same plane in one transaction ("Create N mirrors",
+  `MirrorSource::also`, names from `editing::next_feature_names`) and opens the first.
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
   list them and Mirror the chosen features takes the rows chosen now; Keep the original is hidden. The

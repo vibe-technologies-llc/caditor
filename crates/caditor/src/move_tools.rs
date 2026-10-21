@@ -90,6 +90,19 @@ pub fn chosen_body_beside(
     reference: Option<Pickable>,
     none: &'static str,
 ) -> Result<FeatureId, BodyChoiceError> {
+    match chosen_bodies_beside(model, selection, tree, reference, none)?.as_slice() {
+        [body] => Ok(*body),
+        _ => Err(BodyChoiceError::Several),
+    }
+}
+
+pub fn chosen_bodies_beside(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+    reference: Option<Pickable>,
+    none: &'static str,
+) -> Result<Vec<FeatureId>, BodyChoiceError> {
     let rest: Vec<FeatureId> = body_selection::bodies_in(selection)
         .into_iter()
         .filter(|body| {
@@ -105,13 +118,17 @@ pub fn chosen_body_beside(
     } else {
         rest
     };
-    match chosen.as_slice() {
-        [] => Err(BodyChoiceError::Nothing { instruction: none }),
-        [body] => bodies::shown(model.evaluation(), *body)
-            .map(|_| *body)
-            .ok_or(BodyChoiceError::NoShape),
-        _ => Err(BodyChoiceError::Several),
+    if chosen.is_empty() {
+        return Err(BodyChoiceError::Nothing { instruction: none });
     }
+    chosen
+        .into_iter()
+        .map(|body| {
+            bodies::shown(model.evaluation(), body)
+                .map(|_| body)
+                .ok_or(BodyChoiceError::NoShape)
+        })
+        .collect()
 }
 
 pub fn create(

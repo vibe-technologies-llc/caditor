@@ -1118,6 +1118,10 @@ fn mirror_button(
             let hover = mirror_tools::features_hover(model.document(), chosen);
             Ok(commands.with_keys(Command::Mirror, &hover))
         }
+        Ok(chosen) if !chosen.also.is_empty() => {
+            let hover = mirror_tools::bodies_hover(model.document(), chosen);
+            Ok(commands.with_keys(Command::Mirror, &hover))
+        }
         Ok(_) => Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION)),
         Err(reason) => Err(Blocked::ToFix {
             what: mirror_tools::DESCRIPTION.to_owned(),

@@ -76,6 +76,7 @@ const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::
 #[derive(Debug, Clone, PartialEq)]
 pub struct MirrorSource {
     pub body: FeatureId,
+    pub also: Vec<FeatureId>,
     pub plane: Option<PlaneReference>,
     pub mirrored: Vec<FeatureId>,
 }
@@ -218,7 +219,15 @@ pub fn mirroring_faces(
 }
 
 pub fn features_hover(document: &Document, source: &MirrorSource) -> String {
-    let subject = source.subject(document);
+    hover(document, source, source.subject(document))
+}
+
+pub fn bodies_hover(document: &Document, source: &MirrorSource) -> String {
+    let count = source.also.len() + 1;
+    hover(document, source, format!("{count} bodies"))
+}
+
+fn hover(document: &Document, source: &MirrorSource, subject: String) -> String {
     match &source.plane {
         Some(plane) => format!(
             "Mirror {subject} across {}",
@@ -240,15 +249,20 @@ pub fn source(
     let chosen = datum_tools::chosen_plane(model, selection, document.bar_index())
         .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
-    let (body, mirrored) = match pattern_tools::repeatable(document, rows) {
-        Some(features) => features,
+    let (bodies, mirrored) = match pattern_tools::repeatable(document, rows) {
+        Some((body, features)) => (vec![body], features),
         None => (
-            move_tools::chosen_body_beside(model, selection, tree, face, NO_BODY)?,
+            move_tools::chosen_bodies_beside(model, selection, tree, face, NO_BODY)?,
             Vec::new(),
         ),
     };
+    let mut bodies = bodies.into_iter();
+    let body = bodies.next().ok_or(move_tools::BodyChoiceError::Nothing {
+        instruction: NO_BODY,
+    })?;
     Ok(MirrorSource {
         body,
+        also: bodies.collect(),
         plane: chosen.map(|chosen| chosen.plane),
         mirrored,
     })
@@ -260,15 +274,28 @@ pub fn create(document: &Document, source: &MirrorSource) -> (Transaction, Featu
     } else {
         FEATURES_TITLE
     };
-    let name = editing::next_feature_name(document, title);
-    let mut transaction = document.transaction(format!("Create {name}"));
+    let bodies: Vec<FeatureId> = std::iter::once(source.body)
+        .chain(source.also.iter().copied())
+        .collect();
+    let mut names = editing::next_feature_names(document, title, bodies.len()).into_iter();
+    let first = names
+        .next()
+        .unwrap_or_else(|| editing::next_feature_name(document, title));
+    let label = match bodies.len() {
+        1 => format!("Create {first}"),
+        count => format!("Create {count} mirrors"),
+    };
+    let plane = source.plane.clone().unwrap_or(DEFAULT_PLANE);
+    let mut transaction = document.transaction(label);
     let feature = transaction.add_feature(
-        name,
+        first,
         FeatureKind::Mirror(
-            Mirror::new(source.body, source.plane.clone().unwrap_or(DEFAULT_PLANE))
-                .mirroring(source.mirrored.clone()),
+            Mirror::new(source.body, plane.clone()).mirroring(source.mirrored.clone()),
         ),
     );
+    for (body, name) in source.also.iter().zip(names) {
+        transaction.add_feature(name, FeatureKind::Mirror(Mirror::new(*body, plane.clone())));
+    }
     (transaction.finish(), feature)
 }
 
