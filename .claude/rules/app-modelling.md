@@ -420,8 +420,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   whose curves enclose nothing starts as a thin wall, and such an unused sketch is one Extrude guesses
   (`solid_tools::is_open_profile`).
 - While an extrusion is open (nothing being chosen in the view), each end set by a distance has a reach
-  arrow (`reach_handles.rs`, `Handle::Reach`) at that end over the middle of its sketch's bounds,
-  measured from where the extrusion starts (`reach_handles::start_offset`; for a start face or plane
+  arrow (`reach_handles.rs`, `Handle::Reach`) at that end over the middle of the bounds of the
+  regions it sweeps (`reach_handles::swept_bounds`: the chosen regions, else the whole sketch, as for a
+  thin wall), measured from where the extrusion starts (`reach_handles::start_offset`; for a start face or plane
   `displayed_start_offset`, resolved on the body as the feature sees it), pointing the way that side
   runs, in `ScenePalette::handle` at the move arrows' size, left out when pointing at the eye. A
   symmetric extrusion has one, on its forward side, whose drag grows the whole distance twice as fast.

@@ -2086,11 +2086,9 @@ impl Builder<'_> {
         let plane = scene::sketch_plane(document, self.model.evaluation(), extrude.sketch)?;
         let start =
             reach_handles::start_offset(self.model, self.feature, &plane, extrude.start.as_ref())?;
-        let bounds = self
-            .model
-            .sketch_bounds(document.feature(extrude.sketch)?)?;
-        let half = plane.to_local(bounds.max()) - plane.to_local(bounds.center());
-        let middle = plane.to_world(plane.to_local(bounds.center())) + plane.normal() * start;
+        let bounds = reach_handles::swept_bounds(self.model, extrude, &plane)?;
+        let half = bounds.max() - bounds.center();
+        let middle = plane.to_world(bounds.center()) + plane.normal() * start;
         Some((plane, middle, Point2::new(half.x.abs(), half.y.abs())))
     }
 

@@ -1,9 +1,9 @@
 use caditor_document::{
-    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterValues, SolidFeature,
-    SolidStart, Transaction, displayed_start_offset,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterValues, RegionChoice,
+    SolidFeature, SolidStart, Transaction, displayed_start_offset,
 };
 use caditor_expression::{Dimension, Expression};
-use caditor_geometry::{Plane, Point3, Ray, Vector2, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
@@ -15,7 +15,9 @@ use crate::{
         segment_distance, step_for,
     },
     reversing::{self, Flip},
+    scene,
     scene_palette::ScenePalette,
+    selection,
     units::Units,
 };
 
@@ -141,6 +143,30 @@ fn held(model: &Model, feature: FeatureId, extrude: &Extrude, reach: Reach) -> O
     ))
 }
 
+pub fn swept_bounds(model: &Model, extrude: &Extrude, plane: &Plane) -> Option<Aabb2> {
+    let document = model.document();
+    let chosen = match (&extrude.regions, extrude.wall.as_deref()) {
+        (RegionChoice::Chosen(_), None) => {
+            selection::sketch_regions(model.evaluation(), extrude.sketch).and_then(|regions| {
+                let keys = scene::chosen_regions(&extrude.regions, regions);
+                regions
+                    .iter()
+                    .filter(|region| keys.contains(&region.region.key()))
+                    .filter_map(|region| region.region.bounds())
+                    .reduce(Aabb2::union)
+            })
+        }
+        _ => None,
+    };
+    chosen.or_else(|| {
+        let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
+        let centre = plane.to_local(bounds.center());
+        let half = plane.to_local(bounds.max()) - centre;
+        let half = Vector2::new(half.x.abs(), half.y.abs());
+        Aabb2::from_points([centre - half, centre + half])
+    })
+}
+
 fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Point3, Vector3)> {
     if extrude.direction.is_some() {
         return None;
@@ -148,12 +174,9 @@ fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Poin
     let document = model.document();
     let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
     let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
-    let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
+    let bounds = swept_bounds(model, extrude, &plane)?;
     let normal = plane.normal();
-    Some((
-        plane.to_world(plane.to_local(bounds.center())) + normal * start,
-        normal,
-    ))
+    Some((plane.to_world(bounds.center()) + normal * start, normal))
 }
 
 pub fn reach_lines(model: &Model, feature: FeatureId) -> Vec<(Reach, [Point3; 2])> {

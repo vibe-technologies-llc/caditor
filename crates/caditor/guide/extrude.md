@@ -42,7 +42,8 @@ sketch from the panel's **Sketch** list does the same.
   it when negative.
 - On one side and without an offset, Up to next follows a curved next face, or several faces at
   different heights, and Up to face takes a curved face.
-- While it is open, drag the arrow at the end in the view to change its distance. A named
+- While it is open, drag the arrow at the end in the view to change its distance. It stands over the
+  regions the extrusion sweeps, not the rest of the sketch. A named
   distance keeps its name; one that follows other parameters does not drag (see
   [parameters](parameters)). An arrow at the edge of the end drags the **Taper**, one standing on
   an Up to face or Up to next end drags how far it goes past the face (Up to next only when the

@@ -989,3 +989,28 @@ fn dragging_a_shell_s_arrow_back_through_its_face_moves_the_walls_outside() {
     );
     assert_eq!(harness.model.undo_label(), Some("Edit Shell 1"));
 }
+
+#[test]
+fn an_extrusion_of_one_region_has_its_arrow_over_that_region_and_not_the_whole_sketch() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(200.0, 40.0));
+    let circle = sketch.add_circle(Point2::new(20.0, 20.0), 8.0);
+    let sketch = harness.add_sketch(sketch);
+
+    harness.select([Pickable::SketchEntity {
+        feature: sketch,
+        entity: circle,
+    }]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = open_feature(&harness);
+
+    let lines = crate::reach_handles::reach_lines(&harness.model, extrude);
+    let [(_, [from, _])] = lines.as_slice() else {
+        panic!("one end has an arrow");
+    };
+
+    assert!((from.x - 20.0).abs() < 1e-6, "{from:?}");
+    assert!((from.y - 20.0).abs() < 1e-6, "{from:?}");
+}
