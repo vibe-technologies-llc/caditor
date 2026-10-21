@@ -224,10 +224,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   or dragging in the plane facing the camera through the arrow, bounds it.
 - [low · easy] Faces that exist only in a draft preview take the body's base colour until the value
   is committed, since the face looks come from the committed evaluation (`scene.rs`).
-- [low · easy] The view cube's axis triad lines (`show_axis_triad`, `view_cube.rs`) have no halo:
-  the dark palette's light axis colours measure about 1.06 over the default body colour and 1.4
-  over mid-grey, so a body behind the triad hides the lines; the letters have a backdrop and the
-  lines are checked against the canvas only.
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.

@@ -170,7 +170,9 @@ paths:
   palettes keep one form for every sketch state. A render `Color` becomes an egui colour only through
   `scene_palette::color32` (canvases, axis colours, analysis swatches, the palette tests), a
   document `Rgb` only through `body_appearance::color32`.
-- The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes` with each letter on the
+- The axis triad (`view_cube::show_axis_triad`) draws in the palette's `axes`, each line over a halo
+  `TRIAD_HALO` wide in the palette's `axis_halo` (near-black on the dark canvases, white on the light
+  ones, each holding every axis colour to 3:1) so a body behind it never hides it, with each letter on the
   label backdrop, every letter over every line (the letter of an axis pointing away sits on the
   origin, where the other two lines meet); axis colours hold 4.5:1 (7:1 in high contrast) over it on black, white and hover,
   which is why the standard dark red and blue are lighter and the light ones darker than a plain

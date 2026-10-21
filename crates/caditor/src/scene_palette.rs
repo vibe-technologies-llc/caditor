@@ -499,6 +499,7 @@ pub struct ScenePalette {
     pub background: Look,
     pub hole: Color,
     pub outline: Color,
+    pub axis_halo: Color,
     pub preview_curve: Color,
     pub preview_point: Color,
     pub trimmed_curve: Color,
@@ -661,6 +662,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     ),
     hole: CANVAS_HOLE,
     outline: CANVAS_HOLE,
+    axis_halo: CANVAS_HOLE,
     preview_curve: Color::from_rgb8(190, 150, 255),
     preview_point: Color::from_rgb8(214, 190, 255),
     trimmed_curve: Color::from_rgb8(255, 96, 84),
@@ -773,6 +775,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     ),
     hole: CANVAS_HOLE,
     outline: CANVAS_HOLE,
+    axis_halo: CANVAS_HOLE,
     preview_curve: Color::from_rgb8(205, 170, 255),
     preview_point: Color::from_rgb8(225, 205, 255),
     trimmed_curve: Color::from_rgb8(255, 110, 100),
@@ -863,6 +866,7 @@ pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
     ),
     hole: LIGHT_CANVAS_HOLE,
     outline: Color::from_rgb8(0, 0, 0),
+    axis_halo: Color::from_rgb8(255, 255, 255),
     preview_curve: Color::from_rgb8(110, 60, 210),
     preview_point: Color::from_rgb8(90, 44, 190),
     trimmed_curve: Color::from_rgb8(210, 40, 30),
@@ -973,6 +977,7 @@ pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
     ),
     hole: LIGHT_CANVAS_HOLE,
     outline: Color::from_rgb8(0, 0, 0),
+    axis_halo: Color::from_rgb8(255, 255, 255),
     preview_curve: Color::from_rgb8(90, 40, 180),
     preview_point: Color::from_rgb8(70, 26, 160),
     trimmed_curve: Color::from_rgb8(180, 20, 10),
@@ -1523,6 +1528,16 @@ mod tests {
                 assert_visible(what, color, outline);
             }
             assert_visible("centre of mass outline", palette.outline, body());
+        }
+    }
+
+    #[test]
+    fn the_axis_triad_lines_stand_out_from_their_halo() {
+        for (palette, _) in every_palette() {
+            let halo = opaque32(palette.axis_halo);
+            for axis in palette.axes {
+                assert_visible("axis triad line", axis, halo);
+            }
         }
     }
 

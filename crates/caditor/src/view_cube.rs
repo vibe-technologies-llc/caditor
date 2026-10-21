@@ -9,7 +9,7 @@ use crate::{
     canvas,
     commands::Command,
     icons,
-    scene_palette::ScenePalette,
+    scene_palette::{self, ScenePalette},
     selection::Axis,
     widgets,
 };
@@ -37,6 +37,7 @@ const TRIAD_OFFSET: f32 = 34.0;
 const TRIAD_LABEL_REACH: f32 = 1.35;
 const TRIAD_LABEL_ROOM: f32 = 8.0;
 const TRIAD_STROKE: f32 = 2.0;
+const TRIAD_HALO: f32 = 1.0;
 
 struct Face {
     normal: Vector3,
@@ -504,6 +505,13 @@ pub fn show_axis_triad(ui: &Ui, bottom_left: Pos2, orientation: Rotation3, palet
         let tip = projector.project(axis.direction());
         painter.line_segment(
             [projector.center, tip],
+            Stroke::new(
+                TRIAD_STROKE + 2.0 * TRIAD_HALO,
+                scene_palette::color32(palette.axis_halo),
+            ),
+        );
+        painter.line_segment(
+            [projector.center, tip],
             Stroke::new(TRIAD_STROKE, palette.axis_colour(*axis)),
         );
     }
@@ -792,12 +800,22 @@ mod tests {
                 let backdrop = canvas.chrome().backdrop(contrast);
                 let shapes = triad_shapes(contrast, canvas);
 
-                let mut lines: Vec<Color32> = shapes
+                let strokes: Vec<_> = shapes
                     .iter()
                     .filter_map(|shape| match shape {
-                        Shape::LineSegment { stroke, .. } => Some(stroke.color),
+                        Shape::LineSegment { stroke, .. } => Some(*stroke),
                         _ => None,
                     })
+                    .collect();
+                let mut lines: Vec<Color32> = strokes
+                    .iter()
+                    .filter(|stroke| stroke.width == TRIAD_STROKE)
+                    .map(|stroke| stroke.color)
+                    .collect();
+                let halos: Vec<Color32> = strokes
+                    .iter()
+                    .filter(|stroke| stroke.width == TRIAD_STROKE + 2.0 * TRIAD_HALO)
+                    .map(|stroke| stroke.color)
                     .collect();
                 let mut letters: Vec<Color32> = shapes
                     .iter()
@@ -820,6 +838,11 @@ mod tests {
                 expected.sort_by_key(|colour| colour.to_array());
 
                 assert_eq!(lines, expected, "{contrast:?} {canvas:?} lines");
+                assert_eq!(
+                    halos,
+                    vec![scene_palette::color32(palette.axis_halo); 3],
+                    "{contrast:?} {canvas:?} halos"
+                );
                 assert_eq!(letters, expected, "{contrast:?} {canvas:?} letters");
                 assert_eq!(backdrops, 3, "{contrast:?} {canvas:?} backdrops");
             }
