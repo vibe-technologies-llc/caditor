@@ -68,7 +68,6 @@ impl Contrast {
 
 pub const GRID_SEEN: f32 = 1.5;
 pub const BODY_SEEN: f32 = 1.5;
-pub const DIMMED_BODY_SEEN: f32 = 1.5;
 pub const HIGH_CONTRAST_GRID_SEEN: f32 = 3.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1131,6 +1130,7 @@ mod tests {
     };
 
     const VISIBLE: f32 = 3.0;
+    const DIMMED_BODY_SEEN: f32 = 1.5;
 
     fn palettes_of(contrast: Contrast) -> impl Iterator<Item = (&'static ScenePalette, Canvas)> {
         Canvas::ALL
