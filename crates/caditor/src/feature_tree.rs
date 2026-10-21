@@ -24,7 +24,7 @@ use crate::{
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
     commands::{Command, CommandFrame, Reason},
-    completion, datum_panel, delete_face_panel, draft_panel,
+    completion, constraint_trial, datum_panel, delete_face_panel, draft_panel,
     drawing_export::{self, DrawingSource},
     editing::{self, EditingCommand, Opened, SketchEditing},
     emboss_panel, feature_clipboard, feature_fields,
@@ -3658,7 +3658,11 @@ fn dimension_field(
         field.response.clone().labelled_by(label);
         state.focus_reached(focus, field.response.has_focus());
         if let Some(transaction) = field.committed {
-            actions.push(Action::Apply(transaction));
+            actions.push(Action::Trial(constraint_trial::editing_dimension(
+                feature.id(),
+                constraint,
+                transaction,
+            )));
         }
         if field.error.is_none()
             && let Some(preview) = field::value_preview(

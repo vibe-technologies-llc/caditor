@@ -13,7 +13,7 @@ use egui::{
 
 use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
-    appearance, canvas, completion,
+    appearance, canvas, completion, constraint_trial,
     feature_tree::count,
     field::{self, DimensionEditError, DimensionTarget, Reference},
     model::{Action, Model},
@@ -1719,7 +1719,11 @@ impl Annotations {
             })
             .inner;
         if let Some(transaction) = field.committed {
-            actions.push(Action::Apply(transaction));
+            actions.push(Action::Trial(constraint_trial::editing_dimension(
+                target.feature,
+                target.constraint,
+                transaction,
+            )));
         }
         let focused = field.response.has_focus();
         if focused {

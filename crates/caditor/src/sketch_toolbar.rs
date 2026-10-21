@@ -16,7 +16,7 @@ use crate::{
     body_picks::{self, BodyPick, Projections, Staged, Unstaged},
     body_snap::BodySnaps,
     commands::{self, Command, CommandFrame, Reason},
-    constraint_trial::ConstraintTrial,
+    constraint_trial::{ConstraintTrial, Intent},
     editing::{ActiveSketch, CancelRefusal, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
@@ -611,7 +611,8 @@ pub fn show(
         } else {
             actions.push(Action::Trial(ConstraintTrial {
                 feature: feature.id(),
-                added: added
+                intent: Intent::Added,
+                touched: added
                     .constraints
                     .iter()
                     .copied()
@@ -633,11 +634,16 @@ pub fn show(
     if request.activity
         && let Some(change) = &activity
     {
-        actions.push(Action::Apply(change.transaction(
-            model,
-            feature.id(),
-            definition,
-        )));
+        let transaction = change.transaction(model, feature.id(), definition);
+        actions.push(match change.active {
+            true => Action::Trial(ConstraintTrial {
+                feature: feature.id(),
+                intent: Intent::Enabled,
+                touched: change.constraints.clone(),
+                transaction,
+            }),
+            false => Action::Apply(transaction),
+        });
     }
     if request.split
         && let Ok(change) = &split

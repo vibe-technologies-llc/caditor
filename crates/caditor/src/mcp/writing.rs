@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    constraint_trial::{self, ConstraintTrial, PATIENCE},
+    constraint_trial::{self, ConstraintTrial, Intent, PATIENCE},
     editing,
     field::{self, Expected},
     mcp::{
@@ -869,7 +869,8 @@ pub fn constrain(
     let trial = ConstraintTrial {
         feature: sketch,
         transaction,
-        added: added.clone(),
+        touched: added.clone(),
+        intent: Intent::Added,
     };
     let started = Instant::now();
     let given_up = || work.is_cancelled() || started.elapsed() >= PATIENCE;

@@ -155,6 +155,89 @@ fn a_constraint_that_conflicts_only_once_solved_is_refused_naming_what_it_confli
     assert!(notice.text.contains("Fix"), "{}", notice.text);
 }
 
+fn held_distance(sketch: &mut Sketch, millimetres: f64) -> caditor_sketch::ConstraintId {
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 0.0));
+    let (start, end) = line_ends(sketch, line);
+    for (point, at) in [(start, Point2::ZERO), (end, Point2::new(30.0, 0.0))] {
+        sketch
+            .add_constraint(Constraint::Fix { point, at })
+            .unwrap();
+    }
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(millimetres, Unit::Millimetre),
+        })
+        .unwrap()
+}
+
+#[test]
+fn enabling_a_constraint_the_sketch_has_left_is_refused_naming_what_it_conflicts_with() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let distance = held_distance(&mut sketch, 40.0);
+    sketch.set_active(distance, false).unwrap();
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+    let revision = harness.model.revision();
+
+    harness.select([Pickable::SketchConstraint {
+        feature,
+        constraint: distance,
+    }]);
+    harness.click_button("Enable");
+    harness.settle();
+
+    assert_eq!(harness.model.revision(), revision);
+    assert!(!harness.sketch(feature).is_active(distance));
+    let notice = harness.model.notice().expect("the refusal is a notice");
+    assert!(
+        notice.text.contains("was not turned on: it conflicts with"),
+        "{}",
+        notice.text
+    );
+}
+
+#[test]
+fn a_dimension_edited_to_a_value_the_sketch_cannot_hold_is_refused_naming_what_it_conflicts_with() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let distance = held_distance(&mut sketch, 30.0);
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+    let revision = harness.model.revision();
+    let target = crate::field::DimensionTarget {
+        feature,
+        constraint: distance,
+    };
+    let transaction = crate::field::dimension_transaction(
+        harness.document(),
+        harness.model.parameters(),
+        target,
+        "40 mm",
+        harness.model.units(),
+    )
+    .unwrap();
+
+    harness.perform(Action::Trial(crate::constraint_trial::editing_dimension(
+        feature,
+        distance,
+        transaction,
+    )));
+    harness.settle();
+
+    assert_eq!(harness.model.revision(), revision);
+    let notice = harness.model.notice().expect("the refusal is a notice");
+    assert!(
+        notice.text.contains("was not changed: it conflicts with"),
+        "{}",
+        notice.text
+    );
+}
+
 #[test]
 fn horizontal_from_the_selection_levels_a_line_and_updates_the_freedom() {
     let mut harness = Harness::new();

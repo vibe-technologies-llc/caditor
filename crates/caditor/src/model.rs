@@ -1404,7 +1404,7 @@ impl Model {
                 .map(|status| &status.state),
             Some(FeatureState::Failed(_))
         );
-        if !solved_before || trial.added.is_empty() {
+        if !solved_before || trial.touched.is_empty() {
             self.perform(Action::Apply(trial.transaction));
             return;
         }

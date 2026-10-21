@@ -110,14 +110,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · medium] Re-enabling an inactive constraint (`Command::ToggleConstraintActive`,
-  `sketch_toolbar.rs`) and editing a dimension's value (`dimension_edit` in `field.rs`) apply
-  straight away with no `ConstraintTrial`, where a new constraint is tried on the worker first: a
-  reference dimension whose value no longer matches, or a disabled constraint the geometry has
-  since left, puts the sketch into `Conflicting` instead of being refused in words. The conflict
-  names the constraints and Undo restores it; the trial's refusal wording ("was not added",
-  `constraint_trial.rs`) needs generalising to cover both.
-
 - [medium · hard] A conflict through a chain of more than about 1,050 lines with its far end fixed
   out of reach is reported as not solving: the diagnosis's two descents outgrow `DIAGNOSIS_WORK`.
   At 1,000 lines the support's descent from the drawing takes about 225,000 units and the closest

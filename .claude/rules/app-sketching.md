@@ -721,6 +721,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   it over the revision the verdict applied. The trial keeps the revision it started on
   (`Running`), and a verdict reaching a later revision is `Verdict::Outdated`: nothing applies and a
   notice says so, so an undo pressed meanwhile stands with its redo.
+  Enabling a disabled constraint and editing a dimension's value are tried the same way
+  (`constraint_trial::Intent`: added, turned on, changed, which words the refusal; Disable never
+  conflicts and applies at once), so a stale reference dimension or a constraint the geometry has
+  left is refused in words naming what it conflicts with instead of leaving the sketch `Conflicting`.
 - Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`) switches the selected
   constraints off, or on when none is on. A disabled dimension is a reference: its label shows the
   measured value in parentheses in the muted `Standing::Inactive` colour.

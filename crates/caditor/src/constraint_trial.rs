@@ -21,19 +21,51 @@ const NAMED_CONFLICTS: usize = 2;
 pub struct ConstraintTrial {
     pub feature: FeatureId,
     pub transaction: Transaction,
-    pub added: Vec<ConstraintId>,
+    pub touched: Vec<ConstraintId>,
+    pub intent: Intent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    Added,
+    Enabled,
+    Edited,
+}
+
+impl Intent {
+    fn past(self) -> &'static str {
+        match self {
+            Self::Added => "added",
+            Self::Enabled => "turned on",
+            Self::Edited => "changed",
+        }
+    }
+}
+
+pub fn editing_dimension(
+    feature: FeatureId,
+    constraint: ConstraintId,
+    transaction: Transaction,
+) -> ConstraintTrial {
+    ConstraintTrial {
+        feature,
+        transaction,
+        touched: vec![constraint],
+        intent: Intent::Edited,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
     #[error(
-        "“{label}” was not added, because “{running}” was still being checked against the sketch."
+        "“{label}” was not applied, because “{running}” was still being checked against the sketch."
     )]
     Busy { label: String, running: String },
-    #[error("{}", conflict_sentence(.subject, *.added, .named, *.more))]
+    #[error("{}", conflict_sentence(.subject, (*.intent, *.touched), .named, *.more))]
     Conflict {
         subject: String,
-        added: usize,
+        intent: Intent,
+        touched: usize,
         named: Vec<String>,
         more: usize,
     },
@@ -90,7 +122,8 @@ impl Trials {
         let ConstraintTrial {
             feature,
             transaction,
-            added,
+            touched,
+            intent,
         } = trial;
         let cancelled = Arc::new(AtomicBool::new(false));
         let (sender, outcome) = mpsc::channel();
@@ -99,7 +132,8 @@ impl Trials {
             document: document.clone(),
             transaction: transaction.clone(),
             feature,
-            added,
+            touched,
+            intent,
             cancelled: Arc::clone(&cancelled),
             started,
         };
@@ -188,7 +222,8 @@ struct Job {
     document: Document,
     transaction: Transaction,
     feature: FeatureId,
-    added: Vec<ConstraintId>,
+    touched: Vec<ConstraintId>,
+    intent: Intent,
     cancelled: Arc<AtomicBool>,
     started: Instant,
 }
@@ -200,7 +235,8 @@ impl Job {
         let trial = ConstraintTrial {
             feature: self.feature,
             transaction: self.transaction,
-            added: self.added,
+            touched: self.touched,
+            intent: self.intent,
         };
         outcome(self.document, &trial, &cancelled)
     }
@@ -234,22 +270,28 @@ fn outcome(
     let values = ParameterValues::evaluate(&document);
     match sketch.solve(&|id| values.value(id), cancelled) {
         Ok(_) => Outcome::Holds,
-        Err(SketchError::Conflict { constraints }) => {
-            Outcome::Conflicts(refusal(sketch, &trial.added, &constraints))
-        }
+        Err(SketchError::Conflict { constraints }) => Outcome::Conflicts(refusal(
+            sketch,
+            (trial.intent, &trial.touched),
+            &constraints,
+        )),
         Err(_) => Outcome::Unknown,
     }
 }
 
-fn refusal(sketch: &Sketch, added: &[ConstraintId], conflicting: &[ConstraintId]) -> Refusal {
-    let subject = match added {
+fn refusal(
+    sketch: &Sketch,
+    (intent, touched): (Intent, &[ConstraintId]),
+    conflicting: &[ConstraintId],
+) -> Refusal {
+    let subject = match touched {
         [only] => sketch.describe_constraint(*only),
-        added => format!("The {} new constraints", added.len()),
+        touched => format!("The {} constraints", touched.len()),
     };
     let others: Vec<ConstraintId> = conflicting
         .iter()
         .copied()
-        .filter(|constraint| !added.contains(constraint))
+        .filter(|constraint| !touched.contains(constraint))
         .collect();
     let named = others
         .iter()
@@ -259,23 +301,34 @@ fn refusal(sketch: &Sketch, added: &[ConstraintId], conflicting: &[ConstraintId]
     let more = others.len().saturating_sub(NAMED_CONFLICTS);
     Refusal::Conflict {
         subject,
-        added: added.len(),
+        intent,
+        touched: touched.len(),
         named,
         more,
     }
 }
 
-fn conflict_sentence(subject: &str, added: usize, named: &[String], more: usize) -> String {
-    let (verb, pronoun, conflicts) = match added {
+fn conflict_sentence(
+    subject: &str,
+    (intent, touched): (Intent, usize),
+    named: &[String],
+    more: usize,
+) -> String {
+    let (verb, pronoun, conflicts) = match touched {
         1 => ("was", "it", "conflicts"),
         _ => ("were", "they", "conflict"),
     };
+    let past = intent.past();
     let with = match (named, more) {
         ([], _) => {
             return format!(
-                "{subject} {verb} not added: the sketch could not hold {} with its other \
+                "{subject} {verb} not {past}: the sketch could not hold {} with its other \
                  constraints.",
-                if added == 1 { "it" } else { "them" }
+                match (intent, touched) {
+                    (Intent::Edited, _) => "the new value",
+                    (_, 1) => "it",
+                    (_, _) => "them",
+                }
             );
         }
         ([only], _) => only.clone(),
@@ -283,7 +336,7 @@ fn conflict_sentence(subject: &str, added: usize, named: &[String], more: usize)
         (named, more) => format!("{} and {more} more", named.join(", ")),
     };
     format!(
-        "{subject} {verb} not added: {pronoun} {conflicts} with {with}. Remove or turn one of \
+        "{subject} {verb} not {past}: {pronoun} {conflicts} with {with}. Remove or turn one of \
          them off first."
     )
 }
