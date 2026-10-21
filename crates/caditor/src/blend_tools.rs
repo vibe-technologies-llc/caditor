@@ -83,6 +83,11 @@ pub enum BlendError {
     EdgesGone,
     #[error("Some of the selected edges are no longer part of the model")]
     SomeEdgesGone,
+    #[error(
+        "A selected edge does not lie between two different faces, so it could not be followed \
+         when the model changes; choose an edge between two faces"
+    )]
+    EdgeNotNameable,
     #[error("The feature is not a fillet or a chamfer")]
     NotABlend { feature: FeatureId },
     #[error("{name} already takes {rule}")]
@@ -114,6 +119,16 @@ impl Reason for BlendError {
     fn pending(&self) -> Option<Pending> {
         matches!(self, Self::NoShape { .. }).then_some(Pending::BodyShape)
     }
+}
+
+fn nameable_edges(
+    naming: &EdgeNaming,
+    located: &[EdgeId],
+) -> Result<Vec<EdgeReference>, BlendError> {
+    located
+        .iter()
+        .map(|edge| EdgeReference::capture_in(naming, *edge).ok_or(BlendError::EdgeNotNameable))
+        .collect()
 }
 
 pub fn selected_edges(
@@ -215,14 +230,12 @@ pub fn create(
     let shown =
         bodies::shown(evaluation, source.body).ok_or(BlendError::NoShape { body: source.body })?;
     let naming = EdgeNaming::new(&shown.solid);
-    let edges: Vec<EdgeReference> = source
+    let located: Vec<EdgeId> = source
         .picked
         .iter()
-        .filter_map(|name| {
-            let edge = bodies::find_edge(shown, *name)?;
-            EdgeReference::capture_in(&naming, edge)
-        })
+        .filter_map(|name| bodies::find_edge(shown, *name))
         .collect();
+    let edges = nameable_edges(&naming, &located)?;
     let groups: Vec<EdgeGroup> = source
         .groups
         .iter()
@@ -234,10 +247,10 @@ pub fn create(
             GroupSource::Body => Some(EdgeGroup::Body),
         })
         .collect();
-    if edges.is_empty() && groups.is_empty() {
+    if located.is_empty() && groups.is_empty() {
         return Err(BlendError::EdgesGone);
     }
-    if edges.len() < source.picked.len() {
+    if located.len() < source.picked.len() {
         return Err(BlendError::SomeEdgesGone);
     }
     if groups.len() < source.groups.len() {
@@ -750,5 +763,47 @@ mod tests {
         assert_eq!(create(vec![present]), Ok(()));
         assert_eq!(create(vec![present, gone]), Err(BlendError::SomeEdgesGone));
         assert_eq!(create(vec![gone]), Err(BlendError::EdgesGone));
+    }
+
+    #[test]
+    fn an_edge_the_naming_cannot_capture_is_refused_in_words_that_are_true_of_it() {
+        let recomputed = |sample: Sample| {
+            let document = sample.document().unwrap();
+            Recompute::default().run(
+                &document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+                &|_, _| {},
+            )
+        };
+        let plate = recomputed(Sample::Plate);
+        let spool = recomputed(Sample::Spool);
+        let solid_of = |evaluation: &Evaluation| {
+            let (body, _) = evaluation.bodies().next().unwrap();
+            evaluation.body(body).unwrap().clone()
+        };
+        let (plate, spool) = (solid_of(&plate), solid_of(&spool));
+        let (larger, smaller) = if plate.edges().count() > spool.edges().count() {
+            (plate, spool)
+        } else {
+            (spool, plate)
+        };
+        let naming = EdgeNaming::new(&smaller);
+        let foreign: Vec<EdgeId> = larger
+            .edges()
+            .map(|(id, _)| id)
+            .filter(|id| smaller.edge(*id).is_none())
+            .collect();
+
+        let refused = nameable_edges(&naming, &foreign);
+
+        assert!(!foreign.is_empty());
+        assert_eq!(refused, Err(BlendError::EdgeNotNameable));
+        assert!(
+            !BlendError::EdgeNotNameable
+                .to_string()
+                .contains("no longer")
+        );
+        assert_eq!(nameable_edges(&naming, &[]), Ok(Vec::new()));
     }
 }

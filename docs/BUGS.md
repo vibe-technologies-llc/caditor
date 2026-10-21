@@ -242,10 +242,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] An empty sketch with dependents is kept without a word when it is left
   (`Editor::remove_empty`, `editing.rs`), where an empty one without is removed with an Undo
   notice.
-- [low · easy] Fillet and chamfer refuse an edge that does not have exactly two named faces
-  (`EdgeReference::capture_in`) with "no longer part of the model" (`BlendError::SomeEdgesGone`,
-  `blend_tools.rs`), which is untrue of an edge that is there; the refusal itself follows the
-  rule against positional naming, only its words should say the edge cannot be named stably.
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.
