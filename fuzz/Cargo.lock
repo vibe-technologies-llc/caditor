@@ -303,7 +303,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
- "parking_lot",
+ "parking_lot 0.12.5",
  "percent-encoding",
  "windows-sys 0.61.2",
  "wl-clipboard-rs",
@@ -666,7 +666,7 @@ dependencies = [
  "env_logger",
  "jiff",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "png",
  "pollster",
  "rfd",
@@ -687,7 +687,7 @@ dependencies = [
  "graviola",
  "jiff",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rustls-graviola",
  "serde",
  "serde_json",
@@ -708,7 +708,7 @@ dependencies = [
  "caditor-sketch",
  "caditor-zstd",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "rayon-core",
  "thiserror 2.0.21",
 ]
@@ -739,7 +739,7 @@ dependencies = [
  "jxl-oxide",
  "log",
  "miniz_oxide 0.9.1",
- "parking_lot",
+ "parking_lot 0.13.0",
  "png",
  "rustix 1.1.5",
  "serde",
@@ -787,7 +787,7 @@ version = "0.1.0"
 dependencies = [
  "caditor-geometry",
  "caditor-kernel",
- "parking_lot",
+ "parking_lot 0.13.0",
  "skrifa 0.48.0",
  "thiserror 2.0.21",
 ]
@@ -802,7 +802,7 @@ dependencies = [
  "glam 0.34.1",
  "half",
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
@@ -835,7 +835,7 @@ name = "caditor-wayland"
 version = "0.1.0"
 dependencies = [
  "log",
- "parking_lot",
+ "parking_lot 0.13.0",
  "raw-window-handle",
  "rustix 1.1.5",
  "thiserror 2.0.21",
@@ -847,7 +847,7 @@ dependencies = [
 name = "caditor-windows"
 version = "0.1.0"
 dependencies = [
- "parking_lot",
+ "parking_lot 0.13.0",
  "raw-window-handle",
  "windows-sys 0.61.2",
 ]
@@ -1371,7 +1371,7 @@ dependencies = [
  "harfrust",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.5",
  "profiling",
  "self_cell",
  "skrifa 0.44.0",
@@ -1396,7 +1396,7 @@ dependencies = [
  "harfrust",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.5",
  "profiling",
  "self_cell",
  "skrifa 0.44.0",
@@ -2280,9 +2280,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.190"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libfuzzer-sys"
@@ -2361,6 +2361,15 @@ name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "lock_api"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65d91b22da179613dcf4d6ec8349563f52a363f6849e03b00dd0a185ec4a59af"
 dependencies = [
  "scopeguard",
 ]
@@ -2999,8 +3008,18 @@ version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
 dependencies = [
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.14",
+ "parking_lot_core 0.9.12",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9cf937ca4e1d0b7578784559063422fc39ae7c5a00f02471f2614d5486fd226"
+dependencies = [
+ "lock_api 0.5.0",
+ "parking_lot_core 0.10.0",
 ]
 
 [[package]]
@@ -3012,6 +3031,18 @@ dependencies = [
  "cfg-if",
  "libc",
  "redox_syscall 0.5.18",
+ "smallvec",
+ "windows-link",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cfff060068cc18aa7815010fcaf80c68c7fb9e85fc7f5c0f9bf142c21d19826"
+dependencies = [
+ "libc",
+ "redox_syscall 0.9.4",
  "smallvec",
  "windows-link",
 ]
@@ -4536,7 +4567,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "js-sys",
  "log",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
@@ -4569,7 +4600,7 @@ dependencies = [
  "naga",
  "naga-types",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
@@ -4630,7 +4661,7 @@ dependencies = [
  "objc2 0.6.5",
  "once_cell",
  "ordered-float",
- "parking_lot",
+ "parking_lot 0.12.5",
  "portable-atomic",
  "portable-atomic-util",
  "profiling",
