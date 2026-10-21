@@ -675,6 +675,7 @@ pub(crate) struct SplitFaceAlongRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SplitFaceToolRecord {
+    Unchosen,
     Plane(Lenient<PlaneReferenceRecord>),
     Body(u64),
     Sketch(u64),
@@ -1617,6 +1618,7 @@ pub(crate) struct SplitAlongRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SplitToolRecord {
+    Unchosen,
     Body(u64),
     Sketch(u64),
 }
@@ -3677,6 +3679,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
             along: match &split.along {
+                SplitAlong::Unchosen => SplitFaceToolRecord::Unchosen,
                 SplitAlong::Plane(plane) => {
                     SplitFaceToolRecord::Plane(Lenient::Read(plane_reference_record(plane)))
                 }
@@ -8468,6 +8471,7 @@ fn split_record(split: &Split) -> FeatureKindRecord {
                 flipped: split.flipped,
             });
         }
+        SplitAlong::Unchosen => SplitToolRecord::Unchosen,
         SplitAlong::Body(tool) => SplitToolRecord::Body(tool.raw()),
         SplitAlong::Sketch(sketch) => SplitToolRecord::Sketch(sketch.raw()),
         SplitAlong::Surface(face) => {
@@ -8738,6 +8742,7 @@ fn restore_split_along(record: &SplitAlongRecord) -> Split {
     Split {
         body: FeatureId::from_raw(record.body),
         along: match record.along {
+            SplitToolRecord::Unchosen => SplitAlong::Unchosen,
             SplitToolRecord::Body(tool) => SplitAlong::Body(FeatureId::from_raw(tool)),
             SplitToolRecord::Sketch(sketch) => SplitAlong::Sketch(FeatureId::from_raw(sketch)),
         },
@@ -9339,6 +9344,7 @@ fn restore_split_face(
                 PlaneReference::Principal(PrincipalPlane::Yz)
             }))
         }
+        SplitFaceToolRecord::Unchosen => SplitAlong::Unchosen,
         SplitFaceToolRecord::Body(tool) => SplitAlong::Body(FeatureId::from_raw(*tool)),
         SplitFaceToolRecord::Sketch(sketch) => SplitAlong::Sketch(FeatureId::from_raw(*sketch)),
     };

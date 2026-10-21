@@ -795,7 +795,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (kernel `wrapped_stand`), pointing along the surface normal there, towards the axis for a bore.
 - Split face (Alt+Shift+K) takes the selected faces of one body (`split_face_tools::source`) and, from
   the rest of the selection, a principal or datum plane or the curves of one earlier sketch
-  (`split_tools::chosen_along`, faces left aside), else the YZ plane, and creates a `SplitFace` that
+  (`split_tools::chosen_along`, faces left aside), else none (`SplitAlong::Unchosen`: the feature waits, `MissingInput::SplitAlong`,
+  and opens choosing on `Slot::SplitPlane`), and creates a `SplitFace` that
   opens; what it drops is said in a notice. Split along has Use selected and Choose in the view on
   `Slot::SplitPlane`, as the palette's Split along selected does. For a sketch, Carried is
   `split_face_panel::SQUARE` or `ALONG` (as an extrusion's Direction row, through
@@ -1249,7 +1250,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   face chosen as Mirror's is, else curves or regions of one earlier sketch, else exactly one selected
   curved face (`chosen_surface`, through `sketch_placement::surface_at`) as a `SplitAlong::Surface` with
   the body beside it split, else, with faces or edges of exactly two bodies and no tree rows, the first
-  picked is split along the second; nothing chosen splits along YZ. Split along lists principal planes,
+  picked is split along the second; nothing chosen leaves it `SplitAlong::Unchosen`, waiting, opened
+  choosing on `Slot::SplitPlane`, which choosing from the Split along list stops. Split along lists principal planes,
   every other body standing before the split and every earlier sketch that is one open chain
   (`is_open_chain`), worded by `split_tools::describe`; Use selected, Choose in the view (slot
   `SplitPlane`) and the palette's Split along selected take a plane or flat face, a sketch curve, one

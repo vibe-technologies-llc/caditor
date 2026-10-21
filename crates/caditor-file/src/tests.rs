@@ -11608,3 +11608,27 @@ fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
     assert!(loaded.issues[0].contains("taper"), "{:?}", loaded.issues);
     assert_eq!(restored.taper, Expression::parse_stored("0 deg").unwrap());
 }
+
+#[test]
+fn a_split_with_nothing_chosen_to_split_along_is_saved_and_loaded_as_it_was() {
+    use caditor_document::{Split, SplitAlong};
+    let (document, _) = split_face_model(|_, _| SplitAlong::Unchosen);
+    let loaded = decode_text(&encode(&document).unwrap());
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Split");
+    transaction.add_feature(
+        "Split 1",
+        FeatureKind::Split(Split {
+            body: base,
+            along: SplitAlong::Unchosen,
+            flipped: false,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let loaded = decode_text(&encode(&document).unwrap());
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}

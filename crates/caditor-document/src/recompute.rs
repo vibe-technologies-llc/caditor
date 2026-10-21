@@ -136,6 +136,7 @@ pub enum MissingInput {
     FacesToEmboss { body: FeatureId },
     SketchToEmboss { body: FeatureId },
     FacesToSplit { body: FeatureId },
+    SplitAlong { body: FeatureId },
 }
 
 impl MissingInput {
@@ -153,6 +154,7 @@ impl MissingInput {
             | Self::FacesToEmboss { .. }
             | Self::FacesToSplit { .. } => "Waiting for faces",
             Self::TargetPlane { .. } => "Waiting for a target",
+            Self::SplitAlong { .. } => "Waiting for a plane, curve or body",
             Self::SketchToEmboss { .. } => "Waiting for a sketch",
         }
     }
@@ -210,6 +212,11 @@ impl MissingInput {
             Self::FacesToSplit { body } => {
                 format!("Choose the faces of the body of {} to split.", name(body))
             }
+            Self::SplitAlong { body } => format!(
+                "Choose the plane, face, sketch curve or other body to split the body of {} \
+                 along.",
+                name(body)
+            ),
         }
     }
 }

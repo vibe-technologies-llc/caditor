@@ -14,7 +14,9 @@ use crate::{
     describe::describe_surface,
     document::{Document, Feature, FeatureId},
     failure::{Cause, Upstream},
-    recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    recompute::{
+        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
+    },
     solid::{SolidResult, profile_curves},
     surface_tool::{SurfaceCause, SurfaceTool, SurfaceToolError, surface_tool},
     trouble::{self, Adjust, Trouble},
@@ -35,6 +37,7 @@ const CLOSURE_ENTITIES: [u64; 7] = [
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SplitAlong {
+    Unchosen,
     Plane(PlaneReference),
     Body(FeatureId),
     Sketch(FeatureId),
@@ -45,28 +48,28 @@ impl SplitAlong {
     pub fn plane(&self) -> Option<&PlaneReference> {
         match self {
             Self::Plane(plane) => Some(plane),
-            Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
+            Self::Unchosen | Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
         }
     }
 
     pub fn plane_mut(&mut self) -> Option<&mut PlaneReference> {
         match self {
             Self::Plane(plane) => Some(plane),
-            Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
+            Self::Unchosen | Self::Body(_) | Self::Sketch(_) | Self::Surface(_) => None,
         }
     }
 
     pub fn surface(&self) -> Option<&FaceAttachment> {
         match self {
             Self::Surface(face) => Some(face),
-            Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
+            Self::Unchosen | Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
         }
     }
 
     pub fn surface_mut(&mut self) -> Option<&mut FaceAttachment> {
         match self {
             Self::Surface(face) => Some(face),
-            Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
+            Self::Unchosen | Self::Plane(_) | Self::Body(_) | Self::Sketch(_) => None,
         }
     }
 
@@ -74,7 +77,7 @@ impl SplitAlong {
         match self {
             Self::Plane(plane) => plane.heap_size(),
             Self::Surface(face) => face.face.heap_size(),
-            Self::Body(_) | Self::Sketch(_) => 0,
+            Self::Unchosen | Self::Body(_) | Self::Sketch(_) => 0,
         }
     }
 
@@ -87,14 +90,14 @@ impl SplitAlong {
             Self::Plane(plane) => plane.body(),
             Self::Body(tool) => Some(*tool),
             Self::Surface(face) => Some(face.body),
-            Self::Sketch(_) => None,
+            Self::Unchosen | Self::Sketch(_) => None,
         }
     }
 
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Sketch(sketch) => Some(*sketch),
-            Self::Plane(_) | Self::Body(_) | Self::Surface(_) => None,
+            Self::Unchosen | Self::Plane(_) | Self::Body(_) | Self::Surface(_) => None,
         }
     }
 
@@ -102,7 +105,7 @@ impl SplitAlong {
         match self {
             Self::Plane(plane) => plane.origin_features(),
             Self::Surface(face) => face.origin_features(),
-            Self::Body(_) | Self::Sketch(_) => BTreeSet::new(),
+            Self::Unchosen | Self::Body(_) | Self::Sketch(_) => BTreeSet::new(),
         }
     }
 }
@@ -137,8 +140,9 @@ pub(crate) enum SplitTool {
 }
 
 impl SplitTool {
-    fn new(document: &Document, along: &SplitAlong) -> Self {
-        match along {
+    fn new(document: &Document, along: &SplitAlong) -> Option<Self> {
+        Some(match along {
+            SplitAlong::Unchosen => return None,
             SplitAlong::Plane(_) => Self::Plane,
             SplitAlong::Body(tool) => Self::Body {
                 tool: feature_name(document, *tool),
@@ -150,7 +154,7 @@ impl SplitTool {
                 surface: describe_surface(document, face),
                 holder: feature_name(document, face.body),
             },
-        }
+        })
     }
 
     fn words(&self) -> String {
@@ -394,7 +398,11 @@ pub(crate) fn evaluate(
         .document
         .body_label(definition.body)
         .unwrap_or_default();
-    let tool = SplitTool::new(inputs.document, &definition.along);
+    let Some(tool) = SplitTool::new(inputs.document, &definition.along) else {
+        return Err(Failure::Waiting(MissingInput::SplitAlong {
+            body: definition.body,
+        }));
+    };
     let context = Context {
         resolver: Resolver { feature, inputs },
         body_name,
@@ -450,7 +458,7 @@ pub(crate) fn evaluate(
                 .map_err(|error| context.surface_failure(face, error))?,
             )
         }
-        (SplitAlong::Plane(_), None) => return Err(context.misses()),
+        (SplitAlong::Plane(_) | SplitAlong::Unchosen, None) => return Err(context.misses()),
     };
     let (tool, keep_inside) = match &tool {
         Tool::Inside(tool) => (tool, true),

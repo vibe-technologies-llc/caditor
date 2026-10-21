@@ -1188,6 +1188,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Split { body, along, flipped }` cuts its body along a `SplitAlong`: the part on one side stays
   (the other when `flipped`), the rest becomes a body of the split's own (`makes_body`). Both come
   from one tool solid, intersected and subtracted, so the pieces share the cut face's name.
+  - `Unchosen`: nothing chosen yet; the feature waits (`MissingInput::SplitAlong`) rather than failing,
+    as a split face does, and the app creates it so when the selection names nothing to split along.
   - `Plane`: a `PlaneReference` resolved like a mirror's; the side its normal faces stays. The tool
     is a half-space block past the body's box by `HALF_SPACE_REACH` of its diagonal plus
     `HALF_SPACE_MARGIN`.

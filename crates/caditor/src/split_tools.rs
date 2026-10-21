@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, FeatureResult, PlaneReference, PrincipalPlane, Split,
-    SplitAlong, Transaction, capitalized, describe_plane, describe_surface, is_open_chain,
+    Document, Edit, FeatureId, FeatureKind, FeatureResult, Split, SplitAlong, Transaction,
+    capitalized, describe_plane, describe_surface, is_open_chain,
 };
 
 use crate::{
@@ -14,13 +14,13 @@ use crate::{
     model::{Action, Model},
     move_tools,
     queued::Pending,
+    reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
 };
 
 pub const TITLE: &str = "Split body";
 const NO_BODY: &str = "Select a face or edge of the body to split";
-const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SplitError {
@@ -70,6 +70,7 @@ pub struct SplitSource {
 
 pub fn describe(document: &Document, along: &SplitAlong) -> String {
     match along {
+        SplitAlong::Unchosen => "None chosen".to_owned(),
         SplitAlong::Plane(plane) => capitalized(&describe_plane(document, plane)),
         SplitAlong::Body(tool) => document
             .body_label(*tool)
@@ -216,10 +217,7 @@ pub fn create(document: &Document, source: &SplitSource) -> (Transaction, Featur
         name,
         FeatureKind::Split(Split {
             body: source.body,
-            along: source
-                .along
-                .clone()
-                .unwrap_or(SplitAlong::Plane(DEFAULT_PLANE)),
+            along: source.along.clone().unwrap_or(SplitAlong::Unchosen),
             flipped: false,
         }),
     );
@@ -228,10 +226,19 @@ pub fn create(document: &Document, source: &SplitSource) -> (Transaction, Featur
 
 pub fn create_actions(model: &Model, source: &SplitSource) -> Vec<Action> {
     let (transaction, feature) = create(model.document(), source);
-    vec![
+    let choosing = source.along.is_none().then(|| {
+        Action::Editing(EditingCommand::Pick(Picking::new(
+            feature,
+            Slot::SplitPlane,
+        )))
+    });
+    [
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
     ]
+    .into_iter()
+    .chain(choosing)
+    .collect()
 }
 
 pub fn edit(document: &Document, feature: FeatureId, split: Split) -> Option<Transaction> {

@@ -106,6 +106,11 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
     assert!(harness.shows("Split along"));
     assert!(harness.shows("Split-off body"));
+    assert!(harness.shows("Waiting for a plane, curve or body"));
+    assert!(harness.shows("None chosen"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    choose(&mut harness, "None chosen", "The YZ plane");
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     let (low, high) = plate_bounds(&harness, plate);
     assert!(low.x.abs() < 1e-6 && (high.x - 20.0).abs() < 1e-6);

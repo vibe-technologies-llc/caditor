@@ -2,9 +2,10 @@ use caditor_document::{Feature, FeatureId, Split};
 use egui::{Id, Ui};
 
 use crate::{
+    editing::EditingCommand,
     feature_fields::{self, Choice, Picker},
     model::{Action, Model},
-    reference_picking::Slot,
+    reference_picking::{self, Slot},
     selection::Selection,
     split_tools::{self, SplitError},
     widgets,
@@ -54,6 +55,12 @@ impl Panel<'_> {
                     .collect()
             });
         ui.end_row();
+        let choosing = reference_picking::current(ui.ctx())
+            .is_some_and(|picking| picking.is_for(self.id(), Slot::SplitPlane));
+        if chosen.is_some() && choosing {
+            self.actions
+                .push(Action::Editing(EditingCommand::StopPicking));
+        }
         self.actions.extend(chosen);
         ui.label("");
         let picker = Picker {

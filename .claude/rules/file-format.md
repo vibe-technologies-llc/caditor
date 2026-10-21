@@ -363,7 +363,7 @@ Patterns:
 Splits and faces:
 
 - `split`: `body`, `plane` (unreadable YZ), `flipped` when set. `split_along`: `along` as
-  `{"body": id}` or `{"sketch": id}`. `split_surface`: `body`, `face` attachment record; unreadable
+  `{"body": id}`, `{"sketch": id}` or `"unchosen"` (nothing chosen yet, waiting). `split_surface`: `body`, `face` attachment record; unreadable
   splits along YZ.
 - `offset_face`: `body`, `distance` (unreadable 1 mm), `faces` (unreadable left in place),
   `tangent` when set. `delete_face`: `body`, `faces` (unreadable left on the body); the corpus holds
@@ -381,7 +381,7 @@ Splits and faces:
   each reported; the corpus holds it in `drafts.caditor`. `replace_face`: `body`, `faces`
   (unreadable left as they stand) and `target` when chosen (plane reference; unreadable loads with
   none, waiting for one), each reported; the corpus holds it in `replaced-faces.caditor`. `split_face`: `body`, `faces` (unreadable left whole), `along`
-  (`{"plane": ref}` unreadable YZ, `{"body": id}`, `{"sketch": id}`). Wrappers: `split_face_along`
+  (`{"plane": ref}` unreadable YZ, `{"body": id}`, `{"sketch": id}`, `"unchosen"`). Wrappers: `split_face_along`
   (`direction`, axis reference; unreadable carried square), `split_face_surface` (`face`
   attachment record; unreadable along YZ), `split_face_wrapped` (wraps round a cylinder or cone).
 

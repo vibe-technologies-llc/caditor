@@ -727,3 +727,17 @@ fn only_a_split_along_a_sketch_keeps_how_it_carries_the_curves() {
 
     assert_eq!(kept.split_face().unwrap().carry, SplitCarry::Square);
 }
+
+#[test]
+fn a_split_face_with_nothing_to_split_along_waits_instead_of_failing() {
+    let mut model = model(|_| SplitAlong::Unchosen);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(
+        evaluation.feature(model.split).unwrap().state,
+        FeatureState::Waiting(MissingInput::SplitAlong { body: model.base })
+    );
+    assert!(evaluation.body(model.base).is_some());
+}

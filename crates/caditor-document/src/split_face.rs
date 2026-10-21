@@ -263,7 +263,7 @@ impl Context<'_> {
 
 fn tool_words(inputs: &Inputs<'_>, along: &SplitAlong) -> String {
     match along {
-        SplitAlong::Plane(_) => "The plane".to_owned(),
+        SplitAlong::Plane(_) | SplitAlong::Unchosen => "The plane".to_owned(),
         SplitAlong::Body(tool) => feature_name(inputs.document, *tool),
         SplitAlong::Sketch(sketch) => {
             format!("The curve of {}", feature_name(inputs.document, *sketch))
@@ -561,6 +561,9 @@ fn tool<'a>(
 ) -> Result<Tool<'a>, Failure> {
     let feature = context.resolver.feature.id().raw();
     match &definition.along {
+        SplitAlong::Unchosen => Err(Failure::Waiting(MissingInput::SplitAlong {
+            body: definition.body,
+        })),
         SplitAlong::Plane(reference) => {
             let plane = context.resolver.plane(reference)?;
             half_space_solid(solid, &plane, false, feature)

@@ -640,3 +640,32 @@ fn a_split_plane_can_be_edited_under_a_fillet_on_the_split_off_part() {
 
     assert!(edited.is_ok());
 }
+
+#[test]
+fn a_split_with_nothing_to_split_along_waits_instead_of_failing() {
+    let mut model = split_plate(PlaneReference::Principal(PrincipalPlane::Yz), false);
+    let chosen = model.document.feature(model.split).unwrap().kind.clone();
+    let FeatureKind::Split(mut split) = chosen else {
+        panic!("the feature is a split");
+    };
+    split.along = SplitAlong::Unchosen;
+    model
+        .document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: model.split,
+                kind: FeatureKind::Split(split),
+            },
+        ))
+        .unwrap();
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(
+        evaluation.feature(model.split).unwrap().state,
+        FeatureState::Waiting(MissingInput::SplitAlong { body: model.plate })
+    );
+    assert!(near(x_range(&evaluation, model.plate), (-10.0, 10.0)));
+}

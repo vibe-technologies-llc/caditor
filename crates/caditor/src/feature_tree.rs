@@ -3161,6 +3161,9 @@ fn waiting(
             MissingInput::TargetPlane { .. } => {
                 EditingCommand::Pick(Picking::new(id, Slot::ReplaceTarget))
             }
+            MissingInput::SplitAlong { .. } => {
+                EditingCommand::Pick(Picking::new(id, Slot::SplitPlane))
+            }
             MissingInput::Regions { .. }
             | MissingInput::RegionsToEmboss { .. }
             | MissingInput::Edges { .. }

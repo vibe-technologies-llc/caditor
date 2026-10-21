@@ -164,6 +164,11 @@ fn along_rows(ui: &mut Ui, row: &FacesRow<'_>, actions: &mut Vec<Action>) {
             .collect()
     });
     ui.end_row();
+    let choosing = reference_picking::current(ui.ctx())
+        .is_some_and(|picking| picking.is_for(id, Slot::SplitPlane));
+    if chosen.is_some() && choosing {
+        actions.push(Action::Editing(EditingCommand::StopPicking));
+    }
     actions.extend(chosen);
     ui.label("");
     let picker = Picker {

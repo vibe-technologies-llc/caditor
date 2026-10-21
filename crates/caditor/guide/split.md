@@ -1,8 +1,8 @@
 # Split body
 
 {command:model.split} cuts a body in two along a plane, a face, a sketch curve or another
-body. Select the body, and with it what to split along; with nothing else, it splits along the YZ
-plane. A face is carried on past its edges: a flat face splits along its whole plane, and a
+body. Select the body, and with it what to split along; with nothing else, it opens with no
+**Split along** chosen, waiting for a plane, face, curve or body to be clicked or picked from the list. A face is carried on past its edges: a flat face splits along its whole plane, and a
 cylindrical, conical, spherical or toroidal face along its whole surface, so a shaft's round side
 cuts a plate it does not reach through; a freeform face is refused in words. It has no ribbon
 button; use the Model menu, {command:palette} or the body's right-click menu.

@@ -788,6 +788,7 @@ fn rename_along(along: &mut SplitAlong, rename: Rename<'_>) {
         SplitAlong::Body(body) => *body = rename(*body),
         SplitAlong::Sketch(sketch) => *sketch = rename(*sketch),
         SplitAlong::Plane(plane) => rename_plane(plane, rename),
+        SplitAlong::Unchosen => {}
         SplitAlong::Surface(surface) => surface.body = rename(surface.body),
     }
 }

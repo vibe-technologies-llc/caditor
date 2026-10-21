@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
-    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
-    SplitAlong, SplitCarry, SplitFace, Transaction, on_one_unrolled_surface,
+    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, SplitAlong, SplitCarry, SplitFace,
+    Transaction, on_one_unrolled_surface,
 };
 use caditor_kernel::{FaceId, FaceReference, Solid};
 
@@ -15,12 +15,12 @@ use crate::{
     field::{self, CheckError},
     model::{Action, Model, Notice},
     queued::{self, Pending},
+    reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
     split_tools::{self, SplitError},
 };
 
 pub const TITLE: &str = "Split face";
-const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SplitFaceError {
@@ -149,10 +149,7 @@ pub fn create(
         FeatureKind::SplitFace(SplitFace {
             body: source.body,
             faces,
-            along: source
-                .along
-                .clone()
-                .unwrap_or(SplitAlong::Plane(DEFAULT_PLANE)),
+            along: source.along.clone().unwrap_or(SplitAlong::Unchosen),
             carry: SplitCarry::Square,
         }),
     );
@@ -172,11 +169,18 @@ pub fn create_actions(
                      along, so {words}."
                 )))
             });
+            let choosing = source.along.is_none().then(|| {
+                Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::SplitPlane,
+                )))
+            });
             [
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),
             ]
             .into_iter()
+            .chain(choosing)
             .chain(told)
             .collect()
         }
