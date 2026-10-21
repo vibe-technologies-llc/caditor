@@ -90,7 +90,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for
-  parallel and perpendicular inference (`drawing.rs` `guides`); a drag of several points walks the
+  parallel and perpendicular inference (`drawing.rs` `guides`); the body items (`body_snap.rs`,
+  `point_within` and `edge_within`) are scanned whole on every hover, with no bounds test first; a drag of several points walks the
   point-like targets once more for the moving point nearest one (`snap::nearest_moved`). A
   screen-space index would need the preimage of the snap radius on the sketch plane, unbounded
   near the horizon.

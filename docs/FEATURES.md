@@ -69,6 +69,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   variable-radius blend, a swept or lofted surface); and a parting line is only the neutral plane,
   so a stepped parting line along chosen edges or a split face's line (each side drafted from its
   own hinge) is not offered.
+- [low · medium] The extrude and cut panels pick the target body and the bodies it also cuts only
+  from combo boxes (`solid_panel.rs`); there is no viewport pick slot for either, so with generic
+  names (Solid 1, Solid 2) the body has to be told from the list. Selecting a body's faces before
+  the tool sets the target, and the Result row is detected, so this is a convenience.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since
@@ -134,6 +138,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
   points and directions and the constraints that mean something there (coincident, horizontal and
   vertical in space, parallel, perpendicular, distance, fix).
+- [low · medium] Smart dimension cannot place an arc's Radius from inside its sweep (the cursor
+  there picks the sweep angle, and on an arc over about 300° nearly every position is inside it)
+  and has no Diameter for an arc, though the Diameter tool takes one; dragging an entity infers
+  everything whatever Preferences turns off (`Inferences::default` in `tracking::land`), which
+  those toggles are described as governing for drawing only; and the tooltip for a drag the
+  constraints block says nothing of which constraint limits it when the sketch itself is fine
+  (`DRAG_BLOCKED`), where a conflict already names its constraints.
+- [low · medium] Backspace steps back through a line chain only while the drawing tool stays
+  Line or Tangent arc: a tool change drops the chain (`Drawing::sync`, by design for the shape in
+  progress), so after a round trip through Select the segments already placed can be undone only
+  with Undo.
 - [low · hard] The offset of an ellipse, elliptical arc or spline is a free fit-point spline that
   does not follow the original: holding it would need a constraint keeping each fit point on the
   original's normal at its own parameter (a `Distance` from the curve lets every fit point slide
@@ -245,6 +260,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
+- [low · medium] View history walks back only (`view_history.rs`): Alt+Left steps to the
+  previous view without keeping the one left, so there is no step forward again.
+- [low · hard] Dependencies between features show only in a feature's context menu (Uses and Used
+  by), the delete dialog and the failure callouts; the tree margin has no connection marks and the
+  view no highlight of the geometry a feature refers to.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

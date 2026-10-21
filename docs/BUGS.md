@@ -69,6 +69,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
+- [medium · easy] A new extrusion's operation is chosen without saying so in cases where the user
+  would want to know (`extrusion_detection.rs`). A sketch standing on a face whose reach check runs
+  out of `REACH_BUDGET` or comes back unknown falls to a cut (`cut(false)`) with no notice, where
+  the footprint and miss signals might have said add or outward; a sweep that clears the body
+  turns its distance into Through all with `told: None`; a sweep that touches a body anywhere
+  (a pin in a hole, a lid on a box) fuses into it as an Add with no notice, where the Result row
+  only shows it afterwards; and an edge-only check that runs out of budget is taken as joining, so
+  the union can still end in `NonManifold`. Each is undoable and documented in `app-modelling.md`;
+  what is missing is the notice naming what was chosen and the Result row to change it.
+
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
@@ -110,6 +120,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
+- [medium · medium] Re-enabling an inactive constraint (`Command::ToggleConstraintActive`,
+  `sketch_toolbar.rs`) and editing a dimension's value (`dimension_edit` in `field.rs`) apply
+  straight away with no `ConstraintTrial`, where a new constraint is tried on the worker first: a
+  reference dimension whose value no longer matches, or a disabled constraint the geometry has
+  since left, puts the sketch into `Conflicting` instead of being refused in words. The conflict
+  names the constraints and Undo restores it; the trial's refusal wording ("was not added",
+  `constraint_trial.rs`) needs generalising to cover both.
+
 - [medium · hard] A conflict through a chain of more than about 1,050 lines with its far end fixed
   out of reach is reported as not solving: the diagnosis's two descents outgrow `DIAGNOSIS_WORK`.
   At 1,000 lines the support's descent from the drawing takes about 225,000 units and the closest
@@ -121,6 +139,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
   within minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet (it
   discards that result), so the property is unchecked.
+- [low · hard] A dimension placed on entities that still have other freedom is added as a driving
+  dimension although the measured value is already determined by their constraints: `determines`
+  (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is
+  `FullyConstrained`. Such a dimension is reported as redundant, not as a conflict, since its value
+  equals the measured one; deciding it from the freedom along the one measured direction would need
+  the solver's Jacobian.
 
 ## STEP import
 
@@ -177,6 +201,66 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
+
+## Interface
+
+- [medium · easy] Escape while renaming a row in Saved views, Selection sets or Configurations
+  (`saved_views.rs`, `selection_sets.rs`, `configurations.rs`) closes the whole dialog and keeps
+  the rename: the row tests `has_focus()` with Escape, but egui drops focus at the start of the
+  Escape frame, so the cancel branch never runs and the modal takes the key. Testing `lost_focus()`
+  as `field.rs` does and consuming the key fixes it; a UI test should pin it for all three.
+- [medium · easy] The dimmed body drawn while a sketch is edited (`background_body` of the scene
+  palette) is not held to any contrast against its canvas: 1.03 on Studio, 1.01 on Blue-grey,
+  1.33 on Light and 1.37 on Grey, with its edges at 1.2 to 2.8, so a context body nearly
+  vanishes while sketching on those canvases. The tests exclude `SketchState::Background`, and
+  `BODY_SEEN` (1.5) holds only user-chosen body colours; the dimmed colour wants a target of its
+  own, checked in `appearance::check` with the rest, and the palettes adjusted to it.
+- [medium · medium] The angle arrows of a revolve (`turn_handles.rs`) cannot be dragged when the
+  view is square to the sketch, which is edge-on to their plane: `Ray::intersect_plane` returns
+  `None`, `TurnDrag::begin` refuses, and nothing gates the arrows off as the move rings are. Near
+  edge-on in perspective the angle is wildly sensitive. `ValueHandles` `Follow::Turn` has the same
+  weakness. Typing the angle or orbiting away works; an angle taken from the pointer's motion round
+  the axis on screen would work edge-on.
+- [medium · medium] The end-on gate for arrows (`reach_handles.rs`, `value_handles.rs`,
+  `handle_snap.rs`, `move_manipulator.rs`) compares the arrow's direction with the camera's
+  `forward`, not with the ray from the eye to the arrow, so in perspective an off-centre arrow
+  pointing at the eye passes the gate while `Ray::closest_along_line` divides by an `apart` near
+  zero and the dragged value amplifies the pointer's motion many times over. Gating on the eye ray,
+  or dragging in the plane facing the camera through the arrow, bounds it.
+- [low · easy] In an orthographic view handles vanish for features nearer the viewer than the
+  camera's virtual eye: `value_handles.rs` (and `reach_handles.rs`, `turn_handles.rs`) require
+  `view_depth > 0`, which an orthographic scale does not need, though the geometry still draws.
+- [low · easy] Typing a value that does not parse yet (`5+`, `10.`) drops the draft preview
+  (`feature_fields.rs`, `Model::preview(None)`), so the view blinks to the committed body and back
+  on that keystroke; keeping the last valid draft while the text is invalid, with the inline error
+  shown, avoids it. Faces that exist only in the draft take the body's base colour until the value
+  is committed, since the face looks come from the committed evaluation (`scene.rs`).
+- [low · easy] The view cube's axis triad lines (`show_axis_triad`, `view_cube.rs`) have no halo:
+  the dark palette's light axis colours measure about 1.06 over the default body colour and 1.4
+  over mid-grey, so a body behind the triad hides the lines; the letters have a backdrop and the
+  lines are checked against the canvas only.
+- [low · easy] An empty sketch with dependents is kept without a word when it is left
+  (`Editor::remove_empty`, `editing.rs`), where an empty one without is removed with an Undo
+  notice.
+- [low · easy] The command palette lists paging only by Up and Down: PageUp and PageDown do not
+  move through a long list (`palette.rs`).
+- [low · easy] A sketch segment lying exactly on the extension of a box or lasso edge is taken as
+  crossing it: `segments_cross` (`sketch_drag.rs`) returns true when all four cross products are
+  zero, collinear but disjoint segments included; a one-dimensional overlap test for that case fixes
+  it.
+- [low · easy] With Invert zoom set, the wheel flips but Ctrl+wheel and a pinch (`zoom_delta`) do
+  not (`viewport.rs`), though `render.md` says inversion covers the wheel and the zoom drags.
+- [low · easy] Fillet and chamfer refuse an edge that does not have exactly two named faces
+  (`EdgeReference::capture_in`) with "no longer part of the model" (`BlendError::SomeEdgesGone`,
+  `blend_tools.rs`), which is untrue of an edge that is there; the refusal itself follows the
+  rule against positional naming, only its words should say the edge cannot be named stably.
+- [low · easy] Switching a pattern's spacing between Total and Between copies leaves `5 mm / 2`
+  (`pattern_panel.rs` `respaced`) where the quotient is exact in decimal (`2.5 mm`); a literal is
+  divided only when the result is a whole number.
+- [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
+  (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
+  the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.
+  Scoping Undo to the session, or a Cancel that says to redo first, would save the surprise.
 
 ## Viewer
 
