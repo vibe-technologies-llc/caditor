@@ -126,7 +126,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Typing in any open feature's value field previews before Enter: every value row is
   `feature_fields::expression_row_drafting`; valid text becomes `Action::Preview` with the transaction
   it would commit, never applied. `Model` applies it to a copy of the document (`DraftPreview`, dropped
-  when the feature closes, the text turns invalid, Escape or the field is left unchanged; replaced
+  when the feature closes, Escape or the field is left unchanged, and kept while the text turns
+  invalid, as at `5+`, so the view never blinks to the committed body, the field showing its error;
+  replaced
   whenever the feature's kind or the transaction differs). The copy keeps its parameter values
   (`Model::shown_parameters`), so a value named while typed (`h = 30`) moves arrows and a move's
   preview too.

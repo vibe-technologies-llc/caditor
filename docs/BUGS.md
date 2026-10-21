@@ -222,10 +222,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   pointing at the eye passes the gate while `Ray::closest_along_line` divides by an `apart` near
   zero and the dragged value amplifies the pointer's motion many times over. Gating on the eye ray,
   or dragging in the plane facing the camera through the arrow, bounds it.
-- [low · easy] Typing a value that does not parse yet (`5+`, `10.`) drops the draft preview
-  (`feature_fields.rs`, `Model::preview(None)`), so the view blinks to the committed body and back
-  on that keystroke; keeping the last valid draft while the text is invalid, with the inline error
-  shown, avoids it. Faces that exist only in the draft take the body's base colour until the value
+- [low · easy] Faces that exist only in a draft preview take the body's base colour until the value
   is committed, since the face looks come from the committed evaluation (`scene.rs`).
 - [low · easy] The view cube's axis triad lines (`show_axis_triad`, `view_cube.rs`) have no halo:
   the dark palette's light axis colours measure about 1.06 over the default body colour and 1.4

@@ -327,6 +327,31 @@ fn a_parameter_turning_negative_later_fails_the_feature_instead_of_flipping_it_a
 }
 
 #[test]
+fn text_that_does_not_parse_yet_keeps_the_last_valid_preview_until_the_field_is_left() {
+    let mut harness = Harness::new();
+    let (plate, extrude) = growing_from_the_top(&mut harness);
+
+    harness.draft_into_field(distance_field(extrude), "3 mm");
+    harness.wait_until("the typed distance is previewed", |harness| {
+        draft_volume(harness, plate).is_some_and(|volume| volume > PLATE_VOLUME)
+    });
+    let previewed = harness.model.draft_kind(extrude).cloned();
+
+    harness.draft_into_field(distance_field(extrude), "3+");
+    harness.frame();
+
+    assert!(previewed.is_some());
+    assert_eq!(harness.model.draft_kind(extrude).cloned(), previewed);
+    assert!(draft_volume(&harness, plate).is_some_and(|volume| volume > PLATE_VOLUME));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.model.draft_evaluation().is_none());
+}
+
+#[test]
 fn a_negative_distance_being_typed_is_previewed_flipped_before_it_is_entered() {
     let mut harness = Harness::new();
     let (plate, extrude) = growing_from_the_top(&mut harness);

@@ -319,7 +319,7 @@ fn expression_row_with<E: Display>(
         let draft = match (field.committed.is_some(), field.left, field.edited) {
             (true, _, _) | (false, false, None) => None,
             (false, true, _) => Some(None),
-            (false, false, Some(text)) => Some(validate(&text).ok()),
+            (false, false, Some(text)) => validate(&text).ok().map(Some),
         };
         let removed = trailing(ui);
         (field.committed, field.error, draft, removed)
