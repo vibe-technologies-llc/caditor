@@ -246,8 +246,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   crossing it: `segments_cross` (`sketch_drag.rs`) returns true when all four cross products are
   zero, collinear but disjoint segments included; a one-dimensional overlap test for that case fixes
   it.
-- [low · easy] With Invert zoom set, the wheel flips but Ctrl+wheel and a pinch (`zoom_delta`) do
-  not (`viewport.rs`), though `render.md` says inversion covers the wheel and the zoom drags.
 - [low · easy] Fillet and chamfer refuse an edge that does not have exactly two named faces
   (`EdgeReference::capture_in`) with "no longer part of the model" (`BlendError::SomeEdgesGone`,
   `blend_tools.rs`), which is untrue of an edge that is there; the refusal itself follows the

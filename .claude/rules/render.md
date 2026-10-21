@@ -686,7 +686,8 @@ paths:
   Shift+middle-drag pans, Ctrl+middle-drag zooms) and SolidWorks (middle-drag orbits,
   Ctrl+middle-drag pans, Shift+middle-drag zooms) follow those programs; every mode keeps
   right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary drag with the
-  middle button held never starts a selection (`viewport::drag_motion`). Invert zoom turns the wheel
-  and the Blender and SolidWorks zoom drags round alike (`viewport::zoom_factor`). A middle-button double-click
+  middle button held never starts a selection (`viewport::drag_motion`). Invert zoom turns the wheel,
+  Ctrl+wheel and a pinch (`viewport::pinch_factor`) and the Blender and SolidWorks zoom drags round
+  alike (`viewport::zoom_factor`). A middle-button double-click
   fits the view in every mode. The canvas hint at the bottom right is
   `InputMode::navigation_hint`.

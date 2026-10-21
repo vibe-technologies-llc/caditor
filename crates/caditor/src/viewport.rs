@@ -2224,7 +2224,8 @@ impl ViewportState {
                 }
             }
         }
-        let factor = zoom_factor(&self.navigation, f64::from(scrolled_to_zoom)) / f64::from(pinch);
+        let factor = zoom_factor(&self.navigation, f64::from(scrolled_to_zoom))
+            * pinch_factor(&self.navigation, f64::from(pinch));
         if (factor - 1.0).abs() < 1e-9 {
             return;
         }
@@ -6446,6 +6447,14 @@ fn zoom_factor(navigation: &Navigation, zooming_in: f64) -> f64 {
     (direction * zooming_in * ZOOM_PER_SCROLL_POINT * navigation.zoom_speed).exp()
 }
 
+fn pinch_factor(navigation: &Navigation, spread: f64) -> f64 {
+    if navigation.invert_zoom {
+        spread
+    } else {
+        spread.recip()
+    }
+}
+
 fn fresh_from_sketch<T, E: Into<TypedEditError>>(
     model: &Model,
     feature: FeatureId,
@@ -8721,6 +8730,25 @@ mod navigation_tests {
         assert!(
             (zoom_factor(&plain, wheel_up) * zoom_factor(&inverted, wheel_up) - 1.0).abs() < 1e-12
         );
+    }
+
+    #[test]
+    fn inverting_the_zoom_turns_a_pinch_and_a_control_wheel_round_too() {
+        let plain = Navigation::default();
+        let inverted = Navigation {
+            invert_zoom: true,
+            ..plain
+        };
+        let spreading = 1.1;
+
+        assert!(pinch_factor(&plain, spreading) < 1.0);
+        assert!(pinch_factor(&inverted, spreading) > 1.0);
+        assert!(
+            (pinch_factor(&plain, spreading) * pinch_factor(&inverted, spreading) - 1.0).abs()
+                < 1e-12
+        );
+        assert_eq!(pinch_factor(&plain, 1.0), 1.0);
+        assert_eq!(pinch_factor(&inverted, 1.0), 1.0);
     }
 }
 
