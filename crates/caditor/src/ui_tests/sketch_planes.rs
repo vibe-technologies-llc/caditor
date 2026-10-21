@@ -1,4 +1,7 @@
-use caditor_document::{BodyOperation, FeatureKind};
+use caditor_document::{
+    BodyOperation, Extrude, ExtrudeExtent, FeatureKind, RegionChoice, SolidFeature,
+};
+use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
@@ -13,6 +16,38 @@ use crate::{
     model::Action,
     selection::{Pickable, PrincipalPlane},
 };
+
+#[test]
+fn an_empty_new_sketch_that_something_uses_is_kept_and_the_notice_says_why() {
+    let mut harness = Harness::new();
+    harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
+    harness.click("New sketch");
+    let feature = harness.editing().expect("the new sketch is being edited");
+    let mut transaction = harness.document().transaction("Extrude the empty sketch");
+    transaction.add_feature(
+        "Empty extrusion",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: feature,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("2 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    let features = harness.document().features().len();
+
+    harness.click("Finish sketch");
+
+    assert_eq!(harness.editing(), None);
+    assert_eq!(harness.document().features().len(), features);
+    assert!(harness.document().feature(feature).is_some());
+    assert!(harness.shows("Kept the empty Sketch 1: Empty extrusion uses it."));
+}
 
 #[test]
 fn a_new_sketch_on_the_selected_plane_is_edited_until_finished() {

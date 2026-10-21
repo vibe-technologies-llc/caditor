@@ -239,9 +239,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the dark palette's light axis colours measure about 1.06 over the default body colour and 1.4
   over mid-grey, so a body behind the triad hides the lines; the letters have a backdrop and the
   lines are checked against the canvas only.
-- [low · easy] An empty sketch with dependents is kept without a word when it is left
-  (`Editor::remove_empty`, `editing.rs`), where an empty one without is removed with an Undo
-  notice.
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.

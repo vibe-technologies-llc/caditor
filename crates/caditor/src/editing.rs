@@ -747,7 +747,22 @@ impl SketchEditing {
         else {
             return;
         };
-        if !document.dependents_of(&[entered.feature]).is_empty() {
+        let dependents = document.dependents_of(&[entered.feature]);
+        if !dependents.is_empty() {
+            let users = dependents
+                .iter()
+                .filter_map(|id| document.feature(*id))
+                .map(|feature| feature.name.as_str())
+                .collect::<Vec<_>>();
+            let told = match users.as_slice() {
+                [only] => format!("Kept the empty {name}: {only} uses it."),
+                [first, rest @ ..] => format!(
+                    "Kept the empty {name}: {first} and {} more use it.",
+                    rest.len()
+                ),
+                [] => return,
+            };
+            model.perform(Action::Inform(Notice::info(told)));
             return;
         }
         let label = format!("Remove the empty {name}");

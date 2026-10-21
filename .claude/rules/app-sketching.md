@@ -66,7 +66,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   steps to redo, so they are not among the steps since the mark and stay undone; the cancel step,
   like any apply, clears redo. A new sketch left with no entities or constraints is removed by
   Finish and Escape (`SketchEditing::finish`, `remove_empty`) the same way ("Remove the empty
-  Sketch N", or undoing its creation), with an info notice saying Undo or Redo brings it back.
+  Sketch N", or undoing its creation), with an info notice saying Undo or Redo brings it back. An empty one that features already use
+  (`Document::dependents_of`) is kept, and an info notice names it and the first user ("Kept the
+  empty Sketch 1: Extrude 1 uses it.").
 - Opening a feature, entering another sketch, or New sketch closing what was open
   (`editing::switches`) is a switch: `SketchEditing::note_switch` keeps what closed and
   `announce_switch`, run by `app::perform` after the batch, posts "Finished <closed> to edit
