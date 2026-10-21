@@ -828,6 +828,11 @@ pub fn paint_focus_ring_in(painter: &Painter, rect: Rect, radius: f32, colour: C
     );
 }
 
+pub fn escape_cancels(ui: &Ui, field: &Response) -> bool {
+    (field.has_focus() || field.lost_focus())
+        && ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape))
+}
+
 pub fn text_field<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     ui.scope(|ui| {

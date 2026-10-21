@@ -204,11 +204,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · easy] Escape while renaming a row in Saved views, Selection sets or Configurations
-  (`saved_views.rs`, `selection_sets.rs`, `configurations.rs`) closes the whole dialog and keeps
-  the rename: the row tests `has_focus()` with Escape, but egui drops focus at the start of the
-  Escape frame, so the cancel branch never runs and the modal takes the key. Testing `lost_focus()`
-  as `field.rs` does and consuming the key fixes it; a UI test should pin it for all three.
 - [medium · easy] The dimmed body drawn while a sketch is edited (`background_body` of the scene
   palette) is not held to any contrast against its canvas: 1.03 on Studio, 1.01 on Blue-grey,
   1.33 on Light and 1.37 on Grey, with its edges at 1.2 to 2.8, so a context body nearly

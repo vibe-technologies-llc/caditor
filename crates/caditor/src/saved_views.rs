@@ -327,7 +327,7 @@ fn renaming_row(ui: &mut Ui, document: &Document, draft: &mut ViewsDraft) -> Opt
             field.request_focus();
         }
         let enter = field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
-        let escape = field.has_focus() && ui.input(|input| input.key_pressed(Key::Escape));
+        let escape = widgets::escape_cancels(ui, &field);
         done = widgets::icon_button(ui, icons::DONE, "Rename the view").clicked() || enter;
         cancelled =
             widgets::icon_button(ui, icons::CLOSE, "Keep the name (Esc)").clicked() || escape;

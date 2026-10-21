@@ -7,6 +7,7 @@ use std::{
 use caditor_document::{CancelToken, ConfiguredValue, Setting, Transaction};
 use caditor_file::{ExportFormat, MeshOptions, MeshResolution, StlEncoding};
 use caditor_geometry::Point2;
+use egui::{Key, Modifiers};
 use tempfile::TempDir;
 
 use super::{Harness, add_block, canonical, extruded_plate, run_from_palette};
@@ -76,6 +77,43 @@ fn the_configurations_dialog_adds_rows_sets_values_and_the_palette_switches_betw
     assert_eq!(active, Some(rows[1].0));
     assert_eq!(harness.expression_text("size"), "10 mm");
     assert_eq!(harness.document().configurations().active, Some(rows[0].0));
+}
+
+#[test]
+fn escape_in_a_configuration_s_rename_cell_keeps_the_name_and_the_dialog() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    add_size(&mut harness);
+    let size = ConfiguredValue::Parameter(harness.parameter("size"));
+    run_from_palette(&mut harness, "configurations");
+    harness.frame();
+    harness.click_button(ADD_LABEL);
+    harness.frame();
+    let configure = harness.document().configuring(size).unwrap();
+    harness.perform(Action::Apply(configure));
+    harness.frame();
+    harness.click_button("Rename it");
+    harness.frame();
+    harness.type_text("Changed");
+    assert!(harness.has_button("Keep the name (Esc)"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.configurations.is_some());
+    assert_eq!(
+        harness.document().configurations().rows[0].name,
+        "Configuration 1"
+    );
+    assert!(!harness.has_button("Keep the name (Esc)"));
+    assert!(harness.has_button("Rename it"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.configurations.is_none());
 }
 
 #[test]

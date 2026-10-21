@@ -232,7 +232,10 @@ paths:
 - A model keeps named camera views (`document.md`, `saved_views.rs`). Save the current view saves
   `Camera::destination` as the next free "View N". Saved views… opens a modal
   (`Workspace::saved_views`, dropped with the session) with Show, Replace, Rename and Delete per
-  view, a Name field with Save view, and the Isometric section. Each change is one undoable
+  view, a Name field with Save view, and the Isometric section. Escape in a rename row of this dialog, of
+  Selection sets and of Configurations cancels the rename alone (`widgets::escape_cancels`, which
+  consumes the key, since egui drops the field's focus on the Escape frame and the modal would
+  otherwise take it and close). Each change is one undoable
   `SetSavedViews` built by `saved_views::save`, `update`, `rename`, `delete`, `set_home` or
   `reset_home`, checked before it is offered; a refused name is a callout and nothing is applied.
 - A view is restored from View › Saved views, the dialog or a palette search

@@ -126,6 +126,39 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
 }
 
 #[test]
+fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
+    use crate::saved_views::{SAVE_LABEL, name_field_id};
+
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.settle();
+    run_from_palette(&mut harness, "saved views");
+    harness.frame();
+    harness.type_into_field(name_field_id(), "As drawn");
+    harness.click(SAVE_LABEL);
+    harness.frame();
+    harness.click_button("Rename it");
+    harness.frame();
+    harness.type_text("Changed");
+    assert!(harness.has_button("Keep the name (Esc)"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.saved_views.is_some());
+    assert_eq!(harness.document().saved_views().named[0].name, "As drawn");
+    assert!(!harness.has_button("Keep the name (Esc)"));
+    assert!(harness.has_button("Rename it"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.saved_views.is_none());
+}
+
+#[test]
 fn the_isometric_view_is_redefined_by_the_current_view_and_reset() {
     let mut harness = Harness::new();
     harness.settle();

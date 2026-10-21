@@ -114,6 +114,41 @@ fn saving_a_set_with_nothing_it_can_keep_is_refused_with_the_reason() {
 }
 
 #[test]
+fn escape_in_a_selection_set_s_rename_row_keeps_the_name_and_the_dialog() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    let (_, top, _, _) = plate_edge_and_block(&mut harness);
+    harness.select([top]);
+    run_from_palette(&mut harness, "selection sets");
+    harness.frame();
+    harness.type_into_field(name_field_id(), "Mating faces");
+    harness.click(SAVE_LABEL);
+    harness.frame();
+    harness.click_button("Rename it");
+    harness.frame();
+    harness.type_text("Changed");
+    assert!(harness.has_button("Keep the name (Esc)"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.selection_sets.is_some());
+    assert_eq!(
+        harness.document().selection_sets().sets[0].name,
+        "Mating faces"
+    );
+    assert!(!harness.has_button("Keep the name (Esc)"));
+    assert!(harness.has_button("Rename it"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.selection_sets.is_none());
+}
+
+#[test]
 fn the_selection_sets_dialog_saves_renames_replaces_selects_and_deletes_sets() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();

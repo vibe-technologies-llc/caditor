@@ -924,6 +924,12 @@ impl Harness {
         )
     }
 
+    fn has_button(&self, name: &str) -> bool {
+        self.accessible
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+    }
+
     fn click_button(&mut self, name: &str) {
         let position = self.button_rect(name).center();
         self.click_screen(position);
