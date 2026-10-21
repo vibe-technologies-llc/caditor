@@ -110,6 +110,18 @@ fn combine_without_two_bodies_selected_asks_for_them_in_the_view() {
         })
     );
     assert!(harness.shows(&tool_prompt));
+    let top_of = |harness: &Harness, text: &str| {
+        harness
+            .texts
+            .iter()
+            .find(|(shown, _)| shown == text)
+            .map(|(_, rect)| rect.top())
+            .unwrap_or_else(|| panic!("'{text}' is not on screen"))
+    };
+    let features = top_of(&harness, "Features");
+    let last_row = top_of(&harness, "Extrude 1");
+    let card = top_of(&harness, "Target body");
+    assert!(card > features && card > last_row);
 
     harness.click_pickable(Plane::XY, Point2::new(35.0, 20.0), peg_top);
     harness.settle();
@@ -141,11 +153,18 @@ fn one_selected_body_is_the_target_and_the_card_chooses_the_tool() {
     );
 
     open_combo(&mut harness, "Tool body");
+    let caption = harness
+        .texts
+        .iter()
+        .find(|(shown, _)| shown == "Tool body")
+        .map(|(_, rect)| rect.center().y)
+        .expect("the card names the tool");
     let listed = harness
         .texts
         .iter()
         .filter(|(shown, _)| shown == "Peg")
         .map(|(_, rect)| rect.center())
+        .filter(|centre| centre.y > caption)
         .min_by(|a, b| a.y.total_cmp(&b.y))
         .expect("the list names the peg");
     harness.click_screen(listed);

@@ -213,7 +213,29 @@ pub fn show(
     tree_row::rows(ui, |ui| {
         rows(ui, model, selection, editing, state, actions);
     });
+    combining_card(ui, model, editing, actions);
 }
+
+fn combining_card(ui: &mut Ui, model: &Model, editing: &SketchEditing, actions: &mut Vec<Action>) {
+    let shown = Id::unique("combining-card-shown");
+    let Some(combining) = editing.combining() else {
+        ui.data_mut(|data| data.remove_by_type::<CombiningShown>());
+        return;
+    };
+    ui.add_space(SPACE_S);
+    let rect = ui
+        .scope(|ui| combine_panel::show_choosing(ui, model, combining, actions))
+        .response
+        .rect;
+    let first_frame = ui.data_mut(|data| data.get_temp::<CombiningShown>(shown).is_none());
+    if first_frame {
+        ui.data_mut(|data| data.insert_temp(shown, CombiningShown));
+        scroll_into_view(ui, rect);
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CombiningShown;
 
 fn rows(
     ui: &mut Ui,

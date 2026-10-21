@@ -1190,8 +1190,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`EditingCommand::ChooseCombined`, `SketchEditing::combining`), since a plain click replaces the
   selection and two bodies are hard to select: the view prompts for the target, then for the body to
   combine into it; a click on a body (`EditingCommand::CombineWith`) sets the target, and on a second
-  body creates the Join, a click on the target again unsets it. A card above the tree
-  (`combine_panel::show_choosing`) lists the target and tool bodies to choose from the keyboard, with
+  body creates the Join, a click on the target again unsets it. A card at the end of the tree, scrolled
+  into view when it appears (`combine_panel::show_choosing`, `feature_tree::combining_card`) lists the target and tool bodies to choose from the keyboard, with
   Cancel; Esc, Cancel or the lit Combine button stops; opening a sketch or feature ends it. Box
   selection, the view's menu and sketch region picks are off meanwhile. Fewer than two shown bodies
   refuse in words (`CombineError::NeedTwo`, `NoOtherBody`). The created Join opens the panel: Operation (Join, Cut, Intersect),
