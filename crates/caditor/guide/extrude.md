@@ -100,12 +100,14 @@ along the lean slopes by the taper from the direction and one facing the lean a 
   with the fix to draw it again or choose another body. While later features use the bodies, the
   setting cannot go back to one body.
 - A new extrusion adds to the body it reaches, overlapping or touching it, else makes a new body;
-  reaching several, it adds to the one it overlaps most. With faces of a body selected along with
-  the sketch, it adds to that body.
+  reaching several, it adds to the one it overlaps most, and a notice names the body it met. With
+  faces of a body selected along with the sketch, it adds to that body. The **Result** row changes
+  what was chosen.
 - A sketch on a face of a body cuts into that body by default, unless the shape was drawn off the
   body (a notice says so, and the extrusion makes a new body instead) or spans the whole face (a
   polygon larger than the pipe it sits on, where it adds outward instead). A cut whose default distance
-  more than clears the body starts as **Through all**.
+  more than clears the body starts as **Through all**, and a notice says so. When there was no time
+  to tell where the sketch reaches, it cuts, and a notice says that too.
 - A new extrusion that would run away from a body but would reach it the other way points toward it
   and adds to it, and a notice says so. One that already reaches a body is never turned, unless it
   would meet the body only along an edge, which cannot be joined: a ring drawn round the top of a

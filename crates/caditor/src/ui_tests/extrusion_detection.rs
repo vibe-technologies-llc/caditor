@@ -79,6 +79,11 @@ fn a_pocket_the_default_distance_clears_the_body_with_runs_through_all() {
     ));
     assert!((harness.body_volume(plate) - (6400.0 - 800.0)).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(
+        harness
+            .shows_containing("The cut passes right through Extrude 1, so it ends at Through all.")
+    );
+    assert!(harness.shows_containing("End in the panel sets a distance instead."));
 }
 
 #[test]
@@ -92,6 +97,7 @@ fn a_pocket_shallower_than_the_body_keeps_its_distance() {
         harness.solid(pocket).operation(),
         BodyOperation::Remove(plate)
     );
+    assert!(!harness.shows_containing("passes right through"));
     assert!(matches!(
         extent(&harness, pocket),
         ExtrudeExtent::OneSide {
@@ -175,6 +181,27 @@ fn a_sketch_larger_than_the_boss_it_lies_on_adds_even_though_the_body_is_wider()
     assert_eq!(harness.solid(boss).operation(), BodyOperation::Add(plate));
     assert_eq!(harness.solid(flange).operation(), BodyOperation::Add(plate));
     assert!(harness.shows_containing("spans the whole face"));
+}
+
+#[test]
+fn a_sketch_standing_on_a_plane_that_touches_a_body_says_it_adds_to_it_and_where_to_change_that() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut raised = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap(),
+    );
+    raised.add_circle(Point2::new(20.0, 20.0), 6.0);
+    harness.add_sketch(raised);
+    harness.select([]);
+
+    harness.click_tool("Extrude");
+    harness.settle();
+    let boss = harness.workspace.editing.solid().expect("the boss is open");
+
+    assert_eq!(harness.solid(boss).operation(), BodyOperation::Add(plate));
+    assert!(harness.shows_containing(
+        "The extrusion meets Extrude 1, so it is added to it. Result in the panel changes that."
+    ));
 }
 
 fn boss_on_the_plate(harness: &mut Harness) -> (FeatureId, f64) {

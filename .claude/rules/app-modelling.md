@@ -351,6 +351,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     (`Reaches::clears`, measured along the sweep from the sketch plane with `BOX_SLACK`), the end is
     Through all instead of a distance, since the cut passes the body however thick it is made.
     A distance that only just reaches the far side keeps being a distance.
+  - Every choice that is not the plain default says so in `Detected::told` (an info notice, an MCP
+    `note`), always pointing at the panel row that changes it: an extrusion adding to a body it
+    meets without faces of that body selected ("meets Extrude 1, so it is added to it", left out
+    where another sentence already told it adds), a cut that clears the body ("ends at Through
+    all", End), a cut or an addition whose check ran out of `REACH_BUDGET` or could not be made
+    ("Could not tell where the sketch reaches…", or the addition's "no time to check whether it
+    meets it only along an edge", `Meeting::Unchecked`), Result. An ordinary cut into the face's
+    body or a new body of an unreached sketch is the default and says nothing.
   - Reaching is decided once, at creation, on the UI thread from the evaluation shown (one
     `REACH_BUDGET` for all the sweeps one extrusion tries, `body_reach::reaches` taking the deadline): only shown
     bodies standing at the bar (`Document::bodies_standing`, so never one a Combine consumed) whose

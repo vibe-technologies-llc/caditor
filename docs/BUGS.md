@@ -69,16 +69,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [medium · easy] A new extrusion's operation is chosen without saying so in cases where the user
-  would want to know (`extrusion_detection.rs`). A sketch standing on a face whose reach check runs
-  out of `REACH_BUDGET` or comes back unknown falls to a cut (`cut(false)`) with no notice, where
-  the footprint and miss signals might have said add or outward; a sweep that clears the body
-  turns its distance into Through all with `told: None`; a sweep that touches a body anywhere
-  (a pin in a hole, a lid on a box) fuses into it as an Add with no notice, where the Result row
-  only shows it afterwards; and an edge-only check that runs out of budget is taken as joining, so
-  the union can still end in `NonManifold`. Each is undoable and documented in `app-modelling.md`;
-  what is missing is the notice naming what was chosen and the Result row to change it.
-
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work

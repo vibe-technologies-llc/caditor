@@ -5,9 +5,12 @@ use caditor_document::{
 };
 
 use crate::{
-    body_reach::{self, REACH_BUDGET, Reaches, Verdict},
+    body_reach::{self, Meeting, REACH_BUDGET, Reaches, Verdict},
     solid_tools::Reach,
 };
+
+const CHANGE_RESULT: &str = "Result in the panel changes that.";
+const CHANGE_END: &str = "End in the panel sets a distance instead.";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Detected {
@@ -45,13 +48,19 @@ pub fn extrusion(
     let cutting = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
     let mut told = None;
     if let Some(body) = cutting {
-        let cut = |through: bool| Detected {
+        let cut = |through: bool, told: Option<String>| Detected {
             operation: BodyOperation::Remove(body),
             extent: cut_extent(template, through),
-            told: None,
+            told,
+        };
+        let unsure = || {
+            Some(format!(
+                "Could not tell where the sketch reaches {}, so the extrusion cuts into it. {CHANGE_RESULT}",
+                label(body)
+            ))
         };
         match sweep(true) {
-            None => return cut(false),
+            None => return cut(false, unsure()),
             Some(reaches) => match reaches.verdict(body) {
                 Verdict::Overlaps(reached) if reached.spans_footprint == Some(true) => {
                     told = Some(format!(
@@ -59,8 +68,17 @@ pub fn extrusion(
                         label(body)
                     ));
                 }
-                Verdict::Overlaps(reached) => return cut(reaches.clears(&reached)),
-                Verdict::Unknown => return cut(false),
+                Verdict::Overlaps(reached) => {
+                    let through = reaches.clears(&reached);
+                    let told = through.then(|| {
+                        format!(
+                            "The cut passes right through {}, so it ends at Through all. {CHANGE_END}",
+                            label(body)
+                        )
+                    });
+                    return cut(through, told);
+                }
+                Verdict::Unknown => return cut(false, unsure()),
                 Verdict::Misses => {
                     told = Some(format!(
                         "The sketch lies off {}, so the extrusion does not cut into it.",
@@ -74,27 +92,36 @@ pub fn extrusion(
     let joining = |found: &Option<Reaches>| {
         let found = found.as_ref()?;
         let reached = found.reaching(chosen)?;
-        Some(
-            match found.meets_only_along_an_edge(reach.evaluation, reached) {
-                true => Err(reached.body),
-                false => Ok(reached.body),
-            },
-        )
+        Some((reached.body, found.meeting(reach.evaluation, reached)))
     };
     let forward = sweep(false);
     let edgewise = match joining(&forward) {
-        Some(Ok(body)) => {
+        Some((body, meeting @ (Meeting::Joins | Meeting::Unchecked))) => {
+            let note = match meeting {
+                Meeting::Unchecked => Some(format!(
+                    "The extrusion meets {}, so it is added to it. There was no time to check whether it meets it only along an edge, which cannot be joined. {CHANGE_RESULT}",
+                    label(body)
+                )),
+                _ if told.is_none() && chosen.is_none() => Some(format!(
+                    "The extrusion meets {}, so it is added to it. {CHANGE_RESULT}",
+                    label(body)
+                )),
+                _ => None,
+            };
             return Detected {
                 operation: BodyOperation::Add(body),
                 extent: directed(template, false).extent,
-                told,
+                told: [told, note]
+                    .into_iter()
+                    .flatten()
+                    .reduce(|first, second| format!("{first} {second}")),
             };
         }
-        Some(Err(body)) => Some(body),
+        Some((body, Meeting::OnlyAlongAnEdge)) => Some(body),
         None => None,
     };
     if forward.is_some()
-        && let Some(Ok(body)) = joining(&sweep(true))
+        && let Some((body, Meeting::Joins | Meeting::Unchecked)) = joining(&sweep(true))
     {
         let other_way = if edgewise == Some(body) {
             "would meet it only along an edge"
@@ -141,4 +168,46 @@ fn cut_extent(template: &Extrude, through: bool) -> ExtrudeExtent {
         *end = ExtrudeEnd::ThroughAll;
     }
     extent
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::{Evaluation, FeatureKind};
+
+    use super::*;
+    use crate::samples::Sample;
+
+    #[test]
+    fn a_cut_whose_reach_could_not_be_checked_says_so_and_where_to_change_it() {
+        let document = Sample::Plate.document().unwrap();
+        let (plate, template) = document
+            .features()
+            .find_map(|feature| match &feature.kind {
+                FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
+                    Some((feature.id(), extrude.clone()))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let unevaluated = Evaluation::default();
+
+        let unknown = extrusion(
+            &document,
+            Reach {
+                evaluation: &unevaluated,
+                parameters: &unevaluated.parameters,
+            },
+            &template,
+            Some(plate),
+            None,
+        );
+
+        assert_eq!(unknown.operation, BodyOperation::Remove(plate));
+        let told = unknown.told.unwrap();
+        assert!(
+            told.starts_with("Could not tell where the sketch reaches"),
+            "{told}"
+        );
+        assert!(told.ends_with(CHANGE_RESULT), "{told}");
+    }
 }

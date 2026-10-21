@@ -99,6 +99,13 @@ pub struct Reached {
     pub spans_footprint: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Meeting {
+    Joins,
+    OnlyAlongAnEdge,
+    Unchecked,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Verdict {
     Overlaps(Reached),
@@ -122,19 +129,23 @@ impl Reaches {
         }
     }
 
-    pub fn meets_only_along_an_edge(&self, evaluation: &Evaluation, reached: &Reached) -> bool {
+    pub fn meeting(&self, evaluation: &Evaluation, reached: &Reached) -> Meeting {
         let (Touch::Contact, Some(tool)) = (reached.touch, self.tool.as_deref()) else {
-            return false;
+            return Meeting::Joins;
         };
         let Some(body) = Standing::of(evaluation, reached.body) else {
-            return false;
+            return Meeting::Joins;
         };
         let deadline = Instant::now() + REACH_BUDGET;
         let interrupt: Interrupt = Arc::new(move || Instant::now() >= deadline);
         let joined = interruptible(interrupt, || {
             boolean(tool, body.solid, BooleanOperation::Union)
         });
-        matches!(joined, Err(BooleanError::NonManifold(_)))
+        match joined {
+            Err(BooleanError::NonManifold(_)) => Meeting::OnlyAlongAnEdge,
+            Err(BooleanError::Cancelled(_)) => Meeting::Unchecked,
+            Ok(_) | Err(_) => Meeting::Joins,
+        }
     }
 
     pub fn verdict(&self, body: FeatureId) -> Verdict {
