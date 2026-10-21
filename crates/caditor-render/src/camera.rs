@@ -360,6 +360,10 @@ impl View {
         (point - self.eye()).dot(self.forward())
     }
 
+    pub fn is_drawn_at(&self, depth: f64) -> bool {
+        depth.is_finite() && depth > self.near_plane()
+    }
+
     pub fn units_per_pixel_at(&self, depth: f64) -> f64 {
         2.0 * self.half_height_at(depth) / self.size.y
     }
@@ -781,6 +785,22 @@ mod tests {
         let behind = View::new(isometric(), WIDTH, HEIGHT).plane_projection(&Plane::XY, 1.0);
 
         assert_eq!(behind.project(DVec2::new(1e6, -1e6)), None);
+    }
+
+    #[test]
+    fn an_orthographic_view_draws_what_lies_nearer_than_its_virtual_eye() {
+        let view = View::new(isometric(), WIDTH, HEIGHT);
+        let orthographic = view.with_projection(Projection::Orthographic);
+        let perspective = view.with_projection(Projection::Perspective);
+        let near_the_viewer = orthographic.near_plane() + 1.0;
+
+        assert!(near_the_viewer < 0.0);
+        assert!(orthographic.is_drawn_at(near_the_viewer));
+        assert!(!perspective.is_drawn_at(near_the_viewer));
+        assert!(perspective.is_drawn_at(view.viewpoint().distance));
+        assert!(!orthographic.is_drawn_at(orthographic.near_plane() - 1.0));
+        assert!(!orthographic.is_drawn_at(f64::NAN));
+        assert!(!perspective.is_drawn_at(f64::INFINITY));
     }
 
     #[test]

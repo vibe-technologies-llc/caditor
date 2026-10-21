@@ -587,7 +587,9 @@ paths:
   the effective `camera::Projection`. Orthographic shows at every depth the scale perspective shows
   at its target, so switching keeps the on-screen size. The eye stays `distance` in front of the
   target and the depth range is finite, centred on the target; `View::reaching` widens it to the
-  scene's bounds so geometry behind the eye draws and the grid fades before the range ends.
+  scene's bounds so geometry behind the eye draws and the grid fades before the range ends. Handles
+  and arrows are placed where `View::is_drawn_at` says a depth is drawn (past the near plane, which
+  an orthographic view puts behind its virtual eye), never by `depth > 0`.
 - Orthographic depth is linear, so shaders turn a layer's depth bias into a fixed offset
   (`ORTHOGRAPHIC_DEPTH_BIAS`); a factor would push edges far through faces.
 - Fitting puts the eight corners of the bounds inside the field of view with a margin, exactly in

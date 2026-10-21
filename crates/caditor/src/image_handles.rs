@@ -138,8 +138,7 @@ fn held_size(model: &Model, feature: FeatureId, image: &ReferenceImage) -> Held 
 fn per_point_at(view: &View, pixels_per_point: f64, point: Point3) -> Option<f64> {
     let depth = view.view_depth(point);
     let per_point = pixels_per_point * view.units_per_pixel_at(depth);
-    (depth.is_finite() && depth > 0.0 && per_point.is_finite() && per_point > 0.0)
-        .then_some(per_point)
+    (view.is_drawn_at(depth) && per_point.is_finite() && per_point > 0.0).then_some(per_point)
 }
 
 fn degrees_of(offset: Vector2) -> Option<f64> {

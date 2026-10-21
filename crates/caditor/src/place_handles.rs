@@ -198,7 +198,7 @@ impl PlaceHandles {
         let centre = plane.to_world(at);
         let depth = view.view_depth(centre);
         let per_point = pixels_per_point * view.units_per_pixel_at(depth);
-        let shown = depth.is_finite() && depth > 0.0 && per_point.is_finite() && per_point > 0.0;
+        let shown = view.is_drawn_at(depth) && per_point.is_finite() && per_point > 0.0;
         shown.then_some(Self {
             feature,
             subject,

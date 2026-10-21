@@ -227,9 +227,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   pointing at the eye passes the gate while `Ray::closest_along_line` divides by an `apart` near
   zero and the dragged value amplifies the pointer's motion many times over. Gating on the eye ray,
   or dragging in the plane facing the camera through the arrow, bounds it.
-- [low · easy] In an orthographic view handles vanish for features nearer the viewer than the
-  camera's virtual eye: `value_handles.rs` (and `reach_handles.rs`, `turn_handles.rs`) require
-  `view_depth > 0`, which an orthographic scale does not need, though the geometry still draws.
 - [low · easy] Typing a value that does not parse yet (`5+`, `10.`) drops the draft preview
   (`feature_fields.rs`, `Model::preview(None)`), so the view blinks to the committed body and back
   on that keystroke; keeping the last valid draft while the text is invalid, with the inline error

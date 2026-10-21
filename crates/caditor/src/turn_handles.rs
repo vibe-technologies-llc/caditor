@@ -262,8 +262,7 @@ impl TurnHandles {
         let grips = grips(model, feature, &revolve.extent);
         let depth = view.view_depth(swing.foot + swing.radial * swing.radius);
         let per_point = pixels_per_point * view.units_per_pixel_at(depth);
-        let shown = depth.is_finite()
-            && depth > 0.0
+        let shown = view.is_drawn_at(depth)
             && per_point.is_finite()
             && per_point > 0.0
             && grips.iter().any(Option::is_some);

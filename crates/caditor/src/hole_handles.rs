@@ -192,7 +192,7 @@ impl HoleHandles {
         let per_point_at = |at: Point3| {
             let depth = view.view_depth(at);
             let per_point = pixels_per_point * view.units_per_pixel_at(depth);
-            (depth.is_finite() && depth > 0.0 && per_point.is_finite() && per_point > 0.0)
+            (view.is_drawn_at(depth) && per_point.is_finite() && per_point > 0.0)
                 .then_some(per_point)
         };
         let mut stands = Vec::new();

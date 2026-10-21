@@ -254,7 +254,7 @@ impl MoveHandles {
             Some(_) | None => centre,
         };
         let depth = view.view_depth(origin);
-        if !(depth.is_finite() && depth > 0.0) {
+        if !view.is_drawn_at(depth) {
             return None;
         }
         let reach = ARROW_POINTS * pixels_per_point * view.units_per_pixel_at(depth);

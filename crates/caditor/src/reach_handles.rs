@@ -217,8 +217,7 @@ impl ReachHandles {
             let end = base + direction * distance;
             let depth = view.view_depth(end);
             let per_point = pixels_per_point * view.units_per_pixel_at(depth);
-            let shown = depth.is_finite()
-                && depth > 0.0
+            let shown = view.is_drawn_at(depth)
                 && per_point.is_finite()
                 && per_point > 0.0
                 && direction.dot(forward).abs() < END_ON;
