@@ -43,6 +43,11 @@ finished. Each rule avoids a failure mode FreeCAD is known for.
   held to the grid's target on the canvas in use (1.5:1, 3:1 in high contrast), and a body colour
   as drawn to 1.5:1: refused in words naming the colour, canvas and ratio, never drawn where the
   canvas would hide it.
+- The dimmed body drawn while a sketch is edited holds `DIMMED_BODY_SEEN` (1.5:1) against the canvas
+  on every canvas, its edges the same against it and the canvas; in high contrast the edges hold
+  3:1 against both and the fill 1.5:1 on the dark canvases only, since lines drawn over it must hold
+  3:1 and no body on the light canvases can differ 1.5:1 from them and stay that far from the
+  hovered line colours.
 - High contrast reaches the 3D view (`scene_palette.rs`): lines and points hold 3:1 against the
   canvas and dimmed bodies; bodies, edges and highlighted faces hold 3:1 on a body of any colour (a
   body too dark is drawn lightened, `ScenePalette::body`).

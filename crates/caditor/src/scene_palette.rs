@@ -68,6 +68,7 @@ impl Contrast {
 
 pub const GRID_SEEN: f32 = 1.5;
 pub const BODY_SEEN: f32 = 1.5;
+pub const DIMMED_BODY_SEEN: f32 = 1.5;
 pub const HIGH_CONTRAST_GRID_SEEN: f32 = 3.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -783,7 +784,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     cut_preview_edge: Color::from_rgb8(255, 140, 130),
     failed_body: Color::from_rgb8(200, 134, 124),
     outdated_body: Color::from_rgb8(182, 170, 130),
-    background_body: Color::from_rgb8(52, 54, 60),
+    background_body: Color::from_rgb8(64, 68, 76),
     body_edge: Color::from_rgb8(0, 0, 0),
     background_body_edge: Color::from_rgb8(150, 154, 164),
     drawing_face: Color::from_rgb8(255, 255, 255),
@@ -874,9 +875,9 @@ pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
     cut_preview_edge: Color::from_rgb8(180, 40, 30),
     failed_body: Color::from_rgb8(200, 134, 124),
     outdated_body: Color::from_rgb8(182, 170, 130),
-    background_body: Color::from_rgb8(196, 200, 208),
+    background_body: Color::from_rgb8(176, 180, 188),
     body_edge: Color::from_rgb8(30, 32, 38),
-    background_body_edge: Color::from_rgb8(150, 154, 164),
+    background_body_edge: Color::from_rgb8(120, 124, 134),
     drawing_face: Color::from_rgb8(250, 250, 252),
     chosen_region: translucent(canvas::LIGHT_CHROME.selected, CHOSEN_REGION_ALPHA),
     open_region: Color::from_rgba8(40, 50, 70, 22),
@@ -1052,11 +1053,14 @@ pub const GREY_STANDARD: ScenePalette = ScenePalette {
     ),
     hole: hole(GREY_CANVAS),
     bands: GREY_BANDS,
+    background_body: Color::from_rgb8(108, 112, 120),
+    background_body_edge: Color::from_rgb8(40, 42, 48),
     ..STANDARD
 };
 
 pub const GREY_HIGH_CONTRAST: ScenePalette = ScenePalette {
     hole: hole(GREY_CANVAS),
+    background_body: Color::from_rgb8(36, 40, 48),
     bands: Bands {
         undercut: Color::from_rgb8(255, 128, 118),
         ..HIGH_CONTRAST.bands
@@ -1075,6 +1079,8 @@ const DARKER_LIGHT_STANDARD: ScenePalette = ScenePalette {
         teeth: Color::from_rgb8(20, 110, 170),
         ..LIGHT_STANDARD.comb
     },
+    background_body: Color::from_rgb8(152, 156, 164),
+    background_body_edge: Color::from_rgb8(96, 100, 110),
     ..LIGHT_STANDARD
 };
 
@@ -1537,6 +1543,31 @@ mod tests {
             let halo = opaque32(palette.axis_halo);
             for axis in palette.axes {
                 assert_visible("axis triad line", axis, halo);
+            }
+        }
+    }
+
+    #[test]
+    fn the_dimmed_body_is_seen_on_every_canvas_and_its_edges_in_both_contrasts() {
+        for (palette, canvas) in every_palette() {
+            let high = palette.troubled_edges_dashed;
+            let canvas_colour = canvas.colour();
+            let dimmed = opaque32(palette.background_body);
+            let edge = opaque32(palette.background_body_edge);
+            let edge_seen = if high { VISIBLE } else { DIMMED_BODY_SEEN };
+            let mut required = vec![
+                ("dimmed body edge", edge, dimmed, edge_seen),
+                ("dimmed body edge", edge, canvas_colour, edge_seen),
+            ];
+            if !high || canvas.is_dark() {
+                required.push(("dimmed body", dimmed, canvas_colour, DIMMED_BODY_SEEN));
+            }
+            for (what, above, below, wanted) in required {
+                let ratio = contrast_ratio(above, below);
+                assert!(
+                    ratio >= wanted,
+                    "{what} {above:?} on {below:?} ({canvas:?}, high contrast {high}) is {ratio:.2}:1, below {wanted}:1"
+                );
             }
         }
     }

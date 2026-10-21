@@ -204,12 +204,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · easy] The dimmed body drawn while a sketch is edited (`background_body` of the scene
-  palette) is not held to any contrast against its canvas: 1.03 on Studio, 1.01 on Blue-grey,
-  1.33 on Light and 1.37 on Grey, with its edges at 1.2 to 2.8, so a context body nearly
-  vanishes while sketching on those canvases. The tests exclude `SketchState::Background`, and
-  `BODY_SEEN` (1.5) holds only user-chosen body colours; the dimmed colour wants a target of its
-  own, checked in `appearance::check` with the rest, and the palettes adjusted to it.
 - [medium · medium] The angle arrows of a revolve (`turn_handles.rs`) cannot be dragged when the
   view is square to the sketch, which is edge-on to their plane: `Ray::intersect_plane` returns
   `None`, `TurnDrag::begin` refuses, and nothing gates the arrows off as the move rings are. Near
