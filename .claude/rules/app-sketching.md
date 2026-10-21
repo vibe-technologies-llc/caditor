@@ -61,7 +61,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   `Transaction` labelled by `cancel_title`, so Undo brings the whole session back at once; when the
   only step is the sketch's own creation it is undone instead, so it leaves no trace and Redo makes
   it again. It refuses as an open feature's cancel does (`changes_since`, shared with
-  `SketchEditing::cancelling`): `HistoryChanged` once Undo went below the mark, `ChangedElsewhere`
+  `SketchEditing::cancelling`): `UndoneBeyond` once Undo went below the mark (the step is in Redo, `Editor::is_undone_past`; the
+  words say to redo back to it), `HistoryChanged` once the history no longer holds it, `ChangedElsewhere`
   for a step touching more than the sketch and parameters it owns. Undo inside the session moves
   steps to redo, so they are not among the steps since the mark and stay undone; the cancel step,
   like any apply, clears redo. A new sketch left with no entities or constraints is removed by

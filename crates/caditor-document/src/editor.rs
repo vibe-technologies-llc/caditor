@@ -197,6 +197,11 @@ impl Editor {
         }
     }
 
+    pub fn is_undone_past(&self, mark: UndoMark) -> bool {
+        mark.newest
+            .is_some_and(|newest| self.redo.serials().any(|(serial, _)| serial == newest))
+    }
+
     pub fn undo_steps_since(&self, mark: UndoMark) -> Option<Vec<&Transaction>> {
         let mut since = Vec::new();
         let mut older = self.undo.serials();

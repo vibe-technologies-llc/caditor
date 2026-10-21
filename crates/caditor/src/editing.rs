@@ -402,6 +402,11 @@ pub enum CancelRefusal {
     )]
     HistoryChanged { feature: String },
     #[error(
+        "Undo went back past the point where {feature} was opened; redo back to it to cancel, or \
+         undo its changes one at a time instead"
+    )]
+    UndoneBeyond { feature: String },
+    #[error(
         "\"{step}\", made while {feature} was open, changed more than {feature}; undo the \
          changes one at a time instead"
     )]
@@ -413,9 +418,9 @@ impl Reason for CancelRefusal {
         match self {
             Self::NothingOpen => Cow::Borrowed(NOTHING_OPEN),
             Self::NoSketch => Cow::Borrowed(NO_SKETCH),
-            Self::HistoryChanged { .. } | Self::ChangedElsewhere { .. } => {
-                Cow::Owned(self.to_string())
-            }
+            Self::HistoryChanged { .. }
+            | Self::UndoneBeyond { .. }
+            | Self::ChangedElsewhere { .. } => Cow::Owned(self.to_string()),
         }
     }
 }
@@ -1035,8 +1040,13 @@ fn changes_since(
         .ok_or(None)?;
     let steps = model
         .undo_steps_since(mark)
-        .ok_or_else(|| CancelRefusal::HistoryChanged {
-            feature: name.clone(),
+        .ok_or_else(|| match model.is_undone_past(mark) {
+            true => CancelRefusal::UndoneBeyond {
+                feature: name.clone(),
+            },
+            false => CancelRefusal::HistoryChanged {
+                feature: name.clone(),
+            },
         })?;
     let owned = parameters_of(document, &steps, feature);
     if let Some(step) = steps

@@ -184,13 +184,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
-## Interface
-
-- [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
-  (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
-  the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.
-  Scoping Undo to the session, or a Cancel that says to redo first, would save the surprise.
-
 ## Viewer
 
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view

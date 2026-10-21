@@ -238,11 +238,19 @@ fn cancel_refuses_once_undo_went_back_past_where_the_feature_was_opened() {
     harness.frame();
 
     assert!(
-        notice(&harness).contains("the undo history no longer goes back"),
+        notice(&harness)
+            .contains("Undo went back past the point where Extrude 1 was opened; redo back to it"),
         "{}",
         notice(&harness)
     );
     assert_eq!(harness.workspace.editing.solid(), Some(extrude));
+
+    harness.perform(Action::Redo);
+    harness.settle();
+    harness.click_button("Cancel the changes to Extrude 1");
+    harness.frame();
+
+    assert_eq!(harness.workspace.editing.solid(), None);
 }
 
 #[test]

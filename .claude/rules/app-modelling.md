@@ -214,7 +214,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   whether a step of that batch inserted the feature (`added`: Cancel removes it, worded "Cancel the new
   <name>"). Opening the already open feature keeps the record.
 - `SketchEditing::cancelling` checks before undoing: `Model::undo_steps_since` the mark must still lead
-  back to it (`Editor::undo_steps_since`, `document.md`), else `CancelRefusal::HistoryChanged`; every
+  back to it (`Editor::undo_steps_since`, `document.md`), else `CancelRefusal::UndoneBeyond` when Undo went below the mark (Redo back to it cancels) or
+  `HistoryChanged` when the history dropped it; every
   step since must touch only the feature and parameters it owns (`Transaction::touched`; the adding
   step excepted), else `ChangedElsewhere` naming the step. A refusal is a notice leaving feature and
   model as they are. Otherwise it performs that many ordinary journaled `Action::Undo`s (Redo brings

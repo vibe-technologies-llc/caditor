@@ -737,6 +737,10 @@ impl Model {
         self.editor.undo_mark()
     }
 
+    pub fn is_undone_past(&self, mark: UndoMark) -> bool {
+        self.editor.is_undone_past(mark)
+    }
+
     pub fn undo_steps_since(&self, mark: UndoMark) -> Option<Vec<&Transaction>> {
         self.editor.undo_steps_since(mark)
     }
