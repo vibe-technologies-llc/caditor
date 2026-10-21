@@ -1344,7 +1344,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `with_axis`), an unset one reading None chosen.
 - Each linear direction has a Measured switch (Each, Overall), captioned Spacing or Total length.
   Switching keeps the copies in place when the count is a plain number (`pattern_panel::respaced`: a
-  literal multiplied or divided, else the expression times or over the steps), otherwise it keeps the
+  literal multiplied, or divided where the quotient is exact in decimal (`5 mm` over 2 is `2.5 mm`,
+  `10 mm` over 3 stays `10 mm / 3`), else the expression times or over the steps), otherwise it keeps the
   expression.
 - Instances is a grid of `widgets::instance_toggle`s, one per instance at its step along each
   direction, checked when made; clicking one leaves it out or brings it back as one undoable change, the

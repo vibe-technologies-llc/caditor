@@ -113,26 +113,52 @@ pub fn respaced(direction: &LinearDirection, measured: LinearSpacing) -> Express
     if steps < 1.0 || steps.fract() != 0.0 {
         return direction.spacing.clone();
     }
-    match (measured, &direction.spacing) {
-        (LinearSpacing::Total, Expression::Measure(value, unit)) => {
+    let divided = match &direction.spacing {
+        Expression::Measure(value, unit) => {
+            exact_quotient(*value, steps).map(|each| Expression::measure(each, *unit))
+        }
+        _ => None,
+    };
+    match (measured, &direction.spacing, divided) {
+        (LinearSpacing::Total, Expression::Measure(value, unit), _) => {
             Expression::measure(value * steps, *unit)
         }
-        (LinearSpacing::BetweenCopies, Expression::Measure(value, unit))
-            if (value / steps).fract() == 0.0 =>
-        {
-            Expression::measure(value / steps, *unit)
-        }
-        (LinearSpacing::Total, spacing) => Expression::binary(
+        (LinearSpacing::BetweenCopies, _, Some(each)) => each,
+        (LinearSpacing::Total, spacing, _) => Expression::binary(
             BinaryOperator::Multiply,
             spacing.clone(),
             Expression::number(steps),
         ),
-        (LinearSpacing::BetweenCopies, spacing) => Expression::binary(
+        (LinearSpacing::BetweenCopies, spacing, None) => Expression::binary(
             BinaryOperator::Divide,
             spacing.clone(),
             Expression::number(steps),
         ),
     }
+}
+
+const MOST_QUOTIENT_DIGITS: u32 = 12;
+
+fn exact_quotient(value: f64, steps: f64) -> Option<f64> {
+    if !value.is_finite() || steps < 1.0 || steps.fract() != 0.0 {
+        return None;
+    }
+    let written = value.abs().to_string();
+    let (whole, fraction) = written.split_once('.').unwrap_or((&written, ""));
+    let mut numerator: u128 = format!("{whole}{fraction}").parse().ok()?;
+    let written_digits = u32::try_from(fraction.len()).ok()?;
+    let divisor = steps as u128;
+    for extra in 0..=MOST_QUOTIENT_DIGITS {
+        if numerator.is_multiple_of(divisor) {
+            let sign = if value < 0.0 { "-" } else { "" };
+            let digits = written_digits + extra;
+            return format!("{sign}{}e-{digits}", numerator / divisor)
+                .parse()
+                .ok();
+        }
+        numerator = numerator.checked_mul(10)?;
+    }
+    None
 }
 
 fn instance_hover(instance: Instance, kept: bool) -> String {
@@ -820,5 +846,67 @@ pub fn show(
     };
     if let Some(hint) = hint {
         feature_fields::info_callout(ui, hint);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::PrincipalAxis;
+    use caditor_expression::Unit;
+
+    use super::*;
+
+    fn direction(count: f64, spacing: Expression) -> LinearDirection {
+        LinearDirection {
+            axis: AxisReference::Principal(PrincipalAxis::X),
+            count: Expression::number(count),
+            spacing,
+            measured: LinearSpacing::Total,
+            reversed: false,
+        }
+    }
+
+    fn millimetres(value: f64) -> Expression {
+        Expression::measure(value, Unit::Millimetre)
+    }
+
+    #[test]
+    fn a_total_divides_into_a_literal_where_the_quotient_is_exact_in_decimal() {
+        let between = |total: f64, count: f64| {
+            respaced(
+                &direction(count, millimetres(total)),
+                LinearSpacing::BetweenCopies,
+            )
+        };
+
+        assert_eq!(between(5.0, 3.0), millimetres(2.5));
+        assert_eq!(between(1.0, 5.0), millimetres(0.25));
+        assert_eq!(between(0.3, 4.0), millimetres(0.1));
+        assert_eq!(exact_quotient(-7.5, 4.0), Some(-1.875));
+        assert_eq!(between(96.0, 3.0), millimetres(48.0));
+    }
+
+    #[test]
+    fn a_total_that_does_not_divide_exactly_stays_a_quotient() {
+        let divided = respaced(
+            &direction(4.0, millimetres(10.0)),
+            LinearSpacing::BetweenCopies,
+        );
+
+        assert_eq!(
+            divided,
+            Expression::binary(
+                BinaryOperator::Divide,
+                millimetres(10.0),
+                Expression::number(3.0)
+            )
+        );
+    }
+
+    #[test]
+    fn a_spacing_multiplies_into_a_literal_total() {
+        let total = respaced(&direction(3.0, millimetres(2.5)), LinearSpacing::Total);
+
+        assert_eq!(total, millimetres(5.0));
     }
 }
