@@ -382,12 +382,14 @@ impl ValueDrag {
             } => ray
                 .closest_along_line(*base, *direction)
                 .map(|at| from_position + at - *grabbed),
-            Follow::Turn { swing, last, swept } => swing.degrees_of(ray).map(|now| {
-                let turned = (now - *last + 180.0).rem_euclid(360.0) - 180.0;
-                *last = now;
-                *swept += turned;
-                from_position + *swept
-            }),
+            Follow::Turn { swing, last, swept } => {
+                swing.degrees_near(ray, Some(*last)).map(|now| {
+                    let turned = (now - *last + 180.0).rem_euclid(360.0) - 180.0;
+                    *last = now;
+                    *swept += turned;
+                    from_position + *swept
+                })
+            }
             Follow::Curve { track, grabbed } => track
                 .nearest_to_ray(&ray)
                 .map(|at| from_position + at - *grabbed),

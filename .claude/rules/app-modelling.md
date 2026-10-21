@@ -447,7 +447,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `Handle::Revolve`, `TurnEnd`) at the middle of its sketch's bounds turned about the axis to that end:
   positive angles sweep toward the sketch normal, a reversed one-sided turn the other way, a symmetric
   turn shows its forward half and drags the total twice as fast, two angles an arrow each. A drag
-  follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn, in
+  follows the pointer's angle about the axis in the plane square to it, unwrapped past half a turn (a
+  ray within `EDGE_ON_FACING` of that plane, such as a view square to the sketch, takes the angle of the ring's
+  point nearest the ray instead, the one nearest the last angle while dragging, `Swing::degrees_near`), in
   steps of `STEP_DEGREES` (Ctrl free) or snapping onto a point (Value handles below) between one step
   and what the full turn leaves beside the other angle. A one-sided turn's arrow dragged back past
   its sketch turns the other way (`TurnDrag::limited` keeps the sign, the release writes the

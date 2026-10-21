@@ -27,6 +27,10 @@ const ARROW_SHARE: f64 = 0.6;
 pub const STEP_DEGREES: f64 = 5.0;
 const FULL_TURN_DEGREES: f64 = 360.0;
 const SMALLEST_RADIUS: f64 = 1e-6;
+const EDGE_ON_FACING: f64 = 0.2;
+const NEAREST_SAMPLES: usize = 360;
+const NEAREST_REFINEMENTS: usize = 24;
+const EQUALLY_NEAR: f64 = 1e-6;
 const ARC_STEP_DEGREES: f64 = 5.0;
 const MAX_ARC_STEPS: f64 = 72.0;
 
@@ -95,9 +99,79 @@ impl Swing {
     }
 
     pub fn degrees_of(&self, ray: Ray) -> Option<f64> {
+        self.degrees_near(ray, None)
+    }
+
+    pub fn degrees_near(&self, ray: Ray, near: Option<f64>) -> Option<f64> {
         let axis = self.radial.cross(self.normal);
+        if ray.direction().dot(axis).abs() < EDGE_ON_FACING {
+            return self.nearest_to_ray(ray, near);
+        }
         let plane = caditor_geometry::Plane::new(self.foot, axis)?;
         self.degrees_at(ray.at(ray.intersect_plane(&plane)?))
+    }
+
+    fn gap_to_ray(&self, ray: Ray, degrees: f64) -> (f64, f64) {
+        let from_origin = self.at(degrees) - ray.origin();
+        let along = from_origin.dot(ray.direction());
+        (
+            (from_origin - ray.direction() * along).length_squared(),
+            along,
+        )
+    }
+
+    fn nearest_to_ray(&self, ray: Ray, near: Option<f64>) -> Option<f64> {
+        if self.radius <= SMALLEST_RADIUS {
+            return None;
+        }
+        let step = FULL_TURN_DEGREES / NEAREST_SAMPLES as f64;
+        let gaps: Vec<f64> = (0..NEAREST_SAMPLES)
+            .map(|index| self.gap_to_ray(ray, index as f64 * step).0)
+            .collect();
+        let refined = |index: usize| {
+            let centre = index as f64 * step;
+            let (mut low, mut high) = (centre - step, centre + step);
+            for _ in 0..NEAREST_REFINEMENTS {
+                let third = (high - low) / 3.0;
+                let (left, right) = (low + third, high - third);
+                if self.gap_to_ray(ray, left).0 < self.gap_to_ray(ray, right).0 {
+                    high = right;
+                } else {
+                    low = left;
+                }
+            }
+            (low + high) / 2.0
+        };
+        let before = gaps.iter().cycle().skip(NEAREST_SAMPLES - 1);
+        let after = gaps.iter().cycle().skip(1);
+        let minima: Vec<f64> = gaps
+            .iter()
+            .zip(before.zip(after))
+            .enumerate()
+            .filter(|(_, (gap, (before, after)))| gap <= before && gap < after)
+            .map(|(index, _)| refined(index))
+            .collect();
+        let nearest = minima
+            .iter()
+            .map(|degrees| self.gap_to_ray(ray, *degrees).0)
+            .fold(f64::INFINITY, f64::min);
+        let scale = self.radius * self.radius;
+        let contenders = minima
+            .into_iter()
+            .filter(|degrees| self.gap_to_ray(ray, *degrees).0 <= nearest + EQUALLY_NEAR * scale);
+        match near {
+            Some(near) => contenders.min_by(|a, b| {
+                let apart = |degrees: &f64| {
+                    ((degrees - near + 180.0).rem_euclid(FULL_TURN_DEGREES) - 180.0).abs()
+                };
+                apart(a).total_cmp(&apart(b))
+            }),
+            None => contenders.min_by(|a, b| {
+                self.gap_to_ray(ray, *a)
+                    .1
+                    .total_cmp(&self.gap_to_ray(ray, *b).1)
+            }),
+        }
     }
 
     pub fn degrees_at(&self, point: Point3) -> Option<f64> {
@@ -432,7 +506,7 @@ impl TurnDrag {
     }
 
     pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
-        let Some(now) = self.swing.degrees_of(ray) else {
+        let Some(now) = self.swing.degrees_near(ray, Some(self.last)) else {
             return false;
         };
         let turned = (now - self.last + 180.0).rem_euclid(360.0) - 180.0;
@@ -562,4 +636,72 @@ pub fn typed(
         FeatureKind::Solid(SolidFeature::Revolve(revolve)),
         named,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ring() -> Swing {
+        Swing {
+            foot: Point3::ZERO,
+            radial: Vector3::X,
+            normal: Vector3::Y,
+            radius: 10.0,
+        }
+    }
+
+    fn grazing_through(swing: &Swing, degrees: f64, height: f64) -> Ray {
+        let target = swing.at(degrees);
+        let origin = target + Vector3::new(0.0, -100.0, height);
+        Ray::new(origin, target - origin).unwrap()
+    }
+
+    #[test]
+    fn a_ray_nearly_edge_on_to_the_ring_still_reads_the_angle_it_passes_through() {
+        let swing = ring();
+        let ray = grazing_through(&swing, 30.0, 3.0);
+
+        let read = swing.degrees_of(ray).unwrap();
+
+        assert!(ray.direction().dot(Vector3::Z).abs() < EDGE_ON_FACING);
+        assert!((read - 30.0).abs() < 0.5, "{read}");
+    }
+
+    #[test]
+    fn a_ray_exactly_in_the_plane_of_the_ring_reads_an_angle_instead_of_nothing() {
+        let swing = ring();
+        let target = swing.at(120.0);
+        let ray = Ray::new(target - Vector3::Y * 100.0, Vector3::Y).unwrap();
+
+        assert!(swing.degrees_of(ray).is_some());
+        assert!(swing.degrees_near(ray, Some(120.0)).is_some());
+    }
+
+    #[test]
+    fn edge_on_the_pointer_keeps_the_branch_it_was_on_and_sweeps_the_way_it_moves() {
+        let swing = ring();
+        let mut last = 20.0;
+        let mut swept = 0.0;
+
+        for degrees in [25.0, 30.0, 35.0, 40.0] {
+            let ray = grazing_through(&swing, degrees, 2.0);
+            let now = swing.degrees_near(ray, Some(last)).unwrap();
+            swept += (now - last + 180.0).rem_euclid(360.0) - 180.0;
+            last = now;
+        }
+
+        assert!((swept - 20.0).abs() < 2.0, "{swept}");
+    }
+
+    #[test]
+    fn facing_the_ring_reads_where_the_ray_crosses_its_plane() {
+        let swing = ring();
+        let target = swing.at(75.0);
+        let ray = Ray::new(target + Vector3::Z * 50.0, -Vector3::Z).unwrap();
+
+        let read = swing.degrees_near(ray, Some(0.0)).unwrap();
+
+        assert!((read - 75.0).abs() < 1e-9, "{read}");
+    }
 }

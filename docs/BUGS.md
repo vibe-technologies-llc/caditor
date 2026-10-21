@@ -186,12 +186,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
-- [medium · medium] The angle arrows of a revolve (`turn_handles.rs`) cannot be dragged when the
-  view is square to the sketch, which is edge-on to their plane: `Ray::intersect_plane` returns
-  `None`, `TurnDrag::begin` refuses, and nothing gates the arrows off as the move rings are. Near
-  edge-on in perspective the angle is wildly sensitive. `ValueHandles` `Follow::Turn` has the same
-  weakness. Typing the angle or orbiting away works; an angle taken from the pointer's motion round
-  the axis on screen would work edge-on.
 - [low · medium] Undoing past a sketch's entry mark makes Cancel sketch refuse with a warning
   (`changes_since` returns `CancelRefusal::HistoryChanged`, `editing.rs`), since the undo stack is
   the document's; Redo back to the mark restores it, and Finish, Escape, Undo and Redo keep working.
