@@ -816,11 +816,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   pasting), while recompute evaluates only what the kind needs (`chamfer_form`).
 - Besides `edges`, a blend holds `groups` (`EdgeGroup`): a face (`FaceReference`, pieces of one
   split face accepted), the whole body or a rule (`EdgeRule`), expanded each recompute to the edges
-  it has then (`GroupResolution::edges`: boundary edges, or every edge, seams and edges between
-  pieces of one face left out, each once). A rule is `Convex` or `Concave` (every edge of the body
-  by `caditor_kernel::edge_convexity`, from the two faces' outward normals and the edge tangent at
-  the middle of the edge; a smooth edge, one with a repeated face or one with other than two faces
-  has none and is skipped) or `MadeBy(feature)`: an edge belongs to the latest feature, in tree
+  it has then (`GroupResolution::edges`: boundary edges, or every edge, seams, edges between
+  pieces of one face and edges whose faces meet back to back (`meets_back_to_back`, where two
+  bores touch, which no blend fits) left out, each once). A rule is `Convex` or `Concave` (every
+  edge of the body by `caditor_kernel::edge_convexity`, from the two faces' outward normals and the
+  edge tangent at the middle of the edge; a smooth edge, one whose faces meet back to back, one
+  with a repeated face or one with other than two faces has none and is skipped) or `MadeBy(feature)`: an edge belongs to the latest feature, in tree
   order, among those that made its two faces (`origin_feature`: the pattern for a copy), so a
   pocket's rim, floor and corners are the pocket's and the base keeps the rest; faces with no
   origin or a feature no longer in the document count for none. `MadeBy` is a dependency of the

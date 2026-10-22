@@ -912,6 +912,21 @@ fn same_piece(arrangement: &Arrangement, first: usize, second: usize) -> Option<
     (expected == (first_piece.start, first_piece.end)).then_some(relation)
 }
 
+fn pinched_apart(arrangement: &Arrangement, first: usize, second: usize) -> bool {
+    let edge_of = |piece: usize| {
+        arrangement
+            .piece(piece)
+            .and_then(|data| arrangement.source(data.source))
+            .and_then(|source| source.edge)
+    };
+    match (edge_of(first), edge_of(second)) {
+        (Some((first_operand, first_edge)), Some((second_operand, second_edge))) => {
+            first_operand == second_operand && first_edge != second_edge
+        }
+        _ => false,
+    }
+}
+
 fn deduplicate(arrangement: &Arrangement) -> Result<Vec<(usize, Sense)>, Interrupted> {
     let count = arrangement.pieces.len();
     let mut representatives: Vec<(usize, Sense)> =
@@ -937,7 +952,8 @@ fn deduplicate(arrangement: &Arrangement) -> Result<Vec<(usize, Sense)>, Interru
                 {
                     continue;
                 }
-                if let Some(relation) = same_piece(arrangement, *second, *first)
+                if !pinched_apart(arrangement, *first, *second)
+                    && let Some(relation) = same_piece(arrangement, *second, *first)
                     && let Some(slot) = representatives.get_mut(*second)
                 {
                     *slot = (*first, relation);

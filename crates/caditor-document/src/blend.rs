@@ -4,6 +4,7 @@ use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
     BlendError, BlendShape, EdgeConvexity, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName,
     FaceOrigin, FaceReference, Solid, VertexId, blend, edge_convexity, faces_around_vertices,
+    meets_back_to_back,
 };
 
 use crate::{
@@ -196,7 +197,9 @@ pub fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
 fn blendable(solid: &Solid, edges: impl Iterator<Item = EdgeId>) -> Vec<EdgeId> {
     let mut seen = BTreeSet::new();
     edges
-        .filter(|edge| !is_seam(solid, *edge) && seen.insert(*edge))
+        .filter(|edge| {
+            !is_seam(solid, *edge) && !meets_back_to_back(solid, *edge) && seen.insert(*edge)
+        })
         .collect()
 }
 
@@ -528,6 +531,7 @@ impl Context<'_> {
             BlendError::Intricate(_) => self.error(BlendCause::Intricate { kind, edge }),
             BlendError::Smooth(_) => self.error(BlendCause::Smooth { edge }),
             BlendError::TooLarge(_) => self.error(BlendCause::TooLarge { kind, edge }),
+            BlendError::BackToBack(_) => self.error(BlendCause::BackToBack { kind, edge }),
             BlendError::WrapsAround(_) => self.error(BlendCause::WrapsAround { kind, edge }),
             BlendError::UnsupportedEnd { vertex, .. } => {
                 match vertex.and_then(|vertex| self.earlier_blend_at(solid, vertex)) {
@@ -595,6 +599,10 @@ pub(crate) enum BlendCause {
         kind: BlendKind,
         edge: String,
     },
+    BackToBack {
+        kind: BlendKind,
+        edge: String,
+    },
     WrapsAround {
         kind: BlendKind,
         edge: String,
@@ -657,6 +665,11 @@ impl BlendCause {
             Self::TooLarge { kind, edge } => format!(
                 "The {} is too large for the faces next to {edge}.",
                 kind.size_name()
+            ),
+            Self::BackToBack { kind, edge } => format!(
+                "The faces at {edge} meet back to back, as two holes that touch do, so no {} of \
+                 any size fits there.",
+                kind.noun()
             ),
             Self::WrapsAround { kind, edge } => format!(
                 "The {} of {edge} would run into itself: the edge is almost a full circle and \
@@ -738,7 +751,7 @@ impl BlendCause {
                     kind.size_name()
                 )
             }
-            Self::Smooth { .. } => "Leave this edge out.".to_owned(),
+            Self::Smooth { .. } | Self::BackToBack { .. } => "Leave this edge out.".to_owned(),
             Self::WrapsAround { kind, .. } => format!(
                 "Also choose the edges that continue from it, enter a smaller {}, or leave it \
                  out.",

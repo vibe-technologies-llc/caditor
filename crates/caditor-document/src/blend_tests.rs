@@ -1989,3 +1989,71 @@ fn an_equal_blend_has_no_side_to_flip() {
 
     assert!(!kept.blend().unwrap().flipped);
 }
+
+fn blended_beside_touching_bores(
+    edges: impl FnOnce(&Solid) -> Vec<EdgeReference>,
+    groups: Vec<EdgeGroup>,
+) -> (Evaluation, FeatureId, FeatureId, f64) {
+    let mut document = Document::default();
+    let block = crate::hole_tests::block_with_touching_bores(&mut document);
+    let mut engine = Recompute::default();
+    let before = evaluate(&document, &mut engine);
+    let edges = edges(before.body(block).unwrap());
+    let bores = volume(&before, block);
+    let blend = Blend {
+        kind: BlendKind::Fillet,
+        body: block,
+        edges,
+        groups,
+        size: mm("0.3"),
+        form: ChamferForm::Equal,
+        flipped: false,
+    };
+    let mut transaction = document.transaction("Round");
+    let fillet = transaction.add_feature("Fillet 1", FeatureKind::Blend(blend));
+    document.apply(transaction.finish()).unwrap();
+    (evaluate(&document, &mut engine), block, fillet, bores)
+}
+
+#[test]
+fn a_rim_beside_two_bores_that_touch_takes_a_fillet() {
+    let (evaluation, block, fillet, bores) = blended_beside_touching_bores(
+        |solid| vec![edge_at(solid, Point3::new(-5.0, -29.0, 16.0))],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(fillet)
+    );
+    let found = volume(&evaluation, block);
+    let removed = spandrel(0.3) * 2.0 * PI * 2.0;
+    assert!((bores - removed - found).abs() < 0.2 * removed, "{found}");
+}
+
+#[test]
+fn every_edge_of_a_block_whose_bores_touch_leaves_out_where_they_touch() {
+    let (evaluation, _, fillet, _) =
+        blended_beside_touching_bores(|_| Vec::new(), vec![EdgeGroup::Body]);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(fillet)
+    );
+}
+
+#[test]
+fn the_edge_where_two_bores_touch_is_refused_as_meeting_back_to_back() {
+    let (evaluation, _, fillet, _) = blended_beside_touching_bores(
+        |solid| vec![edge_at(solid, Point3::new(-5.0, -25.0, 8.0))],
+        Vec::new(),
+    );
+
+    let reason = failure(&evaluation, fillet).reason();
+    assert!(reason.contains("meet back to back"), "{reason}");
+    assert!(reason.contains("no fillet of any size"), "{reason}");
+}

@@ -1526,3 +1526,74 @@ fn a_circular_pattern_of_points_drills_every_copy_and_leaves_its_centre() {
     let found = volume(&evaluation, pair.plate);
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }
+
+pub(crate) fn block_with_touching_bores(document: &mut Document) -> FeatureId {
+    let mut outline = crate::combine_tests::rectangle((-10.0, -30.0), (0.0, -20.0));
+    outline.add_circle(Point2::new(-5.0, -27.0), 2.0);
+    outline.add_circle(Point2::new(-5.0, -23.0), 2.0);
+    let height = expression(document, "16 mm");
+    let mut transaction = document.transaction("Block");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(outline));
+    let block = transaction.add_feature(
+        "Block",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(height, false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    block
+}
+
+#[test]
+fn a_hole_beside_two_bores_that_touch_cuts_the_block() {
+    let mut document = Document::default();
+    let block = block_with_touching_bores(&mut document);
+    let mut engine = Recompute::default();
+    let bores = volume(&evaluate(&document, &mut engine), block);
+    let mut sketch = Sketch::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, 16.0), Vector3::Z, Vector3::X).unwrap(),
+    );
+    sketch.add_point(Point2::new(-2.0, -25.0));
+    sketch.add_point(Point2::new(-8.0, -21.0));
+    let hole = Hole {
+        sketch: FeatureId::from_raw(0),
+        body: block,
+        diameter: expression(&document, "1 mm"),
+        depth: HoleDepth::Blind(expression(&document, "5 mm")),
+        style: HoleStyle::Plain,
+        reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
+        sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
+    };
+    let mut transaction = document.transaction("Drill");
+    let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
+    let hole = transaction.add_feature("Hole 1", FeatureKind::Hole(Hole { sketch, ..hole }));
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(hole)
+    );
+    assert!(
+        (bores - (1600.0 - 2.0 * PI * 4.0 * 16.0)).abs() < 1.0,
+        "{bores}"
+    );
+    let removed = 2.0 * PI * 0.25 * 5.0;
+    let found = volume(&evaluation, block);
+    assert!((bores - found - removed).abs() < 0.01 * removed, "{found}");
+}

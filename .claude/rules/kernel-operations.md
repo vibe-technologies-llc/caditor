@@ -331,7 +331,11 @@ paths:
   a piece no longer than twice the resolution is kept when no sample lies outside either face.
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
   holds edges to) are one edge, so an intersection along an existing edge and coincident faces need
-  no special case; pieces a few micrometres apart stay two edges bounding a sliver.
+  no special case; pieces a few micrometres apart stay two edges bounding a sliver. Pieces of two
+  different edges of one operand stay apart (`pinched_apart`): a valid solid has such a pair only
+  where it pinches, as two bores extruded from tangent circles meet in two coincident edges along
+  the line where they touch, and joined into one they read as an edge used four times, so any cut
+  or join beside the pinch failed as `NonManifold` there.
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
@@ -436,8 +440,10 @@ paths:
   at the middle of the edge: smooth when the outward normals agree within `TANGENT_FACE_ANGLE`,
   else convex when (first normal x second normal) . tangent, the tangent taken along the first
   face's coedge, is positive and concave when negative; an edge with one face, a repeated face or
-  other than two faces, or a normal that cannot be found, has none. The document's convex and
-  concave edge rules use it (`document.md`).
+  other than two faces, a normal that cannot be found, or faces meeting back to back (outward
+  normals opposite within `TANGENT_FACE_ANGLE`, `meets_back_to_back`: where two bores touch, whose
+  sign was rounding noise) has none. The document's convex and concave edge rules use it
+  (`document.md`).
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a pair
   that cannot be united stays apart; a pair whose boxes lie more than `APART_TOOLS` apart is joined
@@ -509,8 +515,9 @@ paths:
   another fillet's row on the same face. Joints are kept sections, so their vertices never move.
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
   foot crosses an edge of its face (other than seams and edges at the blended edge's ends), whose
-  foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex excepted), and a
-  knife edge (opposite normals). A sample past the plane of a flat face at one of the edge's ends
+  foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex excepted). An edge
+  whose faces meet back to back (opposite normals, where two bores touch) is `BackToBack`, since no
+  size fits there. A sample past the plane of a flat face at one of the edge's ends
   (`end_planes`) fits whatever face it lands on, since that end extends or clips the tool there.
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
