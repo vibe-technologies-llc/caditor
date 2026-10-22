@@ -268,6 +268,50 @@ impl<P: Coordinates> BSpline<P> {
         restricted.ok()
     }
 
+    pub fn restarted_at(&self, parameter: f64) -> Option<Self> {
+        let domain = self.domain;
+        let closing_gap = self
+            .point(domain.start())
+            .distance_to(self.point(domain.end()));
+        if closing_gap > LINEAR_RESOLUTION {
+            return None;
+        }
+        if parameter <= domain.start() || parameter >= domain.end() {
+            return Some(self.clone());
+        }
+        let after = self.restricted(Interval::new(parameter, domain.end())?)?;
+        let before = self.restricted(Interval::new(domain.start(), parameter)?)?;
+
+        let degree = self.degree;
+        let shift = domain.length();
+        let after_knots = after.knots.get(..after.knots.len().checked_sub(1)?)?;
+        let before_knots = before.knots.get(degree + 1..)?;
+        let knots: Vec<f64> = after_knots
+            .iter()
+            .copied()
+            .chain(before_knots.iter().map(|knot| knot + shift))
+            .collect();
+        let control_points: Vec<P> = after
+            .control_points
+            .iter()
+            .chain(before.control_points.get(1..)?)
+            .copied()
+            .collect();
+        let restarted = match (&after.weights, &before.weights) {
+            (Some(after_weights), Some(before_weights)) => {
+                let scale = after_weights.last()? / before_weights.first()?;
+                let weights = after_weights
+                    .iter()
+                    .copied()
+                    .chain(before_weights.get(1..)?.iter().map(|weight| weight * scale))
+                    .collect();
+                Self::rational(degree, knots, control_points, weights)
+            }
+            _ => Self::new(degree, knots, control_points),
+        };
+        restarted.ok()
+    }
+
     pub fn interpolating(degree: usize, points: &[P]) -> Result<Self, GeometryError> {
         let mut parameters = Vec::with_capacity(points.len());
         let mut travelled = 0.0;
@@ -956,6 +1000,52 @@ mod tests {
                 assert!((numeric_second - second).length() < 1e-4 * (1.0 + second.length()));
             }
         }
+    }
+
+    #[test]
+    fn a_closed_spline_restarted_mid_way_traces_the_same_loop_from_there() {
+        let corners = vec![
+            Point3::ZERO,
+            Point3::new(4.0, -1.0, 0.0),
+            Point3::new(5.0, 3.0, 1.0),
+            Point3::new(2.0, 5.0, -1.0),
+            Point3::new(-2.0, 3.0, 0.0),
+            Point3::ZERO,
+        ];
+        let plain = BSpline::new(
+            3,
+            vec![0.0, 0.0, 0.0, 0.0, 0.4, 0.7, 1.0, 1.0, 1.0, 1.0],
+            corners.clone(),
+        )
+        .unwrap();
+        let weighted = BSpline::rational(
+            3,
+            plain.knots().to_vec(),
+            corners,
+            vec![2.0, 1.0, 0.5, 3.0, 1.0, 0.5],
+        )
+        .unwrap();
+        let open = BSpline::new(
+            3,
+            vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+            vec![Point3::ZERO, Point3::X, Point3::Y, Point3::Z],
+        )
+        .unwrap();
+
+        for spline in [plain, weighted] {
+            let restarted = spline.restarted_at(0.55).unwrap();
+
+            assert_eq!(restarted.domain().start(), 0.55);
+            assert!((restarted.domain().end() - 1.55).abs() < 1e-12);
+            for along in [0.0, 0.1, 0.3, 0.45, 0.6, 0.8, 1.0] {
+                let original = (0.55 + along) % 1.0;
+                let distance = restarted
+                    .point(0.55 + along)
+                    .distance(spline.point(original));
+                assert!(distance < 1e-9, "{along}: {distance}");
+            }
+        }
+        assert!(open.restarted_at(0.5).is_none());
     }
 
     #[test]

@@ -193,7 +193,12 @@ paths:
   built again (`Topology::outward_voids`, from `SolidBuilder::inward_shells`).
 - A fin, an edge a loop runs out along and straight back (Autodesk exports leave them on cylinders),
   bounds nothing and is left out with its tip vertex, unless one end is a pole of the face, where
-  such a fold is the seam reaching an apex.
+  such a fold is the seam reaching an apex. An inner loop that is nothing but fins (Autodesk leaves
+  a slit, one edge out and straight back, inside a duct's face) is left out whole; a face's only
+  loop never is, since a sphere's is its seam twice.
+- A closed edge on a closed, non-periodic spline whose vertex is not where the spline closes runs
+  from its vertex round to it again: the spline is restarted there (`BSpline::restarted_at`), as
+  Autodesk writes such a vertex anywhere along the curve.
 - The outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area;
   faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
   shared by corner position and a plane from the polygon when none is named.
@@ -280,7 +285,8 @@ paths:
 
 - A body neither the exact, snapped nor bent build accepts is built in `Healing::Faceted` when the file
   declares a precision: intersection edges are traced only between elementary faces, and an edge
-  whose ends miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`).
+  whose ends miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`),
+  up to the faceted allowance below (`faceted_allowance`), since the faces may lie that far apart.
   A vertex settles no farther than its worst gap (nor the precision): where faces meet nearly
   parallel or tangent their common point lies far along them, and following it would leave every edge
   there missing the vertex, while the file's corner already lies within the precision of all faces.

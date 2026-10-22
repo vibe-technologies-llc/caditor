@@ -327,11 +327,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let mut faceting = None;
         let solid = if faceted {
             let within = precision.unwrap_or(LINEAR_RESOLUTION);
-            let allowance = if within > LINEAR_RESOLUTION {
-                FACETED_REACH * within
-            } else {
-                within
-            };
+            let allowance = faceted_allowance(within);
             if self.loosest > allowance {
                 return Err(Problem::new(
                     id,
@@ -586,6 +582,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             other => other,
         };
         let graph = self.geometry.graph;
+        let alone = bounds.len() == 1;
         for bound in &bounds {
             let loop_id = graph.entity(*bound)?.fields()?.reference(1)?;
             let loop_entity = graph.entity(loop_id)?;
@@ -597,7 +594,7 @@ impl<'g, 'a> Topology<'g, 'a> {
                 let fields = graph.entity(oriented)?.record("ORIENTED_EDGE")?;
                 uses.push((fields.reference(3)?, fields.logical(4)?));
             }
-            let fins = self.fins_in(&uses, &surface)?;
+            let fins = self.fins_in(&uses, &surface, alone)?;
             for (edge, _) in uses {
                 if fins.contains(&edge) {
                     continue;
@@ -624,7 +621,12 @@ impl<'g, 'a> Topology<'g, 'a> {
         Ok(())
     }
 
-    fn fins_in(&mut self, uses: &[(u64, bool)], surface: &Surface) -> Read<BTreeSet<u64>> {
+    fn fins_in(
+        &mut self,
+        uses: &[(u64, bool)],
+        surface: &Surface,
+        alone: bool,
+    ) -> Read<BTreeSet<u64>> {
         let mut kept: VecDeque<(u64, bool)> = VecDeque::with_capacity(uses.len());
         let mut fins = BTreeSet::new();
         let folds_back = |(edge, orientation): (u64, bool), other: Option<&(u64, bool)>| {
@@ -652,7 +654,7 @@ impl<'g, 'a> Topology<'g, 'a> {
                 _ => break,
             }
         }
-        if kept.is_empty() {
+        if kept.is_empty() && alone {
             return Ok(BTreeSet::new());
         }
         self.fins.extend(fins.iter().copied());
@@ -922,6 +924,9 @@ impl<'g, 'a> Topology<'g, 'a> {
             };
             coedges.push((edge, sense));
         }
+        if coedges.is_empty() {
+            return Ok(None);
+        }
         if reversed {
             coedges.reverse();
         }
@@ -1045,6 +1050,10 @@ impl<'g, 'a> Topology<'g, 'a> {
             return Ok(entry);
         }
         let curve = self.geometry.curve(fields.reference(3)?)?;
+        let curve = match self.builder.vertex_point(start) {
+            Some(vertex) if start == end => restarted_at_vertex(curve, vertex),
+            _ => curve,
+        };
         let interval = self.interval(id, &curve, start, end)?;
         let surfaces = self.surfaces_of(self.edge_faces.get(&id));
         let traceable = self.healing != Healing::Faceted || surfaces.iter().all(exact_kind);
@@ -1144,7 +1153,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             self.builder.vertex_point(start)?,
             self.builder.vertex_point(end)?,
         ];
-        let allowance = self.geometry.units.precision?;
+        let allowance = faceted_allowance(self.geometry.units.precision?);
         met_at_ends(curve, interval, ends, allowance)
     }
 
@@ -1227,6 +1236,29 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
         points.pop();
         points
+    }
+}
+
+fn restarted_at_vertex(curve: Curve, vertex: Point3) -> Curve {
+    let Curve::BSpline(spline) = &curve else {
+        return curve;
+    };
+    let domain = spline.domain();
+    if spline.point(domain.start()).distance(vertex) <= LINEAR_RESOLUTION {
+        return curve;
+    }
+    let at = curve.closest_parameter(vertex, domain);
+    match spline.restarted_at(at) {
+        Some(restarted) => Curve::BSpline(restarted),
+        None => curve,
+    }
+}
+
+fn faceted_allowance(precision: f64) -> f64 {
+    if precision > LINEAR_RESOLUTION {
+        FACETED_REACH * precision
+    } else {
+        precision
     }
 }
 

@@ -75,7 +75,8 @@ paths:
   (banded solve, no pivoting); `interpolating_at` does it at given increasing parameters so grid
   rows share knots (the STEP reader's fitted offsets).
 - `BSpline::restricted` is the exact piece over a range, by knot insertion in homogeneous
-  coordinates (drawing export uses it). `BSplineSurface::restricted` is the same over a uv box,
+  coordinates (drawing export uses it). `BSpline::restarted_at` traces a closed spline (ends within
+  the resolution) from a parameter round to it again, joining the two restricted pieces C0. `BSplineSurface::restricted` is the same over a uv box,
   `side` gives a side as a curve, `extended_evaluate` continues the boundary spans' polynomials past
   the domain for closest points that must not clamp, and `extended` makes that continuation a
   surface: each open side not a pole, nor within a given distance of its opposite, grows by a

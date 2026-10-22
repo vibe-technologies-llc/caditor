@@ -2146,6 +2146,86 @@ fn thousands_of_fins_folded_around_a_loop_are_all_left_out() {
     assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
 }
 
+#[test]
+fn a_loop_that_is_only_a_slit_inside_its_face_is_left_out() {
+    let solid = fixtures::plate_with_hole();
+    let text = written("plate", &solid);
+
+    let (_, face) = top_of(&text);
+    let slit = "#9001=CARTESIAN_POINT('',(30.,10.,10.));#9002=VERTEX_POINT('',#9001);\n\
+         #9003=CARTESIAN_POINT('',(30.,20.,10.));#9004=VERTEX_POINT('',#9003);\n\
+         #9005=DIRECTION('',(0.,1.,0.));#9006=VECTOR('',#9005,1.);\n\
+         #9007=LINE('',#9001,#9006);\n\
+         #9008=EDGE_CURVE('',#9002,#9004,#9007,.T.);\n\
+         #9009=ORIENTED_EDGE('',*,*,#9008,.T.);#9010=ORIENTED_EDGE('',*,*,#9008,.F.);\n\
+         #9011=EDGE_LOOP('',(#9009,#9010));#9012=FACE_BOUND('',#9011,.T.);\n\
+         ENDSEC;\nEND-ISO-10303-21;";
+    let with_slit = text
+        .replace(
+            &format!("{face}=ADVANCED_FACE('',("),
+            &format!("{face}=ADVANCED_FACE('',(#9012,"),
+        )
+        .replace("ENDSEC;\nEND-ISO-10303-21;", slit);
+    let model = sample(&with_slit);
+
+    assert_ne!(with_slit, text);
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
+    assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
+}
+
+#[test]
+fn a_closed_spline_edge_whose_vertex_is_not_where_the_spline_closes_starts_at_the_vertex() {
+    let solid = fixtures::plate_with_hole();
+    let text = written("plate", &solid);
+
+    let (circle_line, circle) = line_of(&text, "CIRCLE");
+    let placement = arguments(&text, circle)[1];
+    let axes = arguments(&text, placement);
+    let centre = coordinates(&text, axes[1]);
+    let normal = coordinates(&text, axes[2]);
+    let edge = entity_using(&text, "EDGE_CURVE", circle);
+    let vertex = coordinates(&text, arguments(&text, arguments(&text, &edge)[1])[1]);
+    let start = (vertex[1] - centre[1]).atan2(vertex[0] - centre[0]) + std::f64::consts::PI;
+    let turning = normal[2].signum();
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+    let mut entities = String::new();
+    let mut points = Vec::new();
+    for index in 0..9 {
+        let angle = start + turning * index as f64 * std::f64::consts::FRAC_PI_4;
+        let reach = if index % 2 == 0 { 5.0 } else { 5.0 / half };
+        let id = 9001 + index;
+        entities.push_str(&format!(
+            "#{id}=CARTESIAN_POINT('',({:?},{:?},{:?}));\n",
+            centre[0] + reach * angle.cos(),
+            centre[1] + reach * angle.sin(),
+            centre[2],
+        ));
+        points.push(format!("#{id}"));
+    }
+    let weights: Vec<String> = (0..9)
+        .map(|index| format!("{:?}", if index % 2 == 0 { 1.0 } else { half }))
+        .collect();
+    let spline = format!(
+        "{circle}=(BOUNDED_CURVE() B_SPLINE_CURVE(2,({}),.CIRCULAR_ARC.,.T.,.F.) \
+         B_SPLINE_CURVE_WITH_KNOTS((3,2,2,2,3),(0.,0.25,0.5,0.75,1.),.UNSPECIFIED.) CURVE() \
+         GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_CURVE(({})) REPRESENTATION_ITEM(''));",
+        points.join(","),
+        weights.join(","),
+    );
+    entities.push_str("ENDSEC;\nEND-ISO-10303-21;");
+    let restarted = text
+        .replace(circle_line, &spline)
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &entities);
+    let model = sample(&restarted);
+
+    assert_ne!(restarted, text);
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(model.solids.len(), 1);
+    assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
+}
+
 #[derive(Default)]
 struct Entities {
     lines: Vec<String>,
@@ -2500,6 +2580,19 @@ fn a_corner_whose_spline_edges_end_apart_moves_among_their_ends_when_the_body_im
         fixtures::volume(&faceted.solid)
     );
     assert!(refused.is_err());
+}
+
+#[test]
+fn a_spline_edge_ending_short_of_its_vertex_within_a_few_precisions_meets_it_when_faceted() {
+    let (text, brep) = spline_cube_with_an_edge_ending_short(0.03);
+
+    let faceted = built_with(&text, brep, super::topology::Healing::Faceted).unwrap();
+
+    assert!(
+        (fixtures::volume(&faceted.solid) - 1000.0).abs() < 0.5,
+        "{}",
+        fixtures::volume(&faceted.solid)
+    );
 }
 
 #[test]
