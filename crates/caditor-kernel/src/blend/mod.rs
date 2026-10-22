@@ -176,6 +176,8 @@ pub enum BlendError {
     Smooth(EdgeId),
     #[error("the size does not fit on the faces next to edge {0:?}")]
     TooLarge(EdgeId),
+    #[error("the faces at edge {0:?} meet back to back, leaving no corner to blend")]
+    BackToBack(EdgeId),
     #[error("the blend around edge {0:?} would reach past its own start to close off its ends")]
     WrapsAround(EdgeId),
     #[error("edge {edge:?} ends at vertex {vertex:?} where the blend cannot be closed off")]
@@ -267,6 +269,7 @@ impl BlendError {
             Self::Unsupported(_) => Self::Unsupported(edge),
             Self::Smooth(_) => Self::Smooth(edge),
             Self::TooLarge(_) => Self::TooLarge(edge),
+            Self::BackToBack(_) => Self::BackToBack(edge),
             Self::AngleMisses(_) => Self::AngleMisses(edge),
             Self::WrapsAround(_) => Self::WrapsAround(edge),
             Self::Intricate(_) => Self::Intricate(edge),
@@ -312,6 +315,7 @@ impl BlendError {
             | Self::Unsupported(edge)
             | Self::Smooth(edge)
             | Self::TooLarge(edge)
+            | Self::BackToBack(edge)
             | Self::AngleMisses(edge)
             | Self::WrapsAround(edge)
             | Self::Intricate(edge)
@@ -530,7 +534,7 @@ fn analyze(solid: &Solid, edge: EdgeId) -> Result<EdgeGeometry, BlendError> {
         return Err(BlendError::Smooth(edge));
     }
     if knife_within(normals[0], normals[1]) {
-        return Err(BlendError::TooLarge(edge));
+        return Err(BlendError::BackToBack(edge));
     }
     let inward = [
         normals[0].cross(if *first_same { tangent } else { -tangent }),
@@ -1605,7 +1609,13 @@ pub enum EdgeConvexity {
     Smooth,
 }
 
-pub fn edge_convexity(solid: &Solid, edge: EdgeId) -> Option<EdgeConvexity> {
+struct MiddleNormals {
+    first: Vector3,
+    second: Vector3,
+    along: Vector3,
+}
+
+fn middle_normals(solid: &Solid, edge: EdgeId) -> Option<MiddleNormals> {
     let faces = edge_faces(solid, edge);
     let [(first, forward), (second, _)] = faces.as_slice() else {
         return None;
@@ -1617,13 +1627,32 @@ pub fn edge_convexity(solid: &Solid, edge: EdgeId) -> Option<EdgeConvexity> {
     let middle = definition.interval().at(0.5);
     let at = definition.curve().point(middle);
     let along = definition.curve().evaluate(middle).first;
-    let along = if *forward { along } else { -along };
-    let a = face_normal(solid, *first, at)?;
-    let b = face_normal(solid, *second, at)?;
+    Some(MiddleNormals {
+        first: face_normal(solid, *first, at)?,
+        second: face_normal(solid, *second, at)?,
+        along: if *forward { along } else { -along },
+    })
+}
+
+fn back_to_back(normals: &MiddleNormals) -> bool {
+    normals.first.dot(normals.second) < 0.0
+        && normals.first.angle_between(-normals.second) <= TANGENT_FACE_ANGLE
+}
+
+pub fn meets_back_to_back(solid: &Solid, edge: EdgeId) -> bool {
+    middle_normals(solid, edge).is_some_and(|normals| back_to_back(&normals))
+}
+
+pub fn edge_convexity(solid: &Solid, edge: EdgeId) -> Option<EdgeConvexity> {
+    let normals = middle_normals(solid, edge)?;
+    let (a, b) = (normals.first, normals.second);
     if a.dot(b) > 0.0 && a.angle_between(b) <= TANGENT_FACE_ANGLE {
         return Some(EdgeConvexity::Smooth);
     }
-    let turn = a.cross(b).dot(along);
+    if back_to_back(&normals) {
+        return None;
+    }
+    let turn = a.cross(b).dot(normals.along);
     if turn > 0.0 {
         Some(EdgeConvexity::Convex)
     } else if turn < 0.0 {

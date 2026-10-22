@@ -12,7 +12,9 @@ in the panel offers **Every convex edge** (the outside corners of the body, incl
 pocket), **Every concave edge** (inside corners, such as a pocket's floor and walls) and **Every
 edge made by** one of the features before it, which takes the edges that feature made where it
 cut or joined the body, such as a pocket's rim, floor and corners. Edges that continue smoothly
-(already rounded, say) are left out of the convex and concave rules. The panel lists the rule with
+(already rounded, say), and the line where two holes touch, are left out of the convex and concave
+rules, and a face or body taken whole leaves out that line too: the walls meet back to back there,
+so no fillet or chamfer of any size fits, and choosing that edge alone is refused saying so. The panel lists the rule with
 the number of edges it takes now, and an edge a later change adds or removes follows the rule.
 {command:model.add_convex_edges} and {command:model.add_concave_edges} do the same from the
 palette, and {command:model.add_edges_of_selected_feature} takes the edges made by the feature of

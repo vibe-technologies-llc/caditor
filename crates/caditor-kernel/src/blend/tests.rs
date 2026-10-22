@@ -8,7 +8,9 @@ use crate::{
     fixtures::{cuboid, cylinder, hollow_cuboid},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, assert_cancelled_anywhere, assert_watertight, cancelled_after, line},
+    test_support::{
+        arc, assert_cancelled_anywhere, assert_watertight, cancelled_after, circle, line, rectangle,
+    },
     tolerance::SamplingTolerance,
 };
 
@@ -1583,6 +1585,34 @@ fn a_hollow_box_has_twelve_convex_and_twelve_concave_edges() {
         .count();
     assert_eq!(convex, 12);
     assert_eq!(concave, 12);
+}
+
+#[test]
+fn where_two_bores_touch_the_walls_meet_back_to_back_with_no_convexity() {
+    let mut profile = rectangle(1, (-10.0, -30.0), (0.0, -20.0));
+    profile.push(circle(5, (-5.0, -27.0), 2.0));
+    profile.push(circle(6, (-5.0, -23.0), 2.0));
+    let solid = swept(Plane::XY, &profile, 16.0);
+
+    let touching: Vec<EdgeId> = solid
+        .edges()
+        .filter(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            middle.distance(Point3::new(-5.0, -25.0, 8.0)) < 1e-6
+        })
+        .map(|(edge, _)| edge)
+        .collect();
+
+    assert_eq!(touching.len(), 2);
+    for edge in touching {
+        assert!(meets_back_to_back(&solid, edge));
+        assert_eq!(edge_convexity(&solid, edge), None);
+    }
+    let convex = convexities(&solid)
+        .iter()
+        .filter(|found| **found == Some(EdgeConvexity::Convex))
+        .count();
+    assert_eq!(convex, 4 + 8 + 4);
 }
 
 #[test]
