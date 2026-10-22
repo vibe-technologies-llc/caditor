@@ -331,7 +331,11 @@ paths:
   a piece no longer than twice the resolution is kept when no sample lies outside either face.
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
   holds edges to) are one edge, so an intersection along an existing edge and coincident faces need
-  no special case; pieces a few micrometres apart stay two edges bounding a sliver.
+  no special case; pieces a few micrometres apart stay two edges bounding a sliver. Pieces of two
+  different edges of one operand stay apart (`pinched_apart`): a valid solid has such a pair only
+  where it pinches, as two bores extruded from tangent circles meet in two coincident edges along
+  the line where they touch, and joined into one they read as an edge used four times, so any cut
+  or join beside the pinch failed as `NonManifold` there.
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the

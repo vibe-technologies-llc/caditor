@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     build::{AngularExtent, Axis2, LinearExtent, extrude, plan::PlanError, revolve},
+    curve::Curve,
     fixtures::{cuboid, cylinder, sphere},
     intersect::{IntersectionError, RefineStop},
     naming::{EdgeName, FaceName},
@@ -129,6 +130,50 @@ fn a_cylinder_drills_a_hole_through_a_block() {
     assert_eq!(result.faces().count(), 7);
     let boss = run(&plate, &drill, BooleanOperation::Union);
     check("boss", &boss, 400.0 + 8.0 * PI);
+}
+
+fn check_pinched(name: &str, solid: &Solid, expected: f64) {
+    assert_eq!(solid.validate(), Ok(()), "{name}");
+    let found = volume(solid);
+    assert!(
+        (found - expected).abs() <= 1e-3 * expected,
+        "{name}: volume {found} instead of {expected}"
+    );
+    assert_eq!(pinch_edges(solid), 2, "{name}");
+}
+
+fn pinch_edges(solid: &Solid) -> usize {
+    solid
+        .edges()
+        .filter(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            matches!(edge.curve(), Curve::Line(_))
+                && middle.distance(Point3::new(5.0, 5.0, 8.0)) < 1e-6
+        })
+        .count()
+}
+
+#[test]
+fn a_block_whose_two_bores_touch_takes_a_hole_beside_them() {
+    let mut profile = rectangle(1, (0.0, 0.0), (10.0, 10.0));
+    profile.push(circle(5, (5.0, 3.0), 2.0));
+    profile.push(circle(6, (5.0, 7.0), 2.0));
+    let block = swept(
+        &profile,
+        &Plane::XY,
+        LinearExtent::one_side(16.0).unwrap(),
+        1,
+    );
+    let bores = 1600.0 - 2.0 * PI * 4.0 * 16.0;
+    check_pinched("touching bores", &block, bores);
+
+    let drill = moved(cylinder(1.0, 18.0), (8.0, 5.0, -1.0));
+    let drilled = run(&block, &drill, BooleanOperation::Difference);
+    check_pinched("drilled beside", &drilled, bores - PI * 16.0);
+
+    let blind = moved(cylinder(0.5, 6.0), (2.0, 9.0, 11.0));
+    let pocketed = run(&block, &blind, BooleanOperation::Difference);
+    check_pinched("blind beside", &pocketed, bores - PI * 0.25 * 5.0);
 }
 
 #[test]
