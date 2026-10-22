@@ -235,7 +235,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   description (a panel with both, a hole, puts the description first); then references, values and
   options; then Body. Small exclusive choices are `segmented`; longer lists stay combo boxes. A hole
   runs Shape, Sketch, Placed on before its sizes (a slot's Length and Angle with the values), and a
-  move's Make a copy comes before Body.
+  move's and a mirror's Result come before Body.
 - Every value row (`feature_fields::Quantity` carries the feature) and sketch dimension is a
   `field::NamedField`: typing `name = expression` names the value (`document.md`, Model parameters). A
   new name is one transaction inserting a parameter owned by the field (`ParameterOwner::Feature` with
@@ -1206,7 +1206,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 - Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
   of zero turns and distances, then opens it. Copy body (Alt+Shift+C, also a body's right-click menu)
-  does the same with `copy` set, named Copy N. New moves turn about the body's centre; Turn about
+  does the same with `copy` set, named Copy N. The panel's Result row (`move_panel::RESULT`, Move
+  body or New body, the same `feature_fields::segmented_row` as a mirror's) switches `copy`, one
+  "Edit <move>" change, a copy others use refused in a notice (`BodyInUse`). New moves turn about the body's centre; Turn about
   (Centre, Origin, Axis) changes it. Fields are expressions (key `move-field`, `offset` or `turn`, axis
   index). Switching to Axis (`move_tools::about_axis`) takes the one axis the selection names, else Z,
   keeping any angle set; its Axis row is a combo of principal and earlier datum axes with Use selected
