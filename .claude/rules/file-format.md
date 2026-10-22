@@ -417,6 +417,12 @@ Bodies and solids:
 - `step_cache.rs`: process-wide LRU of shared solids (`Arc<Solid>`, handed to `Import::shared`) by
   the blake3 digest of the text, so a load, journal replay and recovery scan parse each import
   once; its budget counts each solid once.
+- Loading a model reads its import texts ahead, in parallel (`ImportTexts::reading_ahead`, the
+  import's `in_parallel` with the caller's interrupt): every distinct text an `import` or
+  `placed_import` record holds, through the scaled, framed and separate-pieces wrappers the writer
+  puts round them (`stored_step`), is read once by digest before features are restored, and
+  `restore_import` takes that result (a text missed, as in a hand-nested record, is read where it
+  is restored). Read one by one, the VZ330's 1,200 texts took 199 s to reopen; ahead, 75 s.
 - `reference_image`: `picture` (the picture's blake3 digest in hex), `data` (its bytes as they were
   read, base64, since a record is read through `serde_json::Value`, which holds no byte strings;
   `reference_images.rs`, `PictureField`, which encodes a kept `Picture` only while serialising),

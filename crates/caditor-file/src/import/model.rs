@@ -361,7 +361,7 @@ pub(super) fn dropped_looks_note(name: &str, dropped: usize) -> String {
     )
 }
 
-fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
     let threads = thread::available_parallelism()
         .map_or(1, NonZeroUsize::get)
         .min(items.len());

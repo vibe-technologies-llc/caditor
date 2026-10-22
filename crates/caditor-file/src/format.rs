@@ -41,17 +41,22 @@ use caditor_sketch::{
     ChainSize, Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, Gear, Meshing,
     PointTarget as SketchTarget, Quadrant, Sketch, SplineKind, Text, TextAlign,
 };
+use caditor_step::ReadError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
 use crate::{
     configurations::{ConfigurationsRecord, configurations_record_of, restore_configurations},
+    import::in_parallel,
     reference_images::{
         Pictures, ReferenceImageRecord, reference_image_record, restore_reference_image,
         share_picture,
     },
     selection_sets::{SelectionSetsRecord, restore_selection_sets, selection_sets_record_of},
 };
+
+#[cfg(test)]
+mod read_ahead_tests;
 
 pub const FORMAT_VERSION: u32 = 1;
 
@@ -1294,10 +1299,13 @@ pub(crate) struct PlacedImportRecord {
     pub turn: [String; 3],
 }
 
+type ReadSolid = Result<Option<Arc<Solid>>, ReadError>;
+
 #[derive(Debug, Default)]
 pub(crate) struct ImportTexts {
     texts: BTreeMap<String, StepText>,
     solids: BTreeMap<String, Arc<Solid>>,
+    read_ahead: BTreeMap<String, ReadSolid>,
     pub pictures: Pictures,
 }
 
@@ -1307,6 +1315,45 @@ impl ImportTexts {
             pictures,
             ..Self::default()
         }
+    }
+
+    pub fn reading_ahead(records: &[FeatureRecord]) -> Self {
+        let mut texts: BTreeMap<String, (blake3::Hash, Cow<'_, str>)> = BTreeMap::new();
+        for field in records
+            .iter()
+            .filter_map(|record| stored_step(&record.kind))
+        {
+            let Some(plain) = field.text() else {
+                continue;
+            };
+            let hash = blake3::hash(plain.as_bytes());
+            texts
+                .entry(hash.to_hex().to_string())
+                .or_insert((hash, plain));
+        }
+        let texts: Vec<(String, (blake3::Hash, Cow<'_, str>))> = texts.into_iter().collect();
+        let read = in_parallel(&texts, |(_, (hash, plain))| {
+            crate::step_cache::first_solid_hashed(plain, *hash)
+        });
+        Self {
+            read_ahead: texts
+                .into_iter()
+                .map(|(digest, _)| digest)
+                .zip(read)
+                .collect(),
+            ..Self::default()
+        }
+    }
+}
+
+fn stored_step(record: &FeatureKindRecord) -> Option<&StepField> {
+    match record {
+        FeatureKindRecord::Import(import) => Some(&import.step),
+        FeatureKindRecord::PlacedImport(placed) => placed.step.as_ref(),
+        FeatureKindRecord::ScaledImport(scaled) => stored_step(&scaled.feature),
+        FeatureKindRecord::ImportInFrame(framed) => stored_step(&framed.feature),
+        FeatureKindRecord::SeparatePieces(separate) => stored_step(&separate.feature),
+        _ => None,
     }
 }
 
@@ -7713,11 +7760,14 @@ fn restore_import(
     let solid = match texts.solids.get(&digest) {
         Some(solid) => solid.clone(),
         None => {
-            let plain = match plain {
-                Some(plain) => plain,
-                None => Cow::Owned(step.text().map(Cow::into_owned).unwrap_or_default()),
-            };
-            match parse(&plain) {
+            let read = texts.read_ahead.remove(&digest).unwrap_or_else(|| {
+                let plain = match plain {
+                    Some(plain) => plain,
+                    None => Cow::Owned(step.text().map(Cow::into_owned).unwrap_or_default()),
+                };
+                parse(&plain)
+            });
+            match read {
                 Ok(read) => {
                     let read = read.unwrap_or_default();
                     if !digest.is_empty() {

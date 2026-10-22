@@ -85,7 +85,7 @@ fn first_solid_within(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::SystemTime;
 
     use caditor_geometry::{Plane, Point2};
@@ -102,7 +102,7 @@ mod tests {
         first_solid_within(cache, step, blake3::hash(step.as_bytes()), budget)
     }
 
-    fn block_text(side: f64) -> String {
+    pub(crate) fn block_text(side: f64) -> String {
         let corners = [(0.0, 0.0), (side, 0.0), (side, side), (0.0, side)];
         let curves: Vec<ProfileCurve> = (0..4)
             .map(|index| {

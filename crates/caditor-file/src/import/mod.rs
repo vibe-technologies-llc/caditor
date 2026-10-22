@@ -28,6 +28,7 @@ use caditor_kernel::interruptible;
 use caditor_sketch::SplineKind;
 use caditor_step::ReadError;
 
+pub(crate) use crate::import::model::in_parallel;
 pub use crate::import::{
     arrange::{DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE},
     dxf::parse_dxf,

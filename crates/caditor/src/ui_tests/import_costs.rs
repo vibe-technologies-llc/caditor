@@ -136,6 +136,27 @@ fn stages(path: &Path) {
     report("added to the model", started, "");
     drop(imported);
 
+    let scratch = TempDir::new().unwrap();
+    let saved = scratch.path().join("timed.caditor");
+    let started = Instant::now();
+    caditor_file::save(&document, &saved, false).unwrap();
+    report(
+        "saved",
+        started,
+        format!(
+            "{:.0} MiB",
+            std::fs::metadata(&saved).map_or(0, |file| file.len()) as f64 / 1024.0 / 1024.0
+        ),
+    );
+    let started = Instant::now();
+    let reopened = caditor_file::load(&saved).unwrap();
+    report(
+        "reopened",
+        started,
+        format!("{} features", reopened.document.features().len()),
+    );
+    drop(reopened);
+
     let mut recompute = Recompute::default();
     let started = Instant::now();
     recompute.run_without_display(&document, &ModelEvaluator, &cancel);

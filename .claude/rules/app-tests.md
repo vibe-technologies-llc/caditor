@@ -102,7 +102,8 @@ bench-only:
   scene, UI thread drawing and GPU wait. `CADITOR_BENCH_CASE` runs only cases whose name contains
   it.
 - `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`; the nightly stress job
-  runs it) times a STEP import stage by stage, then through the harness from the Import command to
+  runs it) times a STEP import stage by stage (read, added, saved and reopened, recomputed,
+  meshed, measured, drawn), then through the harness from the Import command to
   every body shown, listing each frame over 50 ms. It synthesises a file asserted to stay within
   `SYNTHESISED_WITHIN`, or times `CADITOR_IMPORT_FILE`; `CADITOR_IMPORT_IN_THE_APP_ONLY` skips the
   stages. After the camera's fit finishes (`CAMERA_SETTLE`; no pick is asked while the viewpoint

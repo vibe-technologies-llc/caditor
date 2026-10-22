@@ -343,7 +343,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         }
     }
 
-    let mut texts = ImportTexts::default();
+    let mut texts = ImportTexts::reading_ahead(&parts.features);
     let features: Vec<Feature> = parts
         .features
         .iter()
