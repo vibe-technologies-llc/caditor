@@ -139,6 +139,8 @@ pub enum Fault {
     NotOneSolid,
     #[error("closed into separate pieces that do not make one solid ({0})")]
     PiecesNotJoined(#[source] ValidationError),
+    #[error("closed into a piece with no thickness")]
+    PieceWithoutThickness,
     #[error("would need {faces} flat faces, too many to import")]
     TooManyFlatFaces { faces: usize },
     #[error("did not close into a solid ({0})")]

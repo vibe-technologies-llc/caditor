@@ -295,7 +295,9 @@ paths:
   many faces) and imported as the planar solid `faceted_solids` makes, with a note per body;
   otherwise the exact refusal stands. A shell Autodesk wrote around separate pieces (a USB-C
   socket's pins in one closed shell) meshes into several closed solids, joined into one body of
-  several lumps (`Solid::joined`, refused when they overlap). `Built::faceted` says which (`Faceting`): within the precision
+  several lumps (`Solid::joined`, refused when they overlap). Every piece must have thickness
+  (three times its volume over its area beyond the resolution, `has_thickness`): a skew surface of
+  revolution left out of a vase closes into flat shells of no volume, refused as before. `Built::faceted` says which (`Faceting`): within the precision
   the note says the faces meet only within it; beyond it, the note gives how far apart they lie and
   that the shape may be off by as much, since a part left out loses more than one a few hundredths
   of a millimetre off. Like a mesh import it skips `find_crossing`, since

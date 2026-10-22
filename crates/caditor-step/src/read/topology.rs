@@ -9,6 +9,7 @@ use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
     Solid, SolidBuilder, Surface, TriangleMesh, VertexId, faceted_solids,
+    mass_properties_tessellating,
 };
 
 use crate::read::{
@@ -1397,6 +1398,9 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, Fault> {
             Ok(mut built) => {
                 let solid = match built.solids.len() {
                     1 => built.solids.pop().ok_or(Fault::NotOneSolid)?,
+                    _ if !built.solids.iter().all(has_thickness) => {
+                        return Err(Fault::PieceWithoutThickness);
+                    }
                     _ => Solid::joined(built.solids).map_err(Fault::PiecesNotJoined)?,
                 };
                 return Ok(Faceted {
@@ -1416,6 +1420,12 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, Fault> {
         }
     }
     Err(last.unwrap_or(Fault::NotOneSolid))
+}
+
+fn has_thickness(piece: &Solid) -> bool {
+    mass_properties_tessellating(piece, &piece.default_tolerance()).is_ok_and(|mass| {
+        3.0 * mass.properties.volume.abs() > LINEAR_RESOLUTION * mass.properties.area
+    })
 }
 
 fn main_face(made_of: &[usize], mesh: &TriangleMesh, faces: &[FaceId]) -> Option<FaceId> {
