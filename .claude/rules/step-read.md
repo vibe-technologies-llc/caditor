@@ -43,8 +43,9 @@ paths:
   faces cross (`Solid::find_crossing`) is refused naming the face entities; an inconclusive check
   imports it with a note that features built on it may fail.
 - `STEP_CORPUS=<dir>` (narrowed by `STEP_CORPUS_ONLY=<part of a name>`) makes
-  `every_file_of_a_corpus_is_read_and_reported` read every file there and print solids, volumes,
-  notes or refusal and time; run it in release against files whose volumes another reader gives.
+  `every_file_of_a_corpus_is_read_and_reported` read every file there through `read_step_copies`
+  (as import does, so no part is lost to the separate-copies cap) and print copies, volumes, notes
+  or refusal and time; run it in release against files whose volumes another reader gives.
 - Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
   parsing and before each solid, answering `ReadError::Cancelled`; nothing installs one by default. A
   body's build also polls it before each looser healing and before trying without its unreadable

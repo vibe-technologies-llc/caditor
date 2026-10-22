@@ -80,7 +80,7 @@ impl<'a> SurfacePatch<'a> {
     pub fn contains(&self, uv: Point2) -> bool {
         let wrapped = self.wrap(uv);
         let within = |value: f64, range: Interval| {
-            let slack = PARAMETER_SLACK * (1.0 + range.start().abs().max(range.end().abs()));
+            let slack = parameter_slack(range);
             value >= range.start() - slack && value <= range.end() + slack
         };
         let v_inside = within(wrapped.y, self.v_range());
@@ -177,7 +177,7 @@ fn path_misses_range(coordinates: [f64; 3], range: Interval, period: Option<f64>
     let middle = follow(start, middle);
     let end = follow(middle, end);
     let (low, high) = parabola_extent(start, middle, end);
-    let slack = PARAMETER_SLACK * (1.0 + range.start().abs().max(range.end().abs()));
+    let slack = parameter_slack(range);
     let margin = PATH_MARGIN * (high - low) + slack;
     let (low, high) = (low - margin, high + margin);
     match period {
@@ -202,11 +202,15 @@ fn parabola_extent(start: f64, middle: f64, end: f64) -> (f64, f64) {
     (low, high)
 }
 
+pub(crate) fn parameter_slack(range: Interval) -> f64 {
+    PARAMETER_SLACK * (1.0 + range.start().abs().max(range.end().abs()))
+}
+
 pub(crate) fn wrap_into(value: f64, range: Interval, period: Option<f64>) -> f64 {
     let Some(period) = period.filter(|period| *period > 0.0) else {
         return value;
     };
-    let slack = PARAMETER_SLACK * (1.0 + range.start().abs().max(range.end().abs()));
+    let slack = parameter_slack(range);
     let wrapped = range.start() + (value - range.start()).rem_euclid(period);
     if wrapped > range.end() + slack && wrapped >= range.start() + period - slack {
         wrapped - period

@@ -2523,20 +2523,20 @@ fn every_file_of_a_corpus_is_read_and_reported() {
         let bytes = std::fs::read(&path).unwrap();
         let text = String::from_utf8_lossy(&bytes);
         let start = std::time::Instant::now();
-        let result = read_step(&text);
+        let result = read_step_copies(&text);
         let elapsed = start.elapsed().as_secs_f64();
         match result {
             Ok(model) => {
                 let mut volumes: Vec<f64> = model
-                    .solids
+                    .copies
                     .iter()
-                    .map(|solid| fixtures::volume(&solid.solid))
+                    .map(|copy| fixtures::volume(&copy.solid) * copy.placement.scale().powi(3))
                     .collect();
                 volumes.sort_by(|a, b| b.total_cmp(a));
                 println!(
-                    "OK {} solids={} {:.2}s total={:.4} {:?}",
+                    "OK {} copies={} {:.2}s total={:.4} {:?}",
                     path.display(),
-                    model.solids.len(),
+                    model.copies.len(),
                     elapsed,
                     volumes.iter().sum::<f64>(),
                     volumes

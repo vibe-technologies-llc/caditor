@@ -176,8 +176,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   gets within 2e-6 mm), "Top plate MGN9H (1)" and "Top plate MGN9C (1)" (a helical thread face
   whose boundary backtracks at a junction in uv, so it crosses itself), and "goliath heatsink fan
   duct (1)" (the lead screw bracket's tangent strip). Reproduce by reading the file with
-  `read_step_copies` in release (about 80 s); `STEP_CORPUS` reads through `read_step`, which
-  places only the first 1000 copies.
+  `STEP_CORPUS` in release (about 65 s).
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

@@ -100,7 +100,10 @@ paths:
     through some twenty halved steps, each projecting onto the spline from off its domain. A
     branch whose crossing lies within the resolution of its current point is already on the
     boundary it heads through (an arrangement hint on a patch edge marching outward): the step
-    collapses at once and the branch ends there, rather than halving down to `MIN_STEP`.
+    collapses at once and the branch ends there, rather than halving down to `MIN_STEP`. A branch
+    seeded a hair past a bound, within the patch's parameter slack (a seed at a corner where
+    two faces of one solid meet only at a vertex, as in `find_crossing`), heads out through that
+    bound at no distance, so it ends there rather than failing `Unfollowable`.
   - A step that collapses where the branch runs off a bounded surface ends on the boundary ahead,
     at a pole (a cone apex on the other surface) ends there; otherwise it, and a branch longer than
     the step cap, fails as `Unfollowable`.

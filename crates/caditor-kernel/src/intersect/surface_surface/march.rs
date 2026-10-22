@@ -5,7 +5,7 @@ use crate::{
     curve::{Curve, IntersectionCurve},
     interrupt,
     intersect::{
-        IntersectionError, SurfacePatch, boxes_overlap,
+        IntersectionError, SurfacePatch, boxes_overlap, parameter_slack,
         solve::{
             Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
             refine_contact, refine_on_plane, uv_direction,
@@ -697,7 +697,12 @@ impl<'a> Tracer<'a> {
             } else {
                 range.start() + shift
             };
-            let reach = (bound - value) / velocity;
+            let overshoot = (value - bound) * velocity.signum();
+            let reach = if overshoot > 0.0 && overshoot <= parameter_slack(range) {
+                0.0
+            } else {
+                (bound - value) / velocity
+            };
             if reach >= 0.0 && nearest.is_none_or(|(known, _, _)| reach < known) {
                 nearest = Some((reach, coordinate, bound));
             }
@@ -1026,4 +1031,40 @@ pub(crate) fn intersect(
         });
     }
     Ok(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intersect::tests::{patch, plane};
+
+    #[test]
+    fn a_branch_starting_a_hair_past_a_bound_ends_on_it_rather_than_failing() {
+        let floor = plane(Point3::ZERO, Vector3::Z);
+        let wall = plane(Point3::new(0.5, 0.0, 0.0), Vector3::X);
+        let floor_patch = patch(&floor, (0.0, 1.0), (0.0, 1.0));
+        let wall_patch = patch(&wall, (-2.0, 2.0), (-2.0, 2.0));
+        let tracer = Tracer {
+            patches: [floor_patch, wall_patch],
+            max_step: 0.1,
+            curves: Vec::new(),
+            points: Vec::new(),
+            touches: Vec::new(),
+        };
+
+        let corner = Point3::new(0.5, 1.0, 0.0);
+        let floor_uv = floor.project(corner, None);
+        let past = Point2::new(floor_uv.x, floor_uv.y + 1e-13);
+        let point = floor.point_at(past);
+        let current = Contact {
+            uv: [past, wall.project(point, None)],
+            point,
+        };
+        let heading = floor.evaluate(past.x, past.y).dv.normalize();
+
+        let boundary = tracer.boundary_ahead(&current, heading);
+
+        assert_eq!(floor_uv, Point2::new(0.5, 1.0));
+        assert!(boundary.is_some_and(|contact| contact.point.distance(corner) < TOLERANCE));
+    }
 }
