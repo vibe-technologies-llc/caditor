@@ -219,8 +219,10 @@ paths:
 
 ## Faceted solids (`faceted/`)
 
-- `faceted_solids` turns a triangle mesh into one solid per closed shell. It welds vertices on a
-  grid of a billionth of the diagonal, drops degenerate and repeated triangles, closes holes of up
+- `faceted_solids` turns a triangle mesh into one solid per closed shell. It welds vertices within
+  a billionth of the diagonal or `LINEAR_RESOLUTION`, whichever is larger, looking in the
+  neighbouring cells too (a corner's copies a hair apart across a cell border once survived as an
+  edge too short to build), drops degenerate and repeated triangles, closes holes of up
   to `MAX_FILLED_HOLE_EDGES` edges by a fan, orients triangles and shells consistently, and leaves
   out open, self-folding and empty shells and a shell inside out within a larger one (a sealed
   hollow), counting each in `MeshRepairs`.

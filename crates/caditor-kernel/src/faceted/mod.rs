@@ -135,19 +135,34 @@ fn weld(
         .filter(|point| point.is_finite())
         .collect();
     let bounds = Aabb::from_points(finite).ok_or(FacetedError::NoTriangles)?;
-    let grid = (bounds.diagonal() * WELD_FRACTION).max(f64::MIN_POSITIVE);
-    let mut cells: BTreeMap<[i64; 3], usize> = BTreeMap::new();
-    let mut positions = Vec::new();
+    let reach = (bounds.diagonal() * WELD_FRACTION).max(LINEAR_RESOLUTION);
+    let mut cells: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
+    let mut positions: Vec<Point3> = Vec::new();
     let mut renumbered: Vec<Option<usize>> = Vec::with_capacity(mesh.positions.len());
     for point in &mesh.positions {
         if !point.is_finite() {
             renumbered.push(None);
             continue;
         }
-        let key = (*point / grid).round().to_array().map(|value| value as i64);
-        let index = *cells.entry(key).or_insert_with(|| {
+        let key = (*point / reach)
+            .floor()
+            .to_array()
+            .map(|value| value as i64);
+        let welded = neighbouring_cells(key)
+            .filter_map(|cell| cells.get(&cell))
+            .flatten()
+            .copied()
+            .filter(|kept| point.distance(self::point(&positions, *kept)) <= reach)
+            .min_by(|a, b| {
+                point
+                    .distance(self::point(&positions, *a))
+                    .total_cmp(&point.distance(self::point(&positions, *b)))
+            });
+        let index = welded.unwrap_or_else(|| {
             positions.push(*point);
-            positions.len() - 1
+            let index = positions.len() - 1;
+            cells.entry(key).or_default().push(index);
+            index
         });
         renumbered.push(Some(index));
     }
@@ -171,6 +186,20 @@ fn weld(
         },
         sources,
     ))
+}
+
+fn neighbouring_cells([x, y, z]: [i64; 3]) -> impl Iterator<Item = [i64; 3]> {
+    (-1..=1).flat_map(move |dx| {
+        (-1..=1).flat_map(move |dy| {
+            (-1..=1).map(move |dz| {
+                [
+                    x.saturating_add(dx),
+                    y.saturating_add(dy),
+                    z.saturating_add(dz),
+                ]
+            })
+        })
+    })
 }
 
 fn point(positions: &[Point3], index: usize) -> Point3 {

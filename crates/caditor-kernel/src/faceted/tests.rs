@@ -134,6 +134,27 @@ fn a_triangle_soup_is_welded_and_an_inside_out_one_turned_around() {
 }
 
 #[test]
+fn copies_of_a_corner_closer_than_the_resolution_are_welded_whatever_the_cells() {
+    let mut nudged = soup(&cube());
+    let corner = Point3::splat(10.0);
+    let copies: Vec<usize> = (0..nudged.positions.len())
+        .filter(|index| nudged.positions[*index] == corner)
+        .collect();
+    for (step, index) in copies.iter().enumerate() {
+        nudged.positions[*index] = corner + Vector3::X * (step as f64 * 2e-7);
+    }
+
+    let built = faceted_solids(&nudged).unwrap();
+
+    assert!(copies.len() > 2);
+    assert_eq!(built.repairs.welded, 36 - 8);
+    let [solid] = built.solids.as_slice() else {
+        panic!("expected one solid");
+    };
+    assert!((volume(solid) - 1000.0).abs() < 1e-4);
+}
+
+#[test]
 fn triangles_against_their_neighbours_are_flipped_and_degenerate_ones_dropped() {
     let mut mesh = cube();
     mesh.triangles[3].swap(0, 1);
