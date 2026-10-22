@@ -58,6 +58,11 @@ paths:
 - Where two boundary polylines leave a point along the same chord (a crescent tip, internally
   tangent circles, a cusp), the longer end segment is bisected first (at most `MAX_END_PARTINGS`
   rounds) for every face of the edge, so the loops part by the curves' own separation, not rounding.
+  Ends leaving a point within `CUSP_ENDS` of one direction (a tip between curves tangent there) have
+  their first `CUSP_SEGMENTS` segments tested for crossing in uv, both from the one tip point, and
+  the longer segment of each crossing pair is bisected in the same rounds; only faces of an edge
+  just bisected are looked at again. A coarse chord of one side otherwise cut across the densely
+  sampled other side near the tip (VZ330 "Goliath Air cooled").
 - Pole-line points share the pole's position and collapsing triangles are dropped, keeping the mesh
   watertight. A straight edge ending at a pole (a ruling to a cone's apex) is sampled one piece per
   grid row crossed, else triangles beside it fan from the apex with no area.

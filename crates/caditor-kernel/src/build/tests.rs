@@ -1261,6 +1261,47 @@ fn a_crescent_extrudes_wherever_its_tip_lies() {
     }
 }
 
+fn circle_of_spans(entity: u64, centre: Point2, radius: f64, spans: usize) -> ProfileCurve {
+    let turn = std::f64::consts::TAU / spans as f64;
+    let middle_weight = (0.5 * turn).cos();
+    let at = |angle: f64, reach: f64| centre + Vector2::from_angle(PI + angle) * reach;
+    let mut control_points = vec![at(0.0, radius)];
+    let mut weights = vec![1.0];
+    let mut knots = vec![0.0; 3];
+    for span in 0..spans {
+        let start = span as f64 * turn;
+        control_points.push(at(start + 0.5 * turn, radius / middle_weight));
+        control_points.push(at(start + turn, radius));
+        weights.extend([middle_weight, 1.0]);
+        let repeats = if span + 1 == spans { 3 } else { 2 };
+        knots.extend(std::iter::repeat_n((span + 1) as f64, repeats));
+    }
+    ProfileCurve::rational_spline(entity, 2, knots, control_points, weights)
+}
+
+#[test]
+fn a_crescent_whose_inner_side_is_sampled_densely_meshes_without_its_tips_crossing() {
+    for inner in [2.0, 2.5] {
+        let curves = [
+            ProfileCurve::circle(1, Point2::ZERO, 3.0),
+            circle_of_spans(2, Point2::new(3.0 - inner, 0.0), inner, 96),
+        ];
+        let profile = Profile::new(&curves).unwrap();
+        let chosen = profile.select(&Selection::EvenDepth).unwrap();
+        let name = format!("inner radius {inner}");
+
+        let solid = extrude(&Plane::XY, &chosen, one_side(1.0), FEATURE).unwrap();
+
+        check_pinched(
+            &name,
+            &solid,
+            PI * (9.0 - inner * inner),
+            2.0 * PI * (9.0 - inner * inner) + 2.0 * PI * (3.0 + inner),
+            inner,
+        );
+    }
+}
+
 #[test]
 fn a_crescent_revolves_part_way_wherever_its_tip_lies() {
     let quarter = AngularExtent::one_side(FRAC_PI_2).unwrap();

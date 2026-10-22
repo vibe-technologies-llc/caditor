@@ -590,31 +590,32 @@ impl<'a> Tessellator<'a> {
         faces: &[FaceId],
     ) -> Result<Vec<FaceId>, TessellationError> {
         let mut checked: BTreeSet<FaceId> = faces.iter().copied().collect();
+        let mut pending = checked.clone();
         for _ in 0..MAX_END_PARTINGS {
             let mut ends = BTreeSet::new();
-            for face in &checked {
+            for face in &pending {
                 interrupt::check()?;
                 ends.extend(face::overlapping_ends(self.solid, *face, &self.samplings)?);
             }
-            let mut parted = false;
-            for (id, end) in ends {
-                if !self.bisect_end(id, end)? {
+            pending.clear();
+            for piece in ends {
+                if !self.bisect_end(piece)? {
                     continue;
                 }
-                parted = true;
                 let edge = self
                     .solid
-                    .edge(id)
+                    .edge(piece.edge)
                     .ok_or(TessellationError::MissingEntity)?;
-                checked.extend(
+                pending.extend(
                     edge.coedges()
                         .iter()
                         .filter_map(|coedge| self.solid.coedge_face(*coedge)),
                 );
             }
-            if !parted {
+            if pending.is_empty() {
                 break;
             }
+            checked.extend(pending.iter().copied());
         }
         Ok(self
             .solid
@@ -624,7 +625,8 @@ impl<'a> Tessellator<'a> {
             .collect())
     }
 
-    fn bisect_end(&mut self, id: EdgeId, end: face::EdgeEnd) -> Result<bool, TessellationError> {
+    fn bisect_end(&mut self, piece: face::EndPiece) -> Result<bool, TessellationError> {
+        let id = piece.edge;
         let edge = self
             .solid
             .edge(id)
@@ -634,10 +636,13 @@ impl<'a> Tessellator<'a> {
             .get_mut(id.index())
             .ok_or(TessellationError::MissingEntity)?;
         let count = sampling.parameters.len();
-        let after = match end {
-            face::EdgeEnd::Start => 1,
-            face::EdgeEnd::End => count.saturating_sub(1),
+        let after = match piece.end {
+            face::EdgeEnd::Start => piece.from_end + 1,
+            face::EdgeEnd::End => count.saturating_sub(1 + piece.from_end),
         };
+        if after == 0 || after >= count {
+            return Ok(false);
+        }
         let (Some(low), Some(high)) = (
             sampling.parameters.get(after.wrapping_sub(1)).copied(),
             sampling.parameters.get(after).copied(),

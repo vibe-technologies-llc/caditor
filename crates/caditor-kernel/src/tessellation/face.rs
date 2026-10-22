@@ -17,7 +17,7 @@ use crate::{
         pieces,
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
-    topology::{EdgeId, Face, FaceId, Solid},
+    topology::{CoedgeId, EdgeId, Face, FaceId, Solid},
 };
 
 const UV_MERGE: f64 = 1e-9;
@@ -31,6 +31,8 @@ const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
 const MAX_POLE_EDGE_PIECES: usize = 1024;
 const PARALLEL_ENDS: f64 = 1e-6;
+const CUSP_ENDS: f64 = 0.1;
+const CUSP_SEGMENTS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BoundaryPoint {
@@ -44,10 +46,18 @@ pub(crate) enum EdgeEnd {
     End,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EndPiece {
+    pub edge: EdgeId,
+    pub end: EdgeEnd,
+    pub from_end: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct EndSegment {
     edge: EdgeId,
     end: EdgeEnd,
+    coedge: CoedgeId,
     at: BoundaryPoint,
     toward: Point2,
     length: f64,
@@ -58,6 +68,20 @@ impl EndSegment {
         let (along, beside) = (self.toward - self.at.uv, other.toward - other.at.uv);
         along.dot(beside) > 0.0
             && along.perp_dot(beside).abs() <= PARALLEL_ENDS * along.length() * beside.length()
+    }
+
+    fn leaves_with(&self, other: &Self) -> bool {
+        let (along, beside) = (self.toward - self.at.uv, other.toward - other.at.uv);
+        along.dot(beside) > 0.0
+            && along.perp_dot(beside).abs() <= CUSP_ENDS * along.length() * beside.length()
+    }
+
+    fn piece(&self, from_end: usize) -> EndPiece {
+        EndPiece {
+            edge: self.edge,
+            end: self.end,
+            from_end,
+        }
     }
 }
 
@@ -307,7 +331,7 @@ pub(crate) fn overlapping_ends(
     solid: &Solid,
     face_id: FaceId,
     samplings: &[EdgeSampling],
-) -> Result<BTreeSet<(EdgeId, EdgeEnd)>, TessellationError> {
+) -> Result<BTreeSet<EndPiece>, TessellationError> {
     let face = solid
         .face(face_id)
         .ok_or(TessellationError::MissingEntity)?;
@@ -346,6 +370,7 @@ pub(crate) fn overlapping_ends(
                 at_vertex.entry(*position).or_default().push(EndSegment {
                     edge: coedge.edge(),
                     end,
+                    coedge: *coedge_id,
                     at: BoundaryPoint {
                         uv,
                         position: *position,
@@ -363,18 +388,108 @@ pub(crate) fn overlapping_ends(
                 let distinct = (first.edge, first.end) != (second.edge, second.end);
                 let together = coincide(&first.at, &second.at)
                     || joined(surface, &first.at, &second.at, LINEAR_RESOLUTION);
-                if distinct && together && first.runs_along(second) {
+                if !(distinct && together) {
+                    continue;
+                }
+                if first.runs_along(second) {
                     let split = if second.length > first.length {
                         second
                     } else {
                         first
                     };
-                    longer.insert((split.edge, split.end));
+                    longer.insert(split.piece(0));
+                } else if first.leaves_with(second) {
+                    longer.extend(crossings(solid, surface, samplings, [first, second])?);
                 }
             }
         }
     }
     Ok(longer)
+}
+
+struct EndPath {
+    points: Vec<Point2>,
+    lengths: Vec<f64>,
+}
+
+fn end_path(
+    solid: &Solid,
+    surface: &Surface,
+    samplings: &[EdgeSampling],
+    end: &EndSegment,
+) -> Result<EndPath, TessellationError> {
+    let coedge = solid
+        .coedge(end.coedge)
+        .ok_or(TessellationError::MissingEntity)?;
+    let sampling = samplings
+        .get(end.edge.index())
+        .ok_or(TessellationError::MissingEntity)?;
+    let count = sampling.parameters.len();
+    let reach = count.min(CUSP_SEGMENTS + 1);
+    let indices: Vec<usize> = match end.end {
+        EdgeEnd::Start => (0..reach).collect(),
+        EdgeEnd::End => (0..reach).map(|step| count - 1 - step).collect(),
+    };
+    let pcurve = coedge.pcurve();
+    let mut points = Vec::with_capacity(indices.len());
+    let mut lengths = Vec::with_capacity(indices.len());
+    let mut previous = None;
+    for (step, index) in indices.into_iter().enumerate() {
+        let (Some(parameter), Some(point)) =
+            (sampling.parameters.get(index), sampling.points.get(index))
+        else {
+            return Err(TessellationError::MissingEntity);
+        };
+        points.push(if step == 0 {
+            end.at.uv
+        } else {
+            surface.project(*point, Some(pcurve.uv_at(*parameter)))
+        });
+        if let Some(before) = previous {
+            lengths.push(point.distance(before));
+        }
+        previous = Some(*point);
+    }
+    Ok(EndPath { points, lengths })
+}
+
+fn crossings(
+    solid: &Solid,
+    surface: &Surface,
+    samplings: &[EdgeSampling],
+    [first, second]: [&EndSegment; 2],
+) -> Result<BTreeSet<EndPiece>, TessellationError> {
+    let one = end_path(solid, surface, samplings, first)?;
+    let mut other = end_path(solid, surface, samplings, second)?;
+    if let Some(tip) = other.points.first_mut() {
+        *tip = first.at.uv;
+    }
+    let mut longer = BTreeSet::new();
+    for (index, (a, b)) in one.points.iter().zip(one.points.iter().skip(1)).enumerate() {
+        for (other_index, (c, d)) in other
+            .points
+            .iter()
+            .zip(other.points.iter().skip(1))
+            .enumerate()
+        {
+            if !segments_cross([*a, *b], [*c, *d]) {
+                continue;
+            }
+            let length = one.lengths.get(index).copied().unwrap_or(0.0);
+            let other_length = other.lengths.get(other_index).copied().unwrap_or(0.0);
+            longer.insert(if other_length > length {
+                second.piece(other_index)
+            } else {
+                first.piece(index)
+            });
+        }
+    }
+    Ok(longer)
+}
+
+fn segments_cross([a, b]: [Point2; 2], [c, d]: [Point2; 2]) -> bool {
+    let side = |from: Point2, to: Point2, point: Point2| (to - from).perp_dot(point - from);
+    side(a, b, c) * side(a, b, d) < 0.0 && side(c, d, a) * side(c, d, b) < 0.0
 }
 
 fn share_revisited_vertices(surface: &Surface, joint_reach: f64, loops: &mut [Vec<BoundaryPoint>]) {
