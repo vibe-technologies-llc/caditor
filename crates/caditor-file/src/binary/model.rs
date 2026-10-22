@@ -27,6 +27,7 @@ use crate::{
         LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
         newer_version,
     },
+    parallel::each_in_parallel,
     preview::PreviewSlot,
     selection_sets::selection_sets_record,
     untrusted::UntrustedMap,
@@ -72,11 +73,16 @@ impl Default for Budget {
 
 impl Budget {
     fn unpack(&mut self, chunk: &Chunk<'_>, newer: Option<&[u8]>) -> Unpacked {
+        self.charge(chunk)?;
+        chunk.unpack(newer)
+    }
+
+    fn charge(&mut self, chunk: &Chunk<'_>) -> Result<(), UnpackError> {
         self.remaining = self
             .remaining
             .checked_sub(chunk.content_length())
             .ok_or(UnpackError::OverBudget)?;
-        chunk.unpack(newer)
+        Ok(())
     }
 }
 
@@ -105,10 +111,13 @@ impl Default for RecordDigest {
 
 impl RecordDigest {
     fn add(&mut self, content: &Unpacked) {
-        let Ok(content) = content else {
-            self.whole = false;
-            return;
-        };
+        match content {
+            Ok(content) => self.add_content(content),
+            Err(_) => self.whole = false,
+        }
+    }
+
+    fn add_content(&mut self, content: &[u8]) {
         let mut length = Vec::new();
         push_varint(&mut length, content.len() as u64);
         self.hasher.update(&length);
@@ -304,16 +313,29 @@ impl<'a> Parsed<'a> {
     fn prior_records(&self, written: &BTreeSet<RecordKey>) -> PriorRecords<'a> {
         let mut budget = Budget::default();
         let mut prior = PriorRecords::default();
-        for chunk in &self.records {
-            let content = budget.unpack(chunk, None);
-            prior.digest.add(&content);
-            let Ok(content) = content else {
+        let unpacked = self.records.chunks(PARALLEL_BATCH).flat_map(|batch| {
+            let charged: Vec<_> = batch
+                .iter()
+                .map(|chunk| budget.charge(chunk).map(|()| *chunk))
+                .collect();
+            each_in_parallel(&charged, |charged| {
+                let content = charged.clone()?.unpack(None)?;
+                let exact = *blake3::hash(&content).as_bytes();
+                Ok((content, exact))
+            })
+            .into_iter()
+            .zip(batch)
+        });
+        for (unpacked, chunk) in unpacked {
+            let unpacked: Result<(Vec<u8>, RecordKey), UnpackError> = unpacked;
+            let Ok((content, exact)) = unpacked else {
+                prior.digest.whole = false;
                 continue;
             };
+            prior.digest.add_content(&content);
             push_varint(&mut prior.snapshot, content.len() as u64);
             let start = prior.snapshot.len();
             prior.snapshot.extend_from_slice(&content);
-            let exact = *blake3::hash(&content).as_bytes();
             let key = if written.contains(&exact) {
                 Some(exact)
             } else {
@@ -462,6 +484,8 @@ impl<'a> Parsed<'a> {
 
 type RecordKey = [u8; blake3::OUT_LEN];
 
+const PARALLEL_BATCH: usize = 256;
+
 fn understood_digest(content: &[u8]) -> Option<RecordKey> {
     let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content) else {
         return None;
@@ -508,15 +532,23 @@ impl<'a> NewRecords<'a> {
     ) -> Result<(Self, Option<PriorRecords<'a>>), ValueError> {
         let mut snapshot = Vec::new();
         let mut fresh = Vec::new();
-        for record in document_records(document) {
-            let record = record?;
-            push_varint(&mut snapshot, record.len() as u64);
-            let start = snapshot.len();
-            snapshot.extend_from_slice(&record);
-            fresh.push(FreshRecord {
-                content: start..snapshot.len(),
-                key: *blake3::hash(&record).as_bytes(),
+        let values: Vec<Record> = document_values(document).collect();
+        for batch in values.chunks(PARALLEL_BATCH) {
+            let encoded = each_in_parallel(batch, |value| {
+                let record = value::to_bytes(value)?;
+                let key = *blake3::hash(&record).as_bytes();
+                Ok::<_, ValueError>((record, key))
             });
+            for encoded in encoded {
+                let (record, key) = encoded?;
+                push_varint(&mut snapshot, record.len() as u64);
+                let start = snapshot.len();
+                snapshot.extend_from_slice(&record);
+                fresh.push(FreshRecord {
+                    content: start..snapshot.len(),
+                    key,
+                });
+            }
         }
         let written: BTreeSet<RecordKey> = fresh.iter().map(|record| record.key).collect();
         let prior = previous.map(|parsed| parsed.prior_records(&written));
@@ -575,18 +607,27 @@ impl<'a> NewRecords<'a> {
     }
 
     fn push_chunks(&self, bytes: &mut Vec<u8>) -> Result<(), PackError> {
-        for record in &self.records {
-            match record {
-                RecordToWrite::Kept(stored) => bytes.extend_from_slice(stored),
-                RecordToWrite::Fresh(content) => push_packed(
-                    bytes,
-                    ChunkKind::Record,
-                    self.snapshot.get(content.clone()).unwrap_or_default(),
-                )?,
+        for batch in self.records.chunks(PARALLEL_BATCH) {
+            let packed = each_in_parallel(batch, |record| match record {
+                RecordToWrite::Kept(stored) => Ok(Cow::Borrowed(*stored)),
+                RecordToWrite::Fresh(content) => {
+                    packed_record(self.snapshot.get(content.clone()).unwrap_or_default())
+                        .map(Cow::Owned)
+                }
+            });
+            for chunk in packed {
+                let chunk: Result<Cow<'_, [u8]>, PackError> = chunk;
+                bytes.extend_from_slice(&chunk?);
             }
         }
         Ok(())
     }
+}
+
+fn packed_record(content: &[u8]) -> Result<Vec<u8>, PackError> {
+    let mut bytes = Vec::new();
+    push_packed(&mut bytes, ChunkKind::Record, content)?;
+    Ok(bytes)
 }
 
 fn state_record(chunk: &Chunk<'_>) -> Option<StateRecord> {
@@ -595,6 +636,10 @@ fn state_record(chunk: &Chunk<'_>) -> Option<StateRecord> {
 }
 
 fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>, ValueError>> + '_ {
+    document_values(document).map(|record| value::to_bytes(&record))
+}
+
+fn document_values(document: &Document) -> impl Iterator<Item = Record> + '_ {
     let parameters = document
         .parameters()
         .iter()
@@ -611,7 +656,6 @@ fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>,
         .chain(selection_sets_record(document).map(Record::SelectionSets))
         .chain(configurations_record(document).map(Record::Configurations))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
-        .map(|record| value::to_bytes(&record))
 }
 
 #[cfg(test)]

@@ -123,6 +123,14 @@ paths:
   changed records are parsed. A match by understood content whose bytes differ re-encodes around
   the stored ones (`NewRecords::keeping_understood`). Unknown chunk kinds are carried unless
   must-understand; loading reports those as left out, so the original is kept as `.damaged`.
+- Saving works records in batches of `PARALLEL_BATCH` (256) over threads (`each_in_parallel`,
+  `parallel.rs`: the caller's interrupt carried, and whatever an interrupt stops worked on the
+  calling thread, so nothing is ever left out): new records are encoded and hashed, the old file's
+  unpacked and hashed (its unpacking budget still charged in order), and fresh records compressed,
+  each batch appended in order, so the file is byte for byte the sequential one. A batch bounds
+  what is held beside the snapshot; one batch of everything was barely faster and held another
+  GiB on the VZ330, whose first save takes 5.3 s instead of 14 s and later ones 2.5 s instead
+  of 3.9 s.
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
   exact f64. Stored text reads as typed text does, with `$<id>` for names (`expression.md`); a
@@ -418,7 +426,7 @@ Bodies and solids:
   the blake3 digest of the text, so a load, journal replay and recovery scan parse each import
   once; its budget counts each solid once.
 - Loading a model reads its import texts ahead, in parallel (`ImportTexts::reading_ahead`, the
-  import's `in_parallel` with the caller's interrupt): every distinct text an `import` or
+  `in_parallel` of `parallel.rs` with the caller's interrupt): every distinct text an `import` or
   `placed_import` record holds, through the scaled, framed and separate-pieces wrappers the writer
   puts round them (`stored_step`), is read once by digest before features are restored, and
   `restore_import` takes that result (a text missed, as in a hand-nested record, is read where it

@@ -16,6 +16,7 @@ mod load;
 mod lock;
 mod logs;
 mod os;
+mod parallel;
 mod parameters;
 mod paths;
 mod picture;

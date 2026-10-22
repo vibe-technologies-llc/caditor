@@ -30,7 +30,6 @@ use caditor_step::ReadError;
 
 #[cfg(test)]
 pub(crate) use crate::import::model::canonical;
-pub(crate) use crate::import::model::in_parallel;
 pub use crate::import::{
     arrange::{DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE},
     dxf::parse_dxf,

@@ -191,7 +191,7 @@ paths:
   distinct part once, unplaced, by writing with caditor's own writer and reading back
   (`read_own_step`, which skips the crossing check the first read made), so what is stored is
   exactly what later loads. Parts are canonicalised in parallel, then copies placed in parallel
-  (`in_parallel`: scoped threads with the caller's interrupt, results in input order, so bodies and
+  (`in_parallel`, `parallel.rs`: scoped threads with the caller's interrupt, results in input order, so bodies and
   notes match a sequential pass). `read_step_file_reporting` fills a `ReadingProgress` the app
   polls (`ReadingStage`). One `ImportedBody` per copy, or per lump of a copy (each canonicalised
   alone) when a multi-lump solid reads back as several; a part that cannot be stored is left out

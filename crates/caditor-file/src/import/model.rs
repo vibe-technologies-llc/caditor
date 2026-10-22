@@ -1,13 +1,10 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
-    panic,
     path::Path,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    thread,
     time::SystemTime,
 };
 
@@ -19,8 +16,7 @@ use caditor_document::{
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
 use caditor_kernel::{
-    FaceName, FaceOrigin, FaceReference, LINEAR_RESOLUTION, Solid, check_interrupt,
-    current_interrupt, interruptible,
+    FaceName, FaceOrigin, FaceReference, LINEAR_RESOLUTION, Solid, check_interrupt, interruptible,
 };
 use caditor_step::{
     FaceLook, Misplacement, ReadError, ReadProgress, StepBody, StepCopy, lump_faces, read_own_step,
@@ -30,6 +26,7 @@ use caditor_step::{
 use crate::{
     checked_texts::{mark_checked, persist_checked},
     import::{ImportError, ensure_going, mesh_unit::UnitReading},
+    parallel::in_parallel,
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
 };
@@ -361,56 +358,6 @@ pub(super) fn dropped_looks_note(name: &str, dropped: usize) -> String {
         "“{name}” was imported, but {faces} could not be carried onto it, so those faces show the \
          body's own look."
     )
-}
-
-pub(crate) fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let threads = thread::available_parallelism()
-        .map_or(1, NonZeroUsize::get)
-        .min(items.len());
-    if threads <= 1 {
-        return items.iter().map(&work).collect();
-    }
-    let next = AtomicUsize::new(0);
-    let interrupt = current_interrupt();
-    let mut results: Vec<Option<R>> = items.iter().map(|_| None).collect();
-    thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                let (next, work, interrupt) = (&next, &work, interrupt.clone());
-                scope.spawn(move || {
-                    let serve = || {
-                        let mut done = Vec::new();
-                        loop {
-                            let at = next.fetch_add(1, Ordering::Relaxed);
-                            let Some(item) = items.get(at) else {
-                                break;
-                            };
-                            if check_interrupt().is_err() {
-                                break;
-                            }
-                            done.push((at, work(item)));
-                        }
-                        done
-                    };
-                    match interrupt {
-                        Some(interrupt) => interruptible(interrupt, serve),
-                        None => serve(),
-                    }
-                })
-            })
-            .collect();
-        for worker in workers {
-            let done = worker
-                .join()
-                .unwrap_or_else(|panic| panic::resume_unwind(panic));
-            for (at, result) in done {
-                if let Some(slot) = results.get_mut(at) {
-                    *slot = Some(result);
-                }
-            }
-        }
-    });
-    results.into_iter().map_while(|result| result).collect()
 }
 
 fn shared(lumps: Option<Vec<(Solid, String)>>) -> Stored {

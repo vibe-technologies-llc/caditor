@@ -66,7 +66,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406
   faces, helical splines of 7 by 1441 control points) takes most of the 71 s alone, in healing and
-  `find_crossing`. Opening the saved model takes 14 s on the computer that imported it (13 s to
+  `find_crossing`. Opening the saved model takes 14 s on the computer that imported it (5.3 s to
   save), its 1,200 texts read in parallel and trusted as checked (`checked_texts.rs`); on another
   computer each text is checked once, about 75 s.
 

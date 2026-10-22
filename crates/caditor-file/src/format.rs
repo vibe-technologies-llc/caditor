@@ -48,7 +48,7 @@ use serde_json::Value;
 use crate::{
     checked_texts::persist_checked,
     configurations::{ConfigurationsRecord, configurations_record_of, restore_configurations},
-    import::in_parallel,
+    parallel::in_parallel,
     reference_images::{
         Pictures, ReferenceImageRecord, reference_image_record, restore_reference_image,
         share_picture,
