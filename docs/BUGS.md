@@ -154,14 +154,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
   snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
   the file again should confirm they import exact.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,894 copies) leaves 14
-  parts out. Thirteen are refused as "a vertex 0.00001 to 0.0015 mm away from the end of its
-  edge", the exact build's refusal at faces meeting tangentially further apart than the
-  resolution, where the faceted fallback then fails on its own: in "Part 9 (1)" to "Part 14 (1)" a
-  corner patch's edge curve ends 0.011 to 0.017 mm from its vertex (its x mirrored), in
-  "Component25" and "M3 30mm Adjustement screw (1)" an edge lies 2.3 and 3.8 mm off a face,
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,968 copies) leaves 9
+  parts out, refused as "a vertex 0.00001 to 0.0015 mm away from the end of its edge", the exact
+  build's refusal at faces meeting tangentially further apart than the resolution, where the
+  faceted fallback then fails on its own: "Part 9 (1)" and "Part 14 (1)", whose pinched corner
+  vertex is now centred among its edges' ends as in their mirrors "Part 10 (1)" to "Part 13 (1)"
+  (which import as facets up to 0.033 mm apart), mesh a face (#1732264) whose boundary then
+  crosses itself in uv; in "Component25" an edge lies 0.87 mm off a face,
   "Goliath Air cooled" meshes into a face boundary crossing itself in uv, "front handle1" and
-  "front handle2" leave an edge of no length, "User Library-USB - C" has faces 0.011 mm apart and
+  "front handle2" leave an edge of no length, "User Library-USB - C" meshes into more than one
+  solid and
   "Goliath long duct" keeps a vertex 0.012 mm off its edge. "Lead Screw lower bracket" has "an
   edge that could not be followed across its face": a thin spline strip meets its neighbours
   nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm edge traced 0.34 mm

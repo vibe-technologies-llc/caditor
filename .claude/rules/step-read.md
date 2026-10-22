@@ -282,10 +282,19 @@ paths:
   A vertex settles no farther than its worst gap (nor the precision): where faces meet nearly
   parallel or tangent their common point lies far along them, and following it would leave every edge
   there missing the vertex, while the file's corner already lies within the precision of all faces.
-- If every vertex and edge then lies within the declared precision of its faces, the unvalidated body
-  is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then coarser while `faceted_solids` finds too
+  A vertex whose spline edges (those touching a face not of an elementary kind, which are never
+  traced) end farther than the precision from it moves to the centre of the box of their ends when
+  that brings every end within the precision: Autodesk merges two corners of a pinched corner patch
+  0.017 mm apart into one vertex written at one of them. Traced edges are left out of it, since
+  tracing rebuilds them from their faces whatever the file's curve ends at.
+- If every vertex and edge then lies within `FACETED_REACH` (4) times the declared precision of its
+  faces (the precision alone when the file declares the kernel's resolution, which claims exact
+  geometry), the unvalidated body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then coarser while `faceted_solids` finds too
   many faces) and imported as the one planar solid `faceted_solids` makes, with a note per body;
-  otherwise the exact refusal stands. Like a mesh import it skips `find_crossing`, since
+  otherwise the exact refusal stands. `Built::faceted` says which (`Faceting`): within the precision
+  the note says the faces meet only within it; beyond it, the note gives how far apart they lie and
+  that the shape may be off by as much, since a part left out loses more than one a few hundredths
+  of a millimetre off. Like a mesh import it skips `find_crossing`, since
   `faceted_solids` already leaves out self-folding shells.
 - Faceted bodies lose their curved faces (no fillets on them, no exact measures). Snapping and
   bending cover only part of such files yet; the rest is the STEP import entries in

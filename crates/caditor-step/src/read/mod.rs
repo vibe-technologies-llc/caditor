@@ -46,7 +46,8 @@ use crate::{
             MAX_DEPTH, MAX_INSTANCES as MAX_SHARED_COPIES, Placements, Structure, Unplaced,
         },
         topology::{
-            Bending, Built, Healing, Lost, Snapping, SolidShells, Topology, short, unreadable_faces,
+            Bending, Built, Faceting, Healing, Lost, Snapping, SolidShells, Topology, short,
+            unreadable_faces,
         },
         units::Units,
     },
@@ -457,10 +458,13 @@ fn read_placed<T>(
             }) => {
                 match lost {
                     Some(lost) => lost_notes.push(lost_note(&name, &lost)),
-                    None if faceted => faceted_bodies.push(name.clone()),
-                    None => {}
+                    None => {
+                        if let Some(faceting) = faceted {
+                            faceted_bodies.push((name.clone(), faceting, units.precision));
+                        }
+                    }
                 }
-                if !faceted {
+                if faceted.is_none() {
                     repaired += healed;
                 }
                 if snapped.faces() > 0 {
@@ -516,9 +520,11 @@ fn read_placed<T>(
             .iter()
             .map(|(name, misplacement)| misplacement.note(name)),
     );
-    model
-        .notes
-        .extend(faceted_bodies.iter().map(|name| faceted_note(name)));
+    model.notes.extend(
+        faceted_bodies
+            .iter()
+            .map(|(name, faceting, precision)| faceted_note(name, *faceting, *precision)),
+    );
     model.notes.extend(
         snapped_bodies
             .iter()
@@ -668,12 +674,21 @@ fn unit_name(millimetres: f64) -> String {
         )
 }
 
-fn faceted_note(name: &str) -> String {
-    format!(
-        "“{name}” was imported as flat facets, because its faces meet only within the file's \
-         precision and not within the 0.000001 mm caditor needs; its curved faces are \
-         approximated by flat ones, so they cannot be filleted or measured as curves."
-    )
+fn faceted_note(name: &str, faceting: Faceting, precision: Option<f64>) -> String {
+    let flat = "its curved faces are approximated by flat ones, so they cannot be filleted or \
+                measured as curves";
+    match (faceting, precision) {
+        (Faceting::Apart { loosest }, Some(precision)) => format!(
+            "“{name}” was imported as flat facets, because its faces lie up to {} mm apart, \
+             beyond the file's precision of {} mm; {flat}, and its shape may be off by as much.",
+            short(loosest),
+            short(precision)
+        ),
+        _ => format!(
+            "“{name}” was imported as flat facets, because its faces meet only within the \
+             file's precision and not within the 0.000001 mm caditor needs; {flat}."
+        ),
+    }
 }
 
 fn lost_note(name: &str, lost: &Lost) -> String {

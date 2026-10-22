@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_expression::format_decimals;
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
@@ -23,6 +23,7 @@ use crate::read::{
 const LOOP_SAMPLES: usize = 16;
 const SPLINE_EXTENSION: f64 = 0.1;
 const CHECK_SAMPLES: usize = 32;
+const FACETED_REACH: f64 = 4.0;
 const HEAL_SAMPLES: usize = 48;
 const CLEAN: f64 = 0.25 * LINEAR_RESOLUTION;
 const VERTEX_ITERATIONS: usize = 30;
@@ -50,6 +51,7 @@ pub(crate) struct Topology<'g, 'a> {
     faces: BTreeMap<u64, FacePlan>,
     edge_faces: BTreeMap<u64, BTreeSet<u64>>,
     vertex_faces: BTreeMap<u64, BTreeSet<u64>>,
+    vertex_edges: BTreeMap<u64, BTreeSet<u64>>,
     vertices: BTreeMap<u64, VertexId>,
     edges: BTreeMap<u64, (EdgeId, bool)>,
     curves: BTreeMap<EdgeId, (Curve, Interval)>,
@@ -186,11 +188,17 @@ pub(crate) struct Built {
     pub solid: Solid,
     pub healed: usize,
     pub unchecked: Option<[u64; 2]>,
-    pub faceted: bool,
+    pub faceted: Option<Faceting>,
     pub bent: Option<Bending>,
     pub snapped: Snapping,
     pub faces: Vec<Option<u64>>,
     pub lost: Option<Lost>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Faceting {
+    WithinPrecision,
+    Apart { loosest: f64 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -245,6 +253,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             faces: BTreeMap::new(),
             edge_faces: BTreeMap::new(),
             vertex_faces: BTreeMap::new(),
+            vertex_edges: BTreeMap::new(),
             vertices: BTreeMap::new(),
             edges: BTreeMap::new(),
             curves: BTreeMap::new(),
@@ -314,8 +323,14 @@ impl<'g, 'a> Topology<'g, 'a> {
         let precision = self.geometry.units.precision;
         let faceted = self.healing == Healing::Faceted;
         let mut faceted_faces = Vec::new();
+        let mut faceting = None;
         let solid = if faceted {
-            let allowance = precision.unwrap_or(LINEAR_RESOLUTION);
+            let within = precision.unwrap_or(LINEAR_RESOLUTION);
+            let allowance = if within > LINEAR_RESOLUTION {
+                FACETED_REACH * within
+            } else {
+                within
+            };
             if self.loosest > allowance {
                 return Err(Problem::new(
                     id,
@@ -327,6 +342,13 @@ impl<'g, 'a> Topology<'g, 'a> {
             }
             let Faceted { solid, faces } = facets(&self.builder, !self.left_out.is_empty())
                 .map_err(|fault| Problem::new(id, fault))?;
+            faceting = Some(if self.loosest > within {
+                Faceting::Apart {
+                    loosest: self.loosest,
+                }
+            } else {
+                Faceting::WithinPrecision
+            });
             faceted_faces = faces
                 .into_iter()
                 .map(|face| face.and_then(|face| self.face_entities.get(face.index()).copied()))
@@ -376,7 +398,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             solid,
             healed,
             unchecked,
-            faceted,
+            faceted: faceting,
             bent,
             snapped: self.snapping,
             faces,
@@ -586,6 +608,7 @@ impl<'g, 'a> Topology<'g, 'a> {
                         .entry(vertex)
                         .or_default()
                         .insert(entity.id);
+                    self.vertex_edges.entry(vertex).or_default().insert(edge);
                 }
             }
         }
@@ -930,7 +953,10 @@ impl<'g, 'a> Topology<'g, 'a> {
                 };
                 let (point, gap) = settle_on(point, &surfaces, reach);
                 self.note_repair(gap);
-                point
+                match self.healing {
+                    Healing::Faceted => self.centred_among_edge_ends(id, point),
+                    _ => point,
+                }
             }
         };
         if self.healing == Healing::Faceted {
@@ -946,6 +972,52 @@ impl<'g, 'a> Topology<'g, 'a> {
             .map_err(|error| Problem::new(id, self.describe(&error)))?;
         self.vertices.insert(id, vertex);
         Ok(vertex)
+    }
+
+    fn centred_among_edge_ends(&mut self, id: u64, point: Point3) -> Point3 {
+        let Some(precision) = self.geometry.units.precision else {
+            return point;
+        };
+        let feet: Vec<Point3> = self
+            .vertex_edges
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .filter(|edge| {
+                !self
+                    .surfaces_of(self.edge_faces.get(edge))
+                    .iter()
+                    .all(exact_kind)
+            })
+            .filter_map(|edge| {
+                let fields = self
+                    .geometry
+                    .graph
+                    .entity(*edge)
+                    .ok()?
+                    .record("EDGE_CURVE")
+                    .ok()?;
+                self.geometry.curve(fields.reference(3).ok()?).ok()
+            })
+            .map(|curve| curve.point(curve.closest_parameter(point, search_range(&curve))))
+            .collect();
+        let farthest_foot = |at: Point3| {
+            feet.iter()
+                .map(|foot| foot.distance(at))
+                .fold(0.0, f64::max)
+        };
+        if farthest_foot(point) <= precision {
+            return point;
+        }
+        let Some(centre) = Aabb::from_points(feet.iter().copied()).map(|bounds| bounds.center())
+        else {
+            return point;
+        };
+        if farthest_foot(centre) > precision {
+            return point;
+        }
+        self.note_repair(Some(centre.distance(point)));
+        centre
     }
 
     fn edge(&mut self, id: u64) -> Read<(EdgeId, bool)> {
@@ -1172,9 +1244,7 @@ fn healed_seam(
 
 fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Option<Interval> {
     let domain = curve.domain();
-    let search = domain
-        .bounded()
-        .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT));
+    let search = search_range(curve);
     let low = curve.closest_parameter(from, search);
     let high = curve.closest_parameter(to, search);
     match curve.period() {
@@ -1188,6 +1258,13 @@ fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Opt
         None if closed => domain.bounded(),
         None => Interval::new(low, high),
     }
+}
+
+fn search_range(curve: &Curve) -> Interval {
+    curve
+        .domain()
+        .bounded()
+        .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT))
 }
 
 fn worst_gap(point: Point3, surfaces: &[Surface]) -> f64 {

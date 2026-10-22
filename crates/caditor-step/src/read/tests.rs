@@ -2308,12 +2308,138 @@ fn a_corner_of_nearly_parallel_faces_stays_put_when_the_body_imports_as_facets()
 
     let faceted = built_with(&text, brep, super::topology::Healing::Faceted).unwrap();
 
-    assert!(faceted.faceted);
+    assert_eq!(
+        faceted.faceted,
+        Some(super::topology::Faceting::WithinPrecision)
+    );
     assert!(
         (fixtures::volume(&faceted.solid) - 1000.0).abs() < 0.05,
         "{}",
         fixtures::volume(&faceted.solid)
     );
+}
+
+#[test]
+fn faces_apart_beyond_the_precision_but_within_a_few_times_it_import_as_facets_saying_how_far() {
+    let (near, near_brep) = box_with_a_split_top(0.03, 0.0);
+    let (far, far_brep) = box_with_a_split_top(0.08, 0.0);
+
+    let faceted = built_with(&near, near_brep, super::topology::Healing::Faceted).unwrap();
+    let refused = built_with(&far, far_brep, super::topology::Healing::Faceted);
+    let model = read_step(&near).unwrap();
+
+    assert!(matches!(
+        faceted.faceted,
+        Some(super::topology::Faceting::Apart { loosest }) if loosest > 0.01 && loosest <= 0.03
+    ));
+    assert!(refused.is_err());
+    assert!(
+        model.notes.iter().any(|note| note.contains(
+            "mm apart, beyond the file's precision of 0.01 mm; its curved faces are approximated"
+        )),
+        "{:?}",
+        model.notes
+    );
+}
+
+fn spline_cube_with_an_edge_ending_short(short: f64) -> (String, u64) {
+    use caditor_geometry::{Point3, Vector3};
+
+    const LOOPS: [[usize; 4]; 6] = [
+        [0, 2, 3, 1],
+        [4, 5, 7, 6],
+        [0, 1, 5, 4],
+        [2, 6, 7, 3],
+        [0, 4, 6, 2],
+        [1, 3, 7, 5],
+    ];
+    let corner = |index: usize| {
+        Point3::new(
+            if index & 1 == 0 { 0.0 } else { 10.0 },
+            if index & 2 == 0 { 0.0 } else { 10.0 },
+            if index & 4 == 0 { 0.0 } else { 10.0 },
+        )
+    };
+    let (short_edge, short_end) = ((3, 7), corner(7) - Vector3::new(short, 0.0, 0.0));
+
+    let mut entities = Entities::default();
+
+    let vertices: Vec<usize> = (0..8)
+        .map(|index| {
+            let at = entities.point(corner(index));
+            entities.add(format!("VERTEX_POINT('',#{at})"))
+        })
+        .collect();
+    let mut edges = std::collections::BTreeMap::new();
+    let mut faces = Vec::new();
+    for corners in LOOPS {
+        let mut uses = Vec::new();
+        for (index, from) in corners.iter().enumerate() {
+            let to = corners[(index + 1) % corners.len()];
+            let key = (*from.min(&to), *from.max(&to));
+            let edge = *edges.entry(key).or_insert_with(|| {
+                let start = entities.point(corner(key.0));
+                let end = entities.point(if key == short_edge {
+                    short_end
+                } else {
+                    corner(key.1)
+                });
+                let spline = entities.add(format!(
+                    "B_SPLINE_CURVE_WITH_KNOTS('',1,(#{start},#{end}),.UNSPECIFIED.,.F.,.F.,\
+                     (2,2),(0.,1.),.UNSPECIFIED.)"
+                ));
+                entities.add(format!(
+                    "EDGE_CURVE('',#{},#{},#{spline},.T.)",
+                    vertices[key.0], vertices[key.1]
+                ))
+            });
+            let forward = if *from < to { ".T." } else { ".F." };
+            uses.push(format!(
+                "#{}",
+                entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
+            ));
+        }
+        let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
+        let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
+        let [first, second, third, fourth] = corners.map(|index| entities.point(corner(index)));
+        let surface = entities.add(format!(
+            "B_SPLINE_SURFACE_WITH_KNOTS('',1,1,((#{first},#{fourth}),(#{second},#{third})),\
+             .UNSPECIFIED.,.F.,.F.,.F.,(2,2),(2,2),(0.,1.),(0.,1.),.UNSPECIFIED.)"
+        ));
+        faces.push(format!(
+            "#{}",
+            entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
+        ));
+    }
+    let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
+    let brep = entities.add(format!("MANIFOLD_SOLID_BREP('cube',#{shell})")) as u64;
+    let text = with_precision(
+        &entities.text(),
+        "ADVANCED_BREP_SHAPE_REPRESENTATION",
+        brep,
+        "1.E-2",
+    );
+    (text, brep)
+}
+
+#[test]
+fn a_corner_whose_spline_edges_end_apart_moves_among_their_ends_when_the_body_imports_as_facets() {
+    let (text, brep) = spline_cube_with_an_edge_ending_short(0.016);
+    let (beyond, beyond_brep) = spline_cube_with_an_edge_ending_short(0.05);
+
+    let faceted = built_with(&text, brep, super::topology::Healing::Faceted).unwrap();
+    let refused = built_with(&beyond, beyond_brep, super::topology::Healing::Faceted);
+
+    assert_eq!(
+        faceted.faceted,
+        Some(super::topology::Faceting::WithinPrecision)
+    );
+    assert!(
+        (fixtures::volume(&faceted.solid) - 1000.0).abs() < 0.5,
+        "{}",
+        fixtures::volume(&faceted.solid)
+    );
+    assert!(refused.is_err());
 }
 
 #[test]
