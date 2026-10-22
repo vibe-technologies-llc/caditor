@@ -2,7 +2,9 @@
 
 {command:model.move} moves a body; {command:model.copy_body} places a moved copy and keeps the
 original. Select a face, edge or vertex of the body, or choose it in the tree, then choose the
-command. **Make a copy** in the panel switches between the two.
+command. **Result** in the panel switches between the two: **Move body** moves the body itself,
+**New body** places a moved copy as a body of its own and leaves the original where it is. A copy
+that later features use cannot be turned back into a move; the panel says which features use it.
 
 ## The panel
 

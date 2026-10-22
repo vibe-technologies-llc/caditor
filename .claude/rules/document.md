@@ -1159,23 +1159,27 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Mirror and scale (`mirror.rs`, `scaling.rs`)
 
-- `Mirror { body, plane, keep_original }` reflects its body across a `PlaneReference` resolved like
-  a datum's at its place (datum and face body counted, face healed). Alone it replaces the body by
-  the image (`Solid::mapped`), keeping every name; keeping the original runs kernel `pattern` with
-  the image as copy `MIRROR_IMAGE`, so image faces are `FaceOrigin::Copy` of the mirror
-  (`describe_origin`: "<mirror> image of …").
+- `Mirror { body, plane, outcome }` reflects its body across a `PlaneReference` resolved like
+  a datum's at its place (datum and face body counted, face healed). The `MirrorOutcome` says what
+  the image becomes: `Replace` puts it in the body's place (`Solid::mapped`), keeping every name;
+  `AddToBody` (`Mirror::new`'s) runs kernel `pattern` with the image as copy `MIRROR_IMAGE`, so
+  original and image are one body; `NewBody` leaves the body alone and makes a body of the mirror's
+  own (`Mirror::makes_body`, `Feature::body` is the mirror, as a copying move's) from the image
+  alone (kernel `pattern_copies`), a body others use not able to stop being one (`BodyInUse`).
+  Joined or apart, image faces are `FaceOrigin::Copy` of the mirror (`describe_origin`: "<mirror>
+  image of …"), so switching between them keeps the image's names.
 - With `mirrored` features (`Mirror::mirroring`, chosen as a pattern's repeated ones by
   `repeatable_on`) it reflects their tools instead: each placed as copy `MIRROR_IMAGE` (kernel
   `pattern_copies`) and cut from or joined to the body as it stands, a fillet or chamfer blended on
   the image as a pattern repeats it (Repeated blends, Pattern below), originals staying;
-  `keep_original` is then ignored. The lookup (`pattern::seed`, the `Repeater` that words it) is shared with the
+  `outcome` is then kept but ignored, and makes no body. The lookup (`pattern::seed`, the `Repeater` that words it) is shared with the
   pattern, the mirrored features are in `features()`, and the cut images are the mirror's `cuts`.
 - With `faces` (`Mirror::mirroring_faces`, `FaceReference`s resolved on the body at the mirror,
   pieces accepted, lost or tied fails) and no mirrored features (`mirrors_faces`) it reflects the
   region the faces bound: kernel `enclose_faces` closes them across their openings (flat, or with a
   patch of the round face a pocket was cut into or a boss stands on) into a tool, placed as copy
   `MIRROR_IMAGE` and cut where the faces bounded a cavity (`Bounds::Cavity`, kept as `cuts`) or
-  joined where they bounded material (`joins`); `keep_original` is ignored. Openings neither in one
+  joined where they bounded material (`joins`); `outcome` is ignored. Openings neither in one
   plane nor on a neighbouring face, freeform faces, faces around a round face, faces not in
   separate loops, or ones closing into no valid solid fail alone in words asking for every face
   around the pocket or boss. The faces' origin features are its `origin_features`; healing visits

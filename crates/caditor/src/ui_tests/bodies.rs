@@ -1,7 +1,7 @@
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    Harness, add_peg, extruded_plate, feature_named, hidden, rows_named, run_from_palette,
+    Harness, add_peg, choose, extruded_plate, feature_named, hidden, rows_named, run_from_palette,
 };
 use crate::{model::Action, selection::Pickable};
 
@@ -65,7 +65,7 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
     let feature = harness.document().feature(copy).unwrap();
     assert_eq!(feature.name, "Copy 1");
     assert!(feature.makes_body());
-    assert!(harness.shows(crate::move_panel::MAKE_A_COPY));
+    assert!(harness.shows(crate::move_panel::RESULT));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!((harness.body_volume(copy) - volume).abs() < 1e-6 * volume);
     let bounds = harness
@@ -84,6 +84,28 @@ fn copy_body_makes_a_placed_copy_beside_the_original() {
         .bounding_box()
         .unwrap();
     assert!(original.min().y.abs() < 1e-6);
+
+    choose(
+        &mut harness,
+        crate::move_panel::NEW_BODY,
+        crate::move_panel::MOVE_BODY,
+    );
+    assert_eq!(harness.model.undo_label(), Some("Edit Copy 1"));
+    assert!(!harness.document().feature(copy).unwrap().makes_body());
+    assert!(harness.model.evaluation().body(copy).is_none());
+    let moved = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!((moved.min().y - 60.0).abs() < 1e-6);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(harness.document().feature(copy).unwrap().makes_body());
+    assert!((harness.body_volume(copy) - volume).abs() < 1e-6 * volume);
 }
 
 #[test]

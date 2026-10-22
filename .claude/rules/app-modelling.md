@@ -235,7 +235,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   description (a panel with both, a hole, puts the description first); then references, values and
   options; then Body. Small exclusive choices are `segmented`; longer lists stay combo boxes. A hole
   runs Shape, Sketch, Placed on before its sizes (a slot's Length and Angle with the values), and a
-  move's Make a copy comes before Body.
+  move's and a mirror's Result come before Body.
 - Every value row (`feature_fields::Quantity` carries the feature) and sketch dimension is a
   `field::NamedField`: typing `name = expression` names the value (`document.md`, Model parameters). A
   new name is one transaction inserting a parameter owned by the field (`ParameterOwner::Feature` with
@@ -1206,7 +1206,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 - Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
   of zero turns and distances, then opens it. Copy body (Alt+Shift+C, also a body's right-click menu)
-  does the same with `copy` set, named Copy N. New moves turn about the body's centre; Turn about
+  does the same with `copy` set, named Copy N. The panel's Result row (`move_panel::RESULT`, Move
+  body or New body, the same `feature_fields::segmented_row` as a mirror's) switches `copy`, one
+  "Edit <move>" change, a copy others use refused in a notice (`BodyInUse`). New moves turn about the body's centre; Turn about
   (Centre, Origin, Axis) changes it. Fields are expressions (key `move-field`, `offset` or `turn`, axis
   index). Switching to Axis (`move_tools::about_axis`) takes the one axis the selection names, else Z,
   keeping any angle set; its Axis row is a combo of principal and earlier datum axes with Use selected
@@ -1244,18 +1246,23 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Mirror, split, mate and scale
 
-- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that keeps
-  the original, across the one principal or datum plane selected with it, else the one selected flat
+- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` making the
+  image a new body (`mirror_tools::NEW_MIRROR_OUTCOME`, `MirrorOutcome::NewBody`, as Copy body makes
+  one, leaving the original as it is), across the one principal or datum plane selected with it, else the one selected flat
   face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a selected datum axis
   or point, a datum after the bar or several planes are refused. The panel chooses a principal, datum or
   coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
-  `MirrorPlane`) or the palette's Mirror across selected.
+  `MirrorPlane`) or the palette's Mirror across selected. Its Result row (`mirror_panel::RESULT`, a
+  `feature_fields::segmented_row`) chooses New body, Add to body (joined to the original) or Replace
+  body (the image in its place), each one "Edit <mirror>" change; leaving New body while a later
+  feature uses the image's body is refused in a notice (`BodyInUse`).
   With several bodies selected or chosen in the tree (`move_tools::chosen_bodies_beside`) it makes one
   Mirror per body across the same plane in one transaction ("Create N mirrors",
-  `MirrorSource::also`, names from `editing::next_feature_names`) and opens the first.
+  `MirrorSource::also`, names from `editing::next_feature_names`), each a new body, and opens the first.
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
-  list them and Mirror the chosen features takes the rows chosen now; Keep the original is hidden. The
+  list them and Mirror the chosen features takes the rows chosen now; it adds to the body
+  (`MirrorOutcome::AddToBody`) and Result is hidden. The
   open mirror shows its body and reflected cuts like a pattern of holes.
 - Mirror faces (`Command::MirrorFaces`, Bodies group) takes the selected faces of one body
   (`mirror_tools::faces_source`) and, from the rest of the selection, a principal, datum or coordinate
@@ -1264,7 +1271,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   mirror finds it, `body_result_seen_by`), each with Stop mirroring this face (the last leaves the whole
   body mirrored); Mirror the selected faces (also `Command::MirrorSelectedFaces` on the open feature or
   the tree's row) takes the faces selected in the view now (`mirror_tools::faces_change`), as Mirror the
-  chosen features takes tree rows, each clearing the other. Keep the original shows only while the whole
+  chosen features takes tree rows, each clearing the other. Result shows only while the whole
   body is mirrored.
 - Split body (Alt+K, also a body's right-click menu) takes the body the same way and creates a `Split`
   along what is selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat

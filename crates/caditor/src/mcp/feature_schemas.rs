@@ -352,7 +352,8 @@ pub fn mirror() -> Value {
             "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, mirrored on it"),
             "faces": keys("Instead of the body or features: face keys from list_faces of the body, mirrored on it, such as a pocket's walls and floor; [] mirrors the whole body again"),
             "plane": plane(),
-            "keep_original": { "type": "boolean", "description": "Keep the body as well as its image (default true)" },
+            "result": { "type": "string", "enum": ["new_body", "add_to_body", "replace"], "description": "What a mirror of the whole body makes: the image as a new body of its own, the image joined to the body (the default), or the image in place of the body" },
+            "keep_original": { "type": "boolean", "description": "Older form of result: true is add_to_body, false is replace; result wins when both are given" },
             "name": name()
         }),
         &["plane"],

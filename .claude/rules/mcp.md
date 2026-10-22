@@ -100,7 +100,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   fillets and chamfers (`EdgeReference::capture_in` per edge key,
   `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`, `EdgeGroup::Rule` for `convex_edges`, `concave_edges` and each feature of `edges_made_by`, which combine with edges and faces but not with `all_edges`), shell (`face_thicknesses`, replaced as a list), offset face,
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
-  `hole_tools::middle_of` and adding to that body by default), mirror (of a body, of features or of `faces`) and linear or circular
+  `hole_tools::middle_of` and adding to that body by default), mirror (of a body, of features or of `faces`; a body's `result` is `new_body`,
+  `add_to_body`, the default as `Mirror::new` makes it, or `replace`, the older `keep_original` still
+  read, `result` winning) and linear or circular
   pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as
   `Instance`s, the original refused), combine and move. Values are
   `Amount`s, a number of millimetres or degrees or an expression, parsed by

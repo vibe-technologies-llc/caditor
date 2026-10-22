@@ -865,13 +865,13 @@ fn a_hole_chosen_in_the_tree_is_mirrored_onto_its_body_instead_of_the_whole_body
     assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
     assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
     assert!(harness.shows(mirror_panel::MIRRORS));
-    assert!(!harness.shows(mirror_panel::KEEP_ORIGINAL));
+    assert!(!harness.shows(mirror_panel::RESULT));
 
     harness.click_button("Stop mirroring Hole 1");
     harness.settle();
     assert!(mirrored_features(&harness, mirror).is_empty());
     assert!(harness.shows(mirror_panel::WHOLE_BODY));
-    assert!(harness.shows(mirror_panel::KEEP_ORIGINAL));
+    assert!(harness.shows(mirror_panel::RESULT));
 
     harness.perform(Action::Undo);
     harness.settle();
@@ -955,7 +955,7 @@ fn a_hole_s_faces_are_mirrored_from_the_palette_and_chosen_again_in_the_panel() 
     assert_eq!(harness.model.evaluation().failed_count(), 0);
     assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
     assert!(harness.shows(mirror_panel::FACES_DESCRIPTION));
-    assert!(!harness.shows(mirror_panel::KEEP_ORIGINAL));
+    assert!(!harness.shows(mirror_panel::RESULT));
 
     let removals = walls.len();
     for _ in 0..removals {
@@ -964,10 +964,13 @@ fn a_hole_s_faces_are_mirrored_from_the_palette_and_chosen_again_in_the_panel() 
     }
     assert_eq!(mirrored_face_count(&harness, mirror), 0);
     assert!(harness.shows(mirror_panel::WHOLE_BODY));
-    assert!(harness.shows(mirror_panel::KEEP_ORIGINAL));
+    assert!(harness.shows(mirror_panel::RESULT));
 
-    harness.click(mirror_panel::KEEP_ORIGINAL);
-    harness.settle();
+    choose(
+        &mut harness,
+        mirror_panel::ADD_TO_BODY,
+        mirror_panel::REPLACE_BODY,
+    );
     harness.select(walls.clone());
     harness.frame();
     harness.click(mirror_panel::MIRROR_SELECTED_FACES);

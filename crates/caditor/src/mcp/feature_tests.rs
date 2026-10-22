@@ -314,6 +314,16 @@ fn mirrors_and_patterns_repeat_a_body() {
         json!({ "body": cube, "plane": "YZ" }),
     );
     assert!(close(total_volume(&mut client), 2000.0));
+    assert_eq!(body_count(&mut client), 1);
+    client.tool("undo", json!({}));
+
+    added(
+        &mut client,
+        "add_mirror",
+        json!({ "body": cube, "plane": "YZ", "result": "new_body" }),
+    );
+    assert!(close(total_volume(&mut client), 2000.0));
+    assert_eq!(body_count(&mut client), 2);
     client.tool("undo", json!({}));
 
     added(

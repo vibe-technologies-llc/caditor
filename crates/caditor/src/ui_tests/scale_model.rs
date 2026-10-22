@@ -1,5 +1,6 @@
 use caditor_document::{
-    Datum, DatumPoint, FeatureKind, Mirror, PlaneReference, PointReference, PrincipalPlane,
+    Datum, DatumPoint, FeatureKind, Mirror, MirrorOutcome, PlaneReference, PointReference,
+    PrincipalPlane,
 };
 use caditor_expression::{Expression, Unit};
 use egui::{Key, Modifiers};
@@ -81,7 +82,7 @@ fn scaling_about_a_point_off_a_mirror_plane_moves_the_mirror_onto_new_datums() {
         FeatureKind::Mirror(Mirror {
             body,
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
-            keep_original: true,
+            outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }),

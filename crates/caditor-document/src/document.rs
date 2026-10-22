@@ -1798,6 +1798,7 @@ impl Feature {
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
             FeatureKind::Mate(mate) => Some(mate.body),
+            FeatureKind::Mirror(mirror) if mirror.makes_body() => Some(self.id),
             FeatureKind::Mirror(mirror) => Some(mirror.body),
             FeatureKind::Split(split) => Some(split.body),
             FeatureKind::Scale(scale) => Some(scale.body),
@@ -1847,6 +1848,7 @@ impl Feature {
             FeatureKind::Loft(loft) => loft.operation == BodyOperation::NewBody,
             FeatureKind::Coil(coil) => coil.operation == BodyOperation::NewBody,
             FeatureKind::Move(movement) => movement.copy,
+            FeatureKind::Mirror(mirror) => mirror.makes_body(),
             FeatureKind::Mate(_)
             | FeatureKind::Rib(_)
             | FeatureKind::Sketch(_)
@@ -1860,7 +1862,6 @@ impl Feature {
             | FeatureKind::Emboss(_)
             | FeatureKind::SplitFace(_)
             | FeatureKind::Combine(_)
-            | FeatureKind::Mirror(_)
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)

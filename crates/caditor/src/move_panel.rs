@@ -38,7 +38,12 @@ pub fn distance_caption(axis: MoveAxis) -> String {
 pub fn turn_caption(axis: MoveAxis) -> String {
     format!("Turn about {}", axis.name())
 }
-pub const MAKE_A_COPY: &str = "Make a copy";
+pub const RESULT: &str = "Result";
+pub const MOVE_BODY: &str = "Move body";
+pub const NEW_BODY: &str = "New body";
+const MOVE_BODY_HOVER: &str = "The body itself moves";
+const NEW_BODY_HOVER: &str = "A moved copy becomes a body of its own, and the original stays where \
+                              it is";
 pub const DIRECTIONS: &str = "Directions";
 pub const FRAME_DESCRIPTION: &str = "Turns about and shifts along the X, Y and Z axes of the \
                                      coordinate system, and about its origin when turning about \
@@ -268,15 +273,26 @@ impl Panel<'_> {
         self.actions.extend(drafting.into_actions(id));
     }
 
-    fn copy_row(&mut self, ui: &mut Ui) {
-        if let Some(copy) = feature_fields::reverse_row(ui, MAKE_A_COPY, self.movement.copy) {
-            let change = self.change(Move {
-                copy,
-                ..self.movement.clone()
-            });
-            self.actions
-                .push(feature_fields::applied(&self.feature.name, change));
-        }
+    fn result_row(&mut self, ui: &mut Ui) {
+        let current = self.movement.copy;
+        let segments = [
+            (false, MOVE_BODY, MOVE_BODY_HOVER),
+            (true, NEW_BODY, NEW_BODY_HOVER),
+        ]
+        .into_iter()
+        .map(|(copy, label, hover)| Segment {
+            label,
+            hover,
+            change: (copy != current).then(|| {
+                self.change(Move {
+                    copy,
+                    ..self.movement.clone()
+                })
+            }),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+        self.actions.extend(chosen);
     }
 }
 
@@ -311,7 +327,7 @@ pub fn show(
         for axis in MoveAxis::ALL {
             panel.distance_row(ui, axis);
         }
-        panel.copy_row(ui);
+        panel.result_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", movement.body);
     });
 }

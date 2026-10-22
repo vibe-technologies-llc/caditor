@@ -1,9 +1,9 @@
-use caditor_document::{Feature, FeatureId, Mirror, Transaction};
+use caditor_document::{Feature, FeatureId, Mirror, MirrorOutcome, Transaction};
 use egui::{Id, Ui};
 
 use crate::{
     datum_tools,
-    feature_fields::{self, Picker},
+    feature_fields::{self, Picker, Segment},
     icons,
     mirror_tools::{self, MirrorToolError},
     model::{Action, Model},
@@ -13,14 +13,28 @@ use crate::{
     widgets,
 };
 
-pub const DESCRIPTION: &str = "Reflects the body across the plane, joined to the original or in \
-                               its place";
+pub const DESCRIPTION: &str = "Reflects the body across the plane, as a body of its own, joined \
+                               to the original or in its place";
 pub const FEATURES_DESCRIPTION: &str = "Reflects the chosen features across the plane onto the \
                                         body, following every edit to them";
 pub const FACES_DESCRIPTION: &str = "Reflects the region the chosen faces bound across the plane, \
                                      cut where they bound a cavity and joined where they bound \
                                      material, following every edit to them";
-pub const KEEP_ORIGINAL: &str = "Keep the original";
+pub const RESULT: &str = "Result";
+pub const NEW_BODY: &str = "New body";
+pub const ADD_TO_BODY: &str = "Add to body";
+pub const REPLACE_BODY: &str = "Replace body";
+const NEW_BODY_HOVER: &str = "The image becomes a body of its own, and the original stays as it is";
+const ADD_TO_BODY_HOVER: &str = "The image is joined to the original, making one body";
+const REPLACE_BODY_HOVER: &str = "The image takes the original's place, and the original is gone";
+
+fn outcome_words(outcome: MirrorOutcome) -> (&'static str, &'static str) {
+    match outcome {
+        MirrorOutcome::NewBody => (NEW_BODY, NEW_BODY_HOVER),
+        MirrorOutcome::AddToBody => (ADD_TO_BODY, ADD_TO_BODY_HOVER),
+        MirrorOutcome::Replace => (REPLACE_BODY, REPLACE_BODY_HOVER),
+    }
+}
 const PICK_HOVER: &str = "Mirror across the selected plane or flat face instead";
 pub const MIRRORS: &str = "Mirrors";
 pub const WHOLE_BODY: &str = "The whole body";
@@ -233,23 +247,30 @@ impl Panel<'_> {
             .push(feature_fields::applied(&self.feature.name, change));
     }
 
-    fn keep_row(&mut self, ui: &mut Ui) {
+    fn result_row(&mut self, ui: &mut Ui) {
         if !self.mirror.mirrors_whole_body() {
             return;
         }
-        if let Some(keep_original) =
-            feature_fields::reverse_row(ui, KEEP_ORIGINAL, self.mirror.keep_original)
-        {
-            let change = mirror_tools::change(
-                self.model,
-                self.id(),
-                Mirror {
-                    keep_original,
-                    ..self.mirror.clone()
-                },
-            );
-            self.apply(change);
-        }
+        let current = self.mirror.outcome;
+        let segments = MirrorOutcome::ALL
+            .into_iter()
+            .map(|outcome| {
+                let (label, hover) = outcome_words(outcome);
+                Segment {
+                    label,
+                    hover,
+                    change: (outcome != current).then(|| {
+                        mirror_tools::change(
+                            self.model,
+                            self.id(),
+                            self.mirror.clone().with_outcome(outcome),
+                        )
+                    }),
+                }
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+        self.actions.extend(chosen);
     }
 }
 
@@ -280,7 +301,7 @@ pub fn show(
         feature_fields::description_row(ui, description);
         panel.plane_rows(ui);
         panel.mirrors_rows(ui);
-        panel.keep_row(ui);
+        panel.result_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", mirror.body);
     });
 }

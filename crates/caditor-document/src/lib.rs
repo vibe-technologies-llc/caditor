@@ -161,7 +161,7 @@ pub use crate::{
         ALONG, Between, MASS, MeasuredItem, Measurement, MeasurementResult, Of, POSITION, Reading,
         face_perimeter, reading_literal,
     },
-    mirror::{MIRROR_IMAGE, Mirror},
+    mirror::{MIRROR_IMAGE, Mirror, MirrorOutcome},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     model_scale::{
         DisplacedFeature, ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues,

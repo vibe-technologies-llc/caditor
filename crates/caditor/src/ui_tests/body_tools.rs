@@ -46,23 +46,35 @@ fn several_selected_bodies_are_mirrored_across_one_plane_in_one_undoable_change(
 
     assert_eq!(harness.model.undo_label(), Some("Create 2 mirrors"));
     assert!(harness.shows("Mirror across"));
-    let mirrored: Vec<FeatureId> = harness
+    let mirrors: Vec<(FeatureId, FeatureId)> = harness
         .document()
         .features()
         .filter_map(|feature| match &feature.kind {
-            FeatureKind::Mirror(mirror) => Some(mirror.body),
+            FeatureKind::Mirror(mirror) => Some((feature.id(), mirror.body)),
             _ => None,
         })
         .collect();
+    let mirrored: Vec<FeatureId> = mirrors.iter().map(|(_, body)| *body).collect();
     assert_eq!(mirrored, [plate, peg]);
-    let (low, high) = plate_bounds(&harness, peg);
-    assert!((low.x + 60.0).abs() < 1e-6 && (high.x - 60.0).abs() < 1e-6);
+    let images: Vec<FeatureId> = mirrors.iter().map(|(image, _)| *image).collect();
+    assert!(
+        images
+            .iter()
+            .all(|image| harness.document().feature(*image).unwrap().makes_body())
+    );
+    let (_, high) = plate_bounds(&harness, peg);
+    assert!((high.x - 60.0).abs() < 1e-6);
+    let (low, _) = plate_bounds(&harness, images[1]);
+    assert!((low.x + 60.0).abs() < 1e-6);
     let (low, high) = plate_bounds(&harness, plate);
-    assert!((low.x + 40.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+    assert!(low.x.abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+    let (low, high) = plate_bounds(&harness, images[0]);
+    assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+    assert!(volume_about(&harness, images[0], 16000.0));
 }
 
 #[test]
-fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_the_panel() {
+fn a_body_is_mirrored_across_a_plane_as_a_new_body_joined_or_in_its_place_from_the_panel() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
 
@@ -70,7 +82,7 @@ fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_t
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     }]);
-    harness.click("Mirror body");
+    run_from_palette(&mut harness, "mirror body");
     harness.settle();
     let mirror = harness
         .workspace
@@ -79,12 +91,30 @@ fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_t
         .expect("the mirror is open");
     assert_eq!(harness.model.undo_label(), Some("Create Mirror body 1"));
     assert!(harness.shows("Mirror across"));
+    assert!(harness.shows(mirror_panel::RESULT));
+    assert!(volume_about(&harness, plate, 16000.0));
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(low.x.abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+    assert!(volume_about(&harness, mirror, 16000.0));
+    let (low, high) = plate_bounds(&harness, mirror);
+    assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
+    harness.built_with_meshes(2);
+
+    choose(
+        &mut harness,
+        mirror_panel::NEW_BODY,
+        mirror_panel::ADD_TO_BODY,
+    );
+    assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
     assert!(volume_about(&harness, plate, 2.0 * 16000.0));
     let (low, high) = plate_bounds(&harness, plate);
     assert!((low.x + 40.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
 
-    harness.click(mirror_panel::KEEP_ORIGINAL);
-    harness.settle();
+    choose(
+        &mut harness,
+        mirror_panel::ADD_TO_BODY,
+        mirror_panel::REPLACE_BODY,
+    );
     assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
     assert!(volume_about(&harness, plate, 16000.0));
     let (low, high) = plate_bounds(&harness, plate);
@@ -107,11 +137,14 @@ fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_t
     );
     assert_eq!(harness.workspace.editing.solid(), Some(mirror));
 
-    for _ in 0..3 {
+    for _ in 0..4 {
         harness.perform(Action::Undo);
     }
     harness.settle();
-    assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+    assert!(volume_about(&harness, plate, 16000.0));
+    assert!(volume_about(&harness, mirror, 16000.0));
+    let (low, high) = plate_bounds(&harness, mirror);
+    assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
 }
 
 #[test]
