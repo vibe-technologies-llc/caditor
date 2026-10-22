@@ -68,7 +68,7 @@ impl<'a> Archive<'a> {
                 packed: usize_at(bytes, at + 20)?,
                 local: usize_at(bytes, at + 42)?,
             });
-            at += CENTRAL_SIZE + name_length + extra + comment;
+            at = at.checked_add(CENTRAL_SIZE + name_length + extra + comment)?;
         }
         Some(Self { bytes, entries })
     }

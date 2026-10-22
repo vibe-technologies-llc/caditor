@@ -342,7 +342,9 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   the command line, `onboarding.home`), from File › Home and the palette; it closes on Escape, its
   close button, any start, an opened file or sample, and whenever the model it opened over changes
   (`Home::follow`: session, revision, a sketch being edited or a plane chosen). While it is open
-  the start card stays away (`ViewportState::cover`). Tests never open it by default.
+  the start card stays away (`ViewportState::cover`), the view takes no keys and only File and
+  Help commands and the palette take shortcuts (`Situation::covered`), so nothing changes the model
+  hidden beneath it. Tests never open it by default.
 - Recent files tiles show the model's own preview picture (`app-files.md`, Model previews): a tile
   in view with none known asks `Choice::LoadRecentPicture` (`FileCommand::LoadRecentPicture`, only
   while `Files::has_room_for_recent_picture`, so no more than `AT_ONCE` reads run), and draws

@@ -203,6 +203,16 @@ fn a_3mf_places_its_components_and_converts_its_unit() {
 }
 
 #[test]
+fn a_mesh_with_a_corner_not_a_number_is_refused_as_damaged() {
+    let text = cube_obj().replacen("v 0 0 0", "v nan 0 0", 1);
+
+    assert_eq!(
+        parse_mesh(text.as_bytes(), MeshFormat::Obj, "cube.obj", "cube"),
+        Err(ImportError::DamagedMesh(MeshFormat::Obj))
+    );
+}
+
+#[test]
 fn damaged_and_open_meshes_are_refused_in_words() {
     assert_eq!(
         parse_mesh(b"solid nothing\nendsolid\n", MeshFormat::Stl, "a.stl", "a"),

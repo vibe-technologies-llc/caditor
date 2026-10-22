@@ -348,6 +348,28 @@ fn a_file_dialog_that_cannot_open_says_what_to_install_rather_than_doing_nothing
 }
 
 #[test]
+fn a_recent_model_whose_folder_is_gone_too_stays_listed() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let drive = root.as_path().join("drive");
+    std::fs::create_dir(&drive).unwrap();
+    let path = drive.join("kept.caditor");
+    caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the file is open", |harness| harness.model.path().is_some());
+
+    std::fs::rename(&drive, root.as_path().join("unplugged")).unwrap();
+    harness.command(FileCommand::New);
+    harness.command(FileCommand::OpenPath(path.clone()));
+    harness.wait_until("the failure is reported", |harness| {
+        harness.shows("Could not open “kept.caditor”: it no longer exists.")
+    });
+
+    assert_eq!(harness.files.recent(), std::slice::from_ref(&path));
+}
+
+#[test]
 fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_harmless() {
     let dir = TempDir::new().unwrap();
     let root = canonical(&dir);

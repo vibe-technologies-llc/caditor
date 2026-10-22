@@ -139,7 +139,8 @@ paths:
 ## `Mesh`
 
 - Vertices are per face and carry the surface's analytic normal (flipped by the face sense, nudged
-  into the triangle at a pole): curved faces shade smoothly, the edge between a cylinder and its
+  into the triangle at a pole, where each triangle gets a vertex of its own so none takes another's
+  nudge): curved faces shade smoothly, the edge between a cylinder and its
   cap stays crisp. Edge polylines are the samplings the faces used, so outlines follow silhouettes.
 - Positions stay f64 (`Point3`), but a normal is a display attribute, so a `MeshVertex` is a
   position index and a `MeshNormal` (`normal.rs`): octahedral, two `i32` snorms, zero or non-finite

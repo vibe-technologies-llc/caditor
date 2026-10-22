@@ -110,6 +110,9 @@ pub fn parse_mesh_in(
         MeshFormat::Obj => read_obj(bytes)?,
         MeshFormat::ThreeMf => read_three_mf(bytes)?,
     };
+    if !mesh.positions.iter().all(|position| position.is_finite()) {
+        return Err(damaged(format));
+    }
     let unit = (format != MeshFormat::ThreeMf).then(|| UnitReading::of(&mesh, chosen));
     let (mesh, mut notes) = match &unit {
         Some(reading) => (reading.scale(mesh), vec![reading.note()]),
@@ -119,6 +122,7 @@ pub fn parse_mesh_in(
         FacetedError::NoTriangles => ImportError::DamagedMesh(format),
         FacetedError::NotClosed { open_edges } => ImportError::MeshNotClosed { open_edges },
         FacetedError::TooDetailed { faces } => ImportError::MeshTooDetailed { faces },
+        FacetedError::TooFar => ImportError::MeshTooFar,
         FacetedError::Build(error) => {
             log::warn!("a mesh could not be built into a solid: {error}");
             ImportError::MeshNotSolid

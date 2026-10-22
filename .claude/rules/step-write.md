@@ -11,7 +11,9 @@ paths:
   geometry crates, and only `caditor-file` uses it.
 - `write_step` writes one body as one product named after it, and several as an assembly: a root
   product named after the model (its `SHAPE_REPRESENTATION` holds one identity placement per part)
-  and one part product per body with its own `ADVANCED_BREP_SHAPE_REPRESENTATION`, placed by a
+  and one part product per body with its own `ADVANCED_BREP_SHAPE_REPRESENTATION` (named after
+  the body; its id the name too, numbered from 2 where an earlier product holds it, `ProductIds`,
+  since `PRODUCT.id` must be unique), placed by a
   `NEXT_ASSEMBLY_USAGE_OCCURRENCE` and a `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` with an identity
   `ITEM_DEFINED_TRANSFORMATION`, so other programs list the bodies as parts and the reader gives
   them back by name. Each lump is one `MANIFOLD_SOLID_BREP`, or a `BREP_WITH_VOIDS` whose voids

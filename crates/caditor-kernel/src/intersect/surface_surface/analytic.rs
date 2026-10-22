@@ -27,7 +27,7 @@ pub(crate) fn intersect(first: &SurfacePatch, second: &SurfacePatch, window: &Aa
         (Surface::Plane(one), Surface::Plane(other)) => Some(plane_plane(one, other, window)),
         (Surface::Plane(plane), Surface::Cylinder(cylinder))
         | (Surface::Cylinder(cylinder), Surface::Plane(plane)) => {
-            Some(plane_cylinder(plane, cylinder, window))
+            plane_cylinder(plane, cylinder, window)
         }
         (Surface::Plane(plane), Surface::Cone(cone))
         | (Surface::Cone(cone), Surface::Plane(plane)) => plane_cone(plane, cone, window),
@@ -101,8 +101,13 @@ fn plane_plane(first: &PlaneSurface, second: &PlaneSurface, window: &Aabb) -> Ra
     if squared <= TINY * TINY {
         return Raw::default();
     }
-    let (ha, hb) = (a.normal().dot(a.origin()), b.normal().dot(b.origin()));
-    let point = (b.normal().cross(direction) * ha + direction.cross(a.normal()) * hb) / squared;
+    let middle = window.center();
+    let (ha, hb) = (
+        a.normal().dot(a.origin() - middle),
+        b.normal().dot(b.origin() - middle),
+    );
+    let point =
+        middle + (b.normal().cross(direction) * ha + direction.cross(a.normal()) * hb) / squared;
     Raw {
         curves: line(point, direction, window, false).into_iter().collect(),
         points: Vec::new(),
@@ -138,7 +143,7 @@ pub(crate) fn plane_cylinder_ellipse(
         .map(Curve::from)
 }
 
-fn plane_cylinder(plane: &PlaneSurface, cylinder: &Cylinder, window: &Aabb) -> Raw {
+fn plane_cylinder(plane: &PlaneSurface, cylinder: &Cylinder, window: &Aabb) -> Option<Raw> {
     let frame = plane.frame();
     let normal = frame.normal();
     let axis = cylinder.frame().normal();
@@ -159,11 +164,11 @@ fn plane_cylinder(plane: &PlaneSurface, cylinder: &Cylinder, window: &Aabb) -> R
             raw.curves
                 .extend(line(foot - across * half, axis, window, false));
         }
-        return raw;
+        return Some(raw);
     }
     raw.curves
-        .extend(plane_cylinder_ellipse(frame, origin, axis, radius).map(closed));
-    raw
+        .push(closed(plane_cylinder_ellipse(frame, origin, axis, radius)?));
+    Some(raw)
 }
 
 fn reach_from(point: Point3, window: &Aabb) -> f64 {
@@ -240,15 +245,10 @@ fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {
     let major_radius = 0.5 * near.distance(far);
     let x_axis = (far - near).try_normalize()?;
     let y_axis = normal.cross(x_axis);
-    let offset = center - apex;
-    let cos2 = cosine * cosine;
-    let quadratic = y_axis.dot(axis).powi(2) - cos2;
-    let constant = offset.dot(axis).powi(2) - cos2 * offset.length_squared();
-    let minor_squared = -constant / quadratic;
-    if minor_squared.is_nan() || minor_squared <= 0.0 {
+    let minor_radius = sine * (near.distance(apex) * far.distance(apex)).sqrt();
+    if !minor_radius.is_finite() || minor_radius <= 0.0 {
         return None;
     }
-    let minor_radius = minor_squared.sqrt();
     let ellipse_frame = Plane::from_frame(center, normal, x_axis)?;
     let curve = if (major_radius - minor_radius).abs() <= ROUND_ELLIPSE * major_radius {
         Circle::new(ellipse_frame, major_radius).ok()?.into()

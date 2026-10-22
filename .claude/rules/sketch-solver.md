@@ -39,8 +39,9 @@ paths:
 - Parts (`numeric::Parts`) are worked out once per solve from the starting values and shared by
   memo, solver and analysis; only a sketch with spline parameters redoes them from current values,
   since a parameter moving along its spline changes which control points its equations reach.
-- A `Component` lists the spans with an end among its variables (`System::spans_at_variable`), so
-  collapse checks look at a part's own spans.
+- A `Component` lists the spans with an end among its variables (`System::spans_at_variable`, both
+  coordinates of each end, since a point's x and y may fall in different parts), so collapse checks
+  look at a part's own spans.
 - A solve that would collapse a line or an arc's radius to nothing is not converged, reported as a
   conflict; if it already had no length, `SketchError::NoLength` naming it.
 

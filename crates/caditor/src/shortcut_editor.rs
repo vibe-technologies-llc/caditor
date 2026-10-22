@@ -1,4 +1,4 @@
-use egui::{Align, Event, Grid, KeyboardShortcut, Label, Layout, TextEdit, Ui};
+use egui::{Align, Event, Grid, Key, KeyboardShortcut, Label, Layout, Modifiers, TextEdit, Ui};
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
@@ -160,6 +160,11 @@ pub fn dialog(
     reset_undoable: bool,
 ) -> Option<PreferencesCommand> {
     let captured = editor.capture(ctx, keymap);
+    if editor.confirm_reset
+        && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape))
+    {
+        editor.confirm_reset = false;
+    }
     let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Wide, |ui| {
         ui.label(widgets::muted(
             "Add… records the next keys you press, and the cross beside a shortcut removes it. \

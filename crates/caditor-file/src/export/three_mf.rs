@@ -134,7 +134,7 @@ fn model_size_bound(bodies: &[MeshBody<'_>], properties: &ModelProperties) -> u6
         .flat_map(|body| body.positions.iter())
         .map(|position| position.abs().max_element())
         .fold(0.0, f64::max);
-    let coordinate = Coordinate(-largest).to_string().len() as u64 + 1;
+    let coordinate = format!("{:.COORDINATE_DECIMALS$}", -largest).len() as u64 + 1;
     let vertex = VERTEX_TEXT.saturating_add(coordinate.saturating_mul(3));
     let described = exported_properties(properties)
         .map(|(_, value)| escaped(value).saturating_add(OBJECT_TEXT))

@@ -155,6 +155,25 @@ fn model_details_fill_the_header_product_and_revision() {
 }
 
 #[test]
+fn parts_sharing_a_name_get_products_of_their_own_id() {
+    let plate = fixtures::plate_with_hole();
+    let body = StepBody {
+        name: "Body",
+        solid: &plate,
+        colour: None,
+        opacity: None,
+        layer: None,
+        threads: &[],
+        faces: &[],
+    };
+    let step = write_step(&[body, body], "Body", SystemTime::UNIX_EPOCH).unwrap();
+
+    assert!(step.contains("=PRODUCT('Body','Body','',("));
+    assert!(step.contains("=PRODUCT('Body 2','Body','',("));
+    assert!(step.contains("=PRODUCT('Body 3','Body','',("));
+}
+
+#[test]
 fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
     let plate = fixtures::plate_with_hole();
     let turned = fixtures::turned();

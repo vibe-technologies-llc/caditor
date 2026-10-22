@@ -141,7 +141,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`parameter_user_ids`, counting configurations as `parameter_users` does) is removed, users
   before what they use; any other loses its owner. A removal `RemoveParameter` refuses leaves the
   value pending, so it still loses its owner. `deletion` releases values owned by deleted features,
-  `remove_sketch_items` those of removed dimensions; reshaping a sketch keeps constraint IDs.
+  `remove_sketch_items` those of removed dimensions; `reshape_sketch` keeps the IDs of the constraints it keeps and releases those of the dimensions `after` no longer has.
 
 ## Pasting features (`paste.rs`)
 

@@ -917,8 +917,11 @@ pub fn principal_words(geometry: PrincipalGeometry) -> String {
     }
 }
 
-fn unused_name(document: &Document, stem: &str) -> String {
-    let taken = |name: &str| document.features().any(|feature| feature.name == name);
+fn unused_name(document: &Document, placed: &[String], stem: &str) -> String {
+    let taken = |name: &str| {
+        placed.iter().any(|placed| placed == name)
+            || document.features().any(|feature| feature.name == name)
+    };
     if !taken(stem) {
         return stem.to_owned();
     }
@@ -951,7 +954,7 @@ impl DatumPlacing<'_> {
     fn insert(&mut self, stem: &str, datum: Datum) -> FeatureId {
         let id = FeatureId::from_raw(self.next_id);
         self.next_id = self.next_id.saturating_add(1);
-        let name = unused_name(self.document, stem);
+        let name = unused_name(self.document, &self.names, stem);
         self.edits.push(Edit::InsertFeature {
             index: self.edits.len(),
             feature: Arc::new(Feature::new(id, name.clone(), FeatureKind::Datum(datum))),

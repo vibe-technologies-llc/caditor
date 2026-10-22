@@ -118,8 +118,10 @@ paths:
   a notice (`Event::RecentNotSaved`, `PreferencesNotSaved`, worded through
   `caditor_file::UpdateFailure`). Missing entries are found on the files worker
   (`FileCommand::CheckRecent`, not found only, so a permission error does not count) at startup and
-  on each File menu open, drawn muted "(not found)" but openable. Opening a gone recent model forgets
-  it; `open_file` judges with the same `is_gone`, so an offline share stays listed.
+  on each File menu open, drawn muted "(not found)" but openable. Opening a recent model gone from
+  a folder that is still there forgets it (`is_gone_from_its_folder`); one whose folder is gone too
+  (an unplugged drive, an unmounted or offline share) stays listed, muted, until it is back or
+  removed by hand.
 - Files dragged over the window (`drop_target.rs`, egui's `hovered_files`: winit on X11 and Windows,
   `file_drops.rs` on Wayland, `wayland.md`) outline the view and card what the drop does, mirroring
   `Files::dropped`, or warn why it is refused. Judged by extension only

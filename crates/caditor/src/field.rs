@@ -6,7 +6,7 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, Naming, ParameterId, ParseError};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
-    Align, Event, Id, Key, Margin, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
+    Align, Event, Id, Key, Margin, Modifiers, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
@@ -263,7 +263,7 @@ fn field<T, E: Display>(
     let left = response.lost_focus() && !completed.held;
     let mut committed = None;
     if left {
-        let reverted = ui.input(|input| input.key_pressed(Key::Escape));
+        let reverted = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
         if reverted || text.trim() == stored {
             draft = None;
         } else {

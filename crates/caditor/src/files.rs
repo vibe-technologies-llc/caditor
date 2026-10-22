@@ -3677,6 +3677,10 @@ fn is_gone(path: &Path) -> bool {
     matches!(fs::metadata(path), Err(error) if error.kind() == io::ErrorKind::NotFound)
 }
 
+fn is_gone_from_its_folder(path: &Path) -> bool {
+    is_gone(path) && path.parent().is_some_and(Path::is_dir)
+}
+
 fn revert_to_saved(model: &mut Model) {
     let transaction = match model.saved_version() {
         Ok(saved) => model
@@ -3753,7 +3757,7 @@ fn open_file(
         },
         Err(error) => OpenOutcome::Failed {
             error,
-            missing: is_gone(path),
+            missing: is_gone_from_its_folder(path),
         },
     }
 }

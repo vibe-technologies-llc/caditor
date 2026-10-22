@@ -120,6 +120,18 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
 }
 
 #[test]
+fn a_plane_too_shallow_for_its_ellipse_is_marched_rather_than_missed() {
+    let tube = cylinder(Point3::ZERO, Vector3::Z, 3.0);
+    let side = around(&tube, (-20.0, 20.0));
+    let shallow = tilted_plane(FRAC_PI_2 - 2e-6, 0.0);
+
+    let result = intersect_surfaces(&square(&shallow, 60.0), &side).unwrap();
+
+    check_all(&result, &shallow, &tube);
+    assert_eq!(result.branches().len(), 2);
+}
+
+#[test]
 fn cylinder_patches_clip_the_intersection() {
     let tube = cylinder(Point3::ZERO, Vector3::Z, 2.0);
     let cut = tilted_plane(0.4, 0.0);

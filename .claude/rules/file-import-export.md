@@ -263,9 +263,11 @@ paths:
   on, or chosen).
 - Triangles become solids through the kernel's `faceted_solids` (`kernel.md`), each canonicalised
   like a STEP body and imported as an `Import` named after the file; what the kernel repaired or
-  left out becomes import-report notes. Failures are their own `ImportError` variants
-  (`DamagedMesh`, `ModelTooManyElements`, `ModelPlacesTooMuch`, `MissingModelPart`,
-  `ModelPartOutsidePackage`, `ComponentCycle`, `MeshNotClosed`, `MeshTooDetailed`, `MeshNotSolid`).
+  left out becomes import-report notes. A corner that is not a finite number is damage
+  (`DamagedMesh`), and one past the kernel's `MAX_SIZE` is `MeshTooFar`. Failures are their own
+  `ImportError` variants (`DamagedMesh`, `ModelTooManyElements`, `ModelPlacesTooMuch`,
+  `MissingModelPart`, `ModelPartOutsidePackage`, `ComponentCycle`, `MeshNotClosed`,
+  `MeshTooDetailed`, `MeshTooFar`, `MeshNotSolid`).
 
 ## Export (`export/`)
 

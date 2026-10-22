@@ -413,9 +413,9 @@ fn model_details(
         None => ui.label(widgets::muted("Not saved to a file yet", ui)),
     };
     ui.horizontal_wrapped(|ui| match (model.is_dirty(), model.path()) {
-        (true, _) => widgets::pill(ui, Tone::Warning, "Unsaved changes"),
-        (false, Some(_)) => widgets::pill(ui, Tone::Success, "All changes saved"),
-        (false, None) => widgets::pill(ui, Tone::Neutral, "Nothing to save yet"),
+        (true, _) => widgets::status_pill(ui, Tone::Warning, "Unsaved changes"),
+        (false, Some(_)) => widgets::status_pill(ui, Tone::Success, "All changes saved"),
+        (false, None) => widgets::status_pill(ui, Tone::Neutral, "Nothing to save yet"),
     });
     ui.separator();
     let item = |ui: &mut Ui, command: Command| {

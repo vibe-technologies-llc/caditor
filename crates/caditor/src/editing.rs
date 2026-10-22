@@ -773,12 +773,7 @@ impl SketchEditing {
         let label = format!("Remove the empty {name}");
         let discard = match self.sketch_changes(model) {
             Ok(steps) => discard(&steps, true, label),
-            Err(_) => Discard::Apply(Transaction::single(
-                label,
-                Edit::RemoveFeature {
-                    id: entered.feature,
-                },
-            )),
+            Err(_) => Discard::Apply(model.document().deletion(&[entered.feature], label)),
         };
         let told = match discard {
             Discard::Nothing => return,

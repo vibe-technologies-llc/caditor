@@ -144,12 +144,14 @@ impl System {
                 let (from, to) = (system.point(from)?, system.point(to)?);
                 let index = system.spans.len();
                 for end in [from, to] {
-                    if let PointHandle::Variable(variable) = end {
-                        system
-                            .spans_at_variable
-                            .entry(variable)
-                            .or_default()
-                            .push(index);
+                    if let PointHandle::Variable(x) = end {
+                        for variable in [x, x + 1] {
+                            system
+                                .spans_at_variable
+                                .entry(variable)
+                                .or_default()
+                                .push(index);
+                        }
                     }
                 }
                 system.spans.push((id, from, to));
@@ -986,12 +988,13 @@ impl System {
         );
         let start = line.start.at(&self.values);
         let direction = fallback_direction(line.end.at(&self.values) - start);
-        let reach = direction.perp_dot(start - point.at(&self.values)) / direction.perp_dot(along);
+        let reach_sign =
+            direction.perp_dot(start - point.at(&self.values)) * direction.perp_dot(along);
         Ok(Form::LineOffset {
             point,
             line,
             along,
-            side: if reach < 0.0 { -1.0 } else { 1.0 },
+            side: if reach_sign < 0.0 { -1.0 } else { 1.0 },
             value,
         })
     }

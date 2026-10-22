@@ -736,7 +736,8 @@ impl FaceTriangulation {
                 triangle,
             )),
         })?;
-        if let Some(entry) = corners.get_mut(index) {
+        let shared_normal = surface.normal(point.uv.x, point.uv.y).is_some();
+        if shared_normal && let Some(entry) = corners.get_mut(index) {
             *entry = Some(corner);
         }
         Ok(corner)

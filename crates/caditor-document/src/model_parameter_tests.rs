@@ -284,6 +284,52 @@ fn removing_a_named_dimension_takes_its_parameter_with_it() {
 }
 
 #[test]
+fn reshaping_a_sketch_without_a_named_dimension_takes_its_parameter_with_it() {
+    let (document, ids) = sample();
+    let owner = ParameterOwner::Dimension {
+        sketch: ids.base,
+        constraint: ids.base_distance,
+    };
+    let mut transaction = document.transaction("Name");
+    let length = transaction.add_owned_parameter(
+        "length",
+        Expression::parse_stored("30 mm").unwrap(),
+        owner.clone(),
+    );
+    transaction.edit(Edit::SetDimension {
+        feature: ids.base,
+        constraint: ids.base_distance,
+        value: Expression::Parameter(length),
+    });
+    let naming = transaction.finish();
+    let mut editor = Editor::new(document);
+    editor.apply(naming).unwrap();
+
+    let before = editor
+        .document()
+        .feature(ids.base)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap()
+        .clone();
+    let mut after = before.clone();
+    after.remove_constraint(ids.base_distance).unwrap();
+    let mut reshaping = editor.document().transaction("Reshape");
+    reshaping.reshape_sketch(ids.base, &before, &after);
+    editor.apply(reshaping.finish()).unwrap();
+
+    assert!(editor.document().parameter(length).is_none());
+
+    editor.undo().unwrap();
+
+    assert_eq!(
+        editor.document().parameter(length).unwrap().owner,
+        Some(owner)
+    );
+}
+
+#[test]
 fn a_value_description_is_kept_on_one_line_and_bounded() {
     let (document, extrusion) = block();
     let owner = |value: &str| ParameterOwner::Feature {

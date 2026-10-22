@@ -61,6 +61,8 @@ paths:
   torus through its axis, and cylinders against cylinders. `coaxial.rs` takes every coaxial pair of
   rotational surfaces by intersecting meridians in (r, z) as 2D curves: each point is a circle,
   tangent points tangent circles, points on the axis isolated points.
+- A plane cutting a cylinder so shallowly that its ellipse cannot be made (a major radius past
+  `MAX_SIZE`) is marched, never taken as missing it.
 - A plane cuts a cone in the exact ellipse (or circle) only when `|n·axis| > sin α`; crossing the
   axis behind the apex means it misses. Planes at `|n·axis| <= sin α` (parabolas and hyperbolas)
   are marched; through the apex they are rulings or the apex alone.

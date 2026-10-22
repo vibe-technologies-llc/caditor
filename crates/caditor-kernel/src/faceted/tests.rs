@@ -200,6 +200,21 @@ fn a_small_hole_is_closed_and_a_mesh_without_any_closed_part_is_refused() {
 }
 
 #[test]
+fn a_mesh_reaching_past_the_largest_size_is_refused_rather_than_welded_into_a_point() {
+    let far = TriangleMesh {
+        positions: vec![
+            Point3::ZERO,
+            Point3::new(1e200, 0.0, 0.0),
+            Point3::new(0.0, 1e200, 0.0),
+            Point3::new(0.0, 0.0, 1e200),
+        ],
+        triangles: vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]],
+    };
+
+    assert_eq!(faceted_solids(&far), Err(FacetedError::TooFar));
+}
+
+#[test]
 fn a_point_splitting_a_straight_edge_is_left_out_of_the_solid() {
     let mut mesh = cube();
     let middle = mesh.positions.len();

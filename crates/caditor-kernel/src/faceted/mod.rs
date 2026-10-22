@@ -10,7 +10,7 @@ use crate::{
     interrupt::{self, Interrupted},
     sense::Sense,
     surface::{PlaneSurface, Surface},
-    tolerance::LINEAR_RESOLUTION,
+    tolerance::{LINEAR_RESOLUTION, MAX_SIZE},
     topology::{BuildError, EdgeId, FaceId, Solid, SolidBuilder, VertexId},
 };
 
@@ -73,6 +73,10 @@ pub enum FacetedError {
          {MAX_FACETED_FACES} caditor takes from one mesh; reduce its triangles in a mesh editor"
     )]
     TooDetailed { faces: usize },
+    #[error(
+        "a corner of it lies more than {MAX_SIZE} mm from its origin, farther than caditor models"
+    )]
+    TooFar,
     #[error("a solid could not be built from it: {0}")]
     Build(BuildError),
     #[error(transparent)]
@@ -134,6 +138,12 @@ fn weld(
         .copied()
         .filter(|point| point.is_finite())
         .collect();
+    if finite
+        .iter()
+        .any(|point| point.abs().max_element() > MAX_SIZE)
+    {
+        return Err(FacetedError::TooFar);
+    }
     let bounds = Aabb::from_points(finite).ok_or(FacetedError::NoTriangles)?;
     let reach = (bounds.diagonal() * WELD_FRACTION).max(LINEAR_RESOLUTION);
     let mut cells: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();

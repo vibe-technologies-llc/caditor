@@ -686,6 +686,7 @@ pub fn show(
         drawing: viewport.is_drawing(),
         text_focused,
         keys_free,
+        covered: home.is_open(),
     };
     let deferred = std::mem::take(deferred_commands);
     let awaited = awaiting_paste.take().filter(|_| !blocked);
@@ -1088,7 +1089,14 @@ pub fn show(
     viewport.set_grid(canvas::grid(ui.ctx()));
     viewport.set_default_body(canvas::body_colour(ui.ctx()));
     let selection_before = viewport.selection().generation();
-    viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    viewport.show(
+        ui,
+        model,
+        editing,
+        keys_free && !home.is_open(),
+        &mut commands,
+        actions,
+    );
     if home.is_open()
         && let Some(area) = viewport.rect()
     {

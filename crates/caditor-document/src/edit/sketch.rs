@@ -199,10 +199,16 @@ impl TransactionBuilder<'_> {
             .map(|(id, _)| id)
             .filter(|id| after.entity(*id).is_none())
             .collect();
+        let dropped: BTreeSet<ConstraintId> = before
+            .constraints()
+            .map(|(id, _)| id)
+            .filter(|id| after.constraint(*id).is_none())
+            .collect();
         let kept_keys = self.keeping_piece_keys(feature, before, &removed);
         self.edits.extend(kept_keys);
         let edits = Reshape::between(before, after).edits(feature);
         self.edits.extend(edits);
+        self.release_dimensions(feature, &dropped);
         let next = self
             .next_sketch_ids
             .get(&feature)

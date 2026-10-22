@@ -179,7 +179,7 @@ pub fn dialog(ctx: &egui::Context, view: &DialogView<'_>, state: &mut CloudDialo
                         .clicked()
                         .then_some(Outcome::Change(PreferenceChange::CloudEnabled(false)))
                 } else {
-                    ui.add(widgets::primary_button(ui, TURN_ON))
+                    ui.add(widgets::button(TURN_ON))
                         .clicked()
                         .then_some(Outcome::Change(PreferenceChange::CloudEnabled(true)))
                 }

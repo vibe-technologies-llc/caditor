@@ -3,7 +3,7 @@ mod shape;
 mod tests;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::{self, Write},
     time::SystemTime,
 };
@@ -329,6 +329,7 @@ pub fn write_step_detailed(
     );
     let origin = Shapes::origin(&mut data);
     let assembly = bodies.len() > 1;
+    let mut ids = ProductIds::taking(id);
     let mut items = vec![origin];
     let mut parts = Vec::new();
     let mut shapes = Shapes::new(&mut data);
@@ -358,7 +359,8 @@ pub fn write_step_detailed(
                         .extend(solids.iter().copied());
                 }
                 let definition = if assembly {
-                    let part = part(shapes.data(), &contexts, body.name, origin, &solids);
+                    let id = ids.unique(body.name);
+                    let part = part(shapes.data(), &contexts, (&id, body.name), origin, &solids);
                     let definition = part.product.definition;
                     parts.push(part);
                     definition
@@ -464,12 +466,38 @@ fn product(data: &mut Data, contexts: &Contexts, product: &ProductText<'_>) -> P
     Product { definition, shape }
 }
 
-fn part(data: &mut Data, contexts: &Contexts, name: &str, origin: Ref, solids: &[Ref]) -> Part {
+struct ProductIds(BTreeSet<String>);
+
+impl ProductIds {
+    fn taking(root: &str) -> Self {
+        Self(BTreeSet::from([root.to_owned()]))
+    }
+
+    fn unique(&mut self, name: &str) -> String {
+        let id = (1..)
+            .map(|copy| match copy {
+                1 => name.to_owned(),
+                _ => format!("{name} {copy}"),
+            })
+            .find(|id| !self.0.contains(id))
+            .unwrap_or_else(|| name.to_owned());
+        self.0.insert(id.clone());
+        id
+    }
+}
+
+fn part(
+    data: &mut Data,
+    contexts: &Contexts,
+    (id, name): (&str, &str),
+    origin: Ref,
+    solids: &[Ref],
+) -> Part {
     let product = product(
         data,
         contexts,
         &ProductText {
-            id: name,
+            id,
             name,
             description: "",
             revision: "",

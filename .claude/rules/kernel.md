@@ -231,7 +231,8 @@ paths:
   edge too short to build), drops degenerate and repeated triangles, closes holes of up
   to `MAX_FILLED_HOLE_EDGES` edges by a fan, orients triangles and shells consistently, and leaves
   out open, self-folding and empty shells and a shell inside out within a larger one (a sealed
-  hollow), counting each in `MeshRepairs`.
+  hollow), counting each in `MeshRepairs`. A corner past `MAX_SIZE` is `FacetedError::TooFar`,
+  since the weld's cells would no longer tell points apart.
 - Edge-joined triangles with agreeing normals and corners within coordinate-magnitude noise of the
   first one's plane become one planar face; each shared corner moves to the least-squares point on
   the fitted planes, so every edge lies within `LINEAR_RESOLUTION` of its faces. A face whose

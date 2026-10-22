@@ -606,11 +606,11 @@ fn drag_and_drop(
     let Some(dragged) = state.dragging else {
         return;
     };
-    let (pointer, held, cancelled) = ui.input(|input| {
+    let (pointer, held, cancelled) = ui.input_mut(|input| {
         (
             input.pointer.latest_pos(),
             input.pointer.primary_down(),
-            input.key_pressed(Key::Escape),
+            input.consume_key(Modifiers::NONE, Key::Escape),
         )
     });
     let Some(pointer) = pointer.filter(|_| !cancelled) else {

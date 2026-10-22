@@ -1852,6 +1852,10 @@ impl Command {
         }
     }
 
+    fn works_over_home(self) -> bool {
+        self == Self::Palette || matches!(self.category(), Category::File | Category::Help)
+    }
+
     pub fn category(self) -> Category {
         match self {
             Self::New
@@ -2888,10 +2892,14 @@ pub struct Situation {
     pub drawing: bool,
     pub text_focused: bool,
     pub keys_free: bool,
+    pub covered: bool,
 }
 
 impl Situation {
     fn allows(&self, command: Command) -> bool {
+        if self.covered && !command.works_over_home() {
+            return false;
+        }
         match command.scope() {
             Scope::Anywhere => true,
             Scope::Sketch => self.editing_sketch,
@@ -3384,6 +3392,32 @@ mod tests {
         keymap.write(&rebound, &mut settings);
         assert_eq!(settings.texts("keys.file.save"), None);
         assert_eq!(Keymap::from_settings(&settings), keymap);
+    }
+
+    #[test]
+    fn over_home_only_file_help_and_the_palette_take_keys() {
+        let keymap = Keymap::default();
+        let covered = Situation {
+            keys_free: true,
+            covered: true,
+            ..Situation::default()
+        };
+        let found = |pressed| {
+            keymap
+                .command_for(&pressed, &covered)
+                .map(|(command, _)| command)
+        };
+
+        assert_eq!(found(press(Key::Delete, Modifiers::NONE)), None);
+        assert_eq!(found(press(Key::Z, Modifiers::COMMAND)), None);
+        assert_eq!(
+            found(press(Key::O, Modifiers::COMMAND)),
+            Some(Command::Open)
+        );
+        assert_eq!(
+            found(press(Key::P, Modifiers::COMMAND | Modifiers::SHIFT)),
+            Some(Command::Palette)
+        );
     }
 
     #[test]

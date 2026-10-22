@@ -260,6 +260,11 @@ pub enum ImportError {
         caditor_kernel::MAX_FACETED_FACES
     )]
     MeshTooDetailed { faces: usize },
+    #[error(
+        "a corner of it lies more than {} m from its origin, farther than caditor models",
+        caditor_kernel::MAX_SIZE / 1000.0
+    )]
+    MeshTooFar,
     #[error("its surface could not be made into a valid solid")]
     MeshNotSolid,
     #[error("the compressed file is damaged, so it cannot be unpacked")]
