@@ -31,7 +31,11 @@ paths:
   grid line index), so an off-lattice boundary point never fans across a dense row (it spanned the
   tube of a thin torus); a face without a grid is scaled by the mean surface speeds. Gaps along a
   pole line or seam are filled in cell space, one point per cell crossed.
-- Points are deduplicated by exact scaled coordinates (`DuplicateBoundaryPoint`), inserted in a
+- Points are deduplicated by exact scaled coordinates. A boundary point of another position landing
+  on one already placed (two vertices of an imported body whose short edge runs along a spline's
+  nearly collapsed side, its pcurve one uv) is placed `BESIDE_SHARE` of the way towards its loop
+  neighbour away from the point it met (`away_from_collision`), so both keep their positions; only
+  when there is no such neighbour is the face `DuplicateBoundaryPoint`. Points are inserted in a
   biased randomised order (`insertion.rs`: rounds doubling in size from a fixed-seed shuffle, each
   Z-order sorted), then joined by the loops' constraint edges. Loop order flips edges
   quadratically and spade's bulk load walks its hull quadratically for points along one curve.

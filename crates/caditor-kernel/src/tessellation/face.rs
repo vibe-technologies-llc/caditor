@@ -25,6 +25,7 @@ const JOINT_PARAMETER_GAP: f64 = 1e-6;
 const OFF_POLE_JOINT_PARAMETER_GAP: f64 = 1e-3;
 const GRID_CLEARANCE: f64 = 0.3;
 const GRID_NUDGE: f64 = 1e-6;
+const BESIDE_SHARE: f64 = 1e-6;
 const TINY_COORDINATE: f64 = 1e-30;
 const MAX_GAP_PIECES: f64 = 4096.0;
 const NORMAL_NUDGE: f64 = 1e-3;
@@ -567,16 +568,69 @@ impl<'a> FacePoints<'a> {
             if index.is_multiple_of(POLL_EVERY) {
                 interrupt::check()?;
             }
-            indices.push(self.insert(
-                LocalPoint {
-                    uv: point.uv,
-                    position: Some(point.position),
-                },
-                [0.0, 0.0],
-            )?);
+            let local = LocalPoint {
+                uv: point.uv,
+                position: Some(point.position),
+            };
+            let inserted = match self.insert(local, [0.0, 0.0]) {
+                Err(TessellationError::DuplicateBoundaryPoint(_)) => {
+                    let toward = self.away_from_collision(points, index, local.uv);
+                    self.insert_beside(local, toward)?
+                }
+                inserted => inserted?,
+            };
+            indices.push(inserted);
         }
         self.loops.push(indices);
         Ok(())
+    }
+
+    fn away_from_collision(
+        &self,
+        points: &[BoundaryPoint],
+        index: usize,
+        uv: Point2,
+    ) -> Option<Point2> {
+        let mapped = self.scaled.map(uv);
+        let collided = self
+            .by_place
+            .get(&[mapped.x.to_bits(), mapped.y.to_bits()])
+            .and_then(|existing| self.points.get(*existing))
+            .and_then(|existing| existing.position);
+        let count = points.len();
+        let next = points.get((index + 1) % count.max(1))?;
+        let backwards = Some(next.position) == collided;
+        let steps = (1..count).map(|step| {
+            if backwards {
+                (index + count - step) % count
+            } else {
+                (index + step) % count
+            }
+        });
+        steps
+            .filter_map(|at| points.get(at))
+            .map(|point| point.uv)
+            .find(|other| *other != uv)
+    }
+
+    fn insert_beside(
+        &mut self,
+        point: LocalPoint,
+        toward: Option<Point2>,
+    ) -> Result<usize, TessellationError> {
+        let duplicate = TessellationError::DuplicateBoundaryPoint(self.face);
+        let toward = toward.ok_or(duplicate)?;
+        let (at, to) = (self.scaled.map(point.uv), self.scaled.map(toward));
+        let beside = at + (to - at) * BESIDE_SHARE;
+        let place = [beside.x.to_bits(), beside.y.to_bits()];
+        if beside == at || self.by_place.contains_key(&place) {
+            return Err(duplicate);
+        }
+        let index = self.points.len();
+        self.by_place.insert(place, index);
+        self.points.push(point);
+        self.mapped.push(PlanePoint::new(beside.x, beside.y));
+        Ok(index)
     }
 
     fn add_interior(&mut self, uv: Point2, nudge: [f64; 2]) -> Result<(), TessellationError> {

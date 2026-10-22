@@ -486,6 +486,91 @@ fn a_corner_whose_edges_end_apart_on_the_surface_within_the_chord_meshes() {
 }
 
 #[test]
+fn two_corners_whose_pcurves_end_at_one_uv_mesh_side_by_side() {
+    use caditor_geometry::{Plane, Point2};
+
+    use crate::{
+        sense::Sense,
+        surface::PlaneSurface,
+        topology::{Pcurve, PcurveSample, SolidBuilder},
+    };
+
+    let side = 10.0;
+    let short = 1e-4;
+    let straight = |length: f64, from: Point2, to: Point2| {
+        Pcurve::new(
+            vec![
+                PcurveSample {
+                    parameter: 0.0,
+                    uv: from,
+                },
+                PcurveSample {
+                    parameter: length,
+                    uv: to,
+                },
+            ],
+            short,
+        )
+        .unwrap()
+    };
+    let mut builder = SolidBuilder::new();
+
+    let corners = [
+        (0.0, 0.0),
+        (side, 0.0),
+        (side, side),
+        (0.0, side),
+        (0.0, short),
+    ]
+    .map(|(x, y)| builder.vertex(Point3::new(x, y, 0.0)).unwrap());
+    let edges: Vec<_> = (0..5)
+        .map(|index| {
+            builder
+                .line_edge(corners[index], corners[(index + 1) % 5])
+                .unwrap()
+        })
+        .collect();
+    let shell = builder.shell().unwrap();
+    let face = builder
+        .face(
+            shell,
+            PlaneSurface::new(Plane::XY).unwrap().into(),
+            Sense::Same,
+        )
+        .unwrap();
+    let pcurves = [
+        straight(side, Point2::new(0.0, 0.0), Point2::new(side, 0.0)),
+        straight(side, Point2::new(side, 0.0), Point2::new(side, side)),
+        straight(side, Point2::new(side, side), Point2::new(0.0, side)),
+        straight(side - short, Point2::new(0.0, side), Point2::new(0.0, 0.0)),
+        straight(short, Point2::new(0.0, 0.0), Point2::new(0.0, 0.0)),
+    ];
+    builder
+        .add_loop_with_pcurves(
+            face,
+            edges
+                .iter()
+                .zip(pcurves)
+                .map(|(edge, pcurve)| (*edge, Sense::Same, pcurve))
+                .collect(),
+        )
+        .unwrap();
+    let solid = builder.build_unchecked();
+
+    let mesh = solid
+        .tessellate(&SamplingTolerance::for_extent(side))
+        .unwrap();
+    let used: std::collections::BTreeSet<u32> = mesh
+        .triangles()
+        .iter()
+        .filter_map(|triangle| mesh.triangle_positions(*triangle))
+        .flatten()
+        .collect();
+
+    assert_eq!(used.len(), 5);
+}
+
+#[test]
 fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
     for (radius, height) in [(3.0, 4.0), (1.0, 20.0), (20.0, 1.0)] {
         let cone = fixtures::cone(radius, height);
