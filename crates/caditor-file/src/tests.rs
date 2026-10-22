@@ -7,7 +7,8 @@ use std::{
 
 use caditor_document::{
     CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, MAX_RECORDS,
-    PlaneReference, PrincipalPlane, RegionChoice, RollbackBar, SketchAttachment, Transaction,
+    MirrorOutcome, PlaneReference, PrincipalPlane, RegionChoice, RollbackBar, SketchAttachment,
+    Transaction,
 };
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -9470,7 +9471,7 @@ fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
     );
 }
 
-fn mirrored_model(plane: PlaneReference, keep_original: bool) -> (Document, FeatureId) {
+fn mirrored_model(plane: PlaneReference, outcome: MirrorOutcome) -> (Document, FeatureId) {
     use caditor_document::Mirror;
     let (mut document, base, _) = solid_model();
     let mut transaction = document.transaction("Mirror");
@@ -9479,7 +9480,7 @@ fn mirrored_model(plane: PlaneReference, keep_original: bool) -> (Document, Feat
         FeatureKind::Mirror(Mirror {
             body: base,
             plane,
-            keep_original,
+            outcome,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }),
@@ -9502,16 +9503,34 @@ fn mirrors_across_principal_planes_and_faces_are_saved_and_loaded() {
             [FaceName::from_digest(7)],
         ),
     });
-    for (plane, keep_original) in [
-        (PlaneReference::Principal(PrincipalPlane::Xz), false),
-        (face, true),
+    for (plane, outcome, record) in [
+        (
+            PlaneReference::Principal(PrincipalPlane::Xz),
+            MirrorOutcome::Replace,
+            "\"mirror\":{\"body\":",
+        ),
+        (
+            face.clone(),
+            MirrorOutcome::AddToBody,
+            "\"mirror\":{\"body\":",
+        ),
+        (
+            PlaneReference::Principal(PrincipalPlane::Yz),
+            MirrorOutcome::NewBody,
+            "\"mirror_new_body\":{\"body\":",
+        ),
+        (
+            face,
+            MirrorOutcome::NewBody,
+            "\"mirror_new_body\":{\"body\":",
+        ),
     ] {
-        let (document, mirror) = mirrored_model(plane, keep_original);
+        let (document, mirror) = mirrored_model(plane, outcome);
 
         let text = encode(&document).unwrap();
         let loaded = decode_text(&text);
 
-        assert!(text.contains("\"mirror\":{\"body\":"));
+        assert!(text.contains(record), "{text}");
         assert_eq!(loaded.issues, Vec::<String>::new());
         assert_eq!(loaded.document, document);
 
@@ -9525,7 +9544,10 @@ fn mirrors_across_principal_planes_and_faces_are_saved_and_loaded() {
 
 #[test]
 fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
-    let (document, mirror) = mirrored_model(PlaneReference::Principal(PrincipalPlane::Xy), true);
+    let (document, mirror) = mirrored_model(
+        PlaneReference::Principal(PrincipalPlane::Xy),
+        MirrorOutcome::AddToBody,
+    );
     let text = encode(&document).unwrap();
     assert!(text.contains("\"plane\":{\"principal\":\"xy\"}"));
 
@@ -9551,7 +9573,7 @@ fn a_mirror_with_a_damaged_plane_loads_across_the_yz_plane_and_says_so() {
         restored.plane,
         PlaneReference::Principal(PrincipalPlane::Yz)
     );
-    assert!(restored.keep_original);
+    assert_eq!(restored.outcome, MirrorOutcome::AddToBody);
 }
 
 fn split_model(plane: PlaneReference, flipped: bool) -> (Document, FeatureId) {

@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use caditor_document::{
-    Document, Edit, Evaluation, FeatureId, FeatureKind, Mirror, PlaneReference, PrincipalPlane,
-    Transaction, describe_plane,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, Mirror, MirrorOutcome, PlaneReference,
+    PrincipalPlane, Transaction, describe_plane,
 };
 use caditor_kernel::FaceReference;
 
@@ -21,8 +21,9 @@ use crate::{
 pub const TITLE: &str = "Mirror body";
 pub const FEATURES_TITLE: &str = "Mirror features";
 pub const FACES_TITLE: &str = "Mirror faces";
-pub const DESCRIPTION: &str =
-    "Mirror a body across a plane or flat face, joined to the original or in its place";
+pub const DESCRIPTION: &str = "Mirror a body across a plane or flat face, as a new body, joined to \
+                               the original or in its place";
+pub const NEW_MIRROR_OUTCOME: MirrorOutcome = MirrorOutcome::NewBody;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum MirrorToolError {
@@ -286,15 +287,25 @@ pub fn create(document: &Document, source: &MirrorSource) -> (Transaction, Featu
         count => format!("Create {count} mirrors"),
     };
     let plane = source.plane.clone().unwrap_or(DEFAULT_PLANE);
+    let outcome = if source.mirrored.is_empty() {
+        NEW_MIRROR_OUTCOME
+    } else {
+        MirrorOutcome::AddToBody
+    };
     let mut transaction = document.transaction(label);
     let feature = transaction.add_feature(
         first,
         FeatureKind::Mirror(
-            Mirror::new(source.body, plane.clone()).mirroring(source.mirrored.clone()),
+            Mirror::new(source.body, plane.clone())
+                .with_outcome(outcome)
+                .mirroring(source.mirrored.clone()),
         ),
     );
     for (body, name) in source.also.iter().zip(names) {
-        transaction.add_feature(name, FeatureKind::Mirror(Mirror::new(*body, plane.clone())));
+        transaction.add_feature(
+            name,
+            FeatureKind::Mirror(Mirror::new(*body, plane.clone()).with_outcome(NEW_MIRROR_OUTCOME)),
+        );
     }
     (transaction.finish(), feature)
 }

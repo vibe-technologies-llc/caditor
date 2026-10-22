@@ -1244,18 +1244,23 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Mirror, split, mate and scale
 
-- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that keeps
-  the original, across the one principal or datum plane selected with it, else the one selected flat
+- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` making the
+  image a new body (`mirror_tools::NEW_MIRROR_OUTCOME`, `MirrorOutcome::NewBody`, as Copy body makes
+  one, leaving the original as it is), across the one principal or datum plane selected with it, else the one selected flat
   face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a selected datum axis
   or point, a datum after the bar or several planes are refused. The panel chooses a principal, datum or
   coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
-  `MirrorPlane`) or the palette's Mirror across selected.
+  `MirrorPlane`) or the palette's Mirror across selected. Its Result row (`mirror_panel::RESULT`, a
+  `feature_fields::segmented_row`) chooses New body, Add to body (joined to the original) or Replace
+  body (the image in its place), each one "Edit <mirror>" change; leaving New body while a later
+  feature uses the image's body is refused in a notice (`BodyInUse`).
   With several bodies selected or chosen in the tree (`move_tools::chosen_bodies_beside`) it makes one
   Mirror per body across the same plane in one transaction ("Create N mirrors",
-  `MirrorSource::also`, names from `editing::next_feature_names`) and opens the first.
+  `MirrorSource::also`, names from `editing::next_feature_names`), each a new body, and opens the first.
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
-  list them and Mirror the chosen features takes the rows chosen now; Keep the original is hidden. The
+  list them and Mirror the chosen features takes the rows chosen now; it adds to the body
+  (`MirrorOutcome::AddToBody`) and Result is hidden. The
   open mirror shows its body and reflected cuts like a pattern of holes.
 - Mirror faces (`Command::MirrorFaces`, Bodies group) takes the selected faces of one body
   (`mirror_tools::faces_source`) and, from the rest of the selection, a principal, datum or coordinate
@@ -1264,7 +1269,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   mirror finds it, `body_result_seen_by`), each with Stop mirroring this face (the last leaves the whole
   body mirrored); Mirror the selected faces (also `Command::MirrorSelectedFaces` on the open feature or
   the tree's row) takes the faces selected in the view now (`mirror_tools::faces_change`), as Mirror the
-  chosen features takes tree rows, each clearing the other. Keep the original shows only while the whole
+  chosen features takes tree rows, each clearing the other. Result shows only while the whole
   body is mirrored.
 - Split body (Alt+K, also a body's right-click menu) takes the body the same way and creates a `Split`
   along what is selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat

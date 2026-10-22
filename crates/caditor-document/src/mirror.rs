@@ -22,11 +22,27 @@ use crate::{
 
 pub const MIRROR_IMAGE: [u32; 2] = [1, 0];
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum MirrorOutcome {
+    Replace,
+    #[default]
+    AddToBody,
+    NewBody,
+}
+
+impl MirrorOutcome {
+    pub const ALL: [Self; 3] = [Self::NewBody, Self::AddToBody, Self::Replace];
+
+    pub fn keeps_original(self) -> bool {
+        self != Self::Replace
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mirror {
     pub body: FeatureId,
     pub plane: PlaneReference,
-    pub keep_original: bool,
+    pub outcome: MirrorOutcome,
     pub mirrored: Vec<FeatureId>,
     pub faces: Vec<FaceReference>,
 }
@@ -36,10 +52,16 @@ impl Mirror {
         Self {
             body,
             plane,
-            keep_original: true,
+            outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_outcome(mut self, outcome: MirrorOutcome) -> Self {
+        self.outcome = outcome;
+        self
     }
 
     #[must_use]
@@ -64,6 +86,10 @@ impl Mirror {
 
     pub fn mirrors_whole_body(&self) -> bool {
         self.mirrored.is_empty() && self.faces.is_empty()
+    }
+
+    pub fn makes_body(&self) -> bool {
+        self.outcome == MirrorOutcome::NewBody && self.mirrors_whole_body()
     }
 
     pub fn heap_size(&self) -> usize {
@@ -600,16 +626,23 @@ pub(crate) fn evaluate(
             .reflect_faces(definition, solid, image, cancel)
             .map(FeatureResult::Solid);
     }
-    let result = if definition.keep_original {
-        pattern(solid, &[image], feature.id().raw()).map_err(|error| {
-            context
-                .pattern_failure(&error)
-                .placed(trouble::union_place(&error))
-        })?
-    } else {
-        solid
+    let result = match definition.outcome {
+        MirrorOutcome::AddToBody => {
+            pattern(solid, &[image], feature.id().raw()).map_err(|error| {
+                context
+                    .pattern_failure(&error)
+                    .placed(trouble::union_place(&error))
+            })?
+        }
+        MirrorOutcome::NewBody => {
+            let image = pattern_copies(solid, &[image], feature.id().raw())
+                .map_err(|error| context.pattern_failure(&error))?
+                .ok_or_else(|| context.unbuildable(&"the image is empty"))?;
+            return Ok(FeatureResult::Solid(SolidResult::new(feature.id(), image)));
+        }
+        MirrorOutcome::Replace => solid
             .mapped(&image.placement)
-            .map_err(|error| context.transform_failure(&error))?
+            .map_err(|error| context.transform_failure(&error))?,
     };
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,

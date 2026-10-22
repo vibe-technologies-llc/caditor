@@ -18,17 +18,18 @@ use caditor_document::{
     HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
     MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
-    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
-    MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter,
-    ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe,
-    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget,
-    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar, SavedView,
-    SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
-    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, Wall, folder_label, group_name, material_name, unscaled, untwisted, view_name,
+    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, ModelProperties,
+    ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace,
+    Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces,
+    Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference,
+    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove,
+    ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
+    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
+    untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -342,6 +343,7 @@ pub(crate) enum FeatureKindRecord {
     Draft(Box<DraftRecord>),
     Emboss(Box<EmbossRecord>),
     ReplaceFace(Box<ReplaceFaceRecord>),
+    MirrorNewBody(MirrorNewBodyRecord),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1121,7 +1123,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 92] = [
+pub(crate) const FEATURE_KINDS: [&str; 93] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1214,6 +1216,7 @@ pub(crate) const FEATURE_KINDS: [&str; 92] = [
     "draft",
     "emboss",
     "replace_face",
+    "mirror_new_body",
 ];
 
 #[derive(Debug, Clone)]
@@ -1646,6 +1649,12 @@ pub(crate) struct MirrorRecord {
     pub body: u64,
     pub plane: Lenient<PlaneReferenceRecord>,
     pub keep_original: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MirrorNewBodyRecord {
+    pub body: u64,
+    pub plane: Lenient<PlaneReferenceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4738,11 +4747,18 @@ fn grid_pattern_record(shape: PatternShapeRecord, skipped: Vec<[u32; 2]>) -> Fea
 }
 
 fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
-    let whole = FeatureKindRecord::Mirror(MirrorRecord {
-        body: mirror.body.raw(),
-        plane: Lenient::Read(plane_reference_record(&mirror.plane)),
-        keep_original: mirror.keep_original,
-    });
+    let body = mirror.body.raw();
+    let plane = Lenient::Read(plane_reference_record(&mirror.plane));
+    let whole = match mirror.outcome {
+        MirrorOutcome::NewBody => {
+            FeatureKindRecord::MirrorNewBody(MirrorNewBodyRecord { body, plane })
+        }
+        outcome => FeatureKindRecord::Mirror(MirrorRecord {
+            body,
+            plane,
+            keep_original: outcome.keeps_original(),
+        }),
+    };
     let features = if mirror.mirrored.is_empty() {
         whole
     } else {
@@ -7403,8 +7419,19 @@ fn restore_kind(
             FeatureKind::Move(restore_move(record, true, name, issues))
         }
         FeatureKindRecord::Mirror(record) => {
-            FeatureKind::Mirror(restore_mirror(record, name, issues))
+            let outcome = if record.keep_original {
+                MirrorOutcome::AddToBody
+            } else {
+                MirrorOutcome::Replace
+            };
+            FeatureKind::Mirror(
+                restore_mirror(record.body, &record.plane, name, issues).with_outcome(outcome),
+            )
         }
+        FeatureKindRecord::MirrorNewBody(record) => FeatureKind::Mirror(
+            restore_mirror(record.body, &record.plane, name, issues)
+                .with_outcome(MirrorOutcome::NewBody),
+        ),
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
         FeatureKindRecord::SplitAlong(record) => FeatureKind::Split(restore_split_along(record)),
         FeatureKindRecord::SplitSurface(record) => {
@@ -8493,8 +8520,13 @@ fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec
     }
 }
 
-fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>) -> Mirror {
-    let plane = match &record.plane {
+fn restore_mirror(
+    body: u64,
+    plane: &Lenient<PlaneReferenceRecord>,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Mirror {
+    let plane = match plane {
         Lenient::Read(plane) => restore_plane_reference(plane),
         Lenient::Unreadable(_) => None,
     };
@@ -8505,13 +8537,7 @@ fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>
         ));
         PlaneReference::Principal(PrincipalPlane::Yz)
     });
-    Mirror {
-        body: FeatureId::from_raw(record.body),
-        plane,
-        keep_original: record.keep_original,
-        mirrored: Vec::new(),
-        faces: Vec::new(),
-    }
+    Mirror::new(FeatureId::from_raw(body), plane)
 }
 
 fn split_record(split: &Split) -> FeatureKindRecord {

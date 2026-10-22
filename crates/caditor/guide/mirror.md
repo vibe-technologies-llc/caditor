@@ -1,19 +1,28 @@
 # Mirror body
 
-{command:model.mirror} adds a mirrored copy of a body. Select the body (a face, edge or vertex of
-it), and with it the plane to mirror across: a principal or datum plane or a flat face. With no
+{command:model.mirror} adds a mirrored copy of a body as a new body of its own, leaving the
+original as it is. Select the body (a face, edge or vertex of it), and with it the plane to mirror
+across: a principal or datum plane or a flat face. With no
 plane selected, it mirrors across the YZ plane. With several bodies selected, or chosen in the tree, each
 is mirrored across the same plane by a mirror of its own, all in one undoable change; the panel of the
 first opens, and the others are edited from their rows in the tree.
 
 The panel chooses the plane from a list of the principal, datum and coordinate system planes
-before it, or from the selection or the view, and **Keep the original** decides
-whether the original stays.
+before it, or from the selection or the view. **Result** decides what the mirrored copy becomes:
+
+- **New body**: a body of its own beside the original, listed under Bodies, which you can move,
+  colour, fillet or combine like any other body.
+- **Add to body**: joined to the original, making one body, such as the second half of a
+  symmetrical part.
+- **Replace body**: put in the original's place, so only the mirrored copy remains.
+
+A new body that later features use cannot be turned back into part of the original; the panel
+says which features use it.
 
 ## Mirroring features
 
 With extrusions, revolves, holes, embossed outlines or primitives chosen in the tree, Mirror mirrors those features
-on the same body instead, such as a hole on one side copied to the other. Fillets, chamfers and
+on the same body instead, always adding to it, such as a hole on one side copied to the other. Fillets, chamfers and
 a shell chosen with them round, bevel or hollow the mirrored copy the same way, as in a
 [pattern](patterns).
 

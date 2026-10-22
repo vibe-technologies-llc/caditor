@@ -569,7 +569,7 @@ fn a_centre_off_principal_geometry_moves_its_users_onto_datums_where_it_lands() 
         FeatureKind::Mirror(Mirror {
             body: model.base,
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
-            keep_original: true,
+            outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }),
@@ -675,7 +675,7 @@ fn a_centre_on_the_principal_geometry_adds_no_datum() {
         FeatureKind::Mirror(Mirror {
             body: model.base,
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
-            keep_original: true,
+            outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }),

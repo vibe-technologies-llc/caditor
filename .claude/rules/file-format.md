@@ -349,7 +349,12 @@ Moves, mates, mirrors, scale:
   (`sides` with round `face` and `target` plane, `flipped`), `face_on_round_mate` (`body`, flat
   `face`, `round_body`, `round` face record, `flipped`), `point_mate` (`body`, `point`, `target`:
   `point` or `plane`; unreadable point the origin).
-- `mirror`: `body`, `plane` (unreadable YZ), `keep_original`. `feature_mirror`: `mirrored`, ids of
+- `mirror`: `body`, `plane` (unreadable YZ), `keep_original` (`AddToBody`, else `Replace`).
+  `mirror_new_body`: `body`, `plane`, a mirror whose image is a body of its own (`NewBody`), a
+  record kind of its own so an older reader reports it as from a newer version instead of joining
+  the image to the body that later features' uses of the new body would not find; the inner record
+  of the wrappers below when such a mirror holds features or faces. The corpus holds it in
+  `mirrored-bodies.caditor`. `feature_mirror`: `mirrored`, ids of
   the features reflected in tree order (repeated id kept once). `face_mirror`: `faces` (unreadable
   left out; none left mirrors the whole body, reported), around a `feature_mirror` when a mirror
   holds both (the features win when computed, the faces are kept).

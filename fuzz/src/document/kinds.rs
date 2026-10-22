@@ -14,14 +14,14 @@ use caditor_document::{
     FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot, Import,
     LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem, Measurement,
-    MetricSize, Mirror, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind, Picture, Pipe,
-    PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern,
-    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading, ReferenceImage,
-    RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection,
-    RibEnds, RibSide, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread,
-    Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall,
-    sketch_regions,
+    MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind,
+    Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
+    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
+    ReferenceImage, RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rib,
+    RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -359,7 +359,7 @@ pub fn feature_kind(
             FeatureKind::Mirror(Mirror {
                 body,
                 plane: scene.plane(input)?,
-                keep_original: input.arbitrary()?,
+                outcome: *input.choose(&MirrorOutcome::ALL)?,
                 mirrored: scene.bodies(input)?,
                 faces: scene.faces(input, body)?,
             })

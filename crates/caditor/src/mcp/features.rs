@@ -3,9 +3,10 @@ use std::{collections::BTreeSet, fmt};
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
     CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceThickness, FeatureId,
-    FeatureKind, LinearDirection, LinearSpacing, Mirror, Move, OffsetFace, Pattern, PatternKind,
-    PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
+    FeatureKind, LinearDirection, LinearSpacing, Mirror, MirrorOutcome, Move, OffsetFace, Pattern,
+    PatternKind, PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve,
+    RevolveAxis, RevolveExtent, Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre,
+    repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -286,7 +287,26 @@ pub struct Mirroring {
     pub faces: Option<Vec<String>>,
     pub plane: Option<PlaneChoice>,
     pub keep_original: Option<bool>,
+    pub result: Option<MirrorResult>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorResult {
+    NewBody,
+    AddToBody,
+    Replace,
+}
+
+impl MirrorResult {
+    fn outcome(self) -> MirrorOutcome {
+        match self {
+            Self::NewBody => MirrorOutcome::NewBody,
+            Self::AddToBody => MirrorOutcome::AddToBody,
+            Self::Replace => MirrorOutcome::Replace,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1492,14 +1512,21 @@ pub fn mirror_built(
             ..base.clone()
         },
         Some(base) => Mirror {
-            keep_original: base.keep_original,
+            outcome: base.outcome,
             ..Mirror::new(body, plane).mirroring(mirrored.clone())
         },
         None => Mirror::new(body, plane).mirroring(mirrored.clone()),
     };
     mirror.faces = faces;
     if let Some(keep) = asked.keep_original {
-        mirror.keep_original = keep;
+        mirror.outcome = if keep {
+            MirrorOutcome::AddToBody
+        } else {
+            MirrorOutcome::Replace
+        };
+    }
+    if let Some(result) = asked.result {
+        mirror.outcome = result.outcome();
     }
     let title = if !mirrored.is_empty() {
         mirror_tools::FEATURES_TITLE

@@ -141,7 +141,13 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
     harness.select([top]);
     harness.click("Mirror body");
     harness.settle();
+    let mirror = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
     let (low, high) = plate_bounds(&harness, plate);
+    let (image_low, image_high) = plate_bounds(&harness, mirror);
 
     assert_eq!(
         two_faces,
@@ -154,8 +160,12 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
         Ok(Some(PlaneReference::Principal(PrincipalPlane::Xz)))
     );
     assert!(
-        low.z.abs() < 1e-6 && (high.z - 20.0).abs() < 1e-6,
+        low.z.abs() < 1e-6 && (high.z - 10.0).abs() < 1e-6,
         "{low:?} {high:?}"
+    );
+    assert!(
+        (image_low.z - 10.0).abs() < 1e-6 && (image_high.z - 20.0).abs() < 1e-6,
+        "{image_low:?} {image_high:?}"
     );
 }
 

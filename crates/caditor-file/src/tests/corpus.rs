@@ -12,13 +12,13 @@ use caditor_document::{
     DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd,
     ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole,
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, ModelProperties, Move, MoveFace,
-    OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PieceKey,
-    PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern,
-    PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis,
-    RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
-    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
+    Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties,
+    Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind,
+    PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference,
+    PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
+    ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
+    Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
     point_instance,
 };
 use caditor_kernel::{
@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 61] = [
+const KEPT: [(&str, &str); 62] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -187,6 +187,10 @@ const KEPT: [(&str, &str); 61] = [
     (
         "model-1/measured.caditor",
         "0e800cdb471610bba2498c6d12c71a93f2e0f90f0a59e967c085aa0ea91efef5",
+    ),
+    (
+        "model-1/mirrored-bodies.caditor",
+        "e297a90850dbadb84ef3f4fb786a12855818f0098f32ac2cbe0621557c9b865f",
     ),
     (
         "model-1/modelled-threads.caditor",
@@ -914,6 +918,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("shell-walls"), saved(&shell_walls(), "Shell walls")),
         (model("datums"), saved(&datums(), "Datums")),
         (model("bodies"), saved(&bodies(), "Bodies")),
+        (
+            model("mirrored-bodies"),
+            saved(&mirrored_bodies(), "Mirrored bodies"),
+        ),
         (model("patterns"), saved(&patterns(), "Patterns")),
         (
             model("primitives"),
@@ -3184,6 +3192,37 @@ fn moved(body: FeatureId, copy: bool, about: TurnCentre) -> FeatureKind {
         about,
         frame: None,
     })
+}
+
+fn mirrored_bodies() -> Document {
+    let (mut document, base, turned) = solid_model();
+    let mut transaction = document.transaction("Mirrored bodies");
+    let image = transaction.add_feature(
+        "Mirror as a new body",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Yz))
+                .with_outcome(MirrorOutcome::NewBody),
+        ),
+    );
+    transaction.add_feature("Move the image", moved(image, false, TurnCentre::Body));
+    transaction.add_feature(
+        "Mirror features as a new body",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
+                .with_outcome(MirrorOutcome::NewBody)
+                .mirroring(vec![turned]),
+        ),
+    );
+    transaction.add_feature(
+        "Mirror faces as a new body",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
+                .with_outcome(MirrorOutcome::NewBody)
+                .mirroring_faces(vec![end_cap(0xbeef)]),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn bodies() -> Document {

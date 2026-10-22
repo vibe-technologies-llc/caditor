@@ -229,7 +229,7 @@ fn its_axes_and_planes_place_datums_sketches_and_mirrors() {
         FeatureKind::Mirror(Mirror {
             body: model.base,
             plane,
-            keep_original: false,
+            outcome: MirrorOutcome::Replace,
             mirrored: Vec::new(),
             faces: Vec::new(),
         }),
