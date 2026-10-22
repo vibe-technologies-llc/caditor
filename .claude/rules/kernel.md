@@ -61,8 +61,12 @@ paths:
 - Surface `project` returns the periodic representative nearest the hint, else the principal one in
   [0, period). A spline surface seeds from three samples per knot span (capped at 48 a direction);
   a net with more spans also keeps a box tree of span hulls, and a point no seed reaches within the
-  resolution is sought from a few samples in each span whose hull holds it (at most
-  `MAX_SPAN_SEARCHES`). Refining is Newton on the squared distance, Gauss–Newton when the Hessian
+  resolution is sought from a few samples in each span whose hull comes nearer than half the best
+  foot so far (`SPAN_SEARCH_SHARE`), nearest hull first, stopping at the first one farther
+  (`spans_near`, at most `MAX_SPAN_SEARCHES`); hulls not holding the point count only within
+  `OUTSIDE_SHARE` of the net's size, and at most `MAX_OUTSIDE_SPANS` of them. A point just beyond
+  the side of a strip winding many turns (a thread flank) lies in no hull, and its seeds' foot was
+  a whole turn away. Refining is Newton on the squared distance, Gauss–Newton when the Hessian
   is not positive definite; a one-direction step is taken only when the other direction's term is
   zero, never negative (that stuck projections on a spline's corner).
 - Splines reach `MAX_SPLINE_DEGREE` (25). Evaluation keeps its basis tables on the stack at the

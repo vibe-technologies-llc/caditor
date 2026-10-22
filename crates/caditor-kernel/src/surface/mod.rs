@@ -35,6 +35,8 @@ const LATITUDE: Interval = Interval::constant(-FRAC_PI_2, FRAC_PI_2);
 const POLE_PARAMETER_TOLERANCE: f64 = 1e-6;
 const NORMAL_NUDGE: f64 = 1e-7;
 const HINT_PREFERENCE: f64 = 1e-3 * LINEAR_RESOLUTION;
+const SPAN_SEARCH_SHARE: f64 = 0.5;
+const MAX_OUTSIDE_SPANS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfaceDerivatives {
@@ -325,8 +327,25 @@ impl Surface {
                 best = Some((distance, refined));
             }
         }
-        if best.is_none_or(|(closest, _)| closest > LINEAR_RESOLUTION) {
-            for seed in spline.span_seeds(point) {
+        if let Some(reach) = best.map_or(Some(f64::INFINITY), |(closest, _)| {
+            (closest > LINEAR_RESOLUTION).then_some(closest)
+        }) {
+            let mut outside = 0;
+            for (hull, span) in spline.spans_near(point, SPAN_SEARCH_SHARE * reach) {
+                let beyond =
+                    |closest: f64| hull > LINEAR_RESOLUTION.max(SPAN_SEARCH_SHARE * closest);
+                if best.is_some_and(|(closest, _)| beyond(closest)) {
+                    break;
+                }
+                if hull > LINEAR_RESOLUTION {
+                    if outside == MAX_OUTSIDE_SPANS {
+                        break;
+                    }
+                    outside += 1;
+                }
+                let Some(seed) = spline.span_seed(span, point) else {
+                    continue;
+                };
                 let (distance, refined) = foot(seed, &known);
                 known.push(refined);
                 if best.is_none_or(|(closest, _)| distance < closest) {

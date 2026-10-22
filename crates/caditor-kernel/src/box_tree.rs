@@ -75,6 +75,10 @@ impl BoxTree {
         Self { nodes, items }
     }
 
+    pub fn bounds(&self) -> Option<Aabb> {
+        self.nodes.first().map(|node| node.bounds)
+    }
+
     pub fn heap_size(&self) -> usize {
         size_of_val(self.nodes.as_slice()) + size_of_val(self.items.as_slice())
     }
@@ -175,7 +179,7 @@ impl BoxTree {
     }
 }
 
-fn nearest_squared(bounds: &Aabb, point: Point3) -> f64 {
+pub(crate) fn nearest_squared(bounds: &Aabb, point: Point3) -> f64 {
     let outside = (bounds.min() - point)
         .max(point - bounds.max())
         .max(Vector3::ZERO);

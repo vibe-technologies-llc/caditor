@@ -3,7 +3,7 @@ use std::{ops::Range, sync::Arc};
 use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 use crate::{
-    box_tree::BoxTree,
+    box_tree::{BoxTree, nearest_squared},
     bspline::{BSpline, CUBIC_WIDTH, MAX_SPLINE_DEGREE, NARROW_WIDTH, WIDE_WIDTH, clamped_domain},
     error::GeometryError,
     interval::Interval,
@@ -17,6 +17,7 @@ const MAX_GRID_SAMPLES: usize = 48;
 const PROJECTION_SEEDS: usize = 3;
 const BLOCK_SIZE: usize = 8;
 const MAX_SPAN_SEARCHES: usize = 32;
+const OUTSIDE_SHARE: f64 = 1e-4;
 const SPAN_SAMPLES: usize = 4;
 
 #[cfg(test)]
@@ -979,25 +980,33 @@ impl BSplineSurface {
         middle - reach > far || middle + reach < near
     }
 
-    pub(crate) fn span_seeds(&self, point: Point3) -> Vec<Point2> {
-        let mut holding: Vec<&Span> = self
+    pub(crate) fn spans_near(&self, point: Point3, reach: f64) -> Vec<(f64, usize)> {
+        let size = self
             .spans
             .tree
-            .overlapping(&Aabb::from_point(point), LINEAR_RESOLUTION)
+            .bounds()
+            .map_or(0.0, |bounds| bounds.diagonal());
+        let reach = reach.min(OUTSIDE_SHARE * size).max(LINEAR_RESOLUTION);
+        let mut near: Vec<(f64, usize)> = self
+            .spans
+            .tree
+            .matching(|bounds| nearest_squared(bounds, point) <= reach * reach)
             .into_iter()
-            .filter_map(|index| self.spans.spans.get(index))
+            .filter_map(|index| {
+                let span = self.spans.spans.get(index)?;
+                Some((nearest_squared(&span.hull, point).sqrt(), index))
+            })
             .collect();
-        holding.sort_by(|a, b| {
-            a.hull
-                .center()
-                .distance_squared(point)
-                .total_cmp(&b.hull.center().distance_squared(point))
-        });
-        holding
-            .into_iter()
-            .take(MAX_SPAN_SEARCHES)
-            .filter_map(|span| self.nearest_in_span(span, point))
-            .collect()
+        if near.len() > MAX_SPAN_SEARCHES {
+            near.select_nth_unstable_by(MAX_SPAN_SEARCHES, |a, b| a.0.total_cmp(&b.0));
+            near.truncate(MAX_SPAN_SEARCHES);
+        }
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        near
+    }
+
+    pub(crate) fn span_seed(&self, index: usize, point: Point3) -> Option<Point2> {
+        self.nearest_in_span(self.spans.spans.get(index)?, point)
     }
 
     fn nearest_in_span(&self, span: &Span, point: Point3) -> Option<Point2> {

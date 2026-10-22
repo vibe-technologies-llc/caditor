@@ -1,4 +1,4 @@
-use std::f64::consts::{FRAC_PI_2, PI, TAU};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
 
@@ -658,4 +658,66 @@ fn projection_leaves_a_corner_where_the_surface_curves_back_from_the_point() {
         assert!(surface.point_at(uv).distance(point) < 1e-9, "{uv}");
         assert!((uv - foot).length() < 1e-9, "{uv}");
     }
+}
+
+#[test]
+fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_turn() {
+    let turns = 40;
+    let spans = 4 * turns;
+    let pitch = 0.5;
+    let corner_weight = FRAC_PI_4.cos();
+    let at = |radius: f64, half_steps: usize| {
+        let angle = FRAC_PI_4 * half_steps as f64;
+        let stretch = if half_steps % 2 == 1 {
+            1.0 / corner_weight
+        } else {
+            1.0
+        };
+        Point3::new(
+            radius * stretch * angle.cos(),
+            radius * stretch * angle.sin(),
+            pitch * half_steps as f64 / 8.0,
+        )
+    };
+    let count = 2 * spans + 1;
+    let mut v_knots = vec![0.0; 3];
+    for span in 1..spans {
+        v_knots.extend([span as f64; 2]);
+    }
+    v_knots.extend([spans as f64; 3]);
+    let control_points: Vec<Point3> = (0..count)
+        .flat_map(|index| [at(1.0, index), at(2.0, index)])
+        .collect();
+    let weights: Vec<f64> = (0..count)
+        .flat_map(|index| [if index % 2 == 1 { corner_weight } else { 1.0 }; 2])
+        .collect();
+    let surface = Surface::from(
+        BSplineSurface::new(
+            1,
+            2,
+            vec![0.0, 0.0, 1.0, 1.0],
+            v_knots,
+            2,
+            control_points,
+            Some(weights),
+        )
+        .unwrap(),
+    );
+    let beyond = 8e-5;
+
+    let missed: Vec<(f64, f64)> = (0..400)
+        .flat_map(|step| [(0.0, step), (1.0, step)])
+        .map(|(u, step)| {
+            let foot = Point2::new(u, spans as f64 * f64::from(step) / 400.0);
+            let side = surface.point_at(foot);
+            let radial = Vector3::new(side.x, side.y, 0.0).normalize();
+            let outward = if u == 0.0 { -radial } else { radial };
+            let point = side + outward * beyond;
+            let found = surface.point_at(surface.project(point, None));
+            (foot.y, found.distance(point))
+        })
+        .filter(|(_, distance)| *distance > 2.0 * beyond)
+        .collect();
+
+    assert!(missed.is_empty(), "{missed:?}");
 }

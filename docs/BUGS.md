@@ -154,11 +154,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
   snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
   the file again should confirm they import exact.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,978 copies) leaves 4
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,979 copies) leaves 3
   parts out, refused as "a vertex 0.00003 to 0.0004 mm away from the end of its edge", the exact
   build's refusal at faces meeting tangentially further apart than the resolution, where the
-  faceted fallback then fails on its own: in "Component25" an edge lies 0.87 mm off a face,
-  "Goliath Air cooled" meshes into a face boundary crossing itself in uv, "front handle1" meshes a
+  faceted fallback then fails on its own: "Goliath Air cooled" meshes into a face boundary crossing itself in uv, "front handle1" meshes a
   sliver 1.2e-6 mm wide whose edges three triangles share (welding wider only opens more) and
   "Goliath long duct" keeps a vertex 0.012 mm off its edge. "Lead Screw lower bracket" imports
   only as facets: exact, it has "an edge that could not be followed across its face": a thin spline strip meets its neighbours
@@ -168,8 +167,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   0.003 mm apart slides each about 0.002 mm along the tangency, their order along the 1 mm circle
   between them flips, and that edge runs almost a full turn and misses its vertex by 0.0004 mm.
   Settling should keep a vertex's order along the edges it ends, or move it no farther than the
-  precision, as the faceted build does. Four bodies refused before for other reasons import only
-  as facets: "M3 Nut" (three faces meeting so nearly tangentially that their common point lies
+  precision, as the faceted build does. Five bodies refused before for other reasons import only
+  as facets: "Component25" (a thread whose helical edges its exact build cannot follow), "M3 Nut" (three faces meeting so nearly tangentially that their common point lies
   0.0115 mm along, on the next vertex, so the ellipse edge between them has no length; bending
   gets within 2e-6 mm), "Top plate MGN9H (1)" and "Top plate MGN9C (1)" (a helical thread face
   whose boundary backtracks at a junction in uv, so it crosses itself), and "goliath heatsink fan
