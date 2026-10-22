@@ -207,12 +207,14 @@ impl ConfigurationJob {
             if cancel.is_cancelled() {
                 return Err(ExportError::Cancelled);
             }
-            let sources: Vec<ExportSource> = evaluation
-                .bodies()
-                .map(|(body, _)| body)
-                .filter(|body| !self.left_out.contains(body))
-                .filter_map(|body| ExportSource::of(&document, &evaluation, body))
-                .collect();
+            let sources = ExportSource::all(
+                &document,
+                &evaluation,
+                evaluation
+                    .bodies()
+                    .map(|(body, _)| body)
+                    .filter(|body| !self.left_out.contains(body)),
+            );
             let bodies: Vec<ExportBody<'_>> =
                 sources.iter().filter_map(ExportSource::exported).collect();
             let exported = caditor_file::export_bodies(

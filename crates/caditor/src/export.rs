@@ -13,7 +13,7 @@ use std::{
 
 use caditor_document::{
     BodyAppearance, CancelToken, Document, Evaluation, FaceSplits, FeatureId, FeatureResult,
-    ModelEvaluator, ModelProperties, Recompute, Rgb, placed_threads,
+    ModelEvaluator, ModelProperties, PlacedThread, Recompute, Rgb, placed_threads,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFace, ExportFormat, ExportThread, Exported, Look, MeshOptions,
@@ -274,7 +274,24 @@ fn face_looks(appearance: &BodyAppearance, solid: &Solid, splits: &FaceSplits) -
 }
 
 impl ExportSource {
-    pub fn of(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Option<Self> {
+    pub fn all(
+        document: &Document,
+        evaluation: &Evaluation,
+        bodies: impl IntoIterator<Item = FeatureId>,
+    ) -> Vec<Self> {
+        let threads = placed_threads(document, evaluation);
+        bodies
+            .into_iter()
+            .filter_map(|body| Self::of(document, evaluation, body, &threads))
+            .collect()
+    }
+
+    fn of(
+        document: &Document,
+        evaluation: &Evaluation,
+        body: FeatureId,
+        threads: &[PlacedThread],
+    ) -> Option<Self> {
         let result = evaluation.body_result(body)?;
         result.solid()?;
         let feature = document.body_maker(body);
@@ -292,11 +309,11 @@ impl ExportSource {
                 }
                 _ => Vec::new(),
             },
-            threads: placed_threads(document, evaluation)
-                .into_iter()
+            threads: threads
+                .iter()
                 .filter(|thread| thread.body == body)
                 .map(|thread| ExportThread {
-                    designation: thread.designation,
+                    designation: thread.designation.clone(),
                     side: thread.side,
                     pitch: thread.pitch,
                     start: thread.placement.start,
@@ -351,7 +368,12 @@ impl Exporter {
     }
 
     fn narrowed_to(&self, model: &Model, only: &[FeatureId]) -> bool {
-        Self::bodies(model).any(|body| only.contains(&body.id))
+        let evaluation = model.evaluation();
+        only.iter().any(|body| {
+            evaluation
+                .body_result(*body)
+                .is_some_and(|result| result.solid().is_some())
+        })
     }
 
     pub fn sync(&mut self, model: &Model) {
@@ -400,7 +422,10 @@ impl Exporter {
         match command {
             ExportCommand::IncludeAll(true) => self.left_out.clear(),
             ExportCommand::IncludeAll(false) => {
-                self.left_out = Self::bodies(model).map(|body| body.id).collect();
+                self.left_out = Self::bodies(model)
+                    .into_iter()
+                    .map(|body| body.id)
+                    .collect();
             }
             ExportCommand::Show => self.open = true,
             ExportCommand::Hide => self.open = false,
@@ -556,10 +581,8 @@ impl Exporter {
                             &ModelEvaluator,
                             &cancel,
                         );
-                        let bodies: Vec<ExportSource> = chosen
-                            .iter()
-                            .filter_map(|body| ExportSource::of(&document, &evaluation, *body))
-                            .collect();
+                        let bodies =
+                            ExportSource::all(&document, &evaluation, chosen.iter().copied());
                         let result = if cancel.is_cancelled() {
                             Err(ExportError::Cancelled)
                         } else {
@@ -717,14 +740,18 @@ impl Exporter {
         }
     }
 
-    fn bodies(model: &Model) -> impl Iterator<Item = Body> + '_ {
+    fn bodies(model: &Model) -> Vec<Body> {
         let evaluation = model.evaluation();
-        evaluation.bodies().filter_map(move |(id, _)| {
-            Some(Body {
-                id,
-                source: ExportSource::of(model.document(), evaluation, id)?,
+        let threads = placed_threads(model.document(), evaluation);
+        evaluation
+            .bodies()
+            .filter_map(|(id, _)| {
+                Some(Body {
+                    id,
+                    source: ExportSource::of(model.document(), evaluation, id, &threads)?,
+                })
             })
-        })
+            .collect()
     }
 
     fn chosen_among<'a>(
@@ -733,7 +760,7 @@ impl Exporter {
         only: &'a [FeatureId],
     ) -> impl Iterator<Item = Body> + 'a {
         let narrowed = self.narrowed_to(model, only);
-        Self::bodies(model).filter(move |body| {
+        Self::bodies(model).into_iter().filter(move |body| {
             if narrowed {
                 only.contains(&body.id)
             } else {
@@ -837,7 +864,7 @@ pub fn dialog(
     fusion: Option<Result<(), &str>>,
 ) -> Option<ExportCommand> {
     let response = widgets::dialog(ctx, DIALOG_ID, "Export", DialogWidth::Medium, |ui| {
-        let bodies: Vec<Body> = Exporter::bodies(model).collect();
+        let bodies = Exporter::bodies(model);
         if bodies.is_empty() {
             widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
             return None;
@@ -1151,6 +1178,7 @@ pub enum BodyPick {
 
 pub fn shown_bodies(model: &Model) -> Vec<(FeatureId, String)> {
     Exporter::bodies(model)
+        .into_iter()
         .filter(|body| !model.document().body_hidden(body.id))
         .map(|body| (body.id, body.source.name))
         .collect()

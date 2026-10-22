@@ -479,10 +479,11 @@ fn configurations_count(configurations: usize) -> String {
 }
 
 pub fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
-    evaluation
-        .bodies()
-        .filter_map(|(body, _)| ExportSource::of(document, evaluation, body))
-        .collect()
+    ExportSource::all(
+        document,
+        evaluation,
+        evaluation.bodies().map(|(body, _)| body),
+    )
 }
 
 fn failures(document: &Document, evaluation: &Evaluation) -> Vec<String> {

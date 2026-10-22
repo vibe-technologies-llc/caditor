@@ -163,6 +163,8 @@ paths:
 
 ## Export
 
+- Export sources are made by `ExportSource::all`, which works out the model's placed threads once
+  for every body it is given (each source keeps the threads on its body).
 - Export waits for a running recompute and warns when features failed (bodies export as last good)
   or a stopped recompute left features outdated; warnings and blockers are callouts shared with the
   image export (`export::warnings`).
@@ -220,7 +222,9 @@ paths:
   as the tree's bodies, else `body_selection::bodies_in`, handed to `files::menu` through
   `MenuContext::bodies`), else the ones chosen in the Export dialog, whose button sends no bodies.
   A selection naming no body that can be exported counts as no selection
-  (`Exporter::has_chosen_body`, `start_among`), and the bodies are kept in `Slicing::only` across
+  (`Exporter::has_chosen_body`, `start_among`; asked every frame the menus are drawn, so it reads
+  the evaluation's body results and builds no `ExportSource`, which on a 3,970-body import cost
+  2.5 s a frame), and the bodies are kept in `Slicing::only` across
   the preparing step, so the dialog's choices are never changed by it. OrcaSlicer is the only `slicer::Slicer` so far; a new
   one is a variant with its program names, install places and launch.
 - `slicer.rs` finds and starts it, platform parts in its `os` pair. `find` takes the program named
