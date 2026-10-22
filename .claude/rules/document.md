@@ -59,9 +59,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   app calls them per body and row; scans were quadratic on imports of thousands of bodies). The
   features making or changing each body (`Feature::body`) are grouped on first ask
   (`Document::features_on_body`, read by `face_splits` and the scene's body health) and forgotten
-  by any change to the list or a feature in it. The users of each ID by `features()` (`users_of`,
-  present or not) are gathered on first ask, then kept by inserts and removals and forgotten by any
-  change to a feature, so loading and `transaction_to`, which insert every feature, stay linear.
+  by any change to the list or to a feature's name or kind. The users of each ID by `features()`
+  (`users_of`, present or not) are gathered on first ask, then kept by inserts and removals and
+  forgotten by any change to a feature's name or kind, so loading and `transaction_to`, which
+  insert every feature, stay linear. Edits of what no index reads (hidden, suppressed, appearance,
+  group, pieces, their looks and stand-ins) go through `FeatureList::unindexed_by_id`, which hands
+  out only those fields and keeps every index: an import's appearance and group edits between its
+  inserts once rebuilt the name and use indexes at each insert, 1.4 s on a 3,970-body import.
 - `Document::in_use_order` (`use_order.rs`) puts features about to be inserted in an order every
   insert accepts: a stable topological order by `Measured::features_read_by`, the earliest stored
   ready feature first, returning the list unchanged after one pass when nothing is used from

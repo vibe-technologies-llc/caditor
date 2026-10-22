@@ -27,6 +27,7 @@ use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         list_names,
     },
+    feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     measurement::{Measured, reading_users},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
@@ -1255,8 +1256,8 @@ impl Document {
         if changed.separates_pieces() != existing.separates_pieces() {
             self.check_pieces_unused(existing)?;
         }
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.pieces, pieces);
+        let feature = self.unindexed_mut(id)?;
+        let previous = std::mem::replace(feature.pieces, pieces);
         Ok(Edit::SetFeaturePieces {
             id,
             pieces: previous,
@@ -1268,8 +1269,8 @@ impl Document {
         id: FeatureId,
         stand_ins: PieceStandIns,
     ) -> Result<Edit, EditError> {
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.piece_stand_ins, stand_ins);
+        let feature = self.unindexed_mut(id)?;
+        let previous = std::mem::replace(feature.piece_stand_ins, stand_ins);
         Ok(Edit::SetPieceStandIns {
             id,
             stand_ins: previous,
@@ -1313,6 +1314,12 @@ impl Document {
 
     fn feature_position(&self, id: FeatureId) -> Result<usize, EditError> {
         self.feature_index(id).ok_or(EditError::MissingFeature)
+    }
+
+    fn unindexed_mut(&mut self, id: FeatureId) -> Result<Unindexed<'_>, EditError> {
+        self.features
+            .unindexed_by_id(id)
+            .ok_or(EditError::MissingFeature)
     }
 
     fn feature_mut(&mut self, id: FeatureId) -> Result<&mut Feature, EditError> {
@@ -1580,10 +1587,10 @@ impl Document {
     }
 
     fn set_feature_hidden(&mut self, id: FeatureId, hidden: bool) -> Result<Edit, EditError> {
-        let feature = self.feature_mut(id.maker())?;
+        let feature = self.unindexed_mut(id.maker())?;
         let previous = match id.piece_key() {
             Some(key) => feature.piece_looks.set_hidden(key, hidden),
-            None => std::mem::replace(&mut feature.hidden, hidden),
+            None => std::mem::replace(feature.hidden, hidden),
         };
         Ok(Edit::SetFeatureHidden {
             id,
@@ -1596,8 +1603,8 @@ impl Document {
         id: FeatureId,
         suppressed: bool,
     ) -> Result<Edit, EditError> {
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.suppressed, suppressed);
+        let feature = self.unindexed_mut(id)?;
+        let previous = std::mem::replace(feature.suppressed, suppressed);
         Ok(Edit::SetFeatureSuppressed {
             id,
             suppressed: previous,
@@ -1616,8 +1623,8 @@ impl Document {
                 return Err(EditError::GroupNameTooLong(length));
             }
         }
-        let feature = self.feature_mut(id)?;
-        let previous = std::mem::replace(&mut feature.group, group);
+        let feature = self.unindexed_mut(id)?;
+        let previous = std::mem::replace(feature.group, group);
         Ok(Edit::SetFeatureGroup {
             id,
             group: previous,
@@ -1636,15 +1643,17 @@ impl Document {
         }
         check_appearance(&appearance)?;
         self.check_parameters_exist(appearance.parameters())?;
-        let feature = self.feature_mut(id.maker())?;
         let previous = match id.piece_key() {
             Some(key) => {
-                let inherited = feature.inherited_piece_appearance();
-                feature
+                let inherited = self
+                    .feature(id.maker())
+                    .ok_or(EditError::MissingFeature)?
+                    .inherited_piece_appearance();
+                self.unindexed_mut(id.maker())?
                     .piece_looks
                     .set_appearance(key, appearance, &inherited)
             }
-            None => std::mem::replace(&mut feature.appearance, appearance),
+            None => std::mem::replace(self.unindexed_mut(id.maker())?.appearance, appearance),
         };
         Ok(Edit::SetBodyAppearance {
             id,

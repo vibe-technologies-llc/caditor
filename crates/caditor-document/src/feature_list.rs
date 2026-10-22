@@ -4,12 +4,26 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use crate::document::{Feature, FeatureId};
+use crate::{
+    body_appearance::BodyAppearance,
+    body_pieces::{PieceLooks, PieceStandIns, Pieces},
+    document::{Feature, FeatureId},
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct FeatureList {
     items: Vec<Arc<Feature>>,
     index: Box<Index>,
+}
+
+pub struct Unindexed<'a> {
+    pub hidden: &'a mut bool,
+    pub suppressed: &'a mut bool,
+    pub appearance: &'a mut BodyAppearance,
+    pub group: &'a mut Option<String>,
+    pub pieces: &'a mut Pieces,
+    pub piece_looks: &'a mut PieceLooks,
+    pub piece_stand_ins: &'a mut PieceStandIns,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -73,6 +87,29 @@ impl FeatureList {
         self.index.by_name = OnceLock::new();
         self.index.by_use = OnceLock::new();
         self.items.get_mut(index)
+    }
+
+    pub fn unindexed_by_id(&mut self, id: FeatureId) -> Option<Unindexed<'_>> {
+        let index = self.position(id)?;
+        let Feature {
+            hidden,
+            suppressed,
+            appearance,
+            group,
+            pieces,
+            piece_looks,
+            piece_stand_ins,
+            ..
+        } = Arc::make_mut(self.items.get_mut(index)?);
+        Some(Unindexed {
+            hidden,
+            suppressed,
+            appearance,
+            group,
+            pieces,
+            piece_looks,
+            piece_stand_ins,
+        })
     }
 
     pub fn insert(&mut self, index: usize, feature: Arc<Feature>) {
@@ -353,5 +390,30 @@ mod tests {
         assert_eq!(after_insert, (true, false));
         assert_eq!(after_rename, (false, true, false));
         assert!(!after_removal);
+    }
+
+    #[test]
+    fn a_change_to_what_no_index_reads_keeps_every_index() {
+        let mut list = FeatureList::default();
+        let one = FeatureId::from_raw(1);
+
+        list.insert(0, removal(1, 7));
+        list.insert(1, removal(2, 7));
+        let taken = list.name_taken_besides("Remove 2", one);
+        let users = users_of(&list, 7);
+        let on = on_body(&list, 7);
+
+        if let Some(feature) = list.unindexed_by_id(one) {
+            *feature.hidden = true;
+            *feature.group = Some("Folder".to_owned());
+        }
+
+        assert!(taken);
+        assert_eq!(users, [1, 2]);
+        assert_eq!(on, [1, 2]);
+        assert!(list.index.by_name.get().is_some());
+        assert!(list.index.by_use.get().is_some());
+        assert!(list.index.by_body.get().is_some());
+        assert!(list.get_by_id(one).is_some_and(|feature| feature.hidden));
     }
 }
