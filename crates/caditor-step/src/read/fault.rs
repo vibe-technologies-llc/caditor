@@ -135,8 +135,10 @@ pub enum Fault {
     FacesApart { loosest: f64, allowance: f64 },
     #[error("could not be meshed ({0})")]
     NotMeshed(#[source] TessellationError),
-    #[error("did not close into one solid")]
+    #[error("did not close into a solid")]
     NotOneSolid,
+    #[error("closed into separate pieces that do not make one solid ({0})")]
+    PiecesNotJoined(#[source] ValidationError),
     #[error("would need {faces} flat faces, too many to import")]
     TooManyFlatFaces { faces: usize },
     #[error("did not close into a solid ({0})")]
@@ -257,6 +259,7 @@ fn invalid_reason(error: &ValidationError) -> String {
         ValidationError::FaceWithoutLoops(_) => "a face has no boundary".to_owned(),
         ValidationError::EmptyLoop(_) => "the boundary of a face has no edges".to_owned(),
         ValidationError::MissingEntity => "it refers to a part it does not contain".to_owned(),
+        ValidationError::TooManyEntities => "it has more parts than can be counted".to_owned(),
         ValidationError::UnusedVertex(_) => "a vertex belongs to no edge".to_owned(),
         ValidationError::ZeroLengthEdge(_) => "an edge has no length".to_owned(),
         ValidationError::VertexOffEdge { distance, .. } => format!(

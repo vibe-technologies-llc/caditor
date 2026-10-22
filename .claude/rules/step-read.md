@@ -290,8 +290,10 @@ paths:
 - If every vertex and edge then lies within `FACETED_REACH` (4) times the declared precision of its
   faces (the precision alone when the file declares the kernel's resolution, which claims exact
   geometry), the unvalidated body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then coarser while `faceted_solids` finds too
-  many faces) and imported as the one planar solid `faceted_solids` makes, with a note per body;
-  otherwise the exact refusal stands. `Built::faceted` says which (`Faceting`): within the precision
+  many faces) and imported as the planar solid `faceted_solids` makes, with a note per body;
+  otherwise the exact refusal stands. A shell Autodesk wrote around separate pieces (a USB-C
+  socket's pins in one closed shell) meshes into several closed solids, joined into one body of
+  several lumps (`Solid::joined`, refused when they overlap). `Built::faceted` says which (`Faceting`): within the precision
   the note says the faces meet only within it; beyond it, the note gives how far apart they lie and
   that the shape may be off by as much, since a part left out loses more than one a few hundredths
   of a millimetre off. Like a mesh import it skips `find_crossing`, since

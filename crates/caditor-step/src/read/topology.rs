@@ -1393,18 +1393,22 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, Fault> {
             .map_err(Fault::NotMeshed)?;
         let mesh = if open { closed_over(mesh) } else { mesh };
         match faceted_solids(&mesh) {
-            Ok(mut built) if built.solids.len() == 1 => {
-                let solid = built.solids.pop().ok_or(Fault::NotOneSolid)?;
-                let sources = built.sources.pop().unwrap_or_default();
+            Ok(built) if built.solids.is_empty() => return Err(Fault::NotOneSolid),
+            Ok(mut built) => {
+                let solid = match built.solids.len() {
+                    1 => built.solids.pop().ok_or(Fault::NotOneSolid)?,
+                    _ => Solid::joined(built.solids).map_err(Fault::PiecesNotJoined)?,
+                };
                 return Ok(Faceted {
-                    faces: sources
+                    faces: built
+                        .sources
+                        .concat()
                         .iter()
                         .map(|made_of| main_face(made_of, &mesh, &faces))
                         .collect(),
                     solid,
                 });
             }
-            Ok(_) => return Err(Fault::NotOneSolid),
             Err(FacetedError::TooDetailed { faces }) => {
                 last = Some(Fault::TooManyFlatFaces { faces });
             }
@@ -1620,6 +1624,7 @@ mod tests {
             ValidationError::FaceWithoutLoops(face),
             ValidationError::EmptyLoop(face_loop),
             ValidationError::MissingEntity,
+            ValidationError::TooManyEntities,
             ValidationError::UnusedVertex(vertex),
             ValidationError::ZeroLengthEdge(edge),
             ValidationError::VertexOffEdge {

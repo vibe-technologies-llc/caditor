@@ -1337,6 +1337,66 @@ fn faces_that_meet_only_as_closely_as_the_file_declares_import_as_facets() {
     assert!((volume - 1000.0).abs() < 0.01, "{volume}");
 }
 
+fn renumbered(text: &str, by: u64) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find('#') {
+        let (before, after) = rest.split_at(at + 1);
+        out.push_str(before);
+        let digits = after.chars().take_while(char::is_ascii_digit).count();
+        let (number, tail) = after.split_at(digits);
+        out.push_str(&(number.parse::<u64>().unwrap() + by).to_string());
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn a_shell_of_separate_pieces_imports_as_facets_in_one_body_of_several_lumps() {
+    let cube = faceted_cube("FACETED_BREP('pair',#40)", false);
+    let data = |text: &str, shell: &str| {
+        let body = text.split_once("DATA;\n").unwrap().1;
+        body.split_once(shell).unwrap().0.to_owned()
+    };
+    let moved = data(&renumbered(&cube, 100), "#140=")
+        .replace("('',(0.0,", "('',(20.0,")
+        .replace("('',(10.0,", "('',(30.0,");
+    let faces = |first: u64| {
+        (first..first + 6)
+            .map(|face| format!("#{face}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let pair = format!(
+        "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}{moved}#40=CLOSED_SHELL('',({},{}));\n\
+         #41=FACETED_BREP('pair',#40);\nENDSEC;\nEND-ISO-10303-21;\n",
+        data(&cube, "#40="),
+        faces(30),
+        faces(130)
+    );
+    let declared = with_precision(&pair, "FACETED_BREP_SHAPE_REPRESENTATION", 41, "1.E-3");
+
+    let model = read_step(&declared).unwrap();
+    let solid = &model.solids[0].solid;
+
+    assert!(
+        moved.contains("#101=CARTESIAN_POINT('',(20.0,0.0,0.0));"),
+        "{moved}"
+    );
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(solid.shells().count(), 2);
+    assert_volume(solid, 2000.0);
+    assert!(
+        model
+            .notes
+            .iter()
+            .any(|note| note.contains("“pair” was imported as flat facets")),
+        "{:?}",
+        model.notes
+    );
+}
+
 #[test]
 fn a_curved_face_off_its_neighbour_is_continued_to_meet_it_with_a_note_beyond_the_precision() {
     let original = include_str!("samples/loft.step");

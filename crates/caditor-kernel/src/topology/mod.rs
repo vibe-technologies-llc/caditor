@@ -675,6 +675,83 @@ impl Solid {
             .unwrap_or_else(|| vec![self.clone()]))
     }
 
+    pub fn joined(lumps: impl IntoIterator<Item = Self>) -> Result<Self, ValidationError> {
+        let mut joined = Self::default();
+        for lump in lumps {
+            joined
+                .append(lump)
+                .ok_or(ValidationError::TooManyEntities)?;
+        }
+        joined.validate()?;
+        Ok(joined)
+    }
+
+    fn append(&mut self, lump: Self) -> Option<()> {
+        fn shifted(index: u32, by: usize) -> Option<u32> {
+            u32::try_from(usize::try_from(index).ok()?.checked_add(by)?).ok()
+        }
+        let (vertices, edges, coedges) =
+            (self.vertices.len(), self.edges.len(), self.coedges.len());
+        let (loops, faces, shells) = (self.loops.len(), self.faces.len(), self.shells.len());
+        let vertex = |id: VertexId| shifted(id.0, vertices).map(VertexId);
+        let edge = |id: EdgeId| shifted(id.0, edges).map(EdgeId);
+        let coedge = |id: CoedgeId| shifted(id.0, coedges).map(CoedgeId);
+        let face_loop = |id: LoopId| shifted(id.0, loops).map(LoopId);
+        let face = |id: FaceId| shifted(id.0, faces).map(FaceId);
+        let shell = |id: ShellId| shifted(id.0, shells).map(ShellId);
+        for found in lump.edges {
+            self.edges.push(Edge {
+                start: vertex(found.start)?,
+                end: vertex(found.end)?,
+                coedges: found
+                    .coedges
+                    .iter()
+                    .map(|id| coedge(*id))
+                    .collect::<Option<_>>()?,
+                ..found
+            });
+        }
+        for found in lump.coedges {
+            self.coedges.push(Coedge {
+                edge: edge(found.edge)?,
+                owner: face_loop(found.owner)?,
+                ..found
+            });
+        }
+        for found in lump.loops {
+            self.loops.push(Loop {
+                face: face(found.face)?,
+                coedges: found
+                    .coedges
+                    .iter()
+                    .map(|id| coedge(*id))
+                    .collect::<Option<_>>()?,
+            });
+        }
+        for found in lump.faces {
+            self.faces.push(Face {
+                loops: found
+                    .loops
+                    .iter()
+                    .map(|id| face_loop(*id))
+                    .collect::<Option<_>>()?,
+                shell: shell(found.shell)?,
+                ..found
+            });
+        }
+        for found in lump.shells {
+            self.shells.push(Shell {
+                faces: found
+                    .faces
+                    .iter()
+                    .map(|id| face(*id))
+                    .collect::<Option<_>>()?,
+            });
+        }
+        self.vertices.extend(lump.vertices);
+        Some(())
+    }
+
     pub(crate) fn renamed(
         mut self,
         rename: impl Fn(FaceName, Option<FaceOrigin>) -> (FaceName, Option<FaceOrigin>),

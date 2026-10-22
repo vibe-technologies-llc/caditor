@@ -368,6 +368,27 @@ fn lumps_apart_or_touching_validate() {
 }
 
 #[test]
+fn lumps_join_into_one_solid_unless_they_overlap() {
+    let apart = shifted_cuboids(&[Vector3::ZERO, Vector3::splat(2.0)]);
+
+    let lumps = apart.lumps().unwrap();
+    let joined = Solid::joined(lumps.clone()).unwrap();
+    let nested = Solid::joined([
+        fixtures::cuboid(Vector3::splat(2.0)),
+        fixtures::cuboid(Vector3::ONE),
+    ]);
+
+    assert_eq!(lumps.len(), 2);
+    assert_eq!(joined.shells().count(), 2);
+    assert_eq!(joined.faces().count(), 12);
+    assert_eq!(joined.lumps().unwrap(), lumps);
+    assert!(matches!(
+        nested,
+        Err(ValidationError::LumpsOverlap { .. } | ValidationError::LumpsCoincide { .. })
+    ));
+}
+
+#[test]
 fn a_lump_inside_a_void_validates_and_one_in_the_wall_does_not() {
     let floating = cuboids(&[(0.0, 6.0, false), (1.0, 5.0, true), (2.0, 4.0, false)]);
     assert_eq!(floating.validate(), Ok(()));

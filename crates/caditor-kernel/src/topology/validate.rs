@@ -35,6 +35,8 @@ pub enum ValidationError {
     EmptyLoop(LoopId),
     #[error("the solid refers to an entity it does not contain")]
     MissingEntity,
+    #[error("the solid holds more entities of one kind than can be numbered")]
+    TooManyEntities,
     #[error("vertex {0:?} is not used by any edge")]
     UnusedVertex(VertexId),
     #[error("edge {0:?} has no length")]
@@ -138,6 +140,7 @@ impl ValidationError {
             | Self::EdgeUseCount { edge, .. } => of_edge(*edge),
             Self::NoShells
             | Self::MissingEntity
+            | Self::TooManyEntities
             | Self::UnusedVertex(_)
             | Self::Tessellation(_)
             | Self::Cancelled(_) => Vec::new(),

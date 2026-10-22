@@ -199,7 +199,9 @@ paths:
   does, for importers.
 - `Solid::lumps` takes a solid apart into one solid per outward shell, each void going with the
   smallest outward shell whose box holds it (`void_shells`, `keeping_shells`); a solid of one shell
-  is its own lump. The document makes a body of each separate piece through it.
+  is its own lump. The document makes a body of each separate piece through it. `Solid::joined`
+  is the reverse, appending solids' arenas into one solid of their shells and validating it, so
+  lumps that overlap are refused.
 - A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was carried
   unchanged (edge curve, interval, face surface, pcurve) from a valid solid, so its geometry check
   against the edge is skipped; nothing else is.

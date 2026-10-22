@@ -154,7 +154,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
   snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
   the file again should confirm they import exact.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,968 copies) leaves 8
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,973 copies) leaves 7
   parts out, refused as "a vertex 0.00001 to 0.0015 mm away from the end of its edge", the exact
   build's refusal at faces meeting tangentially further apart than the resolution, where the
   faceted fallback then fails on its own: "Part 9 (1)" and "Part 14 (1)", whose pinched corner
@@ -162,8 +162,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (which import as facets up to 0.033 mm apart), mesh a face (#1732264) whose boundary then
   crosses itself in uv; in "Component25" an edge lies 0.87 mm off a face,
   "Goliath Air cooled" meshes into a face boundary crossing itself in uv, "front handle1" meshes a
-  sliver 1.2e-6 mm wide whose edges three triangles share (welding wider only opens more), "User Library-USB - C" meshes into more than one
-  solid and
+  sliver 1.2e-6 mm wide whose edges three triangles share (welding wider only opens more) and
   "Goliath long duct" keeps a vertex 0.012 mm off its edge. "Lead Screw lower bracket" has "an
   edge that could not be followed across its face": a thin spline strip meets its neighbours
   nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm edge traced 0.34 mm
