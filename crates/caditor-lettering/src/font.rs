@@ -288,7 +288,7 @@ fn pair_adjustment(pair: &PairPos<'_>, first: GlyphId, second: GlyphId) -> Optio
     match pair {
         PairPos::Format1(table) => {
             let index = table.coverage().ok()?.get(first)?;
-            let set = table.pair_sets().get(usize::from(index)).ok()?;
+            let set = table.pair_sets().get(usize::try_from(index).ok()?).ok()?;
             let second = second.to_u32();
             set.pair_value_records()
                 .iter()
@@ -300,13 +300,17 @@ fn pair_adjustment(pair: &PairPos<'_>, first: GlyphId, second: GlyphId) -> Optio
             table.coverage().ok()?.get(first)?;
             let first_class = table.class_def1().ok()?.get(first);
             let second_class = table.class_def2().ok()?.get(second);
-            let class1 = table.class1_records().get(usize::from(first_class)).ok()?;
+            let class1 = table
+                .class1_records()
+                .get(usize::try_from(first_class).ok()?)
+                .ok()?;
             let class2 = class1
                 .class2_records()
-                .get(usize::from(second_class))
+                .get(usize::try_from(second_class).ok()?)
                 .ok()?;
             class2.value_record1().x_advance()
         }
+        PairPos::Format3(_) | PairPos::Format4(_) => None,
     }
 }
 
