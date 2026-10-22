@@ -4,8 +4,10 @@ use std::{
 };
 
 use caditor_kernel::Solid;
-use caditor_step::{ReadError, read_step};
+use caditor_step::{ReadError, read_own_step, read_step};
 use parking_lot::Mutex;
+
+use crate::checked_texts::{is_checked, mark_checked};
 
 const BUDGET_BYTES: usize = 256 * 1024 * 1024;
 
@@ -75,7 +77,15 @@ fn first_solid_within(
     if let Some(solid) = cache.lock().get(&digest) {
         return Ok(Some(solid));
     }
-    let mut model = read_step(step)?;
+    let checked = is_checked(&digest);
+    let mut model = if checked {
+        read_own_step(step)?
+    } else {
+        read_step(step)?
+    };
+    if !checked {
+        mark_checked(digest);
+    }
     if model.solids.is_empty() {
         return Ok(None);
     }

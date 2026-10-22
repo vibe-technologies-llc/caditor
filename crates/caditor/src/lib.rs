@@ -309,8 +309,11 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
     let panic_flush = PanicFlush::default();
     crash::protect(&panic_flush, logging.ending());
 
-    if state_dir.is_none() {
-        log::warn!("no state directory, so unsaved work cannot be protected against a crash");
+    match &state_dir {
+        Some(dir) => caditor_file::remember_checked_imports(dir),
+        None => {
+            log::warn!("no state directory, so unsaved work cannot be protected against a crash");
+        }
     }
     let recovery_dir = state_dir.as_deref().map(caditor_file::recovery_dir);
     let stopped_before = state_dir

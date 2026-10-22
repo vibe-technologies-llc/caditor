@@ -96,6 +96,9 @@ fn serve_stdio(
 ) -> Result<()> {
     let panic_flush = PanicFlush::default();
     crash::protect(&panic_flush, ending);
+    if let Some(dir) = &state_dir {
+        caditor_file::remember_checked_imports(dir);
+    }
     let retention = caditor_file::config_dir()
         .map(|dir| caditor_file::Settings::load(&dir))
         .map(|settings| Preferences::from_settings(settings).retention)

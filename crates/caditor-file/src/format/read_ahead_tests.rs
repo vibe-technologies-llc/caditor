@@ -63,3 +63,27 @@ fn every_distinct_import_text_is_read_ahead_once_however_its_record_is_wrapped()
             .is_some_and(|import| import.solid.faces().count() == 6)
     }));
 }
+
+#[test]
+fn texts_read_ahead_and_texts_an_import_stores_are_marked_checked() {
+    let loaded = block_text(6.0);
+    let document = imported(&[&loaded]);
+    let records: Vec<FeatureRecord> = feature_records(&document).collect();
+    let solid = crate::step_cache::first_solid(&block_text(7.0))
+        .unwrap()
+        .unwrap();
+
+    let unread = crate::checked_texts::is_checked(&blake3::hash(loaded.as_bytes()));
+    ImportTexts::reading_ahead(&records);
+    let stored = crate::import::canonical("Peg", &solid).unwrap();
+
+    assert!(!unread);
+    assert!(crate::checked_texts::is_checked(&blake3::hash(
+        loaded.as_bytes()
+    )));
+    assert!(
+        stored
+            .iter()
+            .all(|(_, step)| crate::checked_texts::is_checked(&blake3::hash(step.as_bytes())))
+    );
+}

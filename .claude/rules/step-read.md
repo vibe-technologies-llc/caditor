@@ -57,8 +57,10 @@ paths:
   the calling thread. `read_step_copies_reporting` hands a `ReadProgress` to a callback the workers
   call.
 - `read_own_step` reads text caditor's own writer just made from an already checked solid without
-  `Solid::find_crossing` (`Crossings::Trusted`), which dominated reading back a 400-face lead screw;
-  a model file's import text and all other text go through `read_step`.
+  `Solid::find_crossing` (`Crossings::Trusted`), which dominated reading back a 400-face lead screw.
+  A model file's import text goes through `read_step` unless this computer already checked that
+  text (`caditor-file`'s `checked_texts`, `file-format.md`); all other text goes through
+  `read_step`.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
   `MAX_WORK` budget per file, `MAX_DEPTH` and `MAX_INSTANCES` (placements walked for one part), and
   `MAX_WALKED_PLACEMENTS` for placements kept across the file (`Structure::walk` memoises each

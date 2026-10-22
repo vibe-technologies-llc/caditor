@@ -8,6 +8,7 @@ use caditor_kernel::{
 };
 
 use crate::{
+    checked_texts::persist_checked,
     import::{
         ImportError, MAX_EXPANDED_OBJECTS, ensure_going,
         mesh_unit::{MeshUnit, UnitReading},
@@ -146,6 +147,7 @@ pub fn parse_mesh_in(
             faces: Vec::new(),
         }));
     }
+    persist_checked();
     if bodies.is_empty() {
         return Err(ImportError::NothingStorable);
     }

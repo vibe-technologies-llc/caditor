@@ -1,5 +1,6 @@
 mod base64;
 mod binary;
+mod checked_texts;
 mod clipboard;
 mod configuration_table;
 mod configurations;
@@ -35,6 +36,7 @@ mod untrusted;
 
 pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, Retention, SavedState, Version},
+    checked_texts::remember_checked_imports,
     clipboard::{
         CLIPBOARD_HEADER, CLIPBOARD_VERSION, ClipboardError, ClipboardKind, CopiedFeatures,
         MAX_CLIPBOARD_TEXT, PastedGeometry, clipboard_kind, features_clipboard_text,

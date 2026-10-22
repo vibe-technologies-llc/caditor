@@ -423,6 +423,16 @@ Bodies and solids:
   puts round them (`stored_step`), is read once by digest before features are restored, and
   `restore_import` takes that result (a text missed, as in a hand-nested record, is read where it
   is restored). Read one by one, the VZ330's 1,200 texts took 199 s to reopen; ahead, 75 s.
+- `checked_texts.rs`: the blake3 digests of import texts whose `find_crossing` this computer
+  already ran, so reopening a model reads them with `read_own_step` (`step_cache.rs`): an import
+  marks each canonical text it stores (`canonical`, trusted exactly as the import trusts it), a
+  load marks each text `read_step` accepted. A file from elsewhere is still checked once, and a
+  crafted file cannot claim a text was checked. The app and the MCP server keep the digests in
+  `checked-imports` in the state folder (`remember_checked_imports`; without it they live in
+  memory only): magic `CDCHKD01`, 32-byte digests oldest first, an xxh3-64 of all that; a damaged
+  file is forgotten whole, never partly trusted. At most `MAX_CHECKED` digests, the oldest leaving
+  first; a load and an import each merge their new digests into the file under its update lock
+  (`persist_checked`), so two sessions keep what each marked.
 - `reference_image`: `picture` (the picture's blake3 digest in hex), `data` (its bytes as they were
   read, base64, since a record is read through `serde_json::Value`, which holds no byte strings;
   `reference_images.rs`, `PictureField`, which encodes a kept `Picture` only while serialising),

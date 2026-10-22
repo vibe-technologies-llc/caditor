@@ -46,6 +46,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwn
 use serde_json::Value;
 
 use crate::{
+    checked_texts::persist_checked,
     configurations::{ConfigurationsRecord, configurations_record_of, restore_configurations},
     import::in_parallel,
     reference_images::{
@@ -1335,6 +1336,7 @@ impl ImportTexts {
         let read = in_parallel(&texts, |(_, (hash, plain))| {
             crate::step_cache::first_solid_hashed(plain, *hash)
         });
+        persist_checked();
         Self {
             read_ahead: texts
                 .into_iter()

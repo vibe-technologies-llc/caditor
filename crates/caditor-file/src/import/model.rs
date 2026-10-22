@@ -28,6 +28,7 @@ use caditor_step::{
 };
 
 use crate::{
+    checked_texts::{mark_checked, persist_checked},
     import::{ImportError, ensure_going, mesh_unit::UnitReading},
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
@@ -300,6 +301,7 @@ fn parse_step_reporting(
         })
     });
     check_interrupt().map_err(|_| ImportError::Cancelled)?;
+    persist_checked();
     let mut lost = Vec::new();
     let mut unplaceable: Vec<String> = Vec::new();
     let mut dropped_looks: Vec<(String, usize)> = Vec::new();
@@ -575,6 +577,14 @@ fn rounded(value: f64) -> f64 {
 }
 
 pub(crate) fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
+    let lumps = canonical_lumps(name, solid)?;
+    for (_, step) in &lumps {
+        mark_checked(blake3::hash(step.as_bytes()));
+    }
+    Some(lumps)
+}
+
+fn canonical_lumps(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
     let (step, mut again) = written_and_read(name, solid)?;
     match again.len() {
         0 => return None,
