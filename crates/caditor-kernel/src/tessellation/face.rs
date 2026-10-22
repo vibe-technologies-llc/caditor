@@ -239,6 +239,7 @@ pub(crate) fn boundary_loops(
     solid: &Solid,
     face: &Face,
     samplings: &[EdgeSampling],
+    joint_reach: f64,
 ) -> Result<Vec<Vec<BoundaryPoint>>, TessellationError> {
     let surface = face.surface();
     let mut loops = Vec::with_capacity(face.loops().len());
@@ -280,6 +281,7 @@ pub(crate) fn boundary_loops(
                 };
                 push_distinct(
                     surface,
+                    joint_reach,
                     &mut points,
                     BoundaryPoint {
                         uv,
@@ -290,13 +292,13 @@ pub(crate) fn boundary_loops(
         }
         if points.len() > 1
             && let (Some(first), Some(last)) = (points.first(), points.last())
-            && (coincide(first, last) || joined(surface, last, first))
+            && (coincide(first, last) || joined(surface, last, first, joint_reach))
         {
             points.pop();
         }
         loops.push(points);
     }
-    share_revisited_vertices(surface, &mut loops);
+    share_revisited_vertices(surface, joint_reach, &mut loops);
     Ok(loops)
 }
 
@@ -358,8 +360,8 @@ pub(crate) fn overlapping_ends(
         for (index, first) in ends.iter().enumerate() {
             for second in ends.iter().skip(index + 1) {
                 let distinct = (first.edge, first.end) != (second.edge, second.end);
-                let together =
-                    coincide(&first.at, &second.at) || joined(surface, &first.at, &second.at);
+                let together = coincide(&first.at, &second.at)
+                    || joined(surface, &first.at, &second.at, LINEAR_RESOLUTION);
                 if distinct && together && first.runs_along(second) {
                     let split = if second.length > first.length {
                         second
@@ -374,7 +376,7 @@ pub(crate) fn overlapping_ends(
     Ok(longer)
 }
 
-fn share_revisited_vertices(surface: &Surface, loops: &mut [Vec<BoundaryPoint>]) {
+fn share_revisited_vertices(surface: &Surface, joint_reach: f64, loops: &mut [Vec<BoundaryPoint>]) {
     let mut seen: BTreeMap<u32, Vec<Point2>> = BTreeMap::new();
     for point in loops.iter_mut().flatten() {
         let earlier = seen.entry(point.position).or_default();
@@ -383,7 +385,7 @@ fn share_revisited_vertices(surface: &Surface, loops: &mut [Vec<BoundaryPoint>])
                 uv: *uv,
                 position: point.position,
             };
-            coincide(&first, point) || joined(surface, &first, point)
+            coincide(&first, point) || joined(surface, &first, point, joint_reach)
         });
         match same {
             Some(uv) => point.uv = uv,
@@ -397,7 +399,7 @@ fn coincide(a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
         && (a.uv - b.uv).abs().max_element() <= UV_MERGE * (1.0 + a.uv.abs().max_element())
 }
 
-fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
+fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint, reach: f64) -> bool {
     if a.position != b.position {
         return false;
     }
@@ -412,13 +414,18 @@ fn joined(surface: &Surface, a: &BoundaryPoint, b: &BoundaryPoint) -> bool {
     }
     let derivatives = surface.evaluate(a.uv.x, a.uv.y);
     gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length()
-        <= LINEAR_RESOLUTION
+        <= reach.max(LINEAR_RESOLUTION)
 }
 
-fn push_distinct(surface: &Surface, points: &mut Vec<BoundaryPoint>, point: BoundaryPoint) {
+fn push_distinct(
+    surface: &Surface,
+    joint_reach: f64,
+    points: &mut Vec<BoundaryPoint>,
+    point: BoundaryPoint,
+) {
     if points
         .last()
-        .is_none_or(|last| !coincide(last, &point) && !joined(surface, last, &point))
+        .is_none_or(|last| !coincide(last, &point) && !joined(surface, last, &point, joint_reach))
     {
         points.push(point);
     }

@@ -414,6 +414,78 @@ fn a_thin_round_whose_edge_ends_a_tenth_of_a_micrometre_off_its_corners_meshes()
 }
 
 #[test]
+fn a_corner_whose_edges_end_apart_on_the_surface_within_the_chord_meshes() {
+    use caditor_geometry::{Plane, Point2};
+
+    use crate::{
+        sense::Sense,
+        surface::PlaneSurface,
+        tolerance::LINEAR_RESOLUTION,
+        topology::{Pcurve, PcurveSample, SolidBuilder},
+    };
+
+    let side = 10.0;
+    let overshoot = 2e-5;
+    let straight = |from: Point2, to: Point2| {
+        Pcurve::new(
+            vec![
+                PcurveSample {
+                    parameter: 0.0,
+                    uv: from,
+                },
+                PcurveSample {
+                    parameter: side,
+                    uv: to,
+                },
+            ],
+            LINEAR_RESOLUTION,
+        )
+        .unwrap()
+    };
+    let mut builder = SolidBuilder::new();
+
+    let corners = [(0.0, 0.0), (side, 0.0), (side, side), (0.0, side)]
+        .map(|(x, y)| builder.vertex(Point3::new(x, y, 0.0)).unwrap());
+    let edges: Vec<_> = (0..4)
+        .map(|index| {
+            builder
+                .line_edge(corners[index], corners[(index + 1) % 4])
+                .unwrap()
+        })
+        .collect();
+    let shell = builder.shell().unwrap();
+    let face = builder
+        .face(
+            shell,
+            PlaneSurface::new(Plane::XY).unwrap().into(),
+            Sense::Same,
+        )
+        .unwrap();
+    let pcurves = [
+        straight(Point2::new(-overshoot, 0.0), Point2::new(side, 0.0)),
+        straight(Point2::new(side, 0.0), Point2::new(side, side)),
+        straight(Point2::new(side, side), Point2::new(0.0, side)),
+        straight(Point2::new(0.0, side), Point2::new(0.0, -overshoot)),
+    ];
+    builder
+        .add_loop_with_pcurves(
+            face,
+            edges
+                .iter()
+                .zip(pcurves)
+                .map(|(edge, pcurve)| (*edge, Sense::Same, pcurve))
+                .collect(),
+        )
+        .unwrap();
+    let solid = builder.build_unchecked();
+
+    let mesh = solid.tessellate(&SamplingTolerance::for_extent(side));
+
+    assert!(overshoot > 10.0 * LINEAR_RESOLUTION);
+    assert!(mesh.is_ok(), "{mesh:?}");
+}
+
+#[test]
 fn a_cone_meshes_without_slivers_at_its_apex_at_any_tolerance() {
     for (radius, height) in [(3.0, 4.0), (1.0, 20.0), (20.0, 1.0)] {
         let cone = fixtures::cone(radius, height);

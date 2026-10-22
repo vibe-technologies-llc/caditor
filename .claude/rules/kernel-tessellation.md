@@ -46,7 +46,11 @@ paths:
 - Boundary points at one vertex whose parameters differ by a spatially negligible gap are merged,
   and a pinched vertex takes the uv of its first pass. The gap may reach
   `OFF_POLE_JOINT_PARAMETER_GAP` (relative) away from poles, but only `JOINT_PARAMETER_GAP` at a
-  pole, where every u is one point and the pole line must be kept.
+  pole, where every u is one point and the pole line must be kept. Spatially negligible is within
+  the face's chord tolerance: a valid solid's ends never lie farther apart than the resolution,
+  but a vertex of an imported body lying off a stretched spline projects from its two edges to
+  points 2e-5 mm apart in reversed order, and kept apart they made the loop backtrack across
+  itself (VZ330 "Part 9 (1)"). Parting overlapping ends keeps the resolution.
 - Where two boundary polylines leave a point along the same chord (a crescent tip, internally
   tangent circles, a cusp), the longer end segment is bisected first (at most `MAX_END_PARTINGS`
   rounds) for every face of the edge, so the loops part by the curves' own separation, not rounding.

@@ -703,11 +703,12 @@ impl<'a> Tessellator<'a> {
             .solid
             .face(id)
             .ok_or(TessellationError::MissingEntity)?;
-        let loops = face::boundary_loops(self.solid, face, &self.samplings)?;
+        let tolerance = self.tolerances.face(id);
+        let loops = face::boundary_loops(self.solid, face, &self.samplings, tolerance.chord())?;
         let budget = face::Budget {
             limit: self.limit,
             placed: self.mesh.positions.len(),
-            tolerance: self.tolerances.face(id),
+            tolerance,
             density: self.poles.get(&id).map(|poles| poles.density.clone()),
             threads: self.threads,
         };
