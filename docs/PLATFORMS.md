@@ -5,12 +5,8 @@ distribution and checks that need a real machine.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [medium · medium] Windows has been built and tested only in CI (`windows`, `package-windows`)
-  and run under wine: no one has used it on a real Windows desktop yet. Check by hand the built-in
-  title bar (dragging, Aero Snap, Snap Layouts on the maximize button, resize strips,
-  double-click, the corner close, mixed-DPI monitors), the rfd dialogs owned by the window, sign-out flushing the journal, the MSI from
-  SmartScreen to uninstall, and a model and its journal on a USB stick (FAT32/exFAT, no POSIX
-  rename) and on a network share.
+- [medium · medium] Windows is used by hand on a real desktop, but a model and its journal on a USB
+  stick (FAT32/exFAT, no POSIX rename) and on a network share are not yet checked there.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
   and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
   certificate tied to an identity.
