@@ -112,7 +112,7 @@ windows-sys = { version = "0.61.2", default-features = false }
 winit = "0.30.13"
 winresource = { version = "0.1.34", default-features = false }
 xattr = "1.6.1"
-zbus = { version = "6.0.0", default-features = false, features = ["default-rt", "proxy"] }
+zbus = { version = "6.1.0", default-features = false, features = ["default-rt", "proxy"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 
 [profile.dev.package.nalgebra]
