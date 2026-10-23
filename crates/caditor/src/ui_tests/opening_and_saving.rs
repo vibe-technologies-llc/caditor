@@ -359,8 +359,12 @@ fn a_recent_model_whose_folder_is_gone_too_stays_listed() {
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the file is open", |harness| harness.model.path().is_some());
 
-    std::fs::rename(&drive, root.as_path().join("unplugged")).unwrap();
     harness.command(FileCommand::New);
+    harness.wait_until("the file is closed", |harness| {
+        harness.model.path().is_none()
+    });
+
+    std::fs::rename(&drive, root.as_path().join("unplugged")).unwrap();
     harness.command(FileCommand::OpenPath(path.clone()));
     harness.wait_until("the failure is reported", |harness| {
         harness.shows("Could not open “kept.caditor”: it no longer exists.")
