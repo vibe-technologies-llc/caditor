@@ -281,6 +281,14 @@ pub(crate) enum Upstream {
         curve: String,
         sketch: Option<String>,
     },
+    ImagesJoined {
+        maker: String,
+        source: Option<String>,
+    },
+    ImageGone {
+        maker: String,
+        source: Option<String>,
+    },
 }
 
 impl Upstream {
@@ -311,6 +319,15 @@ impl Upstream {
             Self::PieceGone { maker, curve, .. } => format!(
                 "The piece of {maker} drawn by {curve} is no longer there, so there is no body \
                  to work on."
+            ),
+            Self::ImagesJoined { maker, source } => format!(
+                "{maker} no longer makes a body of each image, so the image of {} is not a body \
+                 of its own.",
+                mirrored_source(source.as_deref())
+            ),
+            Self::ImageGone { maker, source } => format!(
+                "{maker} no longer mirrors {}, so there is no image to work on.",
+                mirrored_source(source.as_deref())
             ),
         }
     }
@@ -343,8 +360,19 @@ impl Upstream {
                 ..
             } => format!("Draw the piece again in {sketch}, or choose another body."),
             Self::PieceGone { sketch: None, .. } => "Choose another body.".to_owned(),
+            Self::ImagesJoined { maker, .. } => format!(
+                "Set Result of {maker} back to New body with several bodies, or choose another \
+                 body."
+            ),
+            Self::ImageGone { maker, .. } => {
+                format!("Mirror that body again in {maker}, or choose another body.")
+            }
         }
     }
+}
+
+fn mirrored_source(source: Option<&str>) -> &str {
+    source.unwrap_or("a body it mirrored")
 }
 
 impl From<Upstream> for Cause {

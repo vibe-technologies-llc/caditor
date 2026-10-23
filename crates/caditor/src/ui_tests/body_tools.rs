@@ -14,63 +14,171 @@ use crate::{
     mate_panel, mirror_panel, model::Action, selection::Pickable, solid_panel, split_panel,
 };
 
-#[test]
-fn several_selected_bodies_are_mirrored_across_one_plane_in_one_undoable_change() {
-    let mut harness = Harness::new();
-    let (plate, _) = extruded_plate(&mut harness);
-    let peg = add_peg(&mut harness);
-    let peg_edge = harness
+fn any_edge(harness: &Harness, body: FeatureId) -> Pickable {
+    let edge = harness
         .model
         .evaluation()
-        .body(peg)
+        .body(body)
         .unwrap()
         .edges()
         .next()
         .map(|(_, edge)| edge.name())
         .unwrap();
+    Pickable::Edge { body, edge }
+}
+
+fn open_mirror(harness: &Harness) -> (FeatureId, caditor_document::Mirror) {
+    let feature = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+    match &harness.document().feature(feature).unwrap().kind {
+        FeatureKind::Mirror(mirror) => (feature, mirror.clone()),
+        other => panic!("expected a mirror, found {other:?}"),
+    }
+}
+
+#[test]
+fn several_selected_bodies_are_mirrored_by_one_mirror_making_a_body_of_each_image() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
 
     harness.select([
         Pickable::Edge {
             body: plate,
             edge: top_edge_along_x(&harness, plate, 0.0),
         },
-        Pickable::Edge {
-            body: peg,
-            edge: peg_edge,
-        },
+        any_edge(&harness, peg),
     ]);
     harness.hover("Mirror body");
     assert!(harness.shows_containing("Mirror 2 bodies across"));
     harness.click("Mirror body");
     harness.settle();
 
-    assert_eq!(harness.model.undo_label(), Some("Create 2 mirrors"));
+    assert_eq!(harness.model.undo_label(), Some("Create Mirror body 1"));
     assert!(harness.shows("Mirror across"));
-    let mirrors: Vec<(FeatureId, FeatureId)> = harness
-        .document()
-        .features()
-        .filter_map(|feature| match &feature.kind {
-            FeatureKind::Mirror(mirror) => Some((feature.id(), mirror.body)),
-            _ => None,
-        })
-        .collect();
-    let mirrored: Vec<FeatureId> = mirrors.iter().map(|(_, body)| *body).collect();
-    assert_eq!(mirrored, [plate, peg]);
-    let images: Vec<FeatureId> = mirrors.iter().map(|(image, _)| *image).collect();
-    assert!(
-        images
-            .iter()
-            .all(|image| harness.document().feature(*image).unwrap().makes_body())
+    assert!(harness.shows(mirror_panel::BODIES));
+    assert!(harness.shows("Plate"));
+    assert!(harness.shows("Peg"));
+    let (mirror, definition) = open_mirror(&harness);
+    assert_eq!(definition.body, plate);
+    assert_eq!(definition.more_bodies, [peg]);
+    assert_eq!(
+        harness
+            .document()
+            .features()
+            .filter(|feature| matches!(feature.kind, FeatureKind::Mirror(_)))
+            .count(),
+        1
     );
+    let images = harness.model.evaluation().pieces_made_by(mirror);
+    assert_eq!(images.len(), 2);
+    let plate_image = mirror
+        .piece(caditor_document::Mirror::image_key(plate))
+        .unwrap();
+    let peg_image = mirror
+        .piece(caditor_document::Mirror::image_key(peg))
+        .unwrap();
     let (_, high) = plate_bounds(&harness, peg);
     assert!((high.x - 60.0).abs() < 1e-6);
-    let (low, _) = plate_bounds(&harness, images[1]);
+    let (low, _) = plate_bounds(&harness, peg_image);
     assert!((low.x + 60.0).abs() < 1e-6);
-    let (low, high) = plate_bounds(&harness, plate);
-    assert!(low.x.abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
-    let (low, high) = plate_bounds(&harness, images[0]);
+    let (low, high) = plate_bounds(&harness, plate_image);
     assert!((low.x + 40.0).abs() < 1e-6 && high.x.abs() < 1e-6);
-    assert!(volume_about(&harness, images[0], 16000.0));
+    assert!(volume_about(&harness, plate_image, 16000.0));
+    assert_eq!(
+        harness.document().body_name(peg_image).as_deref(),
+        Some("Mirror body 1 (image of Peg)")
+    );
+}
+
+#[test]
+fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    }]);
+    run_from_palette(&mut harness, "mirror body");
+    harness.settle();
+    let (mirror, _) = open_mirror(&harness);
+
+    harness.click_lowest(crate::feature_fields::CHOOSE_IN_VIEW);
+    harness.frame();
+    assert!(harness.shows_containing("Click a body to mirror it too"));
+    harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
+    harness.settle();
+
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.more_bodies, [peg]);
+    assert_eq!(harness.model.undo_label(), Some("Edit Mirror body 1"));
+    assert_eq!(harness.model.evaluation().pieces_made_by(mirror).len(), 2);
+    assert!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .is_some_and(|picking| picking.slot == crate::reference_picking::Slot::MirrorBodies)
+    );
+
+    harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
+    harness.settle();
+    let (_, definition) = open_mirror(&harness);
+    assert!(definition.more_bodies.is_empty());
+    assert!(volume_about(&harness, mirror, 16000.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([any_edge(&harness, peg)]);
+    harness.settle();
+    harness.click_lowest(crate::feature_fields::USE_SELECTED);
+    harness.settle();
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.more_bodies, [peg]);
+
+    harness.click_button("Stop mirroring this body");
+    harness.settle();
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.body, peg);
+    assert!(definition.more_bodies.is_empty());
+}
+
+#[test]
+fn mirror_body_with_nothing_selected_starts_on_the_last_body_and_chooses_bodies_in_the_view() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    harness.select([]);
+
+    harness.hover("Mirror body");
+    assert!(harness.shows_containing("click the bodies to mirror"));
+    harness.click("Mirror body");
+    harness.settle();
+
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.body, peg);
+    assert!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .is_some_and(|picking| picking.slot == crate::reference_picking::Slot::MirrorBodies)
+    );
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(5.0, 5.0),
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+    );
+    harness.settle();
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.more_bodies, [plate]);
 }
 
 #[test]

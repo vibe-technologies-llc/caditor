@@ -215,7 +215,7 @@ pub enum Reference {
     Second,
 }
 
-fn last_body(model: &Model) -> Option<FeatureId> {
+pub fn last_body(model: &Model) -> Option<FeatureId> {
     model
         .document()
         .bodies_standing_in(model.evaluation())

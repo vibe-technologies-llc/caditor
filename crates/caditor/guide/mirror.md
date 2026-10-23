@@ -1,23 +1,28 @@
 # Mirror body
 
-{command:model.mirror} adds a mirrored copy of a body as a new body of its own, leaving the
-original as it is. Select the body (a face, edge or vertex of it), and with it the plane to mirror
-across: a principal or datum plane or a flat face. With no
-plane selected, it mirrors across the YZ plane. With several bodies selected, or chosen in the tree, each
-is mirrored across the same plane by a mirror of its own, all in one undoable change; the panel of the
-first opens, and the others are edited from their rows in the tree.
+{command:model.mirror} adds a mirrored copy of one or more bodies, leaving the originals as they
+are. Select the bodies (a face, edge or vertex of each), or choose them in the tree, and with them
+the plane to mirror across: a principal or datum plane or a flat face. With no plane selected, it
+mirrors across the YZ plane. However many bodies are selected, they all go into one mirror, so its
+plane and Result apply to every one of them. With nothing selected, it starts on the last body
+and lets you click the bodies to mirror in the view.
 
 The panel chooses the plane from a list of the principal, datum and coordinate system planes
-before it, or from the selection or the view. **Result** decides what the mirrored copy becomes:
+before it, or from the selection or the view. **Bodies** lists what the mirror reflects: **Stop
+mirroring this body** leaves one out, **Use selected** adds the bodies selected in the view, and
+**Choose in the view** lets you click bodies to add them or, clicked again, leave them out, until
+Escape. **Result** decides what each mirrored copy becomes:
 
-- **New body**: a body of its own beside the original, listed under Bodies, which you can move,
-  colour, fillet or combine like any other body.
-- **Add to body**: joined to the original, making one body, such as the second half of a
+- **New body**: a body of its own beside its original, listed under Bodies and named after it
+  ("Mirror body 1 (image of Bracket)"), which you can move, colour, fillet or combine like any
+  other body.
+- **Add to body**: joined to its original, making one body, such as the second half of a
   symmetrical part.
-- **Replace body**: put in the original's place, so only the mirrored copy remains.
+- **Replace body**: put in its original's place, so only the mirrored copy remains.
 
-A new body that later features use cannot be turned back into part of the original; the panel
-says which features use it.
+A new body that later features use cannot be turned back into part of its original, and a mirror
+whose images later features use keeps making a body of each; the panel says which features use
+them. Leaving a body out of the mirror fails the features that used its image, saying which.
 
 ## Mirroring features
 

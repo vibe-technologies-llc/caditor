@@ -10,7 +10,7 @@ use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     body_appearance::BodyAppearance,
-    document::{Document, Feature, FeatureId},
+    document::{Document, Feature, FeatureId, FeatureKind},
     failure::Cause,
     recompute::{Failure, FeatureError, FixTarget},
 };
@@ -270,6 +270,14 @@ impl Document {
             self.body_name(body).map(Cow::into_owned)
         } else {
             self.feature(body).map(|feature| feature.name.clone())
+        }
+    }
+
+    pub fn image_source(&self, body: FeatureId) -> Option<FeatureId> {
+        let key = body.piece_key()?;
+        match &self.body_maker(body)?.kind {
+            FeatureKind::Mirror(mirror) => mirror.image_source(key),
+            _ => None,
         }
     }
 

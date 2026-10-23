@@ -1184,14 +1184,6 @@ pub fn next_feature_name(document: &Document, prefix: &str) -> String {
         .unwrap_or_else(|| prefix.to_owned())
 }
 
-pub fn next_feature_names(document: &Document, prefix: &str, count: usize) -> Vec<String> {
-    (1..)
-        .map(|number| format!("{prefix} {number}"))
-        .filter(|name| document.features().all(|feature| feature.name != *name))
-        .take(count)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use caditor_geometry::Plane;

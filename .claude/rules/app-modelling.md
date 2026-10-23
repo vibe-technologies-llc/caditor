@@ -1246,19 +1246,26 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Mirror, split, mate and scale
 
-- Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` making the
-  image a new body (`mirror_tools::NEW_MIRROR_OUTCOME`, `MirrorOutcome::NewBody`, as Copy body makes
-  one, leaving the original as it is), across the one principal or datum plane selected with it, else the one selected flat
-  face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a selected datum axis
-  or point, a datum after the bar or several planes are refused. The panel chooses a principal, datum or
-  coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose in the view (slot
-  `MirrorPlane`) or the palette's Mirror across selected. Its Result row (`mirror_panel::RESULT`, a
-  `feature_fields::segmented_row`) chooses New body, Add to body (joined to the original) or Replace
-  body (the image in its place), each one "Edit <mirror>" change; leaving New body while a later
-  feature uses the image's body is refused in a notice (`BodyInUse`).
-  With several bodies selected or chosen in the tree (`move_tools::chosen_bodies_beside`) it makes one
-  Mirror per body across the same plane in one transaction ("Create N mirrors",
-  `MirrorSource::also`, names from `editing::next_feature_names`), each a new body, and opens the first.
+- Mirror body (Alt+Shift+M) takes every body of the selection or chosen in the tree
+  (`move_tools::chosen_bodies_beside`) and creates one `Mirror` of them all, the first its `body`
+  and the rest `more_bodies` (`MirrorSource::also`), each image a new body
+  (`mirror_tools::NEW_MIRROR_OUTCOME`, `MirrorOutcome::NewBody`, as Copy body makes one, leaving
+  the originals as they are), across the one principal or datum plane selected with it, else the
+  one selected flat face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`);
+  a selected datum axis or point, a datum after the bar or several planes are refused. With nothing
+  naming a body (no body pick, no tree body, no face taken as the plane) it starts on the last body
+  standing, as a pattern does (`pattern_tools::last_body`, `MirrorSource::guessed`, its hover saying
+  so), and opens choosing bodies (`Slot::MirrorBodies`). The panel chooses a principal, datum or
+  coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose
+  in the view (slot `MirrorPlane`) or the palette's Mirror across selected. Its Result row
+  (`mirror_panel::RESULT`, a `feature_fields::segmented_row`) chooses New body, Add to body (each
+  joined to its original) or Replace body (each image in its original's place), each one "Edit
+  <mirror>" change; leaving New body while a later feature uses an image is refused in a notice
+  (`BodyInUse`). Its Bodies rows (`mirror_panel::BODIES`, whole-body mirrors only; otherwise a
+  plain Body row) list each body with Stop mirroring this body (`mirror_tools::without_body`, the
+  last one disabled), Use selected (`added_bodies`) and Choose in the view on `Slot::MirrorBodies`,
+  which keeps choosing: a click on a body adds it or leaves it out (`toggled_body`); a body made at
+  or after the mirror (`LaterBody`) or one of its own images (`OwnImage`) is refused in words.
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
   list them and Mirror the chosen features takes the rows chosen now; it adds to the body

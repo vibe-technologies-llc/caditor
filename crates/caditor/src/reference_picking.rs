@@ -42,6 +42,7 @@ pub enum Slot {
     RevolveTarget,
     ExtrudeDirection,
     MirrorPlane,
+    MirrorBodies,
     SplitPlane,
     SplitDirection,
     EmbossSketch,
@@ -85,6 +86,7 @@ impl Slot {
         matches!(
             self,
             Self::SweepPath
+                | Self::MirrorBodies
                 | Self::LoftProfiles
                 | Self::ShellOwnThickness
                 | Self::DraftOwnAngle
@@ -135,6 +137,7 @@ impl Slot {
             | Self::ThreadFace
             | Self::SweepPath
             | Self::LoftProfiles
+            | Self::MirrorBodies
             | Self::PatternPath
             | Self::EmbossSketch
             | Self::MateMoving(_) => false,
@@ -275,6 +278,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
+        Slot::MirrorBodies => "Click a body to mirror it too, again to leave it out; press \
+                               Escape when every body is chosen"
+            .to_owned(),
         Slot::MateMoving(MatePart::Main) => {
             "Click the face, axis or point of the moving body to mate".to_owned()
         }
@@ -530,6 +536,9 @@ pub fn change(
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror).map_err(ChangeError::from)
+        }
+        (Slot::MirrorBodies, FeatureKind::Mirror(mirror)) => {
+            mirror_tools::toggled_body(model, selection, feature, mirror).map_err(ChangeError::from)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
             split_tools::along_change(model, selection, feature, split).map_err(ChangeError::from)

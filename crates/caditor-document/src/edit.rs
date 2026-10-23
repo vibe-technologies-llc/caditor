@@ -617,7 +617,7 @@ fn settled_kind(mut kind: FeatureKind) -> FeatureKind {
             pattern.settle_skipped();
             keep_once(&mut pattern.repeated);
         }
-        FeatureKind::Mirror(mirror) => keep_once(&mut mirror.mirrored),
+        FeatureKind::Mirror(mirror) => mirror.settle(),
         FeatureKind::Mate(mate) => mate.flipped &= mate.flips(),
         FeatureKind::Blend(blend) => blend.flipped &= blend.form != ChamferForm::Equal,
         FeatureKind::SplitFace(split) if split.along.sketch().is_none() => {

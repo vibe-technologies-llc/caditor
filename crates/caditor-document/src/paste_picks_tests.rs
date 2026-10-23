@@ -549,6 +549,7 @@ fn a_copied_mirror_follows_the_copy_of_the_datum_plane_it_mirrors_across() {
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
             body: base,
+            more_bodies: Vec::new(),
             plane: PlaneReference::Datum(datum),
             outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),

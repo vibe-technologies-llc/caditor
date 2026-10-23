@@ -6,7 +6,7 @@ use caditor_kernel::{FaceId, FaceName, FaceReference, Solid, Surface};
 use caditor_sketch::Sketch;
 
 use crate::{
-    combine_tests::{Pair, evaluate, pair, rectangle, volume},
+    combine_tests::{Pair, block, evaluate, pair, rectangle, volume},
     pattern_tests::{extrusion, failure, on_top, top},
     *,
 };
@@ -20,6 +20,7 @@ fn mirrored(pair: &mut Pair, plane: PlaneReference, outcome: MirrorOutcome) -> F
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
             body: plate,
+            more_bodies: Vec::new(),
             plane,
             outcome,
             mirrored: Vec::new(),
@@ -313,6 +314,7 @@ fn a_mirror_across_an_axis_datum_is_refused() {
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
             body: pair.plate,
+            more_bodies: Vec::new(),
             plane: PlaneReference::Datum(axis),
             outcome: MirrorOutcome::Replace,
             mirrored: Vec::new(),
@@ -651,4 +653,138 @@ fn faces_that_bound_no_closable_region_fail_the_mirror_in_words() {
             .starts_with("Choose every face around the pocket or boss")
     );
     assert_eq!(evaluation.failed_count(), 1);
+}
+
+const PEG_VOLUME: f64 = 10.0 * 6.0 * 6.0;
+
+fn mirrored_both(pair: &mut Pair, outcome: MirrorOutcome) -> FeatureId {
+    let (plate, peg) = (pair.plate, pair.peg);
+    let mut transaction = pair.document.transaction("Mirror");
+    let feature = transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(
+            Mirror::new(plate, PlaneReference::Principal(PrincipalPlane::Yz))
+                .with_more_bodies(vec![peg, plate])
+                .with_outcome(outcome),
+        ),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+fn mirror_of(document: &Document, feature: FeatureId) -> Mirror {
+    match &document.feature(feature).unwrap().kind {
+        FeatureKind::Mirror(mirror) => mirror.clone(),
+        other => panic!("expected a mirror, found {other:?}"),
+    }
+}
+
+#[test]
+fn one_mirror_joins_each_of_several_bodies_with_its_own_image() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let mirror = mirrored_both(&mut pair, MirrorOutcome::AddToBody);
+    let after = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(mirror_of(&pair.document, mirror).more_bodies, [pair.peg]);
+    assert_eq!(after.failed_count(), 0);
+    assert_eq!(
+        pair.document.feature(mirror).unwrap().bodies(),
+        [pair.plate, pair.peg]
+    );
+    let (low, high) = bounds(&after, pair.plate);
+    assert!(near(low, [-20.0, 0.0, 0.0]), "{low:?}");
+    assert!(near(high, [20.0, 10.0, 4.0]), "{high:?}");
+    let (low, high) = bounds(&after, pair.peg);
+    assert!(near(low, [-25.0, 2.0, 0.0]), "{low:?}");
+    assert!(near(high, [25.0, 8.0, 6.0]), "{high:?}");
+    assert!((volume(&after, pair.peg) - 2.0 * PEG_VOLUME).abs() < 1e-6 * PEG_VOLUME);
+    assert_eq!(pair.document.bodies_standing(), vec![pair.plate, pair.peg]);
+}
+
+#[test]
+fn one_mirror_of_several_bodies_makes_a_body_of_each_image_named_after_its_original() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let mirror = mirrored_both(&mut pair, MirrorOutcome::NewBody);
+    let after = evaluate(&pair.document, &mut engine);
+
+    let feature = pair.document.feature(mirror).unwrap();
+    assert!(feature.makes_body() && feature.separates_pieces());
+    assert_eq!(after.failed_count(), 0);
+    let images = after.pieces_made_by(mirror);
+    let plate_image = mirror.piece(Mirror::image_key(pair.plate)).unwrap();
+    let peg_image = mirror.piece(Mirror::image_key(pair.peg)).unwrap();
+    assert_eq!(images, [plate_image, peg_image]);
+    assert!(after.body(mirror).is_none());
+    assert!((volume(&after, pair.plate) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
+    assert!((volume(&after, pair.peg) - PEG_VOLUME).abs() < 1e-6 * PEG_VOLUME);
+    let (low, high) = bounds(&after, peg_image);
+    assert!(near(low, [-25.0, 2.0, 0.0]), "{low:?}");
+    assert!(near(high, [-15.0, 8.0, 6.0]), "{high:?}");
+    assert!((volume(&after, plate_image) - PLATE_VOLUME).abs() < 1e-6 * PLATE_VOLUME);
+    assert_eq!(
+        pair.document.body_name(peg_image).as_deref(),
+        Some("Mirror 1 (image of Peg)")
+    );
+    assert_eq!(
+        pair.document.bodies_standing_in(&after),
+        vec![pair.plate, pair.peg, plate_image, peg_image]
+    );
+}
+
+#[test]
+fn an_image_others_use_keeps_its_mirror_making_bodies_and_fails_them_once_left_out() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+    let mut transaction = pair.document.transaction("Third");
+    let block = block(&mut transaction, "Block", (0.0, 20.0), (5.0, 25.0), "3 mm");
+    pair.document.apply(transaction.finish()).unwrap();
+    let mirror = mirrored_both(&mut pair, MirrorOutcome::NewBody);
+    let peg_image = mirror.piece(Mirror::image_key(pair.peg)).unwrap();
+    let mut transaction = pair.document.transaction("Use");
+    let removal =
+        transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: peg_image }));
+    pair.document.apply(transaction.finish()).unwrap();
+    let both = mirror_of(&pair.document, mirror);
+
+    let joining = pair.document.apply(Transaction::single(
+        "Join",
+        Edit::SetFeatureKind {
+            id: mirror,
+            kind: FeatureKind::Mirror(both.clone().with_outcome(MirrorOutcome::AddToBody)),
+        },
+    ));
+    let plate_only = pair.document.apply(Transaction::single(
+        "Plate only",
+        Edit::SetFeatureKind {
+            id: mirror,
+            kind: FeatureKind::Mirror(both.clone().with_more_bodies(Vec::new())),
+        },
+    ));
+    pair.document
+        .apply(Transaction::single(
+            "Block instead of the peg",
+            Edit::SetFeatureKind {
+                id: mirror,
+                kind: FeatureKind::Mirror(both.with_more_bodies(vec![block])),
+            },
+        ))
+        .unwrap();
+    let after = evaluate(&pair.document, &mut engine);
+
+    assert!(matches!(joining, Err(EditError::BodyInUse { .. })));
+    assert!(matches!(plate_only, Err(EditError::PiecesInUse { .. })));
+    assert_eq!(after.failed_count(), 1);
+    let error = failure(&after, removal);
+    assert_eq!(
+        error.reason(),
+        "Mirror 1 no longer mirrors Peg, so there is no image to work on."
+    );
+    assert_eq!(
+        error.remedy(),
+        "Mirror that body again in Mirror 1, or choose another body."
+    );
 }

@@ -716,6 +716,7 @@ impl FeatureKind {
             }
             Self::Mirror(mirror) => {
                 mirror.body = rename(mirror.body);
+                each(&mut mirror.more_bodies);
                 each(&mut mirror.mirrored);
                 rename_plane(&mut mirror.plane, rename);
             }

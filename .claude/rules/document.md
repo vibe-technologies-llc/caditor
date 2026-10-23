@@ -1169,6 +1169,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   alone (kernel `pattern_copies`), a body others use not able to stop being one (`BodyInUse`).
   Joined or apart, image faces are `FaceOrigin::Copy` of the mirror (`describe_origin`: "<mirror>
   image of …"), so switching between them keeps the image's names.
+- `more_bodies` (`Mirror::with_more_bodies`, whole-body mirrors only: settling drops the `body`,
+  repeats, and every one when features or faces are mirrored) are mirrored the same way, each on
+  its own (`Mirror::bodies`, all in `bodies_used` and `features()`). `Replace` and `AddToBody`
+  change each body in place: `Feature::bodies` lists them (`changed_bodies`) and the result holds
+  the others' states in `SolidResult::others`, as an extrusion cutting other bodies does. `NewBody`
+  with more bodies makes a body of each image (`makes_a_body_of_each_image`, which
+  `Feature::separates_pieces` answers for a mirror, so the Separate pieces machinery holds them):
+  each a piece of the mirror keyed by its source (`Mirror::image_key`: a source ID below 2^31 is
+  the key, any other a blake3 digest of it with the top bit set; two alike fail as `ImagesAlike`),
+  named "<mirror> (image of <body>)" (`Document::image_source`). Starting or stopping that while
+  an image is used is `PiecesInUse`; a source left out fails its image's users
+  (`Upstream::ImageGone`), a mirror no longer making images apart `ImagesJoined`. The file stores
+  the list as a `MirrorSeveral` record around the mirror's own.
 - With `mirrored` features (`Mirror::mirroring`, chosen as a pattern's repeated ones by
   `repeatable_on`) it reflects their tools instead: each placed as copy `MIRROR_IMAGE` (kernel
   `pattern_copies`) and cut from or joined to the body as it stands, a fillet or chamfer blended on

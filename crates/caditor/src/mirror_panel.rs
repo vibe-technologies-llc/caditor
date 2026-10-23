@@ -1,5 +1,5 @@
 use caditor_document::{Feature, FeatureId, Mirror, MirrorOutcome, Transaction};
-use egui::{Id, Ui};
+use egui::{Id, RichText, Ui};
 
 use crate::{
     datum_tools,
@@ -13,8 +13,8 @@ use crate::{
     widgets,
 };
 
-pub const DESCRIPTION: &str = "Reflects the body across the plane, as a body of its own, joined \
-                               to the original or in its place";
+pub const DESCRIPTION: &str = "Reflects the bodies across the plane, each image as a body of its \
+                               own, joined to its original or in its place";
 pub const FEATURES_DESCRIPTION: &str = "Reflects the chosen features across the plane onto the \
                                         body, following every edit to them";
 pub const FACES_DESCRIPTION: &str = "Reflects the region the chosen faces bound across the plane, \
@@ -24,9 +24,11 @@ pub const RESULT: &str = "Result";
 pub const NEW_BODY: &str = "New body";
 pub const ADD_TO_BODY: &str = "Add to body";
 pub const REPLACE_BODY: &str = "Replace body";
-const NEW_BODY_HOVER: &str = "The image becomes a body of its own, and the original stays as it is";
-const ADD_TO_BODY_HOVER: &str = "The image is joined to the original, making one body";
-const REPLACE_BODY_HOVER: &str = "The image takes the original's place, and the original is gone";
+const NEW_BODY_HOVER: &str =
+    "Each image becomes a body of its own, and the originals stay as they are";
+const ADD_TO_BODY_HOVER: &str = "Each image is joined to its original, making one body of the two";
+const REPLACE_BODY_HOVER: &str =
+    "Each image takes its original's place, and the originals are gone";
 
 fn outcome_words(outcome: MirrorOutcome) -> (&'static str, &'static str) {
     match outcome {
@@ -36,6 +38,10 @@ fn outcome_words(outcome: MirrorOutcome) -> (&'static str, &'static str) {
     }
 }
 const PICK_HOVER: &str = "Mirror across the selected plane or flat face instead";
+pub const BODIES: &str = "Bodies";
+const ADD_BODIES_HOVER: &str = "Mirror the selected bodies too";
+const STOP_MIRRORING_BODY: &str = "Stop mirroring this body";
+const LAST_BODY_HOVER: &str = "The mirror needs a body: add another before leaving this one out";
 pub const MIRRORS: &str = "Mirrors";
 pub const WHOLE_BODY: &str = "The whole body";
 pub const MIRROR_CHOSEN: &str = "Mirror the chosen features";
@@ -230,6 +236,57 @@ impl Panel<'_> {
         }
     }
 
+    fn bodies_rows(&mut self, ui: &mut Ui) {
+        let document = self.model.document();
+        let bodies: Vec<FeatureId> = self.mirror.bodies().collect();
+        let only = bodies.len() == 1;
+        let mut dropped = None;
+        for (index, body) in bodies.iter().enumerate() {
+            if index == 0 {
+                widgets::caption(ui, BODIES);
+            } else {
+                ui.label("");
+            }
+            match document.body_label(*body) {
+                Some(name) => {
+                    let hover = if only {
+                        LAST_BODY_HOVER
+                    } else {
+                        STOP_MIRRORING_BODY
+                    };
+                    ui.add_enabled_ui(!only, |ui| {
+                        if widgets::removable_row(ui, RichText::new(name), hover) {
+                            dropped = Some(*body);
+                        }
+                    });
+                }
+                None => feature_fields::missing(ui, feature_fields::MISSING_BODY),
+            }
+            ui.end_row();
+        }
+        if let Some(body) = dropped {
+            let change = mirror_tools::without_body(self.model, self.id(), self.mirror, body);
+            self.apply(change);
+        }
+        ui.label("");
+        let picker = Picker {
+            feature: self.id(),
+            slot: Slot::MirrorBodies,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), Slot::MirrorBodies),
+                || mirror_tools::added_bodies(self.model, self.selection, self.id(), self.mirror),
+            ),
+            hover: ADD_BODIES_HOVER,
+        };
+        ui.vertical(|ui| {
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
+    }
+
     fn subject(&self) -> String {
         if self.mirror.mirrors_faces() {
             format!("{} chosen faces", self.mirror.faces.len())
@@ -302,6 +359,10 @@ pub fn show(
         panel.plane_rows(ui);
         panel.mirrors_rows(ui);
         panel.result_row(ui);
-        feature_fields::feature_row(ui, model.document(), "Body", mirror.body);
+        if mirror.mirrors_whole_body() {
+            panel.bodies_rows(ui);
+        } else {
+            feature_fields::feature_row(ui, model.document(), "Body", mirror.body);
+        }
     });
 }

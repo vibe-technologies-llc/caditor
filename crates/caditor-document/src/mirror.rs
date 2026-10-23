@@ -7,6 +7,7 @@ use caditor_kernel::{
 };
 
 use crate::{
+    body_pieces::PieceKey,
     datum::{PlaneReference, Resolver},
     document::{Feature, FeatureId},
     failure::{Cause, Chosen, Unmatched, Upstream},
@@ -21,6 +22,7 @@ use crate::{
 };
 
 pub const MIRROR_IMAGE: [u32; 2] = [1, 0];
+const PIECE_SOURCE_KEYS: u32 = 1 << 31;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum MirrorOutcome {
@@ -41,6 +43,7 @@ impl MirrorOutcome {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mirror {
     pub body: FeatureId,
+    pub more_bodies: Vec<FeatureId>,
     pub plane: PlaneReference,
     pub outcome: MirrorOutcome,
     pub mirrored: Vec<FeatureId>,
@@ -51,6 +54,7 @@ impl Mirror {
     pub fn new(body: FeatureId, plane: PlaneReference) -> Self {
         Self {
             body,
+            more_bodies: Vec::new(),
             plane,
             outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),
@@ -61,6 +65,12 @@ impl Mirror {
     #[must_use]
     pub fn with_outcome(mut self, outcome: MirrorOutcome) -> Self {
         self.outcome = outcome;
+        self
+    }
+
+    #[must_use]
+    pub fn with_more_bodies(mut self, bodies: Vec<FeatureId>) -> Self {
+        self.more_bodies = bodies;
         self
     }
 
@@ -92,8 +102,63 @@ impl Mirror {
         self.outcome == MirrorOutcome::NewBody && self.mirrors_whole_body()
     }
 
+    pub fn bodies(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        let more = if self.mirrors_whole_body() {
+            self.more_bodies.as_slice()
+        } else {
+            &[]
+        };
+        std::iter::once(self.body).chain(more.iter().copied())
+    }
+
+    pub fn mirrors_several_bodies(&self) -> bool {
+        self.mirrors_whole_body() && !self.more_bodies.is_empty()
+    }
+
+    pub fn makes_a_body_of_each_image(&self) -> bool {
+        self.makes_body() && !self.more_bodies.is_empty()
+    }
+
+    pub fn changed_bodies(&self) -> Vec<FeatureId> {
+        if self.makes_body() {
+            Vec::new()
+        } else {
+            self.bodies().collect()
+        }
+    }
+
+    pub fn image_key(source: FeatureId) -> PieceKey {
+        match u32::try_from(source.raw()) {
+            Ok(raw) if raw < PIECE_SOURCE_KEYS => PieceKey::from_raw(raw),
+            _ => {
+                let digest = blake3::hash(&source.raw().to_le_bytes());
+                let [a, b, c, d, ..] = *digest.as_bytes();
+                PieceKey::from_raw(PIECE_SOURCE_KEYS | u32::from_le_bytes([a, b, c, d]))
+            }
+        }
+    }
+
+    pub fn image_source(&self, key: PieceKey) -> Option<FeatureId> {
+        self.bodies()
+            .find(|source| Self::image_key(*source) == key)
+            .or_else(|| {
+                (key.raw() < PIECE_SOURCE_KEYS).then(|| FeatureId::from_raw(key.raw().into()))
+            })
+    }
+
+    pub(crate) fn settle(&mut self) {
+        let mut mirrored = BTreeSet::new();
+        self.mirrored.retain(|feature| mirrored.insert(*feature));
+        let mut seen = BTreeSet::from([self.body]);
+        self.more_bodies.retain(|more| seen.insert(*more));
+        if !self.mirrors_whole_body() {
+            self.more_bodies.clear();
+        }
+    }
+
     pub fn heap_size(&self) -> usize {
         self.plane.heap_size()
+            + self.more_bodies.len() * size_of::<FeatureId>()
             + self.mirrored.len() * size_of::<FeatureId>()
             + size_of_val(self.faces.as_slice())
             + self
@@ -126,6 +191,7 @@ impl Mirror {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+        used.extend(self.more_bodies.iter().copied());
         used.extend(self.mirrored.iter().copied());
         used.extend(self.plane.datum());
         used.extend(self.plane.body());
@@ -138,7 +204,63 @@ struct Context<'a> {
     body_name: String,
 }
 
-impl Context<'_> {
+impl<'a> Context<'a> {
+    fn of(feature: &'a Feature, inputs: &'a Inputs<'a>, body: FeatureId) -> Self {
+        Self {
+            resolver: Resolver { feature, inputs },
+            body_name: inputs.document.body_label(body).unwrap_or_default(),
+        }
+    }
+
+    fn source(&self, body: FeatureId) -> Result<&'a Solid, Failure> {
+        self.resolver.inputs.body(body).ok_or_else(|| {
+            Failure::from(
+                FeatureError::new(Upstream::BodyShapeless {
+                    body: self.body_name.clone(),
+                })
+                .fixing(FixTarget::Feature(body)),
+            )
+        })
+    }
+
+    fn image_owner(&self, definition: &Mirror, source: FeatureId) -> Result<FeatureId, Failure> {
+        let feature = self.resolver.feature;
+        match definition.outcome {
+            MirrorOutcome::NewBody if definition.makes_a_body_of_each_image() => feature
+                .id()
+                .piece(Mirror::image_key(source))
+                .ok_or_else(|| {
+                    self.error(MirrorCause::ImagesTooMany {
+                        mirror: feature.name.clone(),
+                    })
+                }),
+            MirrorOutcome::NewBody => Ok(feature.id()),
+            MirrorOutcome::AddToBody | MirrorOutcome::Replace => Ok(source),
+        }
+    }
+
+    fn reflect_body(
+        &self,
+        outcome: MirrorOutcome,
+        solid: &Solid,
+        image: &PatternCopy,
+    ) -> Result<Solid, Failure> {
+        let raw = self.resolver.feature.id().raw();
+        let copies = std::slice::from_ref(image);
+        match outcome {
+            MirrorOutcome::AddToBody => pattern(solid, copies, raw).map_err(|error| {
+                self.pattern_failure(&error)
+                    .placed(trouble::union_place(&error))
+            }),
+            MirrorOutcome::NewBody => pattern_copies(solid, copies, raw)
+                .map_err(|error| self.pattern_failure(&error))?
+                .ok_or_else(|| self.unbuildable(&"the image is empty")),
+            MirrorOutcome::Replace => solid
+                .mapped(&image.placement)
+                .map_err(|error| self.transform_failure(&error)),
+        }
+    }
+
     fn error(&self, cause: MirrorCause) -> Failure {
         Failure::from(
             FeatureError::new(cause).fixing(FixTarget::Feature(self.resolver.feature.id())),
@@ -462,6 +584,12 @@ pub(crate) enum MirrorCause {
         cutting: bool,
         trouble: Trouble,
     },
+    ImagesTooMany {
+        mirror: String,
+    },
+    ImagesAlike {
+        mirror: String,
+    },
 }
 
 impl MirrorCause {
@@ -546,6 +674,13 @@ impl MirrorCause {
             } else {
                 format!("The mirror image of {name} could not be joined to the body of {body}.")
             }),
+            Self::ImagesTooMany { mirror } => {
+                format!("The images of {mirror} cannot each become a body in a model this large.")
+            }
+            Self::ImagesAlike { mirror } => format!(
+                "Two of the bodies {mirror} mirrors cannot be told apart, so their images cannot \
+                 each become a body."
+            ),
         }
     }
 
@@ -574,6 +709,10 @@ impl MirrorCause {
             Self::FacesUncombined { trouble, .. } | Self::ImageUncombined { trouble, .. } => {
                 trouble.remedy()
             }
+            Self::ImagesTooMany { .. } | Self::ImagesAlike { .. } => {
+                "Mirror these bodies in separate mirrors, or join each image to its body."
+                    .to_owned()
+            }
         }
     }
 }
@@ -590,62 +729,46 @@ pub(crate) fn evaluate(
     inputs: &Inputs<'_>,
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
-    let body_name = inputs
-        .document
-        .body_label(definition.body)
-        .unwrap_or_default();
-    let context = Context {
-        resolver: Resolver { feature, inputs },
-        body_name,
-    };
+    let context = Context::of(feature, inputs, definition.body);
     let plane = context.resolver.plane(&definition.plane)?;
     let reflection = Similarity::reflection(&plane)
         .ok_or_else(|| context.unbuildable(&"the plane has no direction"))?;
-    let Some(solid) = inputs.body(definition.body) else {
-        return Err(Failure::from(
-            FeatureError::new(Upstream::BodyShapeless {
-                body: context.body_name.clone(),
-            })
-            .fixing(FixTarget::Feature(definition.body)),
-        ));
-    };
-    if cancel.is_cancelled() {
-        return Err(Failure::Cancelled);
-    }
     let image = PatternCopy {
         index: MIRROR_IMAGE,
         placement: reflection,
     };
-    if definition.mirrors_features() {
-        return context
-            .reflect_features(definition, solid, image, cancel)
-            .map(FeatureResult::Solid);
-    }
-    if definition.mirrors_faces() {
-        return context
-            .reflect_faces(definition, solid, image, cancel)
-            .map(FeatureResult::Solid);
-    }
-    let result = match definition.outcome {
-        MirrorOutcome::AddToBody => {
-            pattern(solid, &[image], feature.id().raw()).map_err(|error| {
-                context
-                    .pattern_failure(&error)
-                    .placed(trouble::union_place(&error))
-            })?
+    if definition.mirrors_features() || definition.mirrors_faces() {
+        let solid = context.source(definition.body)?;
+        if cancel.is_cancelled() {
+            return Err(Failure::Cancelled);
         }
-        MirrorOutcome::NewBody => {
-            let image = pattern_copies(solid, &[image], feature.id().raw())
-                .map_err(|error| context.pattern_failure(&error))?
-                .ok_or_else(|| context.unbuildable(&"the image is empty"))?;
-            return Ok(FeatureResult::Solid(SolidResult::new(feature.id(), image)));
+        let reflected = if definition.mirrors_features() {
+            context.reflect_features(definition, solid, image, cancel)
+        } else {
+            context.reflect_faces(definition, solid, image, cancel)
+        };
+        return reflected.map(FeatureResult::Solid);
+    }
+    let mut owners = BTreeSet::new();
+    let mut results = Vec::new();
+    for source in definition.bodies() {
+        let context = Context::of(feature, inputs, source);
+        let solid = context.source(source)?;
+        if cancel.is_cancelled() {
+            return Err(Failure::Cancelled);
         }
-        MirrorOutcome::Replace => solid
-            .mapped(&image.placement)
-            .map_err(|error| context.transform_failure(&error))?,
-    };
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        result,
-    )))
+        let owner = context.image_owner(definition, source)?;
+        if !owners.insert(owner) {
+            return Err(context.error(MirrorCause::ImagesAlike {
+                mirror: feature.name.clone(),
+            }));
+        }
+        let built = context.reflect_body(definition.outcome, solid, &image)?;
+        results.push(SolidResult::new(owner, built));
+    }
+    let mut results = results.into_iter();
+    let first = results
+        .next()
+        .ok_or_else(|| context.unbuildable(&"there is no body to mirror"))?;
+    Ok(FeatureResult::Solid(first.with_others(results)))
 }

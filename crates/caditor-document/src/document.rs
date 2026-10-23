@@ -413,7 +413,10 @@ impl FeatureKind {
             Self::Move(movement) => used.extend(movement.axis_body()),
             Self::Mate(mate) => used.extend(mate.bodies()),
             Self::Combine(combine) => used.extend(combine.tools()),
-            Self::Mirror(mirror) => used.extend(mirror.plane.body()),
+            Self::Mirror(mirror) => {
+                used.extend(mirror.bodies());
+                used.extend(mirror.plane.body());
+            }
             Self::Split(split) => used.extend(split.along.body()),
             Self::SplitFace(split) => {
                 used.extend(split.along.body());
@@ -1752,7 +1755,10 @@ impl Feature {
     }
 
     pub fn separates_pieces(&self) -> bool {
-        self.pieces == Pieces::BodyEach && self.can_separate_pieces()
+        match &self.kind {
+            FeatureKind::Mirror(mirror) => mirror.makes_a_body_of_each_image(),
+            _ => self.pieces == Pieces::BodyEach && self.can_separate_pieces(),
+        }
     }
 
     pub fn can_separate_pieces(&self) -> bool {
@@ -1822,8 +1828,12 @@ impl Feature {
             .kind
             .solid()
             .map_or(&[][..], SolidFeature::other_bodies);
+        let mirrored = match &self.kind {
+            FeatureKind::Mirror(mirror) => mirror.changed_bodies(),
+            _ => Vec::new(),
+        };
         let mut bodies: Vec<FeatureId> = self.body().into_iter().chain(made_apart).collect();
-        for body in cut_too {
+        for body in cut_too.iter().chain(&mirrored) {
             if !bodies.contains(body) {
                 bodies.push(*body);
             }
@@ -1956,6 +1966,10 @@ impl Document {
             .and_then(|appearance| appearance.name.as_deref())
         {
             return Some(Cow::Borrowed(own));
+        }
+        if let Some(source) = self.image_source(body) {
+            let source = self.body_label(source).unwrap_or_default();
+            return Some(Cow::Owned(format!("{} (image of {source})", feature.name)));
         }
         Some(Cow::Owned(match self.piece_curve(body) {
             Some(curve) => format!("{} ({curve})", feature.name),

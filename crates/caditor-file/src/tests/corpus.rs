@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 62] = [
+const KEPT: [(&str, &str); 63] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -191,6 +191,10 @@ const KEPT: [(&str, &str); 62] = [
     (
         "model-1/mirrored-bodies.caditor",
         "e297a90850dbadb84ef3f4fb786a12855818f0098f32ac2cbe0621557c9b865f",
+    ),
+    (
+        "model-1/mirrored-several-bodies.caditor",
+        "5efd5527146e63cd00fb3ffa2ab359dd8413ff2750f75c6976226c64d98ca0f0",
     ),
     (
         "model-1/modelled-threads.caditor",
@@ -921,6 +925,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("mirrored-bodies"),
             saved(&mirrored_bodies(), "Mirrored bodies"),
+        ),
+        (
+            model("mirrored-several-bodies"),
+            saved(&mirrored_several_bodies(), "Mirrored several bodies"),
         ),
         (model("patterns"), saved(&patterns(), "Patterns")),
         (
@@ -3219,6 +3227,29 @@ fn mirrored_bodies() -> Document {
             Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
                 .with_outcome(MirrorOutcome::NewBody)
                 .mirroring_faces(vec![end_cap(0xbeef)]),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn mirrored_several_bodies() -> Document {
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Mirrored several bodies");
+    let copy = transaction.add_feature("Copy", moved(base, true, TurnCentre::Origin));
+    transaction.add_feature(
+        "Mirror both as new bodies",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Yz))
+                .with_more_bodies(vec![copy])
+                .with_outcome(MirrorOutcome::NewBody),
+        ),
+    );
+    transaction.add_feature(
+        "Mirror both onto themselves",
+        FeatureKind::Mirror(
+            Mirror::new(base, PlaneReference::Principal(PrincipalPlane::Xz))
+                .with_more_bodies(vec![copy]),
         ),
     );
     document.apply(transaction.finish()).unwrap();

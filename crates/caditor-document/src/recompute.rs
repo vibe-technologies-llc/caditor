@@ -35,7 +35,8 @@ use crate::{
     lookahead::Lookahead,
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
-    mirror, move_face, movement, offset_face, pattern, pipe,
+    mirror::{self, Mirror},
+    move_face, movement, offset_face, pattern, pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
@@ -501,6 +502,9 @@ impl<'a> Inputs<'a> {
         body.piece_key()?;
         let maker = self.document.body_maker(body)?;
         let made = self.features.get(&maker.id())?;
+        if let FeatureKind::Mirror(mirror) = &maker.kind {
+            return self.missing_image(maker, mirror, made, body);
+        }
         let curve = self
             .document
             .piece_curve(body)
@@ -531,6 +535,35 @@ impl<'a> Inputs<'a> {
                 None => error,
             }
         })
+    }
+}
+
+impl Inputs<'_> {
+    fn missing_image(
+        &self,
+        maker: &Feature,
+        mirror: &Mirror,
+        made: &Arc<FeatureResult>,
+        body: FeatureId,
+    ) -> Option<FeatureError> {
+        let source = self
+            .document
+            .image_source(body)
+            .and_then(|source| self.document.body_label(source));
+        let error = if !mirror.makes_a_body_of_each_image() {
+            Upstream::ImagesJoined {
+                maker: maker.name.clone(),
+                source,
+            }
+        } else if body_part(made, body).is_none() {
+            Upstream::ImageGone {
+                maker: maker.name.clone(),
+                source,
+            }
+        } else {
+            return None;
+        };
+        Some(FeatureError::new(error).fixing(FixTarget::Feature(maker.id())))
     }
 }
 

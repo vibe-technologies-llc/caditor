@@ -81,6 +81,7 @@ fn scaling_about_a_point_off_a_mirror_plane_moves_the_mirror_onto_new_datums() {
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
             body,
+            more_bodies: Vec::new(),
             plane: PlaneReference::Principal(PrincipalPlane::Yz),
             outcome: MirrorOutcome::AddToBody,
             mirrored: Vec::new(),

@@ -9479,6 +9479,7 @@ fn mirrored_model(plane: PlaneReference, outcome: MirrorOutcome) -> (Document, F
         "Mirror 1",
         FeatureKind::Mirror(Mirror {
             body: base,
+            more_bodies: Vec::new(),
             plane,
             outcome,
             mirrored: Vec::new(),

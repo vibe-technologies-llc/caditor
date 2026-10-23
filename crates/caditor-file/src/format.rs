@@ -344,6 +344,7 @@ pub(crate) enum FeatureKindRecord {
     Emboss(Box<EmbossRecord>),
     ReplaceFace(Box<ReplaceFaceRecord>),
     MirrorNewBody(MirrorNewBodyRecord),
+    MirrorSeveral(Box<MirrorSeveralRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1024,6 +1025,12 @@ pub(crate) struct SteppedHoleRecord {
 pub(crate) struct HoleStepRecord {
     pub diameter: String,
     pub depth: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MirrorSeveralRecord {
+    pub feature: FeatureKindRecord,
+    pub bodies: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4759,6 +4766,14 @@ fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
             keep_original: outcome.keeps_original(),
         }),
     };
+    let whole = if mirror.more_bodies.is_empty() {
+        whole
+    } else {
+        FeatureKindRecord::MirrorSeveral(Box::new(MirrorSeveralRecord {
+            feature: whole,
+            bodies: mirror.more_bodies.iter().map(|body| body.raw()).collect(),
+        }))
+    };
     let features = if mirror.mirrored.is_empty() {
         whole
     } else {
@@ -6675,6 +6690,26 @@ fn restore_kind(
                 }
                 _ => issues.push(format!(
                     "“{name}” listed features to mirror, but it is not a mirror, so they were \
+                     left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::MirrorSeveral(several) => {
+            let mut kind = restore_kind(&several.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Mirror(mirror) => {
+                    let mut seen = BTreeSet::from([mirror.body]);
+                    mirror.more_bodies = several
+                        .bodies
+                        .iter()
+                        .copied()
+                        .map(FeatureId::from_raw)
+                        .filter(|body| seen.insert(*body))
+                        .collect();
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed other bodies to mirror, but it is not a mirror, so they were \
                      left out."
                 )),
             }

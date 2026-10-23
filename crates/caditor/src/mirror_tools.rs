@@ -8,6 +8,7 @@ use caditor_kernel::FaceReference;
 
 use crate::{
     bodies::{self, FaceKey},
+    body_selection,
     commands::{Command, Reason},
     datum_tools,
     editing::{self, EditingCommand},
@@ -15,6 +16,7 @@ use crate::{
     model::{Action, Model},
     move_tools, pattern_tools,
     queued::{self, Pending},
+    reference_picking::{Picking, Slot},
     selection::{Pickable, Selection},
 };
 
@@ -49,6 +51,18 @@ pub enum MirrorToolError {
     Already,
     #[error("The feature no longer exists")]
     FeatureGone,
+    #[error("Select a face, edge or corner of a body to mirror")]
+    NoBodySelected,
+    #[error("The mirror already mirrors every selected body")]
+    AlreadyBodies,
+    #[error("{name} is made after the mirror, so it cannot be mirrored by it")]
+    LaterBody { name: String },
+    #[error("That is an image this mirror makes, so it cannot be mirrored by it")]
+    OwnImage,
+    #[error("The mirror needs a body; add another body before leaving this one out")]
+    LastBody,
+    #[error("Only a mirror of whole bodies takes more bodies")]
+    NotWholeBodies,
     #[error(transparent)]
     ChosenPlane(datum_tools::OneChoiceError),
     #[error(transparent)]
@@ -80,6 +94,7 @@ pub struct MirrorSource {
     pub also: Vec<FeatureId>,
     pub plane: Option<PlaneReference>,
     pub mirrored: Vec<FeatureId>,
+    pub guessed: bool,
 }
 
 impl MirrorSource {
@@ -228,6 +243,14 @@ pub fn bodies_hover(document: &Document, source: &MirrorSource) -> String {
     hover(document, source, format!("{count} bodies"))
 }
 
+pub fn guessed_hover(document: &Document, source: &MirrorSource) -> String {
+    let body = document.body_label(source.body).unwrap_or_default();
+    format!(
+        "{}; with nothing selected it starts with {body} and lets you click the bodies to mirror",
+        hover(document, source, body.clone())
+    )
+}
+
 fn hover(document: &Document, source: &MirrorSource, subject: String) -> String {
     match &source.plane {
         Some(plane) => format!(
@@ -250,9 +273,16 @@ pub fn source(
     let chosen = datum_tools::chosen_plane(model, selection, document.bar_index())
         .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
-    let (bodies, mirrored) = match pattern_tools::repeatable(document, rows) {
-        Some((body, features)) => (vec![body], features),
-        None => (
+    let nothing_named = tree.is_empty()
+        && face.is_none()
+        && selection.iter().all(|pickable| pickable.body().is_none());
+    let guess = nothing_named
+        .then(|| pattern_tools::last_body(model))
+        .flatten();
+    let (bodies, mirrored) = match (pattern_tools::repeatable(document, rows), guess) {
+        (Some((body, features)), _) => (vec![body], features),
+        (None, Some(body)) => (vec![body], Vec::new()),
+        (None, None) => (
             move_tools::chosen_bodies_beside(model, selection, tree, face, NO_BODY)?,
             Vec::new(),
         ),
@@ -265,57 +295,134 @@ pub fn source(
         body,
         also: bodies.collect(),
         plane: chosen.map(|chosen| chosen.plane),
+        guessed: guess.is_some() && mirrored.is_empty(),
         mirrored,
     })
 }
 
 pub fn create(document: &Document, source: &MirrorSource) -> (Transaction, FeatureId) {
-    let title = if source.mirrored.is_empty() {
-        TITLE
+    let (title, outcome, more) = if source.mirrored.is_empty() {
+        (TITLE, NEW_MIRROR_OUTCOME, source.also.clone())
     } else {
-        FEATURES_TITLE
+        (FEATURES_TITLE, MirrorOutcome::AddToBody, Vec::new())
     };
-    let bodies: Vec<FeatureId> = std::iter::once(source.body)
-        .chain(source.also.iter().copied())
-        .collect();
-    let mut names = editing::next_feature_names(document, title, bodies.len()).into_iter();
-    let first = names
-        .next()
-        .unwrap_or_else(|| editing::next_feature_name(document, title));
-    let label = match bodies.len() {
-        1 => format!("Create {first}"),
-        count => format!("Create {count} mirrors"),
-    };
-    let plane = source.plane.clone().unwrap_or(DEFAULT_PLANE);
-    let outcome = if source.mirrored.is_empty() {
-        NEW_MIRROR_OUTCOME
-    } else {
-        MirrorOutcome::AddToBody
-    };
-    let mut transaction = document.transaction(label);
+    let name = editing::next_feature_name(document, title);
+    let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
-        first,
+        name,
         FeatureKind::Mirror(
-            Mirror::new(source.body, plane.clone())
+            Mirror::new(source.body, source.plane.clone().unwrap_or(DEFAULT_PLANE))
+                .with_more_bodies(more)
                 .with_outcome(outcome)
                 .mirroring(source.mirrored.clone()),
         ),
     );
-    for (body, name) in source.also.iter().zip(names) {
-        transaction.add_feature(
-            name,
-            FeatureKind::Mirror(Mirror::new(*body, plane.clone()).with_outcome(NEW_MIRROR_OUTCOME)),
-        );
-    }
     (transaction.finish(), feature)
 }
 
 pub fn create_actions(model: &Model, source: &MirrorSource) -> Vec<Action> {
     let (transaction, feature) = create(model.document(), source);
-    vec![
+    let mut actions = vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
-    ]
+    ];
+    if source.guessed {
+        actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
+            feature,
+            Slot::MirrorBodies,
+        ))));
+    }
+    actions
+}
+
+pub fn with_bodies(mirror: &Mirror, bodies: Vec<FeatureId>) -> Option<Mirror> {
+    let mut bodies = bodies.into_iter();
+    let body = bodies.next()?;
+    Some(Mirror {
+        body,
+        more_bodies: bodies.collect(),
+        ..mirror.clone()
+    })
+}
+
+fn checked_body(
+    model: &Model,
+    feature: FeatureId,
+    body: FeatureId,
+) -> Result<FeatureId, MirrorToolError> {
+    let document = model.document();
+    if body.maker() == feature {
+        return Err(MirrorToolError::OwnImage);
+    }
+    if document
+        .bodies_before_in(feature, model.evaluation())
+        .contains(&body)
+    {
+        Ok(body)
+    } else {
+        Err(MirrorToolError::LaterBody {
+            name: document.body_label(body).unwrap_or_default(),
+        })
+    }
+}
+
+pub fn added_bodies(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    mirror: &Mirror,
+) -> Result<Transaction, MirrorToolError> {
+    if !mirror.mirrors_whole_body() {
+        return Err(MirrorToolError::NotWholeBodies);
+    }
+    let selected = body_selection::bodies_in(selection);
+    if selected.is_empty() {
+        return Err(MirrorToolError::NoBodySelected);
+    }
+    let mut bodies: Vec<FeatureId> = mirror.bodies().collect();
+    for body in selected {
+        if !bodies.contains(&body) {
+            bodies.push(checked_body(model, feature, body)?);
+        }
+    }
+    if bodies.len() == mirror.bodies().count() {
+        return Err(MirrorToolError::AlreadyBodies);
+    }
+    let changed = with_bodies(mirror, bodies).ok_or(MirrorToolError::LastBody)?;
+    change(model, feature, changed)
+}
+
+pub fn toggled_body(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    mirror: &Mirror,
+) -> Result<Transaction, MirrorToolError> {
+    if !mirror.mirrors_whole_body() {
+        return Err(MirrorToolError::NotWholeBodies);
+    }
+    let clicked = match body_selection::bodies_in(selection).as_slice() {
+        [body] => *body,
+        _ => return Err(MirrorToolError::NoBodySelected),
+    };
+    if mirror.bodies().any(|body| body == clicked) {
+        return without_body(model, feature, mirror, clicked);
+    }
+    let mut bodies: Vec<FeatureId> = mirror.bodies().collect();
+    bodies.push(checked_body(model, feature, clicked)?);
+    let changed = with_bodies(mirror, bodies).ok_or(MirrorToolError::LastBody)?;
+    change(model, feature, changed)
+}
+
+pub fn without_body(
+    model: &Model,
+    feature: FeatureId,
+    mirror: &Mirror,
+    body: FeatureId,
+) -> Result<Transaction, MirrorToolError> {
+    let kept: Vec<FeatureId> = mirror.bodies().filter(|kept| *kept != body).collect();
+    let changed = with_bodies(mirror, kept).ok_or(MirrorToolError::LastBody)?;
+    change(model, feature, changed)
 }
 
 pub fn edit(document: &Document, feature: FeatureId, mirror: Mirror) -> Option<Transaction> {
