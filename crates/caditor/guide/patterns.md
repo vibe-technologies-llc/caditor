@@ -67,6 +67,12 @@ chosen.
   front: the original at the bottom left, the first direction running to the right and the second
   upwards (reversing a direction flips it). Uncheck a box, or click a copy in the view, to leave it
   out; a point pattern leaves out a copy you click and **Bring the copies back** returns them.
+- **Result**, for a pattern of the whole body: **Add to body** joins the copies to the body,
+  making one body; **New bodies** leaves the body as it is and makes each copy a body of its own,
+  listed under Bodies and named after its place ("Linear pattern 1 (copy 2)"), which you can move,
+  colour, fillet or combine like any other body. Leaving a copy out, or lowering the count, removes
+  its body, and features that used it fail saying so; a pattern whose copies later features use
+  cannot be set back to Add to body.
 
 Counts and spacings take [expressions](expressions). See also
 [patterns in a sketch](sketch-patterns).

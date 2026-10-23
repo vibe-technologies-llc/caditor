@@ -11,8 +11,8 @@ use super::{
     rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
 };
 use crate::{
-    mate_panel, mirror_panel, mirror_tools, model::Action, selection::Pickable, solid_panel,
-    split_panel,
+    mate_panel, mirror_panel, mirror_tools, model::Action, pattern_panel, selection::Pickable,
+    solid_panel, split_panel,
 };
 
 fn any_edge(harness: &Harness, body: FeatureId) -> Pickable {
@@ -783,4 +783,51 @@ fn a_flat_face_is_mated_resting_on_a_sphere_of_another_body_from_the_palette() {
     harness.settle();
     let (low, _) = plate_bounds(&harness, peg);
     assert!(low.z.abs() < 1e-6, "{low:?}");
+}
+
+#[test]
+fn a_pattern_makes_a_body_of_each_copy_from_its_result_row_and_undo_joins_them_again() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    let copies = harness.model.evaluation().pieces_made_by(pattern).len();
+    let joined = harness.model.evaluation().body(plate).map(|_| ());
+    assert!(harness.shows(pattern_panel::RESULT));
+    assert!(copies == 0 && joined.is_some());
+
+    choose(
+        &mut harness,
+        pattern_panel::ADD_TO_BODY,
+        pattern_panel::NEW_BODIES,
+    );
+
+    let copies = harness.model.evaluation().pieces_made_by(pattern);
+    assert_eq!(harness.model.undo_label(), Some("Edit Linear pattern 1"));
+    assert!(!copies.is_empty());
+    assert!(volume_about(&harness, plate, 16000.0));
+    for copy in &copies {
+        assert!(volume_about(&harness, *copy, 16000.0));
+    }
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(
+        harness
+            .model
+            .evaluation()
+            .pieces_made_by(pattern)
+            .is_empty()
+    );
+    assert!(volume_about(
+        &harness,
+        plate,
+        16000.0 * (copies.len() + 1) as f64
+    ));
 }

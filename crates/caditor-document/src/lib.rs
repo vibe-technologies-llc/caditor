@@ -181,8 +181,8 @@ pub use crate::{
     pattern::{
         CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Instance, LinearDirection,
         LinearSpacing, MAX_PATTERN_INSTANCES, ORIGINAL_INSTANCE, Pattern, PatternKind,
-        PointsPattern, instance_name, instance_point, point_copy_name, point_instance,
-        repeatable_on,
+        PatternOutcome, PointsPattern, instance_name, instance_point, point_copy_name,
+        point_instance, repeatable_on,
     },
     pattern_path::{CopyStop, PathError, PatternPath, is_curve_path},
     picture::{

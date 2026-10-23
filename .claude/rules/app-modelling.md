@@ -1270,8 +1270,16 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`BodyInUse`). Its Bodies rows (`mirror_panel::BODIES`, whole-body mirrors only; otherwise a
   plain Body row) list each body with Stop mirroring this body (`mirror_tools::without_body`, the
   last one disabled), Use selected (`added_bodies`) and Choose in the view on `Slot::MirrorBodies`,
-  which keeps choosing: a click on a body adds it or leaves it out (`toggled_body`); a body made at
-  or after the mirror (`LaterBody`) or one of its own images (`OwnImage`) is refused in words.
+  which keeps choosing: a click on a body adds it or leaves it out (`toggled_body`), a click on a
+  plane makes it the mirror's plane (`chosen_body_or_plane`); a body made at or after the mirror
+  (`LaterBody`) or one of its own images (`OwnImage`) is refused in words.
+- The principal geometry shows while bodies are chosen for a mirror (`is_choosing_mirrored`,
+  `Slot::MirrorBodies` taking principal geometry) and while a whole-body mirror is open
+  (`visibility::principal_needed`), so its plane can be clicked: while choosing the first body a
+  click on a plane (`mirror_tools::names_a_plane`, any principal, datum or coordinate system plane
+  `chosen_plane` takes, no face) selects it as any click does and the body click mirrors across it;
+  on an open whole-body mirror with nothing being chosen it sets the plane
+  (`mirror_tools::plane_click`, through `plane_change`, the same plane again doing nothing).
 - With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror body
   mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N"; its Mirrors rows
   list them and Mirror the chosen features takes the rows chosen now; it adds to the body
@@ -1413,8 +1421,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   a point pattern's Base point takes a point as a datum point does (`Slot::PatternBase`) and, as its
   copies are named by point, it has no instance grid but a line counting the copies left out with Bring
   the copies back. Reverse the direction refuses a point pattern in words.
+- Result (`pattern_panel::RESULT`, a `feature_fields::segmented_row` before Body, hidden while the
+  pattern repeats features) chooses Add to body or New bodies (`PatternOutcome`), each one "Edit
+  <pattern>" change; leaving New bodies while a later feature uses a copy is refused in a notice
+  (`BodyInUse`).
 - While a pattern is open, a click on a face of one of its copies (`FaceOrigin::Copy` of this pattern,
-  found through the shown body's result, `pattern_tools::clicked_copy`) leaves that copy out as the
+  found through the shown body's result, the patterned body or one of the pattern's own copy
+  bodies, `pattern_tools::clicked_copy`) leaves that copy out as the
   grid would, and hovering says so; other clicks select as usual. A copy left out is no longer drawn, so
   the grid or Undo brings it back.
 
@@ -1443,7 +1456,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `Command::ShowPrincipalWhenNeeded`, a View menu and palette toggle) tucks away the principal
   geometry the model has not hidden once a body stands at the bar (`visibility::has_body`), except
   while it is needed (`visibility::principal_needed`): New sketch choosing its plane, the sketch
-  Intersect or Project tool, Measure open, an open datum or coordinate system, a slot being chosen in
+  Intersect or Project tool, Measure open, an open datum, coordinate system or whole-body mirror,
+  bodies being chosen for a mirror, a slot being chosen in
   the view that takes a plane, axis or point (`Slot::takes_principal_geometry`, an exhaustive match
   each new slot must answer), or an open plane or axis list (`feature_fields::principal_combo`,
   published through egui temp data and read next frame, `visibility::take_listing`). Selected

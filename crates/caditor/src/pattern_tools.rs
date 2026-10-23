@@ -438,7 +438,7 @@ pub fn clicked_copy(model: &Model, open: FeatureId, pickable: Pickable) -> Optio
     let FeatureKind::Pattern(pattern) = &model.document().feature(open)?.kind else {
         return None;
     };
-    if pattern.body != body {
+    if pattern.body != body && body.maker() != open {
         return None;
     }
     let result = model.evaluation().body_result(body)?.solid()?;

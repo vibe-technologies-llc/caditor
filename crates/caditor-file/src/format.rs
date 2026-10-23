@@ -20,16 +20,16 @@ use caditor_document::{
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
     MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, ModelProperties,
     ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace,
-    Parameter, ParameterOwner, Pattern, PatternKind, PieceKey, PieceLooks, PieceStandIns, Pieces,
-    Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference,
-    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
-    PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice, Remove,
-    ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide,
-    RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
-    untwisted, view_name,
+    Parameter, ParameterOwner, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks,
+    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
+    Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
+    RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText,
+    Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
+    ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name,
+    unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -345,6 +345,7 @@ pub(crate) enum FeatureKindRecord {
     ReplaceFace(Box<ReplaceFaceRecord>),
     MirrorNewBody(MirrorNewBodyRecord),
     MirrorSeveral(Box<MirrorSeveralRecord>),
+    PatternNewBodies(Box<PatternNewBodiesRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1025,6 +1026,11 @@ pub(crate) struct SteppedHoleRecord {
 pub(crate) struct HoleStepRecord {
     pub diameter: String,
     pub depth: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PatternNewBodiesRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4724,6 +4730,14 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
             }))
         }
     };
+    let record = match pattern.outcome {
+        PatternOutcome::AddToBody => record,
+        PatternOutcome::NewBodies => {
+            FeatureKindRecord::PatternNewBodies(Box::new(PatternNewBodiesRecord {
+                feature: record,
+            }))
+        }
+    };
     if pattern.repeated.is_empty() {
         return record;
     }
@@ -6691,6 +6705,17 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” listed features to mirror, but it is not a mirror, so they were \
                      left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::PatternNewBodies(apart) => {
+            let mut kind = restore_kind(&apart.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Pattern(pattern) => pattern.outcome = PatternOutcome::NewBodies,
+                _ => issues.push(format!(
+                    "“{name}” made a body of each copy, but it is not a pattern, so that was left \
+                     out."
                 )),
             }
             kind

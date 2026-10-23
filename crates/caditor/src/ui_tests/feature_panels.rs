@@ -1049,6 +1049,7 @@ fn a_circular_pattern_waiting_for_its_axis_reads_none_chosen_and_its_callout_off
     let told = harness.shows("Waiting for an axis");
     let asked =
         harness.shows("Choose an axis, straight edge or round face for the copies to turn about.");
+    harness.hold_still();
     harness.click(CHOOSE_IN_VIEW);
     harness.settle();
 

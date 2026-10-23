@@ -375,6 +375,11 @@ Patterns:
   (the point's id plus one, in two words). Unreadable values 1 or 10 mm, base the origin.
 - `feature_pattern`: `repeated`, ids of the features repeated in tree order (repeated id kept
   once).
+- `pattern_new_bodies`: a wrapper around any pattern record (`feature`), written for a pattern whose
+  `outcome` is `NewBodies` (inside `feature_pattern` when it also repeats features), so an older
+  reader reports it as from a newer version instead of joining the copies that later features'
+  copy bodies would not find; a wrapped kind that is not a pattern loads without it, reported. The
+  corpus holds it in `patterned-bodies.caditor`.
 
 Splits and faces:
 

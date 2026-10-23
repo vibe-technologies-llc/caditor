@@ -281,6 +281,21 @@ impl Document {
         }
     }
 
+    pub fn pattern_copy(&self, body: FeatureId) -> Option<String> {
+        let key = body.piece_key()?;
+        let FeatureKind::Pattern(pattern) = &self.body_maker(body)?.kind else {
+            return None;
+        };
+        let sketch = pattern
+            .kind
+            .sketch()
+            .and_then(|sketch| self.feature(sketch))
+            .and_then(|sketch| sketch.kind.sketch());
+        pattern
+            .copy_instance(key, sketch)
+            .map(|instance| pattern.instance_words(instance))
+    }
+
     pub fn piece_curve(&self, body: FeatureId) -> Option<String> {
         let key = body.piece_key()?;
         let maker = self.body_maker(body)?;

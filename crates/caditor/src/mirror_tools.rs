@@ -13,7 +13,7 @@ use crate::{
     datum_tools,
     editing::{self, EditingCommand},
     field::{self, CheckError},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     move_tools, pattern_tools,
     queued::{self, Pending},
     reference_picking::{Picking, Slot},
@@ -250,7 +250,8 @@ pub fn bodies_hover(document: &Document, source: &MirrorSource) -> String {
 
 pub const CHOOSE_BODIES_HOVER: &str =
     "Mirror the bodies you click in the view across a plane; select a body first to start from it";
-pub const CHOOSE_BODIES_PROMPT: &str = "Click a body to mirror";
+pub const CHOOSE_BODIES_PROMPT: &str =
+    "Click a body to mirror, after a plane to mirror it across if not YZ";
 
 fn hover(document: &Document, source: &MirrorSource, subject: String) -> String {
     match &source.plane {
@@ -434,6 +435,47 @@ pub fn added_bodies(
     }
     let changed = with_bodies(mirror, bodies).ok_or(MirrorToolError::LastBody)?;
     change(model, feature, changed)
+}
+
+pub fn names_a_plane(model: &Model, pickable: Pickable) -> bool {
+    if pickable.body().is_some() {
+        return false;
+    }
+    let mut clicked = Selection::default();
+    clicked.toggle(pickable);
+    datum_tools::chosen_plane(model, &clicked, model.document().bar_index())
+        .ok()
+        .flatten()
+        .is_some_and(|chosen| chosen.face.is_none())
+}
+
+pub fn plane_click(model: &Model, feature: FeatureId, pickable: Pickable) -> Option<Vec<Action>> {
+    let FeatureKind::Mirror(mirror) = &model.document().feature(feature)?.kind else {
+        return None;
+    };
+    if !mirror.mirrors_whole_body() || !names_a_plane(model, pickable) {
+        return None;
+    }
+    let mut clicked = Selection::default();
+    clicked.toggle(pickable);
+    Some(match plane_change(model, &clicked, feature, mirror) {
+        Ok(transaction) => vec![Action::Apply(transaction)],
+        Err(MirrorToolError::Already) => Vec::new(),
+        Err(reason) => vec![Action::Inform(Notice::warning(reason.to_string()))],
+    })
+}
+
+pub fn chosen_body_or_plane(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    mirror: &Mirror,
+) -> Result<Transaction, MirrorToolError> {
+    if body_selection::bodies_in(selection).is_empty() {
+        plane_change(model, selection, feature, mirror)
+    } else {
+        toggled_body(model, selection, feature, mirror)
+    }
 }
 
 pub fn toggled_body(

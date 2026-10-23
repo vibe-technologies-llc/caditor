@@ -1404,6 +1404,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`. It changes its body but is not `modifies_body` (the app shows the
   patterned body while open).
+- `outcome` (`PatternOutcome`): `AddToBody` (`Pattern::new`'s) as above; `NewBodies` of a whole-body
+  pattern (`Pattern::makes_bodies`, ignored while it repeats features) leaves the body alone and
+  makes a body of each copy made (kernel `pattern_copies` of that copy alone, faces `Copy` of the
+  pattern as when joined): `makes_body`, `Feature::body` is the pattern and
+  `Feature::separates_pieces` answers for it, each copy a piece keyed by its instance
+  (`Pattern::copy_key`: both steps below 2^15 packed as `along | across << 15`, any other a blake3
+  digest of them with the top bit set; `copy_instance` reads a key back, a point pattern's digest
+  through its sketch's points; two alike fail as `CopiesAlike`), sorted by key, named
+  "<pattern> (<copy words>)" (`Document::pattern_copy`). Every copy left out fails it as `NoCopies`.
+  A copy left out or past the count fails its users (`Upstream::CopyGone`), a pattern no longer
+  making bodies `CopiesJoined`; starting or stopping while a copy is used is `BodyInUse` or
+  `PiecesInUse`.
 - With `repeated` features (`Pattern::repeating`; `repeatable_on`: an extrusion, revolve,
   primitive, pipe, coil or loft adding to or removing from a body, a hole, an emboss, a fillet or
   chamfer, or a shell) it repeats their tools instead: for each, in tree order, the tools kept in its result

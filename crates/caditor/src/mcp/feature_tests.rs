@@ -337,6 +337,17 @@ fn mirrors_and_patterns_repeat_a_body() {
     assert!(close(total_volume(&mut client), 6000.0));
     client.tool("undo", json!({}));
 
+    added(
+        &mut client,
+        "add_linear_pattern",
+        json!({
+            "body": cube, "axis": "X", "count": 3, "spacing": "20 mm", "result": "new_bodies"
+        }),
+    );
+    assert!(close(total_volume(&mut client), 3000.0));
+    assert_eq!(body_count(&mut client), 3);
+    client.tool("undo", json!({}));
+
     let axis = added(
         &mut client,
         "add_datum_axis",

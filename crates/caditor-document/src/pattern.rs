@@ -10,6 +10,7 @@ use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
     blend::BlendRecipe,
+    body_pieces::PieceKey,
     datum::{AxisReference, PointReference, Resolver, feature_name},
     document::{Feature, FeatureId, FeatureKind},
     failure::Cause,
@@ -100,12 +101,28 @@ pub enum PatternKind {
 
 pub type Instance = [u32; 2];
 
+const INSTANCE_KEY_SHIFT: u32 = 15;
+const INSTANCE_KEY_STEPS: u32 = 1 << INSTANCE_KEY_SHIFT;
+const DIGESTED_COPY_KEYS: u32 = 1 << 31;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PatternOutcome {
+    #[default]
+    AddToBody,
+    NewBodies,
+}
+
+impl PatternOutcome {
+    pub const ALL: [Self; 2] = [Self::AddToBody, Self::NewBodies];
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pattern {
     pub body: FeatureId,
     pub kind: PatternKind,
     pub skipped: BTreeSet<Instance>,
     pub repeated: Vec<FeatureId>,
+    pub outcome: PatternOutcome,
 }
 
 pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
@@ -230,6 +247,7 @@ impl Pattern {
             kind,
             skipped: BTreeSet::new(),
             repeated: Vec::new(),
+            outcome: PatternOutcome::AddToBody,
         }
     }
 
@@ -239,8 +257,41 @@ impl Pattern {
         self
     }
 
+    #[must_use]
+    pub fn with_outcome(mut self, outcome: PatternOutcome) -> Self {
+        self.outcome = outcome;
+        self
+    }
+
     pub fn repeats_features(&self) -> bool {
         !self.repeated.is_empty()
+    }
+
+    pub fn makes_bodies(&self) -> bool {
+        self.outcome == PatternOutcome::NewBodies && !self.repeats_features()
+    }
+
+    pub fn copy_key([along, across]: Instance) -> PieceKey {
+        if along < INSTANCE_KEY_STEPS && across < INSTANCE_KEY_STEPS {
+            return PieceKey::from_raw(along | (across << INSTANCE_KEY_SHIFT));
+        }
+        let mut bytes = [0; 8];
+        let (low, high) = bytes.split_at_mut(4);
+        low.copy_from_slice(&along.to_le_bytes());
+        high.copy_from_slice(&across.to_le_bytes());
+        let [a, b, c, d, ..] = *blake3::hash(&bytes).as_bytes();
+        PieceKey::from_raw(DIGESTED_COPY_KEYS | u32::from_le_bytes([a, b, c, d]))
+    }
+
+    pub fn copy_instance(&self, key: PieceKey, sketch: Option<&Sketch>) -> Option<Instance> {
+        let raw = key.raw();
+        if raw < DIGESTED_COPY_KEYS {
+            return Some([raw % INSTANCE_KEY_STEPS, raw >> INSTANCE_KEY_SHIFT]);
+        }
+        sketch?
+            .entities()
+            .filter_map(|(id, _)| point_instance(id))
+            .find(|instance| Self::copy_key(*instance) == key)
     }
 
     pub fn heap_size(&self) -> usize {
@@ -1084,12 +1135,60 @@ pub(crate) fn evaluate(
             .repeat(definition, solid, &copies, cancel)
             .map(FeatureResult::Solid);
     }
+    if definition.makes_bodies() {
+        return context.copy_bodies(&copies, solid, cancel);
+    }
     let result = pattern(solid, &copies, feature.id().raw())
         .map_err(|error| context.failure(&error).placed(trouble::union_place(&error)))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         result,
     )))
+}
+
+impl Context<'_> {
+    fn copy_bodies(
+        &self,
+        copies: &[PatternCopy],
+        solid: &Solid,
+        cancel: &CancelToken,
+    ) -> Result<FeatureResult, Failure> {
+        let feature = self.resolver.feature;
+        let mut bodies = Vec::with_capacity(copies.len());
+        for copy in copies {
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            let body = feature
+                .id()
+                .piece(Pattern::copy_key(copy.index))
+                .ok_or_else(|| {
+                    self.error(PatternCause::CopiesTooMany {
+                        pattern: feature.name.clone(),
+                    })
+                })?;
+            let placed = pattern_copies(solid, std::slice::from_ref(copy), feature.id().raw())
+                .map_err(|error| self.failure(&error))?
+                .ok_or_else(|| self.error(PatternCause::CopyUnplaced))?;
+            bodies.push(SolidResult::new(body, placed));
+        }
+        bodies.sort_by_key(|result| result.body);
+        if bodies
+            .windows(2)
+            .any(|pair| matches!(pair, [first, second] if first.body == second.body))
+        {
+            return Err(self.error(PatternCause::CopiesAlike {
+                pattern: feature.name.clone(),
+            }));
+        }
+        let mut bodies = bodies.into_iter();
+        let first = bodies.next().ok_or_else(|| {
+            self.error(PatternCause::NoCopies {
+                pattern: feature.name.clone(),
+            })
+        })?;
+        Ok(FeatureResult::Solid(first.with_others(bodies)))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1160,6 +1259,15 @@ pub(crate) enum PatternCause {
         subject: String,
         cutting: bool,
         trouble: Trouble,
+    },
+    NoCopies {
+        pattern: String,
+    },
+    CopiesTooMany {
+        pattern: String,
+    },
+    CopiesAlike {
+        pattern: String,
     },
 }
 
@@ -1241,6 +1349,16 @@ impl PatternCause {
             } else {
                 format!("The copies of {name} could not be joined to {subject}.")
             }),
+            Self::NoCopies { pattern } => format!(
+                "{pattern} makes a body of each copy, but every copy is left out, so it makes no \
+                 body."
+            ),
+            Self::CopiesTooMany { pattern } => {
+                format!("The copies of {pattern} cannot each become a body in a model this large.")
+            }
+            Self::CopiesAlike { pattern } => format!(
+                "Two copies of {pattern} cannot be told apart, so they cannot each become a body."
+            ),
         }
     }
 
@@ -1297,6 +1415,12 @@ impl PatternCause {
             }
             Self::CopiesVanish { .. } => "Lower the count or change the spacing.".to_owned(),
             Self::CopiesUncombined { trouble, .. } => trouble.remedy(),
+            Self::NoCopies { .. } => {
+                "Raise the count or bring a copy back in Instances.".to_owned()
+            }
+            Self::CopiesTooMany { .. } | Self::CopiesAlike { .. } => {
+                "Set Result to Add to body.".to_owned()
+            }
         }
     }
 }

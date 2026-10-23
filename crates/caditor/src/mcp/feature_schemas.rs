@@ -409,6 +409,10 @@ pub fn linear_pattern() -> Value {
             "description": "Copies left out: n for the nth copy along the row (the original is 0), [column, row] in a grid"
         }),
     );
+    properties.insert(
+        "result".to_owned(),
+        json!({ "type": "string", "enum": ["add_to_body", "new_bodies"], "description": "What a pattern of the whole body makes: the copies joined to the body (the default), or each copy a body of its own beside the untouched original" }),
+    );
     properties.insert("name".to_owned(), name());
     object(Value::Object(properties), &["axis", "count", "spacing"])
 }
@@ -427,6 +431,7 @@ pub fn circular_pattern() -> Value {
                 "items": { "type": "integer", "minimum": 1 },
                 "description": "Copies left out, counted from the original as 0"
             },
+            "result": { "type": "string", "enum": ["add_to_body", "new_bodies"], "description": "What a pattern of the whole body makes: the copies joined to the body (the default), or each copy a body of its own beside the untouched original" },
             "name": name()
         }),
         &["axis", "count"],

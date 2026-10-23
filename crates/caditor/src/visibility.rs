@@ -169,14 +169,17 @@ pub fn has_body(document: &Document) -> bool {
 
 pub fn principal_needed(document: &Document, needs: &Needs<'_>) -> bool {
     let editing = needs.editing;
-    let datum_open = editing
-        .solid()
-        .and_then(|id| document.feature(id))
-        .is_some_and(|feature| feature.kind.datum().is_some());
+    let open = editing.solid().and_then(|id| document.feature(id));
+    let datum_open = open.is_some_and(|feature| feature.kind.datum().is_some());
+    let mirror_open = open.is_some_and(|feature| {
+        matches!(&feature.kind, FeatureKind::Mirror(mirror) if mirror.mirrors_whole_body())
+    });
     needs.measuring
         || needs.listing
         || datum_open
+        || mirror_open
         || editing.is_choosing_plane()
+        || editing.is_choosing_mirrored()
         || editing.context().intersecting
         || editing.context().projecting
         || editing

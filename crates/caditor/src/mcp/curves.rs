@@ -11,8 +11,8 @@ use crate::{
     coil_tools, helix_tools,
     mcp::{
         features::{
-            Amount, Built, CopyName, added, count, kept_subject, length, parsed, pattern_built,
-            sketch_of, skipped_copies, turn,
+            Amount, Built, CopyName, PatternResult, added, count, kept_subject, length, parsed,
+            pattern_built, pattern_outcome, sketch_of, skipped_copies, turn,
         },
         places::{self, AxisChoice, PointChoice},
         references::Named,
@@ -55,6 +55,7 @@ pub struct CurvePatterning {
     pub follow: Option<bool>,
     pub reversed: Option<bool>,
     pub skipped: Option<Vec<u32>>,
+    pub result: Option<PatternResult>,
     pub name: Option<String>,
 }
 
@@ -66,6 +67,7 @@ pub struct PointPatterning {
     pub sketch: Option<Named>,
     pub from: Option<PointChoice>,
     pub skipped: Option<Vec<u32>>,
+    pub result: Option<PatternResult>,
     pub name: Option<String>,
 }
 
@@ -267,7 +269,11 @@ pub fn curve_pattern_built(
     Ok(pattern_built(
         session,
         chosen,
-        (PatternKind::Curve(curve), skipped),
+        (
+            PatternKind::Curve(curve),
+            skipped,
+            pattern_outcome(asked.result, base),
+        ),
         (asked.name, pattern_tools::CURVE_TITLE),
     ))
 }
@@ -325,6 +331,7 @@ pub fn point_pattern_built(
         (
             PatternKind::Points(PointsPattern { sketch, base: from }),
             skipped,
+            pattern_outcome(asked.result, base),
         ),
         (asked.name, pattern_tools::POINTS_TITLE),
     ))

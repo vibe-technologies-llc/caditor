@@ -1,8 +1,8 @@
 use caditor_document::{
     AxisReference, CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Feature,
     FeatureId, Instance, LinearDirection, LinearSpacing, ORIGINAL_INSTANCE, Pattern, PatternKind,
-    PointReference, PointsPattern, Transaction, capitalized, describe_axis, describe_point,
-    instance_name,
+    PatternOutcome, PointReference, PointsPattern, Transaction, capitalized, describe_axis,
+    describe_point, instance_name,
 };
 use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
@@ -48,6 +48,19 @@ const REPEAT_CHOSEN_HINT: &str = "Choose extrusions, revolves, holes or primitiv
                                   pattern in the tree (Ctrl+click), then repeat them instead of \
                                   the whole body";
 pub const NO_SECOND_DIRECTION: &str = "None";
+pub const RESULT: &str = "Result";
+pub const ADD_TO_BODY: &str = "Add to body";
+pub const NEW_BODIES: &str = "New bodies";
+const ADD_TO_BODY_HOVER: &str = "The copies are joined to the body, making one body of them all";
+const NEW_BODIES_HOVER: &str =
+    "Each copy becomes a body of its own, and the original stays as it is";
+
+fn outcome_words(outcome: PatternOutcome) -> (&'static str, &'static str) {
+    match outcome {
+        PatternOutcome::AddToBody => (ADD_TO_BODY, ADD_TO_BODY_HOVER),
+        PatternOutcome::NewBodies => (NEW_BODIES, NEW_BODIES_HOVER),
+    }
+}
 pub const MEASURED_EACH: &str = "Each";
 pub const MEASURED_OVERALL: &str = "Overall";
 const INSTANCES_HINT: &str = "Click a copy to leave it out of the pattern, and again to bring it \
@@ -355,6 +368,32 @@ impl Panel<'_> {
             let change = pattern_tools::repeating(self.model, self.id(), self.pattern, chosen);
             self.apply(change);
         }
+    }
+
+    fn result_row(&mut self, ui: &mut Ui) {
+        if self.pattern.repeats_features() {
+            return;
+        }
+        let current = self.pattern.outcome;
+        let segments = PatternOutcome::ALL
+            .into_iter()
+            .map(|outcome| {
+                let (label, hover) = outcome_words(outcome);
+                Segment {
+                    label,
+                    hover,
+                    change: (outcome != current).then(|| {
+                        pattern_tools::change(
+                            self.model,
+                            self.id(),
+                            self.pattern.clone().with_outcome(outcome),
+                        )
+                    }),
+                }
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, RESULT, &self.feature.name, segments);
+        self.actions.extend(chosen);
     }
 
     fn apply(&mut self, change: Result<Transaction, PatternToolError>) {
@@ -836,6 +875,7 @@ pub fn show(
         }
         panel.instances_row(ui);
         panel.repeats_rows(ui);
+        panel.result_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", pattern.body);
     });
     let hint = match pattern.kind {

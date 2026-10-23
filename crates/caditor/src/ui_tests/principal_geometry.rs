@@ -176,7 +176,7 @@ fn principal_geometry_shows_until_the_first_body_and_then_only_while_a_sketch_pl
 }
 
 #[test]
-fn choosing_a_mirror_plane_in_the_view_shows_the_principal_geometry_for_as_long_as_it_lasts() {
+fn an_open_mirror_shows_the_principal_geometry_and_takes_a_plane_clicked_until_it_closes() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);
     harness.select([Pickable::Edge {
@@ -186,7 +186,14 @@ fn choosing_a_mirror_plane_in_the_view_shows_the_principal_geometry_for_as_long_
     harness.click("Mirror body");
     harness.settle();
     harness.select([]);
-    let mirror_open = principal_pickables(&mut harness);
+    let mirror_open = principal_pickables(&mut harness).len();
+    harness.click_pickable(
+        caditor_geometry::Plane::XY,
+        caditor_geometry::Point2::new(5.0, 5.0),
+        Pickable::Plane(PrincipalPlane::Xz),
+    );
+    harness.settle();
+    let across_clicked = open_mirror_plane(&harness);
 
     harness.click_beside(icons::CHOOSE_IN_VIEW, "Mirror across");
     harness.settle();
@@ -198,12 +205,21 @@ fn choosing_a_mirror_plane_in_the_view_shows_the_principal_geometry_for_as_long_
     let while_choosing = principal_pickables(&mut harness).len();
     harness.key(Key::Escape, Modifiers::NONE);
     harness.settle();
-    let after_choosing = principal_pickables(&mut harness);
+    let after_choosing = principal_pickables(&mut harness).len();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after_closing = principal_pickables(&mut harness);
 
-    assert!(mirror_open.is_empty());
+    assert_eq!(mirror_open, 7);
+    assert_eq!(
+        across_clicked,
+        caditor_document::PlaneReference::Principal(caditor_document::PrincipalPlane::Xz)
+    );
     assert_eq!(choosing, Some(Slot::MirrorPlane));
     assert_eq!(while_choosing, 7);
-    assert!(after_choosing.is_empty());
+    assert_eq!(after_choosing, 7);
+    assert!(harness.workspace.editing.solid().is_none());
+    assert!(after_closing.is_empty());
 }
 
 #[test]
@@ -283,4 +299,80 @@ fn with_the_preference_off_principal_geometry_never_hides_by_itself() {
     assert_eq!(after_the_body, 7);
     assert!(toggled_on);
     assert!(after_toggling.is_empty());
+}
+
+fn open_mirror_plane(harness: &Harness) -> caditor_document::PlaneReference {
+    let feature = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+    match &harness.document().feature(feature).unwrap().kind {
+        caditor_document::FeatureKind::Mirror(mirror) => mirror.plane.clone(),
+        other => panic!("expected a mirror, found {other:?}"),
+    }
+}
+
+#[test]
+fn mirror_body_shows_the_principal_planes_while_choosing_and_takes_a_plane_clicked_there() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.settle();
+    let before = principal_pickables(&mut harness);
+
+    harness.click("Mirror body");
+    harness.settle();
+    let choosing_bodies = principal_pickables(&mut harness).len();
+    harness.click_pickable(
+        caditor_geometry::Plane::XY,
+        caditor_geometry::Point2::new(5.0, 5.0),
+        Pickable::Plane(PrincipalPlane::Xz),
+    );
+    harness.settle();
+    let still_choosing = harness.workspace.editing.is_choosing_mirrored();
+    harness.click_pickable(
+        caditor_geometry::Plane::XY,
+        caditor_geometry::Point2::new(5.0, 5.0),
+        Pickable::Edge {
+            body: plate,
+            edge: top_edge_along_x(&harness, plate, 0.0),
+        },
+    );
+    harness.settle();
+    let across_clicked = open_mirror_plane(&harness);
+    let choosing_more = principal_pickables(&mut harness).len();
+    harness.click_pickable(
+        caditor_geometry::Plane::XY,
+        caditor_geometry::Point2::new(5.0, 5.0),
+        Pickable::Plane(PrincipalPlane::Xy),
+    );
+    harness.settle();
+    let across_changed = open_mirror_plane(&harness);
+    let still_picking = harness
+        .workspace
+        .editing
+        .picking()
+        .map(|picking| picking.slot);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let after = principal_pickables(&mut harness);
+
+    assert!(before.is_empty());
+    assert_eq!(choosing_bodies, 7);
+    assert!(still_choosing);
+    assert_eq!(
+        across_clicked,
+        caditor_document::PlaneReference::Principal(caditor_document::PrincipalPlane::Xz)
+    );
+    assert_eq!(choosing_more, 7);
+    assert_eq!(
+        across_changed,
+        caditor_document::PlaneReference::Principal(caditor_document::PrincipalPlane::Xy)
+    );
+    assert_eq!(still_picking, Some(Slot::MirrorBodies));
+    assert!(after.is_empty());
 }

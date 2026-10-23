@@ -289,6 +289,14 @@ pub(crate) enum Upstream {
         maker: String,
         source: Option<String>,
     },
+    CopiesJoined {
+        maker: String,
+        copy: Option<String>,
+    },
+    CopyGone {
+        maker: String,
+        copy: Option<String>,
+    },
 }
 
 impl Upstream {
@@ -329,6 +337,14 @@ impl Upstream {
                 "{maker} no longer mirrors {}, so there is no image to work on.",
                 mirrored_source(source.as_deref())
             ),
+            Self::CopiesJoined { maker, copy } => format!(
+                "{maker} no longer makes a body of each copy, so {} is not a body of its own.",
+                patterned_copy(copy.as_deref())
+            ),
+            Self::CopyGone { maker, copy } => format!(
+                "{maker} no longer makes {}, so there is no copy to work on.",
+                patterned_copy(copy.as_deref())
+            ),
         }
     }
 
@@ -367,8 +383,18 @@ impl Upstream {
             Self::ImageGone { maker, .. } => {
                 format!("Mirror that body again in {maker}, or choose another body.")
             }
+            Self::CopiesJoined { maker, .. } => {
+                format!("Set Result of {maker} back to New bodies, or choose another body.")
+            }
+            Self::CopyGone { maker, .. } => format!(
+                "Raise the count of {maker} or bring the copy back, or choose another body."
+            ),
         }
     }
+}
+
+fn patterned_copy(copy: Option<&str>) -> &str {
+    copy.unwrap_or("a copy it made")
 }
 
 fn mirrored_source(source: Option<&str>) -> &str {

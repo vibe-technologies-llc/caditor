@@ -145,6 +145,7 @@ pub fn curve_pattern() -> Value {
             "follow": flag("Turn each copy as the curve turns"),
             "reversed": flag("Run along the curve the other way"),
             "skipped": skipped(),
+            "result": { "type": "string", "enum": ["add_to_body", "new_bodies"], "description": "What a pattern of the whole body makes: the copies joined to the body (the default), or each copy a body of its own beside the untouched original" },
             "name": name()
         }),
         &["sketch"],
@@ -159,6 +160,7 @@ pub fn point_pattern() -> Value {
             "sketch": reference("The sketch whose lone points place the copies"),
             "from": point(),
             "skipped": skipped(),
+            "result": { "type": "string", "enum": ["add_to_body", "new_bodies"], "description": "What a pattern of the whole body makes: the copies joined to the body (the default), or each copy a body of its own beside the untouched original" },
             "name": name()
         }),
         &["sketch"],

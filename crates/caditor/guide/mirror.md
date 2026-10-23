@@ -9,6 +9,11 @@ first body to mirror in the view, lighting each body as the pointer passes over 
 The mirror is made from that click and goes on choosing, so each further click adds a body or,
 clicked again, leaves it out. While the mirror is open, the bodies it mirrors are lit.
 
+While Mirror chooses its bodies and while it is open, the principal planes show even when they are
+tucked away until needed, so the plane can be clicked in the view: a plane clicked before the first
+body is the one it mirrors across, and a principal, datum or coordinate system plane clicked while
+it is open becomes its plane. They tuck away again once the mirror closes.
+
 The panel chooses the plane from a list of the principal, datum and coordinate system planes
 before it, or from the selection or the view. **Bodies** lists what the mirror reflects: **Stop
 mirroring this body** leaves one out, **Use selected** adds the bodies selected in the view, and

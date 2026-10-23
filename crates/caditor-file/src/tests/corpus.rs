@@ -14,12 +14,12 @@ use caditor_document::{
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties,
     Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind,
-    PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference,
-    PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
-    ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
-    Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
-    point_instance,
+    PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy,
+    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
+    RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
+    TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 63] = [
+const KEPT: [(&str, &str); 64] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -207,6 +207,10 @@ const KEPT: [(&str, &str); 63] = [
     (
         "model-1/path-sweeps.caditor",
         "b28dd7ffcc7c11d879e21bd9325de195e284df80b8f3d914ea2f54ed0466ed61",
+    ),
+    (
+        "model-1/patterned-bodies.caditor",
+        "1ac2e198ecc425e136f04ebbfa27637796e969d7117ae5ecdee8dde276f9ba49",
     ),
     (
         "model-1/patterns.caditor",
@@ -931,6 +935,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&mirrored_several_bodies(), "Mirrored several bodies"),
         ),
         (model("patterns"), saved(&patterns(), "Patterns")),
+        (
+            model("patterned-bodies"),
+            saved(&patterned_bodies(), "Patterned bodies"),
+        ),
         (
             model("primitives"),
             saved(&primitive_model().0, "Primitives"),
@@ -3443,6 +3451,31 @@ fn patterns() -> Document {
     transaction.add_feature(
         "Feature pattern",
         FeatureKind::from(plain.repeating(vec![turned])),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn patterned_bodies() -> Document {
+    let (mut document, linear, circular) = patterned_model();
+    let apart = [linear, circular].map(|id| {
+        document
+            .feature(id)
+            .unwrap()
+            .kind
+            .pattern()
+            .unwrap()
+            .clone()
+            .with_outcome(PatternOutcome::NewBodies)
+    });
+    let turned = named(&document, "Turned");
+    let mut transaction = document.transaction("Patterned bodies");
+    let [linear_apart, circular_apart] = apart;
+    transaction.add_feature("Linear bodies", FeatureKind::from(linear_apart.clone()));
+    transaction.add_feature("Circular bodies", FeatureKind::from(circular_apart));
+    transaction.add_feature(
+        "Feature pattern kept apart",
+        FeatureKind::from(linear_apart.repeating(vec![turned])),
     );
     document.apply(transaction.finish()).unwrap();
     document

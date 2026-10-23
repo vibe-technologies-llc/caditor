@@ -6348,6 +6348,9 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
         Some(FeatureKind::Scale(_)) => {
             in_panel("Type the factor and choose the centre in the panel")
         }
+        Some(FeatureKind::Mirror(mirror)) if mirror.mirrors_whole_body() => {
+            in_view("Click a plane to mirror across, or choose it and the bodies in the panel")
+        }
         Some(FeatureKind::Mirror(_)) => in_panel("Choose the plane to mirror across in the panel"),
         Some(FeatureKind::Split(_)) => in_panel("Choose what to split along in the panel"),
         Some(FeatureKind::Mate(_)) => in_panel("Choose the faces or axes to mate in the panel"),
@@ -6734,6 +6737,13 @@ fn pick_action(
             Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
         });
     }
+    let plane = editing
+        .solid()
+        .zip(pickable)
+        .and_then(|(open, pickable)| mirror_tools::plane_click(model, open, pickable));
+    if plane.is_some() {
+        return plane;
+    }
     let toggled = match pickable {
         Some(Pickable::Region { feature, region }) => {
             let emboss = model
@@ -6787,6 +6797,9 @@ fn pick_action(
         );
     }
     if editing.is_choosing_mirrored() {
+        if pickable.is_some_and(|pickable| mirror_tools::names_a_plane(model, pickable)) {
+            return None;
+        }
         return Some(
             pickable
                 .and_then(Pickable::body)

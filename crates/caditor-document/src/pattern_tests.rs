@@ -870,3 +870,124 @@ fn a_pattern_never_keeps_the_original_or_a_step_past_the_most_copies_skipped() {
     assert_eq!(set_skipped, [[1, 0]].into());
     assert_eq!(inserted.skipped, set_skipped);
 }
+
+fn copy_body(model: &Model, instance: Instance) -> FeatureId {
+    model.pattern.piece(Pattern::copy_key(instance)).unwrap()
+}
+
+fn apart(model: &mut Model) {
+    let body = model.base;
+    let pattern = Pattern::new(body, linear(model.count)).with_outcome(PatternOutcome::NewBodies);
+    set_pattern(model, pattern).unwrap();
+}
+
+#[test]
+fn a_pattern_making_a_body_of_each_copy_leaves_the_original_and_names_each_copy() {
+    let mut model = model(linear);
+    apart(&mut model);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    let feature = model.document.feature(model.pattern).unwrap();
+    assert!(feature.makes_body() && feature.separates_pieces());
+    assert_eq!(evaluation.failed_count(), 0);
+    let first = copy_body(&model, [1, 0]);
+    let second = copy_body(&model, [2, 0]);
+    assert_eq!(evaluation.pieces_made_by(model.pattern), [first, second]);
+    assert!(evaluation.body(model.pattern).is_none());
+    assert_volume(&evaluation, model.base, 320.0);
+    assert_volume(&evaluation, first, 320.0);
+    assert_volume(&evaluation, second, 320.0);
+    assert_eq!(
+        model.document.body_name(second).as_deref(),
+        Some("Pattern 1 (copy 2)")
+    );
+    assert_eq!(
+        model.document.bodies_standing_in(&evaluation),
+        vec![model.base, first, second]
+    );
+    let bounds = evaluation.body(second).unwrap().bounding_box().unwrap();
+    assert!((bounds.min() - Point3::new(50.0, 0.0, 0.0)).length() < 1e-6);
+    assert!((bounds.max() - Point3::new(60.0, 8.0, 4.0)).length() < 1e-6);
+}
+
+#[test]
+fn copies_made_apart_follow_the_count_and_the_left_out_copies() {
+    let mut model = model(linear);
+    apart(&mut model);
+    let id = model.count;
+    set(&mut model, id, "4");
+    let body = model.base;
+    let mut pattern =
+        Pattern::new(body, linear(model.count)).with_outcome(PatternOutcome::NewBodies);
+    pattern.skipped.insert([2, 0]);
+    set_pattern(&mut model, pattern).unwrap();
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(
+        evaluation.pieces_made_by(model.pattern),
+        [copy_body(&model, [1, 0]), copy_body(&model, [3, 0])]
+    );
+
+    set(&mut model, id, "1");
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(
+        failure(&evaluation, model.pattern).reason(),
+        "Pattern 1 makes a body of each copy, but every copy is left out, so it makes no body."
+    );
+}
+
+#[test]
+fn a_copy_others_use_keeps_its_pattern_making_bodies_and_fails_them_once_left_out() {
+    let mut model = model(linear);
+    apart(&mut model);
+    let second = copy_body(&model, [2, 0]);
+    let mut transaction = model.document.transaction("Use");
+    let removal = transaction.add_feature("Remove 1", FeatureKind::Remove(Remove { body: second }));
+    model.document.apply(transaction.finish()).unwrap();
+    let joined = Pattern::new(model.base, linear(model.count));
+
+    let joining = set_pattern(&mut model, joined);
+    let id = model.count;
+    set(&mut model, id, "2");
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert!(matches!(joining, Err(EditError::BodyInUse { .. })));
+    assert_eq!(evaluation.failed_count(), 1);
+    let error = failure(&evaluation, removal);
+    assert_eq!(
+        error.reason(),
+        "Pattern 1 no longer makes copy 2, so there is no copy to work on."
+    );
+    assert_eq!(
+        error.remedy(),
+        "Raise the count of Pattern 1 or bring the copy back, or choose another body."
+    );
+}
+
+#[test]
+fn a_pattern_repeating_features_makes_no_body_whatever_its_outcome() {
+    let pattern = Pattern::new(FeatureId::from_raw(1), linear(ParameterId::from_raw(1)))
+        .repeating(vec![FeatureId::from_raw(2)])
+        .with_outcome(PatternOutcome::NewBodies);
+
+    assert!(!pattern.makes_bodies());
+}
+
+#[test]
+fn copy_keys_read_back_as_their_instances() {
+    let pattern = Pattern::new(FeatureId::from_raw(1), linear(ParameterId::from_raw(1)));
+
+    for instance in [[1, 0], [99, 0], [3, 7], [99, 99]] {
+        assert_eq!(
+            pattern.copy_instance(Pattern::copy_key(instance), None),
+            Some(instance)
+        );
+    }
+    assert_ne!(
+        Pattern::copy_key([u32::MAX, 0]),
+        Pattern::copy_key([u32::MAX - 1, 0])
+    );
+}

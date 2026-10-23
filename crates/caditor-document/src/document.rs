@@ -1757,6 +1757,7 @@ impl Feature {
     pub fn separates_pieces(&self) -> bool {
         match &self.kind {
             FeatureKind::Mirror(mirror) => mirror.makes_a_body_of_each_image(),
+            FeatureKind::Pattern(pattern) => pattern.makes_bodies(),
             _ => self.pieces == Pieces::BodyEach && self.can_separate_pieces(),
         }
     }
@@ -1809,6 +1810,7 @@ impl Feature {
             FeatureKind::Split(split) => Some(split.body),
             FeatureKind::Scale(scale) => Some(scale.body),
             FeatureKind::Hole(hole) => Some(hole.body),
+            FeatureKind::Pattern(pattern) if pattern.makes_bodies() => Some(self.id),
             FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
             FeatureKind::Remove(remove) => Some(remove.body),
@@ -1859,6 +1861,7 @@ impl Feature {
             FeatureKind::Coil(coil) => coil.operation == BodyOperation::NewBody,
             FeatureKind::Move(movement) => movement.copy,
             FeatureKind::Mirror(mirror) => mirror.makes_body(),
+            FeatureKind::Pattern(pattern) => pattern.makes_bodies(),
             FeatureKind::Mate(_)
             | FeatureKind::Rib(_)
             | FeatureKind::Sketch(_)
@@ -1874,7 +1877,6 @@ impl Feature {
             | FeatureKind::Combine(_)
             | FeatureKind::Scale(_)
             | FeatureKind::Hole(_)
-            | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Helix(_)
             | FeatureKind::Remove(_)
@@ -1970,6 +1972,9 @@ impl Document {
         if let Some(source) = self.image_source(body) {
             let source = self.body_label(source).unwrap_or_default();
             return Some(Cow::Owned(format!("{} (image of {source})", feature.name)));
+        }
+        if let Some(copy) = self.pattern_copy(body) {
+            return Some(Cow::Owned(format!("{} ({copy})", feature.name)));
         }
         Some(Cow::Owned(match self.piece_curve(body) {
             Some(curve) => format!("{} ({curve})", feature.name),

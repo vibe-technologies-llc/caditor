@@ -36,7 +36,9 @@ use crate::{
     mate,
     measurement::{self, Measured, Measurement, MeasurementResult},
     mirror::{self, Mirror},
-    move_face, movement, offset_face, pattern, pipe,
+    move_face, movement, offset_face,
+    pattern::{self, Pattern},
+    pipe,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection,
@@ -502,8 +504,10 @@ impl<'a> Inputs<'a> {
         body.piece_key()?;
         let maker = self.document.body_maker(body)?;
         let made = self.features.get(&maker.id())?;
-        if let FeatureKind::Mirror(mirror) = &maker.kind {
-            return self.missing_image(maker, mirror, made, body);
+        match &maker.kind {
+            FeatureKind::Mirror(mirror) => return self.missing_image(maker, mirror, made, body),
+            FeatureKind::Pattern(pattern) => return self.missing_copy(maker, pattern, made, body),
+            _ => {}
         }
         let curve = self
             .document
@@ -559,6 +563,30 @@ impl Inputs<'_> {
             Upstream::ImageGone {
                 maker: maker.name.clone(),
                 source,
+            }
+        } else {
+            return None;
+        };
+        Some(FeatureError::new(error).fixing(FixTarget::Feature(maker.id())))
+    }
+
+    fn missing_copy(
+        &self,
+        maker: &Feature,
+        pattern: &Pattern,
+        made: &Arc<FeatureResult>,
+        body: FeatureId,
+    ) -> Option<FeatureError> {
+        let copy = self.document.pattern_copy(body);
+        let error = if !pattern.makes_bodies() {
+            Upstream::CopiesJoined {
+                maker: maker.name.clone(),
+                copy,
+            }
+        } else if body_part(made, body).is_none() {
+            Upstream::CopyGone {
+                maker: maker.name.clone(),
+                copy,
             }
         } else {
             return None;

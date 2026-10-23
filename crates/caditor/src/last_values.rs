@@ -410,8 +410,9 @@ fn value_text(document: &Document, expression: &Expression) -> String {
 #[cfg(test)]
 mod tests {
     use caditor_document::{
-        AxisReference, BodyOperation, FeatureId, LinearDirection, OffsetFace, Pattern, Pipe,
-        PrincipalAxis, RegionChoice, Revolve, RevolveAxis, Rib, SweepPath, Wall,
+        AxisReference, BodyOperation, FeatureId, LinearDirection, OffsetFace, Pattern,
+        PatternOutcome, Pipe, PrincipalAxis, RegionChoice, Revolve, RevolveAxis, Rib, SweepPath,
+        Wall,
     };
     use caditor_expression::Unit;
     use caditor_kernel::WallSide;
@@ -466,6 +467,7 @@ mod tests {
             },
             skipped: Default::default(),
             repeated: Vec::new(),
+            outcome: PatternOutcome::AddToBody,
         })
     }
 

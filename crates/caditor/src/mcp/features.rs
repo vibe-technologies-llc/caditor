@@ -4,9 +4,9 @@ use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
     CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceThickness, FeatureId,
     FeatureKind, LinearDirection, LinearSpacing, Mirror, MirrorOutcome, Move, OffsetFace, Pattern,
-    PatternKind, PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre,
-    repeatable_on,
+    PatternKind, PatternOutcome, PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, Shell, ShellSide, SketchRegion,
+    SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -338,6 +338,7 @@ pub struct LinearPatterning {
     pub reversed: Option<bool>,
     pub second: Option<Direction>,
     pub skipped: Option<Vec<CopyName>>,
+    pub result: Option<PatternResult>,
     pub name: Option<String>,
 }
 
@@ -351,7 +352,34 @@ pub struct CircularPatterning {
     pub angle: Option<Amount>,
     pub reversed: Option<bool>,
     pub skipped: Option<Vec<u32>>,
+    pub result: Option<PatternResult>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PatternResult {
+    AddToBody,
+    NewBodies,
+}
+
+impl PatternResult {
+    fn outcome(self) -> PatternOutcome {
+        match self {
+            Self::AddToBody => PatternOutcome::AddToBody,
+            Self::NewBodies => PatternOutcome::NewBodies,
+        }
+    }
+}
+
+pub(super) fn pattern_outcome(
+    asked: Option<PatternResult>,
+    base: Option<&Pattern>,
+) -> PatternOutcome {
+    asked
+        .map(PatternResult::outcome)
+        .or_else(|| base.map(|base| base.outcome))
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1623,11 +1651,13 @@ pub(super) fn skipped_copies(
 pub(super) fn pattern_built(
     session: &Session,
     (body, repeated): (FeatureId, Vec<FeatureId>),
-    (kind, skipped): (PatternKind, BTreeSet<[u32; 2]>),
+    (kind, skipped, outcome): (PatternKind, BTreeSet<[u32; 2]>, PatternOutcome),
     (name, title): (Option<String>, &'static str),
 ) -> Built {
     let repeats = subject_details(session.document(), body, &repeated);
-    let mut pattern = Pattern::new(body, kind).repeating(repeated);
+    let mut pattern = Pattern::new(body, kind)
+        .repeating(repeated)
+        .with_outcome(outcome);
     pattern.skipped = skipped;
     Built::new(FeatureKind::from(pattern), title, name).telling("repeats", repeats)
 }
@@ -1669,7 +1699,11 @@ pub fn linear_pattern_built(
     Ok(pattern_built(
         session,
         chosen,
-        (PatternKind::Linear { first, second }, skipped),
+        (
+            PatternKind::Linear { first, second },
+            skipped,
+            pattern_outcome(asked.result, base),
+        ),
         (asked.name, pattern_tools::LINEAR_TITLE),
     ))
 }
@@ -1734,7 +1768,7 @@ pub fn circular_pattern_built(
     Ok(pattern_built(
         session,
         chosen,
-        (kind, skipped),
+        (kind, skipped, pattern_outcome(asked.result, base)),
         (asked.name, pattern_tools::CIRCULAR_TITLE),
     ))
 }

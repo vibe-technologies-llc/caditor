@@ -104,7 +104,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `add_to_body`, the default as `Mirror::new` makes it, or `replace`, the older `keep_original` still
   read, `result` winning) and linear or circular
   pattern of a body or of repeatable features (`pattern_tools::repeatable`, `skipped` copies as
-  `Instance`s, the original refused), combine and move. Values are
+  `Instance`s, the original refused; `result` `add_to_body`, the default, or `new_bodies`, as the
+  curve and point patterns take it, an edit keeping it unless given), combine and move. Values are
   `Amount`s, a number of millimetres or degrees or an expression, parsed by
   `field::parse_expression`; offsets, moves and turns may be negative. The kernel's refusals arrive
   as the new feature failing, in the tree's words.
