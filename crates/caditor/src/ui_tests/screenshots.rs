@@ -1323,9 +1323,12 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         shoot_open(model, gpu, out, "panel-shell", look);
     }
 
-    let mirrored = pickables
-        .iter()
-        .find_map(|pickable| mirror_tools::source(&model.model, &only(*pickable), (&[], &[])).ok());
+    let mirrored = pickables.iter().find_map(|pickable| {
+        match mirror_tools::source(&model.model, &only(*pickable), (&[], &[])) {
+            Ok(mirror_tools::MirrorStart::Source(source)) => Some(source),
+            _ => None,
+        }
+    });
     if let Some(source) = mirrored {
         let actions = mirror_tools::create_actions(&model.model, &source);
         perform_all(model, actions);

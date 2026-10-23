@@ -56,6 +56,7 @@ use crate::{
     measure::MeasuredLine,
     measurement_tools,
     menu_bar::MenuEntries,
+    mirror_tools,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
     model_dimensions::{self, ModelDimensions, Outside},
     modifying::{HighlightNeeded, Hint, Modifying, Outcome, SketchVersion, StepError},
@@ -544,6 +545,36 @@ fn with_their_bodies(document: &Document, rows: Vec<FeatureId>) -> Vec<FeatureId
     lit.sort_unstable();
     lit.dedup();
     lit
+}
+
+fn mirrored_bodies(model: &Model, context: editing::Context) -> Vec<FeatureId> {
+    context
+        .solid
+        .and_then(|open| model.document().feature(open))
+        .and_then(|feature| match &feature.kind {
+            FeatureKind::Mirror(mirror) if mirror.mirrors_whole_body() => {
+                Some(mirror.bodies().collect())
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+fn chooses_bodies(editing: &SketchEditing) -> bool {
+    editing.choosing_bodies()
+        || editing
+            .picking()
+            .is_some_and(|picking| picking.slot == Slot::MirrorBodies)
+}
+
+fn whole_body_hovered(model: &Model, pickable: Pickable) -> Vec<Pickable> {
+    let Some(body) = pickable.body() else {
+        return vec![pickable];
+    };
+    match body_selection::whole_bodies(model, &[body], body_selection::Kind::Faces) {
+        faces if faces.is_empty() => vec![pickable],
+        faces => faces,
+    }
 }
 
 fn row_body(feature: &Feature) -> Option<FeatureId> {
@@ -1593,10 +1624,14 @@ impl ViewportState {
         } else {
             highlighted
                 .into_iter()
-                .flat_map(|highlighted| self.whole_body_of(model, highlighted))
+                .flat_map(|highlighted| match chooses_bodies(editing) {
+                    true => whole_body_hovered(model, highlighted),
+                    false => self.whole_body_of(model, highlighted),
+                })
                 .collect()
         };
-        let rows = self.rows_to_highlight(context);
+        let mut rows = self.rows_to_highlight(context);
+        rows.extend(mirrored_bodies(model, context));
         let lit = self.lit_rows(model, rows.clone());
         hovered.extend(lit.made);
         hovered.sort_unstable();
@@ -2687,7 +2722,7 @@ impl ViewportState {
             && editing.solid().is_none()
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
-            && editing.combining().is_none()
+            && !editing.choosing_bodies()
         {
             if self.paint
                 && self.style.picks_faces()
@@ -3260,7 +3295,12 @@ impl ViewportState {
         let ray = self
             .cursor
             .and_then(|cursor| self.view()?.ray_through(cursor));
-        if let Some(action) = pick_action(self.hovered, ray, model, editing, click.toggle) {
+        if let Some(action) = pick_action(
+            (self.hovered, ray),
+            (model, &self.selection),
+            editing,
+            click.toggle,
+        ) {
             actions.extend(action);
             return;
         }
@@ -3744,7 +3784,10 @@ impl ViewportState {
         if commands.invoke(Command::IntersectBody, &face)
             && let Ok(face) = face
         {
-            actions.extend(pick_action(Some(face), None, model, editing, true).unwrap_or_default());
+            actions.extend(
+                pick_action((Some(face), None), (model, &self.selection), editing, true)
+                    .unwrap_or_default(),
+            );
             return;
         }
         let sketch = editing
@@ -3800,8 +3843,13 @@ impl ViewportState {
         if leaves_place {
             actions.push(Action::Editing(EditingCommand::StopPicking));
         }
-        let action =
-            pick_action(Some(pickable), None, model, editing, false).filter(|_| !leaves_place);
+        let action = pick_action(
+            (Some(pickable), None),
+            (model, &self.selection),
+            editing,
+            false,
+        )
+        .filter(|_| !leaves_place);
         match action {
             Some(action) => actions.extend(action),
             None if toggle => self.toggle_chosen(model, pickable),
@@ -5089,7 +5137,7 @@ impl ViewportState {
 
     fn menu_selects(&self, editing: &SketchEditing) -> bool {
         !editing.is_choosing_plane()
-            && editing.combining().is_none()
+            && !editing.choosing_bodies()
             && editing.picking().is_none()
             && editing
                 .active()
@@ -5314,6 +5362,8 @@ impl ViewportState {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if editing.combining().is_some() {
             actions.push(Action::Editing(EditingCommand::CancelCombine));
+        } else if editing.is_choosing_mirrored() {
+            actions.push(Action::Editing(EditingCommand::CancelMirrored));
         } else if editing.picking().is_some() {
             actions.push(Action::Editing(EditingCommand::StopPicking));
         } else if self.drawing.has_heading() {
@@ -5964,6 +6014,11 @@ impl ViewportState {
                 None => combine_tools::CHOOSE_TARGET_PROMPT.to_owned(),
             };
             Some((prompt, HintList::parsed(CHOOSE_PLANE_HINT)))
+        } else if editing.is_choosing_mirrored() {
+            Some((
+                mirror_tools::CHOOSE_BODIES_PROMPT.to_owned(),
+                HintList::parsed(CHOOSE_PLANE_HINT),
+            ))
         } else if let Some(picking) = editing.picking() {
             Some((
                 reference_picking::prompt(model, picking),
@@ -6587,9 +6642,8 @@ fn projected(
 }
 
 fn pick_action(
-    pickable: Option<Pickable>,
-    ray: Option<Ray>,
-    model: &Model,
+    (pickable, ray): (Option<Pickable>, Option<Ray>),
+    (model, selection): (&Model, &Selection),
     editing: &SketchEditing,
     whole: bool,
 ) -> Option<Vec<Action>> {
@@ -6730,6 +6784,14 @@ fn pick_action(
                 .map(|body| Action::Editing(EditingCommand::CombineWith(body)))
                 .into_iter()
                 .collect(),
+        );
+    }
+    if editing.is_choosing_mirrored() {
+        return Some(
+            pickable
+                .and_then(Pickable::body)
+                .map(|body| mirror_tools::chosen_body_actions(model, selection, body))
+                .unwrap_or_default(),
         );
     }
     if !editing.is_choosing_plane() {

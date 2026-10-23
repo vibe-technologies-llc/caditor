@@ -11,7 +11,8 @@ use super::{
     rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
 };
 use crate::{
-    mate_panel, mirror_panel, model::Action, selection::Pickable, solid_panel, split_panel,
+    mate_panel, mirror_panel, mirror_tools, model::Action, selection::Pickable, solid_panel,
+    split_panel,
 };
 
 fn any_edge(harness: &Harness, body: FeatureId) -> Pickable {
@@ -147,27 +148,31 @@ fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() 
     assert!(definition.more_bodies.is_empty());
 }
 
+fn picking_bodies(harness: &Harness) -> bool {
+    harness
+        .workspace
+        .editing
+        .picking()
+        .is_some_and(|picking| picking.slot == crate::reference_picking::Slot::MirrorBodies)
+}
+
 #[test]
-fn mirror_body_with_nothing_selected_starts_on_the_last_body_and_chooses_bodies_in_the_view() {
+fn mirror_body_with_nothing_selected_waits_for_the_bodies_clicked_in_the_view() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);
     let peg = add_peg(&mut harness);
     harness.select([]);
+    let features = harness.document().features().count();
 
     harness.hover("Mirror body");
-    assert!(harness.shows_containing("click the bodies to mirror"));
+    assert!(harness.shows_containing(mirror_tools::CHOOSE_BODIES_HOVER));
     harness.click("Mirror body");
     harness.settle();
 
-    let (_, definition) = open_mirror(&harness);
-    assert_eq!(definition.body, peg);
-    assert!(
-        harness
-            .workspace
-            .editing
-            .picking()
-            .is_some_and(|picking| picking.slot == crate::reference_picking::Slot::MirrorBodies)
-    );
+    assert_eq!(harness.document().features().count(), features);
+    assert!(harness.workspace.editing.is_choosing_mirrored());
+    assert!(harness.shows(mirror_tools::CHOOSE_BODIES_PROMPT));
+
     harness.click_pickable(
         Plane::XY,
         Point2::new(5.0, 5.0),
@@ -178,7 +183,70 @@ fn mirror_body_with_nothing_selected_starts_on_the_last_body_and_chooses_bodies_
     );
     harness.settle();
     let (_, definition) = open_mirror(&harness);
-    assert_eq!(definition.more_bodies, [plate]);
+    assert_eq!(definition.body, plate);
+    assert!(definition.more_bodies.is_empty());
+    assert!(!harness.workspace.editing.is_choosing_mirrored());
+    assert!(picking_bodies(&harness));
+
+    harness.click_pickable(Plane::XY, Point2::new(32.0, 20.0), any_edge(&harness, peg));
+    harness.settle();
+    let (_, definition) = open_mirror(&harness);
+    assert_eq!(definition.more_bodies, [peg]);
+}
+
+#[test]
+fn escape_stops_choosing_bodies_to_mirror_without_making_a_mirror() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    let features = harness.document().features().count();
+
+    harness.click("Mirror body");
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert!(!harness.workspace.editing.is_choosing_mirrored());
+    assert_eq!(harness.document().features().count(), features);
+}
+
+#[test]
+fn an_open_mirror_lights_the_bodies_it_mirrors() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.workspace.viewport.advance(super::CAMERA_SETTLE);
+    harness.frame();
+    let plain = drawn_colour(&mut harness, top);
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    }]);
+    run_from_palette(&mut harness, "mirror body");
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+    let open = drawn_colour(&mut harness, top);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let closed = drawn_colour(&mut harness, top);
+
+    assert_ne!(open, plain);
+    assert_eq!(closed, plain);
+}
+
+fn drawn_colour(harness: &mut Harness, face: Pickable) -> caditor_render::Color {
+    let built = harness.built();
+    let pick = built.picks.id_of(face);
+    built
+        .scene
+        .meshes
+        .iter()
+        .flat_map(|instance| instance.faces.iter())
+        .find(|drawn| drawn.pick == pick)
+        .map(|drawn| drawn.color)
+        .expect("the face is drawn")
 }
 
 #[test]

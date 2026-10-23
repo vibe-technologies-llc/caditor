@@ -4,8 +4,10 @@
 are. Select the bodies (a face, edge or vertex of each), or choose them in the tree, and with them
 the plane to mirror across: a principal or datum plane or a flat face. With no plane selected, it
 mirrors across the YZ plane. However many bodies are selected, they all go into one mirror, so its
-plane and Result apply to every one of them. With nothing selected, it starts on the last body
-and lets you click the bodies to mirror in the view.
+plane and Result apply to every one of them. With nothing selected, it asks you to click the
+first body to mirror in the view, lighting each body as the pointer passes over it; Escape stops.
+The mirror is made from that click and goes on choosing, so each further click adds a body or,
+clicked again, leaves it out. While the mirror is open, the bodies it mirrors are lit.
 
 The panel chooses the plane from a list of the principal, datum and coordinate system planes
 before it, or from the selection or the view. **Bodies** lists what the mirror reflects: **Stop

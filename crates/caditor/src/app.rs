@@ -1535,6 +1535,7 @@ fn guide_commands(
         tool: editing.active().map(|active| active.tool),
         choosing_plane: editing.is_choosing_plane(),
         choosing_bodies: editing.combining().is_some(),
+        choosing_mirrored: editing.is_choosing_mirrored(),
         open_feature: editing.solid().and_then(kind_of),
         panels: &side_panels,
         tree_row: basis.panels.selected.and_then(kind_of),

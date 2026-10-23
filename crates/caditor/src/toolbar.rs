@@ -19,7 +19,7 @@ use crate::{
     last_values::Starts,
     loft_tools, mate_tools,
     menu_bar::MenuEntries,
-    mirror_tools,
+    mirror_tools::{self, MirrorStart},
     model::{Action, Model},
     move_face_tools, move_tools,
     offers::Offers,
@@ -1114,19 +1114,20 @@ fn mirror_button(
     let source = &context.offers.mirror;
     let invoked = commands.invoke(Command::Mirror, source);
     let help = match source {
-        Ok(chosen) if !chosen.mirrored.is_empty() => {
+        Ok(MirrorStart::Source(chosen)) if !chosen.mirrored.is_empty() => {
             let hover = mirror_tools::features_hover(model.document(), chosen);
             Ok(commands.with_keys(Command::Mirror, &hover))
         }
-        Ok(chosen) if !chosen.also.is_empty() => {
+        Ok(MirrorStart::Source(chosen)) if !chosen.also.is_empty() => {
             let hover = mirror_tools::bodies_hover(model.document(), chosen);
             Ok(commands.with_keys(Command::Mirror, &hover))
         }
-        Ok(chosen) if chosen.guessed => {
-            let hover = mirror_tools::guessed_hover(model.document(), chosen);
-            Ok(commands.with_keys(Command::Mirror, &hover))
+        Ok(MirrorStart::Source(_)) => {
+            Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION))
         }
-        Ok(_) => Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION)),
+        Ok(MirrorStart::ChooseBodies) => {
+            Ok(commands.with_keys(Command::Mirror, mirror_tools::CHOOSE_BODIES_HOVER))
+        }
         Err(reason) => Err(Blocked::ToFix {
             what: mirror_tools::DESCRIPTION.to_owned(),
             reason,
@@ -1134,9 +1135,9 @@ fn mirror_button(
     };
     let response = tool(ui, commands, Command::Mirror, mirror_tools::TITLE, &help);
     if (response.clicked() || invoked)
-        && let Ok(source) = source
+        && let Ok(start) = source
     {
-        actions.extend(mirror_tools::create_actions(model, source));
+        actions.extend(mirror_tools::start_actions(model, start));
     }
 
     let faces = &context.offers.mirror_faces;

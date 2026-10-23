@@ -156,7 +156,10 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
         ))
     );
     assert_eq!(
-        datum_and_face.map(|source| source.plane),
+        datum_and_face.map(|start| match start {
+            mirror_tools::MirrorStart::Source(source) => source.plane,
+            mirror_tools::MirrorStart::ChooseBodies => None,
+        }),
         Ok(Some(PlaneReference::Principal(PrincipalPlane::Xz)))
     );
     assert!(

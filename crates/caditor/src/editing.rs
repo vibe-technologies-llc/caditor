@@ -288,6 +288,8 @@ pub enum EditingCommand {
     ChooseCombined(Option<FeatureId>),
     CombineWith(FeatureId),
     CancelCombine,
+    ChooseMirrored,
+    CancelMirrored,
     Enter(FeatureId),
     Finish,
     CancelSketch,
@@ -434,6 +436,7 @@ pub struct SketchEditing {
     calibration_from: Option<ImageSpot>,
     choosing_plane: bool,
     combining: Option<Combining>,
+    mirroring: bool,
     modes: ShapeModes,
     session: u64,
     switched: Option<Switched>,
@@ -487,7 +490,7 @@ impl SketchEditing {
             sketch: self.feature(),
             solid: self.solid(),
             choosing_plane: self.choosing_plane,
-            choosing_bodies: self.combining.is_some(),
+            choosing_bodies: self.choosing_bodies(),
             projecting: self.active.is_some_and(|active| active.tool.projects()),
             intersecting: self.active.is_some_and(|active| active.tool.intersects()),
             selecting: self
@@ -508,6 +511,14 @@ impl SketchEditing {
 
     pub fn combining(&self) -> Option<Combining> {
         self.combining
+    }
+
+    pub fn is_choosing_mirrored(&self) -> bool {
+        self.mirroring
+    }
+
+    pub fn choosing_bodies(&self) -> bool {
+        self.combining.is_some() || self.mirroring
     }
 
     pub fn picking(&self) -> Option<Picking> {
@@ -558,6 +569,7 @@ impl SketchEditing {
                 self.leave_sketch();
                 self.solid = None;
                 self.combining = None;
+                self.mirroring = false;
                 self.choosing_plane = true;
             }
             EditingCommand::CancelNewSketch => self.choosing_plane = false,
@@ -566,10 +578,20 @@ impl SketchEditing {
                 self.solid = None;
                 self.picking = None;
                 self.choosing_plane = false;
+                self.mirroring = false;
                 self.combining = Some(Combining { target });
             }
             EditingCommand::CombineWith(body) => self.combine_with(body, model, since),
             EditingCommand::CancelCombine => self.combining = None,
+            EditingCommand::ChooseMirrored => {
+                self.leave_sketch();
+                self.solid = None;
+                self.picking = None;
+                self.choosing_plane = false;
+                self.combining = None;
+                self.mirroring = true;
+            }
+            EditingCommand::CancelMirrored => self.mirroring = false,
             EditingCommand::Enter(feature) => self.enter(feature, model, since),
             EditingCommand::Finish => self.finish(model),
             EditingCommand::CancelSketch => self.cancel_sketch(model),
@@ -714,6 +736,7 @@ impl SketchEditing {
                 self.picking = None;
                 self.choosing_plane = false;
                 self.combining = None;
+                self.mirroring = false;
                 self.active = Some(ActiveSketch {
                     feature: entered.feature,
                     tool: Tool::Select,
@@ -727,6 +750,7 @@ impl SketchEditing {
                 self.leave_sketch();
                 self.choosing_plane = false;
                 self.combining = None;
+                self.mirroring = false;
                 self.solid = Some(opened);
             }
             Closed::Sketch(_) | Closed::Feature(_) => {}
@@ -832,6 +856,7 @@ impl SketchEditing {
         self.leave_sketch();
         self.choosing_plane = false;
         self.combining = None;
+        self.mirroring = false;
         if self.solid() == Some(feature) {
             return;
         }
@@ -883,6 +908,7 @@ impl SketchEditing {
             self.solid = None;
             self.choosing_plane = false;
             self.combining = None;
+            self.mirroring = false;
             self.switched = None;
         }
         let document = model.document();
@@ -925,6 +951,7 @@ impl SketchEditing {
         match combine_tools::pair(model, target, body) {
             Ok(pair) => {
                 self.combining = None;
+                self.mirroring = false;
                 let (transaction, feature) = combine_tools::create(model.document(), pair);
                 model.perform(Action::Apply(transaction));
                 self.open_solid(feature, model, since);
@@ -977,6 +1004,7 @@ impl SketchEditing {
         }
         self.choosing_plane = false;
         self.combining = None;
+        self.mirroring = false;
         self.solid = None;
         if self.entered().map(|entered| entered.feature) != Some(feature) {
             let added = model

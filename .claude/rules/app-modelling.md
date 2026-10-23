@@ -1253,9 +1253,15 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   the originals as they are), across the one principal or datum plane selected with it, else the
   one selected flat face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`);
   a selected datum axis or point, a datum after the bar or several planes are refused. With nothing
-  naming a body (no body pick, no tree body, no face taken as the plane) it starts on the last body
-  standing, as a pattern does (`pattern_tools::last_body`, `MirrorSource::guessed`, its hover saying
-  so), and opens choosing bodies (`Slot::MirrorBodies`). The panel chooses a principal, datum or
+  naming a body (no body pick, no tree body, no face taken as the plane) it never picks one itself:
+  `mirror_tools::source` answers `MirrorStart::ChooseBodies` and the command enters choosing
+  (`EditingCommand::ChooseMirrored`, `SketchEditing::is_choosing_mirrored`, prompt
+  `CHOOSE_BODIES_PROMPT`, Escape `CancelMirrored`), refused when no body stands; a click on a body
+  (`viewport::pick_action`, `mirror_tools::chosen_body_actions`) creates the mirror of it across a
+  plane selected beforehand, opens it and goes on choosing on `Slot::MirrorBodies`. While bodies
+  are chosen (this, Combine's choosing, or `Slot::MirrorBodies`) the hovered body lights whole
+  (`viewport::whole_body_hovered`), and an open whole-body mirror lights the bodies it mirrors as
+  chosen rows do (`viewport::mirrored_bodies`). The panel chooses a principal, datum or
   coordinate system plane from a combo, or any earlier plane or flat face with Use selected, Choose
   in the view (slot `MirrorPlane`) or the palette's Mirror across selected. Its Result row
   (`mirror_panel::RESULT`, a `feature_fields::segmented_row`) chooses New body, Add to body (each

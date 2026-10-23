@@ -94,7 +94,12 @@ pub struct MirrorSource {
     pub also: Vec<FeatureId>,
     pub plane: Option<PlaneReference>,
     pub mirrored: Vec<FeatureId>,
-    pub guessed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MirrorStart {
+    Source(MirrorSource),
+    ChooseBodies,
 }
 
 impl MirrorSource {
@@ -243,13 +248,9 @@ pub fn bodies_hover(document: &Document, source: &MirrorSource) -> String {
     hover(document, source, format!("{count} bodies"))
 }
 
-pub fn guessed_hover(document: &Document, source: &MirrorSource) -> String {
-    let body = document.body_label(source.body).unwrap_or_default();
-    format!(
-        "{}; with nothing selected it starts with {body} and lets you click the bodies to mirror",
-        hover(document, source, body.clone())
-    )
-}
+pub const CHOOSE_BODIES_HOVER: &str =
+    "Mirror the bodies you click in the view across a plane; select a body first to start from it";
+pub const CHOOSE_BODIES_PROMPT: &str = "Click a body to mirror";
 
 fn hover(document: &Document, source: &MirrorSource, subject: String) -> String {
     match &source.plane {
@@ -268,21 +269,29 @@ pub fn source(
     model: &Model,
     selection: &Selection,
     (tree, rows): (&[FeatureId], &[FeatureId]),
-) -> Result<MirrorSource, MirrorToolError> {
+) -> Result<MirrorStart, MirrorToolError> {
     let document = model.document();
     let chosen = datum_tools::chosen_plane(model, selection, document.bar_index())
         .map_err(MirrorToolError::ChosenPlane)?;
     let face = chosen.as_ref().and_then(|chosen| chosen.face);
-    let nothing_named = tree.is_empty()
+    let repeated = pattern_tools::repeatable(document, rows);
+    let nothing_named = repeated.is_none()
+        && tree.is_empty()
         && face.is_none()
         && selection.iter().all(|pickable| pickable.body().is_none());
-    let guess = nothing_named
-        .then(|| pattern_tools::last_body(model))
-        .flatten();
-    let (bodies, mirrored) = match (pattern_tools::repeatable(document, rows), guess) {
-        (Some((body, features)), _) => (vec![body], features),
-        (None, Some(body)) => (vec![body], Vec::new()),
-        (None, None) => (
+    if nothing_named {
+        return match document.bodies_standing_in(model.evaluation()).is_empty() {
+            true => Err(MirrorToolError::from(
+                move_tools::BodyChoiceError::Nothing {
+                    instruction: NO_BODY,
+                },
+            )),
+            false => Ok(MirrorStart::ChooseBodies),
+        };
+    }
+    let (bodies, mirrored) = match repeated {
+        Some((body, features)) => (vec![body], features),
+        None => (
             move_tools::chosen_bodies_beside(model, selection, tree, face, NO_BODY)?,
             Vec::new(),
         ),
@@ -291,12 +300,30 @@ pub fn source(
     let body = bodies.next().ok_or(move_tools::BodyChoiceError::Nothing {
         instruction: NO_BODY,
     })?;
-    Ok(MirrorSource {
+    Ok(MirrorStart::Source(MirrorSource {
         body,
         also: bodies.collect(),
         plane: chosen.map(|chosen| chosen.plane),
-        guessed: guess.is_some() && mirrored.is_empty(),
         mirrored,
+    }))
+}
+
+pub fn chosen_body_source(
+    model: &Model,
+    selection: &Selection,
+    body: FeatureId,
+) -> Result<MirrorSource, MirrorToolError> {
+    bodies::shown(model.evaluation(), body).ok_or(MirrorToolError::NoShape)?;
+    let plane = datum_tools::chosen_plane(model, selection, model.document().bar_index())
+        .ok()
+        .flatten()
+        .filter(|chosen| chosen.face.is_none())
+        .map(|chosen| chosen.plane);
+    Ok(MirrorSource {
+        body,
+        also: Vec::new(),
+        plane,
+        mirrored: Vec::new(),
     })
 }
 
@@ -322,17 +349,34 @@ pub fn create(document: &Document, source: &MirrorSource) -> (Transaction, Featu
 
 pub fn create_actions(model: &Model, source: &MirrorSource) -> Vec<Action> {
     let (transaction, feature) = create(model.document(), source);
-    let mut actions = vec![
+    vec![
         Action::Apply(transaction),
         Action::Editing(EditingCommand::OpenSolid(feature)),
-    ];
-    if source.guessed {
-        actions.push(Action::Editing(EditingCommand::Pick(Picking::new(
-            feature,
-            Slot::MirrorBodies,
-        ))));
+    ]
+}
+
+pub fn start_actions(model: &Model, start: &MirrorStart) -> Vec<Action> {
+    match start {
+        MirrorStart::Source(source) => create_actions(model, source),
+        MirrorStart::ChooseBodies => vec![Action::Editing(EditingCommand::ChooseMirrored)],
     }
-    actions
+}
+
+pub fn chosen_body_actions(model: &Model, selection: &Selection, body: FeatureId) -> Vec<Action> {
+    match chosen_body_source(model, selection, body) {
+        Ok(source) => {
+            let (transaction, feature) = create(model.document(), &source);
+            vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+                Action::Editing(EditingCommand::Pick(Picking::new(
+                    feature,
+                    Slot::MirrorBodies,
+                ))),
+            ]
+        }
+        Err(error) => vec![queued::refused(Command::Mirror, TITLE, &error)],
+    }
 }
 
 pub fn with_bodies(mirror: &Mirror, bodies: Vec<FeatureId>) -> Option<Mirror> {
