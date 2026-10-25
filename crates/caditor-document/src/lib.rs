@@ -139,7 +139,7 @@ pub use crate::{
         TransactionBuilder,
     },
     editor::{Base, Editor, Prepared, Stale, UndoMark},
-    emboss::{Emboss, EmbossForm},
+    emboss::{Emboss, EmbossForm, MAX_EMBOSS_DRAFT_DEGREES},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
     helix::{HELIX_SHAPE, Helix, HelixKind, HelixResult, SPIRAL_SHAPE},

@@ -88,10 +88,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] No silhouette split: dividing a body's faces along its outline seen from a chosen
   direction (a split face whose tool is that outline), so the parting line of a moulded or cast
   part can be a face boundary for a draft to start from.
-- [low · medium] Emboss gives the walls no draft, is repeated by a pattern or mirror of features
-  as a rigid copy (a wrapped one is not wrapped again onto the surface the copy lands on), and
-  refuses a sphere or other doubly curved face (wrapping onto one needs the chosen projection of
-  the wrapped split above). Its depth on a cone is measured square to the slope.
+- [low · medium] Emboss drafts its walls only on flat faces (wrapped outlines need the kernel's
+  wrap to offset each piece's row at the outer copy, corners mitred as `extrude_tapered` does), is
+  repeated by a pattern or mirror of features as a rigid copy (a wrapped one is not wrapped again
+  onto the surface the copy lands on), and refuses a sphere or other doubly curved face (wrapping
+  onto one needs the chosen projection of the wrapped split above). Its depth on a cone is measured
+  square to the slope.
 - [low · hard] No plastic-part features:
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.

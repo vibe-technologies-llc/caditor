@@ -22,6 +22,12 @@ menu of faces or {command:palette}.
 - **Depth** is how far the outlines stand out or sink in, as a length or an expression using your
   [parameters](parameters). A new emboss starts from the depth last set on one, kept between
   sessions.
+- **Draft** leans the walls in away from the face by an angle, from 0° (straight walls, the
+  default) up to below 45°, so raised letters narrow towards their tops and a recess narrows towards
+  its floor, as a moulded or cast part needs to leave its mould. The outlines keep their drawn size
+  where they meet the face. It takes an angle or an expression, and works on flat faces only: on a
+  cylinder or cone the field is hidden, and a draft given to one there fails the emboss asking for
+  0°. A draft that closes an outline up before the depth fails it too.
 - **Raise** adds the outlines to the face; **Recess** cuts them into it.
 
 A flat face takes the outlines straight, as an extrusion from the face would: the sketch must lie

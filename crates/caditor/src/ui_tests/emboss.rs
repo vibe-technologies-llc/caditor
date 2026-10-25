@@ -3,7 +3,7 @@ use std::f64::consts::PI;
 use caditor_document::{EmbossForm, FeatureId, RegionChoice};
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_sketch::{Entity, Sketch};
-use egui::{Key, Modifiers};
+use egui::{Id, Key, Modifiers};
 
 use super::{
     CAMERA_SETTLE, Harness, delete_face::holed_plate, drag_value_arrow, length_value,
@@ -90,6 +90,42 @@ fn emboss_raises_a_sketch_from_a_face_and_recesses_it_when_asked() {
         harness.frame();
     }
     assert_eq!(harness.workspace.editing.solid(), None);
+}
+
+#[test]
+fn a_draft_typed_into_the_panel_leans_the_walls_and_a_steep_one_is_refused() {
+    let mut harness = Harness::new();
+    let (plate, _, top) = holed_plate(&mut harness);
+    let (_, edge) = label(&mut harness);
+    harness.select([top, edge]);
+    harness.use_tool_with(Key::Y, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let emboss = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the emboss is open");
+    let field = Id::unique(("emboss-draft", emboss));
+    assert!(harness.shows("Draft"));
+    assert!(!emboss_of(&harness, emboss).is_drafted());
+    let straight = harness.body_volume(plate);
+
+    harness.type_into_field(field, "8 deg");
+    harness.settle();
+    let lean = 8.0_f64.to_radians().tan();
+    let drafted = LABEL * 0.5 - 16.0 * lean * 0.25 + 4.0 / 3.0 * lean * lean * 0.125;
+    let lost = straight - harness.body_volume(plate);
+
+    assert!(emboss_of(&harness, emboss).is_drafted());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!((lost - (LABEL * 0.5 - drafted)).abs() < 1e-3, "{lost}");
+    assert_eq!(harness.model.undo_label(), Some("Edit Emboss 1"));
+
+    harness.type_into_field(field, "50 deg");
+    harness.settle();
+
+    assert!(harness.shows_containing("Enter an angle from 0° up to below 45°"));
+    assert!((straight - harness.body_volume(plate) - lost).abs() < 1e-6);
 }
 
 #[test]

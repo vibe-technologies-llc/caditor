@@ -111,6 +111,7 @@ pub struct Embossing {
     pub sketch: Option<Named>,
     pub regions: Option<RegionsAsk>,
     pub depth: Option<Amount>,
+    pub draft: Option<Amount>,
     pub form: Option<EmbossFormName>,
     pub name: Option<String>,
 }
@@ -418,6 +419,9 @@ pub fn emboss_built(
     let depth = parsed(session, asked.depth.as_ref(), |session, depth| {
         length(session, "depth", depth)
     })?;
+    let draft = parsed(session, asked.draft.as_ref(), |session, draft| {
+        turn(session, "draft", draft)
+    })?;
     session.evaluate(work)?;
     let body = body_of(session, asked.body.as_ref(), base.map(|base| base.body))?;
     let faces = faces_of(
@@ -452,6 +456,9 @@ pub fn emboss_built(
             depth.or_else(|| base.map(|base| base.depth.clone())),
             "depth",
         )?,
+        draft: draft
+            .or_else(|| base.map(|base| base.draft.clone()))
+            .unwrap_or_else(Emboss::undrafted),
         form: asked
             .form
             .map(EmbossFormName::form)

@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
 use caditor_document::{
-    AxisReference, BodyOperation, Document, FeatureId, MAX_CONE_ANGLE, MAX_MATE_ANGLE_DEGREES,
-    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MAX_RIB_DRAFT_DEGREES, MIN_PRISM_SIDES, ParameterOwner,
-    Transaction, capitalized, describe_axis,
+    AxisReference, BodyOperation, Document, FeatureId, MAX_CONE_ANGLE, MAX_EMBOSS_DRAFT_DEGREES,
+    MAX_MATE_ANGLE_DEGREES, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MAX_RIB_DRAFT_DEGREES,
+    MIN_PRISM_SIDES, ParameterOwner, Transaction, capitalized, describe_axis,
 };
 use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_kernel::{LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, MAX_TAPER_DEGREES};
@@ -66,6 +66,7 @@ pub enum Rule {
     CoilTurns,
     CoilTaper,
     RibDraft,
+    EmbossDraft,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -105,6 +106,10 @@ pub enum RuleError {
     CoilTaperOutside { limit: f64 },
     #[error("Enter an angle from 0° up to below {below}°; the rib widens by it toward the body")]
     RibDraftOutside { below: f64 },
+    #[error(
+        "Enter an angle from 0° up to below {below}°; the walls lean in by it away from the face"
+    )]
+    EmbossDraftOutside { below: f64 },
 }
 
 impl Rule {
@@ -168,6 +173,11 @@ impl Rule {
                     below: MAX_RIB_DRAFT_DEGREES,
                 })
             }
+            Self::EmbossDraft if !(0.0..MAX_EMBOSS_DRAFT_DEGREES).contains(&value) => {
+                Err(RuleError::EmbossDraftOutside {
+                    below: MAX_EMBOSS_DRAFT_DEGREES,
+                })
+            }
             Self::AboveZero
             | Self::ZeroOrMore
             | Self::AboveZeroOrReverse
@@ -182,7 +192,8 @@ impl Rule {
             | Self::MateAngle
             | Self::CoilTurns
             | Self::CoilTaper
-            | Self::RibDraft => Ok(()),
+            | Self::RibDraft
+            | Self::EmbossDraft => Ok(()),
         }
     }
 }

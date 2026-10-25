@@ -183,6 +183,7 @@ pub fn create(
             sketch: source.sketch,
             regions: chosen_regions(evaluation, source),
             depth: starts.length(Remembered::EmbossDepth, DEFAULT_DEPTH),
+            draft: Emboss::undrafted(),
             form: EmbossForm::Raised,
         }),
     );

@@ -1,5 +1,6 @@
 use caditor_document::{
     Document, Emboss, EmbossForm, Feature, FeatureId, RegionChoice, Resolution, SolidResult,
+    face_plane,
 };
 use caditor_expression::Dimension;
 use caditor_kernel::FaceId;
@@ -23,6 +24,7 @@ use crate::{
 };
 
 pub const DEPTH: &str = "Depth";
+pub const DRAFT: &str = "Draft";
 pub const DESCRIPTION: &str = "Raises the closed outlines or text of a sketch from the chosen faces, or \
                                sinks them in, flat or wrapped round a cylinder or cone";
 const RAISE_HOVER: &str = "Add the outlines to the faces";
@@ -309,6 +311,48 @@ fn depth_row(
     actions.extend(drafting.into_actions(id));
 }
 
+fn is_wrapped(model: &Model, feature: FeatureId, emboss: &Emboss) -> bool {
+    let Some(input) = bodies::input(model.evaluation(), feature) else {
+        return false;
+    };
+    emboss.resolve(&input.solid).is_ok_and(|faces| {
+        faces
+            .iter()
+            .any(|face| face_plane(&input.solid, *face).is_none())
+    })
+}
+
+fn draft_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    emboss: &Emboss,
+    actions: &mut Vec<Action>,
+) {
+    let id = feature.id();
+    if !emboss.is_drafted() && is_wrapped(model, id, emboss) {
+        return;
+    }
+    let quantity = Quantity {
+        feature: id,
+        id: Id::unique(("emboss-draft", id)),
+        expression: &emboss.draft,
+        dimension: Dimension::ANGLE,
+        rule: Rule::EmbossDraft,
+    };
+    let drafting = feature_fields::expression_row_drafting(ui, model, DRAFT, quantity, |draft| {
+        emboss_tools::change(
+            model,
+            id,
+            Emboss {
+                draft,
+                ..emboss.clone()
+            },
+        )
+    });
+    actions.extend(drafting.into_actions(id));
+}
+
 fn form_row(
     ui: &mut Ui,
     model: &Model,
@@ -357,6 +401,7 @@ pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut
         regions_row(ui, row, actions);
         form_row(ui, model, feature, emboss, actions);
         depth_row(ui, model, feature, emboss, actions);
+        draft_row(ui, model, feature, emboss, actions);
         feature_fields::feature_row(ui, model.document(), "Body", emboss.body);
     });
 }

@@ -801,7 +801,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `Slot::EmbossSketch`, `emboss_tools::sketch_change`, which takes every region again), Regions (All
   closed or Chosen as an extrusion's, with the count, Select all, Clear and Choose in the view;
   `emboss_panel::regions_row`), Form (Raise or Recess, a segmented row), a Depth that takes units
-  and expressions, and the Body. Regions of the sketch selected when Emboss is chosen are the ones
+  and expressions, a Draft angle (`Rule::EmbossDraft`, 0° up to below `MAX_EMBOSS_DRAFT_DEGREES`;
+  hidden while undrafted on faces that are not all flat, `emboss_panel::is_wrapped`), and the
+  Body. A new emboss has no draft. Regions of the sketch selected when Emboss is chosen are the ones
   chosen (`EmbossSource::regions`, else All). With none of the faces or the sketch chosen it waits
   (`FacesToEmboss`, `SketchToEmboss`), and with no region chosen `RegionsToEmboss`; the tree row
   offers to open it. While open and computed it shows the result as an offset face does

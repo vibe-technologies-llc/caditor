@@ -1,7 +1,7 @@
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    FaceReference, RegionKey, RegionReference, SamplingTolerance, Solid, Surface,
+    FaceName, FaceReference, RegionKey, RegionReference, SamplingTolerance, Solid, Surface,
 };
 use caditor_sketch::{Constraint, Entity, Sketch, Text, TextAlign};
 
@@ -146,6 +146,7 @@ fn embossed(
             sketch: Some(label),
             regions: RegionChoice::All,
             depth,
+            draft: Emboss::undrafted(),
             form,
         }),
     );
@@ -523,8 +524,7 @@ fn a_sketch_without_a_closed_outline_fails_in_words() {
     );
 }
 
-#[test]
-fn text_embosses_with_its_counters_open() {
+fn lettered_plate() -> (Document, FeatureId, FeatureId) {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let outline = transaction.add_feature(
@@ -554,6 +554,12 @@ fn text_embosses_with_its_counters_open() {
         },
     );
     document.apply(transaction.finish()).unwrap();
+    (document, base, label)
+}
+
+#[test]
+fn text_embosses_with_its_counters_open() {
+    let (document, base, label) = lettered_plate();
     let mut model = embossed(document, base, label, top_face, EmbossForm::Raised, "1 mm");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
@@ -932,4 +938,134 @@ fn an_emboss_is_repeatable_on_its_body() {
     let kind = &model.document.feature(model.emboss).unwrap().kind;
 
     assert_eq!(repeatable_on(kind), Some(model.base));
+}
+
+fn drafted(form: EmbossForm, depth: &str, draft: &str) -> Model {
+    let mut model = plate(rectangle((2.0, 2.0), (6.0, 5.0)), form, depth);
+    let draft = model.document.parse(draft).unwrap();
+    change(&mut model, |emboss| emboss.draft = draft);
+    model
+}
+
+fn frustum_volume(height: f64, degrees: f64) -> f64 {
+    let lean = degrees.to_radians().tan();
+    12.0 * height - 7.0 * lean * height * height + 4.0 / 3.0 * lean * lean * height.powi(3)
+}
+
+#[test]
+fn a_drafted_raised_outline_narrows_away_from_the_face() {
+    let mut model = drafted(EmbossForm::Raised, "1 mm", "10 deg");
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let grown = volume(&evaluation, model.base) - plate_volume();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((grown - frustum_volume(1.0, 10.0)).abs() < 1e-6, "{grown}");
+}
+
+#[test]
+fn a_drafted_recess_narrows_towards_its_floor() {
+    let mut model = drafted(EmbossForm::Recessed, "1 mm", "10 deg");
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let cut = plate_volume() - volume(&evaluation, model.base);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((cut - frustum_volume(1.0, 10.0)).abs() < 1e-6, "{cut}");
+}
+
+#[test]
+fn a_drafted_outline_keeps_the_names_of_its_top_and_sides() {
+    let mut straight = drafted(EmbossForm::Raised, "1 mm", "0 deg");
+    let mut leaning = drafted(EmbossForm::Raised, "1 mm", "5 deg");
+
+    let names = |model: &mut Model| {
+        let evaluation = evaluate(&model.document, &mut model.engine);
+        let emboss = model.emboss.raw();
+        let mut names: Vec<FaceName> = evaluation
+            .body(model.base)
+            .unwrap()
+            .faces()
+            .filter(|(_, face)| {
+                face.origin()
+                    .is_some_and(|origin| origin.features().contains(&emboss))
+            })
+            .map(|(_, face)| face.name())
+            .collect();
+        names.sort();
+        names
+    };
+
+    assert_eq!(names(&mut straight), names(&mut leaning));
+}
+
+#[test]
+fn a_draft_out_of_range_fails_in_words() {
+    let mut steep = drafted(EmbossForm::Raised, "1 mm", "45 deg");
+    let mut negative = drafted(EmbossForm::Raised, "1 mm", "-2 deg");
+
+    let steep_evaluation = evaluate(&steep.document, &mut steep.engine);
+    let negative_evaluation = evaluate(&negative.document, &mut negative.engine);
+
+    assert_eq!(
+        failure(&steep_evaluation, steep.emboss).reason(),
+        "The draft is 45° or steeper."
+    );
+    assert_eq!(
+        failure(&negative_evaluation, negative.emboss).reason(),
+        "The draft cannot be negative."
+    );
+}
+
+#[test]
+fn a_draft_closing_the_outline_before_its_depth_fails_in_words() {
+    let mut model = drafted(EmbossForm::Raised, "2 mm", "40 deg");
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(
+        failure(&evaluation, model.emboss).reason(),
+        "With its draft, an outline of Label closes up before it reaches the depth."
+    );
+}
+
+#[test]
+fn a_wrapped_outline_with_a_draft_fails_in_words() {
+    let mut model = rod(patch(), EmbossForm::Raised, "1 mm");
+    let draft = model.document.parse("5 deg").unwrap();
+    change(&mut model, |emboss| emboss.draft = draft);
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    let error = failure(&evaluation, model.emboss);
+
+    assert_eq!(
+        error.reason(),
+        "Outlines wrapped round a cylinder cannot have drafted walls yet."
+    );
+    assert_eq!(error.remedy(), "Set the draft to 0°.");
+}
+
+#[test]
+fn drafted_text_leans_its_walls_in() {
+    let (document, base, label) = lettered_plate();
+    let mut straight = embossed(
+        document.clone(),
+        base,
+        label,
+        top_face,
+        EmbossForm::Raised,
+        "1 mm",
+    );
+    let mut leaning = embossed(document, base, label, top_face, EmbossForm::Raised, "1 mm");
+    let draft = leaning.document.parse("8 deg").unwrap();
+    change(&mut leaning, |emboss| emboss.draft = draft);
+
+    let straight_evaluation = evaluate(&straight.document, &mut straight.engine);
+    let leaning_evaluation = evaluate(&leaning.document, &mut leaning.engine);
+    let straight_growth = volume(&straight_evaluation, straight.base) - plate_volume();
+    let leaning_growth = volume(&leaning_evaluation, leaning.base) - plate_volume();
+
+    assert_eq!(leaning_evaluation.failed_count(), 0);
+    assert!(leaning_growth > 0.5 * straight_growth, "{leaning_growth}");
+    assert!(leaning_growth < 0.97 * straight_growth, "{leaning_growth}");
 }
