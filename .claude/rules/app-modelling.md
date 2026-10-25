@@ -499,6 +499,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - A removal's panel lists under Body the other bodies it Also cuts, each with a stop button, and an Add
   another body list of `bodies_before` not yet cut; switching away from Remove from body drops them
   (`solid_tools::with_operation`).
+- The Body row and the Also cuts rows each have a picker under them (`Slot::OperationBody`,
+  `Slot::AlsoCutBody`): Use selected takes the one body of the selection made before the feature
+  (`solid_panel::operation_body_change`, `added_cut_bodies`, refusing several, one made later, the
+  body already changed and a feature that cuts no further bodies, in `SolidChangeError`), and Choose
+  in the view takes a body by a click on any of its faces (`toggled_cut_body` for Also cuts, which
+  keeps choosing and leaves a clicked body out again; the Body slot is a single click). Both light
+  the hovered body whole as Mirror's body slot does (`viewport::chooses_bodies`).
 
 ## Sweep
 

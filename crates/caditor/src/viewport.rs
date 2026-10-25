@@ -562,9 +562,12 @@ fn mirrored_bodies(model: &Model, context: editing::Context) -> Vec<FeatureId> {
 
 fn chooses_bodies(editing: &SketchEditing) -> bool {
     editing.choosing_bodies()
-        || editing
-            .picking()
-            .is_some_and(|picking| picking.slot == Slot::MirrorBodies)
+        || editing.picking().is_some_and(|picking| {
+            matches!(
+                picking.slot,
+                Slot::MirrorBodies | Slot::OperationBody | Slot::AlsoCutBody
+            )
+        })
 }
 
 fn whole_body_hovered(model: &Model, pickable: Pickable) -> Vec<Pickable> {

@@ -87,6 +87,10 @@ along the lean slopes by the taper from the direction and one facing the lean a 
 ## Result
 
 - **New body**, **Add** to a body, **Remove from body** (a cut) or **Intersect with body**.
+- Under **Body**, the body the extrusion changes is chosen from the list, with the body you have
+  selected (**Use selected**) or by clicking it in the view (**Choose in the view**). A cut also has
+  **Also cuts**: a list of further bodies it cuts through, to which clicking a body in the view adds
+  it, and clicking it again leaves it out.
 - **Separate pieces**, offered for a new body: **One body** keeps shapes that do not touch as one
   body of several pieces; **A body each** makes every separate piece a body of its own, listed
   under Bodies, each shown, hidden, coloured, renamed and used by later features on its own. The

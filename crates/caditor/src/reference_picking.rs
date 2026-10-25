@@ -43,6 +43,8 @@ pub enum Slot {
     ExtrudeDirection,
     MirrorPlane,
     MirrorBodies,
+    OperationBody,
+    AlsoCutBody,
     SplitPlane,
     SplitDirection,
     EmbossSketch,
@@ -87,6 +89,7 @@ impl Slot {
             self,
             Self::SweepPath
                 | Self::MirrorBodies
+                | Self::AlsoCutBody
                 | Self::LoftProfiles
                 | Self::ShellOwnThickness
                 | Self::DraftOwnAngle
@@ -133,6 +136,8 @@ impl Slot {
             Self::HolePlace
             | Self::ImageCalibration
             | Self::HoleAdd
+            | Self::OperationBody
+            | Self::AlsoCutBody
             | Self::ShellOwnThickness
             | Self::DraftOwnAngle
             | Self::ThreadFace
@@ -278,6 +283,10 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
+        Slot::OperationBody => "Click the body this feature changes".to_owned(),
+        Slot::AlsoCutBody => "Click a body to cut it too, again to leave it out; press Escape \
+                              when every body is chosen"
+            .to_owned(),
         Slot::MirrorBodies => "Click a body to mirror it too, again to leave it out, or a plane \
                                to mirror across; press Escape when every body is chosen"
             .to_owned(),
@@ -536,6 +545,14 @@ pub fn change(
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror).map_err(ChangeError::from)
+        }
+        (Slot::OperationBody, FeatureKind::Solid(solid)) => {
+            solid_panel::operation_body_change(model, selection, feature, solid)
+                .map_err(ChangeError::from)
+        }
+        (Slot::AlsoCutBody, FeatureKind::Solid(solid)) => {
+            solid_panel::toggled_cut_body(model, selection, feature, solid)
+                .map_err(ChangeError::from)
         }
         (Slot::MirrorBodies, FeatureKind::Mirror(mirror)) => {
             mirror_tools::chosen_body_or_plane(model, selection, feature, mirror)

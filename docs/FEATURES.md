@@ -69,10 +69,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   variable-radius blend, a swept or lofted surface); and a parting line is only the neutral plane,
   so a stepped parting line along chosen edges or a split face's line (each side drafted from its
   own hinge) is not offered.
-- [low · medium] The extrude and cut panels pick the target body and the bodies it also cuts only
-  from combo boxes (`solid_panel.rs`); there is no viewport pick slot for either, so with generic
-  names (Solid 1, Solid 2) the body has to be told from the list. Selecting a body's faces before
-  the tool sets the target, and the Result row is detected, so this is a convenience.
 - [low · medium] Mirror faces closes an opening only in one plane or on one elementary face beside
   it: an opening on an extrusion, revolution or spline face, one running all the way around a
   round face (a collar or a groove), or one spanning several curved faces is refused, since

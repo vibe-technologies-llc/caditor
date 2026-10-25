@@ -11,7 +11,12 @@ use super::{
     rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
 };
 use crate::{
-    mate_panel, mirror_panel, mirror_tools, model::Action, pattern_panel, selection::Pickable,
+    editing::EditingCommand,
+    mate_panel, mirror_panel, mirror_tools,
+    model::Action,
+    pattern_panel,
+    reference_picking::{Picking, Slot},
+    selection::Pickable,
     solid_panel, split_panel,
 };
 
@@ -618,6 +623,78 @@ fn one_cut_removes_material_from_every_body_chosen_in_its_panel() {
     choose(&mut harness, solid_panel::ADD_CUT_BODY, "Extrude 1");
     choose(&mut harness, "Remove from body", "Add to body");
     assert!(harness.solid(cut).other_bodies().is_empty());
+}
+
+fn start_picking(harness: &mut Harness, feature: FeatureId, slot: Slot) {
+    harness.perform(Action::Editing(EditingCommand::Pick(Picking::new(
+        feature, slot,
+    ))));
+    harness.frame();
+}
+
+#[test]
+fn the_bodies_a_cut_changes_are_clicked_in_the_view() {
+    let mut harness = Harness::new();
+    let first = extruded(&mut harness, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let second = extruded(
+        &mut harness,
+        Point2::new(50.0, 0.0),
+        Point2::new(90.0, 40.0),
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let cut = extruded(
+        &mut harness,
+        Point2::new(30.0, 10.0),
+        Point2::new(60.0, 20.0),
+    );
+    choose(&mut harness, "Add to body", "Remove from body");
+    assert_eq!(
+        harness.solid(cut).operation(),
+        BodyOperation::Remove(second)
+    );
+
+    start_picking(&mut harness, cut, Slot::AlsoCutBody);
+    assert!(harness.shows_containing("Click a body to cut it too"));
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 10.0),
+        any_edge(&harness, first),
+    );
+    harness.settle();
+    assert_eq!(harness.solid(cut).other_bodies(), [first]);
+    assert!(volume_about(&harness, first, 15000.0));
+    assert!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .is_some_and(|picking| picking.slot == Slot::AlsoCutBody)
+    );
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 10.0),
+        any_edge(&harness, first),
+    );
+    harness.settle();
+    assert!(harness.solid(cut).other_bodies().is_empty());
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    start_picking(&mut harness, cut, Slot::OperationBody);
+    assert!(harness.shows_containing("Click the body this feature changes"));
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 10.0),
+        any_edge(&harness, first),
+    );
+    harness.settle();
+    assert_eq!(harness.solid(cut).operation(), BodyOperation::Remove(first));
+    assert!(harness.workspace.editing.picking().is_none());
+    assert!(volume_about(&harness, second, 16000.0));
 }
 
 #[test]

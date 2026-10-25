@@ -11,6 +11,7 @@ use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
 
 use crate::{
+    body_selection,
     commands::Command,
     datum_tools,
     editing::EditingCommand,
@@ -98,6 +99,8 @@ const SELECT_ALL_REGIONS: &str = "Select all";
 pub const SEPARATE_PIECES: &str = "Separate pieces";
 const SELECT_ALL_REGIONS_HOVER: &str =
     "Take every closed region of the sketch, and any closed region drawn in it later";
+const USE_SELECTED_BODY: &str = "Change the selected body";
+const CUT_SELECTED_BODIES: &str = "Cut the selected body too";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
 
@@ -155,6 +158,20 @@ pub enum SolidChangeError {
     RevolveAlreadyAboutAxis,
     #[error("Select an axis, a straight edge or a round face made before this feature")]
     NoAxisSelected,
+    #[error("Select a body made before this feature, then use it")]
+    NoBodySelected,
+    #[error("Select only one body")]
+    SeveralBodiesSelected,
+    #[error("{name} is made after this feature in the tree")]
+    BodyMadeLater { name: String },
+    #[error("{name} is already the body this feature changes")]
+    AlreadyTheBody { name: String },
+    #[error("{name} is already cut by this feature")]
+    AlreadyCut { name: String },
+    #[error("Only a removal cuts further bodies; choose Remove from body first")]
+    OnlyARemovalCutsMore,
+    #[error("A new body changes no body; choose Add, Remove or Intersect with body first")]
+    NewBodyChangesNone,
     #[error("{axis} does not lie in the plane of {sketch}")]
     AxisOffSketchPlane { axis: String, sketch: String },
     #[error(transparent)]
@@ -1444,6 +1461,23 @@ impl Panel<'_> {
             });
         });
         ui.end_row();
+        ui.label("");
+        let picker = Picker {
+            feature: self.id(),
+            slot: Slot::OperationBody,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), Slot::OperationBody),
+                || operation_body_change(self.model, self.selection, self.id(), self.solid),
+            ),
+            hover: USE_SELECTED_BODY,
+        };
+        ui.vertical(|ui| {
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
         if let BodyOperation::Remove(_) = operation {
             self.other_body_rows(ui, &bodies, target);
         }
@@ -1502,7 +1536,8 @@ impl Panel<'_> {
             .copied()
             .filter(|body| *body != target && !others.contains(body))
             .collect();
-        if candidates.is_empty() {
+        let choosing = self.picking(ui, Slot::AlsoCutBody);
+        if candidates.is_empty() && !choosing {
             return;
         }
         if others.is_empty() {
@@ -1510,12 +1545,38 @@ impl Panel<'_> {
         } else {
             ui.label("");
         }
+        if candidates.is_empty() {
+            ui.label("");
+        } else {
+            self.cut_body_combo(ui, &candidates, &others);
+        }
+        ui.end_row();
+        ui.label("");
+        let picker = Picker {
+            feature: self.id(),
+            slot: Slot::AlsoCutBody,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), Slot::AlsoCutBody),
+                || added_cut_bodies(self.model, self.selection, self.id(), self.solid),
+            ),
+            hover: CUT_SELECTED_BODIES,
+        };
+        ui.vertical(|ui| {
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
+    }
+
+    fn cut_body_combo(&mut self, ui: &mut Ui, candidates: &[FeatureId], others: &[FeatureId]) {
         self.combo(ui, "also-cut", ADD_CUT_BODY, |panel| {
             candidates
                 .iter()
                 .filter_map(|body| {
                     let label = panel.document().body_label(*body)?;
-                    let mut chosen = others.clone();
+                    let mut chosen = others.to_vec();
                     chosen.push(*body);
                     Some(Choice {
                         label,
@@ -1527,7 +1588,6 @@ impl Panel<'_> {
                 })
                 .collect()
         });
-        ui.end_row();
     }
 
     fn path_row(&mut self, ui: &mut Ui, sweep: &Sweep) {
@@ -1953,6 +2013,118 @@ pub fn selected_axis_change(
             }),
         ),
         None => Err(SolidChangeError::NoAxisSelected),
+    }
+}
+
+fn selected_body(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+) -> Result<FeatureId, SolidChangeError> {
+    let document = model.document();
+    let selected = body_selection::bodies_in(selection);
+    let body = match selected.as_slice() {
+        [] => return Err(SolidChangeError::NoBodySelected),
+        [body] => *body,
+        _ => return Err(SolidChangeError::SeveralBodiesSelected),
+    };
+    if document
+        .bodies_before_in(feature, model.evaluation())
+        .contains(&body)
+    {
+        Ok(body)
+    } else {
+        Err(SolidChangeError::BodyMadeLater {
+            name: document.body_label(body).unwrap_or_default(),
+        })
+    }
+}
+
+fn body_name(model: &Model, body: FeatureId) -> String {
+    model.document().body_label(body).unwrap_or_default()
+}
+
+pub fn operation_body_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    solid: &SolidFeature,
+) -> Result<Transaction, SolidChangeError> {
+    let operation = solid.operation();
+    if operation.target().is_none() {
+        return Err(SolidChangeError::NewBodyChangesNone);
+    }
+    let body = selected_body(model, selection, feature)?;
+    if operation.target() == Some(body) {
+        return Err(SolidChangeError::AlreadyTheBody {
+            name: body_name(model, body),
+        });
+    }
+    change(
+        model,
+        feature,
+        solid_tools::with_operation(solid, operation.with_target(body)),
+    )
+}
+
+pub fn added_cut_bodies(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    solid: &SolidFeature,
+) -> Result<Transaction, SolidChangeError> {
+    let (target, mut others) = cut_bodies(solid)?;
+    let body = selected_body(model, selection, feature)?;
+    if body == target {
+        return Err(SolidChangeError::AlreadyTheBody {
+            name: body_name(model, body),
+        });
+    }
+    if others.contains(&body) {
+        return Err(SolidChangeError::AlreadyCut {
+            name: body_name(model, body),
+        });
+    }
+    others.push(body);
+    change(
+        model,
+        feature,
+        solid_tools::with_other_bodies(solid, others),
+    )
+}
+
+pub fn toggled_cut_body(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    solid: &SolidFeature,
+) -> Result<Transaction, SolidChangeError> {
+    let (target, mut others) = cut_bodies(solid)?;
+    let body = selected_body(model, selection, feature)?;
+    if body == target {
+        return Err(SolidChangeError::AlreadyTheBody {
+            name: body_name(model, body),
+        });
+    }
+    match others.iter().position(|other| *other == body) {
+        Some(at) => {
+            others.remove(at);
+        }
+        None => others.push(body),
+    }
+    change(
+        model,
+        feature,
+        solid_tools::with_other_bodies(solid, others),
+    )
+}
+
+fn cut_bodies(solid: &SolidFeature) -> Result<(FeatureId, Vec<FeatureId>), SolidChangeError> {
+    match solid.operation() {
+        BodyOperation::Remove(target) => Ok((target, solid.other_bodies().to_vec())),
+        BodyOperation::NewBody | BodyOperation::Add(_) | BodyOperation::Intersect(_) => {
+            Err(SolidChangeError::OnlyARemovalCutsMore)
+        }
     }
 }
 
