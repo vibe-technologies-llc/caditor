@@ -31,6 +31,19 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   - every body validates, meshes watertight at `MeshQuality::COARSE` and has finite mass properties;
   - undoing every step restores the empty document and redoing them the last one;
   - a document saves and loads to the same content.
+- `kernel_tests.rs`: every solid `profile::swept_solid` makes is sound, and for pairs of them placed
+  at random every boolean that succeeds is sound and obeys the identities of volume (exact
+  quadrature, `mass_properties_tessellating`): union plus intersection is the two volumes,
+  intersection plus difference is the first, union commutes. A refusal is not a failure; the
+  surveys of success live in `caditor-kernel`. A directed mesh edge must be matched by as many
+  opposite ones (`invariants::watertightness`), not exactly one: profile regions touching along an
+  edge make a legitimate non-manifold solid.
+- `sketch_tests.rs`: solving a sketch twice gives the same geometry, and a solved sketch solves
+  again from its own result (`NoLength` excepted, `docs/BUGS.md`). That the second solve does not
+  move the sketch is the ignored `a_solved_sketch_does_not_move_when_solved_again`.
+- `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
+  `every_input_kept_in_the_regression_folder_still_holds` through the same checks. A crash libFuzzer
+  finds in `document` is copied there (`fuzz/artifacts` is not tracked), next to the fix.
 - Evaluation is bounded by a poll count (`POLL_LIMIT`) rather than a clock, so a case never gives
   different answers on a loaded machine; a case that exhausts it is skipped.
 - A property that fails on inputs the model should handle is a finding: record it in `docs/BUGS.md`,

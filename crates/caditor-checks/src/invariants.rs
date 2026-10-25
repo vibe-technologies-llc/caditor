@@ -6,7 +6,6 @@ use caditor_kernel::{Interrupt, Mesh, MeshQuality, Solid, interruptible};
 pub enum Watertightness {
     NoTriangles,
     DegenerateTriangle,
-    EdgeUsedTwice { from: u32, to: u32 },
     EdgeWithoutOpposite { from: u32, to: u32 },
 }
 
@@ -15,9 +14,6 @@ impl fmt::Display for Watertightness {
         match self {
             Self::NoTriangles => formatter.write_str("the mesh has no triangles"),
             Self::DegenerateTriangle => formatter.write_str("the mesh has a degenerate triangle"),
-            Self::EdgeUsedTwice { from, to } => {
-                write!(formatter, "the edge {from}->{to} is used more than once")
-            }
             Self::EdgeWithoutOpposite { from, to } => {
                 write!(formatter, "the edge {from}->{to} has no opposite")
             }
@@ -39,13 +35,7 @@ pub fn watertightness(mesh: &Mesh) -> Result<(), Watertightness> {
         return Err(Watertightness::NoTriangles);
     }
     for ((from, to), count) in &directed {
-        if *count != 1 {
-            return Err(Watertightness::EdgeUsedTwice {
-                from: *from,
-                to: *to,
-            });
-        }
-        if directed.get(&(*to, *from)) != Some(&1) {
+        if directed.get(&(*to, *from)) != Some(count) {
             return Err(Watertightness::EdgeWithoutOpposite {
                 from: *from,
                 to: *to,

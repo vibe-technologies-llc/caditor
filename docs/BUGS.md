@@ -124,9 +124,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   fraction of the whole chain's extent before Newton steps settle it.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
-  with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
-  within minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet (it
-  discards that result), so the property is unchecked.
+  with a zero distance from that arc to the spline's first point. The seeded suite
+  `a_solved_sketch_solves_again_from_its_own_result` (`caditor-checks`) now requires `solve_from` of a
+  solved geometry to succeed, but skips `SketchError::NoLength`, which 30,000 cases find at seed
+  21543 (a line the first solve left with no length, refused when solved again).
+- [medium · hard] A solved sketch can jump to another solution when solved again from its own
+  result: seed 1555 of `a_solved_sketch_does_not_move_when_solved_again` (ignored) moves a point by
+  6.95 mm on the second `solve_from`, so editing such a sketch without changing it can move it.
 - [low · hard] A dimension placed on entities that still have other freedom is added as a driving
   dimension although the measured value is already determined by their constraints: `determines`
   (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is

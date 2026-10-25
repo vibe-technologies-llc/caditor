@@ -1,8 +1,13 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+use std::{
+    fs,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
 };
 
+use arbitrary::Unstructured;
 use caditor_document::{
     CancelToken, Document, Editor, Evaluation, FeatureResult, FeatureState, ModelEvaluator,
     Recompute,
@@ -160,35 +165,53 @@ fn compare_after_each_step(
     fresh.bodies().count()
 }
 
+fn compare_a_run(input: &mut Unstructured, wording: Wording) -> usize {
+    let mut editor = Editor::default();
+    let mut incremental = Recompute::default();
+    let mut bodies = 0;
+
+    run_steps(
+        input,
+        &mut editor,
+        &References::default(),
+        STEPS,
+        |editor, _| {
+            bodies += compare_after_each_step(&mut incremental, editor, wording);
+        },
+    );
+    let Some(first) = evaluate(&mut Recompute::default(), editor.document()) else {
+        return bodies;
+    };
+
+    let captured = References::capture(&first);
+    run_steps(input, &mut editor, &captured, STEPS, |editor, _| {
+        bodies += compare_after_each_step(&mut incremental, editor, wording);
+    });
+    bodies
+}
+
 #[test]
 fn recomputing_after_each_step_equals_recomputing_from_scratch() {
     let mut bodies = 0;
     for_each_case("incremental recompute", COMPARISON_CASES, |_, input| {
-        let mut editor = Editor::default();
-        let mut incremental = Recompute::default();
-
-        run_steps(
-            input,
-            &mut editor,
-            &References::default(),
-            STEPS,
-            |editor, _| {
-                bodies += compare_after_each_step(&mut incremental, editor, Wording::Ignored);
-            },
-        );
-        let Some(first) = evaluate(&mut Recompute::default(), editor.document()) else {
-            return;
-        };
-
-        let captured = References::capture(&first);
-        run_steps(input, &mut editor, &captured, STEPS, |editor, _| {
-            bodies += compare_after_each_step(&mut incremental, editor, Wording::Ignored);
-        });
+        bodies += compare_a_run(input, Wording::Ignored);
     });
     assert!(
         bodies >= FEWEST_BODIES_COMPARED,
         "only {bodies} bodies were compared, so the generators no longer reach enough"
     );
+}
+
+#[test]
+fn every_input_kept_in_the_regression_folder_still_holds() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("regressions/document");
+    let mut replayed = 0;
+    for entry in fs::read_dir(&folder).unwrap() {
+        let bytes = fs::read(entry.unwrap().path()).unwrap();
+        compare_a_run(&mut Unstructured::new(&bytes), Wording::Ignored);
+        replayed += 1;
+    }
+    assert!(replayed > 0, "{} holds no input", folder.display());
 }
 
 #[test]

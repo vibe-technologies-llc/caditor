@@ -137,6 +137,8 @@ paths:
   reads), seeded with a small picture of each format (`write_picture_fuzz_seeds`, checked by
   `picture_seeds_decode`); the document generators make reference images with a few bytes behind a
   PNG signature, since the document never decodes them.
+- A crash in a structured target (`document` first) is copied to `crates/caditor-checks/regressions/<suite>/`
+  and replayed by `cargo test` (`checks.md`); byte targets keep theirs in `crates/caditor-file/regressions`.
 - Seeds are committed in `fuzz/seeds/<kind>` and dictionaries in `fuzz/dictionaries/<kind>.dict`,
   shared by targets reading the same kind of input. The model, journal and zstd seeds are written by
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep

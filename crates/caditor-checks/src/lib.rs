@@ -6,6 +6,10 @@ pub mod sketch;
 
 #[cfg(test)]
 mod document_tests;
+#[cfg(test)]
+mod kernel_tests;
+#[cfg(test)]
+mod sketch_tests;
 
 use std::{
     sync::Arc,
