@@ -405,7 +405,7 @@ fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
         harness.frame();
     }
     let cued = |harness: &Harness| {
-        harness.shows(crate::viewport::DRAG_BLOCKED)
+        harness.shows_containing(crate::viewport::DRAG_BLOCKED)
             || harness.shows_containing(crate::viewport::DRAG_CONFLICT)
     };
     harness.wait_until("the cue shows", cued);
@@ -420,6 +420,39 @@ fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
     harness.wait_until("the drag ends", |harness| !harness.model.drag_blocked());
     harness.frame();
     assert!(!cued(&harness));
+}
+
+#[test]
+fn a_blocked_drag_names_the_constraints_that_limit_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    let horizontal = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    let length = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::parse_stored("40 mm").unwrap(),
+        })
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    let described = |constraint| harness.sketch(feature).describe_constraint(constraint);
+    let (horizontal_words, length_words) = (described(horizontal), described(length));
+
+    harness.point_at(Point2::new(20.0, 15.0));
+    harness.model.block_drag(Vec::new());
+    harness.frame();
+    assert!(harness.shows(crate::viewport::DRAG_BLOCKED));
+
+    harness.model.block_drag(vec![horizontal, length]);
+    harness.frame();
+    assert!(harness.shows(&format!(
+        "{}: {horizontal_words} and {length_words}",
+        crate::viewport::DRAG_BLOCKED
+    )));
+    assert!(!harness.shows_containing(crate::viewport::DRAG_CONFLICT));
 }
 
 #[test]

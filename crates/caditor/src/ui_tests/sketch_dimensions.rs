@@ -377,6 +377,78 @@ fn the_smart_dimension_places_two_points_horizontally_and_an_arc_by_its_length()
 }
 
 #[test]
+fn the_smart_dimension_gives_a_wide_arc_its_diameter_or_radius_by_how_far_in_the_click_is() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let wide = |centre: Point2| {
+        let at = |degrees: f64| {
+            let angle = degrees.to_radians();
+            centre + Vector2::new(angle.cos(), angle.sin()) * 10.0
+        };
+        (centre, at(0.0), at(300.0))
+    };
+    let (centre, start, end) = wide(Point2::ZERO);
+    let diametered = sketch.add_arc(centre, start, end);
+    let (centre, start, end) = wide(Point2::new(60.0, 0.0));
+    let radiused = sketch.add_arc(centre, start, end);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::D);
+    let inside = |centre: Point2, depth: f64| {
+        let angle = 150f64.to_radians();
+        centre + Vector2::new(angle.cos(), angle.sin()) * 10.0 * depth
+    };
+    let label = |harness: &Harness, arc: EntityId| harness.sketch(feature).entity_label(arc);
+
+    harness.click_pickable(
+        Plane::XY,
+        inside(Point2::ZERO, 1.0),
+        sketch_entity(feature, diametered),
+    );
+    harness.frame();
+    let name = label(&harness, diametered);
+    harness.point_at(inside(Point2::ZERO, 0.9));
+    assert!(harness.shows_containing(&format!("here the radius of {name}")));
+    harness.point_at(inside(Point2::ZERO, 0.6));
+    assert!(harness.shows_containing(&format!("here the diameter of {name}")));
+    harness.point_at(inside(Point2::ZERO, 0.2));
+    assert!(harness.shows_containing(&format!("here the sweep of {name}")));
+    harness.click_at(inside(Point2::ZERO, 0.6));
+    harness.frame();
+    harness.frame();
+    let diameters = constraints_of_kind(harness.sketch(feature), "Diameter");
+    assert!(
+        matches!(
+            &diameters[..],
+            [Constraint::Diameter { entity, value }]
+                if *entity == diametered && *value == Expression::Measure(20.0, Unit::Millimetre)
+        ),
+        "{diameters:?}"
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    let centre = Point2::new(60.0, 0.0);
+    harness.click_pickable(
+        Plane::XY,
+        inside(centre, 1.0),
+        sketch_entity(feature, radiused),
+    );
+    harness.frame();
+    harness.click_at(inside(centre, 0.9));
+    harness.frame();
+    harness.frame();
+    let radii = constraints_of_kind(harness.sketch(feature), "Radius");
+    assert!(
+        matches!(
+            &radii[..],
+            [Constraint::Radius { entity, value }]
+                if *entity == radiused && *value == Expression::Measure(10.0, Unit::Millimetre)
+        ),
+        "{radii:?}"
+    );
+}
+
+#[test]
 fn the_smart_dimension_works_from_the_keyboard_and_escape_lets_go_before_leaving() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

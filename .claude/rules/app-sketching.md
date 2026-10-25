@@ -134,10 +134,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   drag begun on an older revision drops it. A drag still solving at release carries its revision in
   `Finished`; `Model::commit_drag` drops a solution arriving after the revision moved on (an undo
   meanwhile) with a notice, so the undo and its redo stand.
-- When the worker cannot solve its newest frame (`Polled::blocked`, `Model::drag_blocked`), the
-  viewport says `DRAG_BLOCKED` beside the pointer (polite live region) and the geometry stays at the
-  last good frame; with conflicting constraints `DRAG_CONFLICT` names them (`Model::sketch_conflict`),
-  as does the notice when the drag ends. A drag starting on projected geometry or the edited sketch's
+- When the worker cannot solve its newest frame (`Polled::blocked`, a `Blocking`;
+  `Model::drag_blocked`), the viewport says `DRAG_BLOCKED` beside the pointer (polite live region) and
+  the geometry stays at the last good frame, followed by the constraints the failed solve named
+  (`drag_solver::limiting`, from its conflict; `Model::drag_limits`, two named and a count of the
+  rest) and bare when it named none; with constraints conflicting at rest `DRAG_CONFLICT` names them
+  instead (`Model::sketch_conflict`), as does the notice when the drag ends. A drag starting on projected geometry or the edited sketch's
   origin or axes is `PrimaryDrag::Unmovable`: nothing moves, no box, and it says why until release
   (`PROJECTED_STAYS`, `REFERENCE_STAYS`).
 - A primary drag elsewhere draws a box: left to right a window taking what lies inside (curves
@@ -760,8 +762,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   one. Enter always adds the aligned distance, the length or the radius. The placing click chooses
   (`dimensioning::placed`): for two points or a lone line, within their horizontal span above or below
   the horizontal distance, within their vertical span beside them the vertical one, elsewhere (and
-  always for level or upright ones) the aligned one; for a lone arc, beyond it within its sweep its
-  length, inside it its sweep, outside its sweep its radius. A point or circle and a slanted line, or
+  always for level or upright ones) the aligned one; for a lone arc, outside its sweep its radius, beyond
+  it within its sweep its length, and inside it by the distance from its centre in shares of its
+  radius (`dimensioning::arc_part`): from three quarters out its radius, from two fifths its diameter
+  (`Constraint::Diameter`, as for a circle), nearer the centre its sweep, so a radius or diameter is
+  placeable on an arc of any sweep and the prompt names the bands (`ARC_PLACING`) and what the click
+  would add. A point or circle and a slanted line, or
   two circles, also wait when their horizontal and vertical offsets are both above zero
   (`dimensioning::offset_ends`, from `Sketch::axis_offset_ends`). A lone ellipse or elliptical arc adds
   its major and minor radii (`MajorRadius`, `MinorRadius`); an ellipse picked with a point or any curve

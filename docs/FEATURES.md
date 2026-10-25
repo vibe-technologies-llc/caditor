@@ -134,11 +134,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
   points and directions and the constraints that mean something there (coincident, horizontal and
   vertical in space, parallel, perpendicular, distance, fix).
-- [low · medium] Smart dimension cannot place an arc's Radius from inside its sweep (the cursor
-  there picks the sweep angle, and on an arc over about 300° nearly every position is inside it)
-  and has no Diameter for an arc, though the Diameter tool takes one; and the tooltip for a drag the
-  constraints block says nothing of which constraint limits it when the sketch itself is fine
-  (`DRAG_BLOCKED`), where a conflict already names its constraints.
 - [low · hard] The offset of an ellipse, elliptical arc or spline is a free fit-point spline that
   does not follow the original: holding it would need a constraint keeping each fit point on the
   original's normal at its own parameter (a `Distance` from the curve lets every fit point slide

@@ -3,7 +3,7 @@ use std::f64::consts::TAU;
 use caditor_document::FeatureId;
 use caditor_expression::Expression;
 use caditor_geometry::Point2;
-use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
+use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Reference, Sketch};
 
 use crate::{
     body_picks::Staged,
@@ -16,6 +16,8 @@ pub const PICKED_KEYS: &str =
     "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
+pub const ARC_PLACING: &str = "Click an empty place for a dimension of the arc: beyond it its length, \
+     close inside it or off its sweep the radius, further in the diameter, near its centre its sweep";
 pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -38,6 +40,8 @@ pub enum Unfit {
 
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
+const RADIUS_FROM: f64 = 0.75;
+const DIAMETER_FROM: f64 = 0.4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -236,21 +240,32 @@ pub fn placed(
                     }
                 })
         }
-        ([Some(Kind::Arc)], [arc]) => sketch.arc(*arc).map(|arc| {
-            let reach = pointer - arc.center;
-            let turned = (reach.y.atan2(reach.x) - arc.start_angle).rem_euclid(TAU);
-            if turned > arc.sweep {
-                ConstraintTool::Radius
-            } else if reach.length() > arc.radius {
-                ConstraintTool::Distance
-            } else {
-                ConstraintTool::Angle
-            }
-        }),
+        ([Some(Kind::Arc)], [arc]) => sketch.arc(*arc).map(|arc| arc_part(&arc, pointer)),
         _ => None,
     }
     .or_else(|| offset_ends(sketch, picks).map(|ends| oriented_between(ends, pointer)));
     Some(placed.unwrap_or(tool))
+}
+
+fn arc_part(arc: &ArcGeometry, pointer: Point2) -> ConstraintTool {
+    let reach = pointer - arc.center;
+    let turned = (reach.y.atan2(reach.x) - arc.start_angle).rem_euclid(TAU);
+    let depth = reach.length() / arc.radius;
+    if turned > arc.sweep {
+        ConstraintTool::Radius
+    } else if depth > 1.0 {
+        ConstraintTool::Distance
+    } else if depth > RADIUS_FROM {
+        ConstraintTool::Radius
+    } else if depth > DIAMETER_FROM {
+        ConstraintTool::Diameter
+    } else {
+        ConstraintTool::Angle
+    }
+}
+
+fn is_lone_arc(sketch: &Sketch, picks: &[EntityId]) -> bool {
+    matches!(picks, [arc] if kind(sketch, *arc) == Some(Kind::Arc))
 }
 
 fn oriented(start: Point2, end: Point2, pointer: Point2) -> ConstraintTool {
@@ -380,6 +395,17 @@ pub fn prompt(
             ),
             POINT_KEYS,
         ),
+        (_, Fit::Ready(tool)) if is_lone_arc(sketch, picks) && as_placed.is_some() => {
+            let here =
+                as_placed.map_or_else(String::new, |placed| words(sketch, names, placed, picks));
+            (
+                format!(
+                    "Press Enter for {}, or {ARC_PLACING}: here {here}",
+                    words(sketch, names, tool, picks)
+                ),
+                PICKED_KEYS,
+            )
+        }
         (_, Fit::Ready(tool)) => {
             let here =
                 as_placed
@@ -809,6 +835,35 @@ mod tests {
                 sketch.entity_label(first),
                 sketch.entity_label(second)
             )
+        );
+    }
+
+    #[test]
+    fn inside_a_wide_arc_s_sweep_the_distance_from_its_centre_chooses_the_dimension() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let end = Point2::from_angle(300f64.to_radians()) * 10.0;
+        let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), end);
+        let along = |depth: f64| Some(Point2::from_angle(150f64.to_radians()) * 10.0 * depth);
+
+        assert_eq!(
+            placed(&sketch, &[arc], along(1.5)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], along(0.9)),
+            Some(ConstraintTool::Radius)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], along(0.6)),
+            Some(ConstraintTool::Diameter)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], along(0.2)),
+            Some(ConstraintTool::Angle)
+        );
+        assert_eq!(
+            words(&sketch, &[], ConstraintTool::Diameter, &[arc]),
+            format!("the diameter of {}", sketch.entity_label(arc))
         );
     }
 }

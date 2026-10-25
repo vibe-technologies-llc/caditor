@@ -5863,13 +5863,14 @@ impl ViewportState {
             _ => None,
         };
         let blocked = model.drag_blocked().then(|| {
-            editing
-                .feature()
-                .and_then(|feature| model.sketch_conflict(feature))
-                .map_or_else(
-                    || DRAG_BLOCKED.to_owned(),
-                    |conflict| format!("{DRAG_CONFLICT}: {conflict}"),
-                )
+            let feature = editing.feature();
+            match feature.and_then(|feature| model.sketch_conflict(feature)) {
+                Some(conflict) => format!("{DRAG_CONFLICT}: {conflict}"),
+                None => match feature.and_then(|feature| model.drag_limits(feature)) {
+                    Some(limits) => format!("{DRAG_BLOCKED}: {limits}"),
+                    None => DRAG_BLOCKED.to_owned(),
+                },
+            }
         });
         labels.extend(
             unmovable.or(blocked).map(|cue| {
