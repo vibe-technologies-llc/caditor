@@ -115,6 +115,33 @@ xattr = "1.6.1"
 zbus = { version = "6.1.0", default-features = false, features = ["default-rt", "proxy"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package.caditor-kernel]
+opt-level = 1
+
+[profile.dev.package.caditor-sketch]
+opt-level = 1
+
+[profile.dev.package.caditor-document]
+opt-level = 1
+
+[profile.dev.package.caditor-file]
+opt-level = 1
+
+[profile.dev.package.caditor-geometry]
+opt-level = 1
+
+[profile.dev.package.caditor-expression]
+opt-level = 1
+
+[profile.dev.package.caditor-step]
+opt-level = 1
+
+[profile.dev.package.caditor-lettering]
+opt-level = 1
+
 [profile.dev.package.nalgebra]
 opt-level = 3
 

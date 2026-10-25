@@ -55,3 +55,9 @@ paths:
   tables), the PNG encoder (`png`, `fdeflate`, `miniz_oxide`, `flate2`, `crc32fast`,
   `simd-adler32`) and the kernel's `nalgebra`, `spade`, `robust`. Unoptimised, font rasterising
   dominated every UI test. A crate topping a profile of the UI tests joins the list.
+- The workspace's own model crates (`caditor-kernel`, `-sketch`, `-document`, `-file`, `-geometry`,
+  `-expression`, `-step`, `-lettering`) are built at `opt-level = 1` and the dev profile keeps
+  `debug = "line-tables-only"`: unoptimised, the kernel suite took 100 s and the whole workspace
+  209 s; at level 1 they take 10 s and 54 s, and the app's test binary shrinks from 1.5 GB to 0.5 GB
+  with line tables instead of full debug info. The app and render crates stay unoptimised, since
+  their tests spend their time in egui and the GPU.
