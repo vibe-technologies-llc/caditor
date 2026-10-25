@@ -44,6 +44,10 @@ paths:
   look at a part's own spans.
 - A solve that would collapse a line or an arc's radius to nothing is not converged, reported as a
   conflict; if it already had no length, `SketchError::NoLength` naming it.
+  The same holds for a part solved by diagnosis (`diagnosis::Found`) alone: its probe judges collapse
+  against the drawn positions of the other parts, so after applying every `Found` the combined
+  solution is checked again and a collapsed span is a `Conflict` naming the failed parts'
+  constraints, never a solved sketch with a line of no length.
 
 ## Dragging
 
@@ -143,6 +147,16 @@ paths:
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the
   second derivative, never a fixed fallback. A step pushing a parameter already at an end of its
   range further out is retaken with it held.
+- A parameter is a variable the solve may slide along its curve, so it can settle at a stationary
+  point other than the one the dimension means (the far bulge of a closed spline instead of the
+  nearest). After a solve, a distance from a spline, a tangent between a spline and a line or
+  circle and a point held on a spline are measured on the solved geometry (`Sketch::measured`,
+  `spline_gap`, `closest_on_curve`); one missing its value or contact by more than
+  `DISTANCE_SETTLING` solves again from the solved sketch, whose parameters then start at the
+  nearest stationary point, at most `PARAMETER_ROUNDS` times (`misses_a_measured_distance`).
+  Measured values are the ones the canvas shows, so what is drawn and what is held agree. Ellipse
+  and circle gaps are not re-measured: their start heuristic can pick the far tip, and a correct
+  solution would be moved onto it.
 - Forms read a `CurveHandle` (a spline's or an ellipse's) evaluated at its parameter (`CurveAt`:
   point, tangent, second derivative, gradients pushed into the handle), so the same forms serve
   both. Spline cases: a point on a spline, at a distance from it (`Form::SplineFoot` square to it

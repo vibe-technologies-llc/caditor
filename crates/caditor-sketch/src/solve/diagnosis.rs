@@ -141,7 +141,7 @@ fn unsolvable(
     }
 }
 
-fn owners_newest_first(system: &System, equations: &[usize]) -> Vec<ConstraintId> {
+pub(super) fn owners_newest_first(system: &System, equations: &[usize]) -> Vec<ConstraintId> {
     equations
         .iter()
         .filter_map(|index| system.equations.get(*index)?.owner)

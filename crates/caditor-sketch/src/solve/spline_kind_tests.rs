@@ -415,3 +415,101 @@ fn a_point_on_a_spline_with_knots_of_its_own_stays_on_the_curve_as_its_points_mo
     assert!((first.distance(last) - 70.0).abs() < EXACT);
     assert!(geometry.closest_on_curve(spline, at).unwrap().distance(at) < 1e-7);
 }
+
+fn shift_between(first: &Sketch, second: &Sketch) -> f64 {
+    first
+        .entities()
+        .zip(second.entities())
+        .filter_map(|((_, own), (_, theirs))| match (own, theirs) {
+            (Entity::Point(own), Entity::Point(theirs)) => Some(own.distance(*theirs)),
+            _ => None,
+        })
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn a_dimensioned_gap_from_a_closed_spline_to_a_line_is_the_one_measured_and_stays_when_solved_again()
+ {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(-5.00002, 9.0),
+            Point2::new(4.0, 11.5),
+            Point2::new(-12.0, -7.4999),
+            Point2::new(2.000001, 10.49998),
+        ],
+        SplineKind::Control { closed: true },
+    );
+    let anchor = points_of(&sketch, spline)[0];
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: anchor,
+            at: Point2::new(5.499999, -2.0),
+        })
+        .unwrap();
+    let corners: Vec<EntityId> = [
+        Point2::new(7.000001, 0.5),
+        Point2::new(17.0, 0.5),
+        Point2::new(17.0, 2.5),
+        Point2::new(7.000001, 2.5),
+    ]
+    .into_iter()
+    .map(|corner| sketch.add_point(corner))
+    .collect();
+    let sides: Vec<EntityId> = (0..corners.len())
+        .map(|index| {
+            let start = corners[index];
+            let end = corners[(index + 1) % corners.len()];
+            let line = EntityId::from_raw(sketch.next_id());
+            sketch
+                .insert_entity(line, Entity::Line { start, end })
+                .unwrap();
+            line
+        })
+        .collect();
+    let line = sides[3];
+    sketch
+        .add_constraint(Constraint::Coincident(
+            corners[2],
+            points_of(&sketch, spline)[1],
+        ))
+        .unwrap();
+    let gap = sketch
+        .add_constraint(Constraint::Distance {
+            from: spline,
+            to: line,
+            value: Expression::Measure(8.5001, Unit::Millimetre),
+        })
+        .unwrap();
+    let constraint = sketch.constraint(gap).unwrap().clone();
+
+    let solved = solve(&sketch).unwrap();
+    let again = solved
+        .geometry
+        .solve_from(&no_parameters, &|| false, &[], Some(&solved.memo))
+        .unwrap();
+
+    assert!((solved.geometry.measured(&constraint).unwrap() - 8.5001).abs() < 1e-5);
+    assert!(shift_between(&solved.geometry, &again.geometry) < 1e-5);
+}
+
+#[test]
+fn constraints_only_a_collapsed_line_satisfies_are_a_conflict_not_a_solution() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-9.5, 7.5), Point2::new(2.0, -8.0));
+    sketch
+        .add_constraint(Constraint::Distance {
+            from: EntityId::HORIZONTAL_AXIS,
+            to: line,
+            value: Expression::Measure(10.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Collinear(EntityId::VERTICAL_AXIS, line))
+        .unwrap();
+
+    assert!(matches!(
+        solve(&sketch),
+        Err(SketchError::Conflict { .. } | SketchError::NoLength { .. })
+    ));
+}

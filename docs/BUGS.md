@@ -107,12 +107,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
-- [low · easy] A failed feature's cached words keep the name a body had before it was renamed: the
-  key that decides when a failure's message is rebuilt holds feature and parameter names but not a
-  body's own name (`BodyAppearance::name`), so after renaming a body a consumer failing with
-  `BodyRemoved` still says the old one until something else invalidates it. Pinned by the ignored
-  `failures_name_things_as_they_are_named_now` (`caditor-checks`, seed 159 of
-  `CADITOR_CASES=160`).
 
 ## Sketch solver
 
@@ -123,14 +117,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
   fraction of the whole chain's extent before Newton steps settle it.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
-  result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
-  with a zero distance from that arc to the spline's first point. The seeded suite
-  `a_solved_sketch_solves_again_from_its_own_result` (`caditor-checks`) now requires `solve_from` of a
-  solved geometry to succeed, but skips `SketchError::NoLength`, which 30,000 cases find at seed
-  21543 (a line the first solve left with no length, refused when solved again).
-- [medium · hard] A solved sketch can jump to another solution when solved again from its own
-  result: seed 1555 of `a_solved_sketch_does_not_move_when_solved_again` (ignored) moves a point by
-  6.95 mm on the second `solve_from`, so editing such a sketch without changing it can move it.
+  result: a spline with repeated control points (a closed spline of one point, three of four
+  coincident), a dimension of 1e-9 mm. `a_solved_sketch_solves_again_from_its_own_result`
+  (`caditor-checks`) skips splines with control points within a micrometre and holds for the first
+  50,000 seeds; beyond, seed 53733 (a `Distance` of 1e-9 mm beside a `VerticalDistance` and a
+  `Coincident`) is solved once and then `Unsolvable`.
+- [low · hard] A constraint holding a point at the crossing of two curves that cross twice
+  (`PointTarget::Crossing`) takes, on every solve, the crossing the starting geometry misses
+  least, so solving a solved sketch again can pick the other crossing: seed 22192 of
+  `a_solved_sketch_does_not_move_when_solved_again` (a circle and a fit spline, `VerticalPoints`
+  to their crossing) moves a point by 4.9 mm on the second solve. The test holds for the first
+  22,000 seeds, so the nightly run of 10,000 does not reach it.
 - [low · hard] A dimension placed on entities that still have other freedom is added as a driving
   dimension although the measured value is already determined by their constraints: `determines`
   (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is

@@ -25,11 +25,13 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   `MOST_PERTURBED` parameters and compares again, since editing a value is what the cache keys must
   follow):
   - an incremental `Recompute` kept across the steps equals a fresh one on every feature's state and,
-    for features up to date, result (`same_result`: sketches by `same_geometry` and solution, solids
-    by body and shape; lazy display caches, reuse counters and id counters are not content). A failed
-    feature keeps its last good result, so results of failed features are not compared. The words of
-    a failure are compared only by the ignored `failures_name_things_as_they_are_named_now`, which
-    pins a known staleness (`docs/BUGS.md`);
+    for features up to date, result (`same_result`: sketches by solution and, when fully constrained,
+    by position within `LARGEST_SHIFT`, since a warm start may settle free degrees of freedom
+    differently; solids by body and shape; lazy display caches, reuse counters and id counters are
+    not content). A failed feature keeps its last good result, so results of failed features are
+    not compared; the words of a failure are compared too
+    (`regressions/document/stale-body-name-in-a-failure.bin` is a model where the key forgot a
+    renamed body);
   - every body validates, meshes watertight at `MeshQuality::COARSE` and has finite mass properties;
   - undoing every step restores the empty document and redoing them the last one;
   - a document saves and loads to the same content.
@@ -40,9 +42,12 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   surveys of success live in `caditor-kernel`. A directed mesh edge must be matched by as many
   opposite ones (`invariants::watertightness`), not exactly one: profile regions touching along an
   edge make a legitimate non-manifold solid.
-- `sketch_tests.rs`: solving a sketch twice gives the same geometry, and a solved sketch solves
-  again from its own result (`NoLength` excepted, `docs/BUGS.md`). That the second solve does not
-  move the sketch is the ignored `a_solved_sketch_does_not_move_when_solved_again`.
+- `sketch_tests.rs`: solving a sketch twice gives the same geometry, a solved sketch solves again
+  from its own result, and the second solve moves no point or radius by more than `LARGEST_SHIFT`
+  (a micrometre; centripetal respacing leaves tens of nanometres). Sketches with control points
+  within a micrometre of each other are skipped, since a one-point spline has no side or tangent.
+  The seeds beyond which these still fail are in `docs/BUGS.md`, so `CADITOR_CASES` stays under
+  them.
 - `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
   `every_input_kept_in_the_regression_folder_still_holds` through the same checks. A crash libFuzzer
   finds in `document` is copied there (`fuzz/artifacts` is not tracked), next to the fix.

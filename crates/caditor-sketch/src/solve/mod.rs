@@ -43,11 +43,12 @@ pub(crate) use crate::solve::{
 };
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
+    constraint::Constraint,
     entity::Entity,
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
-        diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
+        diagnosis::{DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
         equation::value,
         memo::Recall,
         numeric::{
@@ -60,6 +61,8 @@ use crate::{
 
 const SPACING_ROUNDS: usize = 8;
 const KNOT_SETTLING: f64 = 1e-10;
+const DISTANCE_SETTLING: f64 = 1e-6;
+const PARAMETER_ROUNDS: usize = 16;
 
 fn spaced_fit_variables(sketch: &Sketch, system: &System) -> Vec<usize> {
     sketch
@@ -96,6 +99,58 @@ fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> 
                 _ => false,
             },
         )
+        .then_some(moved)
+}
+
+fn misses_a_measured_distance(
+    sketch: &Sketch,
+    dimensions: &DimensionValues,
+    system: &System,
+    values: &[f64],
+) -> Option<Sketch> {
+    let moved = sketch.with_values(system, values);
+    system
+        .parameters
+        .keys()
+        .any(|id| match moved.constraint(*id) {
+            Some(constraint @ Constraint::Distance { from, to, .. })
+                if moved.spline(*from).is_some() || moved.spline(*to).is_some() =>
+            {
+                let (Some(wanted), Some(measured)) =
+                    (dimensions.dimension(*id), moved.measured(constraint))
+                else {
+                    return false;
+                };
+                (measured - wanted).abs() > DISTANCE_SETTLING * wanted.abs().max(1.0)
+            }
+            Some(Constraint::Tangent(first, second)) => {
+                let (spline, other) = if moved.spline(*first).is_some() {
+                    (*first, *second)
+                } else {
+                    (*second, *first)
+                };
+                moved.spline(other).is_none()
+                    && moved
+                        .spline_gap(spline, other)
+                        .is_some_and(|(on_spline, on_other)| {
+                            on_spline.distance(on_other) > DISTANCE_SETTLING
+                        })
+            }
+            Some(Constraint::Coincident(first, second)) => {
+                let (point, spline) = if moved.spline(*first).is_some() {
+                    (*second, *first)
+                } else {
+                    (*first, *second)
+                };
+                moved.spline(spline).is_some()
+                    && moved.point(point).is_some_and(|at| {
+                        moved
+                            .closest_on_curve(spline, at)
+                            .is_some_and(|closest| closest.distance(at) > DISTANCE_SETTLING)
+                    })
+            }
+            _ => false,
+        })
         .then_some(moved)
 }
 
@@ -348,6 +403,7 @@ impl Sketch {
         let dimensions = self.evaluate(value_of)?;
         let mut current: Cow<'_, Sketch> = Cow::Borrowed(self);
         let mut round = 0;
+        let mut reparameterised = 0;
         loop {
             let mut system = System::build(&current, &dimensions)?;
             let drawn = system.values.clone();
@@ -395,6 +451,21 @@ impl Sketch {
                     for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
                         found.apply(&mut values);
                     }
+                    let collapsed = parts.at(&system, &values).iter().any(|component| {
+                        solver
+                            .collapsed(&solver.part(component), &values)
+                            .next()
+                            .is_some()
+                    });
+                    if collapsed {
+                        let equations: Vec<usize> = failed
+                            .iter()
+                            .flat_map(|failure| failure.component.equations.iter().copied())
+                            .collect();
+                        return Err(SketchError::Conflict {
+                            constraints: owners_newest_first(&system, &equations),
+                        });
+                    }
                 }
                 let mut work = ReachWork::new(REACH_WORK);
                 for component in parts.at(&system, &values).iter() {
@@ -406,6 +477,14 @@ impl Sketch {
             {
                 current = Cow::Owned(respaced);
                 round += 1;
+                continue;
+            }
+            if reparameterised < PARAMETER_ROUNDS
+                && let Some(moved) =
+                    misses_a_measured_distance(&current, &dimensions, &system, &values)
+            {
+                current = Cow::Owned(moved);
+                reparameterised += 1;
                 continue;
             }
             return Ok(finish(Finished {
