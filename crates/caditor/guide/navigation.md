@@ -47,6 +47,10 @@ keys. Press it again to keep going back; caditor remembers the last 32 views whi
 open. Finishing a sketch leaves the view facing it, so one press of {command:view.previous}
 afterwards brings back the view you had before you opened the sketch.
 
+{command:view.next} goes forward again to the view you stepped back from, one view for each press.
+Changing the view yourself after going back, with a standard view, an orbit, a fit or anything else,
+forgets the views ahead.
+
 ## The view cube
 
 Click a face, edge or corner of the cube to look from there; hovering one shows its name and, for

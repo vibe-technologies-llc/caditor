@@ -34,7 +34,8 @@ adds a [constraint](constraints), such as {command:constraint.horizontal}.
 ## In the view
 
 - The arrows orbit, Shift with the arrows pans, and Page Up and Page Down zoom; see
-  [moving around the view](navigation). {command:view.previous} goes back to the view before.
+  [moving around the view](navigation). {command:view.previous} goes back to the view before and
+  {command:view.next} forward again.
 - {command:view.highlight_next} and {command:view.highlight_previous} step through what is in the
   view; {command:view.activate_highlighted} selects it, as a click would, and Enter opens it as a
   double-click would.

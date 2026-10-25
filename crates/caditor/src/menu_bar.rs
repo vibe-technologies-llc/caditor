@@ -756,6 +756,7 @@ impl Menus<'_> {
                 [
                     Command::FitView,
                     Command::PreviousView,
+                    Command::NextView,
                     Command::LookAtFace,
                     Command::LookAtSketch,
                 ],

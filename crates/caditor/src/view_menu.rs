@@ -479,6 +479,7 @@ fn model_space(ui: &mut Ui, entries: &mut MenuEntries<'_>, selected: bool) {
     let fit = if selected { FIT_SELECTION } else { FIT_ALL };
     entries.titled_item(ui, Command::FitView, fit);
     entries.item(ui, Command::PreviousView);
+    entries.item(ui, Command::NextView);
     menu_bar::submenu(
         ui,
         icons::command(Command::View(StandardView::Front)),

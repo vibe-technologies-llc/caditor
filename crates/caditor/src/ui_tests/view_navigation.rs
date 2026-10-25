@@ -205,6 +205,44 @@ fn previous_view_steps_back_through_chosen_views_and_turns() {
 }
 
 #[test]
+fn next_view_steps_forward_again_until_the_view_is_changed() {
+    let mut harness = settled();
+    let opened = heading(&harness);
+
+    press(&mut harness, Key::Num2, Modifiers::ALT);
+    settle_camera(&mut harness);
+    let top = heading(&harness);
+    press(&mut harness, Key::Num1, Modifiers::ALT);
+    settle_camera(&mut harness);
+    let front = heading(&harness);
+
+    press(&mut harness, Key::ArrowRight, Modifiers::ALT);
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| { notice.text.ends_with(view_history::NO_LATER_VIEW) })
+    );
+
+    press(&mut harness, Key::ArrowLeft, Modifiers::ALT);
+    settle_camera(&mut harness);
+    press(&mut harness, Key::ArrowLeft, Modifiers::ALT);
+    settle_camera(&mut harness);
+    let back_at_start = heading(&harness);
+
+    press(&mut harness, Key::ArrowRight, Modifiers::ALT);
+    settle_camera(&mut harness);
+    let forward_once = heading(&harness);
+    press(&mut harness, Key::ArrowRight, Modifiers::ALT);
+    settle_camera(&mut harness);
+    let forward_twice = heading(&harness);
+
+    assert!(same_view(back_at_start, opened));
+    assert!(same_view(forward_once, top));
+    assert!(same_view(forward_twice, front));
+}
+
+#[test]
 fn finishing_a_sketch_goes_back_to_the_view_before_it_with_one_key() {
     let mut harness = settled();
     let before = heading(&harness);

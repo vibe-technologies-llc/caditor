@@ -260,8 +260,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] View history walks back only (`view_history.rs`): Alt+Left steps to the
-  previous view without keeping the one left, so there is no step forward again.
 - [low · hard] Dependencies between features show only in a feature's context menu (Uses and Used
   by), the delete dialog and the failure callouts; the tree margin has no connection marks and the
   view no highlight of the geometry a feature refers to.

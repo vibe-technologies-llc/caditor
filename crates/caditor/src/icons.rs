@@ -262,6 +262,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Configurations => phosphor::TABLE,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::PreviousView => phosphor::ARROW_BEND_UP_LEFT,
+        Command::NextView => phosphor::ARROW_BEND_UP_RIGHT,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
         Command::Analysis(AnalysisCommand::Comb) => CURVATURE_COMB,

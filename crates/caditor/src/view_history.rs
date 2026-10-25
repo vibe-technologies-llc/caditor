@@ -7,6 +7,8 @@ use crate::commands::Reason;
 pub const KEPT_VIEWS: usize = 32;
 pub const NO_EARLIER_VIEW: &str =
     "There is no earlier view in this session yet; orbit, pan, zoom or choose another view first";
+pub const NO_LATER_VIEW: &str =
+    "There is no later view to go forward to; go back to a previous view first";
 const IDLE_SECONDS: f64 = 0.4;
 const SAME_PLACE_SHARE: f64 = 1e-9;
 const SAME_TURN_COSINE: f64 = 1.0 - 1e-12;
@@ -20,6 +22,18 @@ pub enum BackError {
 impl Reason for BackError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Borrowed(NO_EARLIER_VIEW)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ForwardError {
+    #[error("{NO_LATER_VIEW}")]
+    NoLaterView,
+}
+
+impl Reason for ForwardError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Borrowed(NO_LATER_VIEW)
     }
 }
 
@@ -49,16 +63,19 @@ struct Moving {
 #[derive(Debug, Default)]
 pub struct ViewHistory {
     views: VecDeque<Viewpoint>,
+    ahead: Vec<Viewpoint>,
     moving: Option<Moving>,
 }
 
 impl ViewHistory {
     pub fn leave(&mut self, from: Viewpoint) {
+        self.ahead.clear();
         self.settle();
         self.keep(from);
     }
 
     pub fn moving(&mut self, gesture: Gesture, from: Viewpoint, now: f64) {
+        self.ahead.clear();
         match &mut self.moving {
             Some(moving) if moving.gesture == gesture && gesture.goes_on(now - moving.last) => {
                 moving.last = now;
@@ -87,10 +104,30 @@ impl ViewHistory {
         self.settle();
         while let Some(view) = self.views.pop_back() {
             if !same(&view, &current) {
+                self.keep_ahead(current);
                 return Some(view);
             }
         }
         None
+    }
+
+    pub fn forward(&mut self, current: Viewpoint) -> Option<Viewpoint> {
+        self.settle();
+        while let Some(view) = self.ahead.pop() {
+            if !same(&view, &current) {
+                self.keep(current);
+                return Some(view);
+            }
+        }
+        None
+    }
+
+    pub fn forward_availability(&self, current: Viewpoint) -> Result<(), ForwardError> {
+        if self.ahead.iter().any(|view| !same(view, &current)) {
+            Ok(())
+        } else {
+            Err(ForwardError::NoLaterView)
+        }
     }
 
     pub fn availability(&self, current: Viewpoint) -> Result<(), BackError> {
@@ -109,6 +146,7 @@ impl ViewHistory {
 
     pub fn clear(&mut self) {
         self.views.clear();
+        self.ahead.clear();
         self.moving = None;
     }
 
@@ -116,6 +154,13 @@ impl ViewHistory {
         if let Some(moving) = self.moving.take() {
             self.keep(moving.start);
         }
+    }
+
+    fn keep_ahead(&mut self, view: Viewpoint) {
+        if self.ahead.last().is_some_and(|last| same(last, &view)) {
+            return;
+        }
+        self.ahead.push(view);
     }
 
     fn keep(&mut self, view: Viewpoint) {
@@ -205,6 +250,54 @@ mod tests {
         assert_eq!(
             history.availability(from(3.0)),
             Err(BackError::NoEarlierView)
+        );
+    }
+
+    #[test]
+    fn going_forward_returns_the_views_stepped_back_from_until_something_new_is_done() {
+        let mut history = ViewHistory::default();
+        history.leave(from(1.0));
+        history.leave(from(2.0));
+
+        assert_eq!(
+            history.forward_availability(from(3.0)),
+            Err(ForwardError::NoLaterView)
+        );
+        assert_eq!(history.back(from(3.0)), Some(from(2.0)));
+        assert_eq!(history.back(from(2.0)), Some(from(1.0)));
+        assert!(history.forward_availability(from(1.0)).is_ok());
+
+        assert_eq!(history.forward(from(1.0)), Some(from(2.0)));
+        assert_eq!(history.forward(from(2.0)), Some(from(3.0)));
+        assert_eq!(history.forward(from(3.0)), None);
+        assert_eq!(history.back(from(3.0)), Some(from(2.0)));
+
+        history.moving(Gesture::Keys, from(2.0), 0.0);
+        assert_eq!(
+            history.forward_availability(from(2.5)),
+            Err(ForwardError::NoLaterView)
+        );
+        assert_eq!(history.forward(from(2.5)), None);
+    }
+
+    #[test]
+    fn a_view_left_for_a_new_place_forgets_the_views_ahead_and_clearing_forgets_them_too() {
+        let mut history = ViewHistory::default();
+        history.leave(from(1.0));
+        assert_eq!(history.back(from(2.0)), Some(from(1.0)));
+
+        history.leave(from(1.0));
+        assert_eq!(
+            history.forward_availability(from(5.0)),
+            Err(ForwardError::NoLaterView)
+        );
+
+        history.leave(from(6.0));
+        assert_eq!(history.back(from(7.0)), Some(from(6.0)));
+        history.clear();
+        assert_eq!(
+            history.forward_availability(from(8.0)),
+            Err(ForwardError::NoLaterView)
         );
     }
 }

@@ -254,7 +254,10 @@ paths:
   another kind starts or after `IDLE_SECONDS`, and any pending one before a jump or a step back.
   Views equal to the last kept are not kept, stepping back skips views equal to the current one, a
   new session clears it, and with nothing earlier the command is unavailable with `NO_EARLIER_VIEW`.
-  Stepping back animates without keeping, so it walks back in order.
+  Stepping back animates without keeping, so it walks back in order, and keeps the view it left
+  ahead: Go forward to the next view (`Command::NextView`, Alt+Right) walks those again, keeping the
+  view it leaves, and is unavailable with `NO_LATER_VIEW` when none is ahead. Anything that keeps a
+  view (`leave`, a new gesture) forgets the views ahead.
 
 ## Selection sets
 

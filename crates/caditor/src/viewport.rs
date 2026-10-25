@@ -3580,6 +3580,12 @@ impl ViewportState {
         {
             self.camera.animate_to(viewpoint);
         }
+        let ahead = self.history.forward_availability(self.camera.destination());
+        if commands.invoke(Command::NextView, &ahead)
+            && let Some(viewpoint) = self.history.forward(self.camera.destination())
+        {
+            self.camera.animate_to(viewpoint);
+        }
         self.view_commands(model, commands, actions);
         let facing = editing.feature().ok_or(NOT_IN_A_SKETCH);
         if commands.invoke(Command::LookAtSketch, &facing) && facing.is_ok() {
