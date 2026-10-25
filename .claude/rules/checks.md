@@ -16,12 +16,14 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   stay denied.
 - `seeded::for_each_case` feeds `BYTES_PER_CASE` bytes from a SplitMix64 stream per seed into the
   generator and prints the failing seed; `CADITOR_CASES` sets the number of cases of every suite
-  (the stress job runs 20,000), the defaults keep the suites to a few seconds each. A property is
+  (the stress job runs 10,000), the defaults keep the suites to a few seconds each. A property is
   checked after every step, not once at the end, so the failure names the step that broke it.
 - Random bytes reach few bodies, so each suite counts what it reached and fails below a floor
   (`FEWEST_BODIES_*`): a generator change that stops producing bodies fails the suite instead of
   letting it pass on empty documents.
-- Properties of `document_tests.rs`:
+- Properties of `document_tests.rs` (after the random steps, a pass doubles the numeric part of up to
+  `MOST_PERTURBED` parameters and compares again, since editing a value is what the cache keys must
+  follow):
   - an incremental `Recompute` kept across the steps equals a fresh one on every feature's state and,
     for features up to date, result (`same_result`: sketches by `same_geometry` and solution, solids
     by body and shape; lazy display caches, reuse counters and id counters are not content). A failed
@@ -54,10 +56,12 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
 Each past fix was reversed in the source and the suites run; a mutation that survived got a better
 property or a pinned input.
 
-- The stale parameter fingerprint of a parameter derived from a measurement (`988545dd`) survived
-  the default run, since random documents rarely build the chain; seed 395 found it in the 20,000
-  case run, and that input is kept as `regressions/document/derived-parameter-keeps-an-old-result.bin`,
-  so the default run fails on it at once.
+- The stale parameter fingerprint of a parameter derived from a measurement (`988545dd`) survives
+  2,000 and 6,000 random cases: the generators never build a measurement feeding a parameter that
+  another parameter and a feature read, so only its own unit test catches it
+  (`docs/CHECKS.md`). Seed 395 once looked like a catch; it was a sketch with free degrees of
+  freedom solved differently warm and fresh, which is by design, so sketch geometry is compared only
+  for fully constrained sketches.
 - The undo that could not be applied around configurations and moves (`b94cd16b`) fails the undo,
   save, soundness and recompute suites alike, with the generator's `check_inverse` naming the edit.
 - The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's

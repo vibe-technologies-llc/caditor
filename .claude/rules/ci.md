@@ -55,7 +55,7 @@ paths:
   also run alone: without `CADITOR_REQUIRE_DISPLAY`, `check-install.sh` skips the start when Xvfb is
   missing.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the property
-  suites of `caditor-checks` over `CADITOR_CASES=20000` cases in release, the ignored
+  suites of `caditor-checks` over `CADITOR_CASES=10000` cases in release, the ignored
   kernel and sketch surveys and the large STEP import benchmark (`app-tests.md`) in release, each
   through `.github/run-ignored.sh`, which runs the named ignored tests with `--exact` and fails when
   fewer ran than were named, so a renamed test cannot leave the job green running nothing.

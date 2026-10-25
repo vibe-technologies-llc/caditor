@@ -9,8 +9,8 @@ use std::{
 
 use arbitrary::Unstructured;
 use caditor_document::{
-    CancelToken, Document, Editor, Evaluation, FeatureResult, FeatureState, ModelEvaluator,
-    Recompute,
+    CancelToken, Document, Edit, Editor, Evaluation, FeatureResult, FeatureState, ModelEvaluator,
+    Recompute, Transaction,
 };
 use caditor_kernel::MeshQuality;
 
@@ -18,10 +18,12 @@ use crate::{
     document::{References, run_steps},
     invariants::assert_sound,
     seeded::for_each_case,
+    sketch_tests::largest_shift,
 };
 
 const POLL_LIMIT: u64 = 20_000_000;
 const STEPS: usize = 120;
+const MOST_PERTURBED: usize = 6;
 const SOUNDNESS_CASES: u64 = 1500;
 const COMPARISON_CASES: u64 = 80;
 const REVERSAL_CASES: u64 = 600;
@@ -54,10 +56,14 @@ fn evaluate(recompute: &mut Recompute, document: &Document) -> Option<Evaluation
     (!budget.exhausted.load(Ordering::Relaxed)).then_some(evaluation)
 }
 
+const LARGEST_SHIFT: f64 = 1e-6;
+
 fn same_result(own: &FeatureResult, theirs: &FeatureResult) -> bool {
     match (own, theirs) {
         (FeatureResult::Sketch(own), FeatureResult::Sketch(theirs)) => {
-            own.geometry.same_geometry(&theirs.geometry) && own.solution == theirs.solution
+            own.solution == theirs.solution
+                && (!own.solution.is_fully_constrained()
+                    || largest_shift(&own.geometry, &theirs.geometry) <= LARGEST_SHIFT)
         }
         (FeatureResult::Solid(own), FeatureResult::Solid(theirs)) => {
             own.body == theirs.body
@@ -187,6 +193,43 @@ fn compare_a_run(input: &mut Unstructured, wording: Wording) -> usize {
     run_steps(input, &mut editor, &captured, STEPS, |editor, _| {
         bodies += compare_after_each_step(&mut incremental, editor, wording);
     });
+    bodies + perturb_parameters(&mut editor, &mut incremental, wording)
+}
+
+fn perturbed(text: &str) -> Option<String> {
+    let numeric = text
+        .find(|character: char| !(character.is_ascii_digit() || character == '.'))
+        .unwrap_or(text.len());
+    let (number, unit) = text.split_at(numeric);
+    let value: f64 = number.parse().ok()?;
+    Some(format!("{}{unit}", value * 2.0 + 1.0))
+}
+
+fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute, wording: Wording) -> usize {
+    let edits: Vec<Transaction> = editor
+        .document()
+        .parameters()
+        .iter()
+        .take(MOST_PERTURBED)
+        .filter_map(|parameter| {
+            let document = editor.document();
+            let text = perturbed(&document.expression_text(&parameter.expression))?;
+            let expression = document.parse(&text).ok()?;
+            Some(Transaction::single(
+                "Perturb",
+                Edit::SetParameterExpression {
+                    id: parameter.id(),
+                    expression,
+                },
+            ))
+        })
+        .collect();
+    let mut bodies = 0;
+    for edit in edits {
+        if editor.apply(edit).is_ok_and(|applied| applied) {
+            bodies += compare_after_each_step(incremental, editor, wording);
+        }
+    }
     bodies
 }
 

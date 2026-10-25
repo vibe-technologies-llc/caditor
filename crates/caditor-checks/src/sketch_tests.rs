@@ -13,7 +13,7 @@ const SOLVING_CASES: u64 = 3000;
 const FEWEST_SOLVED: usize = 300;
 const LARGEST_SHIFT: f64 = 1e-6;
 
-fn largest_shift(first: &Sketch, second: &Sketch) -> f64 {
+pub(crate) fn largest_shift(first: &Sketch, second: &Sketch) -> f64 {
     if first.entities().len() != second.entities().len() {
         return f64::INFINITY;
     }

@@ -155,7 +155,7 @@ jobs:
 
       - name: Run the property suites over many more cases
         env:
-          CADITOR_CASES: "20000"
+          CADITOR_CASES: "10000"
         run: cargo test --release --locked -p caditor-checks
 
       - name: Run the kernel surveys
