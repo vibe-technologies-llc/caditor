@@ -55,6 +55,7 @@ mod body_finishes;
 mod body_groups;
 mod body_tools;
 mod box_selection;
+mod button_sweep;
 mod cancel_and_parameters;
 mod canvas_guidance;
 mod canvas_overlays;

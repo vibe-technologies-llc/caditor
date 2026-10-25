@@ -38,6 +38,10 @@ paths:
   unavailable with an empty reason, and each window one opens (found by the new visible layers)
   is laid out again at 75% and 200% and must stay on screen, with no text cut at the side by its
   clip and no two texts overlapping. Side panels are not windows; `large_interface.rs` covers them.
+- `ui_tests/button_sweep.rs` clicks every enabled, fully visible button (by accessible name, once
+  each) in the idle sample model and in the sketch editor, each in a fresh harness: none may
+  panic, and the dropped-command guard above does the rest, so a button whose command nothing reads
+  fails here without a test of its own. It would have caught the gear.
 - `ui_tests/interleavings.rs` plays seeded sequences of edits, undo, redo and held recomputes
   (`Model::hold_evaluations`; only undo, redo and frames while held, since `settle` never returns
   with a hold on) and checks that, once released, the model shows the evaluation a fresh
