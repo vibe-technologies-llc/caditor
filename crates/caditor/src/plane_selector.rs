@@ -8,7 +8,9 @@ use crate::{
     feature_fields::{self, Choice, Picker},
     icons,
     model::{Action, Model},
-    reference_picking, widgets,
+    reference_picking,
+    visibility::PrincipalSet,
+    widgets,
 };
 
 pub const UNCHOSEN: &str = "Choose a plane";
@@ -47,7 +49,7 @@ pub fn combo_showing<T, E: Display>(
     planes: Vec<PlaneReference>,
     change: impl Fn(&PlaneReference) -> Result<T, E>,
 ) -> Option<T> {
-    feature_fields::principal_combo(ui, id, shown, || {
+    feature_fields::principal_combo(ui, (id, PrincipalSet::PLANES), shown, || {
         planes
             .into_iter()
             .map(|plane| Choice {

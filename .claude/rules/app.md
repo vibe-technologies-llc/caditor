@@ -132,7 +132,7 @@ paths:
   and 3MF thumbnail in the dark one (`snapshot::of_bodies` takes the canvas). The picture a save
   stores in the model file (`app-files.md`, Model previews) is `snapshot::of_bodies_alone`: the same
   scene with `Context::bodies_only` (no sketches, datums or helices) and the principal geometry
-  tucked away unless the user keeps it shown.
+  tucked away unless the model sets it to `Shown`.
 - Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
   (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
   `scene.rs`. Body edges and outlines take the palette's `body_edge_width` times the Edges

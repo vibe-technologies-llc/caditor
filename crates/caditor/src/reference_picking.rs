@@ -19,6 +19,7 @@ use crate::{
     selection::{Pickable, Selection},
     shell_tools, sketch_pattern_tools, solid_panel, split_face_tools, split_tools, sweep_tools,
     thread_tools,
+    visibility::PrincipalSet,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -97,42 +98,43 @@ impl Slot {
         )
     }
 
-    pub fn takes_principal_geometry(self) -> bool {
+    pub fn principal_wanted(self) -> PrincipalSet {
         match self {
-            Self::RevolveAxis
-            | Self::ExtrudeTarget(_)
+            Self::ExtrudeTarget(_)
             | Self::StartPlane
             | Self::HoleTarget
             | Self::RevolveTarget
-            | Self::ExtrudeDirection
             | Self::MirrorPlane
             | Self::MirrorBodies
             | Self::SplitPlane
-            | Self::SplitDirection
-            | Self::PatternDirection
-            | Self::PatternSecond
-            | Self::PatternBase
-            | Self::DatumBase
-            | Self::DatumRotation
-            | Self::MoveAxis
-            | Self::MoveFaceDirection
-            | Self::MoveFaceAxis
             | Self::DraftNeutral
             | Self::ReplaceTarget
             | Self::PrimitivePlace
+            | Self::FramePlane
+            | Self::ImagePlace => PrincipalSet::PLANES,
+            Self::RevolveAxis
+            | Self::ExtrudeDirection
+            | Self::SplitDirection
+            | Self::PatternDirection
+            | Self::PatternSecond
+            | Self::MoveAxis
+            | Self::MoveFaceDirection
+            | Self::MoveFaceAxis
             | Self::CoilAxis
             | Self::HelixAxis
-            | Self::HelixStart
-            | Self::MateTarget(_)
-            | Self::FrameOrigin
+            | Self::MateTarget(MatePart::Axis)
             | Self::FrameAxis
-            | Self::FramePlane
+            | Self::HoleEdge(_) => PrincipalSet::AXES,
+            Self::PatternBase
+            | Self::HelixStart
+            | Self::FrameOrigin
             | Self::ScaleCentre
-            | Self::MeasuredItem(_)
-            | Self::HoleEdge(_)
             | Self::HoleConcentric(_)
-            | Self::LoftEnd
-            | Self::ImagePlace => true,
+            | Self::LoftEnd => PrincipalSet::ORIGIN,
+            Self::DatumBase
+            | Self::DatumRotation
+            | Self::MateTarget(MatePart::Main)
+            | Self::MeasuredItem(_) => PrincipalSet::ALL,
             Self::HolePlace
             | Self::ImageCalibration
             | Self::HoleAdd
@@ -145,7 +147,7 @@ impl Slot {
             | Self::LoftProfiles
             | Self::PatternPath
             | Self::EmbossSketch
-            | Self::MateMoving(_) => false,
+            | Self::MateMoving(_) => PrincipalSet::NONE,
         }
     }
 }

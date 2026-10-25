@@ -21,7 +21,7 @@ use crate::{
         ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
         MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES,
     },
-    datum::{Datum, PrincipalGeometry},
+    datum::{Datum, PrincipalGeometry, PrincipalShowing},
     dependencies::DependencyGraph,
     document::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
@@ -113,9 +113,9 @@ pub enum Edit {
     SetRollbackBar {
         bar: RollbackBar,
     },
-    SetPrincipalHidden {
+    SetPrincipalShowing {
         geometry: PrincipalGeometry,
-        hidden: bool,
+        showing: PrincipalShowing,
     },
     SetModelProperties {
         properties: Box<ModelProperties>,
@@ -323,7 +323,7 @@ impl Transaction {
                     touched.constraints.insert((*feature, *id));
                 }
                 Edit::SetRollbackBar { .. } => touched.rollback = true,
-                Edit::SetPrincipalHidden { .. } => touched.principal = true,
+                Edit::SetPrincipalShowing { .. } => touched.principal = true,
                 Edit::SetModelProperties { .. } => touched.properties = true,
                 Edit::SetSavedViews { .. } => touched.views = true,
                 Edit::SetSelectionSets { .. } => touched.selection_sets = true,
@@ -390,7 +390,7 @@ impl Transaction {
                 | Edit::SetFeaturePieces { .. }
                 | Edit::SetRollbackBar { .. }
                 | Edit::SetActiveConfiguration { .. }
-                | Edit::SetPrincipalHidden { .. }
+                | Edit::SetPrincipalShowing { .. }
                 | Edit::SetSketchPlacement { .. }
                 | Edit::RemoveSketchEntity { .. }
                 | Edit::SetSketchConstruction { .. }
@@ -965,8 +965,8 @@ impl Document {
             Edit::SetFeaturePieces { id, pieces } => self.set_feature_pieces(id, pieces),
             Edit::SetPieceStandIns { id, stand_ins } => self.set_piece_stand_ins(id, stand_ins),
             Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
-            Edit::SetPrincipalHidden { geometry, hidden } => {
-                Ok(self.set_principal_hidden(geometry, hidden))
+            Edit::SetPrincipalShowing { geometry, showing } => {
+                Ok(self.set_principal_showing(geometry, showing))
             }
             Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
             Edit::SetSavedViews { views } => self.set_saved_views(*views),
@@ -1864,15 +1864,20 @@ impl Document {
         settled
     }
 
-    fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {
-        let previous = if hidden {
-            !self.hidden_principal.insert(geometry)
-        } else {
-            self.hidden_principal.remove(&geometry)
+    fn set_principal_showing(
+        &mut self,
+        geometry: PrincipalGeometry,
+        showing: PrincipalShowing,
+    ) -> Edit {
+        let previous = match showing {
+            PrincipalShowing::WhenNeeded => self.principal_showing.remove(&geometry),
+            PrincipalShowing::Shown | PrincipalShowing::Hidden => {
+                self.principal_showing.insert(geometry, showing)
+            }
         };
-        Edit::SetPrincipalHidden {
+        Edit::SetPrincipalShowing {
             geometry,
-            hidden: previous,
+            showing: previous.unwrap_or_default(),
         }
     }
 

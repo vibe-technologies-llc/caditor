@@ -323,7 +323,9 @@ pub fn command(command: Command) -> &'static str {
         Command::SelectLoop => phosphor::CIRCLE_NOTCH,
         Command::SelectSimilar => phosphor::SELECTION_PLUS,
         Command::ShowAll => SHOW,
-        Command::TogglePrincipal | Command::ShowPrincipalWhenNeeded => PRINCIPAL_GROUP,
+        Command::TogglePrincipal
+        | Command::PrincipalOnlyWhenNeeded
+        | Command::ShowPrincipalWhenNeeded => PRINCIPAL_GROUP,
         Command::ToggleSketches => SKETCH,
         Command::ToggleDatums => AXIS,
         Command::ToggleBodies => BODIES,

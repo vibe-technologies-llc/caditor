@@ -10,7 +10,7 @@ The mirror is made from that click and goes on choosing, so each further click a
 clicked again, leaves it out. While the mirror is open, the bodies it mirrors are lit.
 
 While Mirror chooses its bodies and while it is open, the principal planes show even when they are
-tucked away until needed, so the plane can be clicked in the view: a plane clicked before the first
+tucked away until needed (the axes and origin do not), so the plane can be clicked in the view: a plane clicked before the first
 body is the one it mirrors across, and a principal, datum or coordinate system plane clicked while
 it is open becomes its plane. They tuck away again once the mirror closes.
 

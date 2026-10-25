@@ -4098,8 +4098,8 @@ fn a_damaged_hidden_feature_is_called_damaged_rather_than_of_an_unknown_kind() {
 }
 
 #[test]
-fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_snapshot() {
-    use caditor_document::{PrincipalAxis, PrincipalGeometry, PrincipalPlane};
+fn principal_geometry_stays_hidden_or_shown_through_saving_the_journal_and_its_snapshot() {
+    use caditor_document::{PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing};
 
     let (mut document, _, _) = solid_model();
     let visible = encode(&document).unwrap();
@@ -4111,10 +4111,14 @@ fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_sna
             PrincipalGeometry::Plane(PrincipalPlane::Xz),
         ]
         .into_iter()
-        .map(|geometry| Edit::SetPrincipalHidden {
+        .map(|geometry| Edit::SetPrincipalShowing {
             geometry,
-            hidden: true,
+            showing: PrincipalShowing::Hidden,
         })
+        .chain([Edit::SetPrincipalShowing {
+            geometry: PrincipalGeometry::Plane(PrincipalPlane::Xy),
+            showing: PrincipalShowing::Shown,
+        }])
         .collect(),
     );
     document.apply(hide.clone()).unwrap();
@@ -4139,7 +4143,9 @@ fn hidden_principal_geometry_stays_hidden_through_saving_the_journal_and_its_sna
     .unwrap();
 
     assert!(!visible.contains("principal"));
-    assert!(text.contains(r#"{"principal":{"hidden":["origin",{"axis":"z"},{"plane":"xz"}]}}"#));
+    assert!(text.contains(
+        r#"{"principal":{"hidden":["origin",{"axis":"z"},{"plane":"xz"}],"shown":[{"plane":"xy"}]}}"#
+    ));
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     assert_eq!(format::restore_transaction(journaled), Some(hide));

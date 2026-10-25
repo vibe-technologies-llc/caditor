@@ -62,7 +62,7 @@ impl Generator {
             | Edit::SetFeaturePieces { .. }
             | Edit::SetPieceStandIns { .. }
             | Edit::SetRollbackBar { .. }
-            | Edit::SetPrincipalHidden { .. }
+            | Edit::SetPrincipalShowing { .. }
             | Edit::SetFeatureKind { .. } => Self::Tree,
             Edit::SetSketchPlacement { .. }
             | Edit::SetDimension { .. }

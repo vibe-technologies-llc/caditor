@@ -38,7 +38,9 @@ marks the row of the feature that made it: the rim of a boss joined to a plate m
 
 The eye on a row hides or shows what it made. The principal planes, axes and origin have a group
 row of their own, read as hidden while they step aside after the first body (see
-[principal planes only when needed](display)); its eyes show them and keep them shown. The "⋯" button holds the same actions as the
+[principal planes only when needed](display)); pointing at one of its rows shows it for a moment,
+its eyes show or hide them for good, and its right-click menu lets them show only when needed
+again. The "⋯" button holds the same actions as the
 right-click menu; Hide or Show there, like Suppress, acts on every chosen row. Uses and Used by
 list the features it builds on and those built on it; choose one to go to its row.
 

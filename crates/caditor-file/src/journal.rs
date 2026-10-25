@@ -393,10 +393,7 @@ fn decode_entry(piece: &Piece<'_>, texts: &mut ImportTexts) -> Option<Logged> {
 fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
     let mut parts = Parts {
         next_ids: Some(snapshot.next_ids),
-        hidden_principal: snapshot
-            .principal
-            .map(|principal| principal.hidden)
-            .unwrap_or_default(),
+        principal: snapshot.principal,
         suppressed: snapshot
             .suppressed
             .map(|suppressed| suppressed.features)

@@ -5,8 +5,8 @@ use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
     FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
     ParameterOwner, PieceStandIns, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, Rgb, RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets,
-    SetMember, Setting, SketchAttachment, Transaction,
+    PrincipalShowing, ProjectionSource, Rgb, RollbackBar, SavedView, SavedViews, SelectionSet,
+    SelectionSets, SetMember, Setting, SketchAttachment, Transaction,
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
@@ -242,9 +242,13 @@ pub fn tree_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Trans
                 RollbackBar::Before(scene.feature(input)?)
             },
         }),
-        6 => single(Edit::SetPrincipalHidden {
+        6 => single(Edit::SetPrincipalShowing {
             geometry: *input.choose(&PrincipalGeometry::ALL)?,
-            hidden: input.arbitrary()?,
+            showing: *input.choose(&[
+                PrincipalShowing::WhenNeeded,
+                PrincipalShowing::Shown,
+                PrincipalShowing::Hidden,
+            ])?,
         }),
         7 => single(Edit::SetFeatureGroup {
             id: scene.feature(input)?,

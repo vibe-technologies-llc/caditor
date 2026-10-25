@@ -188,6 +188,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Viewer
 
+- [low · easy] While a sketch is edited the view draws no principal planes, axes or origin besides
+  what Project and Intersect offer, yet the feature tree's principal rows and eyes go on reading
+  them as shown (`PrincipalView::reads_shown` knows nothing of sketch editing), so the tree and the
+  view disagree until the sketch closes. The rows should read as set aside while a sketch is
+  edited, without changing what their eyes do.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was

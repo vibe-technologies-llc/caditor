@@ -17,7 +17,9 @@ use crate::{
     coil::Coil,
     combine::Combine,
     configurations::{ConfigurationId, Configurations},
-    datum::{AxisReference, Datum, PlaneReference, PointReference, PrincipalGeometry},
+    datum::{
+        AxisReference, Datum, PlaneReference, PointReference, PrincipalGeometry, PrincipalShowing,
+    },
     delete_face::DeleteFace,
     draft::Draft,
     edit::{Edit, Transaction},
@@ -1914,7 +1916,7 @@ pub struct Document {
     pub(crate) features: FeatureList,
     pub(crate) next_parameter_id: u64,
     pub(crate) next_feature_id: u64,
-    pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
+    pub(crate) principal_showing: BTreeMap<PrincipalGeometry, PrincipalShowing>,
     pub(crate) rollback: RollbackBar,
     pub(crate) properties: Arc<ModelProperties>,
     pub(crate) views: Arc<SavedViews>,
@@ -2014,12 +2016,29 @@ impl Document {
         self.next_feature_id
     }
 
+    pub fn principal_showing(&self, geometry: PrincipalGeometry) -> PrincipalShowing {
+        self.principal_showing
+            .get(&geometry)
+            .copied()
+            .unwrap_or_default()
+    }
+
     pub fn is_principal_hidden(&self, geometry: PrincipalGeometry) -> bool {
-        self.hidden_principal.contains(&geometry)
+        self.principal_showing(geometry) == PrincipalShowing::Hidden
     }
 
     pub fn hidden_principal(&self) -> impl Iterator<Item = PrincipalGeometry> + '_ {
-        self.hidden_principal.iter().copied()
+        self.principal_set_to(PrincipalShowing::Hidden)
+    }
+
+    pub fn principal_set_to(
+        &self,
+        showing: PrincipalShowing,
+    ) -> impl Iterator<Item = PrincipalGeometry> + '_ {
+        self.principal_showing
+            .iter()
+            .filter(move |(_, set)| **set == showing)
+            .map(|(geometry, _)| *geometry)
     }
 
     pub fn properties(&self) -> &ModelProperties {
@@ -2116,7 +2135,7 @@ impl Document {
 
     pub fn same_content(&self, other: &Self) -> bool {
         self.parameters == other.parameters
-            && self.hidden_principal == other.hidden_principal
+            && self.principal_showing == other.principal_showing
             && self.properties == other.properties
             && self.views == other.views
             && self.selection_sets == other.selection_sets
@@ -2185,11 +2204,11 @@ impl Document {
         let visibility = PrincipalGeometry::ALL
             .into_iter()
             .filter(|geometry| {
-                self.is_principal_hidden(*geometry) != target.is_principal_hidden(*geometry)
+                self.principal_showing(*geometry) != target.principal_showing(*geometry)
             })
-            .map(|geometry| Edit::SetPrincipalHidden {
+            .map(|geometry| Edit::SetPrincipalShowing {
                 geometry,
-                hidden: target.is_principal_hidden(geometry),
+                showing: target.principal_showing(geometry),
             });
         let rollback = (target.rollback != RollbackBar::AtEnd).then_some(Edit::SetRollbackBar {
             bar: target.rollback,

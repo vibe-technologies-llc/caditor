@@ -219,6 +219,7 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    PrincipalOnlyWhenNeeded,
     ShowPrincipalWhenNeeded,
     Lighting,
     ResetLighting,
@@ -778,6 +779,7 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    PrincipalOnlyWhenNeeded,
     ShowPrincipalWhenNeeded,
     Lighting,
     ResetLighting,
@@ -1197,6 +1199,7 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::PrincipalOnlyWhenNeeded => "view.principal_only_when_needed",
             Self::ShowPrincipalWhenNeeded => "view.principal_when_needed",
             Self::Lighting => "view.lighting",
             Self::ResetLighting => "view.reset_lighting",
@@ -1512,6 +1515,9 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::PrincipalOnlyWhenNeeded => {
+                "Let principal planes, axes and origin show only when needed"
+            }
             Self::ShowPrincipalWhenNeeded => "Show principal planes only when needed",
             Self::Lighting => "Light the rendered view",
             Self::ResetLighting => "Reset the rendered view's lighting",
@@ -1826,6 +1832,7 @@ impl Command {
             Self::FinishShape => &["stop", "end", "done"],
             Self::ChainArc => &["arc", "tangent", "segment", "chain"],
             Self::ShowPrincipalWhenNeeded => &["hide planes", "reference planes", "automatically"],
+            Self::PrincipalOnlyWhenNeeded => &["automatic", "reset", "reference planes", "origin"],
             Self::Lighting | Self::ResetLighting => &[
                 "sun",
                 "light direction",
@@ -1973,6 +1980,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::PrincipalOnlyWhenNeeded
             | Self::ShowPrincipalWhenNeeded
             | Self::Lighting
             | Self::ResetLighting
@@ -2420,6 +2428,7 @@ impl Command {
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::ToggleCosmeticThreads
+            | Self::PrincipalOnlyWhenNeeded
             | Self::ShowPrincipalWhenNeeded
             | Self::Lighting
             | Self::ResetLighting

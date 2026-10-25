@@ -884,6 +884,7 @@ impl Menus<'_> {
                         ui,
                         [
                             Command::TogglePrincipal,
+                            Command::PrincipalOnlyWhenNeeded,
                             Command::ToggleSketches,
                             Command::ToggleDatums,
                             Command::ToggleBodies,

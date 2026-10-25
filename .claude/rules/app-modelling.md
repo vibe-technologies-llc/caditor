@@ -1280,9 +1280,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   which keeps choosing: a click on a body adds it or leaves it out (`toggled_body`), a click on a
   plane makes it the mirror's plane (`chosen_body_or_plane`); a body made at or after the mirror
   (`LaterBody`) or one of its own images (`OwnImage`) is refused in words.
-- The principal geometry shows while bodies are chosen for a mirror (`is_choosing_mirrored`,
-  `Slot::MirrorBodies` taking principal geometry) and while a whole-body mirror is open
-  (`visibility::principal_needed`), so its plane can be clicked: while choosing the first body a
+- The principal planes show while bodies are chosen for a mirror (`is_choosing_mirrored`,
+  `Slot::MirrorBodies` wanting planes) and while a whole-body mirror is open
+  (`visibility::used_principal`), so its plane can be clicked: while choosing the first body a
   click on a plane (`mirror_tools::names_a_plane`, any principal, datum or coordinate system plane
   `chosen_plane` takes, no face) selects it as any click does and the body click mirrors across it;
   on an open whole-body mirror with nothing being chosen it sets the plane
@@ -1457,31 +1457,57 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   hides every one shown, otherwise shows them all; the edited sketch is never touched, and a model with
   none of the kind refuses in words. Body-making features count as bodies, as `can_hide` judges them.
 - Principal planes, axes and origin hide through a group row (`principal_tree.rs`) with an eye for the
-  group and one per item. Hidden ones are drawn and offered anyway while a sketch's plane is chosen
-  (`Context::choosing_plane`).
-- Show principal planes only when needed (`ViewDetails::principal_when_needed`, on by default; also
-  `Command::ShowPrincipalWhenNeeded`, a View menu and palette toggle) tucks away the principal
-  geometry the model has not hidden once a body stands at the bar (`visibility::has_body`), except
-  while it is needed (`visibility::principal_needed`): New sketch choosing its plane, the sketch
-  Intersect or Project tool, Measure open, an open datum, coordinate system or whole-body mirror,
-  bodies being chosen for a mirror, a slot being chosen in
-  the view that takes a plane, axis or point (`Slot::takes_principal_geometry`, an exhaustive match
-  each new slot must answer), or an open plane or axis list (`feature_fields::principal_combo`,
-  published through egui temp data and read next frame, `visibility::take_listing`). Selected
-  principal geometry shows while selected, and a tree row selects it even when tucked away.
-- Tucking away is view state, never content: `app::perform` ends by working it out
-  (`visibility::tucked_away`, `selected_principal`) into `Model::tuck_principal_away`, and
-  `Model::principal_view` (`PrincipalView`: tucked, kept, selected) reaches the scene and
-  availability through `Context::principal` and the tree directly. Nothing is journaled, undone or
-  marked unsaved.
-- The explicit controls work on what shows (`PrincipalView::shows`). Showing (an eye, the group eye,
-  Hide or show principal planes, Show everything) is the content change it always was for geometry
-  the model hid, and also keeps it shown (`Action::KeepPrincipalShown`, `PrincipalSet` on `Model`,
-  cleared when another model opens), so it no longer tucks away; showing geometry that is only
-  tucked away is that keeping alone, no change to the model. Hiding hides what shows, as content
-  that undo reverses; hidden geometry stays hidden from every selector but New sketch. Hide
-  everything but the selection leaves tucked-away geometry alone. With the preference off nothing
-  tucks away, so the controls behave as before it existed.
+  group and one per item. Each item is set in the document (`document.md`) to show when needed
+  (`PrincipalShowing::WhenNeeded`, the default), `Shown` or `Hidden`; `visibility::PrincipalView`
+  decides what is drawn now, and the scene, availability (`Pickable::is_available`) and the tree
+  all read it (`PrincipalView::shows`), so what is drawn is what is picked:
+  - `Shown` is always drawn (outside sketch editing, where only the edited sketch's references
+    and what Project or Intersect offers show).
+  - `WhenNeeded` is drawn unless the model tucks it away: Show principal planes only when needed
+    (`ViewDetails::principal_when_needed`, on by default; `Command::ShowPrincipalWhenNeeded`, a
+    View menu and palette toggle) is on and a shown body stands at the bar
+    (`visibility::has_shown_body`: hiding every body brings it back). Tucked geometry is still drawn
+    while a tool needs its kind, while selected, or while its tree row is hovered
+    (`PrincipalView::previewed`, from `visibility::previewed_principal`), so a row click selects it
+    and shows it.
+  - `Hidden` is drawn only while a tool asks to click its kind (`PrincipalView::chosen`), never for
+    a tool merely using it.
+- Needs are per kind (`PrincipalSet`: `PLANES`, `AXES`, `ORIGIN`), so a tool brings back only what
+  it can take. Chosen (`visibility::chosen_principal`): New sketch choosing its plane, bodies chosen
+  for a mirror and the sketch Intersect tool take planes, the Project tool axes and origin, and a slot
+  chosen in the view what `Slot::principal_wanted` answers (an exhaustive match each new slot must
+  answer: a revolve, pattern, move or coil axis takes axes, a mirror, split, draft or primitive
+  place takes planes, a pattern base, scale centre or loft end the origin, a datum's references and
+  a mate's target all). Used (`visibility::used_principal`): Measure open and an open datum or
+  coordinate system take everything, an open whole-body mirror planes, an open plane list planes
+  and an axis list axes (`feature_fields::principal_combo` publishes its kind through egui temp
+  data, read next frame by `visibility::take_listing`).
+- `app::perform` ends by working out the view (`visibility::principal_view`) into
+  `Model::set_principal_view`, which reaches the scene and availability through
+  `Context::principal` and the tree directly. Nothing of it is journaled, undone or marked unsaved.
+- The explicit controls are content changes, undoable and saved with the model, and act on what the
+  tree reads as shown (`PrincipalView::reads_shown`: drawn and not `Hidden`). Showing (an eye, the
+  group eye, Hide or show principal planes, Show everything for hidden ones) sets `Shown`; hiding
+  (an eye, the group eye, P, Hide selection, Hide everything but the selection) sets `Hidden`.
+  Let principal planes, axes and origin show only when needed (`Command::PrincipalOnlyWhenNeeded`,
+  View menu, palette, the group's and rows' right-click menu `principal_tree::ONLY_WHEN_NEEDED`;
+  `visibility::principal_only_when_needed`) sets every item back to `WhenNeeded` in one change,
+  refused in words when all already are. A tucked row's eye says Show, and keep shown
+  (`principal_tree::eye_hover`), a hidden one's Show.
+- What is drawn fades in and out over `FADE_SECONDS` (`visibility::PrincipalFade`, owned by the
+  viewport, advanced with the camera and scaled by its transition scale, so Reduce motion and no
+  transitions make it instant): `PrincipalView::fading` carries the steps left (`FADE_STEPS`, so the
+  scene key changes a dozen times per fade, not every frame) and `PrincipalView::opacity` the alpha
+  the scene multiplies in (`scene::PrincipalPresence`). Geometry fading out is drawn but never
+  picked; geometry fading in is picked at once. The viewport counts as animating while one runs.
+- A principal plane fades as the view turns it edge-on (`visibility::EdgeOn`, worked out by the
+  viewport from the sight to the origin, `View::sight_at`, so in perspective a plane is edge-on
+  when the eye lies in it): fully drawn from `EDGE_ON_FADED_DEGREES` off edge-on, neither drawn
+  nor picked within `EDGE_ON_HIDDEN_DEGREES`, in `EDGE_ON_STEPS` so orbiting rebuilds the scene
+  only inside that band. In a standard view the two planes seen as lines no longer cover the axes
+  or catch clicks meant for them. A selected or hovered plane is drawn and picked whatever the
+  angle, and Intersect draws the planes crossing the sketch regardless, since they are seen
+  edge-on from it. Availability ignores the angle, so turning the view never drops a selection.
 
 ## Datums
 

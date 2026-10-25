@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, Sketch};
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{Harness, add_peg, extruded_plate, rectangle, run_from_palette};
+use super::{CAMERA_SETTLE, Harness, add_peg, extruded_plate, rectangle, run_from_palette};
 use crate::{
     commands::Command,
     export::ExportCommand,
@@ -595,6 +595,7 @@ fn exporting_an_image_writes_a_png_of_the_view_without_highlights_at_the_chosen_
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
     let (_, top) = extruded_plate(&mut harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.select([top]);
     let view = harness.workspace.viewport.view_pixels().unwrap();
     let image =

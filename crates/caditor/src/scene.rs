@@ -1051,12 +1051,13 @@ pub fn build_keeping(
             builder.sketch_references(feature.id(), displayed.plane(), reference_size);
             if context.intersecting {
                 for plane in PrincipalPlane::ALL {
-                    if context
-                        .principal
-                        .shows(document, PrincipalGeometry::Plane(plane))
-                        && datum_outline(&plane.plane(), &displayed.plane(), 1.0).is_some()
+                    if let Some(presence) = PrincipalPresence::of(
+                        document,
+                        context.principal,
+                        PrincipalGeometry::Plane(plane),
+                    ) && datum_outline(&plane.plane(), &displayed.plane(), 1.0).is_some()
                     {
-                        builder.principal_plane(plane, reference_size);
+                        builder.principal_plane(plane, reference_size, presence.seen_edge_on());
                     }
                 }
                 let earlier = document
@@ -1079,25 +1080,15 @@ pub fn build_keeping(
         None if bare => {}
         None => {
             for plane in PrincipalPlane::ALL {
-                if context.choosing_plane
-                    || context
-                        .principal
-                        .shows(document, PrincipalGeometry::Plane(plane))
-                {
-                    builder.principal_plane(plane, reference_size);
+                if let Some(presence) = PrincipalPresence::of(
+                    document,
+                    context.principal,
+                    PrincipalGeometry::Plane(plane),
+                ) {
+                    builder.principal_plane(plane, reference_size, presence);
                 }
             }
-            for axis in Axis::ALL {
-                if context
-                    .principal
-                    .shows(document, PrincipalGeometry::Axis(axis.principal()))
-                {
-                    builder.axis(axis, reference_size);
-                }
-            }
-            if context.principal.shows(document, PrincipalGeometry::Origin) {
-                builder.origin();
-            }
+            builder.principal_axes_and_origin((document, context.principal), reference_size);
             for feature in document.active_features() {
                 let opened = context.solid == Some(feature.id());
                 let curve = feature.kind.helix().is_some();
@@ -1583,6 +1574,59 @@ enum PartListing {
     Last,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PrincipalPresence {
+    opacity: f32,
+    picked: bool,
+    seen: f32,
+}
+
+impl PrincipalPresence {
+    fn of(
+        document: &Document,
+        principal: PrincipalView,
+        geometry: PrincipalGeometry,
+    ) -> Option<Self> {
+        principal.opacity(document, geometry).map(|opacity| Self {
+            opacity,
+            picked: principal.shows(document, geometry),
+            seen: match geometry {
+                PrincipalGeometry::Plane(plane) => principal.edge_on.share_seen(plane),
+                PrincipalGeometry::Axis(_) | PrincipalGeometry::Origin => 1.0,
+            },
+        })
+    }
+
+    fn seen_edge_on(self) -> Self {
+        Self { seen: 1.0, ..self }
+    }
+
+    fn seen_unless(self, lit: bool) -> Option<Self> {
+        match lit {
+            true => Some(self),
+            false => (self.seen > 0.0).then_some(Self {
+                opacity: self.opacity * self.seen,
+                ..self
+            }),
+        }
+    }
+
+    fn faded(self, color: Color) -> Color {
+        color.with_alpha(color.alpha * self.opacity)
+    }
+
+    fn register(
+        self,
+        picks: &mut PickBlock,
+        pickable: Pickable,
+        priority: PickPriority,
+    ) -> Option<PickId> {
+        self.picked
+            .then(|| picks.register(pickable, priority))
+            .flatten()
+    }
+}
+
 impl<'a> Builder<'a> {
     fn part_builder(&self, picks: PickBlock) -> Self {
         Builder {
@@ -1704,13 +1748,18 @@ impl<'a> Builder<'a> {
             .emphasis(pickable, self.palette.selection_widening)
     }
 
-    fn principal_plane(&mut self, plane: PrincipalPlane, size: f64) {
+    fn principal_plane(&mut self, plane: PrincipalPlane, size: f64, presence: PrincipalPresence) {
         let pickable = Pickable::Plane(plane);
-        let pick = self.picks.register(pickable, PickPriority::Surface);
+        let Some(presence) = presence.seen_unless(self.emphasis(pickable) > 0.0) else {
+            return;
+        };
+        let pick = presence.register(&mut self.picks, pickable, PickPriority::Surface);
         let corners = plane_corners(plane.plane(), size);
-        let edge = self
-            .highlight
-            .color(&self.palette.lines, pickable, self.palette.plane_edge);
+        let edge = presence.faded(self.highlight.color(
+            &self.palette.lines,
+            pickable,
+            self.palette.plane_edge,
+        ));
         let width = PLANE_EDGE_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
         for (index, start) in corners.iter().enumerate() {
             let Some(end) = corners.get((index + 1) % corners.len()) else {
@@ -1728,8 +1777,11 @@ impl<'a> Builder<'a> {
         }
         self.scene.fills.push(Fill::convex(
             &corners,
-            self.highlight
-                .fill_color(&self.palette.lines, pickable, self.palette.plane_fill),
+            presence.faded(self.highlight.fill_color(
+                &self.palette.lines,
+                pickable,
+                self.palette.plane_fill,
+            )),
             Layer::Reference,
             pick,
         ));
@@ -2930,18 +2982,39 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn axis(&mut self, axis: Axis, size: f64) {
+    fn axis(&mut self, axis: Axis, size: f64, presence: PrincipalPresence) {
         let pickable = Pickable::Axis(axis);
         let base = self.palette.axis(axis);
         self.scene.lines.push(Line {
             start: Point3::ZERO,
             end: axis.direction() * size,
-            color: self.highlight.color(&self.palette.lines, pickable, base),
+            color: presence.faded(self.highlight.color(&self.palette.lines, pickable, base)),
             width: AXIS_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
             layer: Layer::Reference,
-            pick: self.picks.register(pickable, PickPriority::Curve),
+            pick: presence.register(&mut self.picks, pickable, PickPriority::Curve),
             stroke: Stroke::Solid,
         });
+    }
+
+    fn principal_axes_and_origin(
+        &mut self,
+        (document, principal): (&Document, PrincipalView),
+        size: f64,
+    ) {
+        for axis in Axis::ALL {
+            if let Some(presence) = PrincipalPresence::of(
+                document,
+                principal,
+                PrincipalGeometry::Axis(axis.principal()),
+            ) {
+                self.axis(axis, size, presence);
+            }
+        }
+        if let Some(presence) =
+            PrincipalPresence::of(document, principal, PrincipalGeometry::Origin)
+        {
+            self.origin(presence);
+        }
     }
 
     fn projectable_references(
@@ -2951,14 +3024,7 @@ impl<'a> Builder<'a> {
         sketch: FeatureId,
         size: f64,
     ) {
-        for axis in Axis::ALL {
-            if principal.shows(document, PrincipalGeometry::Axis(axis.principal())) {
-                self.axis(axis, size);
-            }
-        }
-        if principal.shows(document, PrincipalGeometry::Origin) {
-            self.origin();
-        }
+        self.principal_axes_and_origin((document, principal), size);
         let earlier = document
             .active_features()
             .take_while(|earlier| earlier.id() != sketch);
@@ -2973,16 +3039,18 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn origin(&mut self) {
+    fn origin(&mut self, presence: PrincipalPresence) {
         let pickable = Pickable::Origin;
         self.scene.markers.push(Marker {
             position: Point3::ZERO,
-            color: self
-                .highlight
-                .color(&self.palette.lines, pickable, self.palette.origin),
+            color: presence.faded(self.highlight.color(
+                &self.palette.lines,
+                pickable,
+                self.palette.origin,
+            )),
             diameter: ORIGIN_DIAMETER + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
             layer: Layer::Reference,
-            pick: self.picks.register(pickable, PickPriority::Point),
+            pick: presence.register(&mut self.picks, pickable, PickPriority::Point),
         });
     }
 

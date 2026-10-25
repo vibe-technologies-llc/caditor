@@ -101,7 +101,7 @@ use crate::{
     view_cube::{self, Corner, CubeAction, CubePlacement, CubeTexts},
     view_history::{Gesture, ViewHistory},
     view_menu::{self, Held, Place, ViewMenu},
-    visibility,
+    visibility::{self, EdgeOn, PrincipalFade},
 };
 
 const INITIAL_LOOK_FROM: Vector3 = Vector3::new(1.0, -1.0, 1.0);
@@ -452,6 +452,7 @@ pub struct ViewportState {
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
+    principal_fade: PrincipalFade,
     previewed: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
     lit_rows: Option<(LitRowsBasis, LitRows)>,
@@ -768,6 +769,7 @@ impl ViewportState {
             scrubbing: false,
             primary: None,
             hovered_in_tree: None,
+            principal_fade: PrincipalFade::default(),
             previewed: Vec::new(),
             chosen_rows: Vec::new(),
             lit_rows: None,
@@ -1161,6 +1163,10 @@ impl ViewportState {
         self.hovered_in_tree = pickable;
     }
 
+    pub fn hovered_in_tree(&self) -> Option<Pickable> {
+        self.hovered_in_tree
+    }
+
     pub fn preview_entities(&mut self, previewed: Vec<Pickable>) {
         self.previewed = previewed;
     }
@@ -1387,7 +1393,7 @@ impl ViewportState {
     }
 
     pub fn is_animating(&self) -> bool {
-        self.camera.is_animating()
+        self.camera.is_animating() || self.principal_fade.is_fading()
     }
 
     pub fn advance(&mut self, elapsed: Duration) {
@@ -1395,6 +1401,8 @@ impl ViewportState {
             self.follow_system_motion();
         }
         self.camera.advance(elapsed);
+        self.principal_fade
+            .advance(elapsed, self.camera.transition_scale());
     }
 
     pub fn apply_pick(&mut self, result: &PickResult) {
@@ -1520,7 +1528,15 @@ impl ViewportState {
         let evaluation = model.evaluation();
         let display = model.display();
         let edited = editing.feature();
-        let context = editing.context().with_principal(model.principal_view());
+        let mut principal = model.principal_view();
+        self.principal_fade
+            .follow(visibility::shown_principal(document, principal));
+        principal.fading = self.principal_fade.fading();
+        principal.edge_on = self
+            .view()
+            .map(|view| EdgeOn::seen_along(view.sight_at(Point3::ZERO)))
+            .unwrap_or_default();
+        let context = editing.context().with_principal(principal);
         self.filter_applies =
             context.sketch.is_none() && context.solid.is_none() && !context.choosing_plane;
         if edited != self.edited {
@@ -1923,7 +1939,6 @@ impl ViewportState {
             size,
             self.canvas,
             Some(model.pictures()),
-            model.principal_view().kept,
         );
         ImageView {
             view: snapshot.view,

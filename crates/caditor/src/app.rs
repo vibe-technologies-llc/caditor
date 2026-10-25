@@ -220,7 +220,7 @@ pub struct Workspace {
     pair_reading: PairReading,
     awaiting_paste: Option<Command>,
     copied: Option<String>,
-    principal_listed: bool,
+    principal_listed: visibility::PrincipalSet,
     session: u64,
 }
 
@@ -292,7 +292,7 @@ impl Workspace {
             pair_reading: PairReading::default(),
             awaiting_paste: None,
             copied: None,
-            principal_listed: false,
+            principal_listed: visibility::PrincipalSet::NONE,
             session: 0,
         }
     }
@@ -1851,23 +1851,26 @@ pub fn perform(
     workspace
         .editing
         .announce_switch(model, notice_before.as_ref());
-    tuck_principal_away(model, workspace);
+    settle_principal_view(model, workspace);
     rerun
 }
 
-fn tuck_principal_away(model: &mut Model, workspace: &Workspace) {
+fn settle_principal_view(model: &mut Model, workspace: &Workspace) {
     let needs = Needs {
         editing: &workspace.editing,
         measuring: workspace.measure.open,
         listing: workspace.principal_listed,
     };
-    let tucked = visibility::tucked_away(
+    let previewed = visibility::previewed_principal(
+        workspace.viewport.selection(),
+        workspace.viewport.hovered_in_tree(),
+    );
+    model.set_principal_view(visibility::principal_view(
         model.document(),
         workspace.preferences.view_details.principal_when_needed,
         &needs,
-    );
-    let selected = visibility::selected_principal(workspace.viewport.selection());
-    model.tuck_principal_away(tucked, selected);
+        previewed,
+    ));
 }
 
 fn run_due(model: &mut Model, workspace: &mut Workspace) -> bool {

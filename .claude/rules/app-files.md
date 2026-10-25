@@ -371,7 +371,7 @@ paths:
   over the limit declines the drawing instead, and the file is saved without a picture; nothing
   is reported to the user.
 - The picture is the bodies alone (`snapshot::of_bodies_alone`: no sketches, datums, helices,
-  principal planes or axes the user did not keep shown, no grid or highlights), from the model's home
+  principal planes or axes the model does not set to `Shown`, no grid or highlights), from the model's home
   view (`snapshot::home_viewpoint`: the saved Home view, else the initial isometric one) fitted to the
   bodies, in the scene palette of the canvas in use, on that canvas's background
   (`Background::Viewport`). It shows the bodies as last meshed, so a save sent mid-recompute pictures

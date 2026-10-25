@@ -23,13 +23,13 @@ use caditor_document::{
     Parameter, ParameterOwner, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks,
     PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
     PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
-    RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText,
-    Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
-    ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name,
-    unscaled, untwisted, view_name,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing, ProjectionSource, Reading,
+    RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection,
+    RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
+    group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -1406,9 +1406,11 @@ pub(crate) enum PrincipalGeometryRecord {
     Plane(PrincipalPlaneRecord),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PrincipalRecord {
     pub hidden: Vec<PrincipalGeometryRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<PrincipalGeometryRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2580,6 +2582,9 @@ pub(crate) enum EditRecord {
     SetPrincipalHidden {
         geometry: PrincipalGeometryRecord,
         hidden: bool,
+    },
+    SetPrincipalShown {
+        geometry: PrincipalGeometryRecord,
     },
     SetModelProperties {
         properties: PropertiesRecord,
@@ -4941,11 +4946,15 @@ fn principal_geometry_record(geometry: PrincipalGeometry) -> PrincipalGeometryRe
 }
 
 pub(crate) fn principal_record(document: &Document) -> Option<PrincipalRecord> {
-    let hidden: Vec<PrincipalGeometryRecord> = document
-        .hidden_principal()
-        .map(principal_geometry_record)
-        .collect();
-    (!hidden.is_empty()).then_some(PrincipalRecord { hidden })
+    let set_to = |showing| {
+        document
+            .principal_set_to(showing)
+            .map(principal_geometry_record)
+            .collect::<Vec<_>>()
+    };
+    let hidden = set_to(PrincipalShowing::Hidden);
+    let shown = set_to(PrincipalShowing::Shown);
+    (!hidden.is_empty() || !shown.is_empty()).then_some(PrincipalRecord { hidden, shown })
 }
 
 fn properties_record_of(properties: &ModelProperties) -> PropertiesRecord {
@@ -6012,10 +6021,18 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 RollbackBar::Before(feature) => Some(feature.raw()),
             },
         },
-        Edit::SetPrincipalHidden { geometry, hidden } => EditRecord::SetPrincipalHidden {
-            geometry: principal_geometry_record(*geometry),
-            hidden: *hidden,
-        },
+        Edit::SetPrincipalShowing { geometry, showing } => {
+            let geometry = principal_geometry_record(*geometry);
+            match showing {
+                PrincipalShowing::Shown => EditRecord::SetPrincipalShown { geometry },
+                PrincipalShowing::WhenNeeded | PrincipalShowing::Hidden => {
+                    EditRecord::SetPrincipalHidden {
+                        geometry,
+                        hidden: *showing == PrincipalShowing::Hidden,
+                    }
+                }
+            }
+        }
         Edit::SetModelProperties { properties } => EditRecord::SetModelProperties {
             properties: properties_record_of(properties),
         },
@@ -6320,9 +6337,17 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         EditRecord::SetRollbackBar { before } => Edit::SetRollbackBar {
             bar: restore_rollback(before),
         },
-        EditRecord::SetPrincipalHidden { geometry, hidden } => Edit::SetPrincipalHidden {
+        EditRecord::SetPrincipalHidden { geometry, hidden } => Edit::SetPrincipalShowing {
             geometry: restore_principal(geometry),
-            hidden,
+            showing: if hidden {
+                PrincipalShowing::Hidden
+            } else {
+                PrincipalShowing::WhenNeeded
+            },
+        },
+        EditRecord::SetPrincipalShown { geometry } => Edit::SetPrincipalShowing {
+            geometry: restore_principal(geometry),
+            showing: PrincipalShowing::Shown,
         },
         EditRecord::SetModelProperties { properties } => Edit::SetModelProperties {
             properties: Box::new(restore_properties(properties, &mut Vec::new())),
