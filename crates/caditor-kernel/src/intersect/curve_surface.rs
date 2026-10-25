@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3};
 
 use crate::{
     coordinates::angle_between,
@@ -11,7 +11,7 @@ use crate::{
     interrupt,
     intersect::{
         IntersectionError, SurfacePatch, boxes_overlap, guided_intervals,
-        solve::{bracket_root, minimize_bracket, polynomial_roots, uv_direction},
+        solve::{Bracket, bracket_root, minimize_bracket, polynomial_roots, uv_direction},
     },
     interval::Interval,
     surface::{Surface, refine_projection},
@@ -32,6 +32,7 @@ const TINY_LEAF: f64 = 1e3 * LINEAR_RESOLUTION;
 const MAX_PIECES: usize = 1 << 14;
 const MAX_DEPTH: usize = 48;
 const LEAF_SAMPLES: usize = 5;
+const REACH_MARGIN: f64 = 2.0;
 const PRECHECK_SAMPLES: usize = 16;
 const CONNECTION_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const OVERLAP_SAMPLES: usize = 8;
@@ -525,6 +526,13 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
     }
 }
 
+fn hulls_miss(surface: &Surface, bounds: &Aabb) -> bool {
+    match surface {
+        Surface::BSpline(spline) => spline.hulls_miss(&bounds.expanded(TOLERANCE)),
+        _ => false,
+    }
+}
+
 fn is_leaf(probe: &Probe, piece: Interval, radius: f64) -> bool {
     if radius <= TINY_LEAF {
         return true;
@@ -544,6 +552,9 @@ fn general(
     range: Interval,
     patch: Option<&SurfacePatch>,
 ) -> Result<Vec<Candidate>, IntersectionError> {
+    if hulls_miss(probe.surface, &probe.curve.piece_bounds(range)) {
+        return Ok(Vec::new());
+    }
     if range
         .split(PRECHECK_SAMPLES)
         .all(|parameter| probe.distance(parameter) <= ON_SURFACE)
@@ -567,7 +578,9 @@ fn general(
             continue;
         }
         let radius = bounds.half_extent().length();
-        if probe.surface.distance(bounds.center()) > radius + TOLERANCE {
+        if hulls_miss(probe.surface, &bounds)
+            || probe.surface.distance(bounds.center()) > radius + TOLERANCE
+        {
             continue;
         }
         if depth >= MAX_DEPTH || is_leaf(probe, piece, radius) {
@@ -654,7 +667,16 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             continue;
         }
         let side = if here < 0.0 { -1.0 } else { 1.0 };
-        let (extremum, value) = minimize_bracket(|parameter| side * signed(parameter), low, high);
+        let settled = |bracket: Bracket| {
+            let center = probe.curve.point(bracket.at);
+            let reach = [bracket.lower, bracket.upper]
+                .map(|end| probe.curve.point(end).distance(center))
+                .into_iter()
+                .fold(0.0, f64::max);
+            bracket.value < -TOLERANCE || bracket.value - REACH_MARGIN * reach > TOLERANCE
+        };
+        let (extremum, value) =
+            minimize_bracket(|parameter| side * signed(parameter), low, high, settled);
         if (-TOLERANCE..=TOLERANCE).contains(&value) {
             if probe.distance(extremum) <= TOLERANCE {
                 candidates.push(Candidate::Touch(extremum));

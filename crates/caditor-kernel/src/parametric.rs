@@ -14,6 +14,7 @@ const BOUND_SAMPLES: usize = 4;
 const BOUND_SAFETY: f64 = 2.0;
 const SEEDS_PER_POLL: usize = 1024;
 const MAX_MERGED_SAMPLES: usize = 64;
+const MERGE_MARGIN: f64 = 0.999;
 const CORNER_PROBE: f64 = 1e-3;
 const CORNER_SHARE: f64 = 0.01;
 
@@ -165,20 +166,27 @@ pub(crate) fn adaptive_parameters<C: Parametric>(
     tolerance: &SamplingTolerance,
 ) -> Vec<f64> {
     let seeds = curve.seeds(range);
+    let evaluated: Vec<Sampled<C::Point>> = seeds
+        .iter()
+        .map(|parameter| Sampled::at(curve, *parameter))
+        .collect();
     let mut parameters = vec![range.start()];
-    for pair in seeds.windows(2) {
+    for pair in evaluated.windows(2) {
         let [start, end] = pair else {
             continue;
         };
         let mut pending = vec![(*start, *end, 0)];
         while let Some((low, high, depth)) = pending.pop() {
             let budget_left = parameters.len() + pending.len() < MAX_SAMPLES;
-            if depth < MAX_DEPTH && budget_left && needs_split(curve, low, high, tolerance) {
-                let middle = 0.5 * (low + high);
-                pending.push((middle, high, depth + 1));
-                pending.push((low, middle, depth + 1));
-            } else {
-                parameters.push(high);
+            let split = (depth < MAX_DEPTH && budget_left)
+                .then(|| split_at(curve, &low, &high, tolerance))
+                .flatten();
+            match split {
+                Some(middle) => {
+                    pending.push((middle, high, depth + 1));
+                    pending.push((low, middle, depth + 1));
+                }
+                None => parameters.push(high.parameter),
             }
         }
     }
@@ -208,27 +216,32 @@ pub(crate) fn merged_parameters<C: Parametric>(
             _ => None,
         })
         .collect();
-    let covers = |anchor: usize, reach: usize| {
-        let (Some([start, start_tangent]), Some([end, end_tangent])) =
-            (samples.get(anchor), samples.get(reach))
-        else {
-            return false;
-        };
-        let within =
-            |point: &C::Point| distance_to_segment(*point, *start, *end) <= tolerance.chord();
-        let turns_little =
-            |tangent: &C::Point| angle_between(*start_tangent, *tangent) <= tolerance.angle();
-        turns_little(end_tangent)
-            && samples
-                .get(anchor + 1..reach)
-                .unwrap_or_default()
-                .iter()
-                .all(|[point, tangent]| within(point) && turns_little(tangent))
-            && middles
-                .get(anchor..reach)
-                .unwrap_or_default()
-                .iter()
-                .all(within)
+    let turns_little = |anchor: usize, index: usize| match (samples.get(anchor), samples.get(index))
+    {
+        (Some([_, start_tangent]), Some([_, tangent])) => {
+            angle_between(*start_tangent, *tangent) <= tolerance.angle()
+        }
+        _ => false,
+    };
+    let point_of = |index: usize| samples.get(index).map(|[point, _]| *point);
+    let farthest = |anchor: usize, reach: usize, first_sample: usize, first_middle: usize| {
+        let (start, end) = (point_of(anchor)?, point_of(reach)?);
+        samples
+            .get(first_sample..reach)
+            .unwrap_or_default()
+            .iter()
+            .map(|[point, _]| *point)
+            .chain(
+                middles
+                    .get(first_middle..reach)
+                    .unwrap_or_default()
+                    .iter()
+                    .copied(),
+            )
+            .map(|point| distance_to_segment(point, start, end))
+            .try_fold(0.0, |far: f64, distance| {
+                (distance <= tolerance.chord()).then_some(far.max(distance))
+            })
     };
     let corners: Vec<bool> = (0..parameters.len())
         .map(|index| {
@@ -257,12 +270,32 @@ pub(crate) fn merged_parameters<C: Parametric>(
     let mut anchor = 0;
     while anchor < last {
         let mut reach = anchor + 1;
-        while reach < last
-            && !is_corner(reach)
-            && reach - anchor < MAX_MERGED_SAMPLES
-            && covers(anchor, reach + 1)
-        {
-            reach += 1;
+        let mut turning_little = turns_little(anchor, reach);
+        let mut deviation: Option<f64> = None;
+        while reach < last && !is_corner(reach) && reach - anchor < MAX_MERGED_SAMPLES {
+            let next = reach + 1;
+            turning_little = turning_little && turns_little(anchor, next);
+            if !turning_little {
+                break;
+            }
+            let moved = match (point_of(reach), point_of(next)) {
+                (Some(from), Some(to)) => from.distance_to(to),
+                _ => f64::INFINITY,
+            };
+            let carried = deviation
+                .map(|deviation| deviation + moved)
+                .filter(|carried| *carried <= MERGE_MARGIN * tolerance.chord());
+            let found = match carried {
+                Some(carried) => {
+                    farthest(anchor, next, reach, reach).map(|fresh| fresh.max(carried))
+                }
+                None => farthest(anchor, next, anchor + 1, anchor),
+            };
+            let Some(found) = found else {
+                break;
+            };
+            deviation = Some(found);
+            reach = next;
         }
         merged.extend(parameters.get(reach));
         anchor = reach;
@@ -270,28 +303,44 @@ pub(crate) fn merged_parameters<C: Parametric>(
     merged
 }
 
-fn needs_split<C: Parametric>(
+#[derive(Debug, Clone, Copy)]
+struct Sampled<P> {
+    parameter: f64,
+    point: P,
+    tangent: P,
+}
+
+impl<P: Coordinates> Sampled<P> {
+    fn at<C: Parametric<Point = P>>(curve: &C, parameter: f64) -> Self {
+        let [point, tangent, _] = curve.evaluate(parameter);
+        Self {
+            parameter,
+            point,
+            tangent,
+        }
+    }
+}
+
+fn split_at<C: Parametric>(
     curve: &C,
-    low: f64,
-    high: f64,
+    low: &Sampled<C::Point>,
+    high: &Sampled<C::Point>,
     tolerance: &SamplingTolerance,
-) -> bool {
-    let middle = 0.5 * (low + high);
-    if middle <= low || middle >= high {
-        return false;
+) -> Option<Sampled<C::Point>> {
+    let middle = 0.5 * (low.parameter + high.parameter);
+    if middle <= low.parameter || middle >= high.parameter {
+        return None;
     }
-    let [start, start_tangent, _] = curve.evaluate(low);
-    let [end, end_tangent, _] = curve.evaluate(high);
-    let [center, center_tangent, _] = curve.evaluate(middle);
-    let span = start.distance_to(center) + center.distance_to(end);
+    let center = Sampled::at(curve, middle);
+    let span = low.point.distance_to(center.point) + center.point.distance_to(high.point);
     if span <= tolerance.chord() {
-        return false;
+        return None;
     }
-    let deviation = distance_to_segment(center, start, end);
-    let turning = angle_between(start_tangent, end_tangent)
-        .max(angle_between(start_tangent, center_tangent))
-        .max(angle_between(center_tangent, end_tangent));
-    deviation > tolerance.chord() || turning > tolerance.angle()
+    let deviation = distance_to_segment(center.point, low.point, high.point);
+    let turning = angle_between(low.tangent, high.tangent)
+        .max(angle_between(low.tangent, center.tangent))
+        .max(angle_between(center.tangent, high.tangent));
+    (deviation > tolerance.chord() || turning > tolerance.angle()).then_some(center)
 }
 
 pub(crate) fn tight_bounds<C: Parametric>(

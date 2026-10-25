@@ -15,8 +15,10 @@ const NOISE_FLOOR: f64 = 1e-13;
 const STAGNANT_SCALE: f64 = 1.0 / 64.0;
 const STAGNANT_GAIN: f64 = 1e-3;
 const MAX_BRACKET_ITERATIONS: usize = 200;
-const MAX_GOLDEN_ITERATIONS: usize = 90;
-const GOLDEN: f64 = 0.618_033_988_749_894_8;
+const MAX_MINIMUM_ITERATIONS: usize = 100;
+const SHRINK: f64 = 0.381_966_011_250_105_1;
+const MINIMUM_PRECISION: f64 = 1e-10;
+const MINIMUM_FLOOR: f64 = 1e-14;
 const COEFFICIENT_FLOOR: f64 = 1e-15;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -523,41 +525,121 @@ pub(crate) fn bracket_root(
     }
 }
 
-pub(crate) fn minimize_bracket(function: impl Fn(f64) -> f64, low: f64, high: f64) -> (f64, f64) {
-    let (mut a, mut b) = (low.min(high), low.max(high));
-    let mut c = b - GOLDEN * (b - a);
-    let mut d = a + GOLDEN * (b - a);
-    let (mut fc, mut fd) = (function(c), function(d));
-    let mut best = [(a, function(a)), (b, function(b)), (c, fc), (d, fd)]
-        .into_iter()
-        .filter(|(_, value)| !value.is_nan())
-        .min_by(|x, y| x.1.total_cmp(&y.1))
-        .unwrap_or((a, f64::INFINITY));
-    for _ in 0..MAX_GOLDEN_ITERATIONS {
-        if b - a <= 1e-14 * (1.0 + a.abs().max(b.abs())) {
+#[derive(Debug, Clone, Copy)]
+struct Sample {
+    at: f64,
+    value: f64,
+}
+
+impl Sample {
+    fn below(self, other: Self) -> bool {
+        self.value <= other.value
+    }
+}
+
+fn parabolic_step(best: Sample, second: Sample, third: Sample) -> (f64, f64) {
+    let towards_second = (best.at - second.at) * (best.value - third.value);
+    let towards_third = (best.at - third.at) * (best.value - second.value);
+    let numerator = (best.at - third.at) * towards_third - (best.at - second.at) * towards_second;
+    let denominator = 2.0 * (towards_third - towards_second);
+    if denominator > 0.0 {
+        (-numerator, denominator)
+    } else {
+        (numerator, -denominator)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Bracket {
+    pub lower: f64,
+    pub upper: f64,
+    pub at: f64,
+    pub value: f64,
+}
+
+pub(crate) fn minimize_bracket(
+    function: impl Fn(f64) -> f64,
+    low: f64,
+    high: f64,
+    settled: impl Fn(Bracket) -> bool,
+) -> (f64, f64) {
+    let (mut lower, mut upper) = (low.min(high), low.max(high));
+    let sample = |at: f64| Sample {
+        at,
+        value: function(at),
+    };
+    let ends = [sample(lower), sample(upper)];
+    let mut best = sample(lower + SHRINK * (upper - lower));
+    let (mut second, mut third) = (best, best);
+    let (mut step, mut previous) = (0.0_f64, 0.0_f64);
+
+    for _ in 0..MAX_MINIMUM_ITERATIONS {
+        let middle = 0.5 * (lower + upper);
+        let tolerance = MINIMUM_PRECISION * best.at.abs() + MINIMUM_FLOOR;
+        let bracket = Bracket {
+            lower,
+            upper,
+            at: best.at,
+            value: best.value,
+        };
+        if (best.at - middle).abs() <= 2.0 * tolerance - 0.5 * (upper - lower) || settled(bracket) {
             break;
         }
-        if fc < fd || fd.is_nan() {
-            b = d;
-            d = c;
-            fd = fc;
-            c = b - GOLDEN * (b - a);
-            fc = function(c);
-            if fc < best.1 {
-                best = (c, fc);
+
+        let earlier = previous;
+        previous = step;
+        let (numerator, denominator) = parabolic_step(best, second, third);
+        let parabolic = earlier.abs() > tolerance
+            && numerator.abs() < (0.5 * denominator * earlier).abs()
+            && numerator > denominator * (lower - best.at)
+            && numerator < denominator * (upper - best.at);
+        if parabolic {
+            step = numerator / denominator;
+            let landing = best.at + step;
+            if landing - lower < 2.0 * tolerance || upper - landing < 2.0 * tolerance {
+                step = tolerance.copysign(middle - best.at);
             }
         } else {
-            a = c;
-            c = d;
-            fc = fd;
-            d = a + GOLDEN * (b - a);
-            fd = function(d);
-            if fd < best.1 {
-                best = (d, fd);
+            previous = if best.at >= middle {
+                lower - best.at
+            } else {
+                upper - best.at
+            };
+            step = SHRINK * previous;
+        }
+
+        let reach = if step.abs() >= tolerance {
+            step
+        } else {
+            tolerance.copysign(step)
+        };
+        let next = sample(best.at + reach);
+        if next.below(best) {
+            if next.at >= best.at {
+                lower = best.at;
+            } else {
+                upper = best.at;
+            }
+            (third, second, best) = (second, best, next);
+        } else {
+            if next.at < best.at {
+                lower = next.at;
+            } else {
+                upper = next.at;
+            }
+            if next.below(second) || second.at == best.at {
+                (third, second) = (second, next);
+            } else if next.below(third) || third.at == best.at || third.at == second.at {
+                third = next;
             }
         }
     }
-    best
+
+    ends.into_iter()
+        .chain([best])
+        .filter(|sample| !sample.value.is_nan())
+        .min_by(|x, y| x.value.total_cmp(&y.value))
+        .map_or((lower, f64::INFINITY), |sample| (sample.at, sample.value))
 }
 
 pub(crate) fn evaluate_polynomial(coefficients: &[f64], at: f64) -> f64 {
@@ -676,7 +758,7 @@ mod tests {
     fn brackets_and_minima_converge() {
         let root = bracket_root(|x| x * x - 2.0, 0.0, 2.0, -2.0, 2.0);
         assert!((root - 2f64.sqrt()).abs() < 1e-14);
-        let (at, value) = minimize_bracket(|x| (x - 0.3).powi(2) + 1.0, -1.0, 2.0);
+        let (at, value) = minimize_bracket(|x| (x - 0.3).powi(2) + 1.0, -1.0, 2.0, |_| false);
         assert!((at - 0.3).abs() < 1e-7);
         assert!((value - 1.0).abs() < 1e-14);
     }

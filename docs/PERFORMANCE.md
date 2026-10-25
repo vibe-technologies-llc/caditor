@@ -29,16 +29,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (5 mm inner radius, 5 mm pitch) 4.2 s and 277 s, one to three faces given up and taken from the
   mesh: the swept faces' integrals barely converge within `FACE_EVALUATIONS`.
 - [low · medium] A lofted blend's boolean is still most of its cost: in release the fillet round
-  the eight-edge rim of a pocket with rounded corners in a cylinder takes about 66 ms
-  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 40 ms of
-  it the boolean, 17 ms rounding and 9 ms planning; the unoptimised test build of
-  `the_rim_of_a_pocket_with_rounded_corners_is_rounded_and_chamfered_all_round` takes 5 s. About
-  23 ms of the boolean are the chord spline's intersections with the cylinder and walls, half of
-  it seeding (Gauss–Newton solves in each subdivision leaf and the restricted control nets that
-  box the spline's halves), the rest marching and building the intersection curves; fragment
-  selection and splitting take 8 and 4 ms. Rounding's time is mostly validating the rebuilt
-  solid's volumes and refitting the foot rows' pcurves on the cylinder and walls (some 600
-  samples an edge from six seeds a span of the 129-section rows).
+  the eight-edge rim of a pocket with rounded corners in a cylinder takes about 53 ms
+  (`lofted_tests::rounding_the_rim_of_a_pocket_with_rounded_corners_is_timed`, ignored), 31 ms of
+  it the boolean, 13 ms rounding and 9 ms planning. About 18 ms of the boolean are the chord
+  spline's intersections with the cylinder and walls: 7 ms seeding (Gauss–Newton solves in each
+  subdivision leaf, a single branch often seeded by dozens of leaves, and the restricted control
+  nets that box the spline's halves, rebuilt for every face pair the spline meets), 5 ms marching
+  and building the intersection curves (three plane solves a segment to check the curve), the rest
+  clipping; edge hits, fragment selection and splitting take about 3.5 ms each. Validating volumes
+  by meshing the tool, the boolean's result and the rounded solid takes 11 ms, much of it sampling
+  the foot rows (757 seeds an edge from six a span of the 129-section rows, each probed for a
+  corner).
 - [low · hard] More strips than six do not pay on the top of a plate with 113 holes (6,784
   points) on 16 threads of 8 cores, though a reach sized by the face's widest gap now keeps 95% of
   its triangles in twelve: each strip triangulates its core and a reach of about the widest empty
