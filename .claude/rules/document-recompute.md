@@ -38,7 +38,8 @@ paths:
   entries and their order, `recomputed`, glimpses and progress are those of a sequential walk. An
   evaluator sees only what it uses (`View`): the results of `features()` and the states of
   `bodies_used` at its place, plus the features that consumed those bodies (`Inputs::missing_body`
-  names them); reading anything else would break the cache keys.
+  names them, and the key's upstream holds them too); reading anything else would break the
+  cache keys.
   - From the first feature the walk must compute, `Lookahead` (`lookahead.rs`) follows the
     dependency graph: a feature depends on the features it uses and on the last earlier feature
     changing or consuming each body it uses or changes (`Feature::bodies`, `consumed_bodies`). Once

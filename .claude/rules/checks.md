@@ -74,6 +74,12 @@ property or a pinned input.
 - A failure's words naming a feature that a face reference only mentions (the pattern or maker of
   the face's origin, deleted or renamed since) survived until the key held `dependencies()` names
   rather than `features()` names (seed 95, `stale-origin-name-in-a-failure.bin`).
+- A healing kept the whole feature it checked, so a feature hidden since its references were
+  healed compared unequal to the fresh pass's (seed 1652, `stale-visibility-in-a-healing.bin`);
+  `Healing` now keeps only the feature's id and the kind it checked.
+- A failure naming the feature that consumed a body it uses kept that name after the consumer was
+  suppressed (seed 9268, `stale-consumer-in-a-failure.bin`), until the key's upstream held every
+  feature of the view, the consumers of its bodies included.
 - The undo that could not be applied around configurations and moves (`b94cd16b`) fails the undo,
   save, soundness and recompute suites alike, with the generator's `check_inverse` naming the edit.
 - The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's

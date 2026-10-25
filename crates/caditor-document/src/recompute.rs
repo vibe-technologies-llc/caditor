@@ -960,6 +960,13 @@ impl Key {
             .into_iter()
             .map(|used| (used, view.features.get(&used).cloned()))
             .collect();
+        let consumers: Vec<_> = view
+            .features
+            .iter()
+            .filter(|(seen, _)| !upstream.iter().any(|(used, _)| used == *seen))
+            .map(|(consumer, result)| (*consumer, Some(Arc::clone(result))))
+            .collect();
+        upstream.extend(consumers);
         for body in feature.kind.bodies_used() {
             if let Some((state, result)) = view.bodies.get(&body) {
                 upstream.push((*state, Some(Arc::clone(result))));

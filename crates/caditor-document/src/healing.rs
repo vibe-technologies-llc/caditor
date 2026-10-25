@@ -35,7 +35,8 @@ pub struct Healing {
     pub matched: Vec<String>,
     pub dropped: Vec<String>,
     pub refreshed: FeatureKind,
-    checked: Arc<Feature>,
+    feature: FeatureId,
+    checked: FeatureKind,
     matched_count: usize,
     dropped_count: usize,
 }
@@ -71,8 +72,8 @@ impl Healing {
     }
 
     pub fn update(&self, document: &Document) -> Option<Transaction> {
-        let current = document.feature(self.checked.id())?;
-        if current.kind != self.checked.kind {
+        let current = document.feature(self.feature)?;
+        if current.kind != self.checked {
             return None;
         }
         let label = format!("Update references of {}", current.name);
@@ -107,7 +108,8 @@ pub(crate) fn check(feature: &Arc<Feature>, inputs: &Inputs<'_>) -> Option<Heali
         matched: healer.matched,
         dropped: healer.dropped,
         refreshed,
-        checked: Arc::clone(feature),
+        feature: feature.id(),
+        checked: feature.kind.clone(),
         matched_count: healer.matched_count,
         dropped_count: healer.dropped_count,
     })
