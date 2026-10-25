@@ -4,11 +4,11 @@ mod references;
 
 use std::fmt;
 
+use arbitrary::{Result, Unstructured};
 use caditor_document::{
     CancelToken, Document, Edit, Editor, Evaluation, ModelEvaluator, Recompute, Transaction,
 };
 use caditor_file::JournalEntry;
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 pub use self::references::References;
 use self::{
@@ -159,9 +159,19 @@ pub fn run(
     input: &mut Unstructured,
     editor: &mut Editor,
     references: &References,
+    changed: impl FnMut(&Editor, JournalEntry),
+) {
+    run_steps(input, editor, references, MOST_STEPS, changed);
+}
+
+pub fn run_steps(
+    input: &mut Unstructured,
+    editor: &mut Editor,
+    references: &References,
+    steps: usize,
     mut changed: impl FnMut(&Editor, JournalEntry),
 ) {
-    for _ in 0..MOST_STEPS {
+    for _ in 0..steps {
         if input.is_empty() {
             break;
         }

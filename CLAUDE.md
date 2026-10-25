@@ -46,6 +46,7 @@ inside the workspace.
 | `caditor-wayland` | Safe Wayland protocol work on winit's own connection (files dragged onto the window, the window's `xdg-foreign` export for portal dialogs); the third crate with `unsafe`, empty off Unix. | none |
 | `caditor-document` | The parametric model: parameters, feature tree, transactions, undo, recompute worker. | expression, geometry, kernel, lettering, sketch, zstd |
 | `caditor-file` | Persistence: binary container, version history, recovery journal, preferences, DXF/SVG/STEP and STL/OBJ/3MF mesh import, reference picture decoding, STL/3MF/OBJ/glTF/STEP/PNG and DXF/SVG drawing export. | document and everything it uses, step, zstd, windows |
+| `caditor-checks` | Generators and invariant checks shared by `cargo test` and the fuzz targets: random documents, sketches and profiles, soundness of solids, seeded property suites. | document, expression, file, geometry, kernel, sketch, step |
 | `caditor-cloud` | Cloud services behind one `Provider` abstraction (Fusion 360 first): OAuth with PKCE, a rustls transport, project listing and design conversion to STEP. | none |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
 | `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
@@ -101,6 +102,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP and mesh import, model, image and drawing export, parameter files. |
 | `cloud.md` | Home, the opt-out cloud services and the Fusion 360 import: the `Provider` abstraction, Autodesk sign-in and conversion, the service, the manager. |
+| `checks.md` | The checks crate: seeded property suites, the generators it shares with the fuzz targets, coverage floors. |
 | `notices.md` | The third-party notices file: which crates and fonts it lists, where the texts come from, how packages install it. |
 | `mcp.md` | The headless MCP server (`caditor mcp`): JSON-RPC reader, session, tools, references, files and resources. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |

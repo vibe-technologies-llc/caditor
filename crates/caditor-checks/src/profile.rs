@@ -1,9 +1,9 @@
+use arbitrary::{Result, Unstructured};
 use caditor_geometry::{Point2, RigidTransform, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     AngularExtent, Axis2, LinearBound, LinearExtent, Profile, ProfileCurve, Region, Selection,
     Solid, extrude, revolve,
 };
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::{angle, coordinate, length, plane, point};
 
@@ -85,9 +85,8 @@ fn shape(
                 far,
                 Point2::new(corner.x, far.y),
             ];
-            for (index, start) in corners.iter().enumerate() {
-                let end = corners[(index + 1) % corners.len()];
-                curves.push(ProfileCurve::line(entities.next(), *start, end));
+            for (start, end) in corners.iter().zip(corners.iter().cycle().skip(1)) {
+                curves.push(ProfileCurve::line(entities.next(), *start, *end));
             }
         }
         4 => {

@@ -681,6 +681,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "caditor-checks"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "caditor-document",
+ "caditor-expression",
+ "caditor-file",
+ "caditor-geometry",
+ "caditor-kernel",
+ "caditor-sketch",
+ "caditor-step",
+]
+
+[[package]]
 name = "caditor-cloud"
 version = "0.1.0"
 dependencies = [
@@ -754,6 +768,7 @@ name = "caditor-fuzz"
 version = "0.0.0"
 dependencies = [
  "caditor",
+ "caditor-checks",
  "caditor-document",
  "caditor-expression",
  "caditor-file",

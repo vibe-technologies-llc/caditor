@@ -4,6 +4,7 @@ use std::{
     time::SystemTime,
 };
 
+use arbitrary::{Result, Unstructured};
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
@@ -14,14 +15,14 @@ use caditor_document::{
     FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot, Import,
     LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem, Measurement,
-    MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind, PatternOutcome,
-    Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget,
-    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading,
-    ReferenceImage, RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rib,
-    RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    TurnCentre, Wall, sketch_regions,
+    MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind,
+    PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane,
+    Reading, ReferenceImage, RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis,
+    RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText,
+    Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
+    ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -31,7 +32,6 @@ use caditor_kernel::{
 };
 use caditor_sketch::EntityId;
 use caditor_step::{StepBody, write_step};
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::references::Scene;
 use crate::{WORK_BUDGET, interrupt_after, plane, sketch::sketch};

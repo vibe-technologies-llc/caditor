@@ -153,6 +153,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
+      - name: Run the property suites over many more cases
+        env:
+          CADITOR_CASES: "20000"
+        run: cargo test --release --locked -p caditor-checks
+
       - name: Run the kernel surveys
         run: |
           .github/run-ignored.sh -p caditor-kernel -- \

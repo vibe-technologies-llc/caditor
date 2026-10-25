@@ -107,6 +107,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
   to corners a little larger than the fillet, and corners no larger than it are refused as
   `TooLarge`.
+- [low · easy] A failed feature's cached words keep the name a body had before it was renamed: the
+  key that decides when a failure's message is rebuilt holds feature and parameter names but not a
+  body's own name (`BodyAppearance::name`), so after renaming a body a consumer failing with
+  `BodyRemoved` still says the old one until something else invalidates it. Pinned by the ignored
+  `failures_name_things_as_they_are_named_now` (`caditor-checks`, seed 159 of
+  `CADITOR_CASES=160`).
 
 ## Sketch solver
 

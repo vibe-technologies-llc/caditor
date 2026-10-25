@@ -24,6 +24,7 @@ unreachable = "deny"
 unwrap_used = "deny"
 
 [workspace.dependencies]
+caditor-checks.path = "crates/caditor-checks"
 caditor-cloud.path = "crates/caditor-cloud"
 caditor-document.path = "crates/caditor-document"
 caditor-expression.path = "crates/caditor-expression"
@@ -39,6 +40,7 @@ caditor-windows.path = "crates/caditor-windows"
 caditor-zstd.path = "crates/caditor-zstd"
 
 ahash = "0.8.12"
+arbitrary = "1.5.0"
 anyhow = "1.0.104"
 blake3 = { version = "1.8.7", features = ["pure"] }
 crc32fast = "1.5.3"

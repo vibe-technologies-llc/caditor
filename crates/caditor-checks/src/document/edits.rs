@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use arbitrary::{Result, Unstructured};
 use caditor_document::{
     BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
     FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
@@ -9,7 +10,6 @@ use caditor_document::{
 };
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use super::{
     LABEL,

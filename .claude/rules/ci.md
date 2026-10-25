@@ -54,7 +54,8 @@ paths:
   sits beside it as `.model.caditor.journal` and the restore lands in `model.caditor`. Both scripts
   also run alone: without `CADITOR_REQUIRE_DISPLAY`, `check-install.sh` skips the start when Xvfb is
   missing.
-- The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
+- The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the property
+  suites of `caditor-checks` over `CADITOR_CASES=20000` cases in release, the ignored
   kernel and sketch surveys and the large STEP import benchmark (`app-tests.md`) in release, each
   through `.github/run-ignored.sh`, which runs the named ignored tests with `--exact` and fails when
   fewer ran than were named, so a renamed test cannot leave the job green running nothing.
@@ -103,10 +104,10 @@ paths:
   tool argument decoding, `caditor::fuzzing::mcp_lines`); `model_sealed` and the resealed journal target recompute chunk
   checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged tail torn.
 - Structured targets (`profile_sweep`, `boolean`, `sketch_solve`, `document`, `save_load`) decode bytes
-  with `arbitrary::Unstructured` through the generators in `fuzz/src`, biased to near-coincident and
+  with `arbitrary::Unstructured` through the generators in `crates/caditor-checks` (`checks.md`), biased to near-coincident and
   aligned geometry. They hold the invariants of their subject: an `Ok` solid validates, each
   transaction is undone exactly by its inverse, every saved version loads back.
-- The document generators (`fuzz/src/document/`) make every `Edit` variant and every feature kind:
+- The document generators (`crates/caditor-checks/src/document/`) make every `Edit` variant and every feature kind:
   `addition` (parameters, owned ones, a feature of each `Family`), `parameter_edit`, `tree_edit`
   (`SetFeatureKind` with a new kind of the feature's own family, groups, appearance), `sketch_edit`
   (projections, labels, active flags, placements with attachments, the builder's `add_projection`

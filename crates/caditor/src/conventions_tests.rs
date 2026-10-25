@@ -5,6 +5,8 @@ use std::{
 
 const SKIPPED_DIRECTORIES: [&str; 4] = ["target", "corpus", "artifacts", "coverage"];
 const UNSAFE_CRATES: [&str; 3] = ["caditor-wayland", "caditor-windows", "caditor-zstd"];
+const ASSERTING_CRATES: [&str; 1] = ["caditor-checks"];
+const PANIC_LINT: &str = "panic = \"deny\"";
 
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -498,6 +500,22 @@ fn every_member_inherits_the_workspace_lints() {
                 table_entries(&manifest, "lints.rust"),
                 ["unsafe_code = \"deny\""],
                 "{name} must deny unsafe code outside the items that allow it"
+            );
+        } else if ASSERTING_CRATES.contains(&name.as_str()) {
+            let without_panic: Vec<String> = workspace_clippy
+                .iter()
+                .filter(|lint| lint.as_str() != PANIC_LINT)
+                .cloned()
+                .collect();
+            assert_eq!(
+                table_entries(&manifest, "lints.clippy"),
+                without_panic,
+                "{name} lists other clippy lints than the workspace's but panic"
+            );
+            assert_eq!(
+                table_entries(&manifest, "lints.rust"),
+                table_entries(&workspace, "workspace.lints.rust"),
+                "{name} lists other rust lints than the workspace"
             );
         } else {
             assert_eq!(

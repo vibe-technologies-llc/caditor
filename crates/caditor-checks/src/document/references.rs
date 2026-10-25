@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use arbitrary::{Result, Unstructured};
 use caditor_document::{
     AxisReference, Document, Evaluation, FaceAttachment, Feature, FeatureId, PieceKey,
     PlaneReference, PointReference, PrincipalAxis, PrincipalPlane,
@@ -10,7 +11,6 @@ use caditor_kernel::{
     VertexName,
 };
 use caditor_sketch::{Entity, EntityId};
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::sketch::{angle_value, length_value};
 

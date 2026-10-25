@@ -1,10 +1,10 @@
+use arbitrary::{Result, Unstructured};
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{
     Constraint, Drag, EllipseEnd, Entity, EntityId, FitSpacing, PointTarget, Quadrant, Sketch,
     SplineKind,
 };
-use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::{angle, length, point};
 
@@ -106,9 +106,15 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
             ]
             .map(|position| sketch.add_point(position));
             let mut last = None;
-            for (index, start) in corners.iter().enumerate() {
-                let end = corners[(index + 1) % corners.len()];
-                last = insert(sketch, Entity::Line { start: *start, end }).or(last);
+            for (start, end) in corners.iter().zip(corners.iter().cycle().skip(1)) {
+                last = insert(
+                    sketch,
+                    Entity::Line {
+                        start: *start,
+                        end: *end,
+                    },
+                )
+                .or(last);
             }
             last
         }
