@@ -1367,7 +1367,7 @@ impl ViewportState {
     }
 
     pub fn is_drawing(&self) -> bool {
-        self.drawing.in_progress()
+        self.drawing.can_take_back().is_ok()
     }
 
     pub fn refuses_mode(&self, mode: ShapeMode) -> Option<String> {
@@ -2962,8 +2962,12 @@ impl ViewportState {
             .feature()
             .and_then(|feature| model.document().feature(feature))
             .and_then(|feature| model.displayed_sketch(feature));
-        self.drawing
-            .sync(editing.active(), editing.modes(), displayed.as_deref());
+        self.drawing.sync(
+            editing.active(),
+            editing.modes(),
+            displayed.as_deref(),
+            model,
+        );
         self.mirror = self
             .symmetry
             .filter(|symmetry| editing.feature() == Some(symmetry.feature))
@@ -5096,12 +5100,15 @@ impl ViewportState {
         }
         if back && self.drawing.has_heading() {
             self.drawing.release_heading();
-        } else if back && self.drawing.in_progress() {
+        } else if back && self.drawing.can_take_back().is_ok() {
             self.take_back_point(model, actions);
         }
     }
 
     fn take_back_point(&mut self, model: &Model, actions: &mut Vec<Action>) {
+        if !self.drawing.in_progress() && !self.drawing.resume_chain(model) {
+            return;
+        }
         if self.drawing.remove_last(model.undo_label()) {
             actions.push(Action::Undo);
         }
@@ -5114,7 +5121,7 @@ impl ViewportState {
         actions: &mut Vec<Action>,
     ) {
         let started = self.drawing.started();
-        if commands.invoke(Command::TakeBackPoint, &started) {
+        if commands.invoke(Command::TakeBackPoint, &self.drawing.can_take_back()) {
             self.take_back_point(model, actions);
         }
         if commands.invoke(Command::FinishShape, &self.drawing.finishable())

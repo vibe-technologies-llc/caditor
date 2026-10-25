@@ -139,10 +139,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   and has no Diameter for an arc, though the Diameter tool takes one; and the tooltip for a drag the
   constraints block says nothing of which constraint limits it when the sketch itself is fine
   (`DRAG_BLOCKED`), where a conflict already names its constraints.
-- [low · medium] Backspace steps back through a line chain only while the drawing tool stays
-  Line or Tangent arc: a tool change drops the chain (`Drawing::sync`, by design for the shape in
-  progress), so after a round trip through Select the segments already placed can be undone only
-  with Undo.
 - [low · hard] The offset of an ellipse, elliptical arc or spline is a free fit-point spline that
   does not follow the original: holding it would need a constraint keeping each fit point on the
   original's normal at its own parameter (a `Distance` from the curve lets every fit point slide

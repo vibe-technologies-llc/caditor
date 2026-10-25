@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use caditor_document::{FeatureId, FeatureKind, Transaction, TransactionBuilder};
+use caditor_document::{FeatureId, FeatureKind, Transaction, TransactionBuilder, UndoMark};
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
@@ -848,6 +848,7 @@ pub struct Drawing {
     arcing: Option<Arcing>,
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
+    resting: Option<Resting>,
     sides: Sides,
     rho: Rho,
     scrub: Option<Scrub>,
@@ -929,6 +930,15 @@ struct Carried {
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     typed: Vec<TypedMark>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Resting {
+    feature: FeatureId,
+    end: Placement,
+    chain: Vec<ChainStep>,
+    chain_start: Vec<EntityId>,
+    mark: UndoMark,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1038,11 +1048,17 @@ impl Drawing {
         active: Option<ActiveSketch>,
         modes: ShapeModes,
         sketch: Option<&Sketch>,
+        model: &Model,
     ) {
         let context =
             active.and_then(|active| Some((active.feature, Shape::of(active.tool, modes)?)));
         if context != self.context {
             let carried = self.continued_in(context, sketch);
+            let resting = if self.in_progress() {
+                self.chain_at_rest(model)
+            } else {
+                self.resting.take()
+            };
             let same_sketch =
                 self.context.map(|(feature, _)| feature) == context.map(|(feature, _)| feature);
             let acquired = if same_sketch {
@@ -1065,6 +1081,16 @@ impl Drawing {
                 self.chain_start = carried.chain_start;
                 self.typed = carried.typed;
             }
+            self.resting = resting.filter(|_| self.placed.is_empty());
+        }
+        let feature = active.map(|active| active.feature);
+        let mark = model.undo_mark();
+        let stale = self
+            .resting
+            .as_ref()
+            .is_some_and(|resting| Some(resting.feature) != feature || resting.mark != mark);
+        if stale || self.in_progress() {
+            self.resting = None;
         }
         self.construction = active.is_some_and(|active| active.construction);
         if let Some(sketch) = sketch {
@@ -1086,6 +1112,47 @@ impl Drawing {
         if lost_anchor {
             self.step_back_or_cancel(sketch);
         }
+    }
+
+    fn chain_at_rest(&self, model: &Model) -> Option<Resting> {
+        let (feature, _) = self.context?;
+        let [end] = self.placed.as_slice() else {
+            return None;
+        };
+        let newest = self.chain.last()?;
+        (model.undo_label() == Some(newest.label.as_str())).then(|| Resting {
+            feature,
+            end: *end,
+            chain: self.chain.clone(),
+            chain_start: self.chain_start.clone(),
+            mark: model.undo_mark(),
+        })
+    }
+
+    fn drawing_lines(&self) -> bool {
+        matches!(self.context, Some((_, Shape::Line | Shape::TangentArc)))
+    }
+
+    pub fn can_take_back(&self) -> Result<(), ShapeProgressError> {
+        if self.resting.is_some() && self.drawing_lines() {
+            Ok(())
+        } else {
+            self.started()
+        }
+    }
+
+    pub fn resume_chain(&mut self, model: &Model) -> bool {
+        let feature = self.context.map(|(feature, _)| feature);
+        let resumable = self.drawing_lines() && !self.in_progress();
+        let Some(resting) = self.resting.take_if(|resting| {
+            resumable && Some(resting.feature) == feature && resting.mark == model.undo_mark()
+        }) else {
+            return false;
+        };
+        self.placed = vec![resting.end];
+        self.chain = resting.chain;
+        self.chain_start = resting.chain_start;
+        true
     }
 
     fn continued_in(

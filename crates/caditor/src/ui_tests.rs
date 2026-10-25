@@ -168,6 +168,7 @@ mod sketch_body_picks;
 mod sketch_body_snaps;
 mod sketch_breaks;
 mod sketch_chain_arcs;
+mod sketch_chain_resume;
 mod sketch_chamfers;
 mod sketch_conics;
 mod sketch_constraints;

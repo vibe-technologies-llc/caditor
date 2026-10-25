@@ -5,7 +5,9 @@ last ended, joined to it.
 
 - Press Enter or Escape, or click the last point again, to stop.
 - Clicking the chain's first point closes the outline and stops.
-- Backspace or Delete takes back the last segment while it is the newest change.
+- Backspace or Delete takes back the last segment while it is the newest change. This still works
+  after a detour through another tool, once you are back in Line (or Tangent arc), until you change
+  anything else, undo, leave the sketch or click a new point.
 - Press and drag to draw a single line in one movement.
 
 While drawing, the line snaps to horizontal, vertical, parallel and perpendicular directions and to

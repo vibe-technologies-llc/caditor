@@ -222,6 +222,14 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   continuing segment records its anchor (`ChainStep`); taking back undoes the last segment when it is
   the newest undo step, and when the anchor's point is gone the chain steps back to the newest anchor
   still there rather than ending.
+- A tool change drops the shape in progress but a line chain whose last segment is the newest undo
+  step is kept at rest (`Drawing::resting`, `Resting`: the end, the steps and the `UndoMark`). Back
+  in the Line or Tangent arc tool with nothing placed, Backspace (`Drawing::resume_chain`, from
+  `ViewportState::take_back_point`; `Drawing::can_take_back` also gates `TakeBackPoint` and
+  `ViewportState::is_drawing`, which keeps Backspace from `DeleteSelection`) puts the pen back at
+  the end and takes the last segment back as mid-chain. The chain is forgotten (`Drawing::sync`)
+  when the undo mark differs (any other change, undo, redo), the edited sketch is another or none,
+  or a point is placed; undo then redo does not bring it back.
 - An arc runs the way the pointer swept round its centre; a typed end goes the shorter way
   (`Sweep::aim`), and Reverse sends either the other way. The end is projected onto the circle through
   the start and keeps its snap only if the target lies on that circle.
