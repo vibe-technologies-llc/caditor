@@ -559,7 +559,16 @@ impl<'a> Tracer<'a> {
                     normal: direction,
                 },
             )
-            .is_some_and(|found| found.point.distance(along) <= MAX_SAGITTA * step)
+            .is_some_and(|found| {
+                found.point.distance(along) <= MAX_SAGITTA * step
+                    && self.heads_along(&found, direction)
+            })
+        })
+    }
+
+    fn heads_along(&self, contact: &Contact, direction: Vector3) -> bool {
+        contact_direction(self.surfaces(), contact).is_none_or(|(heading, _)| {
+            angle_between(direction, heading).min(angle_between(direction, -heading)) <= MAX_TURN
         })
     }
 

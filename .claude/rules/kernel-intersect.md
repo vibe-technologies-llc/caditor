@@ -115,9 +115,13 @@ paths:
   - A step is accepted only when the points at a quarter, half and three quarters of its chord (on
     planes normal to the heading) lie within `MAX_SAGITTA` of the chord, so a step cannot jump
     across the neck between two nearby branches (the middle alone missed a jump between the tips
-    of two U-shaped branches). A step landing outside the patches whose exit lies behind the
-    current point is retried at half length, so a branch dipping into a patch for less than a step
-    is followed.
+    of two U-shaped branches), and only when the branch's own direction at each of those points
+    stays within `MAX_TURN` of the heading (`heads_along`): where two branches nearly cross (two
+    cones whose normals come within 0.004 of each other), their arms lie within the sagitta of a
+    chord straight across the neck, and only the direction there, swinging round between the arms,
+    shows the step left its own branch. A step landing outside the patches whose exit lies behind
+    the current point is retried at half length, so a branch dipping into a patch for less than a
+    step is followed.
   - A branch whose `IntersectionCurve` cannot be refined fails the intersection as `Unrefined`
     (`kernel.md`); the boolean takes its point as the error's site, so the curve is named where it
     strays instead of the solid failing validation. A branch whose contacts collapse to too few

@@ -2026,3 +2026,76 @@ fn holes_flush_at_the_top_or_bottom_cut_through_the_point_where_they_touch() {
         check(&name, &cut, expected);
     }
 }
+
+fn exact_volume(solid: &Solid) -> f64 {
+    crate::measure::mass_properties_tessellating(solid, &solid.default_tolerance())
+        .unwrap()
+        .properties
+        .volume
+}
+
+fn check_valid(name: &str, solid: &Solid, expected: f64) {
+    assert_eq!(solid.validate(), Ok(()), "{name}");
+    let found = exact_volume(solid);
+    assert!(
+        (found - expected).abs() <= 1e-6 * expected,
+        "{name}: volume {found} instead of {expected}"
+    );
+}
+
+fn check_every_operation(name: &str, first: &Solid, second: &Solid, volumes: (f64, f64)) {
+    let common = run(first, second, BooleanOperation::Intersection);
+    assert_eq!(common.validate(), Ok(()), "{name}");
+    let shared = exact_volume(&common);
+
+    assert!(shared > 0.0, "{name}");
+    check_valid(
+        &format!("{name} union"),
+        &run(first, second, BooleanOperation::Union),
+        volumes.0 + volumes.1 - shared,
+    );
+    check_valid(
+        &format!("{name} difference"),
+        &run(first, second, BooleanOperation::Difference),
+        volumes.0 - shared,
+    );
+}
+
+#[test]
+fn cones_whose_intersection_passes_a_nearly_tangent_neck_combine() {
+    let first = crate::fixtures::cone(3.0, 4.0);
+    let axis = Vector3::new(0.841747170857855, -0.3631417603571421, -0.6711736726415607);
+    let offset = (
+        -0.007914244095529675,
+        -0.010277728834917885,
+        0.011579623960233862,
+    );
+
+    let second = moved(rotated(first.clone(), axis, 5.495914871889563), offset);
+    let cone_volume = 12.0 * PI;
+
+    check_every_operation("cones", &first, &second, (cone_volume, cone_volume));
+}
+
+#[test]
+fn a_torus_turning_tightly_against_a_hollow_cuboid_combines() {
+    let torus = crate::fixtures::torus(6.0, 2.0);
+    let axis = Vector3::new(0.9159509180456542, -0.3332155285037679, 0.3947770646727655);
+    let offset = (-0.652826082372679, -2.6432721660356506, -2.2951556645039934);
+
+    let hollow = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            axis,
+            0.6831700081877379,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "torus and hollow cuboid",
+        &torus,
+        &hollow,
+        (48.0 * PI * PI, 936.0),
+    );
+}
