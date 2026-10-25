@@ -644,6 +644,10 @@ impl Camera {
         self.field_of_view_y = field_of_view_radians(degrees);
     }
 
+    pub fn transition_scale(&self) -> f64 {
+        self.transition_scale
+    }
+
     pub fn set_transition_scale(&mut self, scale: f64) {
         self.transition_scale = if scale.is_finite() {
             scale.max(0.0)

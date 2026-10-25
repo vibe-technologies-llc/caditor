@@ -595,13 +595,13 @@ mod tests {
         let hidden_twice = Transaction::new(
             "Hide",
             vec![
-                Edit::SetPrincipalHidden {
+                Edit::SetPrincipalShowing {
                     geometry: crate::datum::PrincipalGeometry::ALL[0],
-                    hidden: true,
+                    showing: crate::datum::PrincipalShowing::Shown,
                 },
-                Edit::SetPrincipalHidden {
+                Edit::SetPrincipalShowing {
                     geometry: crate::datum::PrincipalGeometry::ALL[0],
-                    hidden: false,
+                    showing: crate::datum::PrincipalShowing::WhenNeeded,
                 },
             ],
         );

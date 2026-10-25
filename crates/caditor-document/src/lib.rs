@@ -122,9 +122,9 @@ pub use crate::{
     datum::{
         AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumKind, DatumPlane,
         DatumPoint, DatumResult, FaceTangent, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
-        PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane, capitalized,
-        describe_axis, describe_curve, describe_plane, describe_point, describe_points,
-        displayed_axis, displayed_frame, displayed_plane,
+        PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing,
+        capitalized, describe_axis, describe_curve, describe_plane, describe_point,
+        describe_points, displayed_axis, displayed_frame, displayed_plane,
     },
     delete_face::DeleteFace,
     dependencies::DependencyGraph,
@@ -529,9 +529,9 @@ mod tests {
         let hide = |geometry| {
             Transaction::single(
                 "Hide",
-                Edit::SetPrincipalHidden {
+                Edit::SetPrincipalShowing {
                     geometry,
-                    hidden: true,
+                    showing: PrincipalShowing::Hidden,
                 },
             )
         };
@@ -555,6 +555,40 @@ mod tests {
         assert!(!hidden_once.is_principal_hidden(PrincipalGeometry::Origin));
         assert!(editor.document().same_content(&shown));
         assert!(restored.same_content(&hidden));
+    }
+
+    #[test]
+    fn principal_geometry_kept_shown_is_content_and_returning_it_to_when_needed_stores_nothing() {
+        let (start, _) = sample();
+        let mut document = start.clone();
+        let xz = PrincipalGeometry::Plane(PrincipalPlane::Xz);
+        let set = |showing| {
+            Transaction::single(
+                "Show",
+                Edit::SetPrincipalShowing {
+                    geometry: xz,
+                    showing,
+                },
+            )
+        };
+
+        document.apply(set(PrincipalShowing::Shown)).unwrap();
+        let kept = document.clone();
+        let mut restored = start.clone();
+        restored
+            .apply(start.transaction_to(&kept, "Restore"))
+            .unwrap();
+        document.apply(set(PrincipalShowing::WhenNeeded)).unwrap();
+
+        assert_eq!(kept.principal_showing(xz), PrincipalShowing::Shown);
+        assert!(!kept.same_content(&start));
+        assert!(!kept.is_principal_hidden(xz));
+        assert!(restored.same_content(&kept));
+        assert!(document.same_content(&start));
+        assert_eq!(
+            document.principal_set_to(PrincipalShowing::Shown).count(),
+            0
+        );
     }
 
     #[test]

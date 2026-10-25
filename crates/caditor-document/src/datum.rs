@@ -88,6 +88,14 @@ impl PrincipalAxis {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PrincipalShowing {
+    #[default]
+    WhenNeeded,
+    Shown,
+    Hidden,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrincipalGeometry {
     Origin,

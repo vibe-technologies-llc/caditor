@@ -7,8 +7,8 @@ use std::{
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, EdgeRule, Edit, EditError, Feature, FeatureError,
     FeatureId, FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput,
-    PatternKind, PrimitiveKind, PrincipalGeometry, RollbackBar, SketchFeature, SolidFeature,
-    SolidResult, Transaction, TreeRow,
+    PatternKind, PrimitiveKind, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction,
+    TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -1674,7 +1674,7 @@ fn finish_renaming(
     };
 }
 
-fn menu_entry<T, E: Display>(
+pub fn menu_entry<T, E: Display>(
     ui: &mut Ui,
     glyph: &str,
     label: &str,
@@ -2817,13 +2817,22 @@ fn feature_commands(
     if let Some(transaction) = offer_change(offers, commands, Command::ShowAll, None, || {
         Ok(visibility::show_all(document)?)
     }) {
-        let shown_principal: Vec<PrincipalGeometry> = document.hidden_principal().collect();
         actions.push(Action::Apply(transaction));
-        actions.push(Action::KeepPrincipalShown(shown_principal));
     }
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, TreeError>(())) {
-        actions
-            .extend(visibility::toggle_principal_group(document, model.principal_view()).actions);
+        actions.push(Action::Apply(visibility::toggle_principal_group(
+            document,
+            model.principal_view(),
+        )));
+    }
+    if let Some(transaction) = offer_change(
+        offers,
+        commands,
+        Command::PrincipalOnlyWhenNeeded,
+        None,
+        || Ok(visibility::principal_only_when_needed(document)?),
+    ) {
+        actions.push(Action::Apply(transaction));
     }
     for (command, kind) in [
         Command::ToggleSketches,

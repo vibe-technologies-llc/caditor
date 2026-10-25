@@ -34,20 +34,34 @@ and can be undone.
 ## Principal planes only when needed
 
 While {command:view.principal_when_needed} is on, as it is at first (Preferences › Appearance › In
-the 3D view), the principal planes, axes and origin show in a model without a body, and once the
-first body exists they step aside. They come back for as long as you are choosing a plane, axis
-or point: picking the plane of a new sketch, clicking Choose in the view for a mirror plane, a
-pattern's axis, a revolve's axis, a datum's or coordinate system's references, a shape's or
-picture's place or a hole's Place by, measuring, projecting or intersecting in a sketch, an open datum, or an open
-list of planes or axes in a panel. One you select, in the view or by its row in the
-[feature tree](feature-tree), shows while it is selected.
+the 3D view), the principal planes, axes and origin show while no body is shown, and once one is
+they fade aside. They fade back while something needs them, and only the kind it needs:
 
-This stepping aside is only how the view looks: it adds nothing to undo and leaves the model
-unchanged. Showing them yourself, with an eye in the feature tree,
-{command:view.toggle_principal} or {command:view.show_all}, keeps them shown until you hide them
-again; hiding them yourself is a change to the model as before, and hidden ones stay hidden even
-while you choose (New sketch still offers hidden planes). Turn the setting off to have them stay
-as you set them.
+- the planes while you pick the plane of a new sketch, a mirror plane, a split, a draft's neutral
+  plane, a shape's or picture's place, or intersect in a sketch;
+- the axes while you pick a revolve's, pattern's, move's or coil's axis, and the axes and origin
+  while you project in a sketch;
+- the origin while you pick a point, such as a pattern's base or a scale's centre;
+- everything while you measure, edit a datum or coordinate system, or pick a datum's references;
+- the planes or axes listed while a list of planes or axes in a panel is open.
+
+One you select or point at in the [feature tree](feature-tree) shows while it is.
+
+Each one also remembers what you chose, saved with the model and undone like any other change:
+
+- **Show** (an eye in the feature tree, {command:view.toggle_principal} or {command:view.show_all})
+  keeps it shown, bodies or not.
+- **Hide** (an eye, {command:view.toggle_principal} or {command:view.hide_selection}) keeps it
+  hidden. A hidden one comes back only while a tool asks you to click one of its kind, never just
+  because a tool uses it.
+- {command:view.principal_only_when_needed}, also in the right-click menu of their rows, returns
+  them all to showing only when needed.
+
+Turn the setting off and the ones you have not hidden always show.
+
+They fade in and out rather than popping, and a plane you look at edge-on, as two of them are in
+the Top, Front and Right views, fades away so it covers neither the axes nor clicks meant for
+them; one you have selected stays.
 
 ## View aids
 

@@ -1,8 +1,8 @@
-use caditor_document::PrincipalGeometry;
-use egui::{Id, Label, RichText, Ui, collapsing_header::CollapsingState};
+use caditor_document::{PrincipalGeometry, PrincipalShowing};
+use egui::{Id, Label, Response, RichText, Ui, collapsing_header::CollapsingState};
 
 use crate::{
-    appearance, icons,
+    appearance, feature_tree, icons,
     model::{Action, Model},
     panels::PanelState,
     selection::Selection,
@@ -11,6 +11,10 @@ use crate::{
 };
 
 pub const GROUP_TITLE: &str = "Principal planes, axes and origin";
+pub const ONLY_WHEN_NEEDED: &str = "Show only when needed";
+const HIDE: &str = "Hide";
+const SHOW: &str = "Show";
+const KEEP_SHOWN: &str = "Show, and keep shown";
 
 pub fn show(
     ui: &mut Ui,
@@ -53,8 +57,9 @@ pub fn show(
             tree_row::empty_slot(ui);
             tree_row::slot(ui, |ui| {
                 let toggle = visibility::toggle_principal_group(document, view);
-                if eye(ui, shown, &toggle.label) {
-                    actions.extend(toggle.actions);
+                let hover = if shown { HIDE } else { SHOW };
+                if eye(ui, shown, hover, toggle.label()) {
+                    actions.push(Action::Apply(toggle));
                 }
             });
         },
@@ -63,6 +68,7 @@ pub fn show(
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
+    row_menu(&name, model, actions);
     if toggled || name.clicked() {
         collapsing.toggle(ui);
     }
@@ -84,8 +90,8 @@ fn item(
 ) {
     let document = model.document();
     let view = model.principal_view();
-    let shown = view.shows(document, geometry);
-    let choosable = visibility::is_principal_shown(document, geometry);
+    let shown = view.reads_shown(document, geometry);
+    let choosable = !document.is_principal_hidden(geometry);
     let muted = appearance::tokens(ui).text_muted;
     let pickable = visibility::pickable(geometry);
     let toggle = visibility::toggle_principal(document, view, geometry);
@@ -114,14 +120,17 @@ fn item(
         },
         |ui| {
             tree_row::empty_slot(ui);
-            tree_row::slot(ui, |ui| eye(ui, shown, &toggle.label))
+            tree_row::slot(ui, |ui| {
+                eye(ui, shown, eye_hover(model, geometry), toggle.label())
+            })
         },
     );
     let name = row.leading;
     if name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
-    if ui.rect_contains_pointer(row.rect) && shown {
+    row_menu(&name, model, actions);
+    if ui.rect_contains_pointer(row.rect) && choosable {
         state.hovered_in_tree = Some(pickable);
     }
     if (name.clicked() || name.gained_focus()) && choosable {
@@ -129,8 +138,33 @@ fn item(
         state.chosen_in_tree = Some(pickable);
     }
     if row.trailing {
-        actions.extend(toggle.actions);
+        actions.push(Action::Apply(toggle));
     }
+}
+
+fn eye_hover(model: &Model, geometry: PrincipalGeometry) -> &'static str {
+    let document = model.document();
+    let view = model.principal_view();
+    if view.reads_shown(document, geometry) {
+        HIDE
+    } else if document.principal_showing(geometry) == PrincipalShowing::WhenNeeded {
+        KEEP_SHOWN
+    } else {
+        SHOW
+    }
+}
+
+fn row_menu(name: &Response, model: &Model, actions: &mut Vec<Action>) {
+    name.context_menu(|ui| {
+        widgets::fitted_menu(ui, |ui| {
+            let restore = visibility::principal_only_when_needed(model.document());
+            if feature_tree::menu_entry(ui, icons::PRINCIPAL_GROUP, ONLY_WHEN_NEEDED, &restore)
+                && let Ok(transaction) = restore
+            {
+                actions.push(Action::Apply(transaction));
+            }
+        });
+    });
 }
 
 fn title(ui: &Ui, text: &str, shown: bool) -> RichText {
@@ -142,11 +176,7 @@ fn title(ui: &Ui, text: &str, shown: bool) -> RichText {
     }
 }
 
-fn eye(ui: &mut Ui, shown: bool, name: &str) -> bool {
-    let (glyph, hover) = if shown {
-        (icons::SHOW, "Hide")
-    } else {
-        (icons::HIDE, "Show")
-    };
+fn eye(ui: &mut Ui, shown: bool, hover: &str, name: &str) -> bool {
+    let glyph = if shown { icons::SHOW } else { icons::HIDE };
     widgets::named(widgets::icon_button(ui, glyph, hover), name).clicked()
 }

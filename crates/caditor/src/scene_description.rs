@@ -192,7 +192,12 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
         parts.push(format!("{} hidden", count(hidden_bodies, "body", "bodies")));
     }
     if parts.is_empty() {
-        return "Empty: nothing is drawn yet besides the principal planes and axes.".to_owned();
+        let words = if visibility::any_principal_shown(document, model.principal_view()) {
+            "Empty: nothing is drawn yet besides the principal planes and axes."
+        } else {
+            "Empty: nothing is drawn yet."
+        };
+        return words.to_owned();
     }
     format!("{}.", parts.join("; "))
 }

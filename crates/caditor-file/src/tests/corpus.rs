@@ -15,11 +15,11 @@ use caditor_document::{
     Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties,
     Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind,
     PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy,
-    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
-    RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand,
-    TurnCentre, Wall, point_instance,
+    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
+    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
+    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 65] = [
+const KEPT: [(&str, &str); 67] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -71,6 +71,10 @@ const KEPT: [(&str, &str); 65] = [
     (
         "journal-1/gears.journal",
         "4d52613675f7574742c9822a2110b70ffdfd87aa9c9560bd06a5a487ec92e81b",
+    ),
+    (
+        "journal-1/principal-showing.journal",
+        "cee3e4d7c1186712abda011b6a752903520a968cb53e541b788ce7b5de7815c6",
     ),
     (
         "journal-1/piece-stand-ins.journal",
@@ -239,6 +243,10 @@ const KEPT: [(&str, &str); 65] = [
     (
         "model-1/preview.caditor",
         "e0b9a6958693e108c3977da6155140b63c688a441a090b38c486ff96282455c5",
+    ),
+    (
+        "model-1/principal-showing.caditor",
+        "5bd3b9bee3053244975a54f00dbbdf393a7aaf60d9c47ec0ec90628b7fa32d42",
     ),
     (
         "model-1/primitives.caditor",
@@ -977,6 +985,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("gears"), gears_journal()),
         (journal("gear-pairs"), gear_pairs_journal()),
         (journal("sprockets"), sprockets_journal()),
+        (
+            model("principal-showing"),
+            saved(&principal_showing().0, "Principal showing"),
+        ),
+        (journal("principal-showing"), principal_showing_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1543,6 +1556,63 @@ fn texts_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/texts.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn principal_showing_set(showing: [(PrincipalGeometry, PrincipalShowing); 3]) -> Transaction {
+    Transaction::new(
+        "Show",
+        showing
+            .into_iter()
+            .map(|(geometry, showing)| Edit::SetPrincipalShowing { geometry, showing })
+            .collect(),
+    )
+}
+
+fn principal_showing() -> (Document, Transaction) {
+    let (mut document, _, _) = solid_model();
+    document
+        .apply(principal_showing_set([
+            (
+                PrincipalGeometry::Plane(PrincipalPlane::Xy),
+                PrincipalShowing::Shown,
+            ),
+            (PrincipalGeometry::Origin, PrincipalShowing::Shown),
+            (
+                PrincipalGeometry::Axis(PrincipalAxis::Z),
+                PrincipalShowing::Hidden,
+            ),
+        ]))
+        .unwrap();
+    let change = principal_showing_set([
+        (
+            PrincipalGeometry::Plane(PrincipalPlane::Xz),
+            PrincipalShowing::Shown,
+        ),
+        (PrincipalGeometry::Origin, PrincipalShowing::WhenNeeded),
+        (
+            PrincipalGeometry::Axis(PrincipalAxis::Z),
+            PrincipalShowing::Shown,
+        ),
+    ]);
+    (document, change)
+}
+
+fn principal_showing_journal() -> Vec<u8> {
+    let (base, change) = principal_showing();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(change);
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Principal showing")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/principal-showing.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,
@@ -3607,9 +3677,9 @@ fn document_edits(document: &Document) -> Vec<Transaction> {
                 PrincipalGeometry::Plane(PrincipalPlane::Xz),
             ]
             .into_iter()
-            .map(|geometry| Edit::SetPrincipalHidden {
+            .map(|geometry| Edit::SetPrincipalShowing {
                 geometry,
-                hidden: true,
+                showing: PrincipalShowing::Hidden,
             })
             .collect(),
         ),
@@ -3862,9 +3932,9 @@ fn every_edit_journal() -> Vec<u8> {
         Transaction::new(
             "Edit the model",
             vec![
-                Edit::SetPrincipalHidden {
+                Edit::SetPrincipalShowing {
                     geometry: PrincipalGeometry::Origin,
-                    hidden: true,
+                    showing: PrincipalShowing::Hidden,
                 },
                 Edit::SetModelProperties {
                     properties: Box::new(ModelProperties {

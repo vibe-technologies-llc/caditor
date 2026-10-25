@@ -22,7 +22,7 @@ use crate::{
     selection::Selection,
     view_aids::ViewAids,
     viewport::initial_viewpoint,
-    visibility::{PrincipalSet, PrincipalView},
+    visibility::PrincipalView,
 };
 
 const MESHING_TIMEOUT: Duration = Duration::from_secs(120);
@@ -138,7 +138,6 @@ pub fn of_bodies_alone(
     size: SurfaceSize,
     canvas: Canvas,
     pictures: Option<&ImageTextures>,
-    kept: PrincipalSet,
 ) -> Snapshot {
     framed_from(
         document,
@@ -151,9 +150,8 @@ pub fn of_bodies_alone(
             canvas,
             bodies_only: true,
             principal: PrincipalView {
-                tucked_away: true,
-                kept,
-                selected: PrincipalSet::default(),
+                tucking: true,
+                ..PrincipalView::default()
             },
         },
     )
@@ -306,15 +304,7 @@ mod tests {
         };
 
         let everything = of_bodies(&document, &evaluation, &meshes, size, Canvas::Dark, None);
-        let alone = of_bodies_alone(
-            &document,
-            &evaluation,
-            &meshes,
-            size,
-            Canvas::Dark,
-            None,
-            PrincipalSet::default(),
-        );
+        let alone = of_bodies_alone(&document, &evaluation, &meshes, size, Canvas::Dark, None);
 
         assert!(alone.scene.lines().count() < everything.scene.lines().count());
         assert!(alone.scene.lines().count() > 0);

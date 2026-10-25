@@ -1,13 +1,14 @@
-use std::{borrow::Cow, collections::BTreeSet};
+use std::{borrow::Cow, collections::BTreeSet, time::Duration};
 
 use caditor_document::{
-    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PrincipalGeometry, Transaction,
+    Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, PrincipalShowing, Transaction,
 };
+use caditor_geometry::Vector3;
 use egui::Id;
 
 use crate::{
     editing::SketchEditing,
-    model::Action,
     selection::{Axis, Pickable, Selection},
 };
 
@@ -27,6 +28,8 @@ pub enum VisibilityError {
     NotHideable,
     #[error("The model has no {} to hide or show", kind.plural())]
     NoneOfKind { kind: Kind },
+    #[error("The principal planes, axes and origin already show only when needed")]
+    PrincipalAlreadyWhenNeeded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,25 +109,38 @@ pub fn is_shown(document: &Document, feature: FeatureId) -> bool {
     document.body_maker(feature).is_some() && !document.body_hidden(feature)
 }
 
-pub fn is_principal_shown(document: &Document, geometry: PrincipalGeometry) -> bool {
-    !document.is_principal_hidden(geometry)
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PrincipalSet(u8);
 
 impl PrincipalSet {
-    fn bit(geometry: PrincipalGeometry) -> u8 {
-        PrincipalGeometry::ALL
-            .iter()
-            .position(|listed| *listed == geometry)
-            .and_then(|index| u32::try_from(index).ok())
-            .and_then(|index| 1_u8.checked_shl(index))
-            .unwrap_or_default()
+    pub const NONE: Self = Self(0);
+    pub const PLANES: Self = Self(0b000_0111);
+    pub const AXES: Self = Self(0b011_1000);
+    pub const ORIGIN: Self = Self(0b100_0000);
+    pub const ALL: Self = Self(0b111_1111);
+
+    const fn bit(geometry: PrincipalGeometry) -> u8 {
+        match geometry {
+            PrincipalGeometry::Plane(PrincipalPlane::Xy) => 0b000_0001,
+            PrincipalGeometry::Plane(PrincipalPlane::Xz) => 0b000_0010,
+            PrincipalGeometry::Plane(PrincipalPlane::Yz) => 0b000_0100,
+            PrincipalGeometry::Axis(PrincipalAxis::X) => 0b000_1000,
+            PrincipalGeometry::Axis(PrincipalAxis::Y) => 0b001_0000,
+            PrincipalGeometry::Axis(PrincipalAxis::Z) => 0b010_0000,
+            PrincipalGeometry::Origin => 0b100_0000,
+        }
     }
 
-    pub fn holds(self, geometry: PrincipalGeometry) -> bool {
+    pub const fn holds(self, geometry: PrincipalGeometry) -> bool {
         self.0 & Self::bit(geometry) != 0
+    }
+
+    pub const fn and(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn when(self, wanted: bool) -> Self {
+        if wanted { self } else { Self::NONE }
     }
 
     pub fn with(self, geometries: impl IntoIterator<Item = PrincipalGeometry>) -> Self {
@@ -136,73 +152,251 @@ impl PrincipalSet {
     }
 }
 
+pub const FADE_STEPS: u8 = 12;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PrincipalFading([u8; PrincipalGeometry::ALL.len()]);
+
+impl PrincipalFading {
+    fn index(geometry: PrincipalGeometry) -> usize {
+        PrincipalGeometry::ALL
+            .iter()
+            .position(|listed| *listed == geometry)
+            .unwrap_or_default()
+    }
+
+    pub fn steps_left(self, geometry: PrincipalGeometry) -> u8 {
+        self.0
+            .get(Self::index(geometry))
+            .copied()
+            .unwrap_or_default()
+            .min(FADE_STEPS)
+    }
+
+    fn set(&mut self, geometry: PrincipalGeometry, steps_left: u8) {
+        if let Some(steps) = self.0.get_mut(Self::index(geometry)) {
+            *steps = steps_left.min(FADE_STEPS);
+        }
+    }
+}
+
+pub const FADE_SECONDS: f64 = 0.16;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PrincipalFade {
+    shown: Option<PrincipalSet>,
+    left: [f64; PrincipalGeometry::ALL.len()],
+}
+
+impl PrincipalFade {
+    pub fn follow(&mut self, shown: PrincipalSet) {
+        if let Some(before) = self.shown {
+            for (geometry, left) in PrincipalGeometry::ALL.into_iter().zip(&mut self.left) {
+                if before.holds(geometry) != shown.holds(geometry) {
+                    *left = 1.0 - *left;
+                }
+            }
+        }
+        self.shown = Some(shown);
+    }
+
+    pub fn advance(&mut self, elapsed: Duration, scale: f64) {
+        let taken = if scale > 0.0 {
+            elapsed.as_secs_f64() / (FADE_SECONDS * scale)
+        } else {
+            1.0
+        };
+        for left in &mut self.left {
+            *left = (*left - taken).max(0.0);
+        }
+    }
+
+    pub fn is_fading(&self) -> bool {
+        self.left.iter().any(|left| *left > 0.0)
+    }
+
+    pub fn fading(&self) -> PrincipalFading {
+        let mut fading = PrincipalFading::default();
+        for (geometry, left) in PrincipalGeometry::ALL.into_iter().zip(self.left) {
+            let steps = left * f64::from(FADE_STEPS);
+            let rounded_up = (1..=FADE_STEPS)
+                .find(|step| f64::from(*step) >= steps)
+                .unwrap_or(FADE_STEPS);
+            fading.set(geometry, if left > 0.0 { rounded_up } else { 0 });
+        }
+        fading
+    }
+}
+
+pub fn shown_principal(document: &Document, view: PrincipalView) -> PrincipalSet {
+    PrincipalSet::NONE.with(
+        PrincipalGeometry::ALL
+            .into_iter()
+            .filter(|geometry| view.shows(document, *geometry)),
+    )
+}
+
+pub const EDGE_ON_STEPS: u8 = 8;
+pub const EDGE_ON_HIDDEN_DEGREES: f64 = 3.0;
+pub const EDGE_ON_FADED_DEGREES: f64 = 12.0;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EdgeOn([u8; PrincipalPlane::ALL.len()]);
+
+impl EdgeOn {
+    pub fn seen_along(sight: Vector3) -> Self {
+        let mut edge_on = Self::default();
+        for (plane, steps) in PrincipalPlane::ALL.into_iter().zip(&mut edge_on.0) {
+            let degrees = plane
+                .plane()
+                .normal()
+                .dot(sight)
+                .abs()
+                .min(1.0)
+                .asin()
+                .to_degrees();
+            let toward = (EDGE_ON_FADED_DEGREES - degrees)
+                / (EDGE_ON_FADED_DEGREES - EDGE_ON_HIDDEN_DEGREES)
+                * f64::from(EDGE_ON_STEPS);
+            *steps = (0..=EDGE_ON_STEPS)
+                .find(|step| f64::from(*step) >= toward)
+                .unwrap_or(EDGE_ON_STEPS);
+        }
+        edge_on
+    }
+
+    pub fn share_seen(self, plane: PrincipalPlane) -> f32 {
+        let steps = PrincipalPlane::ALL
+            .iter()
+            .position(|listed| *listed == plane)
+            .and_then(|index| self.0.get(index))
+            .copied()
+            .unwrap_or_default()
+            .min(EDGE_ON_STEPS);
+        1.0 - f32::from(steps) / f32::from(EDGE_ON_STEPS)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PrincipalView {
-    pub tucked_away: bool,
-    pub kept: PrincipalSet,
-    pub selected: PrincipalSet,
+    pub tucking: bool,
+    pub chosen: PrincipalSet,
+    pub used: PrincipalSet,
+    pub previewed: PrincipalSet,
+    pub fading: PrincipalFading,
+    pub edge_on: EdgeOn,
 }
 
 impl PrincipalView {
     pub fn shows(self, document: &Document, geometry: PrincipalGeometry) -> bool {
-        is_principal_shown(document, geometry) && !self.tucks(geometry)
+        match document.principal_showing(geometry) {
+            PrincipalShowing::Shown => true,
+            PrincipalShowing::Hidden => self.chosen.holds(geometry),
+            PrincipalShowing::WhenNeeded => !self.tucks(geometry),
+        }
     }
 
     pub fn tucks(self, geometry: PrincipalGeometry) -> bool {
-        self.tucked_away && !self.kept.holds(geometry) && !self.selected.holds(geometry)
+        self.tucking
+            && !self.chosen.holds(geometry)
+            && !self.used.holds(geometry)
+            && !self.previewed.holds(geometry)
+    }
+
+    pub fn reads_shown(self, document: &Document, geometry: PrincipalGeometry) -> bool {
+        !document.is_principal_hidden(geometry) && self.shows(document, geometry)
+    }
+
+    pub fn opacity(self, document: &Document, geometry: PrincipalGeometry) -> Option<f32> {
+        let left = f32::from(self.fading.steps_left(geometry)) / f32::from(FADE_STEPS);
+        if self.shows(document, geometry) {
+            Some(1.0 - left)
+        } else {
+            (left > 0.0).then_some(left)
+        }
     }
 }
 
 pub struct Needs<'a> {
     pub editing: &'a SketchEditing,
     pub measuring: bool,
-    pub listing: bool,
+    pub listing: PrincipalSet,
 }
 
-pub fn selected_principal(selection: &Selection) -> PrincipalSet {
-    PrincipalSet::default().with(selection.iter().filter_map(principal))
+pub fn previewed_principal(selection: &Selection, hovered: Option<Pickable>) -> PrincipalSet {
+    PrincipalSet::default().with(selection.iter().chain(hovered).filter_map(principal))
 }
 
-pub fn has_body(document: &Document) -> bool {
-    document.active_features().any(Feature::makes_body)
+pub fn has_shown_body(document: &Document) -> bool {
+    document
+        .active_features()
+        .any(|feature| feature.makes_body() && !feature.hidden)
 }
 
-pub fn principal_needed(document: &Document, needs: &Needs<'_>) -> bool {
+pub fn chosen_principal(needs: &Needs<'_>) -> PrincipalSet {
     let editing = needs.editing;
-    let open = editing.solid().and_then(|id| document.feature(id));
+    let context = editing.context();
+    editing
+        .picking()
+        .map_or(PrincipalSet::NONE, |picking| {
+            picking.slot.principal_wanted()
+        })
+        .and(PrincipalSet::PLANES.when(
+            editing.is_choosing_plane() || editing.is_choosing_mirrored() || context.intersecting,
+        ))
+        .and(
+            PrincipalSet::AXES
+                .and(PrincipalSet::ORIGIN)
+                .when(context.projecting),
+        )
+}
+
+pub fn used_principal(document: &Document, needs: &Needs<'_>) -> PrincipalSet {
+    let open = needs.editing.solid().and_then(|id| document.feature(id));
     let datum_open = open.is_some_and(|feature| feature.kind.datum().is_some());
     let mirror_open = open.is_some_and(|feature| {
         matches!(&feature.kind, FeatureKind::Mirror(mirror) if mirror.mirrors_whole_body())
     });
-    needs.measuring
-        || needs.listing
-        || datum_open
-        || mirror_open
-        || editing.is_choosing_plane()
-        || editing.is_choosing_mirrored()
-        || editing.context().intersecting
-        || editing.context().projecting
-        || editing
-            .picking()
-            .is_some_and(|picking| picking.slot.takes_principal_geometry())
+    needs
+        .listing
+        .and(PrincipalSet::ALL.when(needs.measuring || datum_open))
+        .and(PrincipalSet::PLANES.when(mirror_open))
 }
 
-pub fn tucked_away(document: &Document, when_needed: bool, needs: &Needs<'_>) -> bool {
-    when_needed && has_body(document) && !principal_needed(document, needs)
+pub fn principal_view(
+    document: &Document,
+    when_needed: bool,
+    needs: &Needs<'_>,
+    previewed: PrincipalSet,
+) -> PrincipalView {
+    PrincipalView {
+        tucking: when_needed && has_shown_body(document),
+        chosen: chosen_principal(needs),
+        used: used_principal(document, needs),
+        previewed,
+        ..PrincipalView::default()
+    }
 }
 
 fn listing_key() -> Id {
     Id::unique("principal-listing")
 }
 
-pub fn listing_principal(ctx: &egui::Context) {
-    ctx.data_mut(|data| data.insert_temp(listing_key(), true));
+pub fn listing_principal(ctx: &egui::Context, listed: PrincipalSet) {
+    ctx.data_mut(|data| {
+        let before = data
+            .get_temp::<PrincipalSet>(listing_key())
+            .unwrap_or_default();
+        data.insert_temp(listing_key(), before.and(listed));
+    });
 }
 
-pub fn take_listing(ctx: &egui::Context) -> bool {
+pub fn take_listing(ctx: &egui::Context) -> PrincipalSet {
     ctx.data_mut(|data| {
-        let listed = data.get_temp::<bool>(listing_key()).unwrap_or(false);
-        data.remove::<bool>(listing_key());
+        let listed = data
+            .get_temp::<PrincipalSet>(listing_key())
+            .unwrap_or_default();
+        data.remove::<PrincipalSet>(listing_key());
         listed
     })
 }
@@ -265,8 +459,8 @@ fn set_hidden(id: FeatureId, hidden: bool) -> Edit {
     Edit::SetFeatureHidden { id, hidden }
 }
 
-fn set_principal_hidden(geometry: PrincipalGeometry, hidden: bool) -> Edit {
-    Edit::SetPrincipalHidden { geometry, hidden }
+fn set_principal_showing(geometry: PrincipalGeometry, showing: PrincipalShowing) -> Edit {
+    Edit::SetPrincipalShowing { geometry, showing }
 }
 
 pub fn toggle(feature: &Feature) -> Result<Transaction, VisibilityError> {
@@ -372,78 +566,59 @@ pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle,
     })
 }
 
-pub struct PrincipalToggle {
-    pub label: String,
-    pub actions: Vec<Action>,
-}
-
-fn showing(
-    document: &Document,
-    label: String,
-    geometries: impl IntoIterator<Item = PrincipalGeometry> + Clone,
-) -> PrincipalToggle {
-    let edits: Vec<Edit> = geometries
-        .clone()
-        .into_iter()
-        .filter(|geometry| document.is_principal_hidden(*geometry))
-        .map(|geometry| set_principal_hidden(geometry, false))
-        .collect();
-    let applied =
-        (!edits.is_empty()).then(|| Action::Apply(Transaction::new(label.clone(), edits)));
-    PrincipalToggle {
-        label,
-        actions: applied
-            .into_iter()
-            .chain([Action::KeepPrincipalShown(geometries.into_iter().collect())])
-            .collect(),
-    }
-}
-
-fn hiding(label: String, edits: Vec<Edit>) -> PrincipalToggle {
-    PrincipalToggle {
-        actions: vec![Action::Apply(Transaction::new(label.clone(), edits))],
-        label,
-    }
-}
-
 pub fn toggle_principal(
     document: &Document,
     view: PrincipalView,
     geometry: PrincipalGeometry,
-) -> PrincipalToggle {
-    if view.shows(document, geometry) {
-        hiding(
-            format!("Hide {}", geometry.name()),
-            vec![set_principal_hidden(geometry, true)],
-        )
+) -> Transaction {
+    let (verb, showing) = if view.reads_shown(document, geometry) {
+        ("Hide", PrincipalShowing::Hidden)
     } else {
-        showing(document, format!("Show {}", geometry.name()), [geometry])
-    }
+        ("Show", PrincipalShowing::Shown)
+    };
+    Transaction::single(
+        format!("{verb} {}", geometry.name()),
+        set_principal_showing(geometry, showing),
+    )
 }
 
 pub fn any_principal_shown(document: &Document, view: PrincipalView) -> bool {
     PrincipalGeometry::ALL
         .into_iter()
-        .any(|geometry| view.shows(document, geometry))
+        .any(|geometry| view.reads_shown(document, geometry))
 }
 
-pub fn toggle_principal_group(document: &Document, view: PrincipalView) -> PrincipalToggle {
-    if any_principal_shown(document, view) {
-        hiding(
-            format!("Hide {PRINCIPAL_GROUP}"),
-            PrincipalGeometry::ALL
-                .into_iter()
-                .filter(|geometry| view.shows(document, *geometry))
-                .map(|geometry| set_principal_hidden(geometry, true))
-                .collect(),
-        )
+pub fn toggle_principal_group(document: &Document, view: PrincipalView) -> Transaction {
+    let hiding = any_principal_shown(document, view);
+    let (verb, showing) = if hiding {
+        ("Hide", PrincipalShowing::Hidden)
     } else {
-        showing(
-            document,
-            format!("Show {PRINCIPAL_GROUP}"),
-            PrincipalGeometry::ALL,
-        )
+        ("Show", PrincipalShowing::Shown)
+    };
+    Transaction::new(
+        format!("{verb} {PRINCIPAL_GROUP}"),
+        PrincipalGeometry::ALL
+            .into_iter()
+            .filter(|geometry| !hiding || view.reads_shown(document, *geometry))
+            .filter(|geometry| document.principal_showing(*geometry) != showing)
+            .map(|geometry| set_principal_showing(geometry, showing))
+            .collect(),
+    )
+}
+
+pub fn principal_only_when_needed(document: &Document) -> Result<Transaction, VisibilityError> {
+    let edits: Vec<Edit> = PrincipalGeometry::ALL
+        .into_iter()
+        .filter(|geometry| document.principal_showing(*geometry) != PrincipalShowing::WhenNeeded)
+        .map(|geometry| set_principal_showing(geometry, PrincipalShowing::WhenNeeded))
+        .collect();
+    if edits.is_empty() {
+        return Err(VisibilityError::PrincipalAlreadyWhenNeeded);
     }
+    Ok(Transaction::new(
+        format!("Show {PRINCIPAL_GROUP} only when needed"),
+        edits,
+    ))
 }
 
 pub fn toggle_kind(
@@ -494,7 +669,7 @@ pub fn hide_selection(
     let principal: BTreeSet<PrincipalGeometry> = selection
         .iter()
         .filter_map(principal)
-        .filter(|geometry| is_principal_shown(document, *geometry))
+        .filter(|geometry| !document.is_principal_hidden(*geometry))
         .collect();
     let label = match (hiding.as_slice(), principal.len() + pieces.len()) {
         ([], 0) => return Err(VisibilityError::NothingToHide),
@@ -518,7 +693,7 @@ pub fn hide_selection(
             .chain(
                 principal
                     .into_iter()
-                    .map(|geometry| set_principal_hidden(geometry, true)),
+                    .map(|geometry| set_principal_showing(geometry, PrincipalShowing::Hidden)),
             )
             .collect(),
     ))
@@ -587,9 +762,9 @@ pub fn hide_others(
             PrincipalGeometry::ALL
                 .into_iter()
                 .filter(|geometry| {
-                    view.shows(document, *geometry) && !kept_principal.contains(geometry)
+                    view.reads_shown(document, *geometry) && !kept_principal.contains(geometry)
                 })
-                .map(|geometry| set_principal_hidden(geometry, true)),
+                .map(|geometry| set_principal_showing(geometry, PrincipalShowing::Hidden)),
         )
         .collect();
     if edits.is_empty() {
@@ -636,7 +811,7 @@ pub fn show_all(document: &Document) -> Result<Transaction, VisibilityError> {
         .chain(
             document
                 .hidden_principal()
-                .map(|geometry| set_principal_hidden(geometry, false)),
+                .map(|geometry| set_principal_showing(geometry, PrincipalShowing::Shown)),
         )
         .collect();
     if edits.is_empty() {
@@ -688,7 +863,7 @@ mod tests {
         assert_eq!(again, Err(VisibilityError::NothingToHide));
         assert!(hidden_xy);
         assert!(is_shown(&document, first) && is_shown(&document, second));
-        assert!(is_principal_shown(&document, xy));
+        assert_eq!(document.principal_showing(xy), PrincipalShowing::Shown);
         assert_eq!(show_all(&document), Err(VisibilityError::NothingHidden));
         assert_eq!(
             toggle(document.feature(first).unwrap()).map(|toggle| toggle.label().to_owned()),
@@ -780,23 +955,16 @@ mod tests {
         assert!(toggle_kind(&document, Kind::Bodies, None).is_err());
     }
 
-    fn applied(
-        document: &mut Document,
-        toggle: &PrincipalToggle,
-    ) -> (usize, Vec<PrincipalGeometry>) {
-        let mut edits = 0;
-        let mut kept = Vec::new();
-        for action in &toggle.actions {
-            match action {
-                Action::Apply(transaction) => {
-                    edits += transaction.edits().len();
-                    document.apply(transaction.clone()).unwrap();
-                }
-                Action::KeepPrincipalShown(geometries) => kept.extend(geometries),
-                other => panic!("unexpected {other:?}"),
-            }
+    fn applied(document: &mut Document, transaction: &Transaction) -> usize {
+        document.apply(transaction.clone()).unwrap();
+        transaction.edits().len()
+    }
+
+    fn tucking() -> PrincipalView {
+        PrincipalView {
+            tucking: true,
+            ..PrincipalView::default()
         }
-        (edits, kept)
     }
 
     #[test]
@@ -808,21 +976,21 @@ mod tests {
         applied(&mut document, &hide_origin);
 
         let hide_rest = toggle_principal_group(&document, shown);
-        let (hidden, _) = applied(&mut document, &hide_rest);
+        let hidden = applied(&mut document, &hide_rest);
         let all_hidden = !any_principal_shown(&document, shown);
         let show = toggle_principal_group(&document, shown);
-        let (unhidden, kept) = applied(&mut document, &show);
+        let unhidden = applied(&mut document, &show);
 
-        assert_eq!(hide_rest.label, "Hide principal planes, axes and origin");
+        assert_eq!(hide_origin.label(), "Hide Origin");
+        assert_eq!(hide_rest.label(), "Hide principal planes, axes and origin");
         assert_eq!(hidden, 6);
         assert!(all_hidden);
-        assert_eq!(show.label, "Show principal planes, axes and origin");
+        assert_eq!(show.label(), "Show principal planes, axes and origin");
         assert_eq!(unhidden, 7);
-        assert_eq!(kept, PrincipalGeometry::ALL);
         assert!(
             PrincipalGeometry::ALL
                 .into_iter()
-                .all(|geometry| is_principal_shown(&document, geometry))
+                .all(|geometry| document.principal_showing(geometry) == PrincipalShowing::Shown)
         );
         assert_eq!(pickable(origin), Pickable::Origin);
         assert!(
@@ -833,40 +1001,144 @@ mod tests {
     }
 
     #[test]
-    fn tucked_away_principal_geometry_is_kept_shown_without_a_change_and_hidden_by_one() {
+    fn principal_geometry_shown_by_hand_stays_shown_and_hidden_by_hand_stays_hidden() {
         let mut document = Document::default();
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
-        let tucked = PrincipalView {
-            tucked_away: true,
-            ..PrincipalView::default()
-        };
+        let x = PrincipalGeometry::Axis(PrincipalAxis::X);
 
-        let hidden_while_tucked = !any_principal_shown(&document, tucked);
-        let show = toggle_principal(&document, tucked, xy);
-        let (show_edits, kept) = applied(&mut document, &show);
-        let keeping = PrincipalView {
-            kept: tucked.kept.with(kept.iter().copied()),
-            ..tucked
-        };
-        let shown_kept = keeping.shows(&document, xy);
+        let tucked_at_first = !any_principal_shown(&document, tucking());
+        let show = toggle_principal(&document, tucking(), xy);
+        applied(&mut document, &show);
+        let kept = tucking().shows(&document, xy);
         let others_tucked = PrincipalGeometry::ALL
             .into_iter()
             .filter(|geometry| *geometry != xy)
-            .all(|geometry| !keeping.shows(&document, geometry));
-        let hide = toggle_principal(&document, keeping, xy);
-        let (hide_edits, _) = applied(&mut document, &hide);
-        let group = toggle_principal_group(&document, keeping);
+            .all(|geometry| !tucking().shows(&document, geometry));
+        let hide = toggle_principal(&document, tucking(), xy);
+        applied(&mut document, &hide);
+        let measuring = PrincipalView {
+            used: PrincipalSet::ALL,
+            ..tucking()
+        };
+        let choosing_planes = PrincipalView {
+            chosen: PrincipalSet::PLANES,
+            ..tucking()
+        };
 
-        assert!(hidden_while_tucked);
-        assert_eq!(show.label, "Show XY plane");
-        assert_eq!(show_edits, 0);
-        assert_eq!(kept, [xy]);
-        assert!(shown_kept && others_tucked);
-        assert_eq!(hide.label, "Hide XY plane");
-        assert_eq!(hide_edits, 1);
-        assert!(document.is_principal_hidden(xy));
-        assert!(!keeping.shows(&document, xy));
-        assert_eq!(group.label, "Show principal planes, axes and origin");
+        assert!(tucked_at_first);
+        assert_eq!(show.label(), "Show XY plane");
+        assert!(kept && others_tucked);
+        assert_eq!(hide.label(), "Hide XY plane");
+        assert_eq!(document.principal_showing(xy), PrincipalShowing::Hidden);
+        assert!(!measuring.shows(&document, xy));
+        assert!(measuring.shows(&document, x));
+        assert!(choosing_planes.shows(&document, xy));
+        assert!(!choosing_planes.reads_shown(&document, xy));
+        assert!(!choosing_planes.shows(&document, x));
+        assert_eq!(
+            toggle_principal_group(&document, tucking()).label(),
+            "Show principal planes, axes and origin"
+        );
         assert!(!PrincipalView::default().tucks(xy));
+    }
+
+    #[test]
+    fn only_when_needed_returns_every_principal_item_to_its_default() {
+        let mut document = Document::default();
+        let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
+        let nothing_to_do = principal_only_when_needed(&document);
+        for geometry in [xy, PrincipalGeometry::Origin, PrincipalGeometry::Origin] {
+            let toggle = toggle_principal(&document, tucking(), geometry);
+            applied(&mut document, &toggle);
+        }
+
+        let restore = principal_only_when_needed(&document).unwrap();
+        applied(&mut document, &restore);
+
+        assert_eq!(
+            nothing_to_do,
+            Err(VisibilityError::PrincipalAlreadyWhenNeeded)
+        );
+        assert_eq!(
+            restore.label(),
+            "Show principal planes, axes and origin only when needed"
+        );
+        assert_eq!(restore.edits().len(), 2);
+        assert!(
+            PrincipalGeometry::ALL.into_iter().all(
+                |geometry| document.principal_showing(geometry) == PrincipalShowing::WhenNeeded
+            )
+        );
+    }
+
+    #[test]
+    fn a_fade_runs_its_course_reverses_midway_and_is_instant_without_transitions() {
+        let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
+        let half = Duration::from_secs_f64(FADE_SECONDS / 2.0);
+        let mut fade = PrincipalFade::default();
+
+        fade.follow(PrincipalSet::ALL);
+        let settled_at_first = !fade.is_fading();
+        fade.follow(PrincipalSet::AXES);
+        let starting = fade.fading().steps_left(xy);
+        fade.advance(half, 1.0);
+        let halfway = fade.fading().steps_left(xy);
+        fade.follow(PrincipalSet::ALL);
+        let reversed = fade.fading().steps_left(xy);
+        fade.advance(half * 2, 1.0);
+        let finished = !fade.is_fading();
+        fade.follow(PrincipalSet::NONE);
+        fade.advance(Duration::ZERO, 0.0);
+        let instant = !fade.is_fading();
+
+        assert!(settled_at_first);
+        assert_eq!(starting, FADE_STEPS);
+        assert_eq!(halfway, FADE_STEPS / 2);
+        assert_eq!(reversed, FADE_STEPS / 2);
+        assert!(finished && instant);
+    }
+
+    #[test]
+    fn fading_geometry_is_drawn_fainter_but_only_what_shows_is_picked() {
+        let document = Document::default();
+        let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
+        let mut fading = PrincipalFading::default();
+        fading.set(xy, FADE_STEPS / 2);
+        let leaving = PrincipalView {
+            fading,
+            ..tucking()
+        };
+        let arriving = PrincipalView {
+            fading,
+            ..PrincipalView::default()
+        };
+
+        assert_eq!(leaving.opacity(&document, xy), Some(0.5));
+        assert!(!leaving.shows(&document, xy));
+        assert_eq!(arriving.opacity(&document, xy), Some(0.5));
+        assert!(arriving.shows(&document, xy));
+        assert_eq!(
+            tucking().opacity(&document, PrincipalGeometry::Origin),
+            None
+        );
+    }
+
+    #[test]
+    fn a_plane_fades_as_it_turns_edge_on_and_is_gone_when_seen_along_it() {
+        let [xy, xz, yz] = crate::selection::PrincipalPlane::ALL;
+        let from_above = EdgeOn::seen_along(-Vector3::Z);
+        let turned = |degrees: f64| {
+            let radians = degrees.to_radians();
+            EdgeOn::seen_along(Vector3::new(0.0, radians.cos(), -radians.sin()))
+        };
+
+        assert_eq!(from_above.share_seen(xy), 1.0);
+        assert_eq!(from_above.share_seen(xz), 0.0);
+        assert_eq!(from_above.share_seen(yz), 0.0);
+        assert_eq!(turned(EDGE_ON_HIDDEN_DEGREES / 2.0).share_seen(xy), 0.0);
+        assert_eq!(turned(EDGE_ON_FADED_DEGREES + 1.0).share_seen(xy), 1.0);
+        let midway = turned((EDGE_ON_HIDDEN_DEGREES + EDGE_ON_FADED_DEGREES) / 2.0).share_seen(xy);
+        assert!(midway > 0.0 && midway < 1.0);
+        assert_eq!(EdgeOn::default().share_seen(xz), 1.0);
     }
 }

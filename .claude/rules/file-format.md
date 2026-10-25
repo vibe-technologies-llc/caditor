@@ -117,6 +117,10 @@ paths:
 - Head chunk (save time, last change's name, blake3 digest of records), the optional `Preview`
   chunk, one zstd chunk per record (`RECORD_KINDS`), version history. The journal snapshot carries `principal`, `suppressed` and
   `rollback` as fields.
+- The `principal` record lists `hidden` geometry and, as a field written only when some is, `shown`
+  geometry; an older reader drops `shown` and those show only when needed again. The journal writes
+  a change to `Hidden` or `WhenNeeded` as the `SetPrincipalHidden` older readers know (`hidden` true
+  or false) and only a change to `Shown` as `SetPrincipalShown`.
 - A record with unchanged understood content is written back exactly as stored (newer fields kept).
   New records are encoded first; an old record whose bytes hash like a new one's is matched by
   them, any other by the digest of its re-encoded understood content (`understood_digest`), so only

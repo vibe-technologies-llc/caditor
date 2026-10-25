@@ -18,7 +18,7 @@ use crate::{
     pattern_tools,
     reference_picking::{self, Picking, Slot},
     selection::Selection,
-    visibility,
+    visibility::{self, PrincipalSet},
     widgets::{self, FIELD_WIDTH, Named, Tone},
 };
 
@@ -471,13 +471,13 @@ pub fn combo<T, E: Display>(
 
 pub fn principal_combo<T, E: Display>(
     ui: &mut Ui,
-    id: Id,
+    (id, listed): (Id, PrincipalSet),
     selected: impl Into<WidgetText>,
     choices: impl FnOnce() -> Vec<Choice<T, E>>,
 ) -> Option<T> {
     let (chosen, open) = listing(ui, id, selected, choices);
     if open {
-        visibility::listing_principal(ui.ctx());
+        visibility::listing_principal(ui.ctx(), listed);
     }
     chosen
 }
@@ -787,7 +787,7 @@ pub fn axis_row<E, L: Display>(
                     Some(text) => text.into(),
                     None => widgets::muted(NONE_CHOSEN, ui).into(),
                 };
-                actions.extend(principal_combo(ui, id, shown, listed));
+                actions.extend(principal_combo(ui, (id, PrincipalSet::AXES), shown, listed));
             }
             (None, Some(text)) => {
                 ui.add(Label::new(text).wrap());

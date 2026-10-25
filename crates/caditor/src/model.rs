@@ -9,8 +9,8 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, Healing, ModelEvaluator, Move, Outcome, ParameterValues, Pieces,
-    Pivot, Prepared, PrincipalGeometry, Progress, Recomputer, Rgb, SketchResult, Stale,
-    Transaction, TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
+    Pivot, Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction,
+    TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest,
@@ -43,7 +43,7 @@ use crate::{
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, NumberFormat, Units},
-    visibility::{PrincipalSet, PrincipalView},
+    visibility::PrincipalView,
     widgets::Tone,
 };
 
@@ -84,7 +84,6 @@ pub enum Action {
     StopUploading,
     ResumeUploading,
     ShowThreadsAsCosmetic(bool),
-    KeepPrincipalShown(Vec<PrincipalGeometry>),
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
@@ -384,9 +383,8 @@ impl Model {
         self.principal
     }
 
-    pub fn tuck_principal_away(&mut self, tucked_away: bool, selected: PrincipalSet) {
-        self.principal.tucked_away = tucked_away;
-        self.principal.selected = selected;
+    pub fn set_principal_view(&mut self, view: PrincipalView) {
+        self.principal = view;
     }
 
     pub fn document_as_shown(&self) -> Document {
@@ -1182,10 +1180,6 @@ impl Model {
                 }));
                 Ok(None)
             }
-            Action::KeepPrincipalShown(geometries) => {
-                self.principal.kept = self.principal.kept.with(geometries);
-                Ok(None)
-            }
             Action::DismissNotice => {
                 self.notice = None;
                 Ok(None)
@@ -1793,7 +1787,6 @@ impl Model {
         self.on_disk = session.on_disk;
         self.entries = entries;
         self.keep_original = session.keep_original;
-        self.principal.kept = PrincipalSet::default();
         self.unprotected = None;
         self.pending_save = None;
         self.notice = None;

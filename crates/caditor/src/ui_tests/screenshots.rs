@@ -424,6 +424,11 @@ fn screenshots() {
         cloud_send_scenes(&gpu, &out, look);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut principal = Harness::styled(look, dir.path(), false);
+        principal_scenes(&mut principal, &gpu, &out, look);
+        drop(principal);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut moving = Harness::styled(look, dir.path(), false);
         move_scene(&mut moving, &gpu, &out, look);
         drop(moving);
@@ -1075,6 +1080,39 @@ fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     shoot(harness, gpu, out, "sketch-partner-menu", look);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+}
+
+fn principal_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    harness.still();
+    shoot(harness, gpu, out, "principal-empty", look);
+    harness.click_button(crate::start_card::CLOSE);
+    harness
+        .workspace
+        .viewport
+        .look_toward(caditor_geometry::Vector3::Z);
+    harness.still();
+    shoot(harness, gpu, out, "principal-empty-top", look);
+    harness
+        .workspace
+        .viewport
+        .look_toward(caditor_geometry::Vector3::new(1.0, -1.0, 1.0));
+    harness.still();
+    extruded_plate(harness);
+    harness.select([]);
+    harness.still();
+    shoot(harness, gpu, out, "principal-body", look);
+    run_from_palette(harness, "Circular pattern");
+    harness.still();
+    shoot(harness, gpu, out, "principal-choosing-axis", look);
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.still();
+    }
+    harness.select([]);
+    harness.still();
+    harness.click_beside(crate::icons::HIDE, crate::principal_tree::GROUP_TITLE);
+    harness.still();
+    shoot(harness, gpu, out, "principal-kept", look);
 }
 
 fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

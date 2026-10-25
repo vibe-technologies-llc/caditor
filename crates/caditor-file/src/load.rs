@@ -7,7 +7,7 @@ use std::{
 use caditor_document::{
     CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
     MAX_PARAMETER_NOTE_CHARS, MAX_RECORDS, MAX_VALUE_LABEL_CHARS, Parameter, ParameterOwner,
-    Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, value_label,
+    PrincipalShowing, Revolve, RevolveAxis, RollbackBar, SolidFeature, Transaction, value_label,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -17,9 +17,9 @@ use crate::{
     configurations::{ConfigurationsRecord, restore_configurations},
     format::{
         FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, Lenient, NamedValuesRecord,
-        NextIdsRecord, ParameterRecord, PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS,
-        Record, Unreadable, ViewsRecord, restore_feature_sharing, restore_owner, restore_principal,
-        restore_properties, restore_views,
+        NextIdsRecord, ParameterRecord, PrincipalGeometryRecord, PrincipalRecord, PropertiesRecord,
+        RECORD_KINDS, Record, Unreadable, ViewsRecord, restore_feature_sharing, restore_owner,
+        restore_principal, restore_properties, restore_views,
     },
     read::read_file,
     reason::ReadFailure,
@@ -155,7 +155,7 @@ pub(crate) struct Parts {
     pub parameters: Vec<ParameterRecord>,
     pub features: Vec<FeatureRecord>,
     pub next_ids: Option<NextIdsRecord>,
-    pub hidden_principal: Vec<PrincipalGeometryRecord>,
+    pub principal: Option<PrincipalRecord>,
     pub suppressed: Vec<u64>,
     pub rollback: Option<u64>,
     pub properties: Option<PropertiesRecord>,
@@ -184,7 +184,7 @@ impl Parts {
             Record::Parameter(parameter) => self.parameters.push(parameter),
             Record::Feature(feature) => self.features.push(*feature),
             Record::NextIds(next_ids) => self.next_ids = Some(next_ids),
-            Record::Principal(principal) => self.hidden_principal = principal.hidden,
+            Record::Principal(principal) => self.principal = Some(principal),
             Record::Suppressed(suppressed) => self.suppressed = suppressed.features,
             Record::Rollback(rollback) => self.rollback = Some(rollback.before),
             Record::Properties(properties) => self.properties = Some(properties),
@@ -410,18 +410,22 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         &mut |document, feature, error| insert_alone(document, feature, error, issues),
     );
 
-    let hidden = parts
-        .hidden_principal
-        .iter()
-        .map(|record| Edit::SetPrincipalHidden {
-            geometry: restore_principal(*record),
-            hidden: true,
-        })
+    let principal = parts.principal.unwrap_or_default();
+    let set_to = |records: Vec<PrincipalGeometryRecord>, showing| {
+        records
+            .into_iter()
+            .map(move |record| Edit::SetPrincipalShowing {
+                geometry: restore_principal(record),
+                showing,
+            })
+    };
+    let showing = set_to(principal.hidden, PrincipalShowing::Hidden)
+        .chain(set_to(principal.shown, PrincipalShowing::Shown))
         .collect();
-    if document.apply(Transaction::new("Hide", hidden)).is_err() {
+    if document.apply(Transaction::new("Show", showing)).is_err() {
         issues.push(
-            "Which principal planes and axes were hidden could not be restored, so they are all \
-             shown."
+            "Which principal planes and axes were hidden or kept shown could not be restored, so \
+             they all show only when needed."
                 .to_owned(),
         );
     }

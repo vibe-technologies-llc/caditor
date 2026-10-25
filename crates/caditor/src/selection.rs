@@ -467,10 +467,9 @@ impl Pickable {
             }
             Self::Plane(plane) => {
                 (editing.is_none() || context.intersecting)
-                    && (context.choosing_plane
-                        || context
-                            .principal
-                            .shows(document, PrincipalGeometry::Plane(plane)))
+                    && context
+                        .principal
+                        .shows(document, PrincipalGeometry::Plane(plane))
             }
             Self::Origin | Self::Axis(_) => {
                 (editing.is_none() || (context.projecting && !context.intersecting))
