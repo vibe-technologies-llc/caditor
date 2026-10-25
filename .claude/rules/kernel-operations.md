@@ -378,8 +378,11 @@ paths:
   sets it and outer steps only fill what is empty (`or_faces`, `or_point`).
 - Healing: adjacent faces on the same surface with the same orientation are merged by retracing
   without the edges between them (left apart when that fails, as for a ring around a periodic
-  surface); two edges meeting between the same faces, not at a pole, are joined when pieces of one
-  curve. Names: `kernel-naming.md`.
+  surface), their refitted pcurves untangled and sharpened as a split face's are, since a sliver
+  loop left in the merged face (the crescent a plug 5e-6 to 3e-5 off its bore's axis leaves in the
+  joined top and bottom) fitted at the default tolerance runs the wrong way; two edges meeting
+  between the same faces, not at a pole, are joined when pieces of one curve. Names:
+  `kernel-naming.md`.
 
 ## Split faces (`boolean/split_faces.rs`)
 
