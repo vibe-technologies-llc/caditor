@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Aabb2, Point2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector3};
 use spade::Point2 as PlanePoint;
 
 use crate::{
+    box_tree::BoxTree,
     coordinates::distance_to_segment,
     curve::Curve,
     interrupt::{self, Interrupted},
@@ -33,6 +34,7 @@ const MAX_POLE_EDGE_PIECES: usize = 1024;
 const PARALLEL_ENDS: f64 = 1e-6;
 const CUSP_ENDS: f64 = 0.1;
 const CUSP_SEGMENTS: usize = 16;
+const SHALLOW_CROSSING: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BoundaryPoint {
@@ -51,6 +53,31 @@ pub(crate) struct EndPiece {
     pub edge: EdgeId,
     pub end: EdgeEnd,
     pub from_end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SegmentPiece {
+    pub edge: EdgeId,
+    pub after: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct BoundarySegment {
+    piece: SegmentPiece,
+    ends: [Point2; 2],
+    length: f64,
+}
+
+impl BoundarySegment {
+    fn crosses_shallowly(&self, other: &Self) -> bool {
+        let [along, beside] = [self, other].map(|segment| segment.ends[1] - segment.ends[0]);
+        along.perp_dot(beside).abs() <= SHALLOW_CROSSING * along.length() * beside.length()
+    }
+
+    fn uv_box(&self) -> Aabb {
+        let [start, end] = self.ends.map(|uv| Point3::new(uv.x, uv.y, 0.0));
+        Aabb::from_point(start).including(end)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -405,6 +432,99 @@ pub(crate) fn overlapping_ends(
         }
     }
     Ok(longer)
+}
+
+pub(crate) fn crossing_segments(
+    solid: &Solid,
+    face_id: FaceId,
+    samplings: &[EdgeSampling],
+) -> Result<BTreeSet<SegmentPiece>, TessellationError> {
+    let face = solid
+        .face(face_id)
+        .ok_or(TessellationError::MissingEntity)?;
+    let segments = boundary_segments(solid, face, samplings)?;
+    let tree = BoxTree::new(segments.iter().map(BoundarySegment::uv_box));
+    let mut longer = BTreeSet::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if index.is_multiple_of(POLL_EVERY) {
+            interrupt::check()?;
+        }
+        for other_index in tree.overlapping(&segment.uv_box(), 0.0) {
+            let Some(other) = segments.get(other_index) else {
+                return Err(TessellationError::MissingEntity);
+            };
+            if other_index <= index
+                || !segment.crosses_shallowly(other)
+                || !segments_cross(segment.ends, other.ends)
+            {
+                continue;
+            }
+            longer.insert(if other.length > segment.length {
+                other.piece
+            } else {
+                segment.piece
+            });
+        }
+    }
+    Ok(longer)
+}
+
+fn boundary_segments(
+    solid: &Solid,
+    face: &Face,
+    samplings: &[EdgeSampling],
+) -> Result<Vec<BoundarySegment>, TessellationError> {
+    let surface = face.surface();
+    let mut segments = Vec::new();
+    for loop_id in face.loops() {
+        let face_loop = solid
+            .face_loop(*loop_id)
+            .ok_or(TessellationError::MissingEntity)?;
+        for coedge_id in face_loop.coedges() {
+            interrupt::check()?;
+            let coedge = solid
+                .coedge(*coedge_id)
+                .ok_or(TessellationError::MissingEntity)?;
+            let sampling = samplings
+                .get(coedge.edge().index())
+                .ok_or(TessellationError::MissingEntity)?;
+            let pcurve = coedge.pcurve();
+            let (first, last) = if coedge.sense().is_same() {
+                (pcurve.start(), pcurve.end())
+            } else {
+                (pcurve.end(), pcurve.start())
+            };
+            let count = sampling.parameters.len();
+            let uvs: Vec<Point2> = sampling
+                .parameters
+                .iter()
+                .zip(&sampling.points)
+                .enumerate()
+                .map(|(index, (parameter, point))| match index {
+                    0 => first,
+                    _ if index + 1 == count => last,
+                    _ => surface.project(*point, Some(pcurve.uv_at(*parameter))),
+                })
+                .collect();
+            segments.extend(
+                uvs.windows(2)
+                    .zip(sampling.points.windows(2))
+                    .enumerate()
+                    .filter_map(|(index, (uv, point))| match (uv, point) {
+                        ([start, end], [from, to]) => Some(BoundarySegment {
+                            piece: SegmentPiece {
+                                edge: coedge.edge(),
+                                after: index + 1,
+                            },
+                            ends: [*start, *end],
+                            length: from.distance(*to),
+                        }),
+                        _ => None,
+                    }),
+            );
+        }
+    }
+    Ok(segments)
 }
 
 struct EndPath {

@@ -39,6 +39,7 @@ use crate::{
 const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
 const MAX_REFINEMENTS: usize = 4;
 const MAX_END_PARTINGS: usize = 8;
+const MAX_CROSSING_PARTINGS: usize = 12;
 const REFINEMENT: f64 = 0.5;
 pub(crate) const MAX_POINTS: usize = 1 << 22;
 pub(crate) const DISPLAY_POINTS: usize = 1 << 20;
@@ -354,7 +355,8 @@ fn mesh_faces(
     threads: usize,
 ) -> Result<DisplayMesh, TessellationError> {
     let mut tessellator = Tessellator::new(solid, tolerance, limit, keys, threads)?;
-    let mut crossed = tessellator.first_pass()?;
+    let first = tessellator.first_pass()?;
+    let mut crossed = tessellator.part_crossings(first)?;
     for _ in 0..MAX_REFINEMENTS {
         let Some(faces) = crossed.faces() else {
             break;
@@ -362,7 +364,8 @@ fn mesh_faces(
         if !tessellator.tolerances.refine(&faces) {
             break;
         }
-        crossed = tessellator.refine(&faces)?;
+        let refined = tessellator.refine(&faces)?;
+        crossed = tessellator.part_crossings(refined)?;
     }
     match crossed.first {
         Some(first) => Err(first),
@@ -379,6 +382,23 @@ struct Crossed {
 impl Crossed {
     fn faces(&self) -> Option<Vec<FaceId>> {
         self.first.is_some().then(|| self.faces.clone())
+    }
+
+    fn after(self, redone: &BTreeSet<FaceId>, again: Self) -> Self {
+        let kept: Vec<FaceId> = self
+            .faces
+            .into_iter()
+            .filter(|face| !redone.contains(face))
+            .collect();
+        let first = if kept.is_empty() {
+            again.first
+        } else {
+            again.first.or(self.first)
+        };
+        let mut faces = kept;
+        faces.extend(again.faces);
+        faces.sort_unstable();
+        Self { faces, first }
     }
 }
 
@@ -625,8 +645,55 @@ impl<'a> Tessellator<'a> {
             .collect())
     }
 
+    fn part_crossings(&mut self, mut crossed: Crossed) -> Result<Crossed, TessellationError> {
+        for _ in 0..MAX_CROSSING_PARTINGS {
+            let Some(faces) = crossed.faces() else {
+                break;
+            };
+            let mut pieces = BTreeSet::new();
+            for face in &faces {
+                pieces.extend(face::crossing_segments(self.solid, *face, &self.samplings)?);
+            }
+            let mut redone = BTreeSet::new();
+            for piece in pieces.into_iter().rev() {
+                if !self.bisect(piece.edge, piece.after)? {
+                    continue;
+                }
+                let edge = self
+                    .solid
+                    .edge(piece.edge)
+                    .ok_or(TessellationError::MissingEntity)?;
+                redone.extend(
+                    edge.coedges()
+                        .iter()
+                        .filter_map(|coedge| self.solid.coedge_face(*coedge)),
+                );
+            }
+            if redone.is_empty() {
+                break;
+            }
+            let redo: Vec<FaceId> = redone.iter().copied().collect();
+            let again = self.triangulate(&redo)?;
+            crossed = crossed.after(&redone, again);
+        }
+        Ok(crossed)
+    }
+
     fn bisect_end(&mut self, piece: face::EndPiece) -> Result<bool, TessellationError> {
-        let id = piece.edge;
+        let count = self
+            .samplings
+            .get(piece.edge.index())
+            .ok_or(TessellationError::MissingEntity)?
+            .parameters
+            .len();
+        let after = match piece.end {
+            face::EdgeEnd::Start => piece.from_end + 1,
+            face::EdgeEnd::End => count.saturating_sub(1 + piece.from_end),
+        };
+        self.bisect(piece.edge, after)
+    }
+
+    fn bisect(&mut self, id: EdgeId, after: usize) -> Result<bool, TessellationError> {
         let edge = self
             .solid
             .edge(id)
@@ -636,10 +703,6 @@ impl<'a> Tessellator<'a> {
             .get_mut(id.index())
             .ok_or(TessellationError::MissingEntity)?;
         let count = sampling.parameters.len();
-        let after = match piece.end {
-            face::EdgeEnd::Start => piece.from_end + 1,
-            face::EdgeEnd::End => count.saturating_sub(1 + piece.from_end),
-        };
         if after == 0 || after >= count {
             return Ok(false);
         }

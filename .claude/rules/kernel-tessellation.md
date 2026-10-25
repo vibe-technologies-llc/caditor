@@ -164,8 +164,15 @@ paths:
 
 ## Retries and limits
 
-- A face boundary crossing itself at the requested tolerance retries up to `MAX_REFINEMENTS` times,
-  halving chord and angle for the faces that crossed and the edges they bound (an edge takes the
-  finest tolerance of its faces); only what changed is sampled or triangulated again.
+- A face boundary crossing itself is first parted where it crosses shallowly: each pair of
+  boundary segments crossing in uv within `SHALLOW_CROSSING` of parallel (`crossing_segments`, a box
+  tree over the segments) has its longer segment bisected in the edge's shared sampling, up to
+  `MAX_CROSSING_PARTINGS` rounds, and only the faces of the bisected edges are triangulated again.
+  Two curves of one face running closer than the chord tolerance without meeting (a frustum's rim
+  passing 5e-5 mm from another frustum's cone) part by their own separation this way; a crossing
+  at a steep angle is a boundary that truly crosses, left to fail. Then it retries up to
+  `MAX_REFINEMENTS` times, halving chord and angle for the faces that crossed and the edges they
+  bound (an edge takes the finest tolerance of its faces), parting again after each; only what
+  changed is sampled or triangulated again.
 - A mesh holds at most `MAX_POINTS`, counted before insertion; more fails as `TooLarge`, which
   export names as a body too fine for the resolution.

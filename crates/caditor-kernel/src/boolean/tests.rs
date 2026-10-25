@@ -2121,3 +2121,68 @@ fn a_hollow_cuboid_tilted_over_a_cone_combines() {
 
     check_every_operation("cone and hollow cuboid", &cone, &hollow, (12.0 * PI, 936.0));
 }
+
+#[test]
+fn frustums_turned_a_little_against_each_other_combine() {
+    let first = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let axis = Vector3::new(-0.648624827282154, 0.5719489173052974, 0.3613774284739766);
+    let offset = (0.1792702546474707, 0.47363515541101986, 0.8071095557775776);
+
+    let second = moved(rotated(first.clone(), axis, 0.6827729305823226), offset);
+    let frustum_volume = 140.0 * PI / 3.0;
+
+    check_every_operation(
+        "frustums",
+        &first,
+        &second,
+        (frustum_volume, frustum_volume),
+    );
+}
+
+#[test]
+fn an_extruded_spline_turned_a_hair_inside_a_hollow_cuboid_combines() {
+    let spline = crate::fixtures::extruded_spline(5.0);
+    let axis = Vector3::new(
+        -0.6141979579209673,
+        -0.7063364119836022,
+        -0.6386560278302176,
+    );
+    let offset = (0.00569519921294126, 0.12694207885319453, 0.8146055611094525);
+
+    let hollow = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            axis,
+            0.01174910706430916,
+        ),
+        offset,
+    );
+    let spline_volume = exact_volume(&spline);
+
+    check_every_operation(
+        "extruded spline and hollow cuboid",
+        &spline,
+        &hollow,
+        (spline_volume, 936.0),
+    );
+}
+
+#[test]
+fn extruded_splines_turned_over_each_other_combine() {
+    let first = crate::fixtures::extruded_spline(5.0);
+    let axis = Vector3::new(
+        0.31168557421151766,
+        0.31978932598739207,
+        0.38483027921105295,
+    );
+    let offset = (
+        -0.0068295642980931055,
+        0.016199814818384138,
+        -0.012475840306522738,
+    );
+
+    let second = moved(rotated(first.clone(), axis, 3.589552995818218), offset);
+    let volume = exact_volume(&first);
+
+    check_every_operation("extruded splines", &first, &second, (volume, volume));
+}
