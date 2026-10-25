@@ -63,6 +63,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
+- [low · medium] The incremental recompute suite fails at seed 1652 of
+  `recomputing_after_each_step_equals_recomputing_from_scratch`: a revolve of a sketch ends
+  `UpToDate` both ways but its `Healing` differs, two chosen regions matched against the regions the
+  fresh pass heals, so an incremental pass and a fresh one disagree about which references the
+  feature heals. The sketch may hold free degrees of freedom solved differently warm and fresh, in
+  which case the comparison of `healing` should follow the one of sketch geometry; undiagnosed.
+  `CADITOR_CASES` stays under 1,652 until it is, so the nightly run of 10,000 does not hold.
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work

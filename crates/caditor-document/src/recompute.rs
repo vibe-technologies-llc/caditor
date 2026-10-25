@@ -834,7 +834,7 @@ impl Names {
             feature: feature.name.clone(),
             features: feature
                 .kind
-                .features()
+                .dependencies()
                 .into_iter()
                 .map(|used| {
                     document

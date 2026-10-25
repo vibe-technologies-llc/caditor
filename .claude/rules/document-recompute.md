@@ -28,7 +28,9 @@ paths:
 - `Recompute` walks the features in tree order and reuses a cached result when the feature's content
   (`same_content` of the kind, and the feature's `pieces`: a sketch's ID counter and a name do not
   count), the values of the parameters it
-  uses (`Key::of` fingerprints the overlaid parameters) and its upstream results are unchanged.
+  uses (`Key::of` fingerprints the overlaid parameters), the names its words use (its own, those of
+  its used and origin features, `dependencies()`, and of its bodies) and its upstream results are
+  unchanged.
   Upstream counts as unchanged when it is the same `Arc` or equal in what dependents read (a
   sketch's plane and entities, a datum's result, a solid's body and geometry), so an edit leaving
   geometry alone stops there.
