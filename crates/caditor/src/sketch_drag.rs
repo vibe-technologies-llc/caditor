@@ -12,6 +12,7 @@ use crate::{
     commands::Reason,
     drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
+    inference::Inferences,
     snap::{self, HELD_POINT_PULL, Hold, POINT_TOLERANCE, Pointer, Screen, Target},
     tracking::{self, Acquired, Landing, ShownOutlines},
 };
@@ -101,6 +102,7 @@ pub struct Grab {
     acquired: Acquired,
     outlines: ShownOutlines,
     bodies: SharedSnaps,
+    inferred: Inferences,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -161,6 +163,7 @@ impl Grab {
             acquired: Acquired::default(),
             outlines: ShownOutlines::default(),
             bodies: SharedSnaps::default(),
+            inferred: Inferences::default(),
         };
         grab.acquire_neighbours(sketch);
         Some(grab)
@@ -206,6 +209,11 @@ impl Grab {
 
     pub fn snapping_to_bodies(mut self, bodies: &Arc<BodySnaps>) -> Self {
         self.bodies = SharedSnaps(Arc::clone(bodies));
+        self
+    }
+
+    pub fn inferring(mut self, inferred: Inferences) -> Self {
+        self.inferred = inferred;
         self
     }
 
@@ -296,8 +304,15 @@ impl Grab {
                 screen: screen.to_screen(moved)?,
                 sketch: moved,
             };
-            let landing =
-                tracking::land(sketch, screen, pointer, (acquired, &ignored), hold, bodies)?;
+            let landing = tracking::land(
+                sketch,
+                screen,
+                pointer,
+                (acquired, &ignored),
+                hold,
+                bodies,
+                self.inferred,
+            )?;
             Some((pointer, landing))
         };
         let by_handle = land_from(from, &self.acquired, Some(&self.bodies.0));
@@ -322,8 +337,8 @@ impl Grab {
             .filter_map(|(point, original)| Some((*point, screen.to_screen(*original + offset)?)))
             .collect();
         let moving: BTreeSet<EntityId> = ignored.iter().copied().collect();
-        let by_other =
-            snap::nearest_moved(sketch, screen, &moved, &moving, reach).and_then(|point| {
+        let by_other = snap::nearest_moved(sketch, screen, &moved, &moving, reach, self.inferred)
+            .and_then(|point| {
                 let (_, original) = points.iter().find(|(each, _)| *each == point)?;
                 let (_, landing) = land_from(*original, &Acquired::default(), None)?;
                 landing
@@ -359,6 +374,7 @@ impl Grab {
                 (&self.acquired, &[circle, *center]),
                 hold,
                 None,
+                self.inferred,
             )?;
             let reached = centre.distance(landing.position) > SMALLEST_SNAPPED_RADIUS;
             (matches!(landing.target, Some(Target::Point(_))) && reached).then_some(landing)

@@ -3,7 +3,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::{
     body_snap::BodySnaps,
-    inference::Inferences,
+    inference::{Inference, Inferences},
     snap::{
         self, Accept, AxisEnd, Held, Hold, Lookup, NOT_KEPT_THERE, ON_THE_GRID, Pointer, Screen,
         Snapped, Target,
@@ -599,6 +599,7 @@ pub fn land(
     (acquired, ignored): (&Acquired, &[EntityId]),
     hold: Option<Hold>,
     bodies: Option<&BodySnaps>,
+    inferred: Inferences,
 ) -> Option<Landing> {
     if let Some(hold) = hold {
         let lookup = Lookup {
@@ -607,13 +608,13 @@ pub fn land(
             extended: acquired.lines(),
             ignored,
             bodies,
-            inferred: Inferences::default(),
+            inferred,
         };
         return land_held(sketch, screen, pointer, lookup, hold);
     }
-    let landing = land_freely(sketch, screen, pointer, acquired, ignored);
+    let landing = land_freely(sketch, screen, pointer, acquired, ignored, inferred);
     match bodies {
-        Some(bodies) => onto_body(bodies, landing, screen, pointer),
+        Some(bodies) => onto_body(bodies, landing, screen, pointer, inferred),
         None => landing,
     }
 }
@@ -623,6 +624,7 @@ fn onto_body(
     landing: Option<Landing>,
     screen: &impl Screen,
     pointer: Pointer,
+    inferred: Inferences,
 ) -> Option<Landing> {
     let on_body = |snapped: Snapped| Landing {
         position: snapped.position,
@@ -633,12 +635,12 @@ fn onto_body(
     match landing {
         Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
         Some(landing) => bodies
-            .point(screen, pointer, Accept::Anything, Inferences::default())
+            .point(screen, pointer, Accept::Anything, inferred)
             .map(on_body)
             .or(Some(landing)),
         None => bodies
-            .point(screen, pointer, Accept::Anything, Inferences::default())
-            .or_else(|| bodies.edge(screen, pointer, Accept::Anything, Inferences::default()))
+            .point(screen, pointer, Accept::Anything, inferred)
+            .or_else(|| bodies.edge(screen, pointer, Accept::Anything, inferred))
             .map(on_body),
     }
 }
@@ -649,17 +651,22 @@ fn land_freely(
     pointer: Pointer,
     acquired: &Acquired,
     ignored: &[EntityId],
+    inferred: Inferences,
 ) -> Option<Landing> {
-    let snapped = snap::resolve(
-        sketch,
-        screen,
-        pointer,
-        &[],
-        Accept::Anything,
-        acquired.lines(),
+    let lookup = Lookup {
+        pending: &[],
+        accept: Accept::Anything,
+        extended: acquired.lines(),
         ignored,
-    );
-    let tracks = nearby(sketch, screen, pointer, acquired, ignored, &[]);
+        bodies: None,
+        inferred,
+    };
+    let snapped = snap::resolve_inferring(sketch, screen, pointer, lookup);
+    let tracks = if inferred.allows(Inference::Tracks) {
+        nearby(sketch, screen, pointer, acquired, ignored, &[])
+    } else {
+        Tracks::default()
+    };
     match snapped {
         Some(snapped) => Some(
             on_curve(

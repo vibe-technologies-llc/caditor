@@ -400,6 +400,7 @@ pub enum Accept {
     OnCircle { center: Point2, radius: f64 },
 }
 
+#[cfg(test)]
 pub fn resolve(
     sketch: &Sketch,
     screen: &impl Screen,
@@ -1235,6 +1236,7 @@ pub fn nearest_moved(
     moved: &[(EntityId, Vector2)],
     moving: &BTreeSet<EntityId>,
     reach: f64,
+    inferred: Inferences,
 ) -> Option<EntityId> {
     if moved.is_empty() || reach <= 0.0 {
         return None;
@@ -1253,7 +1255,8 @@ pub fn nearest_moved(
         .chain(midpoints(sketch))
         .chain(centres(sketch, &is_moving))
         .chain(quadrants(sketch))
-        .chain(axis_ends(sketch));
+        .chain(axis_ends(sketch))
+        .filter(|candidate| inferred.allows_target(candidate.target));
     let mut nearest: Option<(f64, EntityId)> = None;
     for target in targets {
         let Some(at) = screen.to_screen(target.position) else {
@@ -2202,6 +2205,7 @@ pub mod tests {
             ],
             &moving,
             POINT_TOLERANCE,
+            Inferences::default(),
         );
         let far = nearest_moved(
             &sketch,
@@ -2209,6 +2213,7 @@ pub mod tests {
             &[(end, moved(Point2::new(31.0, 20.0)))],
             &moving,
             POINT_TOLERANCE,
+            Inferences::default(),
         );
         let only_itself = nearest_moved(
             &sketch,
@@ -2216,6 +2221,7 @@ pub mod tests {
             &[(lone, moved(Point2::new(30.05, 20.0)))],
             &BTreeSet::from([lone]),
             POINT_TOLERANCE,
+            Inferences::default(),
         );
 
         assert_eq!(found, Some(end));

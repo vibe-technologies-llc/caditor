@@ -611,8 +611,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   touch and the tracks in `Drawing::place`, `level_on_grid`); the preview, the label and the
   constraints committed all read the one placement, so they agree. A shape's own structure (a
   chain's joins, a rectangle's level sides, a typed value, Alt's held snap beyond these filters) is
-  not an inference. Drags and grabs infer everything (`Inferences::default` in `tracking::land`),
-  and the dimension-from-datum and Constrain automatically panels are unaffected.
+  not an inference. Drags and grabs take the same set (`Grab::inferring`, handed to `tracking::land`
+  and `snap::nearest_moved`; an unticked tracks kind leaves a grab no tracks), and the
+  dimension-from-datum and Constrain automatically panels are unaffected.
 - Snap to the grid (`Command::ToggleGridSnapping`, off by default, session-only in
   `ViewportState::grid_snapping`, starting as Preferences say) places a point no target, direction or track took on the nearest
   crossing of the grid's current level (`ViewportState::snap_grid_spacing`, handed to

@@ -140,9 +140,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   vertical in space, parallel, perpendicular, distance, fix).
 - [low · medium] Smart dimension cannot place an arc's Radius from inside its sweep (the cursor
   there picks the sweep angle, and on an arc over about 300° nearly every position is inside it)
-  and has no Diameter for an arc, though the Diameter tool takes one; dragging an entity infers
-  everything whatever Preferences turns off (`Inferences::default` in `tracking::land`), which
-  those toggles are described as governing for drawing only; and the tooltip for a drag the
+  and has no Diameter for an arc, though the Diameter tool takes one; and the tooltip for a drag the
   constraints block says nothing of which constraint limits it when the sketch itself is fine
   (`DRAG_BLOCKED`), where a conflict already names its constraints.
 - [low · medium] Backspace steps back through a line chain only while the drawing tool stays

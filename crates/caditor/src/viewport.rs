@@ -2811,8 +2811,12 @@ impl ViewportState {
             .map(|text| text.anchor)
             .or_else(|| sketch.gear(grabbed).map(|gear| gear.centre))
             .unwrap_or(grabbed);
-        Grab::of(&sketch, feature, grabbed, &selected, from)
-            .map(|grab| PrimaryDrag::Grab(grab.snapping_to_bodies(&self.body_snaps)))
+        Grab::of(&sketch, feature, grabbed, &selected, from).map(|grab| {
+            PrimaryDrag::Grab(
+                grab.snapping_to_bodies(&self.body_snaps)
+                    .inferring(self.sketching.inferred),
+            )
+        })
     }
 
     fn select_within(
