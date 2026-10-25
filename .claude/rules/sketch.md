@@ -740,6 +740,8 @@ relative to the extent.
   basis and derivatives (`rational_basis`) serve curve and solver alike.
 - A spline meets a line or circle where its signed distance changes sign between samples
   (`intersect::spline_roots`, bisected); a dip toward zero without a sign change is searched by
-  golden section (two crossings, or one touching point within the tolerance). Two splines cross
+  golden section (two crossings, or one touching point within the tolerance); an end of the
+  sampled range within the tolerance of the other curve is a crossing, so a point the solver held
+  at a spline's end on a circle is found there again. Two splines cross
   where their sampled polylines do, refined by Newton on both parameters
   (`intersect::spline_spline`) and kept when both curves meet within the tolerance.

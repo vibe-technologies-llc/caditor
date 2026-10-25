@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use arbitrary::Unstructured;
 use caditor_geometry::Plane;
 use caditor_sketch::{Entity, Sketch};
 
 use crate::{
-    seeded::for_each_case,
+    seeded::{for_each_case, replay_case},
     sketch::{no_parameters, sketch},
 };
 
@@ -111,46 +112,61 @@ fn solve_again(
         .solve_from(&no_parameters, &cancelled, &[], Some(&first.memo))
 }
 
+fn solves_again(input: &mut Unstructured) {
+    let Ok(drawn) = sketch(input, Plane::XY) else {
+        return;
+    };
+    if has_a_degenerate_spline(&drawn) {
+        return;
+    }
+    let Some(first) = solve(&drawn) else {
+        return;
+    };
+
+    if let Err(error) = solve_again(&first) {
+        panic!("a solved sketch could not be solved again: {error:?}");
+    }
+}
+
+fn stays_put(input: &mut Unstructured) {
+    let Ok(drawn) = sketch(input, Plane::XY) else {
+        return;
+    };
+    if has_a_degenerate_spline(&drawn) {
+        return;
+    }
+    let Some(first) = solve(&drawn) else {
+        return;
+    };
+    let Ok(again) = solve_again(&first) else {
+        return;
+    };
+
+    let shift = largest_shift(&first.geometry, &again.geometry);
+    assert!(
+        shift <= LARGEST_SHIFT,
+        "a solved sketch moved by {shift} when solved again"
+    );
+}
+
 #[test]
 fn a_solved_sketch_solves_again_from_its_own_result() {
     for_each_case("solving again", SOLVING_CASES, |_, input| {
-        let Ok(drawn) = sketch(input, Plane::XY) else {
-            return;
-        };
-        if has_a_degenerate_spline(&drawn) {
-            return;
-        }
-        let Some(first) = solve(&drawn) else {
-            return;
-        };
-
-        match solve_again(&first) {
-            Ok(_) => {}
-            Err(error) => panic!("a solved sketch could not be solved again: {error:?}"),
-        }
+        solves_again(input)
     });
 }
 
 #[test]
-fn a_solved_sketch_does_not_move_when_solved_again() {
-    for_each_case("staying put", SOLVING_CASES, |_, input| {
-        let Ok(drawn) = sketch(input, Plane::XY) else {
-            return;
-        };
-        if has_a_degenerate_spline(&drawn) {
-            return;
-        }
-        let Some(first) = solve(&drawn) else {
-            return;
-        };
-        let Ok(again) = solve_again(&first) else {
-            return;
-        };
+fn a_conflict_of_a_nanometre_is_never_solved_once_and_refused_the_next_time() {
+    replay_case(53733, |_, input| solves_again(input));
+}
 
-        let shift = largest_shift(&first.geometry, &again.geometry);
-        assert!(
-            shift <= LARGEST_SHIFT,
-            "a solved sketch moved by {shift} when solved again"
-        );
-    });
+#[test]
+fn a_solved_sketch_does_not_move_when_solved_again() {
+    for_each_case("staying put", SOLVING_CASES, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_point_level_with_a_crossing_at_a_splines_end_keeps_it_when_solved_again() {
+    replay_case(22192, |_, input| stays_put(input));
 }

@@ -619,11 +619,18 @@ impl Solver<'_> {
     }
 
     fn converged(&self, part: &Part<'_>, values: &[f64]) -> bool {
-        let tolerance = CONVERGENCE_TOLERANCE * part.context.scale;
-        self.admissible(part, values)
-            && self
-                .residuals(part, values)
+        let reached = Part {
+            component: part.component,
+            context: self.system.context_at(part.component, values),
+        };
+        let holds = |part: &Part<'_>| {
+            let tolerance = CONVERGENCE_TOLERANCE * part.context.scale;
+            self.residuals(part, values)
                 .all(|residual| residual.abs() <= tolerance)
+        };
+        self.admissible(part, values)
+            && holds(part)
+            && (reached.context.scale >= part.context.scale || holds(&reached))
     }
 
     fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<Ending, Cancelled> {
