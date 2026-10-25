@@ -76,7 +76,8 @@ paths:
   parameters it uses. Mass properties are cached in the result (`SolidResult::exact_mass`,
   `document.md`), so such a recompute integrates nothing again.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
-  the parameters and features it uses, those of every feature before it); which used features are
+  the parameters, features and bodies it uses, a body's being its own name or its piece's, those of
+  every feature before it); which used features are
   suppressed is part of its key too.
 - A failing feature is `Failed` with a `FeatureError` (a typed `Cause`, a `FixTarget`, the
   constraints involved and a model point `place` where the kernel gives one) and keeps its last good

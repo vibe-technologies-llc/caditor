@@ -804,6 +804,7 @@ type BodiesSeen = BTreeMap<FeatureId, FeatureId>;
 struct Names {
     feature: String,
     features: Vec<String>,
+    bodies: Vec<String>,
     parameters: Vec<String>,
     tree: Arc<[String]>,
     earlier: usize,
@@ -813,6 +814,7 @@ impl PartialEq for Names {
     fn eq(&self, other: &Self) -> bool {
         self.feature == other.feature
             && self.features == other.features
+            && self.bodies == other.bodies
             && self.parameters == other.parameters
             && self.tree.get(..self.earlier) == other.tree.get(..other.earlier)
     }
@@ -838,6 +840,17 @@ impl Names {
                     document
                         .feature(used)
                         .map(|feature| feature.name.clone())
+                        .unwrap_or_default()
+                })
+                .collect(),
+            bodies: feature
+                .kind
+                .bodies_used()
+                .into_iter()
+                .map(|body| {
+                    document
+                        .body_name(body)
+                        .map(Cow::into_owned)
                         .unwrap_or_default()
                 })
                 .collect(),

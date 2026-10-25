@@ -83,31 +83,20 @@ fn same_results(own: Option<&Arc<FeatureResult>>, theirs: Option<&Arc<FeatureRes
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Wording {
-    Ignored,
-    Compared,
-}
-
-fn same_state(own: &FeatureState, theirs: &FeatureState, wording: Wording) -> bool {
+fn same_state(own: &FeatureState, theirs: &FeatureState) -> bool {
     match (own, theirs) {
         (FeatureState::Failed(own), FeatureState::Failed(theirs)) => {
             own.fix == theirs.fix
                 && own.constraints == theirs.constraints
                 && own.place == theirs.place
-                && (wording == Wording::Ignored
-                    || (own.reason() == theirs.reason() && own.remedy() == theirs.remedy()))
+                && own.reason() == theirs.reason()
+                && own.remedy() == theirs.remedy()
         }
         (own, theirs) => own == theirs,
     }
 }
 
-fn assert_same_evaluation(
-    document: &Document,
-    incremental: &Evaluation,
-    fresh: &Evaluation,
-    wording: Wording,
-) {
+fn assert_same_evaluation(document: &Document, incremental: &Evaluation, fresh: &Evaluation) {
     for feature in document.features() {
         let id = feature.id();
         let (Some(kept), Some(rebuilt)) = (incremental.feature(id), fresh.feature(id)) else {
@@ -118,7 +107,7 @@ fn assert_same_evaluation(
             continue;
         };
         assert!(
-            same_state(&kept.state, &rebuilt.state, wording) && kept.healing == rebuilt.healing,
+            same_state(&kept.state, &rebuilt.state) && kept.healing == rebuilt.healing,
             "feature {id:?} ends {:?} incrementally and {:?} from scratch",
             kept.state,
             rebuilt.state
@@ -155,11 +144,7 @@ fn assert_bodies_sound(evaluation: &Evaluation) -> usize {
     checked
 }
 
-fn compare_after_each_step(
-    incremental: &mut Recompute,
-    editor: &Editor,
-    wording: Wording,
-) -> usize {
+fn compare_after_each_step(incremental: &mut Recompute, editor: &Editor) -> usize {
     let document = editor.document();
     let Some(kept) = evaluate(incremental, document) else {
         return 0;
@@ -167,11 +152,11 @@ fn compare_after_each_step(
     let Some(fresh) = evaluate(&mut Recompute::default(), document) else {
         return 0;
     };
-    assert_same_evaluation(document, &kept, &fresh, wording);
+    assert_same_evaluation(document, &kept, &fresh);
     fresh.bodies().count()
 }
 
-fn compare_a_run(input: &mut Unstructured, wording: Wording) -> usize {
+fn compare_a_run(input: &mut Unstructured) -> usize {
     let mut editor = Editor::default();
     let mut incremental = Recompute::default();
     let mut bodies = 0;
@@ -182,7 +167,7 @@ fn compare_a_run(input: &mut Unstructured, wording: Wording) -> usize {
         &References::default(),
         STEPS,
         |editor, _| {
-            bodies += compare_after_each_step(&mut incremental, editor, wording);
+            bodies += compare_after_each_step(&mut incremental, editor);
         },
     );
     let Some(first) = evaluate(&mut Recompute::default(), editor.document()) else {
@@ -191,9 +176,9 @@ fn compare_a_run(input: &mut Unstructured, wording: Wording) -> usize {
 
     let captured = References::capture(&first);
     run_steps(input, &mut editor, &captured, STEPS, |editor, _| {
-        bodies += compare_after_each_step(&mut incremental, editor, wording);
+        bodies += compare_after_each_step(&mut incremental, editor);
     });
-    bodies + perturb_parameters(&mut editor, &mut incremental, wording)
+    bodies + perturb_parameters(&mut editor, &mut incremental)
 }
 
 fn perturbed(text: &str) -> Option<String> {
@@ -205,7 +190,7 @@ fn perturbed(text: &str) -> Option<String> {
     Some(format!("{}{unit}", value * 2.0 + 1.0))
 }
 
-fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute, wording: Wording) -> usize {
+fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute) -> usize {
     let edits: Vec<Transaction> = editor
         .document()
         .parameters()
@@ -227,7 +212,7 @@ fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute, wording:
     let mut bodies = 0;
     for edit in edits {
         if editor.apply(edit).is_ok_and(|applied| applied) {
-            bodies += compare_after_each_step(incremental, editor, wording);
+            bodies += compare_after_each_step(incremental, editor);
         }
     }
     bodies
@@ -237,7 +222,7 @@ fn perturb_parameters(editor: &mut Editor, incremental: &mut Recompute, wording:
 fn recomputing_after_each_step_equals_recomputing_from_scratch() {
     let mut bodies = 0;
     for_each_case("incremental recompute", COMPARISON_CASES, |_, input| {
-        bodies += compare_a_run(input, Wording::Ignored);
+        bodies += compare_a_run(input);
     });
     assert!(
         bodies >= FEWEST_BODIES_COMPARED,
@@ -251,7 +236,7 @@ fn every_input_kept_in_the_regression_folder_still_holds() {
     let mut replayed = 0;
     for entry in fs::read_dir(&folder).unwrap() {
         let bytes = fs::read(entry.unwrap().path()).unwrap();
-        compare_a_run(&mut Unstructured::new(&bytes), Wording::Ignored);
+        compare_a_run(&mut Unstructured::new(&bytes));
         replayed += 1;
     }
     assert!(replayed > 0, "{} holds no input", folder.display());
@@ -318,25 +303,6 @@ fn a_random_document_saves_and_loads_to_the_same_content() {
         assert!(
             loaded.document.same_content(editor.document()),
             "a saved document loaded differently"
-        );
-    });
-}
-
-#[test]
-#[ignore = "a failure's words keep the name a body had before it was renamed (docs/BUGS.md)"]
-fn failures_name_things_as_they_are_named_now() {
-    for_each_case("failure words", COMPARISON_CASES, |_, input| {
-        let mut editor = Editor::default();
-        let mut incremental = Recompute::default();
-
-        run_steps(
-            input,
-            &mut editor,
-            &References::default(),
-            STEPS,
-            |editor, _| {
-                compare_after_each_step(&mut incremental, editor, Wording::Compared);
-            },
         );
     });
 }
