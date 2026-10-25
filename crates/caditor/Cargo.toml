@@ -53,6 +53,7 @@ rfd.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+caditor-checks.workspace = true
 caditor-cloud = { workspace = true, features = ["test-support"] }
 caditor-file = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

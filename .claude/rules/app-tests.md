@@ -27,6 +27,22 @@ paths:
   The focus scroll to a tree row is animated: let animations finish before clicking what it
   revealed.
 
+## Sweeps and guards
+
+- `Harness::pass` fails a frame in which a command was triggered after the handler offering it had
+  run (`Workspace::dropped_commands`, `CommandFrame::triggered_after_their_handler`): the click was
+  left in the frame's list and dropped, as the menu bar's gear once was. Commands with no offer in
+  the frame are not counted, since the palette refuses those beforehand.
+- `ui_tests/command_sweep.rs` queues every `Command` (`Workspace::queue_command`) in a fresh
+  harness over the sample model, in four shares that run in parallel: none may panic, none may be
+  unavailable with an empty reason, and each window one opens (found by the new visible layers)
+  is laid out again at 75% and 200% and must stay on screen, with no text cut at the side by its
+  clip and no two texts overlapping. Side panels are not windows; `large_interface.rs` covers them.
+- `ui_tests/interleavings.rs` plays seeded sequences of edits, undo, redo and held recomputes
+  (`Model::hold_evaluations`; only undo, redo and frames while held, since `settle` never returns
+  with a hold on) and checks that, once released, the model shows the evaluation a fresh
+  `Recompute` of its document gives (feature states; a failure's words are not compared).
+
 ## Waiting
 
 - `settle` waits for the recompute, body meshing and requested mass properties

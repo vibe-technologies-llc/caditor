@@ -62,6 +62,7 @@ mod click_picks;
 mod coils;
 mod combine;
 mod command_palette;
+mod command_sweep;
 mod completion;
 mod configuration_files;
 mod configurations;
@@ -102,6 +103,7 @@ mod import_costs;
 mod import_jobs;
 mod imported_bodies;
 mod interface_fit;
+mod interleavings;
 mod keyboard_driving;
 mod laptop_input;
 mod large_interface;
@@ -572,6 +574,11 @@ impl Harness {
         let mut output = context.run_ui(input, |ui| {
             app::show(ui, model, files, workspace, &mut actions);
         });
+        assert!(
+            self.workspace.dropped_commands.is_empty(),
+            "commands triggered after the handler that offers them had run, so dropped: {:?}",
+            self.workspace.dropped_commands
+        );
         for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
             for delta in deltas {
                 self.textures.apply(id, &delta);

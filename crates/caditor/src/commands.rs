@@ -3199,6 +3199,14 @@ impl<'a> CommandFrame<'a> {
         self.triggered.len() != before
     }
 
+    pub fn triggered_after_their_handler(&self) -> Vec<Command> {
+        self.triggered
+            .iter()
+            .filter(|command| self.offered.contains(command))
+            .copied()
+            .collect()
+    }
+
     pub fn offers(&self) -> &[Offer] {
         &self.offers
     }
@@ -3231,6 +3239,21 @@ mod tests {
 
         keymap.reset(line);
         assert_eq!(keymap.hint(line).map(str::to_owned), original);
+    }
+
+    #[test]
+    fn a_command_triggered_after_its_handler_ran_is_reported_as_dropped() {
+        let keymap = Keymap::default();
+        let mut frame = CommandFrame::new(&keymap, vec![Command::Save]);
+
+        assert!(frame.triggered_after_their_handler().is_empty());
+        assert!(frame.available(Command::Save));
+        assert!(frame.triggered_after_their_handler().is_empty());
+
+        frame.trigger(Command::Save);
+        frame.trigger(Command::Open);
+
+        assert_eq!(frame.triggered_after_their_handler(), [Command::Save]);
     }
 
     #[test]

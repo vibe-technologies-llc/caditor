@@ -647,6 +647,7 @@ name = "caditor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "caditor-checks",
  "caditor-cloud",
  "caditor-document",
  "caditor-expression",

@@ -50,7 +50,7 @@ inside the workspace.
 | `caditor-cloud` | Cloud services behind one `Provider` abstraction (Fusion 360 first): OAuth with PKCE, a rustls transport, project listing and design conversion to STEP. | none |
 | `caditor-notices` | Release tool: writes `THIRD-PARTY-NOTICES.txt` from `cargo metadata` and the font licences. | none |
 | `caditor-render` | wgpu viewport, camera, GPU picking, reference pictures, image export; no winit or document dependency. | geometry (windows on Windows) |
-| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow, Home and the cloud manager; the headless MCP server. | all but step, zstd and notices (wayland on Unix, windows on Windows) |
+| `caditor` | The winit/egui application: UI, commands, sketch editing, file workflow, Home and the cloud manager; the headless MCP server. | all but step, zstd and notices (checks as a dev-dependency) (wayland on Unix, windows on Windows) |
 
 Platform code is a `cfg(unix)`/`cfg(windows)` pair behind one interface; Windows specifics are in
 `windows.md`.

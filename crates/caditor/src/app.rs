@@ -215,6 +215,7 @@ pub struct Workspace {
     applied_tooltip_delay: Option<TooltipDelay>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
+    pub(crate) dropped_commands: Vec<Command>,
     repetition: Repetition,
     pair_reading: PairReading,
     awaiting_paste: Option<Command>,
@@ -286,6 +287,7 @@ impl Workspace {
             applied_tooltip_delay: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
+            dropped_commands: Vec::new(),
             repetition: Repetition::default(),
             pair_reading: PairReading::default(),
             awaiting_paste: None,
@@ -332,6 +334,11 @@ impl Workspace {
         self.keyboard_was_taken = false;
         self.deferred_commands.clear();
         self.awaiting_paste = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queue_command(&mut self, command: Command) {
+        self.deferred_commands.push(command);
     }
 
     fn sync(&mut self, model: &Model) {
@@ -659,6 +666,7 @@ pub fn show(
         defender_asked,
         keyboard_was_taken,
         deferred_commands,
+        dropped_commands,
         repetition,
         pair_reading,
         awaiting_paste,
@@ -1227,6 +1235,7 @@ pub fn show(
         *awaiting_paste = Some(command);
     }
     let asked_to_repeat = commands.take(Command::RepeatLast);
+    *dropped_commands = commands.triggered_after_their_handler();
     let ran = commands.ran().to_vec();
     let (mut offers, mut refused) = commands.finish();
     match repetition.settle(asked_to_repeat, &ran, &mut offers) {

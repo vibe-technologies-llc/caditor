@@ -22,7 +22,7 @@ use crate::{
 };
 
 const LARGEST: f32 = 2.0;
-const SLACK: f32 = 0.5;
+pub(super) const SLACK: f32 = 0.5;
 const LAYERS: usize = 4;
 
 fn at_scale(scale: f32, dir: &TempDir) -> Harness {
@@ -46,7 +46,7 @@ fn with_sample(scale: f32, dir: &TempDir, sample: Sample) -> Harness {
     harness
 }
 
-fn shown_within(harness: &Harness, area: Rect) -> Vec<(&str, Rect, Rect)> {
+pub(super) fn shown_within(harness: &Harness, area: Rect) -> Vec<(&str, Rect, Rect)> {
     harness
         .texts
         .iter()
@@ -58,7 +58,7 @@ fn shown_within(harness: &Harness, area: Rect) -> Vec<(&str, Rect, Rect)> {
         .collect()
 }
 
-fn overlaps(shown: &[(&str, Rect, Rect)]) -> Vec<String> {
+pub(super) fn overlaps(shown: &[(&str, Rect, Rect)]) -> Vec<String> {
     shown
         .iter()
         .enumerate()
