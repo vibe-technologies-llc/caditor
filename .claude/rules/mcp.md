@@ -134,8 +134,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `ends`) and
   threads (the face's `Bore` picks the nearest size and default class, named
   `thread_tools::unique_name`); `reshaping.rs` adds split face (its `carry` square, wrapped or along an axis, the last two
-  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, its `regions` as an extrusion's points or `"all"`, a `depth` and a `form` of `raise` or
-  `recess`), move face (`add_move_face`: a signed `distance`
+  needing curves of a sketch), delete face, emboss (`add_emboss`: faces, a sketch, its `regions` as an extrusion's points or `"all"`, a `depth`, a `draft` angle (0 deg
+  when not given, kept by an edit) and a `form` of `raise` or `recess`), move face (`add_move_face`: a signed `distance`
   along `direction`, `"normal"` or an axis as `places::axis` takes it, and an `angle` about `axis`,
   `"none"` or an axis; an edit keeps what it is not given), draft (`add_draft`: `faces`, an
   `angle`, a `neutral` plane as `places::plane` takes it, else `draft_tools::default_neutral_on`,

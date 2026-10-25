@@ -201,7 +201,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Draft(draft) => draft.expressions_mut(),
         FeatureKind::ReplaceFace(_) => Vec::new(),
         FeatureKind::DeleteFace(_) => Vec::new(),
-        FeatureKind::Emboss(emboss) => vec![&mut emboss.depth],
+        FeatureKind::Emboss(emboss) => emboss.expressions_mut(),
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Pipe(pipe) => pipe.expressions_mut(),
         FeatureKind::Loft(loft) => loft.expressions_mut(),

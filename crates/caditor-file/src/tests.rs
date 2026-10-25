@@ -4854,6 +4854,7 @@ fn emboss_model() -> (Document, FeatureId) {
             sketch: Some(sketch),
             regions: RegionChoice::All,
             depth: Expression::parse_stored("0.5 mm").unwrap(),
+            draft: Emboss::undrafted(),
             form: EmbossForm::Recessed,
         }),
     );
@@ -4877,6 +4878,30 @@ fn embossed_faces_are_saved_and_loaded_as_a_record_of_their_own() {
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
     let record = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_drafted_emboss_is_saved_as_a_record_kind_of_its_own() {
+    let (mut document, emboss) = emboss_model();
+    let mut kind = document.feature(emboss).unwrap().kind.clone();
+    let FeatureKind::Emboss(definition) = &mut kind else {
+        panic!("Emboss 1 is an emboss");
+    };
+    definition.draft = Expression::parse_stored("5 deg").unwrap();
+    document
+        .apply(Transaction::single(
+            "Draft",
+            Edit::SetFeatureKind { id: emboss, kind },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"drafted_emboss\":{"));
+    assert!(text.contains("\"draft\":\"5 deg\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
 }
 
 fn chosen_emboss_regions() -> RegionChoice {

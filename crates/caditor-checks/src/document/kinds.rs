@@ -208,6 +208,11 @@ pub fn feature_kind(
                 sketch,
                 regions: regions(input, scene, sketch)?,
                 depth: scene.distance(input)?,
+                draft: if input.arbitrary()? {
+                    scene.turn(input)?
+                } else {
+                    Emboss::undrafted()
+                },
                 form: if input.arbitrary()? {
                     EmbossForm::Raised
                 } else {

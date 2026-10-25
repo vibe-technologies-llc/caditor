@@ -363,6 +363,7 @@ pub fn emboss() -> Value {
             "sketch": reference("The sketch of closed outlines or text; lying parallel to a flat face, or on a plane along the axis of a round one"),
             "regions": regions(),
             "depth": amount("How far the outlines stand out or sink in, such as \"0.5 mm\""),
+            "draft": amount("How far the walls lean in away from a flat face, from 0 deg (the default) up to below 45 deg, such as \"5 deg\"; outlines wrapped round a cylinder or cone take none"),
             "form": choice(&["raise", "recess"], "Raise the outlines from the faces (the default) or recess them into the faces"),
             "name": name()
         }),

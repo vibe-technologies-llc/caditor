@@ -1339,14 +1339,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Emboss (`emboss.rs`)
 
-- `Emboss { body, faces, sketch, regions, depth, form }` raises (`EmbossForm::Raised`) or sinks
+- `Emboss { body, faces, sketch, regions, depth, draft, form }` raises (`EmbossForm::Raised`) or sinks
   (`Recessed`) every closed outline of its sketch (`Selection::EvenDepth` of `solid::profile_curves`,
   so a letter's counter stays open and curves enclosing nothing are ignored), or only the chosen
   `regions` (a `RegionChoice` as an extrusion's, `RegionReference`s resolved against the sketch's
   cached profile so a changed region is healed by the healing visitor or left out; none chosen waits
   as `MissingInput::RegionsToEmboss`, every chosen one gone or a tie fails with `RegionGone` or
   `RegionAmbiguous` naming the sketch) on the chosen faces by `depth`, a length above zero (an
-  expression, scaled with the model). `faces` are `FaceReference`s
+  expression, scaled with the model). `draft` (an angle, `Emboss::undrafted` 0 deg when made, from
+  0 to below `MAX_EMBOSS_DRAFT_DEGREES`; negative or steeper fails before the kernel, never scaled)
+  leans the walls in away from the face; both are its expressions (`expressions_mut`, parameters,
+  inlining). `faces` are `FaceReference`s
   resolved as a split face's (pieces accepted, lost or tied fails); none waits as
   `MissingInput::FacesToEmboss`, no `sketch` as `SketchToEmboss`. It modifies its body
   (`modifies_body`, state before kept); its sketch is in `features()` and `reference_sketches`, its
@@ -1360,13 +1363,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   The tool is also kept as the result's `joins` (raised) or `cuts` (recessed), which patterns and
   mirrors of features repeat as a rigid copy (`repeatable_on`), never wrapped again.
   - Flat faces (all `face_plane`s in one plane, `tolerance::same_plane`): the sketch must be parallel
-    to the plane (`NotParallel`); the tool is kernel `extrude` of the regions between the heights
-    that put the face plane at 0, whatever plane the sketch lies in.
+    to the plane (`NotParallel`); the tool is kernel `extrude_tapered` by the draft (plain
+    `extrude` at 0) of the regions on the sketch plane moved into the face's plane, so the taper's
+    reference is the face: the outlines keep their drawn size there and narrow both ways, the
+    `EMBED` part inside the body too, the side faces towards the depth keeping their undrafted names
+    (`kernel-naming.md`). A draft closing an outline is `DraftCloses`, a loop of one whole spline
+    or ellipse `DraftUnsupported` (fixed on the sketch).
   - Faces of one cylinder or cone (`wrapping_surface`, shared with split face, so a sphere, faces of
     several surfaces and `NotAlongAxis` fail as its wrap does): the tool is `wrap_regions_within` with a
     `WrapBand` of `depth` towards the side the material goes and `EMBED` the other, `inward` and
     `outward` swapped for a concave face (a bore, sense reversed) so Raise always leaves the body. A
-    depth leaving no radius (`WrapError::ReachesAxis`) is `TooDeep`.
+    depth leaving no radius (`WrapError::ReachesAxis`) is `TooDeep`. A draft there fails as
+    `DraftWrapped`, asking for 0°, since the wrap cannot taper.
 - Before joining, kernel `split_faces` of the chosen faces along the tool must divide them, and no
   piece inside the tool (`FaceName::split(feature, name, Inside)`) may border a face that is not
   chosen (`reaching_edge`): an outline reaching or crossing the edge of a face, or a hole in it, is

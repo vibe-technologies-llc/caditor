@@ -342,6 +342,7 @@ pub(crate) enum FeatureKindRecord {
     MoveFace(Box<MoveFaceRecord>),
     Draft(Box<DraftRecord>),
     Emboss(Box<EmbossRecord>),
+    DraftedEmboss(Box<DraftedEmbossRecord>),
     ReplaceFace(Box<ReplaceFaceRecord>),
     MirrorNewBody(MirrorNewBodyRecord),
     MirrorSeveral(Box<MirrorSeveralRecord>),
@@ -972,6 +973,12 @@ pub(crate) struct EmbossRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DraftedEmbossRecord {
+    pub emboss: EmbossRecord,
+    pub draft: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct MoveFaceRecord {
     pub body: u64,
     pub faces: Vec<Lenient<FaceRecord>>,
@@ -1136,7 +1143,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 93] = [
+pub(crate) const FEATURE_KINDS: [&str; 94] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1228,6 +1235,7 @@ pub(crate) const FEATURE_KINDS: [&str; 93] = [
     "move_face",
     "draft",
     "emboss",
+    "drafted_emboss",
     "replace_face",
     "mirror_new_body",
 ];
@@ -3636,22 +3644,13 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 })
                 .collect(),
         })),
-        FeatureKind::Emboss(emboss) => FeatureKindRecord::Emboss(Box::new(EmbossRecord {
-            body: emboss.body.raw(),
-            sketch: emboss.sketch.map(FeatureId::raw),
-            depth: emboss.depth.to_stored_text(),
-            faces: emboss
-                .faces
-                .iter()
-                .map(|face| Lenient::Read(face_record(face)))
-                .collect(),
-            recessed: !emboss.form.is_raised(),
-            regions: match &emboss.regions {
-                RegionChoice::All => None,
-                chosen @ RegionChoice::Chosen(_) => Some(regions_record(chosen)),
-            },
-            region_references: region_references_record(&emboss.regions),
-        })),
+        FeatureKind::Emboss(emboss) if emboss.is_drafted() => {
+            FeatureKindRecord::DraftedEmboss(Box::new(DraftedEmbossRecord {
+                emboss: emboss_record(emboss),
+                draft: emboss.draft.to_stored_text(),
+            }))
+        }
+        FeatureKind::Emboss(emboss) => FeatureKindRecord::Emboss(Box::new(emboss_record(emboss))),
         FeatureKind::ReplaceFace(replace) => {
             FeatureKindRecord::ReplaceFace(Box::new(ReplaceFaceRecord {
                 body: replace.body.raw(),
@@ -7425,6 +7424,10 @@ fn restore_kind(
         FeatureKindRecord::Emboss(record) => {
             FeatureKind::Emboss(restore_emboss(record, name, issues))
         }
+        FeatureKindRecord::DraftedEmboss(record) => FeatureKind::Emboss(Emboss {
+            draft: restore_value(&record.draft, "draft angle", "0 deg", name, issues),
+            ..restore_emboss(&record.emboss, name, issues)
+        }),
         FeatureKindRecord::MoveFace(record) => {
             FeatureKind::MoveFace(restore_move_face(record, name, issues))
         }
@@ -9343,6 +9346,25 @@ fn restore_replace_face(
     }
 }
 
+fn emboss_record(emboss: &Emboss) -> EmbossRecord {
+    EmbossRecord {
+        body: emboss.body.raw(),
+        sketch: emboss.sketch.map(FeatureId::raw),
+        depth: emboss.depth.to_stored_text(),
+        faces: emboss
+            .faces
+            .iter()
+            .map(|face| Lenient::Read(face_record(face)))
+            .collect(),
+        recessed: !emboss.form.is_raised(),
+        regions: match &emboss.regions {
+            RegionChoice::All => None,
+            chosen @ RegionChoice::Chosen(_) => Some(regions_record(chosen)),
+        },
+        region_references: region_references_record(&emboss.regions),
+    }
+}
+
 fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>) -> Emboss {
     let depth = restore_value(&record.depth, "depth", "1 mm", feature, issues);
     let faces: Vec<FaceReference> = record
@@ -9371,6 +9393,7 @@ fn restore_emboss(record: &EmbossRecord, feature: &str, issues: &mut Vec<String>
             issues,
         ),
         depth,
+        draft: Emboss::undrafted(),
         form: if record.recessed {
             EmbossForm::Recessed
         } else {

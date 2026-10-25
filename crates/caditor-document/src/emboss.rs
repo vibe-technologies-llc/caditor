@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, Expression, ParameterId};
+use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::Plane;
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceId, FaceName, FaceReference, FaceSplitError,
     LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile, ProfileError, Region, RegionReference,
-    Selection, Solid, SplitPiece, SweepError, WrapBand, WrapError, boolean, extrude,
+    Selection, Solid, SplitPiece, SweepError, WrapBand, WrapError, boolean, extrude_tapered,
     resolve_regions, split_faces, wrap_regions_within,
 };
 
@@ -30,6 +30,7 @@ use crate::{
 };
 
 pub const EMBED: f64 = 0.01;
+pub const MAX_EMBOSS_DRAFT_DEGREES: f64 = 45.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EmbossForm {
@@ -51,16 +52,36 @@ pub struct Emboss {
     pub sketch: Option<FeatureId>,
     pub regions: RegionChoice,
     pub depth: Expression,
+    pub draft: Expression,
     pub form: EmbossForm,
 }
 
 impl Emboss {
+    pub fn undrafted() -> Expression {
+        Expression::measure(0.0, Unit::Degree)
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
-        self.depth.parameters().into_iter().collect()
+        self.depth
+            .parameters()
+            .into_iter()
+            .chain(self.draft.parameters())
+            .collect()
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
-        self.depth.uses(parameter)
+        self.depth.uses(parameter) || self.draft.uses(parameter)
+    }
+
+    pub fn is_drafted(&self) -> bool {
+        !matches!(
+            self.draft,
+            Expression::Number(value) | Expression::Measure(value, _) if value == 0.0
+        )
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        vec![&mut self.depth, &mut self.draft]
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -97,6 +118,7 @@ impl Emboss {
                 .map(FaceReference::heap_size)
                 .sum::<usize>()
             + self.depth.heap_size()
+            + self.draft.heap_size()
             + match &self.regions {
                 RegionChoice::All => 0,
                 RegionChoice::Chosen(references) => {
@@ -157,6 +179,28 @@ impl Context<'_> {
             return Err(self.error(EmbossCause::DepthTooBig));
         }
         Ok(depth)
+    }
+
+    fn draft(&self) -> Result<f64, Failure> {
+        let degrees = self
+            .definition
+            .draft
+            .evaluate_as(Dimension::ANGLE, &|id| self.inputs.parameters.value(id))
+            .map_err(|error| {
+                Failure::from(FeatureError::unevaluable(
+                    self.feature.id(),
+                    "draft angle",
+                    Expected::Angle(5.0),
+                    error,
+                ))
+            })?;
+        if degrees < 0.0 {
+            return Err(self.error(EmbossCause::DraftNegative));
+        }
+        if degrees >= MAX_EMBOSS_DRAFT_DEGREES {
+            return Err(self.error(EmbossCause::DraftSteep));
+        }
+        Ok(degrees.to_radians())
     }
 
     fn split_context(&self, sketch: &str) -> SplitContext<'_> {
@@ -282,7 +326,12 @@ impl Context<'_> {
         }
     }
 
-    fn flat_tool(&self, face: &Plane, outlines: &Outlines, depth: f64) -> Result<Solid, Failure> {
+    fn flat_tool(
+        &self,
+        face: &Plane,
+        outlines: &Outlines,
+        (depth, draft): (f64, f64),
+    ) -> Result<Solid, Failure> {
         let sketch = &outlines.plane;
         if !tolerance::parallel(sketch.normal(), face.normal()) {
             return Err(self.error_at(
@@ -296,16 +345,41 @@ impl Context<'_> {
         let level = (face.origin() - sketch.origin()).dot(sketch.normal());
         let (below, above) = self.heights(depth);
         let (start, end) = if facing > 0.0 {
-            (level + below, level + above)
+            (below, above)
         } else {
-            (level - above, level - below)
+            (-above, -below)
         };
         let extent = LinearExtent::new(start, end).map_err(|error| self.unbuilt(&error))?;
-        extrude(sketch, &outlines.regions, extent, self.feature.id().raw()).map_err(|error| {
-            match error {
-                SweepError::Cancelled(_) => Failure::Cancelled,
-                other => self.unbuilt(&other),
-            }
+        let drawn = self.definition.sketch.unwrap_or(self.feature.id());
+
+        let Some(ground) = Plane::from_frame(
+            sketch.origin() + sketch.normal() * level,
+            sketch.normal(),
+            sketch.x_axis(),
+        ) else {
+            return Err(self.error(EmbossCause::Unbuilt {
+                body: self.body_name.clone(),
+            }));
+        };
+        extrude_tapered(
+            &ground,
+            &outlines.regions,
+            extent,
+            draft,
+            self.feature.id().raw(),
+        )
+        .map_err(|error| match error {
+            SweepError::Cancelled(_) => Failure::Cancelled,
+            SweepError::TaperCloses { .. } => self.error(EmbossCause::DraftCloses {
+                sketch: outlines.name.clone(),
+            }),
+            SweepError::TaperedUnsupportedCurve { .. } => self.error_at(
+                EmbossCause::DraftUnsupported {
+                    sketch: outlines.name.clone(),
+                },
+                drawn,
+            ),
+            other => self.unbuilt(&other),
         })
     }
 
@@ -314,8 +388,13 @@ impl Context<'_> {
         unrolled: Unrolled,
         concave: bool,
         outlines: &Outlines,
-        depth: f64,
+        (depth, draft): (f64, f64),
     ) -> Result<Solid, Failure> {
+        if draft > 0.0 {
+            return Err(self.error(EmbossCause::DraftWrapped {
+                round: unrolled.round(),
+            }));
+        }
         if !tolerance::perpendicular(outlines.plane.normal(), unrolled.axis()) {
             return Err(self.error_at(
                 EmbossCause::NotAlongAxis {
@@ -351,11 +430,16 @@ impl Context<'_> {
         })
     }
 
-    fn tool(&self, ground: &Ground, outlines: &Outlines, depth: f64) -> Result<Solid, Failure> {
+    fn tool(
+        &self,
+        ground: &Ground,
+        outlines: &Outlines,
+        size: (f64, f64),
+    ) -> Result<Solid, Failure> {
         match ground {
-            Ground::Flat(face) => self.flat_tool(face, outlines, depth),
+            Ground::Flat(face) => self.flat_tool(face, outlines, size),
             Ground::Round { unrolled, concave } => {
-                self.round_tool(*unrolled, *concave, outlines, depth)
+                self.round_tool(*unrolled, *concave, outlines, size)
             }
         }
     }
@@ -484,6 +568,7 @@ pub(crate) fn evaluate(
         }));
     };
     let depth = context.depth()?;
+    let draft = context.draft()?;
     let faces = definition.resolve(solid).map_err(|unresolved| {
         Failure::from(
             FeatureError::new(Unmatched {
@@ -499,7 +584,7 @@ pub(crate) fn evaluate(
     }
     let outlines = context.outlines(sketch)?;
     let ground = context.ground(solid, &faces, &outlines)?;
-    let tool = context.tool(&ground, &outlines, depth)?;
+    let tool = context.tool(&ground, &outlines, (depth, draft))?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -524,6 +609,11 @@ pub(crate) fn evaluate(
 pub(crate) enum EmbossCause {
     DepthNotPositive,
     DepthTooBig,
+    DraftNegative,
+    DraftSteep,
+    DraftCloses { sketch: String },
+    DraftUnsupported { sketch: String },
+    DraftWrapped { round: Round },
     NoOutlines { name: String },
     RegionGone { sketch: String },
     RegionAmbiguous { sketch: String, candidates: usize },
@@ -543,6 +633,21 @@ impl EmbossCause {
         match self {
             Self::DepthNotPositive => "The depth must be more than zero.".to_owned(),
             Self::DepthTooBig => format!("The depth cannot be more than {} m.", MAX_SIZE / 1_000.0),
+            Self::DraftNegative => "The draft cannot be negative.".to_owned(),
+            Self::DraftSteep => {
+                format!("The draft is {MAX_EMBOSS_DRAFT_DEGREES}° or steeper.")
+            }
+            Self::DraftCloses { sketch } => format!(
+                "With its draft, an outline of {sketch} closes up before it reaches the depth."
+            ),
+            Self::DraftUnsupported { sketch } => format!(
+                "An outline of {sketch} is one whole spline or ellipse, whose walls cannot be \
+                 drafted."
+            ),
+            Self::DraftWrapped { round } => format!(
+                "Outlines wrapped round a {} cannot have drafted walls yet.",
+                round.noun()
+            ),
             Self::NoOutlines { name } => format!(
                 "{name} has no closed outline or text to emboss: its curves do not enclose any \
                  region."
@@ -595,6 +700,15 @@ impl EmbossCause {
             Self::DepthNotPositive | Self::DepthTooBig => {
                 "Enter a depth above zero and below the size of the model.".to_owned()
             }
+            Self::DraftNegative | Self::DraftSteep => format!(
+                "Enter a draft angle from 0° up to below {MAX_EMBOSS_DRAFT_DEGREES}°; the walls \
+                 lean in by it away from the face."
+            ),
+            Self::DraftCloses { .. } => "Make the draft or the depth smaller.".to_owned(),
+            Self::DraftUnsupported { .. } => {
+                "Split the curve into pieces in the sketch, or set the draft to 0°.".to_owned()
+            }
+            Self::DraftWrapped { .. } => "Set the draft to 0°.".to_owned(),
             Self::NoOutlines { name } => {
                 format!("Close the outlines in {name}, or write some text in it.")
             }

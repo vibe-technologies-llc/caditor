@@ -321,6 +321,15 @@ fn outlines_are_embossed_onto_a_face_and_changed_into_a_recess() {
     );
     assert!(close(total_volume(&mut client), 928.0));
 
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": emboss, "draft": "10 deg" }),
+    );
+    let lean = 10.0_f64.to_radians().tan();
+    let drafted_cut = 72.0 - 48.0 * lean + 32.0 / 3.0 * lean * lean;
+    assert!(close(total_volume(&mut client), 1000.0 - drafted_cut));
+
     let refused = client.tool_error(
         "add_emboss",
         json!({ "body": block, "faces": [], "sketch": label, "depth": 1 }),
