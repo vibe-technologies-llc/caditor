@@ -25,8 +25,10 @@ Clicking two points, or a lone line, waits for a third click that places the dim
 below gives the horizontal distance, beside them the vertical one, elsewhere the aligned one. A
 point or circle and a slanted line, or two circles whose centres are not level or upright, wait
 the same way: the horizontal distance of a point from a line is measured to where the line crosses
-the level through the point, and a circle's from its centre. For an arc, placing it inside gives
-its sweep and beyond it its length. Enter adds the dimension of a
+the level through the point, and a circle's from its centre. For an arc, placing it beyond the arc gives its
+length; inside it, close to the arc gives its radius (as does off its sweep), further in its
+diameter and near its centre its sweep, so a radius or diameter can be placed on an arc of any
+sweep. The prompt says what the click would add. Enter adds the dimension of a
 single pick, and Escape lets go of the picks; changing to another tool lets go of them too.
 
 The Dimension group of the ribbon also has each dimension on its own: Distance, Horizontal

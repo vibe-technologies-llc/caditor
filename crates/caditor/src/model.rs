@@ -18,7 +18,7 @@ use caditor_file::{
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
-use caditor_sketch::{Constraint, Entity, Sketch, SketchSolution};
+use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
     commands::Reason,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
-    drag_solver::{self, DragCommand, Finished, Join, Polled},
+    drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
     image_textures::ImageTextures,
@@ -151,6 +151,21 @@ pub struct RecordedNotice {
 }
 
 const NAMED_CONFLICTS: usize = 2;
+
+fn named_constraints(sketch: &Sketch, constraints: &[ConstraintId]) -> Option<String> {
+    let named: Vec<String> = constraints
+        .iter()
+        .take(NAMED_CONFLICTS)
+        .map(|constraint| sketch.describe_constraint(*constraint))
+        .collect();
+    let more = constraints.len().saturating_sub(NAMED_CONFLICTS);
+    match (named.as_slice(), more) {
+        ([], _) => None,
+        ([only], _) => Some(only.clone()),
+        ([first, second], 0) => Some(format!("{first} and {second}")),
+        (named, more) => Some(format!("{} and {more} more", named.join(", "))),
+    }
+}
 const MAX_RECORDED_NOTICES: usize = 100;
 const JOIN_TOLERANCE: f64 = 1e-6;
 
@@ -250,7 +265,7 @@ pub struct Model {
     status: RecomputeStatus,
     notice: Option<Notice>,
     save_failure: Option<Notice>,
-    drag_blocked: bool,
+    drag_blocking: Blocking,
     recorded_notices: VecDeque<RecordedNotice>,
     revision_offset: u64,
     storage: Option<Storage>,
@@ -309,7 +324,7 @@ impl Model {
             status: RecomputeStatus::UpToDate,
             notice: None,
             save_failure: None,
-            drag_blocked: false,
+            drag_blocking: Blocking::Clear,
             recorded_notices: VecDeque::new(),
             revision_offset: 0,
             storage: None,
@@ -806,7 +821,20 @@ impl Model {
     }
 
     pub fn drag_blocked(&self) -> bool {
-        self.drag_blocked
+        self.drag_blocking.is_blocked()
+    }
+
+    #[cfg(test)]
+    pub fn block_drag(&mut self, limits: Vec<ConstraintId>) {
+        self.dragged(Polled {
+            blocked: Some(Blocking::By(limits)),
+            ..Polled::default()
+        });
+    }
+
+    pub fn drag_limits(&self, feature: FeatureId) -> Option<String> {
+        let sketch = self.editor.document().feature(feature)?.kind.sketch()?;
+        named_constraints(sketch, self.drag_blocking.limits())
     }
 
     pub fn sketch_conflict(&self, feature: FeatureId) -> Option<String> {
@@ -814,19 +842,7 @@ impl Model {
             return None;
         };
         let sketch = self.editor.document().feature(feature)?.kind.sketch()?;
-        let named: Vec<String> = error
-            .constraints
-            .iter()
-            .take(NAMED_CONFLICTS)
-            .map(|constraint| sketch.describe_constraint(*constraint))
-            .collect();
-        let more = error.constraints.len().saturating_sub(NAMED_CONFLICTS);
-        match (named.as_slice(), more) {
-            ([], _) => None,
-            ([only], _) => Some(only.clone()),
-            ([first, second], 0) => Some(format!("{first} and {second}")),
-            (named, more) => Some(format!("{} and {more} more", named.join(", "))),
-        }
+        named_constraints(sketch, &error.constraints)
     }
 
     pub fn recorded_notices(&self) -> impl Iterator<Item = &RecordedNotice> {
@@ -1283,7 +1299,7 @@ impl Model {
 
     pub fn abandon_held_drag(&mut self) {
         if self.display.dragging.cancel_held() {
-            self.drag_blocked = false;
+            self.drag_blocking = Blocking::Clear;
             self.display.sketches.stop_showing_dragged();
         }
     }
@@ -1295,13 +1311,15 @@ impl Model {
             abandoned,
             blocked,
         } = polled;
-        let cue_changed = blocked.is_some_and(|blocked| blocked != self.drag_blocked);
+        let cue_changed = blocked
+            .as_ref()
+            .is_some_and(|blocked| *blocked != self.drag_blocking);
         let changed = shown.is_some() || finished.is_some() || abandoned || cue_changed;
         if let Some(blocked) = blocked {
-            self.drag_blocked = blocked;
+            self.drag_blocking = blocked;
         }
         if abandoned || finished.is_some() {
-            self.drag_blocked = false;
+            self.drag_blocking = Blocking::Clear;
         }
         if abandoned {
             self.display.sketches.stop_showing_dragged();

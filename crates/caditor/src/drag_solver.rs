@@ -10,7 +10,7 @@ use std::{
 
 use caditor_document::{FeatureId, Outline, ParameterValues, ProjectionSource};
 use caditor_geometry::Point2;
-use caditor_sketch::{Constraint, Drag, EntityId, Sketch, SolveMemo};
+use caditor_sketch::{Constraint, ConstraintId, Drag, EntityId, Sketch, SketchError, SolveMemo};
 use parking_lot::{Condvar, Mutex};
 
 use crate::{body_snap::BodyPart, model::Waker};
@@ -58,7 +58,27 @@ pub struct Polled {
     pub shown: Option<(FeatureId, Arc<Sketch>)>,
     pub finished: Option<Finished>,
     pub abandoned: bool,
-    pub blocked: Option<bool>,
+    pub blocked: Option<Blocking>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Blocking {
+    #[default]
+    Clear,
+    By(Vec<ConstraintId>),
+}
+
+impl Blocking {
+    pub fn is_blocked(&self) -> bool {
+        matches!(self, Self::By(_))
+    }
+
+    pub fn limits(&self) -> &[ConstraintId] {
+        match self {
+            Self::Clear => &[],
+            Self::By(limits) => limits,
+        }
+    }
 }
 
 impl Polled {
@@ -81,7 +101,7 @@ struct Job {
 struct Solution {
     drag: u64,
     sequence: u64,
-    solved: Option<Arc<Sketch>>,
+    solved: Result<Arc<Sketch>, Vec<ConstraintId>>,
 }
 
 #[derive(Default)]
@@ -161,12 +181,12 @@ fn serve(shared: &Shared, sender: &Sender<Solution>, wake: &Waker) {
         let wanted = || job.drag >= shared.wanted_from.load(Ordering::Relaxed);
         let solution = solve(&job, continued.as_ref(), &|| !wanted());
         previous = match &solution {
-            Some((sketch, memo)) => Some(Previous {
+            Ok((sketch, memo)) => Some(Previous {
                 drag: job.drag,
                 sketch: Arc::clone(sketch),
                 memo: memo.clone(),
             }),
-            None => continued,
+            Err(_) => continued,
         };
         if !wanted() {
             continue;
@@ -187,7 +207,7 @@ fn solve(
     job: &Job,
     previous: Option<&Previous>,
     cancelled: &dyn Fn() -> bool,
-) -> Option<(Arc<Sketch>, SolveMemo)> {
+) -> Result<(Arc<Sketch>, SolveMemo), Vec<ConstraintId>> {
     let (from, memo) = match previous {
         Some(previous) => (&previous.sketch, Some(&previous.memo)),
         None => (&job.start, None),
@@ -196,15 +216,27 @@ fn solve(
         from.solve_geometry_from(&|id| job.parameters.value(id), cancelled, &job.drags, memo)
     }));
     match solved {
-        Ok(Ok((geometry, memo))) => Some((Arc::new(geometry), memo)),
+        Ok(Ok((geometry, memo))) => Ok((Arc::new(geometry), memo)),
         Ok(Err(error)) => {
             log::debug!("a dragged sketch did not solve: {error}");
-            None
+            Err(limiting(&error))
         }
         Err(_) => {
             log::error!("solving a dragged sketch panicked");
-            None
+            Err(Vec::new())
         }
+    }
+}
+
+fn limiting(error: &SketchError) -> Vec<ConstraintId> {
+    match error {
+        SketchError::Conflict { constraints } => constraints.clone(),
+        SketchError::Unsolvable {
+            newest: Some(newest),
+            ..
+        } => vec![*newest],
+        SketchError::Several(errors) => errors.iter().flat_map(limiting).collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -314,10 +346,13 @@ impl SketchDragging {
                 continue;
             };
             active.received = active.received.max(solution.sequence);
-            polled.blocked = Some(solution.solved.is_none());
-            if let Some(solved) = solution.solved {
-                active.latest = Some(Arc::clone(&solved));
-                polled.shown = Some((active.feature, solved));
+            match solution.solved {
+                Ok(solved) => {
+                    polled.blocked = Some(Blocking::Clear);
+                    active.latest = Some(Arc::clone(&solved));
+                    polled.shown = Some((active.feature, solved));
+                }
+                Err(limits) => polled.blocked = Some(Blocking::By(limits)),
             }
         }
         if self
@@ -385,7 +420,7 @@ impl SketchDragging {
                 let solution = solve(&job, continued.as_ref(), &|| false);
                 active.received = job.sequence;
                 active.previous = match solution {
-                    Some((sketch, memo)) => {
+                    Ok((sketch, memo)) => {
                         active.latest = Some(Arc::clone(&sketch));
                         Some(Previous {
                             drag: job.drag,
@@ -393,7 +428,7 @@ impl SketchDragging {
                             memo,
                         })
                     }
-                    None => continued,
+                    Err(_) => continued,
                 };
                 Polled {
                     shown: active
@@ -545,5 +580,35 @@ mod tests {
         assert!(!dragging.is_dragging());
         thread::sleep(Duration::from_millis(20));
         assert!(dragging.poll().finished.is_none());
+    }
+
+    #[test]
+    fn a_failed_solve_names_the_constraints_that_limit_it() {
+        let limit = ConstraintId::from_raw(3);
+        let other = ConstraintId::from_raw(5);
+
+        assert_eq!(
+            limiting(&SketchError::Conflict {
+                constraints: vec![limit, other]
+            }),
+            vec![limit, other]
+        );
+        assert_eq!(
+            limiting(&SketchError::Unsolvable {
+                entities: Vec::new(),
+                newest: Some(other)
+            }),
+            vec![other]
+        );
+        assert_eq!(
+            limiting(&SketchError::Several(vec![
+                SketchError::Conflict {
+                    constraints: vec![limit]
+                },
+                SketchError::Cancelled,
+            ])),
+            vec![limit]
+        );
+        assert!(limiting(&SketchError::Cancelled).is_empty());
     }
 }

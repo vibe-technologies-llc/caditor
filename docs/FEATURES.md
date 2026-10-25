@@ -134,11 +134,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   direction or to the nearest point, and the curve where two faces meet. The solver then holds 3D
   points and directions and the constraints that mean something there (coincident, horizontal and
   vertical in space, parallel, perpendicular, distance, fix).
-- [low · medium] Smart dimension cannot place an arc's Radius from inside its sweep (the cursor
-  there picks the sweep angle, and on an arc over about 300° nearly every position is inside it)
-  and has no Diameter for an arc, though the Diameter tool takes one; and the tooltip for a drag the
-  constraints block says nothing of which constraint limits it when the sketch itself is fine
-  (`DRAG_BLOCKED`), where a conflict already names its constraints.
 - [low · medium] Backspace steps back through a line chain only while the drawing tool stays
   Line or Tangent arc: a tool change drops the chain (`Drawing::sync`, by design for the shape in
   progress), so after a round trip through Select the segments already placed can be undone only
