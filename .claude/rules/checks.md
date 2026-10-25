@@ -14,6 +14,9 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
 - Its lint list is the workspace's without `panic`, since an assertion that fails is its job
   (`every_member_inherits_the_workspace_lints` names the exception); indexing, `unwrap` and the rest
   stay denied.
+- `addition` also builds, now and then, the chain a cache key can forget (`derived_chain`): a
+  measurement writing a parameter, a parameter adding it to another, and a feature reading that
+  one.
 - `seeded::for_each_case` feeds `BYTES_PER_CASE` bytes from a SplitMix64 stream per seed into the
   generator and prints the failing seed; `CADITOR_CASES` sets the number of cases of every suite
   (the stress job runs 10,000), the defaults keep the suites to a few seconds each. A property is
@@ -61,12 +64,16 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
 Each past fix was reversed in the source and the suites run; a mutation that survived got a better
 property or a pinned input.
 
-- The stale parameter fingerprint of a parameter derived from a measurement (`988545dd`) survives
-  2,000 and 6,000 random cases: the generators never build a measurement feeding a parameter that
-  another parameter and a feature read, so only its own unit test catches it
-  (`docs/CHECKS.md`). Seed 395 once looked like a catch; it was a sketch with free degrees of
+- The stale parameter fingerprint of a parameter derived from a measurement (`988545dd`) fails the
+  incremental suite at seed 12, the 13th case, once `addition` offers the chain (`derived_chain`: a
+  measurement keeping `measured`, `derived = measured + spare`, a datum point offset by `derived`);
+  before it, 2,000 and 6,000 random cases passed. `stale-parameter-derived-from-a-measurement.bin`
+  replays that case. Seed 395 once looked like a catch; it was a sketch with free degrees of
   freedom solved differently warm and fresh, which is by design, so sketch geometry is compared only
   for fully constrained sketches.
+- A failure's words naming a feature that a face reference only mentions (the pattern or maker of
+  the face's origin, deleted or renamed since) survived until the key held `dependencies()` names
+  rather than `features()` names (seed 95, `stale-origin-name-in-a-failure.bin`).
 - The undo that could not be applied around configurations and moves (`b94cd16b`) fails the undo,
   save, soundness and recompute suites alike, with the generator's `check_inverse` naming the edit.
 - The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's

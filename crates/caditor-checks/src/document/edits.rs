@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
-    BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue, Edit,
-    FaceColour, FeatureId, Finish, ModelProperties, ModelProperty, NamedView, Outline,
-    ParameterOwner, PieceStandIns, Pieces, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, Rgb, RollbackBar, SavedView, SavedViews, SelectionSet, SelectionSets,
-    SetMember, Setting, SketchAttachment, Transaction,
+    Between, BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue,
+    Datum, DatumPoint, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem, Measurement,
+    ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns, Pieces,
+    PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, Rgb, RollbackBar, SavedView, SavedViews, SelectionSet,
+    SelectionSets, SetMember, Setting, SketchAttachment, Transaction,
 };
+use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
 use caditor_sketch::{ChainSize, ConstraintId, Entity, EntityId, Gear, Sketch, Text, TextAlign};
 
@@ -37,6 +39,9 @@ const LONG_TEXT_CHARS: u16 = 2100;
 const DISTANCES: [f64; 6] = [50.0, 1.0, 1e-9, 0.0, -1.0, f64::NAN];
 const MATERIALS: [&str; 4] = ["Steel", "Aluminium", "", "PLA"];
 const DENSITIES: [&str; 3] = ["7.85 g/cm^3", "2700 kg/m^3", "width"];
+const CHAIN_MEASURED: &str = "measured";
+const CHAIN_SPARE: &str = "spare";
+const CHAIN_DERIVED: &str = "derived";
 const MOST_MEMBERS: u8 = 3;
 const MOST_ROWS: u8 = 3;
 
@@ -76,6 +81,9 @@ fn chosen<T: Clone>(input: &mut Unstructured, items: &[T]) -> Result<Option<T>> 
 pub fn addition(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transaction>> {
     let document = scene.document;
     let mut transaction = document.transaction(LABEL);
+    if input.ratio(1u8, 12)? {
+        return derived_chain(input, scene);
+    }
     if input.ratio(1u8, 5)? {
         let name = *input.choose(&NAMES)?;
         let Some(expression) = scene.expression(input)? else {
@@ -94,6 +102,50 @@ pub fn addition(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transa
         return Ok(None);
     };
     transaction.add_feature(*input.choose(&NAMES)?, kind);
+    Ok(Some(transaction.finish()))
+}
+
+fn derived_chain(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transaction>> {
+    let mut transaction = scene.document.transaction(LABEL);
+    let first = MeasuredItem::Point(scene.point(input)?);
+    let second = MeasuredItem::Plane(PlaneReference::Principal(
+        *input.choose(&PrincipalPlane::ALL)?,
+    ));
+    let (Ok(measured_start), Ok(divisor_start)) =
+        (scene.document.parse("0 mm"), scene.document.parse("2 mm"))
+    else {
+        return Ok(None);
+    };
+
+    let measured = transaction.add_parameter(CHAIN_MEASURED, measured_start);
+    transaction.add_parameter(CHAIN_SPARE, divisor_start);
+    let Ok(sum) = transaction.parse(&format!("{CHAIN_MEASURED} + {CHAIN_SPARE}")) else {
+        return Ok(None);
+    };
+    let derived = transaction.add_parameter(CHAIN_DERIVED, sum);
+
+    transaction.add_feature(
+        "Measurement",
+        FeatureKind::from(Measurement {
+            reading: Reading::Between {
+                quantity: Between::Distance,
+                first,
+                second,
+            },
+            parameter: Some(measured),
+        }),
+    );
+    transaction.add_feature(
+        "Reader",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: [
+                Expression::Parameter(derived),
+                Expression::Measure(0.0, Unit::Millimetre),
+                Expression::Measure(0.0, Unit::Millimetre),
+            ],
+        })),
+    );
     Ok(Some(transaction.finish()))
 }
 
