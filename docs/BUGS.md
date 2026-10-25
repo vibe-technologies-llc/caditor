@@ -25,12 +25,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the
   validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
   each axis is `Invalid(VoidOutside)`, with no test pinning it.
-- [medium · hard] Cylinders of one radius a few resolutions to tens of micrometres off one axis,
-  moved away from both seams (seams at +x, an extruded plug 2.5e-6 to 3e-5 off its bore's axis
-  along -x), cannot be joined: the union is `Invalid(LoopOrientation)`, though intersection and
-  difference combine and 1e-4 joins. The failure carries no place. The tests of a failing combine's
-  place use a plug 2e-6 off its bore's axis along +x and 1e-6 narrower, which fails as `Open` at
-  the plate's start face.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

@@ -8,6 +8,7 @@ use crate::{
         imprint::{Arrangement, Piece},
         select::KeptFace,
         trace::{Chart, Coedge, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
+        untangle::{sharpen, untangle},
     },
     curve::Curve,
     interrupt::{self, Interrupted},
@@ -197,13 +198,15 @@ fn merge_group(
         sense: lead.sense,
         center,
     };
-    let loops = trace(arrangement, &chart, &half_edges)
+    let mut loops = trace(arrangement, &chart, &half_edges)
         .ok()?
         .into_iter()
         .map(|members| fit_loop(arrangement, &chart, members))
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    let fragments = group(&chart, loops).ok()?;
+    untangle(arrangement, &chart, &mut loops).ok()?;
+    let mut fragments = group(&chart, loops).ok()?;
+    sharpen(arrangement, &chart, &mut fragments).ok()?;
     Some(
         fragments
             .into_iter()

@@ -1788,6 +1788,19 @@ fn a_plug_beside_its_bores_axis_by_a_few_resolutions_combines() {
 }
 
 #[test]
+fn a_plug_off_its_bores_axis_away_from_its_seams_combines() {
+    let plate = bored_plate();
+
+    for gap in [2.5e-6, 5e-6, 1e-5, 2e-5, 3e-5, 5e-5, 1e-4] {
+        combine_within_the_resolution(
+            &format!("a plug {gap} off along -x"),
+            &plate,
+            &extruded_plug((10.0 - gap, 5.0), 2.5),
+        );
+    }
+}
+
+#[test]
 fn a_plug_off_its_bores_axis_square_to_its_seams_combines() {
     let plate = bored_plate();
 
