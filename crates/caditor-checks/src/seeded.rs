@@ -44,11 +44,15 @@ pub fn cases(default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+pub fn replay_case(seed: u64, mut check: impl FnMut(u64, &mut Unstructured)) {
+    let bytes = Stream::new(seed).bytes(BYTES_PER_CASE);
+    let mut input = Unstructured::new(&bytes);
+    check(seed, &mut input);
+}
+
 pub fn for_each_case(name: &str, default: u64, mut check: impl FnMut(u64, &mut Unstructured)) {
     for seed in 0..cases(default) {
-        let bytes = Stream::new(seed).bytes(BYTES_PER_CASE);
-        let mut input = Unstructured::new(&bytes);
-        let outcome = panic::catch_unwind(AssertUnwindSafe(|| check(seed, &mut input)));
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| replay_case(seed, &mut check)));
         if let Err(failure) = outcome {
             eprintln!(
                 "{name} failed on seed {seed}; rerun it with {CASES_VARIABLE}={}",

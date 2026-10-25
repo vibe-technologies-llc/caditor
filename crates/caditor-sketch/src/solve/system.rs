@@ -290,10 +290,14 @@ impl System {
     }
 
     pub fn context_of(&self, component: &Component) -> Context {
+        self.context_at(component, &self.values)
+    }
+
+    pub fn context_at(&self, component: &Component, values: &[f64]) -> Context {
         let coordinates = component
             .variables
             .iter()
-            .map(|variable| value(&self.values, *variable));
+            .map(|variable| value(values, *variable));
         let lengths = component
             .equations
             .iter()

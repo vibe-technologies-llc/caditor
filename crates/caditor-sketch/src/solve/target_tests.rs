@@ -2,8 +2,8 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
-    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, PointTarget, Quadrant, Sketch,
-    SketchError, Solved,
+    Constraint, ConstraintId, EllipseEnd, Entity, EntityId, FitSpacing, PointTarget, Quadrant,
+    Sketch, SketchError, Solved, SplineKind,
 };
 
 const EXACT: f64 = 1e-7;
@@ -545,5 +545,26 @@ fn a_track_names_its_target_in_plain_words_and_restates_only_its_own_kind() {
             PointTarget::Crossing(line, circle)
         )),
         None
+    );
+}
+
+#[test]
+fn a_spline_ending_on_a_circle_crosses_it_at_that_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::ZERO, 5.0);
+    let end = Point2::new(3.0, 4.0 + 1e-12);
+    let spline = sketch.add_spline_of(
+        &[end, Point2::new(8.0, 1.0), Point2::new(9.0, -6.0)],
+        SplineKind::Fit {
+            closed: false,
+            spacing: FitSpacing::Centripetal,
+        },
+    );
+
+    let places = sketch.target_places(&PointTarget::Crossing(circle, spline));
+
+    assert!(
+        places.iter().any(|place| place.distance(end) < EXACT),
+        "{places:?} misses the end at {end}"
     );
 }

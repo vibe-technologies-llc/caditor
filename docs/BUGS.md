@@ -110,18 +110,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   witness's about 219,000 (trimming 12,000), some 85% of it in the two perturbed retries (23 to 32
   steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
   fraction of the whole chain's extent before Newton steps settle it.
-- [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
+- [medium · hard] A sketch solved from a degenerate spline can fail to solve again from its own
   result: a spline with repeated control points (a closed spline of one point, three of four
-  coincident), a dimension of 1e-9 mm. `a_solved_sketch_solves_again_from_its_own_result`
-  (`caditor-checks`) skips splines with control points within a micrometre and holds for the first
-  50,000 seeds; beyond, seed 53733 (a `Distance` of 1e-9 mm beside a `VerticalDistance` and a
-  `Coincident`) is solved once and then `Unsolvable`.
-- [low · hard] A constraint holding a point at the crossing of two curves that cross twice
-  (`PointTarget::Crossing`) takes, on every solve, the crossing the starting geometry misses
-  least, so solving a solved sketch again can pick the other crossing: seed 22192 of
-  `a_solved_sketch_does_not_move_when_solved_again` (a circle and a fit spline, `VerticalPoints`
-  to their crossing) moves a point by 4.9 mm on the second solve. The test holds for the first
-  22,000 seeds, so the nightly run of 10,000 does not reach it.
+  coincident). `a_solved_sketch_solves_again_from_its_own_result` (`caditor-checks`) skips splines
+  with control points within a micrometre.
+- [low · hard] A conflict smaller than the solver's clear residual (a `Distance` of 1e-9 mm from an
+  axis to a point `Coincident` with it, seed 53733 of the solving-again suite) is reported as not
+  solving rather than as a conflict naming the two: the diagnosis's verdict takes only residuals
+  above `CLEAR_RESIDUAL` tolerances as a contradiction.
+- [medium · hard] A `Distance` from a spline to a line it crosses can be returned as solved
+  although the measured distance misses its value: pushing the nearest bulge to the value brings
+  another nearer, the `PARAMETER_ROUNDS` re-solves run out, and the last round's geometry is
+  returned. Seed 22573 of `a_solved_sketch_does_not_move_when_solved_again` (a closed fit spline
+  through a rectangle's corner, 7 mm from that rectangle's side) measures 5.18 mm after the first
+  solve and moves by 0.5 mm on the second; the test holds for the first 22,500 seeds.
 - [low · hard] A dimension placed on entities that still have other freedom is added as a driving
   dimension although the measured value is already determined by their constraints: `determines`
   (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is

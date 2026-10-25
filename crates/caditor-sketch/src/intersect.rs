@@ -370,7 +370,9 @@ fn roots_along(
     let sampled: Vec<(f64, f64)> = (0..=samples)
         .map(|index| {
             let parameter = first + (last - first) * index as f64 / samples as f64;
-            (parameter, value(parameter))
+            let at = value(parameter);
+            let touching_an_end = (index == 0 || index == samples) && at.abs() <= tolerance;
+            (parameter, if touching_an_end { 0.0 } else { at })
         })
         .collect();
     let mut roots = Vec::new();

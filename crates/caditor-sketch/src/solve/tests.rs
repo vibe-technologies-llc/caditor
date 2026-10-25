@@ -2116,3 +2116,37 @@ fn a_sparse_cholesky_factorisation_solves_a_positive_definite_system_and_refuses
     }
     assert!(refused.is_none());
 }
+
+#[test]
+fn a_conflict_too_small_for_where_it_lands_is_refused_rather_than_failing_on_the_next_solve() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_circle(Point2::new(1.0, -3.5), 7.0);
+    let second = sketch.add_circle(Point2::new(-0.5, 10.0), 3.5);
+    let (low, high) = (center(&sketch, first), center(&sketch, second));
+
+    add(
+        &mut sketch,
+        Constraint::Coincident(EntityId::HORIZONTAL_AXIS, high),
+    );
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: EntityId::HORIZONTAL_AXIS,
+            to: high,
+            value: mm(1e-9),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalDistance {
+            from: low,
+            to: high,
+            value: mm(0.5),
+        },
+    );
+
+    assert!(matches!(
+        solve(&sketch),
+        Err(SketchError::Unsolvable { .. })
+    ));
+}

@@ -35,7 +35,10 @@ paths:
   (`SETTLED_FALL`), no step lowering the cost, or three steps each gaining under a thousandth. Retries
   perturb each part by a fraction of its own extent.
 - Each part solves at its own scale (largest coordinate or length dimension, at least 1, rounded up
-  to a power of two; `system.rs`), which sets tolerance, step limit and degenerate lengths.
+  to a power of two; `system.rs`), which sets tolerance, step limit and degenerate lengths. A part
+  has converged only when its residuals also hold at the scale of where it landed when that is
+  smaller (`System::context_at`), since solving the result again starts at that scale: a conflict
+  of 1e-9 mm passing at the drawing's scale of 16 would otherwise fail from its own solution.
 - Parts (`numeric::Parts`) are worked out once per solve from the starting values and shared by
   memo, solver and analysis; only a sketch with spline parameters redoes them from current values,
   since a parameter moving along its spline changes which control points its equations reach.
