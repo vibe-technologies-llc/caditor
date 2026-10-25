@@ -48,3 +48,19 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   different answers on a loaded machine; a case that exhausts it is skipped.
 - A property that fails on inputs the model should handle is a finding: record it in `docs/BUGS.md`,
   keep it as an ignored test, and leave the passing suites asserting only what holds.
+
+## What the suites were shown to catch
+
+Each past fix was reversed in the source and the suites run; a mutation that survived got a better
+property or a pinned input.
+
+- The stale parameter fingerprint of a parameter derived from a measurement (`988545dd`) survived
+  the default run, since random documents rarely build the chain; seed 395 found it in the 20,000
+  case run, and that input is kept as `regressions/document/derived-parameter-keeps-an-old-result.bin`,
+  so the default run fails on it at once.
+- The undo that could not be applied around configurations and moves (`b94cd16b`) fails the undo,
+  save, soundness and recompute suites alike, with the generator's `check_inverse` naming the edit.
+- The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's
+  dropped-command guard in `app-tests.md`, with no test written for the gear.
+- Layout regressions of a side panel (`73c8123c`, the parameter table's names) are caught only by
+  their own tests and `large_interface.rs`: the sweeps lay out windows, not side panels.
