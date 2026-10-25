@@ -11,11 +11,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but other seeds
   (`Random::new(n)`) still give invalid results: `SelfIntersectingBoundary` tessellating the union
   of two frustums (seed 8), of an extruded spline and the hollow cuboid (12, union and difference)
-  and of two extruded splines (14), and a cone and the hollow cuboid with a `DanglingEdge` (9, union
-  and difference). Tori that nearly coincide still fail when turned rather than shifted: a torus
-  and its copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of
-  seeding. Intersection curves crossing at a
-  tangent point (tori touching along their equators, a face touching a torus's inner equator) cannot
+  and of two extruded splines (14). Tori that nearly coincide still fail when turned rather than
+  shifted: a torus and its copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each
+  after about 0.7 s of seeding. Intersection curves crossing at a tangent point (tori touching along their equators, a face touching a torus's inner equator) cannot
   be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the
   validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
   each axis is `Invalid(VoidOutside)`, with no test pinning it.

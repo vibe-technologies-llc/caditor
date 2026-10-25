@@ -405,7 +405,12 @@ fn apart_in_domain(surface: &Surface, first: Point2, second: Point2) -> bool {
     let derivatives = surface.evaluate(first.x, first.y);
     let gap = second - first;
     let spatial = gap.x.abs() * derivatives.du.length() + gap.y.abs() * derivatives.dv.length();
+    let across_period =
+        |gap: f64, period: Option<f64>| period.is_some_and(|period| gap.abs() >= 0.5 * period);
+
     spatial > SEAM_SEPARATION
+        || across_period(gap.x, surface.u_period())
+        || across_period(gap.y, surface.v_period())
 }
 
 pub(crate) fn continues(surface: &Surface, end: Point2, start: Point2) -> bool {

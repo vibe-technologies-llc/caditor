@@ -2099,3 +2099,25 @@ fn a_torus_turning_tightly_against_a_hollow_cuboid_combines() {
         (48.0 * PI * PI, 936.0),
     );
 }
+
+#[test]
+fn a_hollow_cuboid_tilted_over_a_cone_combines() {
+    let cone = crate::fixtures::cone(3.0, 4.0);
+    let axis = Vector3::new(
+        -0.08879029379910963,
+        -0.13547995799273682,
+        -0.7018715237676012,
+    );
+    let offset = (0.8111360392808891, 2.7776467446516757, 2.60775040035961);
+
+    let hollow = moved(
+        rotated(
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            axis,
+            1.8444683609664336,
+        ),
+        offset,
+    );
+
+    check_every_operation("cone and hollow cuboid", &cone, &hollow, (12.0 * PI, 936.0));
+}

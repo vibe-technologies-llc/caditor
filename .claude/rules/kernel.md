@@ -187,7 +187,9 @@ paths:
   and returns the first `ValidationError` with ids. Non-obvious checks:
   - Euler–Poincaré per shell, each fan of faces at a vertex counting as one vertex, so a pinched
     shell has the characteristic of the surface it pinches;
-  - an edge used twice by one face only as a seam, its two pcurves apart in the domain;
+  - an edge used twice by one face only as a seam, its two pcurves apart in the domain: farther
+    apart on the surface than `SEAM_SEPARATION`, or half a period or more apart in uv, so a seam
+    piece ending at a cone's apex is not taken for a slit;
   - positive volume per lump, each void inside exactly one lump, lumps neither overlapping,
     nesting nor coinciding.
 - Volume checks mesh coarsely, sized by the box of edges and vertices (never the classifier-based
