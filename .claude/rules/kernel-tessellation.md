@@ -11,8 +11,10 @@ paths:
   adaptive samples seeded with 2×degree points per knot span are merged (`merged_parameters`, at
   most `MAX_MERGED_SAMPLES` into one) while a chord from the last kept sample holds every dropped
   sample and sub-span middle within the chord tolerance and angle, never across a tangent jump (a
-  degree-1 spline's corners). A traced thread edge with a knot at every node so gets the points its
-  angle asks for, not one per seed. Validation and profiles keep `Curve::sample`.
+  degree-1 spline's corners). The farthest dropped point is carried as a bound (plus how far the
+  chord's end moved) and measured again only when that bound nears the tolerance, so a long run
+  costs linear time, not quadratic. A traced thread edge with a knot at every node so gets the
+  points its angle asks for, not one per seed. Validation and profiles keep `Curve::sample`.
 - Each face is a constrained Delaunay triangulation (`spade`) of its loops in (u, v) plus an
   interior tensor grid (`density.rs`) kept clear of the boundary. Grid lines are graded per
   direction by curvature: the need (cells per unit parameter) is sampled on a lattice (at most

@@ -39,8 +39,11 @@ paths:
 - `intersect_curve_surface` (points with curve parameter and uv, and overlaps) is analytic for
   lines, circles and ellipses against elementary surfaces, else subdivides the curve on piece boxes
   (widened by a second-derivative sagitta within a spline span, since span hulls do not shrink),
-  prunes by the surface's Lipschitz distance, brackets sign changes of the signed distance and
-  minimises it for touches.
+  prunes by the surface's Lipschitz distance (a spline surface first by its span hulls, which
+  needs no projection), brackets sign changes of the signed distance and minimises it for touches
+  (Brent's method). The minimisation stops once the distance is below minus the tolerance (a
+  crossing, bracketed on both sides) or above the tolerance by twice the curve's reach across the
+  bracket, since the distance changes no faster than the curve moves.
   - A spline piece holding fewer than `MAX_TIGHT_SPANS` knots is boxed by the tight bounds of each
     span part, not the control hull of every span it touches; otherwise a helix just off a cylinder
     over hundreds of spans halves at every knot and ends `TooComplex`.

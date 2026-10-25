@@ -246,26 +246,33 @@ impl<'a> Tracer<'a> {
     fn grid_seed(&self, a: &SurfacePatch, b: &SurfacePatch) -> Option<Seed> {
         let (u, v) = (a.u_range(), a.v_range());
         let other = b.surface();
-        let at = |row: usize, column: usize| {
-            Point2::new(
-                u.at(column as f64 / GRID as f64),
-                v.at(row as f64 / GRID as f64),
-            )
-        };
         let value = |uv: Point2| signed_distance(other, a.surface().point_at(uv));
+        let nodes: Vec<Vec<(Point2, f64)>> = (0..=GRID)
+            .map(|row| {
+                (0..=GRID)
+                    .map(|column| {
+                        let uv = Point2::new(
+                            u.at(column as f64 / GRID as f64),
+                            v.at(row as f64 / GRID as f64),
+                        );
+                        (uv, value(uv))
+                    })
+                    .collect()
+            })
+            .collect();
+        let node = |row: usize, column: usize| nodes.get(row).and_then(|row| row.get(column));
         let mut pairs = Vec::new();
         for row in 0..=GRID {
             for column in 0..=GRID {
                 if column < GRID {
-                    pairs.push((at(row, column), at(row, column + 1)));
+                    pairs.extend(node(row, column).zip(node(row, column + 1)));
                 }
                 if row < GRID {
-                    pairs.push((at(row, column), at(row + 1, column)));
+                    pairs.extend(node(row, column).zip(node(row + 1, column)));
                 }
             }
         }
-        for (start, end) in pairs {
-            let (low, high) = (value(start), value(end));
+        for (&(start, low), &(end, high)) in pairs {
             if (low < 0.0) == (high < 0.0) {
                 continue;
             }
