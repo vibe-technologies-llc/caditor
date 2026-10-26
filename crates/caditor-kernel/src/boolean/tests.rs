@@ -2186,3 +2186,29 @@ fn extruded_splines_turned_over_each_other_combine() {
 
     check_every_operation("extruded splines", &first, &second, (volume, volume));
 }
+
+#[test]
+fn an_extruded_spline_turned_through_a_sphere_combines() {
+    let ball = sphere(4.0);
+    let axis = Vector3::new(
+        -0.3438786747593616,
+        0.15356305985760055,
+        -0.3021257351228537,
+    );
+    let offset = (
+        0.8892313696994592,
+        -0.15064163391420826,
+        -1.6728669319835305,
+    );
+
+    let spline = crate::fixtures::extruded_spline(5.0);
+    let placed = moved(rotated(spline.clone(), axis, 4.51276213599759), offset);
+    let ball_volume = 4.0 / 3.0 * PI * 64.0;
+
+    check_every_operation(
+        "sphere and extruded spline",
+        &ball,
+        &placed,
+        (ball_volume, exact_volume(&spline)),
+    );
+}

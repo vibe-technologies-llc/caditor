@@ -50,7 +50,9 @@ paths:
   - Within a leaf, an extrusion, revolution or spline surface is projected from the previous foot;
     a foot whose offset is not along the normal (stalled on a domain boundary, where the signed
     distance reads zero far from the surface) is replaced by the global projection, so a stale hint
-    never brackets a false root.
+    never brackets a false root. Each bracketing and minimisation starts from the foot of the leaf
+    sample bounding it: carried from the leaf's last sample, Newton settled on a true foot on the
+    far side of an arched extrusion, 22 units off, and a line crossing the wall was missed.
 - `intersect_curves` and `intersect_curves2` are analytic for lines and 2D circles, else paired
   subdivision and Newton on the squared distance. A cluster of candidates is reported at the one
   where the curves come closest, since Newton clamped at a leaf boundary near a grazing crossing

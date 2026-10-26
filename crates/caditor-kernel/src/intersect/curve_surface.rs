@@ -622,48 +622,74 @@ fn solve_leaf(probe: &Probe, piece: Interval) -> Vec<Candidate> {
     candidates
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LeafSample {
+    at: f64,
+    signed: f64,
+    distance: f64,
+    foot: Option<Point2>,
+}
+
 fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
-    let samples: Vec<(f64, f64, f64)> = piece
+    let samples: Vec<LeafSample> = piece
         .split(LEAF_SAMPLES)
-        .map(|parameter| {
-            let (signed, distance) = probe.offset(parameter);
-            (parameter, signed, distance)
+        .map(|at| {
+            let (signed, distance) = probe.offset(at);
+            LeafSample {
+                at,
+                signed,
+                distance,
+                foot: probe.hint.get(),
+            }
         })
         .collect();
-    if samples
-        .iter()
-        .all(|(_, _, distance)| *distance <= ON_SURFACE)
-    {
+    if samples.iter().all(|sample| sample.distance <= ON_SURFACE) {
         return vec![Candidate::Along(piece)];
     }
     let signed = |parameter: f64| probe.signed(parameter);
+    let signed_from = |parameter: f64, foot: Option<Point2>| {
+        probe.hint.set(foot);
+        probe.signed(parameter)
+    };
+    let root_from = |foot: Option<Point2>, low: f64, high: f64, at_low: f64, at_high: f64| {
+        probe.hint.set(foot);
+        bracket_root(signed, low, high, at_low, at_high)
+    };
     let mut candidates = Vec::new();
     for pair in samples.windows(2) {
-        let [(a, ga, _), (b, gb, _)] = pair else {
+        let [first, second] = pair else {
             continue;
         };
-        if *ga == 0.0 {
-            candidates.push(Candidate::Root(*a));
-        } else if (*ga < 0.0) != (*gb < 0.0) && *gb != 0.0 {
-            candidates.push(Candidate::Root(bracket_root(signed, *a, *b, *ga, *gb)));
+        if first.signed == 0.0 {
+            candidates.push(Candidate::Root(first.at));
+        } else if (first.signed < 0.0) != (second.signed < 0.0) && second.signed != 0.0 {
+            candidates.push(Candidate::Root(root_from(
+                first.foot,
+                first.at,
+                second.at,
+                first.signed,
+                second.signed,
+            )));
         }
     }
     let count = samples.len();
     for index in 0..count {
-        let Some(&(at, here, _)) = samples.get(index) else {
+        let Some(&sample) = samples.get(index) else {
             continue;
         };
+        let here = sample.signed;
         let before = index.checked_sub(1).and_then(|before| samples.get(before));
         let after = samples.get(index + 1);
         let neighbours = [before, after];
-        let lowest = neighbours
-            .iter()
-            .flatten()
-            .all(|(_, value, _)| (*value < 0.0) == (here < 0.0) && value.abs() >= here.abs());
-        let low = before.map_or(at, |sample| sample.0);
-        let high = after.map_or(at, |sample| sample.0);
-        let reach = probe.curve.point(low).distance(probe.curve.point(high));
-        if !lowest || here.abs() > reach || high <= low {
+        let lowest = neighbours.iter().flatten().all(|neighbour| {
+            (neighbour.signed < 0.0) == (here < 0.0) && neighbour.signed.abs() >= here.abs()
+        });
+        let (low, high) = (before.unwrap_or(&sample), after.unwrap_or(&sample));
+        let reach = probe
+            .curve
+            .point(low.at)
+            .distance(probe.curve.point(high.at));
+        if !lowest || here.abs() > reach || high.at <= low.at {
             continue;
         }
         let side = if here < 0.0 { -1.0 } else { 1.0 };
@@ -675,21 +701,32 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
                 .fold(0.0, f64::max);
             bracket.value < -TOLERANCE || bracket.value - REACH_MARGIN * reach > TOLERANCE
         };
-        let (extremum, value) =
-            minimize_bracket(|parameter| side * signed(parameter), low, high, settled);
+        probe.hint.set(sample.foot);
+        let (extremum, value) = minimize_bracket(
+            |parameter| side * signed(parameter),
+            low.at,
+            high.at,
+            settled,
+        );
         if (-TOLERANCE..=TOLERANCE).contains(&value) {
             if probe.distance(extremum) <= TOLERANCE {
                 candidates.push(Candidate::Touch(extremum));
             }
         } else if value < -TOLERANCE {
-            let (vl, vh) = (signed(low), signed(high));
-            let vm = signed(extremum);
-            if (vl < 0.0) != (vm < 0.0) {
-                candidates.push(Candidate::Root(bracket_root(signed, low, extremum, vl, vm)));
+            let middle = signed_from(extremum, sample.foot);
+            let foot = probe.hint.get();
+            if (low.signed < 0.0) != (middle < 0.0) {
+                candidates.push(Candidate::Root(root_from(
+                    foot, low.at, extremum, low.signed, middle,
+                )));
             }
-            if (vh < 0.0) != (vm < 0.0) {
-                candidates.push(Candidate::Root(bracket_root(
-                    signed, extremum, high, vm, vh,
+            if (high.signed < 0.0) != (middle < 0.0) {
+                candidates.push(Candidate::Root(root_from(
+                    foot,
+                    extremum,
+                    high.at,
+                    middle,
+                    high.signed,
                 )));
             }
         }

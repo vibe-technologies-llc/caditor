@@ -501,3 +501,27 @@ fn a_circle_crossing_a_cylinder_at_a_grazing_angle_is_met_at_its_roots() {
         assert!((point.point.x - 0.5 * offset).abs() < 1e-9, "{point:?}");
     }
 }
+
+#[test]
+fn a_line_into_an_arched_wall_is_met_where_it_crosses_after_sampling_past_the_arch() {
+    let wall: Surface = Extrusion::new(crate::fixtures::spline_profile(), Vector3::Z)
+        .unwrap()
+        .into();
+    let line: Curve = Line::new(
+        Point3::new(
+            -1.623_432_360_994_876,
+            4.074_812_384_182_531,
+            1.586_097_024_613_338,
+        ),
+        Vector3::new(0.904_510_784_354, -0.304_461_633_412, -0.298_602_335_502),
+    )
+    .unwrap()
+    .into();
+
+    let found =
+        intersect_curve_surface(&line, Interval::new(0.0, 30.0).unwrap(), &wall, None).unwrap();
+
+    assert_eq!(found.points.len(), 1, "{found:?}");
+    assert!(wall.distance(found.points[0].point) < 1e-9, "{found:?}");
+    assert!(found.points[0].point.x.abs() < 0.5, "{found:?}");
+}

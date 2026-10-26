@@ -8,14 +8,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 ## Kernel
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
-  seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other
-  seeds (`Random::new(n)`, 7 to 16) gave are pinned by tests and combine; seeds beyond 16 are
-  unsurveyed. Tori that nearly coincide still fail when turned rather than shifted: a torus and its
-  copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of
-  seeding. Intersection curves crossing at a tangent point (tori touching along their equators, a
-  face touching a torus's inner equator) cannot be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the
-  validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
-  each axis is `Invalid(VoidOutside)`, with no test pinning it.
+  seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
+  (`Random::new(n)`, 7 to 19) gave are pinned by tests and combine. Seeds 20 to 72 were surveyed;
+  seeds 42 (two extruded splines, `Open`), 48 (two cones, `Intersection`), 52 (an extruded spline
+  and the cuboid, `Invalid`), 57 (the sphere and the cuboid, `Open`), 59 and 61 (an extruded spline
+  and the hollow cuboid, `Invalid`) and 69 (the same pair, `Open`) still fail, unpinned; seeds
+  beyond 72 are unsurveyed. Tori that nearly coincide still fail when turned rather than shifted: a
+  torus and its copy turned by 1e-5 to 1e-3 radians are `Ambiguous` or `Split`, each after about
+  0.7 s of seeding. Intersection curves crossing at a tangent point (tori touching along their equators,
+  a face touching a torus's inner equator) cannot be split
+  (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
+  mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis is
+  `Invalid(VoidOutside)`, with no test pinning it.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
