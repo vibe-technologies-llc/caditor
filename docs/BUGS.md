@@ -10,9 +10,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79 and 85) gave are pinned by tests and combine.
-  Seeds 20 to 88 were surveyed; seed 82 (the union of the cylinder and the cone turned about their
-  shared base centre, 1e-4 off it, `Invalid` as a self-crossing boundary) still fails, unpinned;
-  seeds beyond 88 are unsurveyed. Tori that
+  Seeds 20 to 104 were surveyed; seed 82 still fails, unpinned: the union of the cylinder and the
+  cone turned about their shared base centre and moved 1e-4 off it (`Random::new(82)`'s cone on
+  the cylinder, turned 5.434 about (-0.845, 0.690, -0.268)) is `Invalid` as a self-crossing
+  boundary. The cone's tilted base circle meets the cylinder's bottom circle where both run along
+  the wall, 3.8e-5 apart, and the base plane's loop (its circle, a 0.013 long piece of the
+  cylinder's bottom ellipse, the line where the two bottom planes meet) and the bottom disc's
+  cross themselves there in uv at a steep angle, which the shallow-crossing parting does not
+  take. Seeds beyond 104 are unsurveyed. Tori that
   nearly coincide still fail when turned rather than shifted: a torus and its copy turned by 1e-5 to
   1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of seeding. Intersection curves
   crossing at a tangent point (tori touching along their equators, a face touching a torus's inner
