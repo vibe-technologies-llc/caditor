@@ -90,7 +90,11 @@ paths:
     the control hull of every span (`BSplineSurface::hulls_miss`: the hull's box, then the axis
     across the span's corner diagonals; through the span tree on a large net), from any other
     surface when its centre's projection lies farther than its half diagonal (a projection onto
-    a spline off its surface is a full seed search). A cylinder patch's box is
+    a spline off its surface is a full seed search) or, to second order, when the distance from
+    the patch's centre exceeds the sine between the two normals times the patch's reach plus both
+    curvatures (the other's doubled, as the curvature of its distance field) times the reach
+    squared (`apart_to_second_order`). Without it a cone and its copy turned 0.03 radians, about
+    0.05 apart everywhere, never pruned a leaf and ran out of seed pairs. A cylinder patch's box is
     the union of its two end arcs' boxes, exact for a ruled surface of constant radius. A spline
     patch running across a closed surface's seam (a face widened past it) is bounded by the boxes
     of its pieces either side (`BSplineSurface::bounds`, `seam_pieces`), never the whole net,

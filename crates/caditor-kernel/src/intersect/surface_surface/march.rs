@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     coordinates::angle_between,
@@ -44,6 +44,8 @@ const EXIT_BISECTIONS: usize = 48;
 const PERIOD_SLACK: f64 = 1e-9;
 const CURVATURE_SAMPLES: [f64; 3] = [0.1, 0.5, 0.9];
 const TOUCH_SLACK: f64 = 0.1;
+const FIELD_CURVATURE_REACH: f64 = 0.5;
+const FOOT_ALONG_NORMAL: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy)]
 struct Seed {
@@ -101,11 +103,95 @@ fn signed_distance(surface: &Surface, point: Point3) -> f64 {
     }
 }
 
-fn apart(surface: &Surface, bounds: &Aabb) -> bool {
-    match surface {
+fn apart(other: &Surface, patch: &SurfacePatch, bounds: &Aabb) -> bool {
+    match other {
         Surface::BSpline(spline) => spline.hulls_miss(&bounds.expanded(TOLERANCE)),
-        _ => surface.distance(bounds.center()) > bounds.half_extent().length() + TOLERANCE,
+        _ => {
+            other.distance(bounds.center()) > bounds.half_extent().length() + TOLERANCE
+                || apart_to_second_order(other, patch)
+        }
     }
+}
+
+fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
+    let derivatives = surface.evaluate(uv.x, uv.y);
+    let normal = surface.normal(uv.x, uv.y)?;
+    let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
+    if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
+        return None;
+    }
+    let curvature = (derivatives.duu.dot(normal).abs() / (su * su))
+        .max(derivatives.dvv.dot(normal).abs() / (sv * sv))
+        .max(derivatives.duv.dot(normal).abs() / (su * sv));
+    curvature.is_finite().then_some(curvature)
+}
+
+fn largest_curvature(surface: &Surface, uvs: &[Point2]) -> Option<f64> {
+    uvs.iter()
+        .map(|uv| curvature_bound(surface, *uv))
+        .try_fold(0.0, |largest: f64, curvature| Some(largest.max(curvature?)))
+}
+
+fn apart_to_second_order(other: &Surface, patch: &SurfacePatch) -> bool {
+    let surface = patch.surface();
+    let uv = patch.bounds().center();
+    let point = surface.point_at(uv);
+    let foot = other.project(point, None);
+    let offset = point - other.point_at(foot);
+    let distance = offset.length();
+
+    let (Some(normal), Some(other_normal)) =
+        (surface.normal(uv.x, uv.y), other.normal(foot.x, foot.y))
+    else {
+        return false;
+    };
+    if offset.cross(other_normal).length() > FOOT_ALONG_NORMAL * distance + TOLERANCE {
+        return false;
+    }
+
+    let (u, v) = (patch.u_range(), patch.v_range());
+    let corners = [
+        Point2::new(u.start(), v.start()),
+        Point2::new(u.end(), v.start()),
+        Point2::new(u.start(), v.end()),
+        Point2::new(u.end(), v.end()),
+    ];
+    let reach = corners
+        .iter()
+        .map(|corner| surface.point_at(*corner).distance(point))
+        .fold(0.0, f64::max);
+    let Some(own) = largest_curvature(
+        surface,
+        &[uv, corners[0], corners[1], corners[2], corners[3]],
+    ) else {
+        return false;
+    };
+
+    let derivatives = other.evaluate(foot.x, foot.y);
+    let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
+    if su <= LINEAR_RESOLUTION || sv <= LINEAR_RESOLUTION {
+        return false;
+    }
+    let (du, dv) = (reach / su, reach / sv);
+    let Some(field) = largest_curvature(
+        other,
+        &[
+            foot,
+            foot + Vector2::new(du, 0.0),
+            foot - Vector2::new(du, 0.0),
+            foot + Vector2::new(0.0, dv),
+            foot - Vector2::new(0.0, dv),
+        ],
+    ) else {
+        return false;
+    };
+    if field * (distance + reach) >= FIELD_CURVATURE_REACH {
+        return false;
+    }
+
+    let sine = normal.cross(other_normal).length();
+    let bending = own + 2.0 * field;
+    distance > sine * reach + bending * reach * reach + TOLERANCE
 }
 
 struct Node<'a> {
@@ -134,7 +220,7 @@ impl<'a> Arena<'a> {
 
     fn push(&mut self, patch: SurfacePatch<'a>) -> usize {
         let bounds = patch.bounding_box();
-        let apart = apart(self.other, &bounds);
+        let apart = apart(self.other, &patch, &bounds);
         self.nodes.push(Node {
             patch,
             bounds,

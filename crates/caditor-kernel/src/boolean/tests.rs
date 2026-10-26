@@ -2231,3 +2231,23 @@ fn a_cuboid_turned_inside_a_sphere_combines() {
 
     check_every_operation("sphere and cuboid", &ball, &placed, (ball_volume, 24.0));
 }
+
+#[test]
+fn a_cone_and_its_copy_turned_slightly_combine() {
+    let first = crate::fixtures::cone(3.0, 4.0);
+    let axis = Vector3::new(
+        -0.2613659440208451,
+        -0.7576288105538411,
+        -0.15384457950907304,
+    );
+    let offset = (
+        -0.007849983496069912,
+        0.011950798088623503,
+        0.03944633172345953,
+    );
+
+    let second = moved(rotated(first.clone(), axis, 6.25067218693804), offset);
+    let cone_volume = 12.0 * PI;
+
+    check_every_operation("cones", &first, &second, (cone_volume, cone_volume));
+}
