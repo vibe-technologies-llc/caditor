@@ -2,7 +2,7 @@ use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector3};
 
 use crate::{
     curve::Circle,
-    intersect::IntersectionError,
+    intersect::{IntersectionError, clip::PathBound},
     interval::{Domain, Interval},
     surface::Surface,
 };
@@ -103,17 +103,18 @@ impl<'a> SurfacePatch<'a> {
         self.wrap(self.surface.project(point, Some(hint)))
     }
 
-    pub(crate) fn path_misses(&self, path: [Point2; 3]) -> bool {
+    pub(crate) fn path_bound(&self, path: [Point2; 3]) -> PathBound {
         let [start, middle, end] = path;
-        path_misses_range(
+        path_bound_in_range(
             [start.x, middle.x, end.x],
             self.u_range(),
             self.surface.u_period(),
-        ) || path_misses_range(
+        )
+        .and(path_bound_in_range(
             [start.y, middle.y, end.y],
             self.v_range(),
             self.surface.v_period(),
-        )
+        ))
     }
 
     pub fn bounding_box(&self) -> Aabb {
@@ -167,7 +168,7 @@ impl<'a> SurfacePatch<'a> {
     }
 }
 
-fn path_misses_range(coordinates: [f64; 3], range: Interval, period: Option<f64>) -> bool {
+fn path_bound_in_range(coordinates: [f64; 3], range: Interval, period: Option<f64>) -> PathBound {
     let period = period.filter(|period| *period > 0.0);
     let follow = |from: f64, to: f64| match period {
         Some(period) => from + (to - from) - period * ((to - from) / period).round(),
@@ -180,13 +181,32 @@ fn path_misses_range(coordinates: [f64; 3], range: Interval, period: Option<f64>
     let slack = parameter_slack(range);
     let margin = PATH_MARGIN * (high - low) + slack;
     let (low, high) = (low - margin, high + margin);
-    match period {
+    let misses = match period {
         Some(period) => {
             let shift = ((high - range.start()) / period).floor() * period;
             high - low < period && range.end() + shift < low
         }
         None => high < range.start() || low > range.end(),
+    };
+    let reaches = |bound: f64| match period {
+        Some(period) => bound + ((low - bound) / period).ceil() * period <= high,
+        None => (low..=high).contains(&bound),
+    };
+    if misses {
+        PathBound::Misses
+    } else if parabola_turns(start, middle, end) && (reaches(range.start()) || reaches(range.end()))
+    {
+        PathBound::TurnsAtBound
+    } else {
+        PathBound::Monotone
     }
+}
+
+fn parabola_turns(start: f64, middle: f64, end: f64) -> bool {
+    let linear = 4.0 * middle - 3.0 * start - end;
+    let quadratic = 2.0 * (start + end) - 4.0 * middle;
+    let turn = -linear / (2.0 * quadratic);
+    turn.is_finite() && turn > -PATH_MARGIN && turn < 1.0 + PATH_MARGIN
 }
 
 fn parabola_extent(start: f64, middle: f64, end: f64) -> (f64, f64) {

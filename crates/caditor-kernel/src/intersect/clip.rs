@@ -6,6 +6,24 @@ use crate::{
 const BISECTIONS: usize = 60;
 const MAX_REFINEMENT_DEPTH: usize = 24;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathBound {
+    Misses,
+    Monotone,
+    TurnsAtBound,
+}
+
+impl PathBound {
+    #[must_use]
+    pub fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Misses, _) | (_, Self::Misses) => Self::Misses,
+            (Self::TurnsAtBound, _) | (_, Self::TurnsAtBound) => Self::TurnsAtBound,
+            (Self::Monotone, Self::Monotone) => Self::Monotone,
+        }
+    }
+}
+
 fn boundary(outside: f64, inside: f64, test: &impl Fn(f64) -> bool) -> f64 {
     let (mut outside, mut inside) = (outside, inside);
     for _ in 0..BISECTIONS {
@@ -71,61 +89,72 @@ pub(crate) fn guided_intervals<S: Copy>(
     range: Interval,
     samples: usize,
     probe: impl Fn(f64) -> (bool, S),
-    apart: impl Fn([S; 3]) -> bool,
+    guide: impl Fn([S; 3]) -> PathBound,
 ) -> Result<Vec<Interval>, Interrupted> {
-    let mut probed: Vec<(f64, bool, S)> = Vec::with_capacity(samples.max(1) + 1);
+    let mut probed: Vec<Probed<S>> = Vec::with_capacity(samples.max(1) + 1);
     for parameter in range.split(samples.max(1)) {
         interrupt::check()?;
         let (inside, sample) = probe(parameter);
-        probed.push((parameter, inside, sample));
+        probed.push(Probed {
+            parameter,
+            inside,
+            sample,
+        });
     }
     let mut flags: Vec<(f64, bool)> = Vec::with_capacity(probed.len());
-    for (index, &(parameter, inside, sample)) in probed.iter().enumerate() {
-        if let Some(&(before, false, earlier)) = index.checked_sub(1).and_then(|at| probed.get(at))
-            && !inside
-        {
-            refine(
-                (before, earlier),
-                (parameter, sample),
-                0,
-                &probe,
-                &apart,
-                &mut flags,
-            )?;
+    for (index, &here) in probed.iter().enumerate() {
+        if let Some(&before) = index.checked_sub(1).and_then(|at| probed.get(at)) {
+            refine(before, here, 0, &probe, &guide, &mut flags)?;
         }
-        flags.push((parameter, inside));
+        flags.push((here.parameter, here.inside));
     }
     interrupt::check()?;
     Ok(runs(range, &flags, |parameter| probe(parameter).0))
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Probed<S> {
+    parameter: f64,
+    inside: bool,
+    sample: S,
+}
+
 fn refine<S: Copy>(
-    low: (f64, S),
-    high: (f64, S),
+    low: Probed<S>,
+    high: Probed<S>,
     depth: usize,
     probe: &impl Fn(f64) -> (bool, S),
-    apart: &impl Fn([S; 3]) -> bool,
+    guide: &impl Fn([S; 3]) -> PathBound,
     flags: &mut Vec<(f64, bool)>,
 ) -> Result<(), Interrupted> {
-    if depth >= MAX_REFINEMENT_DEPTH {
+    if depth >= MAX_REFINEMENT_DEPTH || (low.inside && high.inside) {
         return Ok(());
     }
-    let middle = 0.5 * (low.0 + high.0);
-    if middle <= low.0 || middle >= high.0 {
+    let parameter = 0.5 * (low.parameter + high.parameter);
+    if parameter <= low.parameter || parameter >= high.parameter {
         return Ok(());
     }
     interrupt::check()?;
-    let (inside, sample) = probe(middle);
-    if inside {
-        flags.push((middle, true));
-        return Ok(());
+    let (inside, sample) = probe(parameter);
+    let middle = Probed {
+        parameter,
+        inside,
+        sample,
+    };
+    let bound = guide([low.sample, sample, high.sample]);
+    let settled = if low.inside || high.inside {
+        bound != PathBound::TurnsAtBound
+    } else {
+        !inside && bound == PathBound::Misses
+    };
+    if !settled {
+        refine(low, middle, depth + 1, probe, guide, flags)?;
     }
-    if apart([low.1, sample, high.1]) {
-        return Ok(());
+    flags.push((parameter, inside));
+    if !settled {
+        refine(middle, high, depth + 1, probe, guide, flags)?;
     }
-    refine(low, (middle, sample), depth + 1, probe, apart, flags)?;
-    flags.push((middle, false));
-    refine((middle, sample), high, depth + 1, probe, apart, flags)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -163,13 +192,40 @@ mod tests {
         let range = Interval::new(0.0, 200.0).unwrap();
         let within = |t: f64| (33.0..=34.0).contains(&t);
         let probe = |t: f64| (within(t), t);
-        let apart = |[low, _, high]: [f64; 3]| high < 33.0 || low > 34.0;
+        let guide = |[low, _, high]: [f64; 3]| {
+            if high < 33.0 || low > 34.0 {
+                PathBound::Misses
+            } else {
+                PathBound::Monotone
+            }
+        };
 
-        let found = guided_intervals(range, 32, probe, apart).unwrap();
+        let found = guided_intervals(range, 32, probe, guide).unwrap();
 
         assert_eq!(found.len(), 1);
         assert!((found[0].start() - 33.0).abs() < 1e-9);
         assert!((found[0].end() - 34.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_run_hidden_between_an_outside_and_an_inside_sample_is_found_where_the_path_turns() {
+        let range = Interval::new(0.0, 8.0).unwrap();
+        let within = |t: f64| (0.5..=0.9).contains(&t) || t >= 1.5;
+        let probe = |t: f64| (within(t), t);
+        let guide = |[low, _, _]: [f64; 3]| {
+            if low < 1.5 {
+                PathBound::TurnsAtBound
+            } else {
+                PathBound::Monotone
+            }
+        };
+
+        let found = guided_intervals(range, 4, probe, guide).unwrap();
+
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!((found[0].start() - 0.5).abs() < 1e-9);
+        assert!((found[0].end() - 0.9).abs() < 1e-9);
+        assert!((found[1].start() - 1.5).abs() < 1e-9);
     }
 
     #[test]
@@ -181,7 +237,7 @@ mod tests {
             (false, t)
         };
 
-        let found = guided_intervals(range, 8, probe, |_| true).unwrap();
+        let found = guided_intervals(range, 8, probe, |_| PathBound::Misses).unwrap();
 
         assert!(found.is_empty());
         assert_eq!(probes.get(), 9 + 8);

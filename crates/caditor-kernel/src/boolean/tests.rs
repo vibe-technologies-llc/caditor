@@ -2212,3 +2212,22 @@ fn an_extruded_spline_turned_through_a_sphere_combines() {
         (ball_volume, exact_volume(&spline)),
     );
 }
+
+#[test]
+fn a_cuboid_turned_inside_a_sphere_combines() {
+    let ball = sphere(4.0);
+    let axis = Vector3::new(-0.6886281509365755, -0.5684649143297, -0.6006130816325264);
+    let offset = (
+        -0.20266307937174566,
+        0.14873445852408285,
+        0.07074752414040142,
+    );
+
+    let placed = moved(
+        rotated(cuboid(Vector3::new(4.0, 3.0, 2.0)), axis, 4.932315161399055),
+        offset,
+    );
+    let ball_volume = 4.0 / 3.0 * PI * 64.0;
+
+    check_every_operation("sphere and cuboid", &ball, &placed, (ball_volume, 24.0));
+}

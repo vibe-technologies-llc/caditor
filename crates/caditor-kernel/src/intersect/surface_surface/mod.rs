@@ -155,16 +155,17 @@ fn clip(
         let [first_uv, second_uv] = uv;
         (first.contains(first_uv) && second.contains(second_uv), uv)
     };
-    let misses = |[start, middle, end]: [[Point2; 2]; 3]| {
+    let bound = |[start, middle, end]: [[Point2; 2]; 3]| {
         let [first_start, second_start] = start;
         let [first_middle, second_middle] = middle;
         let [first_end, second_end] = end;
-        first.path_misses([first_start, first_middle, first_end])
-            || second.path_misses([second_start, second_middle, second_end])
+        first
+            .path_bound([first_start, first_middle, first_end])
+            .and(second.path_bound([second_start, second_middle, second_end]))
     };
     let mut pieces: Vec<Interval> = Vec::new();
     for span in spans_within(&raw.curve, raw.range, &reach) {
-        pieces.extend(guided_intervals(span, CLIP_SAMPLES, probe, misses)?);
+        pieces.extend(guided_intervals(span, CLIP_SAMPLES, probe, bound)?);
     }
     let whole_period = raw
         .curve

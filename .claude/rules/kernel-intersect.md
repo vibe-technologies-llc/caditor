@@ -20,7 +20,11 @@ paths:
   whose grid points within the resolution of the other patch's box number fewer than the four
   shared points needed is not coincident (`reaching`), since only those can be shared.
 - Clipping (`clip.rs`) does not depend on sample spacing: a piece between two outside samples is
-  refined unless a bound on its path misses the patch; ends are then bisected exactly. Guided
+  refined unless a bound on its path misses the patch (`PathBound::Misses`), and a piece between an
+  outside and an inside sample is refined while its path turns in u or v where its bound reaches the
+  patch's edge (`TurnsAtBound`): a path monotone in both holds at most one inside run, but a circle
+  cutting a face's corner and grazing the side beyond it hid a short arc between the two samples.
+  Ends are then bisected exactly. Guided
   clipping polls `interrupt::check` before every sample and probe; a branch's probes project from
   the previous probe's foot.
 - Points within `LINEAR_RESOLUTION` are one point; one at a range end takes the exact end

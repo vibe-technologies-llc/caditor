@@ -931,7 +931,7 @@ fn finish(
                             let uv = patch.place(probe.curve.point(parameter));
                             (patch.contains(uv), uv)
                         },
-                        |path| patch.path_misses(path),
+                        |path| patch.path_bound(path),
                     )?,
                     None => vec![extent],
                 };
