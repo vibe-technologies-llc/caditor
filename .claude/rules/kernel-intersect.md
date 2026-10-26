@@ -129,9 +129,16 @@ paths:
     stays within `MAX_TURN` of the heading (`heads_along`): where two branches nearly cross (two
     cones whose normals come within 0.004 of each other), their arms lie within the sagitta of a
     chord straight across the neck, and only the direction there, swinging round between the arms,
-    shows the step left its own branch. A step landing outside the patches whose exit lies behind
-    the current point is retried at half length, so a branch dipping into a patch for less than a
-    step is followed.
+    shows the step left its own branch. A branch keeps its orientation, the sign taking the
+    normals' cross product to its heading, which cannot change along an arm whose normals never
+    turn parallel: a step landing where the opposite sign heads on is taken only when the normals
+    turn parallel between where the surfaces meet (`parallel_normals`, Newton for a point under
+    which the other surface lies along both normals, within the resolution and the step of the
+    chord's middle), as a branch passing through a tangent point does (Viviani's curve). Two tori
+    turned across each other near where their equators meet have arms passing within a step of
+    each other there, and a step from one arm onto the other ahead passed every chord check. A
+    step landing outside the patches whose exit lies behind the current point is retried at half
+    length, so a branch dipping into a patch for less than a step is followed.
   - A branch whose `IntersectionCurve` cannot be refined fails the intersection as `Unrefined`
     (`kernel.md`); the boolean takes its point as the error's site, so the curve is named where it
     strays instead of the solid failing validation. A branch whose contacts collapse to too few

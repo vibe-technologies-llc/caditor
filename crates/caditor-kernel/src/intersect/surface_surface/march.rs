@@ -8,7 +8,7 @@ use crate::{
         IntersectionError, SurfacePatch, boxes_overlap, parameter_slack,
         solve::{
             Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
-            refine_contact, refine_on_plane, uv_direction,
+            parallel_normals, refine_contact, refine_on_plane, uv_direction,
         },
         surface_surface::{Raw, RawCurve, RawPoint, recognize::recognize},
         wrap_into,
@@ -517,11 +517,12 @@ impl<'a> Tracer<'a> {
         if sine < STOP_SINE {
             return Err(Stalled::Tangent);
         }
-        let direction = if direction.dot(tangent) < 0.0 {
-            -direction
+        let orientation = if direction.dot(tangent) < 0.0 {
+            -1.0
         } else {
-            direction
+            1.0
         };
+        let direction = direction * orientation;
         let [first, second] = surfaces;
         let [uv_first, uv_second] = current.uv;
         let (first_derivatives, second_derivatives) = (
@@ -538,8 +539,10 @@ impl<'a> Tracer<'a> {
             ];
             let check = |contact: Contact| {
                 let (next, _) = contact_direction(surfaces, &contact)?;
+                let next = next * orientation;
                 let next = if next.dot(direction) < 0.0 {
-                    -next
+                    self.touches_between(current, &contact, h)
+                        .then_some(-next)?
                 } else {
                     next
                 };
@@ -573,7 +576,7 @@ impl<'a> Tracer<'a> {
                 Some(contact) => check(contact),
                 None if !boundary_tried && !self.inside(&ahead) => {
                     boundary_tried = true;
-                    self.boundary_within(current, &ahead, direction)?
+                    self.boundary_within(current, &ahead, direction, orientation)?
                         .or_else(|| {
                             carried_on_plane(surfaces, guess, predicted, direction).and_then(check)
                         })
@@ -595,6 +598,7 @@ impl<'a> Tracer<'a> {
         current: &Contact,
         ahead: &Contact,
         direction: Vector3,
+        orientation: f64,
     ) -> Result<Option<Step>, Stalled> {
         let Some(contact) = self
             .crossing_bound(current, ahead)
@@ -613,11 +617,7 @@ impl<'a> Tracer<'a> {
         let Some((next, _)) = contact_direction(self.surfaces(), &contact) else {
             return Ok(None);
         };
-        let next = if next.dot(direction) < 0.0 {
-            -next
-        } else {
-            next
-        };
+        let next = next * orientation;
         let turn = angle_between(direction, next);
         let follows = turn <= MAX_TURN && self.hugs_chord(current, &contact, direction, reach);
         Ok(follows.then_some(Step {
@@ -650,6 +650,20 @@ impl<'a> Tracer<'a> {
                     && self.heads_along(&found, direction)
             })
         })
+    }
+
+    fn touches_between(&self, from: &Contact, to: &Contact, step: f64) -> bool {
+        let [from_first, from_second] = from.uv;
+        let [to_first, to_second] = to.uv;
+        let middle = from.point.lerp(to.point, 0.5);
+        parallel_normals(
+            self.surfaces(),
+            [
+                from_first.lerp(to_first, 0.5),
+                from_second.lerp(to_second, 0.5),
+            ],
+        )
+        .is_some_and(|touch| touch.gap <= TOLERANCE && touch.point.distance(middle) <= step)
     }
 
     fn heads_along(&self, contact: &Contact, direction: Vector3) -> bool {

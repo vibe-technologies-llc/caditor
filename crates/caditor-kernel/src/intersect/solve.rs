@@ -20,6 +20,7 @@ const SHRINK: f64 = 0.381_966_011_250_105_1;
 const MINIMUM_PRECISION: f64 = 1e-10;
 const MINIMUM_FLOOR: f64 = 1e-14;
 const COEFFICIENT_FLOOR: f64 = 1e-15;
+const PARALLEL_SINE: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Contact {
@@ -437,6 +438,133 @@ pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> (
         }
     }
     (uv_of(state), current.gap())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Touch {
+    pub point: Point3,
+    pub gap: f64,
+}
+
+struct Parallel {
+    rows: [[f64; 4]; 4],
+    values: [f64; 4],
+    first: SurfaceDerivatives,
+    second: SurfaceDerivatives,
+}
+
+impl Parallel {
+    fn merit(&self) -> f64 {
+        self.values.iter().map(|value| value * value).sum()
+    }
+
+    fn touch(&self) -> Touch {
+        Touch {
+            point: self.first.point.lerp(self.second.point, 0.5),
+            gap: self.first.point.distance(self.second.point),
+        }
+    }
+}
+
+fn parallel_system(surfaces: [&Surface; 2], state: [f64; 4]) -> Parallel {
+    let [a, b] = surfaces;
+    let [u1, v1, u2, v2] = state;
+    let first = a.evaluate(u1, v1);
+    let second = b.evaluate(u2, v2);
+    let gap = first.point - second.point;
+    let normal = second.du.cross(second.dv);
+    let normal_u = second.duu.cross(second.dv) + second.du.cross(second.duv);
+    let normal_v = second.duv.cross(second.dv) + second.du.cross(second.dvv);
+    let rows = [
+        [
+            first.du.dot(second.du),
+            first.dv.dot(second.du),
+            gap.dot(second.duu) - second.du.dot(second.du),
+            gap.dot(second.duv) - second.dv.dot(second.du),
+        ],
+        [
+            first.du.dot(second.dv),
+            first.dv.dot(second.dv),
+            gap.dot(second.duv) - second.du.dot(second.dv),
+            gap.dot(second.dvv) - second.dv.dot(second.dv),
+        ],
+        [
+            normal.dot(first.duu),
+            normal.dot(first.duv),
+            normal_u.dot(first.du),
+            normal_v.dot(first.du),
+        ],
+        [
+            normal.dot(first.duv),
+            normal.dot(first.dvv),
+            normal_u.dot(first.dv),
+            normal_v.dot(first.dv),
+        ],
+    ];
+    let values = [
+        gap.dot(second.du),
+        gap.dot(second.dv),
+        normal.dot(first.du),
+        normal.dot(first.dv),
+    ];
+    Parallel {
+        rows,
+        values,
+        first,
+        second,
+    }
+}
+
+pub(crate) fn parallel_normals(surfaces: [&Surface; 2], start: [Point2; 2]) -> Option<Touch> {
+    let mut state = clamp_state(surfaces, state_of(start));
+    if !state.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let origin = state;
+    let mut current = parallel_system(surfaces, state);
+    for _ in 0..MAX_CONTACT_ITERATIONS {
+        let Some(step) = minimal_norm_step(&current.rows, &current.values) else {
+            break;
+        };
+        let mut scale = 1.0;
+        let mut accepted = None;
+        for _ in 0..MAX_HALVINGS {
+            let candidate = near_start(
+                surfaces,
+                clamp_state(surfaces, add(state, step, scale)),
+                origin,
+                Constraint::Free,
+            );
+            let next = parallel_system(surfaces, candidate);
+            if next.merit().is_finite() && next.merit() < current.merit() {
+                accepted = Some((candidate, next));
+                break;
+            }
+            scale *= 0.5;
+        }
+        let Some((next_state, next)) = accepted else {
+            break;
+        };
+        let moved = next_state
+            .iter()
+            .zip(state)
+            .map(|(after, before)| (after - before).abs() / (1.0 + before.abs()))
+            .fold(0.0, f64::max);
+        state = next_state;
+        current = next;
+        if moved <= STEP_EPSILON {
+            break;
+        }
+    }
+    let [first_normal, second_normal] = [
+        current.first.du.cross(current.first.dv).try_normalize()?,
+        current.second.du.cross(current.second.dv).try_normalize()?,
+    ];
+    let along = (current.first.point - current.second.point)
+        .reject_from_normalized(second_normal)
+        .length();
+    let parallel = first_normal.cross(second_normal).length() <= PARALLEL_SINE;
+    (parallel && along <= LINEAR_RESOLUTION).then(|| current.touch())
 }
 
 pub(crate) fn contact_normals(surfaces: [&Surface; 2], contact: &Contact) -> Option<[Vector3; 2]> {

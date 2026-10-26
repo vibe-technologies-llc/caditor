@@ -2282,3 +2282,44 @@ fn an_extruded_spline_and_a_cuboid_turned_slightly_combine() {
         (exact_volume(&spline), 24.0),
     );
 }
+
+#[test]
+fn tori_turned_across_each_other_near_where_their_equators_meet_combine() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
+    let placements = [
+        (
+            Vector3::new(
+                -0.6598075977661375,
+                -0.06503413080927256,
+                0.6122475003777845,
+            ),
+            1.244186960614265,
+            (
+                0.0005093400423527442,
+                0.00047730191502301446,
+                0.0003557653613017026,
+            ),
+        ),
+        (
+            Vector3::new(0.20219380170275603, -0.698880169079215, 0.9140205060775375),
+            2.123338146954657,
+            (
+                0.007475794882006569,
+                0.02158435876923826,
+                -0.008605695591988123,
+            ),
+        ),
+        (
+            Vector3::new(0.8172124765681794, 0.23258034295567542, -0.8876412599606651),
+            1.4926567594277302,
+            (-0.03448712712318014, 0.09063805847403328, 0.802715247944513),
+        ),
+    ];
+
+    for (axis, angle, offset) in placements {
+        let placed = moved(rotated(ring.clone(), axis, angle), offset);
+
+        check_every_operation("tori", &ring, &placed, (torus_volume, torus_volume));
+    }
+}
