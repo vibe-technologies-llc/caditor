@@ -59,7 +59,7 @@ env_logger = {
     features = ["auto-color", "humantime"]
 }
 glam = "0.34.1"
-graviola = "0.4.1"
+graviola = "0.4.2"
 half = { version = "2.7.1", default-features = false }
 image = {
     version = "0.25.10",
