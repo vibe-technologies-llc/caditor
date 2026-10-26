@@ -9,10 +9,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
-  (`Random::new(n)`, 7 to 19, 48 and 57) gave are pinned by tests and combine. Seeds 20 to 72 were
-  surveyed; seeds 42 (two extruded splines, `Open`), 52 (an extruded spline and the cuboid,
-  `Invalid`), 59 and 61 (an extruded spline and the hollow cuboid, `Invalid`)
-  and 69 (the same pair, `Open`) still fail, unpinned; seeds beyond 72 are unsurveyed. Tori that
+  (`Random::new(n)`, 7 to 19, 48, 52 and 57) gave are pinned by tests and combine; seeds 20 to 72
+  were surveyed and all combine, and seeds beyond 72 are unsurveyed. Tori that
   nearly coincide still fail when turned rather than shifted: a torus and its copy turned by 1e-5 to
   1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of seeding. Intersection curves
   crossing at a tangent point (tori touching along their equators, a face touching a torus's inner

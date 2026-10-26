@@ -2251,3 +2251,34 @@ fn a_cone_and_its_copy_turned_slightly_combine() {
 
     check_every_operation("cones", &first, &second, (cone_volume, cone_volume));
 }
+
+#[test]
+fn an_extruded_spline_and_a_cuboid_turned_slightly_combine() {
+    let spline = crate::fixtures::extruded_spline(5.0);
+    let axis = Vector3::new(
+        0.3822144759630175,
+        -0.17940459976383671,
+        -0.014633144636674977,
+    );
+    let offset = (
+        -0.34114415406059895,
+        -0.07945722590255982,
+        -0.19972952397924493,
+    );
+
+    let placed = moved(
+        rotated(
+            cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            axis,
+            0.013579748980076987,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "extruded spline and cuboid",
+        &spline,
+        &placed,
+        (exact_volume(&spline), 24.0),
+    );
+}

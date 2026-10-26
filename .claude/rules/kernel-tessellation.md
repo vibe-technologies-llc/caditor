@@ -8,7 +8,10 @@ paths:
 ## Sampling and triangulation
 
 - Each edge is sampled once; both faces share its positions. Edges use `Curve::sample_sparingly`:
-  adaptive samples seeded with 2×degree points per knot span are merged (`merged_parameters`, at
+  adaptive samples seeded with 2×degree points per knot span (a piece is halved while its middle
+  strays past the chord or its tangent turns past the angle, however short it is against the
+  chord: validation's coarse chord exceeded a whole body, so halving the angle never split a
+  spline chord crossing a nearby edge) are merged (`merged_parameters`, at
   most `MAX_MERGED_SAMPLES` into one) while a chord from the last kept sample holds every dropped
   sample and sub-span middle within the chord tolerance and angle, never across a tangent jump (a
   degree-1 spline's corners). The farthest dropped point is carried as a bound (plus how far the

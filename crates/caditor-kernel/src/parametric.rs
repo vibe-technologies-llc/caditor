@@ -3,7 +3,7 @@ use crate::{
     interrupt::{self, Interrupted},
     interval::Interval,
     numeric::{Taylor, integrate, minimize_near},
-    tolerance::SamplingTolerance,
+    tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
 };
 
 const MAX_SAMPLES: usize = 1 << 16;
@@ -333,7 +333,7 @@ fn split_at<C: Parametric>(
     }
     let center = Sampled::at(curve, middle);
     let span = low.point.distance_to(center.point) + center.point.distance_to(high.point);
-    if span <= tolerance.chord() {
+    if span <= LINEAR_RESOLUTION {
         return None;
     }
     let deviation = distance_to_segment(center.point, low.point, high.point);
