@@ -975,20 +975,15 @@ impl<'a> Tracer<'a> {
             (forward.contacts, true, Vec::new())
         } else {
             let backward = self.march(&seed.contact, false)?;
-            let mut ends = Vec::new();
-            if backward.tangent_end
-                && let Some(first) = backward.contacts.last()
-            {
-                ends.push(first.point);
+            if backward.closed {
+                (
+                    backward.contacts.into_iter().rev().collect(),
+                    true,
+                    Vec::new(),
+                )
+            } else {
+                joined(backward, forward)
             }
-            if forward.tangent_end
-                && let Some(last) = forward.contacts.last()
-            {
-                ends.push(last.point);
-            }
-            let mut contacts: Vec<Contact> = backward.contacts.into_iter().rev().collect();
-            contacts.extend(forward.contacts.into_iter().skip(1));
-            (contacts, false, ends)
         };
         self.points.extend(ends.into_iter().map(|point| RawPoint {
             point,
@@ -1019,6 +1014,23 @@ impl<'a> Tracer<'a> {
         self.curves.push((curve, bounds));
         Ok(())
     }
+}
+
+fn joined(backward: Marched, forward: Marched) -> (Vec<Contact>, bool, Vec<Point3>) {
+    let mut ends = Vec::new();
+    if backward.tangent_end
+        && let Some(first) = backward.contacts.last()
+    {
+        ends.push(first.point);
+    }
+    if forward.tangent_end
+        && let Some(last) = forward.contacts.last()
+    {
+        ends.push(last.point);
+    }
+    let mut contacts: Vec<Contact> = backward.contacts.into_iter().rev().collect();
+    contacts.extend(forward.contacts.into_iter().skip(1));
+    (contacts, false, ends)
 }
 
 fn halves_of_lobe(contacts: &[Contact], closed: bool) -> Vec<&[Contact]> {
