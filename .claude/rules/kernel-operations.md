@@ -326,7 +326,15 @@ paths:
   at a shallow angle instead: it is split where it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim
   1.5e-6 off its bore's axis was otherwise split where it came within the resolution, far from the
   walls' crossing). A piece of an edge lying on a face is a cut of it when its middle lies strictly
-  inside the face (`OverlapCuts::AtMiddle`), or on the retry when some of `INSIDE_SAMPLES` lies
+  inside the face, unless the edge only lies within the resolution's band of a face its own faces
+  meet elsewhere (`met_elsewhere`): every face of the edge differs from that face's surface, runs
+  along it (normals within `ALONG_SINE`), and meets it in branches, one passing through an end of
+  the piece and none through its middle. A torus's seam on its equator, beside its copy turned
+  3e-4 radians, starts where the equator sections cross it and drifts 8.7e-4 from them while staying
+  2.6e-7 from the copy; cut, it left a sliver whose edge four fragments used (`NonManifold`). A
+  plug's seam running beside the line where its wall crosses its bore's meets no branch at its
+  ends and stays a cut, so the twin strips below decide it. The middle's rule is
+  `OverlapCuts::AtMiddle`; on the retry a piece cuts when some of `INSIDE_SAMPLES` lies
   strictly inside and none outside (`WhereverInside`: a crescent rising past the resolution only
   near its end, a plug 1.1e-6 off its bore's axis). The middle stays the first rule, since a whole
   rim rising past the resolution in one bulge beside coincident walls must not cut. A branch piece is kept when no sample along it lies outside either

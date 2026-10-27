@@ -31,6 +31,7 @@ const CROSSING_SAMPLES: usize = 16;
 const CROSSING_SIDE: f64 = 0.5 * TOLERANCE;
 const CROSSING_FLOOR: f64 = 0.1 * TOLERANCE;
 const CROSSING_BISECTIONS: usize = 60;
+const ALONG_SINE: f64 = 1e-2;
 
 type Mark = (f64, Option<usize>);
 
@@ -325,7 +326,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         split_edges(input, operand, ids, &pool, &mut arrangement, &mut merged)?;
     }
     for overlap in &overlaps {
-        add_overlap_cuts(input, overlap, &mut arrangement);
+        add_overlap_cuts(input, overlap, &branches, &mut arrangement);
     }
     for branch in &branches {
         interrupt::check()?;
@@ -697,7 +698,12 @@ fn lies_on(surface: &Surface, curve: &Curve, range: Interval) -> bool {
         .all(|fraction| surface.distance(curve.point(range.at(*fraction))) <= TOLERANCE)
 }
 
-fn add_overlap_cuts(input: &Input, overlap: &Overlap, arrangement: &mut Arrangement) {
+fn add_overlap_cuts(
+    input: &Input,
+    overlap: &Overlap,
+    branches: &[Branch],
+    arrangement: &mut Arrangement,
+) {
     let (Some(face), Some(bounds)) = (input.face(overlap.face), input.bounds(overlap.face)) else {
         return;
     };
@@ -713,7 +719,10 @@ fn add_overlap_cuts(input: &Input, overlap: &Overlap, arrangement: &mut Arrangem
         if middle < overlap.range.start() - slack || middle > overlap.range.end() + slack {
             continue;
         }
-        if !lies_on(surface, curve, data.interval) {
+        let ends = [data.interval.start(), data.interval.end()].map(|end| curve.point(end));
+        if !lies_on(surface, curve, data.interval)
+            || met_elsewhere(input, overlap, branches, curve.point(middle), ends)
+        {
             continue;
         }
         let containment = |fraction: f64| {
@@ -739,6 +748,58 @@ fn add_overlap_cuts(input: &Input, overlap: &Overlap, arrangement: &mut Arrangem
         .entry(overlap.face)
         .or_default()
         .extend(cuts);
+}
+
+fn met_elsewhere(
+    input: &Input,
+    overlap: &Overlap,
+    branches: &[Branch],
+    middle: Point3,
+    ends: [Point3; 2],
+) -> bool {
+    let (operand, edge) = overlap.edge;
+    let Some(surface) = input.face(overlap.face).map(|face| face.surface()) else {
+        return false;
+    };
+    let faces = edge_face_keys(input.solid(operand), operand, edge);
+    !faces.is_empty()
+        && faces.iter().all(|key| {
+            let Some(own) = input.face(*key) else {
+                return false;
+            };
+            if own.surface().same_surface(surface).is_some()
+                || !along_each_other(own.surface(), surface, middle)
+            {
+                return false;
+            }
+            let meeting: Vec<&Branch> = branches
+                .iter()
+                .filter(|branch| branch.faces.contains(key) && branch.faces.contains(&overlap.face))
+                .collect();
+            meeting
+                .iter()
+                .any(|branch| ends.iter().any(|end| on_branch(branch, *end)))
+                && meeting.iter().all(|branch| !on_branch(branch, middle))
+        })
+}
+
+fn on_branch(branch: &Branch, point: Point3) -> bool {
+    let curve = &branch.branch.curve;
+    let range = branch.branch.range;
+    curve
+        .point(curve.closest_parameter(point, range))
+        .distance(point)
+        <= TOLERANCE
+}
+
+fn along_each_other(first: &Surface, second: &Surface, point: Point3) -> bool {
+    let [first, second] = [first, second].map(|surface| {
+        let uv = surface.project(point, None);
+        surface.normal(uv.x, uv.y)
+    });
+    first
+        .zip(second)
+        .is_some_and(|(first, second)| first.cross(second).length() <= ALONG_SINE)
 }
 
 fn face_uvs(

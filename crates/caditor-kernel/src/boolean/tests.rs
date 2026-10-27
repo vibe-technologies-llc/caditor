@@ -2357,16 +2357,18 @@ fn a_cone_turned_about_the_base_centre_it_shares_with_a_cylinder_combines() {
 }
 
 #[test]
-fn a_torus_and_its_copy_turned_a_thousandth_of_a_radian_combine() {
+fn a_torus_and_its_copy_turned_a_few_ten_thousandths_of_a_radian_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
 
-    for axis in [
-        Vector3::new(-0.77, 0.4, 0.23),
-        Vector3::new(0.3, -0.7, 0.4),
-        Vector3::new(0.6, -0.39, -0.79),
+    for (axis, angle) in [
+        (Vector3::new(-0.77, 0.4, 0.23), 1e-3),
+        (Vector3::new(0.3, -0.7, 0.4), 1e-3),
+        (Vector3::new(0.6, -0.39, -0.79), 1e-3),
+        (Vector3::new(-0.73, 0.777, -0.018), 3e-4),
+        (Vector3::new(-0.77, 0.4, 0.23), 3e-4),
     ] {
-        let placed = rotated(ring.clone(), axis, 1e-3);
+        let placed = rotated(ring.clone(), axis, angle);
 
         let [union, difference, common] = [
             BooleanOperation::Union,

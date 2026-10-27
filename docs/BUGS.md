@@ -11,15 +11,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82 and 85) gave are pinned by tests and
   combine. Seeds 20 to 112 were surveyed and all combine; seeds beyond 112 are unsurveyed. Tori that
-  nearly coincide still fail when turned rather than shifted by less than about 1e-3 radians: a
-  torus and its copy turned 1e-3 about any of six random axes combine
-  (`a_torus_and_its_copy_turned_a_thousandth_of_a_radian_combine`), but at 3e-4 the difference is
-  `NonManifold` (on two of the axes the union and intersection are `Invalid` too), and from 1e-4 to
-  1e-5 nearly every operation is `Ambiguous`, `Open`, `Split` or `NonManifold`. Their intersection is the two equators and the two meridian
-  circles in the plane of the axis, crossing where the surfaces touch; from 1e-4 the marcher stops
-  at those tangent points and misses stretches of the curves (at 1e-4, half the inner equator and
-  most of one meridian). Turned about a diameter through the face's own vertex on its seams (the X
-  axis), 1e-3 fails too, `Invalid` as an edge 1.03e-6 off its face. A lump too thin for the
+  nearly coincide still fail when turned rather than shifted by less than about 3e-4 radians: a
+  torus and its copy turned 1e-3 or 3e-4 about any of six random axes combine
+  (`a_torus_and_its_copy_turned_a_few_ten_thousandths_of_a_radian_combine`), but at 1e-4 five of
+  the six fail every operation (`Ambiguous` or `Open`), and at 1e-5 all are `Ambiguous`, `Open`,
+  `Split` or `NonManifold`. Their intersection is the two equators and the two meridian circles in
+  the plane of the axis, crossing where the surfaces touch; from 1e-4 the marcher stops at those
+  tangent points and misses stretches of the curves (at 1e-4, half the inner equator and most of
+  one meridian). Turned about a diameter through the face's own vertex on its seams (the X axis),
+  1e-3 fails too, `Invalid` as an edge 1.03e-6 off its face. A lump too thin for the
   validation mesh is refused as invalid: the difference of a torus and its copy shifted
   1e-5 along each axis is `Invalid(VoidOutside)`, with no test pinning it.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
