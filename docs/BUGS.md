@@ -9,19 +9,19 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
-  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82 and 85) gave are pinned by tests and
-  combine. Seeds 20 to 200 were surveyed and all combine but four, each failing every operation
-  unless noted: seed 160's hollow cuboid and cylinder (`Open`), 161's extruded spline and torus
-  (`Split`), 163's frustum and sphere moved by about 5e-5 (`Invalid`, union and difference) and
-  178's hollow cuboid and torus (`Split`); seeds beyond 200 are unsurveyed. Tori that nearly
-  coincide still fail when turned rather than shifted by less than about 1e-4 radians: a torus and its copy turned 1e-4 about three random axes and X
-  combine (`a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine`), but about
-  (0.9, 0.1, 0.42) every operation is `Open` and about Y the difference is `NonManifold` at the
-  outer equator's crossing of the seam, while at 1e-5 every operation about each of eight axes is
-  `Ambiguous` or `Split`. Their intersection is the two equators and the two meridian circles in
-  the plane of the axis, crossing where the surfaces touch; at 1e-4 the marcher finds all of it,
-  so what fails is downstream of it. A lump too thin for the validation mesh is refused as invalid:
-  the difference of a torus and its copy shifted 1e-5 along each axis is `Invalid(VoidOutside)`, with no test pinning it.
+  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 161, 163 and 178) gave are pinned by tests
+  and combine. Seeds 20 to 200 were surveyed and all combine but seed 160, whose hollow cuboid and
+  cylinder are `Open` in every operation; seeds beyond 200 are unsurveyed. Tori that nearly coincide
+  still fail when turned rather than shifted by less than about 1e-4 radians: a torus and its copy
+  turned 1e-4 about three random axes and X combine
+  (`a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine`), but about (0.9, 0.1,
+  0.42) every operation is `Open` and about Y the difference is `NonManifold` at the outer equator's
+  crossing of the seam, while at 1e-5 every operation about each of eight axes is `Ambiguous` or
+  `Split`. Their intersection is the two equators and the two meridian circles in the plane of the
+  axis, crossing where the surfaces touch; at 1e-4 the marcher finds all of it, so what fails is
+  downstream of it. A lump too thin for the validation mesh is refused as invalid: the difference of
+  a torus and its copy shifted 1e-5 along each axis is `Invalid(VoidOutside)`, with no test pinning
+  it.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

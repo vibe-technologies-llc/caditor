@@ -2395,3 +2395,65 @@ fn a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine() {
         );
     }
 }
+
+#[test]
+fn a_sphere_whose_equator_runs_beside_a_frustum_rim_combines() {
+    let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let axis = Vector3::new(
+        -0.16116528721119883,
+        0.01911106008763208,
+        -0.4114711235680033,
+    );
+    let offset = (
+        -4.530024921396879e-5,
+        -1.0764364467463704e-5,
+        2.7336288990977738e-5,
+    );
+
+    let ball = moved(rotated(sphere(4.0), axis, 3.777623236123466), offset);
+
+    check_every_operation(
+        "frustum and sphere",
+        &frustum,
+        &ball,
+        (140.0 * PI / 3.0, 256.0 * PI / 3.0),
+    );
+}
+
+#[test]
+fn a_torus_turned_through_an_extruded_spline_or_a_hollow_cuboid_combines() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
+    let placements = [
+        (
+            crate::fixtures::extruded_spline(5.0),
+            Vector3::new(0.5804480597578692, 0.3657111397909918, -0.6245018440169248),
+            5.480646738694275,
+            (
+                -0.1839658185001613,
+                -0.2588983992083174,
+                0.31721127960702045,
+            ),
+        ),
+        (
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            Vector3::new(
+                0.5841898720115044,
+                0.16008670497741706,
+                -0.004016493517353448,
+            ),
+            4.258069504321233,
+            (
+                -0.3064743385023877,
+                0.12955411122553295,
+                -0.9214308686006696,
+            ),
+        ),
+    ];
+
+    for (body, axis, angle, offset) in placements {
+        let placed = moved(rotated(ring.clone(), axis, angle), offset);
+
+        check_every_operation("torus", &body, &placed, (exact_volume(&body), torus_volume));
+    }
+}

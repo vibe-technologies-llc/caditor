@@ -15,7 +15,7 @@ use crate::{
     interval::Interval,
     sense::Sense,
     surface::Surface,
-    topology::fit_pcurve,
+    topology::{Pcurve, PcurveError, fit_pcurve, signed_area},
 };
 
 const PARAMETER_MATCH: f64 = 1e-9;
@@ -341,6 +341,7 @@ fn heal_edges(arrangement: &mut Arrangement, faces: &mut [KeptFace]) -> Result<(
                 }
                 if replaced {
                     snap_ends(arrangement, &face.surface, &mut traced.coedges);
+                    traced.area = signed_area(&traced.polygon());
                 }
             }
         }
@@ -397,9 +398,13 @@ fn replace_pair(
     let Some(position) = position else {
         return Ok(false);
     };
-    let Some(current) = traced.coedges.get(position) else {
+    let (Some(current), Some(next)) = (
+        traced.coedges.get(position),
+        traced.coedges.get((position + 1) % count),
+    ) else {
         return Ok(false);
     };
+    let finest = current.pcurve.tolerance().min(next.pcurve.tolerance());
     let (old_curve, old_piece) = arrangement
         .curve(current.half_edge.piece)
         .ok_or_else(BooleanError::split)?;
@@ -414,6 +419,7 @@ fn replace_pair(
         sense,
         Some(current.pcurve.start()),
     )
+    .and_then(|pcurve| sharpened_to(pcurve, surface, curve, finest))
     .map_err(BooleanError::unfitted)?;
     let coedge = Coedge {
         half_edge: HalfEdge::new(merged, sense, Some(pcurve.start())),
@@ -432,6 +438,18 @@ fn replace_pair(
         }
     }
     Ok(true)
+}
+
+fn sharpened_to(
+    pcurve: Pcurve,
+    surface: &Surface,
+    curve: &Curve,
+    tolerance: f64,
+) -> Result<Pcurve, PcurveError> {
+    if pcurve.tolerance() <= tolerance {
+        return Ok(pcurve);
+    }
+    pcurve.refined_within(surface, curve, tolerance)
 }
 
 fn far_end(piece: &Piece, vertex: usize) -> usize {
