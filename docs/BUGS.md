@@ -11,11 +11,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82 and 85) gave are pinned by tests and
   combine. Seeds 20 to 112 were surveyed and all combine; seeds beyond 112 are unsurveyed. Tori that
-  nearly coincide still fail when turned rather than shifted: a torus and its copy turned by 1e-5 to
-  1e-3 radians are `Ambiguous` or `Split`, each after about 0.7 s of seeding. Intersection curves
-  crossing at a tangent point (tori touching along their equators, a face touching a torus's inner
-  equator) cannot be split (`tori_touching_along_their_equators_cannot_be_split`), and a lump too
-  thin for the validation mesh is refused as invalid: the difference of a torus and its copy shifted
+  nearly coincide still fail when turned rather than shifted by less than about 1e-3 radians: a
+  torus and its copy turned 1e-3 about any of six random axes combine
+  (`a_torus_and_its_copy_turned_a_thousandth_of_a_radian_combine`), but at 3e-4 the difference is
+  `NonManifold` (on two of the axes the union and intersection are `Invalid` too), and from 1e-4 to
+  1e-5 nearly every operation is `Ambiguous`, `Open`, `Split` or `NonManifold`. Their intersection is the two equators and the two meridian
+  circles in the plane of the axis, crossing where the surfaces touch; from 1e-4 the marcher stops
+  at those tangent points and misses stretches of the curves (at 1e-4, half the inner equator and
+  most of one meridian). Turned about a diameter through the face's own vertex on its seams (the X
+  axis), 1e-3 fails too, `Invalid` as an edge 1.03e-6 off its face. A lump too thin for the
+  validation mesh is refused as invalid: the difference of a torus and its copy shifted
   1e-5 along each axis is `Invalid(VoidOutside)`, with no test pinning it.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a

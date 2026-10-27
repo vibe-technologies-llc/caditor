@@ -317,7 +317,10 @@ paths:
   result included, still runs. `Input::with_carrying(.., false)` runs the full pipeline;
   `carry_tests.rs` compares the two.
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face-face branch is split
-  at the pooled vertices on it. An edge found lying on the other solid's surface that passes from
+  at the pooled vertices on it. Where two branches of one face pair cross (sections meeting where
+  the surfaces touch: tori whose equators touch, a torus and its copy turned a little, whose
+  equators cross the meridians in the plane of the turn), the crossing inside both faces is pooled
+  too (`branch_crossings`), so both branches split there and tracing has a vertex to turn at. An edge found lying on the other solid's surface that passes from
   one side of it to the other (at least `CROSSING_SIDE`, half the resolution, off at one end,
   `CROSSING_FLOOR`, a tenth, at the other, and changing side once, `shallow_crossing`) crosses it
   at a shallow angle instead: it is split where it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim

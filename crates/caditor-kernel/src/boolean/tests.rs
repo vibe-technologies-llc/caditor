@@ -806,20 +806,30 @@ fn nearly_coincident_tori_combine() {
 }
 
 #[test]
-fn tori_touching_along_their_equators_cannot_be_split() {
+fn tori_whose_intersection_crosses_itself_where_their_equators_touch_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let beside = moved(ring.clone(), (4.0, 0.0, 0.0));
+    let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
 
-    let error = boolean(&ring, &beside, BooleanOperation::Union).unwrap_err();
-    let BooleanError::Split(site) = &error else {
-        panic!("{error:?}");
-    };
-    let point = site.point.unwrap();
+    let [union, difference, common] = [
+        BooleanOperation::Union,
+        BooleanOperation::Difference,
+        BooleanOperation::Intersection,
+    ]
+    .map(|operation| run(&ring, &beside, operation));
+    let [union, difference, common] = [&union, &difference, &common].map(|solid| {
+        assert_eq!(solid.validate(), Ok(()));
+        exact_volume(solid)
+    });
 
-    assert_eq!(site.first.len() + site.second.len(), 1);
+    assert!(common > 0.0 && difference > 0.0);
     assert!(
-        point.distance(Point3::new(8.0, 0.0, 0.0)) < 1e-3,
-        "{point:?}"
+        (union + common - 2.0 * torus_volume).abs() <= 1e-6 * torus_volume,
+        "union {union} and intersection {common}"
+    );
+    assert!(
+        (union - common - 2.0 * difference).abs() <= 1e-6 * torus_volume,
+        "union {union}, intersection {common}, difference {difference}"
     );
 }
 
@@ -2344,4 +2354,39 @@ fn a_cone_turned_about_the_base_centre_it_shares_with_a_cylinder_combines() {
     );
 
     check_every_operation("cylinder and cone", &post, &cone, (45.0 * PI, 12.0 * PI));
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_thousandth_of_a_radian_combine() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
+
+    for axis in [
+        Vector3::new(-0.77, 0.4, 0.23),
+        Vector3::new(0.3, -0.7, 0.4),
+        Vector3::new(0.6, -0.39, -0.79),
+    ] {
+        let placed = rotated(ring.clone(), axis, 1e-3);
+
+        let [union, difference, common] = [
+            BooleanOperation::Union,
+            BooleanOperation::Difference,
+            BooleanOperation::Intersection,
+        ]
+        .map(|operation| run(&ring, &placed, operation));
+        let [union, difference, common] = [&union, &difference, &common].map(|solid| {
+            assert_eq!(solid.validate(), Ok(()), "{axis:?}");
+            exact_volume(solid)
+        });
+
+        assert!(difference > 0.0, "{axis:?}");
+        assert!(
+            (union + common - 2.0 * torus_volume).abs() <= 1e-6 * torus_volume,
+            "{axis:?}: union {union} and intersection {common}"
+        );
+        assert!(
+            (union - common - 2.0 * difference).abs() <= 1e-6 * torus_volume,
+            "{axis:?}: union {union}, intersection {common}, difference {difference}"
+        );
+    }
 }

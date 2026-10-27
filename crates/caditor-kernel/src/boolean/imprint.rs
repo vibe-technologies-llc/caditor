@@ -556,8 +556,16 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
             else {
                 continue;
             };
-            for point in points {
-                let [first_uv, second_uv] = point.uv;
+            let crossings = branch_crossings(&found)
+                .map_err(|error| BooleanError::from(error).or_faces(faces))?
+                .into_iter()
+                .map(|point| {
+                    let uv = [first_face.surface(), second_face.surface()]
+                        .map(|surface| surface.project(point, None));
+                    (point, uv)
+                });
+            let isolated = points.iter().map(|point| (point.point, point.uv));
+            for (point, [first_uv, second_uv]) in isolated.chain(crossings) {
                 let inside = touches(
                     input
                         .classifier(Operand::First)
@@ -568,13 +576,24 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
                         .point_in_face(second.id, second_uv),
                 );
                 if inside {
-                    pool.insert(point.point, None);
+                    pool.insert(point, None);
                 }
             }
             branches.extend(found.into_iter().map(|branch| Branch { faces, branch }));
         }
     }
     Ok(branches)
+}
+
+fn branch_crossings(branches: &[IntersectionBranch]) -> Result<Vec<Point3>, IntersectionError> {
+    let mut crossings = Vec::new();
+    for (index, first) in branches.iter().enumerate() {
+        for second in branches.iter().skip(index + 1) {
+            let found = intersect_curves(&first.curve, first.range, &second.curve, second.range)?;
+            crossings.extend(found.points.into_iter().map(|crossing| crossing.point));
+        }
+    }
+    Ok(crossings)
 }
 
 #[derive(Debug, Clone, Default)]
