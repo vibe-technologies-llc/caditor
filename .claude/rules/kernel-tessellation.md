@@ -167,15 +167,19 @@ paths:
 
 ## Retries and limits
 
-- A face boundary crossing itself is first parted where it crosses shallowly: each pair of
+- A face boundary crossing itself is first parted where it crosses: each pair of
   boundary segments crossing in uv within `SHALLOW_CROSSING` of parallel (`crossing_segments`, a box
   tree over the segments) has its longer segment bisected in the edge's shared sampling, up to
   `MAX_CROSSING_PARTINGS` rounds, and only the faces of the bisected edges are triangulated again.
   Two curves of one face running closer than the chord tolerance without meeting (a frustum's rim
-  passing 5e-5 mm from another frustum's cone) part by their own separation this way; a crossing
-  at a steep angle is a boundary that truly crosses, left to fail. Then it retries up to
-  `MAX_REFINEMENTS` times, halving chord and angle for the faces that crossed and the edges they
-  bound (an edge takes the finest tolerance of its faces), parting again after each; only what
-  changed is sampled or triangulated again.
+  passing 5e-5 mm from another frustum's cone) part by their own separation this way. A pair
+  crossing steeply has whichever segment bows farther from its curve at its middle bisected
+  instead (`more_bowed`), when that bow exceeds the resolution: a circle's chord sagging across a
+  vertex 2e-5 mm inside it where a straight edge meets it square (a cone turned about the base
+  centre it shares with a cylinder), where bisecting the longer, straight segment changed nothing.
+  A crossing whose segments both hold their curves truly crosses and is left to fail. Then it
+  retries up to `MAX_REFINEMENTS` times, halving chord and angle for the faces that crossed and the
+  edges they bound (an edge takes the finest tolerance of its faces), parting again after each;
+  only what changed is sampled or triangulated again.
 - A mesh holds at most `MAX_POINTS`, counted before insertion; more fails as `TooLarge`, which
   export names as a body too fine for the resolution.

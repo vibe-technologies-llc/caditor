@@ -444,7 +444,7 @@ pub(crate) fn crossing_segments(
         .ok_or(TessellationError::MissingEntity)?;
     let segments = boundary_segments(solid, face, samplings)?;
     let tree = BoxTree::new(segments.iter().map(BoundarySegment::uv_box));
-    let mut longer = BTreeSet::new();
+    let mut parted = BTreeSet::new();
     for (index, segment) in segments.iter().enumerate() {
         if index.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
@@ -453,20 +453,59 @@ pub(crate) fn crossing_segments(
             let Some(other) = segments.get(other_index) else {
                 return Err(TessellationError::MissingEntity);
             };
-            if other_index <= index
-                || !segment.crosses_shallowly(other)
-                || !segments_cross(segment.ends, other.ends)
-            {
+            if other_index <= index || !segments_cross(segment.ends, other.ends) {
                 continue;
             }
-            longer.insert(if other.length > segment.length {
-                other.piece
+            if segment.crosses_shallowly(other) {
+                parted.insert(if other.length > segment.length {
+                    other.piece
+                } else {
+                    segment.piece
+                });
             } else {
-                segment.piece
-            });
+                parted.extend(more_bowed(solid, samplings, [segment.piece, other.piece])?);
+            }
         }
     }
-    Ok(longer)
+    Ok(parted)
+}
+
+fn more_bowed(
+    solid: &Solid,
+    samplings: &[EdgeSampling],
+    pieces: [SegmentPiece; 2],
+) -> Result<Option<SegmentPiece>, TessellationError> {
+    let [first, second] = pieces.map(|piece| bow(solid, samplings, piece));
+    let (piece, bow) = if second? > first? {
+        (pieces[1], second?)
+    } else {
+        (pieces[0], first?)
+    };
+    Ok((bow > LINEAR_RESOLUTION).then_some(piece))
+}
+
+fn bow(
+    solid: &Solid,
+    samplings: &[EdgeSampling],
+    piece: SegmentPiece,
+) -> Result<f64, TessellationError> {
+    let edge = solid
+        .edge(piece.edge)
+        .ok_or(TessellationError::MissingEntity)?;
+    let sampling = samplings
+        .get(piece.edge.index())
+        .ok_or(TessellationError::MissingEntity)?;
+    let before = piece.after.wrapping_sub(1);
+    let (Some(low), Some(high), Some(from), Some(to)) = (
+        sampling.parameters.get(before),
+        sampling.parameters.get(piece.after),
+        sampling.points.get(before),
+        sampling.points.get(piece.after),
+    ) else {
+        return Err(TessellationError::MissingEntity);
+    };
+    let middle = edge.curve().point(0.5 * (low + high));
+    Ok(middle.distance(from.midpoint(*to)))
 }
 
 fn boundary_segments(

@@ -2323,3 +2323,25 @@ fn tori_turned_across_each_other_near_where_their_equators_meet_combine() {
         check_every_operation("tori", &ring, &placed, (torus_volume, torus_volume));
     }
 }
+
+#[test]
+fn a_cone_turned_about_the_base_centre_it_shares_with_a_cylinder_combines() {
+    let post = crate::fixtures::cylinder(3.0, 5.0);
+    let axis = Vector3::new(
+        -0.8453258233452507,
+        0.6898363958833915,
+        -0.26766354317036867,
+    );
+    let offset = (
+        3.732710190826075e-5,
+        9.527180204781319e-5,
+        -7.387716156540947e-5,
+    );
+
+    let cone = moved(
+        rotated(crate::fixtures::cone(3.0, 4.0), axis, 5.434317466286252),
+        offset,
+    );
+
+    check_every_operation("cylinder and cone", &post, &cone, (45.0 * PI, 12.0 * PI));
+}
