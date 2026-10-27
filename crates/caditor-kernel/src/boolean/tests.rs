@@ -2381,6 +2381,8 @@ fn a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine(
         (Vector3::new(-0.849, 0.87, -0.579), 1e-5),
         (Vector3::new(-0.361, 0.063, 0.656), 1e-5),
         (Vector3::new(0.147, -0.556, -0.003), 1e-5),
+        (Vector3::new(-0.4348, 0.1149, 0.2135), 1e-5),
+        (Vector3::new(-0.648, 0.2877, 0.8397), 1e-5),
     ] {
         let placed = rotated(ring.clone(), axis, angle);
 

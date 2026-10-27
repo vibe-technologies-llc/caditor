@@ -583,6 +583,45 @@ pub(crate) fn contact_direction(
     across.try_normalize().map(|direction| (direction, sine))
 }
 
+pub(crate) fn crossing_directions(
+    surfaces: [&Surface; 2],
+    contact: &Contact,
+) -> Option<[Vector3; 2]> {
+    let [a, b] = surfaces;
+    let [first_uv, second_uv] = contact.uv;
+    let derivatives = [
+        a.evaluate(first_uv.x, first_uv.y),
+        b.evaluate(second_uv.x, second_uv.y),
+    ];
+    let [first, second] = &derivatives;
+    let normal = first.normal()?;
+    let across = first.du.reject_from_normalized(normal).try_normalize()?;
+    let up = normal.cross(across);
+    let bend = |derivatives: &SurfaceDerivatives, direction: Vector3| {
+        let step = uv_direction(derivatives, direction);
+        normal.dot(
+            derivatives.duu * (step.x * step.x)
+                + derivatives.duv * (2.0 * step.x * step.y)
+                + derivatives.dvv * (step.y * step.y),
+        )
+    };
+    let gap = |direction: Vector3| bend(first, direction) - bend(second, direction);
+    let (along_across, along_up) = (gap(across), gap(up));
+    let mixed = 0.5 * (gap(across + up) - along_across - along_up);
+    let discriminant = mixed * mixed - along_across * along_up;
+    if !discriminant.is_finite() || discriminant <= 0.0 {
+        return None;
+    }
+    let root = discriminant.sqrt();
+    let directions = if along_across.abs() >= along_up.abs() {
+        [-mixed + root, -mixed - root].map(|x| across * x + up * along_across)
+    } else {
+        [-mixed + root, -mixed - root].map(|y| across * along_up + up * y)
+    };
+    let [first_direction, second_direction] = directions.map(Vector3::try_normalize);
+    Some([first_direction?, second_direction?])
+}
+
 pub(crate) fn uv_direction(derivatives: &SurfaceDerivatives, direction: Vector3) -> Vector2 {
     let (a, b, c) = (
         derivatives.du.dot(derivatives.du),

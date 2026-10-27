@@ -118,6 +118,18 @@ paths:
     A loop the backward march closes is that loop, whatever the forward march did: the forward
     one can stall at a tangent point the backward one passes through (a torus and its copy turned
     1e-4 radians), and joining the two traced the loop and the stall's stretch again.
+    A step landing on a branch already traced ends instead at a tangent end of an earlier branch
+    lying on its chord (`tangent_end_between`, the chord test `touch_between` uses): turned 1e-5
+    radians, a torus and its copy meet in sines below `STOP_SINE` over about 0.3 either side of
+    where their equators touch, and an equator or meridian section seeded on its far side stepped
+    across that point unseen and merged into the section beyond it, ending 0.3 past it.
+  - A node where the normals are parallel (sine at most 1e-9, a tangent end) takes the null
+    direction of the difference of the two surfaces' second fundamental forms nearest its chord
+    (`crossing_directions`, within `MAX_SEGMENT_TURN`), the exact direction a branch leaves a
+    point where the surfaces touch, rather than the chord to its neighbour: that chord was 4.4e-5
+    off at the end of a torus's equator section, more than the trace's `ANGLE_TIE`, while the
+    section and the copy's seam leave that point 6.5e-6 apart, so the face was traced round the
+    wrong side of the sliver between them (`Split`).
     `end_on_boundary` drops contacts that slipped past the boundary within the inside test's slack,
     so a branch never ends with a backward hook whose node tangents point against the curve (which
     turns the boolean's trace the wrong way at that vertex).

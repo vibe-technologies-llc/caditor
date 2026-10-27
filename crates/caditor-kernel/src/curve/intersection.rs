@@ -12,7 +12,7 @@ use crate::{
     interrupt,
     intersect::{
         IntersectionError, RefineStop,
-        solve::{Contact, contact_direction, refine_on_plane},
+        solve::{Contact, contact_direction, crossing_directions, refine_on_plane},
     },
     interval::Interval,
     numeric::integrate,
@@ -126,6 +126,18 @@ fn segment_hull(start: &IntersectionNode, end: &IntersectionNode) -> Aabb {
         .including(end.point)
 }
 
+fn crossing_along(surfaces: [&Surface; 2], contact: &Contact, travel: Vector3) -> Option<Vector3> {
+    let travel = travel.try_normalize()?;
+    let [first, second] = crossing_directions(surfaces, contact)?;
+    let nearer = if first.dot(travel).abs() >= second.dot(travel).abs() {
+        first
+    } else {
+        second
+    };
+    (angle_between(nearer, travel).min(angle_between(-nearer, travel)) <= MAX_SEGMENT_TURN)
+        .then_some(nearer)
+}
+
 fn arc_estimate(start: Point3, start_tangent: Vector3, end: Point3, end_tangent: Vector3) -> f64 {
     let chord = start.distance(end);
     let turn = angle_between(start_tangent, end_tangent);
@@ -218,7 +230,9 @@ impl IntersectionCurve {
                 let travel = next.point - previous.point;
                 let tangent = contact_direction(pair, contact)
                     .filter(|(_, sine)| *sine > 1e-9)
-                    .map_or(travel.normalize_or_zero(), |(direction, _)| direction);
+                    .map(|(direction, _)| direction)
+                    .or_else(|| crossing_along(pair, contact, travel))
+                    .unwrap_or(travel.normalize_or_zero());
                 let tangent = if tangent.dot(travel) < 0.0 {
                     -tangent
                 } else {

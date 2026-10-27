@@ -489,19 +489,36 @@ impl<'a> Tracer<'a> {
     }
 
     fn touch_between(&self, from: &Contact, to: Point3) -> Option<Contact> {
+        self.on_chord(self.touches.iter().copied(), from, to)
+    }
+
+    fn tangent_end_between(&self, from: &Contact, to: Point3) -> Option<Contact> {
+        let ends = self
+            .points
+            .iter()
+            .filter(|point| point.tangent)
+            .map(|point| point.point);
+        self.on_chord(ends, from, to)
+    }
+
+    fn on_chord(
+        &self,
+        mut candidates: impl Iterator<Item = Point3>,
+        from: &Contact,
+        to: Point3,
+    ) -> Option<Contact> {
         let chord = to - from.point;
         let length = chord.length_squared();
         if length <= 0.0 {
             return None;
         }
-        self.touches
-            .iter()
+        candidates
             .find(|touch| {
-                let along = ((**touch - from.point).dot(chord) / length).clamp(0.0, 1.0);
+                let along = ((*touch - from.point).dot(chord) / length).clamp(0.0, 1.0);
                 let nearest = from.point + chord * along;
-                nearest.distance(**touch) <= TOUCH_SLACK * length.sqrt() + TOLERANCE
+                nearest.distance(*touch) <= TOUCH_SLACK * length.sqrt() + TOLERANCE
             })
-            .map(|touch| self.touch_contact(from, *touch))
+            .map(|touch| self.touch_contact(from, touch))
     }
 
     fn distance_to_branches(&self, point: Point3) -> f64 {
@@ -992,6 +1009,14 @@ impl<'a> Tracer<'a> {
                 });
             }
             let merged = self.distance_to_branches(next.contact.point) <= ON_BRANCH;
+            if merged && let Some(touch) = self.tangent_end_between(&current, next.contact.point) {
+                end_at_touch(&mut contacts, touch);
+                return Ok(Marched {
+                    contacts,
+                    closed: false,
+                    tangent_end: true,
+                });
+            }
             contacts.push(next.contact);
             tangent = next.tangent;
             if merged {

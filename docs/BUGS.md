@@ -11,14 +11,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163 and 178) gave are pinned by
   tests and combine. Seeds 20 to 200 were surveyed and all combine; seeds beyond 200 are unsurveyed.
-  Tori that nearly coincide still fail when turned rather than shifted by about 1e-5 radians: a
-  torus and its copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about four more,
+  Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
+  copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
-  they do about all ten axes `Random::new(7)` draws (components in -1 to 1) at 1e-4 and eight of
-  the next ten at 1e-5; turned 1e-5 about (-0.4348, 0.1149, 0.2135) and
-  (-0.6480, 0.2877, 0.8397) every operation is `Split` (a face could not be divided). Their
-  intersection is the two equators and the two meridian circles in the plane of the axis,
-  crossing where the surfaces touch. A lump too thin for the
+  they do about all ten axes `Random::new(7)` draws (components in -1 to 1) at 1e-4 and the next
+  ten at 1e-5; turns below 1e-5 and other draws are unsurveyed. A lump too thin for the
   validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
   each axis is `Invalid(VoidOutside)`, with no test pinning it.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
