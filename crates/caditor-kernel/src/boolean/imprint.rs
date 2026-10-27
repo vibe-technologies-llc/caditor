@@ -871,30 +871,59 @@ fn placement(input: &Input, branch: &Branch, interval: Interval) -> Placement {
     Placement::Touching
 }
 
-fn runs_along_edge(
+fn edge_bounds(input: &Input, (operand, edge): (Operand, EdgeId), face: FaceKey) -> bool {
+    let solid = input.solid(operand);
+    face.operand == operand
+        && solid.edge(edge).is_some_and(|edge| {
+            edge.coedges()
+                .iter()
+                .any(|coedge| solid.coedge_face(*coedge) == Some(face.face))
+        })
+}
+
+fn edges_along(
     arrangement: &Arrangement,
     merged: &Merged,
     curve: &Curve,
     interval: Interval,
     ends: [usize; 2],
-) -> bool {
+) -> Vec<(Operand, EdgeId)> {
     let unordered = |[a, b]: [usize; 2]| {
         let [a, b] = [merged.find(a), merged.find(b)];
         [a.min(b), a.max(b)]
     };
     let ends = unordered(ends);
-    arrangement.pieces.iter().any(|piece| {
-        let Some(source) = arrangement.source(piece.source) else {
-            return false;
-        };
-        source.edge.is_some()
-            && unordered([piece.start, piece.end]) == ends
-            && EDGE_SAMPLES.iter().all(|fraction| {
-                let point = curve.point(interval.at(*fraction));
-                let along = source.curve.closest_parameter(point, piece.interval);
-                source.curve.point(along).distance(point) <= SAME_EDGE
-            })
-    })
+    arrangement
+        .pieces
+        .iter()
+        .filter_map(|piece| {
+            let source = arrangement.source(piece.source)?;
+            let edge = source.edge?;
+            let along = unordered([piece.start, piece.end]) == ends
+                && EDGE_SAMPLES.iter().all(|fraction| {
+                    let point = curve.point(interval.at(*fraction));
+                    let along = source.curve.closest_parameter(point, piece.interval);
+                    source.curve.point(along).distance(point) <= SAME_EDGE
+                });
+            along.then_some(edge)
+        })
+        .collect()
+}
+
+fn cuts_beside_edge(
+    input: &Input,
+    branch: &Branch,
+    arrangement: &Arrangement,
+    merged: &Merged,
+    interval: Interval,
+    ends: [usize; 2],
+) -> bool {
+    let edges = edges_along(arrangement, merged, &branch.branch.curve, interval, ends);
+    !edges.is_empty()
+        && branch
+            .faces
+            .iter()
+            .any(|face| !edges.iter().any(|edge| edge_bounds(input, *edge, *face)))
 }
 
 fn kept_piece(
@@ -912,7 +941,7 @@ fn kept_piece(
         Placement::Touching => {
             !curve.is_longer_than(interval, UNJUDGED_PIECE)
                 || matches!(ends, [Some(start), Some(end)]
-                    if runs_along_edge(arrangement, merged, curve, interval, [start, end]))
+                    if cuts_beside_edge(input, branch, arrangement, merged, interval, [start, end]))
         }
     }
 }

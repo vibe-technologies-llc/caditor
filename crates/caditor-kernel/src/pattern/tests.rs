@@ -187,6 +187,28 @@ fn copies_meeting_only_along_an_edge_stay_separate_shells_of_one_body() {
 }
 
 #[test]
+fn three_plates_turned_about_their_shared_edge_stay_separate_shells_of_one_body() {
+    let original = block((0.0, 0.0), (40.0, 40.0), 10.0);
+    let copies: Vec<PatternCopy> = (1..3)
+        .map(|step| PatternCopy {
+            index: [step, 0],
+            placement: RigidTransform::rotation_about(
+                Point3::ZERO,
+                Vector3::X,
+                std::f64::consts::TAU / 3.0 * f64::from(step),
+            )
+            .unwrap()
+            .into(),
+        })
+        .collect();
+
+    let patterned = pattern(&original, &copies, FEATURE).unwrap();
+
+    check("about the shared edge", &patterned, 3.0 * 16_000.0);
+    assert_eq!(patterned.shells().count(), 3);
+}
+
+#[test]
 fn round_parts_spaced_one_diameter_apart_become_separate_shells() {
     let pin = extrude(
         &Plane::XY,
