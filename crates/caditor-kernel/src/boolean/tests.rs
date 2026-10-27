@@ -2457,3 +2457,27 @@ fn a_torus_turned_through_an_extruded_spline_or_a_hollow_cuboid_combines() {
         check_every_operation("torus", &body, &placed, (exact_volume(&body), torus_volume));
     }
 }
+
+#[test]
+fn a_cylinder_whose_cap_meets_a_block_edge_beside_its_rim_combines() {
+    let block = crate::fixtures::hollow_cuboid(10.0, 4.0);
+    let axis = Vector3::new(
+        0.32886985307003425,
+        -0.9212875459796104,
+        0.24111217418854514,
+    );
+    let offset = (
+        -0.20223786288142098,
+        0.10954609303358542,
+        0.4624627061241644,
+    );
+
+    let post = moved(rotated(cylinder(3.0, 5.0), axis, 3.908879135836451), offset);
+
+    check_every_operation(
+        "hollow cuboid and cylinder",
+        &block,
+        &post,
+        (936.0, 45.0 * PI),
+    );
+}

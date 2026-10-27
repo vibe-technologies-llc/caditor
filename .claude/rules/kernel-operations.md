@@ -339,7 +339,11 @@ paths:
   near its end, a plug 1.1e-6 off its bore's axis). The middle stays the first rule, since a whole
   rim rising past the resolution in one bulge beside coincident walls must not cut. A branch piece is kept when no sample along it lies outside either
   face and some sample lies strictly inside each (so a piece a micrometre or two long still cuts);
-  a piece no longer than twice the resolution is kept when no sample lies outside either face.
+  a piece no longer than twice the resolution is kept when no sample lies outside either face, as
+  is one running within the resolution along an edge piece with the same end vertices, which it
+  then joins (a cylinder's cap meeting a block's bottom in a chord 2.9e-6 long along the block's
+  edge, where the cap crosses that edge 1.4e-6 inside its rim: dropped, the bottom had no cut to
+  turn along the edge's piece between the cap and the rim, and the result was `Open`).
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
   holds edges to) are one edge, so an intersection along an existing edge and coincident faces need
   no special case; pieces a few micrometres apart stay two edges bounding a sliver. Pieces of two

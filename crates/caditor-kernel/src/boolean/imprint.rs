@@ -330,7 +330,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
     }
     for branch in &branches {
         interrupt::check()?;
-        clip_branch(input, branch, &mut pool, &mut arrangement)?;
+        clip_branch(input, branch, &mut pool, &mut arrangement, &merged)?;
     }
     for piece in &mut arrangement.pieces {
         piece.start = merged.find(piece.start);
@@ -821,26 +821,79 @@ fn face_uvs(
     Some(located)
 }
 
-fn inside_both(input: &Input, branch: &Branch, interval: Interval) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement {
+    Inside,
+    Touching,
+    Outside,
+}
+
+fn placement(input: &Input, branch: &Branch, interval: Interval) -> Placement {
     let mut inside = [false; 2];
     for fraction in INSIDE_SAMPLES {
         let parameter = interval.at(fraction);
         let point = branch.branch.curve.point(parameter);
         let Some(located) = face_uvs(input, branch, parameter, point) else {
-            return false;
+            return Placement::Outside;
         };
         for (seen, (key, uv)) in inside.iter_mut().zip(located) {
             match input.classifier(key.operand).point_in_face(key.face, uv) {
                 Some(FaceContainment::Inside) => *seen = true,
                 Some(FaceContainment::OnBoundary) => {}
-                Some(FaceContainment::Outside) | None => return false,
+                Some(FaceContainment::Outside) | None => return Placement::Outside,
             }
         }
         if inside.iter().all(|seen| *seen) {
-            return true;
+            return Placement::Inside;
         }
     }
-    !branch.branch.curve.is_longer_than(interval, UNJUDGED_PIECE)
+    Placement::Touching
+}
+
+fn runs_along_edge(
+    arrangement: &Arrangement,
+    merged: &Merged,
+    curve: &Curve,
+    interval: Interval,
+    ends: [usize; 2],
+) -> bool {
+    let unordered = |[a, b]: [usize; 2]| {
+        let [a, b] = [merged.find(a), merged.find(b)];
+        [a.min(b), a.max(b)]
+    };
+    let ends = unordered(ends);
+    arrangement.pieces.iter().any(|piece| {
+        let Some(source) = arrangement.source(piece.source) else {
+            return false;
+        };
+        source.edge.is_some()
+            && unordered([piece.start, piece.end]) == ends
+            && EDGE_SAMPLES.iter().all(|fraction| {
+                let point = curve.point(interval.at(*fraction));
+                let along = source.curve.closest_parameter(point, piece.interval);
+                source.curve.point(along).distance(point) <= SAME_EDGE
+            })
+    })
+}
+
+fn kept_piece(
+    input: &Input,
+    branch: &Branch,
+    arrangement: &Arrangement,
+    merged: &Merged,
+    interval: Interval,
+    ends: [Option<usize>; 2],
+) -> bool {
+    let curve = &branch.branch.curve;
+    match placement(input, branch, interval) {
+        Placement::Inside => true,
+        Placement::Outside => false,
+        Placement::Touching => {
+            !curve.is_longer_than(interval, UNJUDGED_PIECE)
+                || matches!(ends, [Some(start), Some(end)]
+                    if runs_along_edge(arrangement, merged, curve, interval, [start, end]))
+        }
+    }
 }
 
 fn branch_stops(
@@ -873,6 +926,7 @@ fn clip_branch(
     branch: &Branch,
     pool: &mut Pool,
     arrangement: &mut Arrangement,
+    merged: &Merged,
 ) -> Result<(), Interrupted> {
     let curve = &branch.branch.curve;
     let range = branch.branch.range;
@@ -933,7 +987,9 @@ fn clip_branch(
         let Some(interval) = Interval::new(from, to) else {
             continue;
         };
-        if !curve.is_longer_than(interval, TOLERANCE) || !inside_both(input, branch, interval) {
+        if !curve.is_longer_than(interval, TOLERANCE)
+            || !kept_piece(input, branch, arrangement, merged, interval, [start, end])
+        {
             continue;
         }
         let start = start.unwrap_or_else(|| pool.insert(curve.point(from), None));

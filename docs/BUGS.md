@@ -9,11 +9,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
-  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 161, 163 and 178) gave are pinned by tests
-  and combine. Seeds 20 to 200 were surveyed and all combine but seed 160, whose hollow cuboid and
-  cylinder are `Open` in every operation; seeds beyond 200 are unsurveyed. Tori that nearly coincide
-  still fail when turned rather than shifted by less than about 1e-4 radians: a torus and its copy
-  turned 1e-4 about three random axes and X combine
+  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163 and 178) gave are pinned by
+  tests and combine. Seeds 20 to 200 were surveyed and all combine; seeds beyond 200 are unsurveyed.
+  Tori that nearly coincide still fail when turned rather than shifted by less than about 1e-4
+  radians: a torus and its copy turned 1e-4 about three random axes and X combine
   (`a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine`), but about (0.9, 0.1,
   0.42) every operation is `Open` and about Y the difference is `NonManifold` at the outer equator's
   crossing of the seam, while at 1e-5 every operation about each of eight axes is `Ambiguous` or
