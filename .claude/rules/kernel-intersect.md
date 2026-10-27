@@ -105,14 +105,16 @@ paths:
   - Branches march both ways from each seed not already on a branch, stop exactly on the box
     boundary, close loops through the seed and end where the normals become parallel (tangent
     points). A branch stalling as its normals' sine falls below `STOP_SINE` ends at the point
-    where they turn parallel (`touch_ahead`, `parallel_normals` from the stall) when that lies
-    within the resolution of both surfaces, beyond the resolution and within a step ahead, and
-    within `MAX_TURN` of the heading: a torus and its copy turned 1e-4 radians meet in sines below
-    it over 0.022 either side of where their equators touch, and the meridian section stalling
-    there left the lower half of the tube undivided by it. A loop the backward march closes is
-    that loop, whatever the forward march did: the forward one can stall at a tangent point the
-    backward one passes through (a torus and its copy turned 1e-4 radians), and joining the two
-    traced the loop and the stall's stretch again.
+    where they turn parallel (`touch_at_stall`, `parallel_normals` from the stall) when that lies
+    within the resolution of both surfaces and either ahead, beyond the resolution, within a step
+    and within `MAX_TURN` of the heading, or on the last step's chord (within `TOUCH_SLACK` of its
+    length), which then replaces the stall: a torus and its copy turned 1e-4 radians meet in sines
+    below it over 0.022 either side of where their equators touch, a step about 0.2 long lands
+    past that point as often as short of it, and a meridian section stalling there, or an equator
+    section jumping on to it across the forward march's stretch, left the tube undivided by it.
+    A loop the backward march closes is that loop, whatever the forward march did: the forward
+    one can stall at a tangent point the backward one passes through (a torus and its copy turned
+    1e-4 radians), and joining the two traced the loop and the stall's stretch again.
     `end_on_boundary` drops contacts that slipped past the boundary within the inside test's slack,
     so a branch never ends with a backward hook whose node tangents point against the curve (which
     turns the boolean's trace the wrong way at that vertex).

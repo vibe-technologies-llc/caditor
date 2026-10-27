@@ -265,6 +265,11 @@ enum Stalled {
     Collapsed,
 }
 
+enum StallTouch {
+    Ahead(Contact),
+    Passed(Contact),
+}
+
 struct Step {
     contact: Contact,
     tangent: Vector3,
@@ -458,15 +463,29 @@ impl<'a> Tracer<'a> {
             .map(|touch| self.touch_contact(from, *touch))
     }
 
-    fn touch_ahead(&self, from: &Contact, tangent: Vector3) -> Option<Contact> {
-        let touch = parallel_normals(self.surfaces(), from.uv)?;
-        let ahead = touch.point - from.point;
+    fn touch_at_stall(&self, contacts: &[Contact], tangent: Vector3) -> Option<StallTouch> {
+        let [.., previous, current] = contacts else {
+            return None;
+        };
+        let touch = parallel_normals(self.surfaces(), current.uv)?;
+        if touch.gap > TOLERANCE {
+            return None;
+        }
+        let contact = self.touch_contact(current, touch.point);
+        let ahead = touch.point - current.point;
         let reach = ahead.length();
-        let found = touch.gap <= TOLERANCE
-            && reach > TOLERANCE
-            && reach <= self.max_step
-            && angle_between(tangent, ahead) <= MAX_TURN;
-        found.then(|| self.touch_contact(from, touch.point))
+        if reach > TOLERANCE && reach <= self.max_step && angle_between(tangent, ahead) <= MAX_TURN
+        {
+            return Some(StallTouch::Ahead(contact));
+        }
+        let chord = current.point - previous.point;
+        let length = chord.length();
+        let along = (touch.point - previous.point).dot(chord) / chord.length_squared();
+        let nearest = previous.point + chord * along.clamp(0.0, 1.0);
+        let passed = along > 0.0
+            && along < 1.0
+            && nearest.distance(touch.point) <= TOUCH_SLACK * length + TOLERANCE;
+        passed.then_some(StallTouch::Passed(contact))
     }
 
     fn touch_between(&self, from: &Contact, to: Point3) -> Option<Contact> {
@@ -893,10 +912,13 @@ impl<'a> Tracer<'a> {
             let next = match self.step(&current, tangent, &mut step) {
                 Ok(next) => next,
                 Err(Stalled::Tangent) => {
-                    if let Some(touch) = self
-                        .touch_near(&current)
-                        .or_else(|| self.touch_ahead(&current, tangent))
-                    {
+                    if let Some(touch) = self.touch_near(&current) {
+                        end_at_touch(&mut contacts, touch);
+                    } else if let Some(touch) = self.touch_at_stall(&contacts, tangent) {
+                        if let StallTouch::Passed(_) = touch {
+                            contacts.pop();
+                        }
+                        let (StallTouch::Ahead(touch) | StallTouch::Passed(touch)) = touch;
                         end_at_touch(&mut contacts, touch);
                     }
                     return Ok(Marched {
