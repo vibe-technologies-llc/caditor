@@ -63,6 +63,27 @@ fn keep(operand: Operand, class: Class, operation: BooleanOperation) -> Keep {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Basis {
+    Sampled,
+    LyingAlong,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Verdict {
+    class: Class,
+    basis: Basis,
+}
+
+impl Verdict {
+    fn sampled(class: Class) -> Self {
+        Self {
+            class,
+            basis: Basis::Sampled,
+        }
+    }
+}
+
 pub(super) fn classify(
     input: &Input,
     key: FaceKey,
@@ -71,6 +92,17 @@ pub(super) fn classify(
     fragment: &Fragment,
     twin: Twin,
 ) -> Result<Class, BooleanError> {
+    judge(input, key, surface, sense, fragment, twin).map(|verdict| verdict.class)
+}
+
+fn judge(
+    input: &Input,
+    key: FaceKey,
+    surface: &Surface,
+    sense: Sense,
+    fragment: &Fragment,
+    twin: Twin,
+) -> Result<Verdict, BooleanError> {
     let other = key.operand.other();
     let classifier = input.classifier(other);
     let mut solid_side = None;
@@ -131,13 +163,20 @@ pub(super) fn classify(
     }
     let lying_throughout = (lying.len() == sampled).then(|| agreed(&lying)).flatten();
     let lying_on_twin = lying_throughout.filter(|_| twin == Twin::Matched);
-    solid_side
+    let sampled = solid_side
         .or(coincident)
         .or(lying_on_twin)
         .or_else(|| classify_thin(classifier, surface, fragment))
         .or(along_boundary)
-        .or(lying_throughout)
-        .ok_or_else(|| ambiguous(first_sample))
+        .map(|class| Verdict {
+            class,
+            basis: Basis::Sampled,
+        });
+    let lying = lying_throughout.map(|class| Verdict {
+        class,
+        basis: Basis::LyingAlong,
+    });
+    sampled.or(lying).ok_or_else(|| ambiguous(first_sample))
 }
 
 fn lying_along(
@@ -300,6 +339,77 @@ fn apart(input: &Input, key: FaceKey, other: Option<&Aabb>) -> bool {
         .is_some_and(|bounds| !boxes_overlap(&bounds.bounds, other, TOLERANCE))
 }
 
+fn is_seam(
+    arrangement: &Arrangement,
+    operand: Operand,
+    shared: &BTreeSet<usize>,
+    piece: usize,
+) -> bool {
+    !shared.contains(&piece)
+        && arrangement
+            .piece(piece)
+            .and_then(|data| arrangement.source(data.source))
+            .and_then(|source| source.edge)
+            .is_some_and(|(owner, _)| owner == operand)
+}
+
+fn seam_neighbour(
+    arrangement: &Arrangement,
+    operand: Operand,
+    shared: &BTreeSet<usize>,
+    outlines: &[BTreeSet<usize>],
+    verdicts: &[Verdict],
+    index: usize,
+) -> Option<Class> {
+    let mine = outlines.get(index)?;
+    outlines
+        .iter()
+        .zip(verdicts)
+        .enumerate()
+        .find(|(other, (theirs, verdict))| {
+            *other != index
+                && verdict.basis == Basis::Sampled
+                && mine
+                    .intersection(theirs)
+                    .any(|piece| is_seam(arrangement, operand, shared, *piece))
+        })
+        .map(|(_, (_, verdict))| verdict.class)
+}
+
+fn settle_across_seams(
+    arrangement: &Arrangement,
+    operand: Operand,
+    shared: &BTreeSet<usize>,
+    judged: &mut [(Fragment, Verdict)],
+) {
+    let outlines: Vec<BTreeSet<usize>> = judged
+        .iter()
+        .map(|(fragment, _)| boundary_pieces(fragment))
+        .collect();
+    let mut verdicts: Vec<Verdict> = judged.iter().map(|(_, verdict)| *verdict).collect();
+    for _ in 0..verdicts.len() {
+        let mut settled_any = false;
+        for index in 0..verdicts.len() {
+            let lying = verdicts
+                .get(index)
+                .is_some_and(|verdict| verdict.basis == Basis::LyingAlong);
+            let neighbour = lying
+                .then(|| seam_neighbour(arrangement, operand, shared, &outlines, &verdicts, index))
+                .flatten();
+            if let (Some(class), Some(slot)) = (neighbour, verdicts.get_mut(index)) {
+                *slot = Verdict::sampled(class);
+                settled_any = true;
+            }
+        }
+        if !settled_any {
+            break;
+        }
+    }
+    for ((_, verdict), settled) in judged.iter_mut().zip(verdicts) {
+        *verdict = settled;
+    }
+}
+
 pub(super) fn select(
     input: &Input,
     arrangement: &Arrangement,
@@ -309,6 +419,7 @@ pub(super) fn select(
     let components = untouched_components(input, arrangement, &split);
     let extents = Operand::BOTH.map(|operand| extent(input, operand));
     let [first_outlines, second_outlines] = Operand::BOTH.map(|operand| outlines(&split, operand));
+    let shared = arrangement.shared_pieces();
     let mut shared_classes: BTreeMap<FaceKey, Class> = BTreeMap::new();
     let mut kept = Vec::new();
     for face in split {
@@ -322,17 +433,20 @@ pub(super) fn select(
             Operand::First => second_extent.as_ref(),
             Operand::Second => first_extent.as_ref(),
         };
+        let mut judged = Vec::with_capacity(face.fragments.len());
         for fragment in face.fragments {
             let known = if face.untouched {
                 shared_classes.get(&root).copied()
             } else {
                 None
             };
-            let class = match known {
-                Some(class) => class,
-                None if face.untouched && apart(input, face.key, other_extent) => Class::Outside,
+            let verdict = match known {
+                Some(class) => Verdict::sampled(class),
+                None if face.untouched && apart(input, face.key, other_extent) => {
+                    Verdict::sampled(Class::Outside)
+                }
                 None if input.carrying && reaches_beyond(arrangement, &fragment, other_extent) => {
-                    Class::Outside
+                    Verdict::sampled(Class::Outside)
                 }
                 None => {
                     let others = match face.key.operand {
@@ -344,7 +458,7 @@ pub(super) fn select(
                     } else {
                         Twin::Alone
                     };
-                    classify(
+                    judge(
                         input,
                         face.key,
                         original.surface(),
@@ -354,10 +468,14 @@ pub(super) fn select(
                     )?
                 }
             };
-            if face.untouched && !matches!(class, Class::Coincident(_)) {
-                shared_classes.insert(root, class);
+            if face.untouched && !matches!(verdict.class, Class::Coincident(_)) {
+                shared_classes.insert(root, verdict.class);
             }
-            let (sense, fragment) = match keep(face.key.operand, class, operation) {
+            judged.push((fragment, verdict));
+        }
+        settle_across_seams(arrangement, face.key.operand, &shared, &mut judged);
+        for (fragment, verdict) in judged {
+            let (sense, fragment) = match keep(face.key.operand, verdict.class, operation) {
                 Keep::No => continue,
                 Keep::AsIs => (original.sense(), fragment),
                 Keep::Reversed => (original.sense().reversed(), fragment.reversed()),

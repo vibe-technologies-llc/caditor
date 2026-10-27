@@ -382,12 +382,17 @@ paths:
   the strips between two cylinders' seams lying within the resolution of the other wall are),
   otherwise only when nothing else decides it. So cylinders of one radius or radii within the
   resolution whose walls cross beside their seams (an extruded plug 1e-5 to 2e-3 off its bore's
-  axis square to its seams) drop or keep both strips together. Faces that passed through share one
-  class across unsplit edges no cut shares; one whose box misses the other solid's is outside. Of coincident
-  faces only the first solid's fragment can stay: same orientation for union and intersection,
-  opposite for difference. A difference reverses the second solid's kept fragments. Every result
-  edge must then have one use each way, else `Open`, or `NonManifold` when solids meet only along
-  an edge.
+  axis square to its seams) drop or keep both strips together. A fragment decided only by lying
+  along takes instead the class of a fragment of its own face decided otherwise across one of that
+  face's seams no cut shares (`settle_across_seams`), since the surface runs on unbroken there: a
+  torus turned 1e-4 radians against its copy leaves each a sliver between its equator seam, its
+  meridian seam and the equator section, which lies along the other torus throughout, and taken as
+  coincident the second's dropped while the fragments across both its seams stayed (`Open`).
+  Faces that passed through share one class across unsplit edges no cut shares; one whose box
+  misses the other solid's is outside. Of coincident faces only the first solid's fragment can
+  stay: same orientation for union and intersection, opposite for difference. A difference
+  reverses the second solid's kept fragments. Every result edge must then have one use each way,
+  else `Open`, or `NonManifold` when solids meet only along an edge.
 - `Intersection`, `Split`, `Ambiguous`, `Open` and `NonManifold` carry a boxed `BooleanSite`: the
   input faces of each operand involved and a model point. The innermost step that knows a point
   sets it and outer steps only fill what is empty (`or_faces`, `or_point`).
