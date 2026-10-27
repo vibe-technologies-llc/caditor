@@ -4,7 +4,7 @@ use caditor_geometry::{Aabb2, Point3};
 
 use crate::{
     boolean::{
-        BooleanError, TOLERANCE,
+        BooleanError, Operand, TOLERANCE,
         imprint::{Arrangement, Piece},
         select::KeptFace,
         trace::{Chart, Coedge, HalfEdge, TracedLoop, fit_loop, group, snap_ends, trace},
@@ -66,10 +66,92 @@ pub(super) fn check_closed(
     Ok(())
 }
 
+fn seam_of_each_operand(faces: &[KeptFace], list: &[(usize, Sense)]) -> bool {
+    Operand::BOTH.into_iter().all(|operand| {
+        let own: Vec<&(usize, Sense)> = list
+            .iter()
+            .filter(|(index, _)| {
+                faces
+                    .get(*index)
+                    .is_some_and(|face| face.key.operand == operand)
+            })
+            .collect();
+        let [(first, first_sense), (second, second_sense)] = own.as_slice() else {
+            return false;
+        };
+        first_sense != second_sense
+            && faces
+                .get(*first)
+                .zip(faces.get(*second))
+                .is_some_and(|(first, second)| first.key == second.key)
+    })
+}
+
+fn moved_onto_own_piece(
+    arrangement: &Arrangement,
+    face: &mut KeptFace,
+    merged: usize,
+    (own, relation): (usize, Sense),
+) -> Result<(), BooleanError> {
+    let (curve, piece) = arrangement.curve(own).ok_or_else(BooleanError::split)?;
+    for coedge in face
+        .fragment
+        .loops
+        .iter_mut()
+        .flat_map(|traced| &mut traced.coedges)
+        .filter(|coedge| coedge.half_edge.piece == merged)
+    {
+        let sense = coedge.half_edge.sense.combined(relation);
+        let pcurve = fit_pcurve(
+            &face.surface,
+            curve,
+            piece.interval,
+            sense,
+            Some(coedge.pcurve.start()),
+        )
+        .and_then(|pcurve| sharpened_to(pcurve, &face.surface, curve, coedge.pcurve.tolerance()))
+        .map_err(BooleanError::unfitted)?;
+        *coedge = Coedge {
+            half_edge: HalfEdge::new(own, sense, Some(pcurve.start())),
+            pcurve,
+        };
+    }
+    Ok(())
+}
+
+fn part_seams(arrangement: &Arrangement, faces: &mut [KeptFace]) -> Result<(), BooleanError> {
+    for (merged, list) in uses(faces) {
+        if !seam_of_each_operand(faces, &list) {
+            continue;
+        }
+        for operand in Operand::BOTH {
+            let Some(own) = arrangement.own_piece(merged, operand) else {
+                continue;
+            };
+            let users: BTreeSet<usize> = list
+                .iter()
+                .map(|(index, _)| *index)
+                .filter(|index| {
+                    faces
+                        .get(*index)
+                        .is_some_and(|face| face.key.operand == operand)
+                })
+                .collect();
+            for index in users {
+                if let Some(face) = faces.get_mut(index) {
+                    moved_onto_own_piece(arrangement, face, merged, own)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn heal(
     arrangement: &mut Arrangement,
-    kept: Vec<KeptFace>,
+    mut kept: Vec<KeptFace>,
 ) -> Result<Vec<KeptFace>, BooleanError> {
+    part_seams(arrangement, &mut kept)?;
     check_closed(arrangement, &kept)?;
     let mut faces = merge_faces(arrangement, kept)?;
     heal_edges(arrangement, &mut faces)?;

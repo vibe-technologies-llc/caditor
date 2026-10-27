@@ -103,6 +103,27 @@ impl Arrangement {
             .unwrap_or((piece, Sense::Same))
     }
 
+    pub fn edge_operand(&self, piece: usize) -> Option<Operand> {
+        let data = self.pieces.get(piece)?;
+        let (operand, _) = self.sources.get(data.source)?.edge?;
+        Some(operand)
+    }
+
+    pub fn own_piece(&self, piece: usize, operand: Operand) -> Option<(usize, Sense)> {
+        if self.edge_operand(piece) == Some(operand) {
+            return None;
+        }
+        self.representatives
+            .iter()
+            .enumerate()
+            .find(|(member, (representative, _))| {
+                *member != piece
+                    && *representative == piece
+                    && self.edge_operand(*member) == Some(operand)
+            })
+            .map(|(member, (_, relation))| (member, *relation))
+    }
+
     pub fn edge_pieces(&self, operand: Operand, edge: EdgeId) -> &[usize] {
         self.edge_pieces
             .get(&(operand, edge))

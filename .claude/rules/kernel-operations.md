@@ -392,7 +392,13 @@ paths:
   misses the other solid's is outside. Of coincident faces only the first solid's fragment can
   stay: same orientation for union and intersection, opposite for difference. A difference
   reverses the second solid's kept fragments. Every result edge must then have one use each way,
-  else `Open`, or `NonManifold` when solids meet only along an edge.
+  else `Open`, or `NonManifold` when solids meet only along an edge. First, an edge two operands'
+  edges were joined into whose four uses are, for each operand, one face either side of that face's
+  own seam (`part_seams`) goes back to one edge per operand, the moved coedges refitted on the
+  operand's own piece: the surface runs on unbroken across a seam, so its two sheets only run within
+  the resolution of each other there. A torus turned 1e-4 radians about Y against its copy has both
+  meridian seams within 1.6e-7 of each other from the equator section to the first's equator seam,
+  and joined, the difference used that edge four times.
 - `Intersection`, `Split`, `Ambiguous`, `Open` and `NonManifold` carry a boxed `BooleanSite`: the
   input faces of each operand involved and a model point. The innermost step that knows a point
   sets it and outer steps only fill what is empty (`or_faces`, `or_point`).
