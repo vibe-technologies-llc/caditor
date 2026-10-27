@@ -458,6 +458,17 @@ impl<'a> Tracer<'a> {
             .map(|touch| self.touch_contact(from, *touch))
     }
 
+    fn touch_ahead(&self, from: &Contact, tangent: Vector3) -> Option<Contact> {
+        let touch = parallel_normals(self.surfaces(), from.uv)?;
+        let ahead = touch.point - from.point;
+        let reach = ahead.length();
+        let found = touch.gap <= TOLERANCE
+            && reach > TOLERANCE
+            && reach <= self.max_step
+            && angle_between(tangent, ahead) <= MAX_TURN;
+        found.then(|| self.touch_contact(from, touch.point))
+    }
+
     fn touch_between(&self, from: &Contact, to: Point3) -> Option<Contact> {
         let chord = to - from.point;
         let length = chord.length_squared();
@@ -882,7 +893,10 @@ impl<'a> Tracer<'a> {
             let next = match self.step(&current, tangent, &mut step) {
                 Ok(next) => next,
                 Err(Stalled::Tangent) => {
-                    if let Some(touch) = self.touch_near(&current) {
+                    if let Some(touch) = self
+                        .touch_near(&current)
+                        .or_else(|| self.touch_ahead(&current, tangent))
+                    {
                         end_at_touch(&mut contacts, touch);
                     }
                     return Ok(Marched {
