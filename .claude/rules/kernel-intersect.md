@@ -86,7 +86,10 @@ paths:
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
     scan of the distance for tiny loops. Near-coincident patches prune little, so pairs are
-    budgeted at `MAX_SEED_PAIRS`. A subdivision box is apart from a spline surface when it misses
+    budgeted at `MAX_SEED_PAIRS`. A seed whose normals' sine is at most `TOUCH_SINE` is a touch,
+    not traced; it equals `STOP_SINE` (1e-6), since a torus and its copy turned 1e-5 radians meet
+    at sines no larger than about the turn anywhere, and at 1e-5 every seed of their meridian
+    sections was set aside, leaving each tube divided only at its equators. A subdivision box is apart from a spline surface when it misses
     the control hull of every span (`BSplineSurface::hulls_miss`: the hull's box, then the axis
     across the span's corner diagonals; through the span tree on a large net), from any other
     surface when its centre's projection lies farther than its half diagonal (a projection onto

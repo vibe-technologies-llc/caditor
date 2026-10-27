@@ -2357,7 +2357,7 @@ fn a_cone_turned_about_the_base_centre_it_shares_with_a_cylinder_combines() {
 }
 
 #[test]
-fn a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine() {
+fn a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine() {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
 
@@ -2377,6 +2377,10 @@ fn a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_or_more_combine() {
         (Vector3::new(0.166, -0.095, -0.501), 1e-4),
         (Vector3::new(-0.064, -0.344, -0.731), 1e-4),
         (Vector3::new(0.805, 0.921, -0.847), 1e-4),
+        (Vector3::new(0.942, -0.892, -0.234), 1e-5),
+        (Vector3::new(-0.849, 0.87, -0.579), 1e-5),
+        (Vector3::new(-0.361, 0.063, 0.656), 1e-5),
+        (Vector3::new(0.147, -0.556, -0.003), 1e-5),
     ] {
         let placed = rotated(ring.clone(), axis, angle);
 
