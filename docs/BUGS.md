@@ -10,14 +10,28 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163 and 178) gave are pinned by
-  tests and combine. Seeds 20 to 200 were surveyed and all combine; seeds beyond 200 are unsurveyed.
+  tests and combine. Seeds 20 to 200 all combine. Of seeds 201 to 500, eight fail, none pinned
+  yet; each seed's line names the fixtures, axis, angle and offset:
+  - `Invalid(PcurveOffEdge)`, 0.07 to 0.75 off, always with a cone: seeds 214 (frustum and cone,
+    union), 255 (cone and cylinder, union and difference), 291 (cylinder and cone, difference and
+    intersection) and 405 (cone and cuboid, intersection).
+  - `Split` in every operation: seeds 325 (frustum and cylinder), 432 (torus and torus) and 486
+    (extruded spline and holed block).
+  - `Ambiguous` in every operation: seed 403 (hollow cuboid and extruded spline).
+  Seeds beyond 500 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
   they do about all ten axes `Random::new(7)` draws (components in -1 to 1) at 1e-4 and the next
-  ten at 1e-5; turns below 1e-5 and other draws are unsurveyed. A lump too thin for the
-  validation mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along
-  each axis is `Invalid(VoidOutside)`, with no test pinning it.
+  ten at 1e-5. At 1e-6, four of the ten axes `Random::new(11)` draws fail (`Split`, `Open`).
+  A torus and its copy shifted 1e-5 along Y are `Split` in every operation, and shifted along X
+  their difference is `NonManifold`. Along Z, and along all three axes at once, they combine.
+  Shifted along X, the outer halves of the meridian sections at ±90° are traced only to about 45°
+  from the top and bottom, where the normals' sine falls below `STOP_SINE`, too far from the touch
+  point for `touch_at_stall`. Lowering `STOP_SINE` to 1e-7 traces further but fails refining
+  (`Unrefined`, `TooManyNodes`), since `refine_contact` accepts contacts with gaps up to 1e-9
+  there, which at sines near 2.5e-7 leaves them millimetres apart sideways. An exact Newton step
+  ahead of the damped one did not change that.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
