@@ -9,12 +9,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
-  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291 and
-  405) gave are pinned by tests and combine. Seeds 20 to 200 all combine. Of seeds 201 to 500,
-  four fail, none pinned yet; each seed's line names the fixtures, axis, angle and offset:
-  - `Split` in every operation: seeds 325 (frustum and cylinder), 432 (torus and torus) and 486
-    (extruded spline and holed block).
-  - `Ambiguous` in every operation: seed 403 (hollow cuboid and extruded spline).
+  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
+  405, 432 and 486) gave are pinned by tests and combine. Seeds 20 to 200 all combine. Of seeds
+  201 to 500 only seed 403 fails, `Ambiguous` in every operation: the hollow cuboid and the
+  extruded spline turned about (0.186, 0.764, -0.786) by 5.5603 and moved by (1.620, -2.083,
+  0.745).
   Seeds beyond 500 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,

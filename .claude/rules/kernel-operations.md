@@ -358,7 +358,10 @@ paths:
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
   mean normal of a ring around it); ties and cusps (`ANGLE_TIE`) are decided by chords at a common
-  distance.
+  distance. A traced loop whose fitted pcurves enclose no area has its coedges halved round after round
+  (`untangle::open_flat`) before it is refused as `Split`: a cylinder's cap meeting a frustum's
+  wall in an ellipse that leaves the top rim and rejoins it 0.055 along, never more than 4.1e-5
+  below it, had both edges fitted from their ends alone at a tolerance wider than that.
 - Traced pcurves are sharpened until they hold the face's shape (`untangle.rs`): coedges whose uv
   polygons properly cross (compared only where boxes overlap; a turn within `COLLINEAR_SINE` counts
   as none, so the two traversals of one iso-parametric edge never cross) are refined to half their

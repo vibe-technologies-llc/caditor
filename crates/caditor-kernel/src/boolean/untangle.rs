@@ -176,6 +176,28 @@ pub(super) fn untangle(
     Ok(())
 }
 
+pub(super) fn open_flat(
+    arrangement: &Arrangement,
+    chart: &Chart,
+    traced: &mut TracedLoop,
+) -> Result<(), BooleanError> {
+    for _ in 0..MAX_ROUNDS {
+        interrupt::check()?;
+        if traced.area.is_finite() && traced.area != 0.0 {
+            break;
+        }
+        let mut refined_any = false;
+        for coedge in &mut traced.coedges {
+            refined_any |= halve(arrangement, chart, coedge)?;
+        }
+        if !refined_any {
+            break;
+        }
+        traced.area = signed_area(&traced.polygon());
+    }
+    Ok(())
+}
+
 pub(super) fn sharpen(
     arrangement: &Arrangement,
     chart: &Chart,

@@ -8,7 +8,7 @@ use std::{
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 
 use crate::{
-    boolean::{BooleanError, imprint::Arrangement},
+    boolean::{BooleanError, imprint::Arrangement, untangle::open_flat},
     box_tree::BoxTree,
     interrupt::Interrupted,
     sense::Sense,
@@ -473,6 +473,7 @@ pub(super) fn fit_loop(
     }
     let mut traced = TracedLoop { coedges, area: 0.0 };
     traced.area = signed_area(&traced.polygon());
+    open_flat(arrangement, chart, &mut traced)?;
     if !traced.area.is_finite() || traced.area == 0.0 {
         return Err(BooleanError::split().or_point(|| traced.point_on(chart.surface)));
     }

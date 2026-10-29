@@ -2549,3 +2549,49 @@ fn a_cone_whose_section_winds_round_near_its_apex_combines() {
         );
     }
 }
+
+#[test]
+fn a_sliver_shallower_than_its_edges_tolerance_combines() {
+    let placements = [
+        (
+            crate::fixtures::frustum(4.0, 2.0, 5.0),
+            crate::fixtures::cylinder(3.0, 5.0),
+            Vector3::new(-0.882252951317843, 0.654591561990558, -0.3463877689276056),
+            0.19455686844785827,
+            (-1.464489835068541, 0.7474780986005456, 0.3480481346398898),
+        ),
+        (
+            crate::fixtures::torus(6.0, 2.0),
+            crate::fixtures::torus(6.0, 2.0),
+            Vector3::new(
+                0.6518699871756435,
+                -0.9295071122430518,
+                -0.49760868091169486,
+            ),
+            3.87312924619558,
+            (-0.2530305602509766, -0.813856286316086, -0.9043437595075037),
+        ),
+        (
+            crate::fixtures::extruded_spline(5.0),
+            crate::fixtures::holed_block(10.0, 4.0, 2.5),
+            Vector3::new(0.5006141397380761, -0.9069643341031803, 0.8470917247081857),
+            0.31977902111778767,
+            (
+                0.19185490188942866,
+                -0.16239581842420492,
+                -0.9930425301335941,
+            ),
+        ),
+    ];
+
+    for (body, tool, axis, angle, offset) in placements {
+        let placed = moved(rotated(tool, axis, angle), offset);
+
+        check_every_operation(
+            "sliver",
+            &body,
+            &placed,
+            (exact_volume(&body), exact_volume(&placed)),
+        );
+    }
+}
