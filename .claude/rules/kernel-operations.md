@@ -719,7 +719,13 @@ paths:
     surfaces held by a seam plane when its own faces leave it free). Each stretch of ridge between
     consecutive joints becomes a new edge (a `Span`, its curve rebuilt from the open rim of the
     two) between the faces beyond the rims covering it, and each rim maps to the stretches it
-    covers in order. A band whose rim's far face drops as well has no surface for its joints:
+    covers in order. Bands stacked side by side, every rim of one side lying beyond the next band,
+    close as one band (`stacked`): its rims are the outermost sides, the next band's far side reversed
+    when its rims run the other way along the ridge (compared on the edge they share), and each
+    across edge's end on a shared boundary is tied into the cluster of the nearest across end of
+    the band before (`boundary_ties`), so seams turned apart on a narrow chamfer and the narrow lid
+    above it still meet one ridge vertex. A band whose rim's far face drops but is no band beside
+    it, or whose side lies beyond several faces of which one drops, has no surface for its joints:
     `ShellError::ClosesBesideClosing`, naming both faces;
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still

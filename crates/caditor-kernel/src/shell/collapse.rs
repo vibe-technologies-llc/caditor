@@ -173,6 +173,13 @@ impl Collapses {
         );
     }
 
+    pub(super) fn across(&self, face: FaceId) -> Option<&BTreeSet<EdgeId>> {
+        match self.collapsing.get(&face)? {
+            Collapse::Shrinks(across) => Some(across),
+            _ => None,
+        }
+    }
+
     pub(super) fn shrinking(&self) -> impl Iterator<Item = (FaceId, &BTreeSet<EdgeId>)> {
         self.collapsing
             .iter()

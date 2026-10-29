@@ -31,11 +31,15 @@ impl Clusters {
             root: solid.vertices().map(|(id, _)| (id, id)).collect(),
         };
         for edge in vanishing.iter().filter_map(|id| solid.edge(*id)) {
-            let (a, b) = (clusters.find(edge.start()), clusters.find(edge.end()));
-            let (low, high) = (a.min(b), a.max(b));
-            clusters.root.insert(high, low);
+            clusters.tie(edge.start(), edge.end());
         }
         clusters
+    }
+
+    fn tie(&mut self, first: VertexId, second: VertexId) {
+        let (a, b) = (self.find(first), self.find(second));
+        let (low, high) = (a.min(b), a.max(b));
+        self.root.insert(high, low);
     }
 
     fn find(&self, mut vertex: VertexId) -> VertexId {
@@ -402,6 +406,7 @@ fn place_corners(
     Ok(corners)
 }
 
+#[derive(Debug, Clone, Copy)]
 struct Rim {
     edge: EdgeId,
     beyond: FaceId,
@@ -432,6 +437,7 @@ struct Span {
 struct Band {
     face: FaceId,
     rims: [Vec<Rim>; 2],
+    ties: Vec<(VertexId, VertexId)>,
     vertices: Vec<RidgeVertex>,
     spans: Vec<Span>,
 }
@@ -497,9 +503,6 @@ fn rims(
                 .refusal(solid, face)
                 .unwrap_or(ShellError::UnsupportedEdge(edge)));
         };
-        if collapses.contains(beyond) {
-            return Err(ShellError::ClosesBesideClosing { face, beyond });
-        }
         rims.push(Rim {
             edge,
             beyond,
@@ -579,7 +582,7 @@ fn bands(
     collapses: &Collapses,
     vanishing: &BTreeSet<EdgeId>,
 ) -> Result<Vec<Band>, ShellError> {
-    let mut bands = Vec::new();
+    let mut sided: BTreeMap<FaceId, [Vec<Rim>; 2]> = BTreeMap::new();
     for (face, across) in collapses.shrinking() {
         let Some(sides) = sides(solid, face, across, vanishing) else {
             continue;
@@ -590,10 +593,21 @@ fn bands(
         if first.len() < 2 && second.len() < 2 {
             continue;
         }
-        let rims = [
-            rims(solid, collapses, face, first, true)?,
-            rims(solid, collapses, face, second, false)?,
-        ];
+        sided.insert(
+            face,
+            [
+                rims(solid, collapses, face, first, true)?,
+                rims(solid, collapses, face, second, false)?,
+            ],
+        );
+    }
+    let mut merged = BTreeSet::new();
+    let mut bands = Vec::new();
+    for face in sided.keys().copied() {
+        if merged.contains(&face) {
+            continue;
+        }
+        let Stack { rims, ties } = stacked(solid, collapses, &sided, face, &mut merged)?;
         let (vertices, spans) = ridge(solid, &rims).ok_or_else(|| {
             collapses
                 .refusal(solid, face)
@@ -602,11 +616,115 @@ fn bands(
         bands.push(Band {
             face,
             rims,
+            ties,
             vertices,
             spans,
         });
     }
     Ok(bands)
+}
+
+fn stacked(
+    solid: &Solid,
+    collapses: &Collapses,
+    sided: &BTreeMap<FaceId, [Vec<Rim>; 2]>,
+    start: FaceId,
+    merged: &mut BTreeSet<FaceId>,
+) -> Result<Stack, ShellError> {
+    let mut rims = sided
+        .get(&start)
+        .cloned()
+        .ok_or(ShellError::walls_at([start]))?;
+    let mut ties = Vec::new();
+    merged.insert(start);
+    for outer in &mut rims {
+        let mut current = start;
+        while let Some(beyond) = outer
+            .iter()
+            .map(|rim| rim.beyond)
+            .find(|face| collapses.contains(*face))
+        {
+            let closes_beside = ShellError::ClosesBesideClosing {
+                face: current,
+                beyond,
+            };
+            let next = sided
+                .get(&beyond)
+                .filter(|_| !merged.contains(&beyond))
+                .filter(|_| outer.iter().all(|rim| rim.beyond == beyond))
+                .ok_or(closes_beside.clone())?;
+            let facing = |side: &Vec<Rim>| side.iter().all(|rim| rim.beyond == current);
+            let (back, far) = match next {
+                [first, second] if facing(first) => (first, second),
+                [first, second] if facing(second) => (second, first),
+                _ => return Err(closes_beside),
+            };
+            let agrees = outer.iter().find_map(|rim| {
+                back.iter()
+                    .find(|other| other.edge == rim.edge)
+                    .map(|other| other.forward == rim.forward)
+            });
+            let mut far = far.clone();
+            match agrees {
+                Some(true) => {}
+                Some(false) => {
+                    far.reverse();
+                    for rim in &mut far {
+                        rim.forward = !rim.forward;
+                    }
+                }
+                None => return Err(closes_beside),
+            }
+            ties.extend(boundary_ties(solid, collapses, outer, current, beyond));
+            *outer = far;
+            merged.insert(beyond);
+            current = beyond;
+        }
+    }
+    Ok(Stack { rims, ties })
+}
+
+struct Stack {
+    rims: [Vec<Rim>; 2],
+    ties: Vec<(VertexId, VertexId)>,
+}
+
+fn boundary_ties(
+    solid: &Solid,
+    collapses: &Collapses,
+    boundary: &[Rim],
+    below: FaceId,
+    above: FaceId,
+) -> Vec<(VertexId, VertexId)> {
+    let on_boundary: BTreeSet<VertexId> = boundary
+        .iter()
+        .filter_map(|rim| rim.ends(solid))
+        .flat_map(|(start, end)| [start, end])
+        .collect();
+    let across_ends = |face: FaceId| -> Vec<VertexId> {
+        collapses
+            .across(face)
+            .into_iter()
+            .flatten()
+            .filter_map(|edge| solid.edge(*edge))
+            .flat_map(|edge| [edge.start(), edge.end()])
+            .filter(|vertex| on_boundary.contains(vertex))
+            .collect()
+    };
+    let (lower, upper) = (across_ends(below), across_ends(above));
+    let point = |vertex: VertexId| solid.vertex(vertex).map(|vertex| vertex.point());
+    upper
+        .into_iter()
+        .filter(|vertex| !lower.contains(vertex))
+        .filter_map(|vertex| {
+            let at = point(vertex)?;
+            let nearest = lower
+                .iter()
+                .filter_map(|other| Some((*other, point(*other)?.distance(at))))
+                .min_by(|a, b| a.1.total_cmp(&b.1))?;
+            Some((nearest.0, vertex))
+        })
+        .collect()
 }
 
 fn joints(clusters: &Clusters, bands: &[Band]) -> BTreeMap<VertexId, BTreeSet<FaceId>> {
@@ -651,8 +769,11 @@ struct Layout {
 impl Layout {
     fn new(offsets: &Offsets<'_>, collapses: &Collapses) -> Result<Self, ShellError> {
         let vanishing = collapses.vanishing_edges(offsets.solid);
-        let clusters = Clusters::new(offsets.solid, &vanishing);
         let bands = bands(offsets.solid, collapses, &vanishing)?;
+        let mut clusters = Clusters::new(offsets.solid, &vanishing);
+        for (first, second) in bands.iter().flat_map(|band| &band.ties) {
+            clusters.tie(*first, *second);
+        }
         let joints = joints(&clusters, &bands);
         let mut plan = Plan::default();
         let corners = place_corners(

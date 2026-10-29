@@ -1444,15 +1444,29 @@ fn a_band_split_by_seams_on_both_rims_closes_into_a_ridge() {
 }
 
 #[test]
-fn a_band_closing_beside_a_band_that_closes_too_is_named() {
+fn bands_closing_beside_each_other_close_into_one_ridge() {
     let drum = cylinder(5.0, 9.0);
     let band = stacked(frustum(5.0, 4.5, 0.5), FRAC_PI_4, 9.0);
     let lid = stacked(frustum(4.5, 4.2, 0.1), FRAC_PI_2, 9.5);
     let banded = boolean(&drum, &band, BooleanOperation::Union).unwrap();
     let solid = boolean(&banded, &lid, BooleanOperation::Union).unwrap();
-    let error = shell(&solid, &[], 2.0, 70).unwrap_err();
-    assert!(
-        matches!(error, ShellError::ClosesBesideClosing { .. }),
-        "{error:?}"
-    );
+    let outer = 225.0 * PI + frustum_volume(5.0, 4.5, 0.5) + frustum_volume(4.5, 4.2, 0.1);
+
+    for (open, floor) in [(false, 2.0), (true, 0.0)] {
+        let opened: Vec<FaceId> = if open {
+            vec![face_facing(&solid, Vector3::NEG_Z, Point3::ZERO)]
+        } else {
+            Vec::new()
+        };
+        let name = format!("stacked bands, open {open}");
+
+        let result = run(&solid, &opened, 2.0);
+
+        check(&name, &result, outer - PI * 9.0 * (7.6 - floor));
+        let walls = result
+            .faces()
+            .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+            .count();
+        assert_eq!(walls, if open { 2 } else { 3 }, "{name}");
+    }
 }

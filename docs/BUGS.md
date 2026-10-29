@@ -52,14 +52,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   cannot be split first. No test pins them; a sweep of chamfered boxes against the cavity's convex
   planes (as `boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly` builds them)
   finds them.
-- [low · hard] Two faces side by side that the shell's thickness both closes up (a narrow chamfer
-  cone below a narrow lid cone) are refused as `ClosesBesideClosing`: their joints would need the
-  offset of the next face that survives, found across a run of dropped bands whose ridges meet
-  each other, so the bands would have to be merged into one band spanning several faces, with
-  their seams and joints ordered across all of them.
-
-## Modelling
-
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
