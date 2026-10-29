@@ -57,15 +57,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   offset of the next face that survives, found across a run of dropped bands whose ridges meet
   each other, so the bands would have to be merged into one band spanning several faces, with
   their seams and joints ordered across all of them.
-- [low · hard] Meshes fold where two faces meet at a very small dihedral (lens tips, a plane nearly
-  tangent to a torus), giving self-overlapping triangles that `validate` does not see: an extruded
-  spline intersected with a frustum leaves two tangent edges at one vertex, the end parting bisects
-  them down to 1e-7, and the mesh then uses one edge twice in the same direction
-  (`assert_watertight` fails on it). The difference of the two cones of
-  `boolean::tests::cones_whose_intersection_passes_a_nearly_tangent_neck_combine` and the union of
-  the torus and hollow cuboid of `a_torus_turning_tightly_against_a_hollow_cuboid_combines`
-  validate with exact volumes but mesh that way too, so those tests do not check watertightness.
-
 
 ## Modelling
 

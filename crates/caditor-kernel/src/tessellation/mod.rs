@@ -17,7 +17,7 @@ use std::{
     ops::Range,
 };
 
-use caditor_geometry::Point3;
+use caditor_geometry::{Point3, Vector3};
 use thiserror::Error;
 
 pub(crate) use self::mass::{Moments, TriangleIndex};
@@ -27,13 +27,13 @@ pub use self::{
     reuse::{DisplayMesh, MeshedSolid},
 };
 use self::{
-    patch::{FacePatch, PatchPosition, PatchShape},
+    patch::{BoundaryPair, FacePatch, PatchPosition, PatchShape},
     reuse::{FaceKey, KeptFace},
 };
 use crate::{
     interrupt::{self, Interrupted},
     tolerance::{MeshQuality, SamplingTolerance},
-    topology::{Edge, EdgeId, FaceId, Solid},
+    topology::{Edge, EdgeId, Face, FaceId, Solid},
 };
 
 const MIN_CLOSED_EDGE_SEGMENTS: usize = 3;
@@ -428,6 +428,8 @@ struct Tessellator<'a> {
     triangles: BTreeMap<FaceId, Vec<[u32; 3]>>,
     kept: BTreeMap<FaceId, (FaceKey, PatchShape)>,
     reused: BTreeSet<FaceId>,
+    inner_pairs: BTreeMap<BoundaryPair, FaceId>,
+    segments: BTreeMap<BoundaryPair, EdgeId>,
     orphans: bool,
 }
 
@@ -461,6 +463,8 @@ impl<'a> Tessellator<'a> {
             triangles: BTreeMap::new(),
             kept: BTreeMap::new(),
             reused: BTreeSet::new(),
+            inner_pairs: BTreeMap::new(),
+            segments: BTreeMap::new(),
             orphans: false,
         })
     }
@@ -736,6 +740,21 @@ impl<'a> Tessellator<'a> {
             self.kept.remove(face);
             self.reused.remove(face);
         }
+        self.inner_pairs.retain(|_, owner| !faces.contains(owner));
+        self.segments = self
+            .solid
+            .edges()
+            .zip(&self.samplings)
+            .flat_map(|((id, _), sampling)| {
+                sampling
+                    .positions
+                    .windows(2)
+                    .filter_map(move |pair| match pair {
+                        [a, b] => Some((BoundaryPair::of(*a, *b), id)),
+                        _ => None,
+                    })
+            })
+            .collect();
         let made = parallel::each_in_order(
             faces.len(),
             self.threads,
@@ -807,7 +826,8 @@ impl<'a> Tessellator<'a> {
         })
     }
 
-    fn place(&mut self, id: FaceId, made: MadeFace) -> Result<(), TessellationError> {
+    fn place(&mut self, id: FaceId, mut made: MadeFace) -> Result<(), TessellationError> {
+        self.part_shared_pairs(id, &mut made.patch)?;
         let MadeFace {
             patch:
                 FacePatch {
@@ -857,6 +877,62 @@ impl<'a> Tessellator<'a> {
             self.reused.insert(id);
         }
         Ok(())
+    }
+
+    fn part_shared_pairs(
+        &mut self,
+        id: FaceId,
+        patch: &mut FacePatch,
+    ) -> Result<(), TessellationError> {
+        let face = self
+            .solid
+            .face(id)
+            .ok_or(TessellationError::MissingEntity)?;
+        let surface = face.surface();
+        let own_edges = self.face_edges(face)?;
+        for pair in patch.inner_pairs() {
+            let elsewhere = self
+                .inner_pairs
+                .get(&pair)
+                .is_some_and(|owner| *owner != id)
+                || self
+                    .segments
+                    .get(&pair)
+                    .is_some_and(|edge| !own_edges.contains(edge));
+            if !elsewhere {
+                self.inner_pairs.insert(pair, id);
+                continue;
+            }
+            let ends = [pair.0, pair.1].map(|position| self.mesh.position(position));
+            let [Some(first), Some(second)] = ends else {
+                return Err(TessellationError::MissingEntity);
+            };
+            let uv = surface.project(first.lerp(second, 0.5), None);
+            let normal = surface
+                .normal(uv.x, uv.y)
+                .map_or(Vector3::ZERO, |normal| normal * face.sense().sign());
+            patch.split(pair, surface.point_at(uv), MeshNormal::new(normal))?;
+        }
+        Ok(())
+    }
+
+    fn face_edges(&self, face: &Face) -> Result<BTreeSet<EdgeId>, TessellationError> {
+        let mut edges = BTreeSet::new();
+        for loop_id in face.loops() {
+            let face_loop = self
+                .solid
+                .face_loop(*loop_id)
+                .ok_or(TessellationError::MissingEntity)?;
+            for coedge in face_loop.coedges() {
+                edges.insert(
+                    self.solid
+                        .coedge(*coedge)
+                        .ok_or(TessellationError::MissingEntity)?
+                        .edge(),
+                );
+            }
+        }
+        Ok(edges)
     }
 
     fn finish(mut self) -> DisplayMesh {

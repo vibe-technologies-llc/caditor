@@ -2046,6 +2046,7 @@ fn exact_volume(solid: &Solid) -> f64 {
 
 fn check_valid(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
+    assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
     let found = exact_volume(solid);
     assert!(
         (found - expected).abs() <= 1e-6 * expected,
@@ -2589,6 +2590,52 @@ fn a_sliver_shallower_than_its_edges_tolerance_combines() {
 
         check_every_operation(
             "sliver",
+            &body,
+            &placed,
+            (exact_volume(&body), exact_volume(&placed)),
+        );
+    }
+}
+
+#[test]
+fn faces_meeting_at_a_tiny_angle_mesh_without_sharing_a_diagonal() {
+    let placements = [
+        (
+            crate::fixtures::frustum(4.0, 2.0, 5.0),
+            crate::fixtures::extruded_spline(5.0),
+            Vector3::new(-0.7553708633834404, 0.4576916327680014, -0.8090351056797611),
+            5.341136079508195,
+            (
+                0.26102023154864806,
+                -0.3579014796620085,
+                -0.2387020430868398,
+            ),
+        ),
+        (
+            crate::fixtures::torus(6.0, 2.0),
+            sphere(4.0),
+            Vector3::new(
+                -0.05982394730048202,
+                0.1838253331281401,
+                -0.7247630495057358,
+            ),
+            2.11332960953364,
+            (0.1423923360346086, 0.1125505886729925, 0.15586598640878252),
+        ),
+        (
+            crate::fixtures::holed_block(10.0, 4.0, 2.5),
+            crate::fixtures::hollow_cuboid(10.0, 4.0),
+            Vector3::new(0.21819054667584736, -0.622362619484278, 0.5284324103940765),
+            5.92364653859339,
+            (0.974954931504945, -1.7503020699262923, 1.6219188533047921),
+        ),
+    ];
+
+    for (body, tool, axis, angle, offset) in placements {
+        let placed = moved(rotated(tool, axis, angle), offset);
+
+        check_every_operation(
+            "tiny angle",
             &body,
             &placed,
             (exact_volume(&body), exact_volume(&placed)),

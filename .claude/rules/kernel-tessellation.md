@@ -68,6 +68,15 @@ paths:
   the longer segment of each crossing pair is bisected in the same rounds; only faces of an edge
   just bisected are looked at again. A coarse chord of one side otherwise cut across the densely
   sampled other side near the tip (VZ330 "Goliath Air cooled").
+- Two faces meeting at a tiny angle can triangulate the same boundary points alike: a sliver
+  between two sections both faces span (a cone's difference with its copy turned a little, the
+  surfaces 2e-5 apart), or a straight edge running just under a sphere whose face then takes that
+  edge's two ends as a diagonal. The shared edge then had four triangles. So a face's edge between
+  two boundary positions used by two of its triangles (`FacePatch::inner_pairs`) that another
+  placed face also has inside it, or that is a sampled segment of an edge not bounding the face,
+  is split at the point of the face's surface nearest its middle (`part_shared_pairs`), each
+  triangle beside it halved; the first face placed keeps it. Boolean tests mesh every result
+  through `assert_watertight` (`check_valid`).
 - Pole-line points share the pole's position and collapsing triangles are dropped, keeping the mesh
   watertight. A straight edge ending at a pole (a ruling to a cone's apex) is sampled one piece per
   grid row crossed, else triangles beside it fan from the apex with no area.
