@@ -8,7 +8,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   fails in about half of full `cargo test --release -p caditor` runs on a loaded machine and never
   alone: after clicking Clear and settling, the emboss still holds its one chosen region
   (`emboss.rs:385`), so the click is lost or lands before the button is there. Once seen beside it,
-  `paste_picks::a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it` failed too.
+  `paste_picks::a_running_paste_shows_one_polite_progress_line_whose_cancel_stops_it` failed too,
+  and once alone in a full run (passing on its own)
+  `configuration_files::exporting_without_configurations_and_importing_a_file_without_the_column_say_why`.
 - [high · medium · blocked by: the Autodesk app (`DECISIONS.md`)] The Fusion 360 calls follow
   Autodesk's published documentation and are tested against JSON of the shapes it describes
   (`caditor-cloud`'s `fusion/tests.rs`), never against Autodesk's servers with a registered app.

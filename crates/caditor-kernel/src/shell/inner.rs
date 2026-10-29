@@ -1271,7 +1271,34 @@ fn enclosed_faces(
     enclosed
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rivals {
+    Together,
+    LargerFirst,
+}
+
 fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<Layout, ShellError> {
+    let mut retry = collapses.clone();
+    match settled_layout_with(offsets, collapses, Rivals::Together) {
+        Err(error) if !matches!(error, ShellError::Cancelled(_)) => {
+            match settled_layout_with(offsets, &mut retry, Rivals::LargerFirst) {
+                Ok(layout) => {
+                    *collapses = retry;
+                    Ok(layout)
+                }
+                Err(cancelled @ ShellError::Cancelled(_)) => Err(cancelled),
+                Err(_) => Err(error),
+            }
+        }
+        settled => settled,
+    }
+}
+
+fn settled_layout_with(
+    offsets: &Offsets<'_>,
+    collapses: &mut Collapses,
+    rivals: Rivals,
+) -> Result<Layout, ShellError> {
     let solid = offsets.solid;
     let mut unsettled = Vec::new();
     let mut first_failure = None;
@@ -1297,6 +1324,10 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
             return Ok(layout);
         }
         let shrinking = closing_whole_first(offsets, collapses, shrinking)?;
+        let shrinking = match rivals {
+            Rivals::Together => shrinking,
+            Rivals::LargerFirst => larger_rivals_first(offsets, collapses, shrinking)?,
+        };
         unsettled = shrinking.keys().copied().collect();
         let peaks: Vec<(FaceId, BTreeSet<EdgeId>, [BTreeSet<EdgeId>; 2])> = shrinking
             .iter()
@@ -1338,6 +1369,41 @@ fn closing_whole_first(
         Err(error @ ShellError::Cancelled(_)) => Err(error),
         Err(_) => Ok(shrinking),
     }
+}
+
+fn larger_rivals_first(
+    offsets: &Offsets<'_>,
+    collapses: &Collapses,
+    shrinking: BTreeMap<FaceId, BTreeSet<EdgeId>>,
+) -> Result<BTreeMap<FaceId, BTreeSet<EdgeId>>, ShellError> {
+    let mut trial = collapses.clone();
+    trial.add_shrinking(shrinking.clone());
+    match Layout::new(offsets, &trial) {
+        Ok(_) => return Ok(shrinking),
+        Err(error @ ShellError::Cancelled(_)) => return Err(error),
+        Err(_) => {}
+    }
+    let area = |face: FaceId| {
+        crate::measure::face_area(offsets.solid, face)
+            .ok()
+            .flatten()
+            .unwrap_or(0.0)
+    };
+    let areas: BTreeMap<FaceId, f64> = shrinking.keys().map(|face| (*face, area(*face))).collect();
+    let outranked = |face: &FaceId, across: &BTreeSet<EdgeId>| {
+        shrinking.iter().any(|(rival, rival_across)| {
+            rival != face && !across.is_disjoint(rival_across) && areas.get(rival) > areas.get(face)
+        })
+    };
+    let first: BTreeMap<FaceId, BTreeSet<EdgeId>> = shrinking
+        .iter()
+        .filter(|(face, across)| !outranked(face, across))
+        .map(|(face, across)| (*face, across.clone()))
+        .collect();
+    if first.is_empty() || first.len() == shrinking.len() {
+        return Ok(shrinking);
+    }
+    Ok(first)
 }
 
 fn ridges(solid: &Solid, face: FaceId, across: &BTreeSet<EdgeId>) -> Option<[BTreeSet<EdgeId>; 2]> {

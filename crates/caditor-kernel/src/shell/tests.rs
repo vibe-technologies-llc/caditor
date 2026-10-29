@@ -1470,3 +1470,26 @@ fn bands_closing_beside_each_other_close_into_one_ridge() {
         assert_eq!(walls, if open { 2 } else { 3 }, "{name}");
     }
 }
+
+#[test]
+fn sides_closing_beside_vertical_chamfers_close_first_and_leave_them_as_rhombi() {
+    let size = Vector3::new(150.0, 150.0, 40.0);
+    let solid = cuboid(size);
+    let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+    let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 15.0 }, 5).unwrap();
+    let top = face_facing(&bevelled, Vector3::Z, Point3::new(75.0, 75.0, size.z));
+    let outer = bevelled_planes(size, 15.0);
+
+    for thickness in [14.5, 15.0] {
+        let cavity = cavity_planes(&outer, thickness, true);
+        let name = format!("chamfered box opened at {thickness}");
+
+        let result = run(&bevelled, &[top], thickness);
+
+        check(
+            &name,
+            &result,
+            convex_volume(&outer) - convex_volume(&cavity),
+        );
+    }
+}

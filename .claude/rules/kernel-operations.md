@@ -704,6 +704,13 @@ paths:
   - when a settle round finds faces whose every edge reversed (a chamfer's corner triangle
     shrinking to a point) among other shrinking faces, those collapse alone first, if a layout
     with just them builds (`closing_whole_first`); otherwise the whole set collapses as before;
+  - when settling fails, it is tried once more from the start (`Rivals::LargerFirst`), each
+    round whose shrinking faces cannot all be laid out together closing, of two that share an
+    across edge, only the larger (`larger_rivals_first`), later rounds closing the other if it
+    still shrinks; a retry that fails too reports the first attempt's error, so refusals keep
+    their words: the sides of a 150×150×40 box chamfered 15 mm and
+    shelled 14.5 mm reverse the same vertical edges as the vertical chamfers between them, but
+    only the sides close, leaving the chamfers as small rhombi
   - a one-loop face whose kept edges form two sides apart is dropped by how its offset outline
     turns: the loop's offset vertices projected onto the original surface enclose a uv area of
     opposite sign or none (`Layout::outline_inverts`). With at least one side a chain (a rim split
