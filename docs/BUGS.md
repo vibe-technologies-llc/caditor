@@ -9,12 +9,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
-  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163 and 178) gave are pinned by
-  tests and combine. Seeds 20 to 200 all combine. Of seeds 201 to 500, eight fail, none pinned
-  yet; each seed's line names the fixtures, axis, angle and offset:
-  - `Invalid(PcurveOffEdge)`, 0.07 to 0.75 off, always with a cone: seeds 214 (frustum and cone,
-    union), 255 (cone and cylinder, union and difference), 291 (cylinder and cone, difference and
-    intersection) and 405 (cone and cuboid, intersection).
+  (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291 and
+  405) gave are pinned by tests and combine. Seeds 20 to 200 all combine. Of seeds 201 to 500,
+  four fail, none pinned yet; each seed's line names the fixtures, axis, angle and offset:
   - `Split` in every operation: seeds 325 (frustum and cylinder), 432 (torus and torus) and 486
     (extruded spline and holed block).
   - `Ambiguous` in every operation: seed 403 (hollow cuboid and extruded spline).

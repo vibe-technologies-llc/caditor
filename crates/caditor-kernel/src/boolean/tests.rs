@@ -2494,3 +2494,58 @@ fn a_cylinder_whose_cap_meets_a_block_edge_beside_its_rim_combines() {
         (936.0, 45.0 * PI),
     );
 }
+
+#[test]
+fn a_cone_whose_section_winds_round_near_its_apex_combines() {
+    let cone = || crate::fixtures::cone(3.0, 4.0);
+    let cylinder = || crate::fixtures::cylinder(3.0, 5.0);
+    let placements = [
+        (
+            crate::fixtures::frustum(4.0, 2.0, 5.0),
+            cone(),
+            Vector3::new(-0.30176330698498854, 0.1884195210884969, 0.3440857018499648),
+            1.3355923535981409,
+            (-0.2449485476061386, 0.33730024825373084, -1.812525192035085),
+        ),
+        (
+            cone(),
+            cylinder(),
+            Vector3::new(
+                0.28895582267050046,
+                -0.8402821135642651,
+                0.03030242180501963,
+            ),
+            0.9229639793008638,
+            (-1.2133804104124115, -1.3697978994156061, 1.715951364767986),
+        ),
+        (
+            cylinder(),
+            cone(),
+            Vector3::new(
+                0.5471363687378286,
+                -0.01533052715477079,
+                -0.6038973889471566,
+            ),
+            1.4562216316990313,
+            (0.7595622437369567, -0.20279914058066462, 2.75931683449177),
+        ),
+        (
+            cone(),
+            crate::fixtures::cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            Vector3::new(0.5312435377872635, 0.7389560945708289, 0.3571005417084052),
+            5.281637517454399,
+            (-0.4029290980410152, -1.0557040831033193, 1.2336747698060204),
+        ),
+    ];
+
+    for (body, tool, axis, angle, offset) in placements {
+        let placed = moved(rotated(tool, axis, angle), offset);
+
+        check_every_operation(
+            "cone",
+            &body,
+            &placed,
+            (exact_volume(&body), exact_volume(&placed)),
+        );
+    }
+}

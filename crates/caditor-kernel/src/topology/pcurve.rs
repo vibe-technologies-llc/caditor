@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Point3, Vector2};
 use thiserror::Error;
 
 use crate::{
@@ -342,7 +342,9 @@ fn follow(
         let uv = surface.project(curve.point(parameter), Some(last.uv));
         let middle = 0.5 * (last.parameter + parameter);
         let divisible = depth < MAX_PCURVE_DEPTH && middle != last.parameter && middle != parameter;
-        if divisible && turns_too_far(surface, last.uv, uv) {
+        let turning = turns_too_far(surface, last.uv, uv)
+            || turns_too_far_through(surface, curve.point(middle), last.uv, uv);
+        if divisible && turning {
             pending.push((parameter, depth + 1));
             pending.push((middle, depth + 1));
             continue;
@@ -351,6 +353,14 @@ fn follow(
         samples.push(last);
     }
     Ok(())
+}
+
+fn turns_too_far_through(surface: &Surface, middle: Point3, from: Point2, to: Point2) -> bool {
+    if surface.u_period().is_none() && surface.v_period().is_none() {
+        return false;
+    }
+    let through = surface.project(middle, Some(from));
+    turns_too_far(surface, from, through) || turns_too_far(surface, through, to)
 }
 
 fn turns_too_far(surface: &Surface, from: Point2, to: Point2) -> bool {

@@ -133,6 +133,9 @@ paths:
   within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
   `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when less
   (never below `LINEAR_RESOLUTION`), so a nearly straight short arc keeps an interior sample.
+  Fitting halves a step whose ends, or whose middle against either end, lie more than a quarter
+  period apart on a periodic surface: a cone's section passing near its apex winds most of a turn
+  within one of an ellipse's π/4 seeds, and with the ends alone the pcurve went round the short way.
 - A spline edge that is a side of its face's spline surface (neither direction periodic; same
   degree and knots, control points within `SIDE_MATCH`, weights alike, either way round) is
   fitted as the straight pcurve along that side without sampling (`pcurve::along_side`), exact
