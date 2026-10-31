@@ -54,7 +54,13 @@ paths:
   - Within a leaf, an extrusion, revolution or spline surface is projected from the previous foot;
     a foot whose offset is not along the normal (stalled on a domain boundary, where the signed
     distance reads zero far from the surface) is replaced by the global projection, so a stale hint
-    never brackets a false root. Each bracketing and minimisation starts from the foot of the leaf
+    never brackets a false root. A hinted foot is also kept only while its distance stays within
+    the leaf's bound: the global distance from the centre of the leaf's box (found while pruning)
+    plus the point's distance from that centre, since the distance changes no faster than the
+    point moves. A ray from inside a spline prism, its first sample nearest the profile's far end,
+    followed that foot along a 12.6 long leaf while the wall it leaves through lay 4.3 from the
+    leaf's middle, so no sign change showed and the ray reported nothing (the point read outside).
+    Each bracketing and minimisation starts from the foot of the leaf
     sample bounding it: carried from the leaf's last sample, Newton settled on a true foot on the
     far side of an arched extrusion, 22 units off, and a line crossing the wall was missed.
 - `intersect_curves` and `intersect_curves2` are analytic for lines and 2D circles, else paired

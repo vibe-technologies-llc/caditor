@@ -90,7 +90,19 @@ pub(crate) struct Probe<'a> {
     pub curve: &'a Curve,
     pub surface: &'a Surface,
     pub hint: Cell<Option<Point2>>,
-    pub local: Cell<bool>,
+    pub local: Cell<Option<Nearest>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Nearest {
+    center: Point3,
+    distance: f64,
+}
+
+impl Nearest {
+    fn admits(self, point: Point3, foot: Point3) -> bool {
+        point.distance(foot) <= self.distance + point.distance(self.center) + TOLERANCE
+    }
 }
 
 impl Probe<'_> {
@@ -99,20 +111,25 @@ impl Probe<'_> {
             curve,
             surface,
             hint: Cell::new(None),
-            local: Cell::new(false),
+            local: Cell::new(None),
         }
     }
 
     fn project(&self, point: Point3) -> Point2 {
-        let swept = self.local.get()
-            && matches!(
+        let nearest = self.local.get().filter(|_| {
+            matches!(
                 self.surface,
                 Surface::Extrusion(_) | Surface::Revolution(_) | Surface::BSpline(_)
-            );
-        let uv = match self.hint.get().filter(|_| swept) {
-            Some(hint) => {
+            )
+        });
+        let swept = nearest.is_some();
+        let uv = match self.hint.get().zip(nearest) {
+            Some((hint, nearest)) => {
                 let local = refine_projection(self.surface, point, hint);
-                if local.is_finite() && self.is_foot(point, local) {
+                if local.is_finite()
+                    && self.is_foot(point, local)
+                    && nearest.admits(point, self.surface.point_at(local))
+                {
                     local
                 } else {
                     self.surface.project(point, None)
@@ -578,13 +595,18 @@ fn general(
             continue;
         }
         let radius = bounds.half_extent().length();
-        if hulls_miss(probe.surface, &bounds)
-            || probe.surface.distance(bounds.center()) > radius + TOLERANCE
-        {
+        if hulls_miss(probe.surface, &bounds) {
+            continue;
+        }
+        let nearest = Nearest {
+            center: bounds.center(),
+            distance: probe.surface.distance(bounds.center()),
+        };
+        if nearest.distance > radius + TOLERANCE {
             continue;
         }
         if depth >= MAX_DEPTH || is_leaf(probe, piece, radius) {
-            leaves.push(piece);
+            leaves.push((piece, nearest));
             continue;
         }
         let middle = piece.middle();
@@ -596,13 +618,13 @@ fn general(
                 pending.push((high, depth + 1));
                 pending.push((low, depth + 1));
             }
-            _ => leaves.push(piece),
+            _ => leaves.push((piece, nearest)),
         }
     }
-    leaves.sort_by(|a, b| a.start().total_cmp(&b.start()));
+    leaves.sort_by(|a, b| a.0.start().total_cmp(&b.0.start()));
     let candidates: Vec<Candidate> = leaves
         .into_iter()
-        .flat_map(|leaf| solve_leaf(probe, leaf))
+        .flat_map(|(leaf, nearest)| solve_leaf(probe, leaf, nearest))
         .collect();
     Ok(candidates
         .into_iter()
@@ -613,11 +635,11 @@ fn general(
         .collect())
 }
 
-fn solve_leaf(probe: &Probe, piece: Interval) -> Vec<Candidate> {
+fn solve_leaf(probe: &Probe, piece: Interval, nearest: Nearest) -> Vec<Candidate> {
     probe.forget();
-    probe.local.set(true);
+    probe.local.set(Some(nearest));
     let candidates = solve_leaf_locally(probe, piece);
-    probe.local.set(false);
+    probe.local.set(None);
     probe.forget();
     candidates
 }

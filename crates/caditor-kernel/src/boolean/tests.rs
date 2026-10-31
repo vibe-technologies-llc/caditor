@@ -25,7 +25,7 @@ use crate::{
         polls_during, rectangle, spline,
     },
     tolerance::SamplingTolerance,
-    topology::{BuildError, FaceId, Pcurve, PcurveSample},
+    topology::{BuildError, FaceId, Pcurve, PcurveSample, PointClass},
 };
 
 const DENSE_SPLINE_POLLS: usize = 250_000;
@@ -2641,4 +2641,38 @@ fn faces_meeting_at_a_tiny_angle_mesh_without_sharing_a_diagonal() {
             (exact_volume(&body), exact_volume(&placed)),
         );
     }
+}
+
+#[test]
+fn a_ray_leaving_a_spline_wall_far_from_the_foot_it_starts_at_is_seen() {
+    let body = crate::fixtures::hollow_cuboid(10.0, 4.0);
+    let placed = moved(
+        rotated(
+            crate::fixtures::extruded_spline(5.0),
+            Vector3::new(0.186196307639938, 0.76378994423358, -0.7856930067065029),
+            5.560300746972428,
+        ),
+        (1.6198839384178854, -2.083188205308355, 0.7445051475565672),
+    );
+
+    let classifier = placed.classifier();
+    let misread: Vec<Point3> = (0..=20)
+        .flat_map(|row| (0..=20).map(move |column| (row, column)))
+        .map(|(row, column)| {
+            Point3::new(
+                7.0,
+                3.0 + 0.2 * f64::from(column),
+                4.0 + 0.15 * f64::from(row),
+            )
+        })
+        .filter(|point| classifier.classify(*point) != PointClass::Inside)
+        .collect();
+
+    assert_eq!(misread, Vec::<Point3>::new());
+    check_every_operation(
+        "spline prism across the cavity",
+        &body,
+        &placed,
+        (exact_volume(&body), exact_volume(&placed)),
+    );
 }
