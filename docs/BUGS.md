@@ -31,7 +31,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   apart, or runs an edge between another pair of faces, which splitting the corner into several
   cannot give. Corners of more than `MAX_SPLIT_FACES` (24) faces are not split either. All are
   refused as `Corner` (`shell::tests::a_corner_where_ridges_and_valleys_alternate_is_named`,
-  `a_cavity_whose_ridge_runs_over_its_inside_corner_is_named`).
+  `a_cavity_whose_ridge_runs_over_its_inside_corner_is_named`). In the cavity, roofs sloping 3/5
+  and 3/7 put the offset ridge 0.076 of the thickness to the front of the wall below it, so the
+  ridge runs on straight past the corner and that wall's top edge now meets the back roof: the
+  edge between the front roof and the wall has to become a ridge piece plus a new edge between the
+  wall and the back roof. A mirrored `ConvexButFold` (concave but one convex edge, residual signs
+  flipped) was tried and finds no triangulation of that cycle, as expected. Between the crossing
+  ridges, the lower one stops short on the higher roof, and the two faces of that roof's plane
+  that the lower roof kept apart (touching only at the vertex) become one face. Both need the
+  corner rebuilt from the arrangement of its offset planes under its own union and intersection
+  formula (convex edges intersect, concave ones unite), with an edge allowed to change its pair of
+  faces and faces of one plane allowed to merge; the plan builds one face per original face.
 - [medium · hard] `select::classify` lets inside or outside samples win over coincident ones in a
   partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`). A
   sample now counts as coincident only on a face of the same elementary surface, which removed the
