@@ -1493,3 +1493,70 @@ fn sides_closing_beside_vertical_chamfers_close_first_and_leave_them_as_rhombi()
         );
     }
 }
+
+fn cavity_facing(solid: &Solid, normal: Vector3) -> bool {
+    solid.faces().any(|(_, face)| {
+        face.origin() == Some(FaceOrigin::Shell { feature: 70 })
+            && matches!(face.surface(), Surface::Plane(plane)
+                if (plane.frame().normal() * face.sense().sign()).dot(normal) > 0.999)
+    })
+}
+
+#[test]
+fn corners_keeping_a_rhombus_or_closing_their_bottom_chamfers_shell() {
+    let cases = [
+        (
+            Vector3::new(150.0, 150.0, 40.0),
+            15.0,
+            true,
+            [20.0, 21.0, 22.0],
+        ),
+        (
+            Vector3::new(100.0, 100.0, 30.0),
+            10.0,
+            true,
+            [13.0, 14.0, 15.0],
+        ),
+        (
+            Vector3::new(80.0, 80.0, 60.0),
+            20.0,
+            false,
+            [26.0, 27.0, 28.0],
+        ),
+        (Vector3::new(60.0, 60.0, 20.0), 8.0, true, [9.5, 10.5, 11.5]),
+    ];
+    let vertical_chamfer = Vector3::new(1.0, 1.0, 0.0).normalize();
+    for (size, chamfer, opened, thicknesses) in cases {
+        let solid = cuboid(size);
+        let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+        let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: chamfer }, 5).unwrap();
+        let middle = Point3::new(size.x / 2.0, size.y / 2.0, size.z);
+        let top = face_facing(&bevelled, Vector3::Z, middle);
+        let open: &[FaceId] = if opened { &[top] } else { &[] };
+        let outer = bevelled_planes(size, chamfer);
+        for thickness in thicknesses {
+            let name = format!("{size} chamfer {chamfer} at {thickness} opened {opened}");
+            let cavity = cavity_planes(&outer, thickness, opened);
+            let (_, areas) = convex_facets(&cavity);
+            let walls = areas.iter().filter(|area| **area > 1e-9).count();
+            let rhombus = cavity
+                .iter()
+                .zip(&areas)
+                .any(|((normal, _), area)| *area > 1e-9 && normal.dot(vertical_chamfer) > 0.999);
+
+            let result = run(&bevelled, open, thickness);
+
+            check(
+                &name,
+                &result,
+                convex_volume(&outer) - convex_volume(&cavity),
+            );
+            let cavity_faces = result
+                .faces()
+                .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+                .count();
+            assert_eq!(cavity_faces, walls - usize::from(opened), "{name}");
+            assert_eq!(cavity_facing(&result, -vertical_chamfer), rhombus, "{name}");
+        }
+    }
+}

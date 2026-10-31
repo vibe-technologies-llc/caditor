@@ -20,6 +20,7 @@ use crate::{
 const VERTEX_ITERATIONS: usize = 40;
 const INDEPENDENT_ROW: f64 = 1e-6;
 const PARALLEL: f64 = 1e-6;
+const FLATTENED_OUTLINE: f64 = 1e-9;
 
 struct Clusters {
     root: BTreeMap<VertexId, VertexId>,
@@ -840,6 +841,45 @@ impl Layout {
         Some(signed_area(&original) * signed_area(&offset) <= 0.0)
     }
 
+    fn outline_flattens(&self, offsets: &Offsets<'_>, face: FaceId) -> Option<bool> {
+        let solid = offsets.solid;
+        let definition = solid.face(face)?;
+        let surface = definition.surface();
+        let [only] = definition.loops() else {
+            return None;
+        };
+        let coedges = solid.face_loop(*only)?.coedges();
+        let kept = |coedge: &CoedgeId| {
+            solid
+                .coedge(*coedge)
+                .is_some_and(|coedge| !self.vanishing.contains(&coedge.edge()))
+        };
+        let mut original = Vec::new();
+        let mut offset = Vec::new();
+        for (index, coedge_id) in coedges.iter().enumerate() {
+            if !kept(coedge_id) {
+                continue;
+            }
+            let coedge = solid.coedge(*coedge_id)?;
+            let (start, end) = solid.coedge_vertices(*coedge_id)?;
+            let pcurve = coedge.pcurve();
+            let mut corners = vec![(start, pcurve.start())];
+            let next = coedges.get((index + 1) % coedges.len())?;
+            if !kept(next) {
+                corners.push((end, pcurve.end()));
+            }
+            for (vertex, uv) in corners {
+                let point =
+                    self.plan
+                        .point(self.corners.end(&self.clusters, vertex, coedge.edge())?)?;
+                original.push(uv);
+                offset.push(surface.project(offsets.pulled_back(face, point), Some(uv)));
+            }
+        }
+        let before = signed_area(&original);
+        Some(before.abs() > 0.0 && signed_area(&offset) / before <= FLATTENED_OUTLINE)
+    }
+
     fn closes(&self, offsets: &Offsets<'_>, face: FaceId, sides: &[Vec<CoedgeId>]) -> bool {
         let solid = offsets.solid;
         let edge = |coedge: &CoedgeId| solid.coedge(*coedge).map(|coedge| coedge.edge());
@@ -863,17 +903,27 @@ impl Layout {
         let solid = offsets.solid;
         let reversed = self.reversed_edges(offsets);
         let mut shrinking = BTreeMap::new();
-        if reversed.is_empty() {
-            return shrinking;
-        }
         for (id, _) in solid.faces() {
             if collapses.contains(id) {
                 continue;
             }
-            let across: BTreeSet<EdgeId> = loop_edges(solid, id)
-                .into_iter()
+            let edges = loop_edges(solid, id);
+            let across: BTreeSet<EdgeId> = edges
+                .iter()
                 .filter(|edge| reversed.contains(edge))
+                .copied()
                 .collect();
+            if across.is_empty() {
+                let pinched: BTreeSet<EdgeId> = edges
+                    .iter()
+                    .filter(|edge| self.vanishing.contains(edge))
+                    .copied()
+                    .collect();
+                if !pinched.is_empty() && self.outline_flattens(offsets, id) == Some(true) {
+                    shrinking.insert(id, pinched);
+                }
+                continue;
+            }
             let Some(sides) = sides(solid, id, &across, &self.vanishing) else {
                 continue;
             };
@@ -1127,6 +1177,26 @@ fn new_edge(
     Ok(plan.edge(curve, interval, (start, end), name))
 }
 
+fn inside_cluster(
+    solid: &Solid,
+    face: FaceId,
+    coedges: &[CoedgeId],
+    layout: &Layout,
+) -> Option<Vec<PlanCoedge>> {
+    let vanishes = |coedge: &CoedgeId| {
+        solid
+            .coedge(*coedge)
+            .is_some_and(|coedge| layout.vanishing.contains(&coedge.edge()))
+    };
+    if !coedges.iter().all(vanishes) {
+        return None;
+    }
+    let (start, _) = solid.coedge_vertices(*coedges.first()?)?;
+    let split = layout.corners.splits.get(&layout.clusters.find(start))?;
+    let (inner, loop_coedges) = split.inner.as_ref()?;
+    (*inner == face).then(|| loop_coedges.clone())
+}
+
 fn loops(
     solid: &Solid,
     face: FaceId,
@@ -1140,6 +1210,10 @@ fn loops(
         .iter()
         .filter_map(|id| solid.face_loop(*id))
     {
+        if let Some(inside) = inside_cluster(solid, face, face_loop.coedges(), layout) {
+            loops.push(inside);
+            continue;
+        }
         let mut coedges = Vec::new();
         for coedge_id in face_loop.coedges() {
             let Some(coedge) = solid.coedge(*coedge_id) else {
@@ -1229,7 +1303,10 @@ fn enclosed_faces(
     let solid = offsets.solid;
     let vanishing = collapses.vanishing_edges(solid);
     let clusters = Clusters::new(solid, &vanishing);
-    let mut within: BTreeMap<VertexId, Vec<(FaceId, BTreeSet<EdgeId>)>> = BTreeMap::new();
+    let members = clusters.members();
+    let dropped = collapses.faces();
+    let mut stranded_at: BTreeMap<VertexId, BTreeSet<FaceId>> = BTreeMap::new();
+    let mut enclosed = BTreeMap::new();
     for (id, face) in solid.faces() {
         if collapses.contains(id) || face.loops().len() != 1 {
             continue;
@@ -1238,35 +1315,54 @@ fn enclosed_faces(
         if !edges.iter().any(|edge| vanishing.contains(edge)) {
             continue;
         }
-        let roots: BTreeSet<VertexId> = edges
+        let ends: Vec<(EdgeId, [VertexId; 2])> = edges
             .iter()
-            .filter_map(|edge| solid.edge(*edge))
-            .flat_map(|edge| [edge.start(), edge.end()])
-            .map(|vertex| clusters.find(vertex))
+            .filter_map(|edge| {
+                let definition = solid.edge(*edge)?;
+                Some((
+                    *edge,
+                    [
+                        clusters.find(definition.start()),
+                        clusters.find(definition.end()),
+                    ],
+                ))
+            })
             .collect();
-        if let (Some(root), 1) = (roots.first(), roots.len()) {
-            within.entry(*root).or_default().push((id, edges));
+        let roots: BTreeSet<VertexId> = ends.iter().flat_map(|(_, roots)| *roots).collect();
+        let mut stranded_everywhere = true;
+        for root in &roots {
+            let faces = stranded_at.entry(*root).or_insert_with(|| {
+                let members: BTreeSet<VertexId> =
+                    members.get(root).into_iter().flatten().copied().collect();
+                if members.len() < 2 {
+                    return BTreeSet::new();
+                }
+                let cluster = Cluster {
+                    members: &members,
+                    vanishing: &vanishing,
+                    dropped: &dropped,
+                };
+                stranded(offsets, &cluster)
+            });
+            if !faces.contains(&id) {
+                stranded_everywhere = false;
+                break;
+            }
         }
-    }
-    let members = clusters.members();
-    let dropped = collapses.faces();
-    let mut enclosed = BTreeMap::new();
-    for (root, faces) in within {
-        let Some(members) = members.get(&root) else {
+        if !stranded_everywhere {
             continue;
+        }
+        let pinched: BTreeSet<EdgeId> = edges.intersection(&vanishing).copied().collect();
+        let band = sides(solid, id, &pinched, &vanishing).is_some_and(|sides| sides.len() == 2);
+        let across = if band {
+            pinched
+        } else {
+            ends.iter()
+                .filter(|(_, [start, end])| start == end)
+                .map(|(edge, _)| *edge)
+                .collect()
         };
-        let members: BTreeSet<VertexId> = members.iter().copied().collect();
-        let cluster = Cluster {
-            members: &members,
-            vanishing: &vanishing,
-            dropped: &dropped,
-        };
-        let stranded = stranded(offsets, &cluster);
-        enclosed.extend(
-            faces
-                .into_iter()
-                .filter(|(face, _)| stranded.contains(face)),
-        );
+        enclosed.insert(id, across);
     }
     enclosed
 }
@@ -1328,6 +1424,7 @@ fn settled_layout_with(
             Rivals::Together => shrinking,
             Rivals::LargerFirst => larger_rivals_first(offsets, collapses, shrinking)?,
         };
+        let shrinking = keeping_enclosed(offsets, collapses, shrinking)?;
         unsettled = shrinking.keys().copied().collect();
         let peaks: Vec<(FaceId, BTreeSet<EdgeId>, [BTreeSet<EdgeId>; 2])> = shrinking
             .iter()
@@ -1369,6 +1466,43 @@ fn closing_whole_first(
         Err(error @ ShellError::Cancelled(_)) => Err(error),
         Err(_) => Ok(shrinking),
     }
+}
+
+fn keeping_enclosed(
+    offsets: &Offsets<'_>,
+    collapses: &Collapses,
+    shrinking: BTreeMap<FaceId, BTreeSet<EdgeId>>,
+) -> Result<BTreeMap<FaceId, BTreeSet<EdgeId>>, ShellError> {
+    let solid = offsets.solid;
+    let closing = |face: FaceId| shrinking.contains_key(&face) || collapses.contains(face);
+    let enclosed = |face: FaceId| {
+        loop_edges(solid, face).iter().all(|edge| {
+            coedge_faces(solid, *edge)
+                .into_iter()
+                .all(|other| other == face || closing(other))
+        })
+    };
+    let kept: BTreeMap<FaceId, BTreeSet<EdgeId>> = shrinking
+        .iter()
+        .filter(|(face, _)| !enclosed(**face))
+        .map(|(face, across)| (*face, across.clone()))
+        .collect();
+    if kept.is_empty() || kept.len() == shrinking.len() {
+        return Ok(shrinking);
+    }
+    let builds = |closing: &BTreeMap<FaceId, BTreeSet<EdgeId>>| {
+        let mut trial = collapses.clone();
+        trial.add_shrinking(closing.clone());
+        match Layout::new(offsets, &trial) {
+            Ok(_) => Ok(true),
+            Err(error @ ShellError::Cancelled(_)) => Err(error),
+            Err(_) => Ok(false),
+        }
+    };
+    if builds(&shrinking)? || !builds(&kept)? {
+        return Ok(shrinking);
+    }
+    Ok(kept)
 }
 
 fn larger_rivals_first(

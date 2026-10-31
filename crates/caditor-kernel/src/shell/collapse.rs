@@ -244,7 +244,10 @@ impl Collapses {
                 || residuals.is_some_and(|residuals| {
                     let inside = residuals
                         .iter()
-                        .all(|residual| *residual < -OFFSET_TOLERANCE);
+                        .all(|residual| *residual <= OFFSET_TOLERANCE)
+                        && residuals
+                            .iter()
+                            .any(|residual| *residual < -OFFSET_TOLERANCE);
                     let through_opening = residuals
                         .iter()
                         .any(|residual| residual - offsets.distance(*face) > OFFSET_TOLERANCE);

@@ -739,6 +739,15 @@ paths:
   - when a settle round finds faces whose every edge reversed (a chamfer's corner triangle
     shrinking to a point) among other shrinking faces, those collapse alone first, if a layout
     with just them builds (`closing_whole_first`); otherwise the whole set collapses as before;
+  - a shrinking face whose every neighbour closes in the same round or before (a vertical chamfer
+    between closing sides and corner triangles) is kept when the round's whole set cannot be laid
+    out and the set without it can (`keeping_enclosed`): its edges all vanish and it stays as a
+    face inside the corner's cluster (below), so a 100×100×30 box chamfered 10 mm all round and
+    shelled 13 mm keeps a rhombus at each vertical chamfer between the four horizontal chamfers;
+  - a face with no reversed edge but some vanishing, whose offset outline flattens to nothing
+    (uv area under `FLATTENED_OUTLINE` of the original's, `Layout::outline_flattens`), closes
+    across its vanishing edges: a bottom chamfer shelled exactly to the line where the bottom
+    meets the top chamfer;
   - when settling fails, it is tried once more from the start (`Rivals::LargerFirst`), each
     round whose shrinking faces cannot all be laid out together closing, of two that share an
     across edge, only the larger (`larger_rivals_first`), later rounds closing the other if it
@@ -772,12 +781,17 @@ paths:
   - vanishing edges merge their vertices; a merged vertex must lie strictly inside the offset of
     each face that shrank away there, and beyond an opened face offset outward, so the cavity still
     opens through it, else the edge shrinking to nothing is reported (`Collapses::closes_over`);
+    a split's points may lie on such an offset within `OFFSET_TOLERANCE` as long as one lies
+    strictly inside (the face closed to a line through them);
   - an edge between two faces that both close as bands (a bottom chamfer and the side above it)
     vanishes into the ridge, and the edges beyond them, now with the same ends, join across both;
-  - when a round's layout cannot be built, a face whose every vertex lies in one cluster and on
-    whose offset no corner of that cluster can be solved (`split::stranded`, a vertical chamfer
-    left inside a corner whose sides closed) closes with all its edges, and the round is tried
-    again; the split points must still lie inside its offset;
+  - when a round's layout cannot be built, a face touching vanishing edges on whose offset no
+    corner of any cluster it touches can be solved (`split::stranded`: a vertical chamfer left
+    inside a corner whose sides closed, a bottom chamfer whose ends both lie in such corners)
+    closes, and the round is tried again; the split points must still lie inside its offset. It
+    closes across its vanishing edges when its other edges form two sides, a band (the bottom
+    chamfer, stacked onto the closing side beside it), else across every edge whose ends lie in
+    one cluster;
   - a vertex of four to `MAX_SPLIT_FACES` (24) faces whose offsets do not meet is split along a
     triangulation of its cycle of faces (`split.rs`) when its edges are all convex, all concave, or
     convex but for one concave edge; other corners are `Corner`. The triangulation is searched by
@@ -789,7 +803,14 @@ paths:
     edge and the cluster vertex it leaves), so a face may come round more than once and an edge
     with both ends in the cluster gets a split point at each end; dropped faces are walked through,
     a band's two rims contracted onto one slot; split points that coincide are merged with no edge
-    between them, and a triangle naming one face twice is refused. Every split point must lie
+    between them, a triangle naming one face twice is refused, and so is merging two triangles
+    naming the same three faces (otherwise the four corners of a box whose top closes into an apex
+    could tie, in fewest merges, with a fan of copies of one corner that never rises to the apex).
+    A face kept with every edge vanishing and every vertex in the cluster (the rhombus above; at
+    most one) lies inside the cycle: the triangulation is then a star (`Search::star`), triangles
+    of that face and consecutive cycle faces (the slot `INNER`), each gap between them
+    triangulated as before, and the face's loop the edges between its consecutive star
+    triangles. Every triangle not naming it must also lie inside its offset. Every split point must lie
     strictly inside each face that shrank away there, and at least one beyond an opened face
     offset outward: a top closing between converging rim chamfers becomes a roof whose ridge or
     apex alone pokes through the opening, its corners below it. A top whose roof stays below the

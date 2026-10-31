@@ -18,12 +18,37 @@ use crate::{
 };
 
 const MAX_SPLIT_FACES: usize = 24;
+const INNER: usize = usize::MAX;
 
 pub(super) type Spoke = (EdgeId, VertexId);
 
 struct Around {
     faces: Vec<FaceId>,
     spokes: Vec<Vec<Spoke>>,
+    inner: Option<FaceId>,
+}
+
+fn inner_faces(solid: &Solid, cluster: &Cluster<'_>, around: &[FaceId]) -> BTreeSet<FaceId> {
+    let mut inner = BTreeSet::new();
+    for (_, face_loop) in solid.loops() {
+        let face = face_loop.face();
+        if cluster.dropped.contains(&face) || around.contains(&face) {
+            continue;
+        }
+        let within = face_loop.coedges().iter().all(|coedge| {
+            solid
+                .coedge(*coedge)
+                .is_some_and(|definition| cluster.vanishing.contains(&definition.edge()))
+                && solid
+                    .coedge_vertices(*coedge)
+                    .is_some_and(|(start, _)| cluster.members.contains(&start))
+        });
+        let one_loop = solid.face(face).is_some_and(|face| face.loops().len() == 1);
+        if within && one_loop {
+            inner.insert(face);
+        }
+    }
+    inner
 }
 
 pub(super) struct Cluster<'a> {
@@ -80,6 +105,7 @@ impl Around {
         let mut around = Self {
             faces: Vec::new(),
             spokes: Vec::new(),
+            inner: None,
         };
         for (face, departing) in cycle {
             if cluster.dropped.contains(&face) {
@@ -89,6 +115,11 @@ impl Around {
                 around.spokes.push(vec![departing]);
             }
         }
+        let inner = inner_faces(solid, cluster, &around.faces);
+        if inner.len() > 1 {
+            return None;
+        }
+        around.inner = inner.first().copied();
         Some(around)
     }
 
@@ -97,7 +128,27 @@ impl Around {
     }
 
     fn face(&self, index: usize) -> Option<FaceId> {
-        self.faces.get(index % self.count()).copied()
+        if index == INNER {
+            return self.inner;
+        }
+        self.faces.get(index.checked_rem(self.count())?).copied()
+    }
+
+    fn slots(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.count()).chain(self.inner.map(|_| INNER))
+    }
+
+    fn normalized(&self, triangle: &Triangle) -> Option<Triangle> {
+        let mut normal = [0; 3];
+        for (slot, index) in normal.iter_mut().zip(triangle) {
+            *slot = if *index == INNER {
+                INNER
+            } else {
+                index.checked_rem(self.count())?
+            };
+        }
+        normal.sort_unstable();
+        Some(normal)
     }
 
     fn arrival(&self, index: usize) -> Option<VertexId> {
@@ -182,6 +233,7 @@ pub(super) struct Split {
     pub points: Vec<Point3>,
     pub ends: BTreeMap<Spoke, usize>,
     pub detours: BTreeMap<(FaceId, VertexId), Vec<PlanCoedge>>,
+    pub inner: Option<(FaceId, Vec<PlanCoedge>)>,
 }
 
 struct Candidate {
@@ -198,10 +250,11 @@ impl Candidate {
             .map(|(index, _)| index)
     }
 
-    fn diagonals(&self, count: usize) -> Vec<(usize, usize, usize, usize)> {
+    fn diagonals(&self, count: usize, inner: bool) -> Vec<(usize, usize, usize, usize)> {
         let mut diagonals = Vec::new();
         for a in 0..count {
-            for b in a + 2..count {
+            let spoke = inner.then_some(INNER);
+            for b in (a + 2..count).chain(spoke) {
                 if a == 0 && b == count - 1 {
                     continue;
                 }
@@ -234,7 +287,11 @@ impl Corners<'_> {
         }
         let point = offset_vertex(self.offsets, &faces, &[], self.start)?;
         let mut others = BTreeMap::new();
-        for index in (0..self.around.count()).filter(|index| !triangle.contains(index)) {
+        for index in self
+            .around
+            .slots()
+            .filter(|index| !triangle.contains(index))
+        {
             let (residual, _) = self
                 .offsets
                 .residual(self.around.face(index)?, point, None)?;
@@ -244,11 +301,12 @@ impl Corners<'_> {
     }
 
     fn point(&mut self, triangle: &Triangle) -> Option<Point3> {
-        if let Some(known) = self.solved.get(triangle) {
+        let triangle = self.around.normalized(triangle)?;
+        if let Some(known) = self.solved.get(&triangle) {
             return *known;
         }
-        let point = self.solve(triangle);
-        self.solved.insert(*triangle, point);
+        let point = self.solve(&triangle);
+        self.solved.insert(triangle, point);
         point
     }
 }
@@ -335,25 +393,138 @@ impl Search<'_, '_> {
     }
 
     fn join(&mut self, below: Triangle, above: Triangle) -> Option<Join> {
+        let [first, _, last] = below;
+        self.joined(below, above, [first, last])
+    }
+
+    fn joined(&mut self, below: Triangle, above: Triangle, sides: [usize; 2]) -> Option<Join> {
         if let Some(known) = self.joins.get(&(below, above)) {
             return *known;
         }
-        let [first, _, last] = below;
+        let around = self.corners.around;
+        let faces = |triangle: &Triangle| -> BTreeSet<Option<FaceId>> {
+            triangle.iter().map(|index| around.face(*index)).collect()
+        };
+        if faces(&below) == faces(&above) {
+            self.joins.insert((below, above), None);
+            return None;
+        }
         let ends = self.corners.point(&below).zip(self.corners.point(&above));
         let join = ends.and_then(|(from, to)| {
             if coincide(from, to) {
                 return Some(Join::Merged);
             }
-            straight(
-                self.corners.offsets,
-                self.corners.around,
-                [first, last],
-                [from, to],
-            )
-            .then_some(Join::Edge)
+            straight(self.corners.offsets, self.corners.around, sides, [from, to])
+                .then_some(Join::Edge)
         });
         self.joins.insert((below, above), join);
         join
+    }
+
+    fn pocket(&mut self, first: usize, last: usize) -> Option<usize> {
+        self.closes(first, last, [first, last, INNER])
+    }
+
+    fn spoke(&mut self, before: usize, at: usize, after: usize) -> Option<usize> {
+        let join = self.joined([before, at, INNER], [at, after, INNER], [at, INNER])?;
+        Some(usize::from(join == Join::Merged))
+    }
+
+    fn rest_of_star(
+        &mut self,
+        start: usize,
+        second: usize,
+        before: usize,
+        at: usize,
+        memo: &mut BTreeMap<(usize, usize), Option<(usize, usize)>>,
+    ) -> Option<(usize, usize)> {
+        if let Some(known) = memo.get(&(before, at)) {
+            return *known;
+        }
+        interrupt::check().ok()?;
+        let count = self.corners.around.count();
+        let end = start + count;
+        let mut best: Option<(usize, usize)> = None;
+        for next in (at + 1..count).chain([end]) {
+            if next == end && before == start {
+                continue;
+            }
+            if self.corners.point(&[at, next, INNER]).is_none() {
+                continue;
+            }
+            let Some(pocket) = self.pocket(at, next) else {
+                continue;
+            };
+            let Some(turn) = self.spoke(before, at, next) else {
+                continue;
+            };
+            let rest = if next == end {
+                self.spoke(at, end, second + count)
+            } else {
+                self.rest_of_star(start, second, at, next, memo)
+                    .map(|(merges, _)| merges)
+            };
+            let Some(rest) = rest else {
+                continue;
+            };
+            let merges = pocket + turn + rest;
+            if best.is_none_or(|(known, _)| merges < known) {
+                best = Some((merges, next));
+            }
+        }
+        memo.insert((before, at), best);
+        best
+    }
+
+    fn star(&mut self, count: usize) -> Option<Candidate> {
+        let mut best: Option<(usize, Vec<usize>)> = None;
+        for start in 0..count {
+            for second in start + 1..count {
+                if self.corners.point(&[start, second, INNER]).is_none() {
+                    continue;
+                }
+                let Some(pocket) = self.pocket(start, second) else {
+                    continue;
+                };
+                let mut memo = BTreeMap::new();
+                let Some((rest, _)) = self.rest_of_star(start, second, start, second, &mut memo)
+                else {
+                    continue;
+                };
+                let merges = pocket + rest;
+                if best.as_ref().is_some_and(|(known, _)| *known <= merges) {
+                    continue;
+                }
+                let mut chain = vec![start, second];
+                let (mut before, mut at) = (start, second);
+                while at < start + count {
+                    let (_, next) = memo.get(&(before, at)).copied().flatten()?;
+                    chain.push(next);
+                    (before, at) = (at, next);
+                }
+                best = Some((merges, chain));
+            }
+        }
+        let (_, chain) = best?;
+        let mut triangles = Vec::with_capacity(count);
+        for pair in chain.windows(2) {
+            let [first, last] = pair else {
+                return None;
+            };
+            let above = [*first, *last, INNER];
+            self.collect(*first, *last, above, &mut triangles)?;
+            triangles.push(above);
+        }
+        let around = self.corners.around;
+        let triangles = triangles
+            .iter()
+            .map(|triangle| around.normalized(triangle))
+            .collect::<Option<Vec<Triangle>>>()?;
+        let points = triangles
+            .iter()
+            .map(|triangle| self.corners.point(triangle))
+            .collect::<Option<Vec<Point3>>>()?;
+        Some(Candidate { triangles, points })
     }
 
     fn collect(
@@ -471,15 +642,20 @@ pub(super) fn split_vertex(
         start,
         solved: BTreeMap::new(),
     };
-    let chosen = Search {
+    let mut search = Search {
         corners: &mut corners,
         fans: BTreeMap::new(),
         unders: BTreeMap::new(),
         joins: BTreeMap::new(),
-    }
-    .fewest_merges(count)?;
+    };
+    let inner = around.inner.is_some();
+    let chosen = if inner {
+        search.star(count)?
+    } else {
+        search.fewest_merges(count)?
+    };
     let mut merged: Vec<usize> = (0..chosen.points.len()).collect();
-    for (_, _, first, second) in chosen.diagonals(count) {
+    for (_, _, first, second) in chosen.diagonals(count, inner) {
         let (Some(from), Some(to)) = (chosen.points.get(first), chosen.points.get(second)) else {
             return None;
         };
@@ -520,7 +696,7 @@ pub(super) fn split_vertex(
             .map_or(FaceName::NONE, |face| face.name())
     };
     let mut diagonals: BTreeMap<(usize, usize), Option<(usize, usize)>> = BTreeMap::new();
-    for (a, b, first, second) in chosen.diagonals(count) {
+    for (a, b, first, second) in chosen.diagonals(count, inner) {
         if corners.get(first)? == corners.get(second)? {
             diagonals.insert((a, b), None);
             continue;
@@ -534,13 +710,13 @@ pub(super) fn split_vertex(
             .ok()?;
         diagonals.insert((a, b), Some((edge, first)));
     }
-    let mut detours = BTreeMap::new();
-    for corner in 0..count {
-        let mut detour = Vec::new();
-        let mut triangle = side(corner + count - 1)?;
-        let mut came_from = (corner + count - 1) % count;
-        let mut steps = 0;
-        while triangle != side(corner)? {
+    let walk = |corner: usize, from: (usize, usize), until: Option<usize>| {
+        let (mut triangle, mut came_from) = from;
+        let mut coedges = Vec::new();
+        for _ in 0..=count + 1 {
+            if until == Some(triangle) {
+                return Some(coedges);
+            }
             let next_corner = chosen
                 .triangles
                 .get(triangle)?
@@ -554,23 +730,51 @@ pub(super) fn split_vertex(
                 } else {
                     Sense::Reversed
                 };
-                detour.push(PlanCoedge::new(*edge, sense));
+                coedges.push(PlanCoedge::new(*edge, sense));
             }
             triangle = chosen
                 .holding(corner, next_corner)
                 .find(|index| *index != triangle)?;
             came_from = next_corner;
-            steps += 1;
-            if steps > count {
-                return None;
+            if until.is_none() && triangle == from.0 {
+                return Some(coedges);
             }
         }
+        None
+    };
+    let mut detours = BTreeMap::new();
+    for corner in 0..count {
+        let from = (side(corner + count - 1)?, (corner + count - 1) % count);
+        let detour = walk(corner, from, Some(side(corner)?))?;
         let arrival = around.arrival(corner + count - 1)?;
         detours.insert((around.face(corner)?, arrival), detour);
     }
+    let inner = match around.inner {
+        Some(face) => {
+            let spokes: BTreeSet<usize> = chosen
+                .triangles
+                .iter()
+                .filter(|triangle| triangle.contains(&INNER))
+                .flatten()
+                .copied()
+                .filter(|index| *index != INNER)
+                .collect();
+            let (first, [low, high, _]) = chosen
+                .triangles
+                .iter()
+                .enumerate()
+                .find(|(_, triangle)| triangle.contains(&INNER))?;
+            let wraps = spokes.range(low + 1..*high).next().is_some();
+            let came_from = if wraps { *low } else { *high };
+            let coedges = walk(INNER, (first, came_from), None)?;
+            Some((face, coedges))
+        }
+        None => None,
+    };
     Some(Split {
         points: chosen.points,
         ends,
         detours,
+        inner,
     })
 }

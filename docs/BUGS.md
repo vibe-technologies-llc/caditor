@@ -39,18 +39,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   `stress_cylinders_on_a_grid`, and none occurs in the boolean tests or the aligned-contact survey;
   making a mixed fragment `Ambiguous` is unchecked against the random-placement survey, and
   splitting fragments exactly at coincident boundaries would replace it.
-- [medium · hard] A box with every edge chamfered, shelled through bands of thickness where its
-  sides and corner triangles close but its vertical chamfers survive as small rhombi, is refused
-  (`EdgeCollapses`, `Walls`): once the sides and triangles drop, every edge of a vertical chamfer
-  vanishes, so its corners, both triangles and the top and bottom faces' corners there are one
-  cluster, and `split.rs` only triangulates the ring of faces around a cluster; it cannot keep a
-  face lying wholly inside it (the rhombus, bounded by the four horizontal chamfers). A sweep of
-  seven boxes at every half millimetre, opened and closed (as
-  `boxes_with_triangle_corners_shell_open_and_closed_or_refuse_cleanly` builds them, checked
-  against the cavity's convex planes), refuses 22 of 528 shells with room and gets none wrong:
-  150×150×40 chamfered 15 mm opened at 20 to 22 mm, 100×100×30 chamfered 10 mm at 13 to 15 mm,
-  80×80×60 chamfered 20 mm closed at 26 to 28 mm, and 60×60×20 chamfered 8 mm opened at 9.5 to
-  11.5 mm.
 - [low · hard] Fills that use up a whole face lose the edges on it: a 4 mm pocket's twelve edges
   chamfered 2 mm (`fills_using_up_a_pocket_s_walls_lose_its_rim`) is `Lost` for the rim, since the
   corner edges' bevels meet exactly across each wall and take it away; cutting first instead leaves
