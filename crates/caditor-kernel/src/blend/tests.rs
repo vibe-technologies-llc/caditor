@@ -1283,7 +1283,15 @@ fn farthest_from_axis(solid: &Solid) -> f64 {
 
 #[test]
 fn a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck() {
-    for (radius, floor) in [(2.5, 11.0), (1.5, 12.5), (2.0, 10.5)] {
+    for (radius, floor) in [
+        (3.0, 11.5),
+        (3.0, 11.8),
+        (2.8, 11.6),
+        (3.0, 11.2),
+        (2.5, 11.0),
+        (1.5, 12.5),
+        (2.0, 10.5),
+    ] {
         let puck = swept(
             Plane::XY,
             &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],

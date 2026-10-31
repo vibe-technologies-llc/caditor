@@ -353,12 +353,20 @@ paths:
   different edges of one operand stay apart (`pinched_apart`): a valid solid has such a pair only
   where it pinches, as two bores extruded from tangent circles meet in two coincident edges along
   the line where they touch, and joined into one they read as an edge used four times, so any cut
-  or join beside the pinch failed as `NonManifold` there.
+  or join beside the pinch failed as `NonManifold` there. A piece whose two vertices are joined
+  through other pieces too short to keep and which is itself no longer than `PINCHED_PIECE` (four
+  resolutions) is dropped (`pinched_pieces`), the pieces of its curve on either side meeting at
+  the parameter of the vertex kept: two split points 1.2e-6 apart, one a tangent root, became one
+  vertex and left a piece from it to itself that the trace walked into twice.
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
   mean normal of a ring around it); ties and cusps (`ANGLE_TIE`) are decided by chords at a common
-  distance. A traced loop whose fitted pcurves enclose no area has its coedges halved round after round
+  distance. A cut dangling into the face (its far vertex left only by its own reverse, not at a
+  pole, where a seam ends so) bounds nothing and is dropped first, repeatedly
+  (`without_spikes`): an edge of the other operand 1.7e-6 long, between where a fillet foot meets a
+  torus exactly and where the tool's own marched corner lies, otherwise had its spike taken as a
+  loop of its own. A traced loop whose fitted pcurves enclose no area has its coedges halved round after round
   (`untangle::open_flat`) before it is refused as `Split`: a cylinder's cap meeting a frustum's
   wall in an ellipse that leaves the top rim and rejoins it 0.055 along, never more than 4.1e-5
   below it, had both edges fitted from their ends alone at a tolerance wider than that.
@@ -591,7 +599,13 @@ paths:
   cut's direction; a face facing no one quadrant (leaning less than `LEANING`) is cut by the whole
   tube's outside. A concave tool also loses what lies beyond each round face beside the end
   (`beside_ends`), anchored at the corner those three share, and its feet may cross the edges to
-  those faces without `TooLarge`; an end beside a face neither flat nor round keeps none.
+  those faces without `TooLarge`; an end beside a face neither flat nor round keeps none. The
+  regions of one end are united first and the tool cut once by each piece of the union
+  (`united_cutters`; a pair that cannot be united stays apart): a rim fillet's torus beside a
+  notch end trimmed by the round wall under it meets the wall tangentially, and cut one after the
+  other, the trimmed tool's face on the wall lay tangent to the torus region, which met the tool's
+  edge on that face anywhere within some 2e-3 of the tangent circle and left the fillet's face
+  untraceable (`Split`).
 - Refused corners, each pinned by a test: a convex edge rising from bevelled concave edges ends,
   after the fill, where two fill faces meet and is `UnsupportedEnd`, as is the upright of a boss
   whose foot an earlier blend rounded (the fills' seam there is concave); feet meeting exactly across a

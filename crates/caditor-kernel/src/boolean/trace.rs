@@ -335,11 +335,64 @@ fn first_clockwise(
         .map(|(index, _)| *index)
 }
 
+fn without_spikes(
+    arrangement: &Arrangement,
+    chart: &Chart,
+    half_edges: &[HalfEdge],
+) -> Vec<HalfEdge> {
+    let mut kept = half_edges.to_vec();
+    loop {
+        let ends: Vec<Option<(usize, usize)>> = kept
+            .iter()
+            .map(|half_edge| {
+                let piece = arrangement.piece(half_edge.piece)?;
+                Some((
+                    piece.start_of(half_edge.sense),
+                    piece.end_of(half_edge.sense),
+                ))
+            })
+            .collect();
+        let mut leaving: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for (index, (start, _)) in ends
+            .iter()
+            .enumerate()
+            .filter_map(|(index, ends)| Some((index, (*ends)?)))
+        {
+            leaving.entry(start).or_default().push(index);
+        }
+        let spike = kept.iter().zip(&ends).find_map(|(half_edge, ends)| {
+            let (_, end) = (*ends)?;
+            let only_back = match leaving.get(&end).map(Vec::as_slice) {
+                Some([only]) => kept
+                    .get(*only)
+                    .is_some_and(|other| other.is_reverse_of(half_edge)),
+                _ => false,
+            };
+            (only_back && !at_pole(arrangement, chart, end, half_edge.hint))
+                .then_some(half_edge.piece)
+        });
+        let Some(spike) = spike else {
+            return kept;
+        };
+        kept.retain(|half_edge| half_edge.piece != spike);
+    }
+}
+
+fn at_pole(arrangement: &Arrangement, chart: &Chart, vertex: usize, hint: Option<Point2>) -> bool {
+    arrangement.point(vertex).is_some_and(|point| {
+        let uv = chart
+            .surface
+            .project(point, Some(hint.unwrap_or(chart.center)));
+        chart.surface.pole_at(uv).is_some()
+    })
+}
+
 pub(super) fn trace(
     arrangement: &Arrangement,
     chart: &Chart,
     half_edges: &[HalfEdge],
 ) -> Result<Vec<Vec<HalfEdge>>, BooleanError> {
+    let half_edges = &without_spikes(arrangement, chart, half_edges);
     let travels = half_edges
         .iter()
         .map(|half_edge| travel(arrangement, half_edge))

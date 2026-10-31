@@ -1513,7 +1513,8 @@ fn cut_ends(
         edge: geometry.edge,
         vertex: None,
     };
-    for (end, cap) in ends.at.iter().zip(caps) {
+    let mut beyond_rounds = [Vec::new(), Vec::new()];
+    for ((end, cap), cutters) in ends.at.iter().zip(caps).zip(&mut beyond_rounds) {
         match end {
             End::Clipped { extension, plane } => {
                 let cutter = half_space(plane, CUTTER_SCALE * (reach + extension), feature, cap)?;
@@ -1531,14 +1532,13 @@ fn cut_ends(
                     span: CUTTER_SCALE * (reach + extension),
                     behind: reach,
                 };
-                let cutter = round.region_beyond(cut, feature, cap, &refused)?;
-                shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+                cutters.push(round.region_beyond(cut, feature, cap, &refused)?);
             }
             End::Flush | End::Extended(_) | End::Setback(_) => {}
         }
     }
     if !geometry.convex {
-        for (beside, cap) in ends.beside.iter().zip(caps) {
+        for ((beside, cap), cutters) in ends.beside.iter().zip(caps).zip(&mut beyond_rounds) {
             for (at, face) in beside {
                 let (Some(round), Some(toward)) =
                     (Round::of(solid, *face), face_normal(solid, *face, *at))
@@ -1551,12 +1551,40 @@ fn cut_ends(
                     span: CUTTER_SCALE * reach,
                     behind: reach,
                 };
-                let cutter = round.region_beyond(cut, feature, cap, &refused)?;
-                shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+                cutters.push(round.region_beyond(cut, feature, cap, &refused)?);
             }
         }
     }
+    for cutters in beyond_rounds {
+        for cutter in united_cutters(cutters)? {
+            shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+        }
+    }
     Ok(shaped)
+}
+
+fn united_cutters(cutters: Vec<Solid>) -> Result<Vec<Solid>, BlendError> {
+    let mut united: Vec<Solid> = Vec::with_capacity(cutters.len());
+    for cutter in cutters {
+        let joined = match united.last() {
+            Some(last) => match boolean(last, &cutter, BooleanOperation::Union) {
+                Ok(joined) => Some(joined),
+                Err(error) => {
+                    cancelled(error)?;
+                    None
+                }
+            },
+            None => None,
+        };
+        match joined {
+            Some(joined) => {
+                united.pop();
+                united.push(joined);
+            }
+            None => united.push(cutter),
+        }
+    }
+    Ok(united)
 }
 
 pub fn blend_chain(solid: &Solid, edges: &[EdgeId]) -> Vec<EdgeId> {

@@ -27,6 +27,7 @@ const CELL_TOLERANCES: f64 = 4.0;
 const CELLS_PER_PIECE: f64 = 2.0;
 const MAX_CURVE_PIECES: f64 = 256.0;
 const UNJUDGED_PIECE: f64 = 2.0 * TOLERANCE;
+const PINCHED_PIECE: f64 = 4.0 * TOLERANCE;
 const CROSSING_SAMPLES: usize = 16;
 const CROSSING_SIDE: f64 = 0.5 * TOLERANCE;
 const CROSSING_FLOOR: f64 = 0.1 * TOLERANCE;
@@ -152,6 +153,33 @@ impl Arrangement {
     pub fn add_source(&mut self, source: Source) -> usize {
         self.sources.push(source);
         self.sources.len() - 1
+    }
+
+    fn close_pinches(&mut self, pinches: &[Pinch]) {
+        for pinch in pinches {
+            let Some(pinched) = self.pieces.get(pinch.piece).copied() else {
+                continue;
+            };
+            for piece in &mut self.pieces {
+                if piece.source != pinched.source {
+                    continue;
+                }
+                let interval = if piece.interval.end() == pinched.interval.start() {
+                    Interval::new(piece.interval.start(), pinch.meeting)
+                } else if piece.interval.start() == pinched.interval.end() {
+                    Interval::new(pinch.meeting, piece.interval.end())
+                } else {
+                    None
+                };
+                if let Some(interval) = interval {
+                    piece.interval = interval;
+                }
+            }
+        }
+        let dropped: BTreeSet<usize> = pinches.iter().map(|pinch| pinch.piece).collect();
+        for pieces in self.edge_pieces.values_mut().chain(self.cuts.values_mut()) {
+            pieces.retain(|piece| !dropped.contains(piece));
+        }
     }
 
     pub fn add_piece(&mut self, piece: Piece) -> usize {
@@ -353,10 +381,12 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         interrupt::check()?;
         clip_branch(input, branch, &mut pool, &mut arrangement, &merged)?;
     }
+    let pinched = pinched_pieces(&arrangement, &merged);
     for piece in &mut arrangement.pieces {
         piece.start = merged.find(piece.start);
         piece.end = merged.find(piece.end);
     }
+    arrangement.close_pinches(&pinched);
     arrangement.points = pool.points;
     arrangement.representatives = deduplicate(&arrangement)?;
     Ok(arrangement)
@@ -643,6 +673,42 @@ impl Merged {
             self.parents.insert(first.max(second), first.min(second));
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Pinch {
+    piece: usize,
+    meeting: f64,
+}
+
+fn pinched_pieces(arrangement: &Arrangement, merged: &Merged) -> Vec<Pinch> {
+    arrangement
+        .pieces
+        .iter()
+        .enumerate()
+        .filter(|(_, piece)| {
+            piece.start != piece.end && merged.find(piece.start) == merged.find(piece.end)
+        })
+        .filter(|(index, _)| {
+            arrangement
+                .curve(*index)
+                .is_some_and(|(curve, piece)| !curve.is_longer_than(piece.interval, PINCHED_PIECE))
+        })
+        .map(|(index, piece)| {
+            let kept = merged.find(piece.start);
+            let meeting = if piece.start == kept {
+                piece.interval.start()
+            } else if piece.end == kept {
+                piece.interval.end()
+            } else {
+                piece.interval.middle()
+            };
+            Pinch {
+                piece: index,
+                meeting,
+            }
+        })
+        .collect()
 }
 
 fn split_edges(

@@ -51,10 +51,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   150×150×40 chamfered 15 mm opened at 20 to 22 mm, 100×100×30 chamfered 10 mm at 13 to 15 mm,
   80×80×60 chamfered 20 mm closed at 26 to 28 mm, and 60×60×20 chamfered 8 mm opened at 9.5 to
   11.5 mm.
-- [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
-  the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
-  with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
-  (`blend::tests::a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck`).
 - [medium · hard] Blend corners still refused where a blend is possible (`blend/survey.rs` chamfers
   every corner of twenty bodies): a convex edge chosen with the concave edges at its foot (a boss's
   corner edge with its base) ends after the fill where two fill faces meet and is `UnsupportedEnd`
