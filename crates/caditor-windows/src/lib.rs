@@ -6,6 +6,7 @@ mod tests;
 mod animation;
 mod cloning;
 mod console;
+mod contrast;
 mod credentials;
 mod files;
 mod maximize;
@@ -17,6 +18,7 @@ mod window;
 pub use animation::client_area_animations;
 pub use cloning::{cluster_size, duplicate_extents};
 pub use console::{attach_parent_console, on_console_close};
+pub use contrast::high_contrast;
 pub use credentials::{
     CREDENTIAL_BLOB_LIMIT, delete_credential, read_credential, write_credential,
 };

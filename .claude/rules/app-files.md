@@ -4,7 +4,7 @@ paths:
   - "crates/caditor/src/files/**"
   - "crates/caditor/src/portal.rs"
   - "crates/caditor/src/portal/**"
-  - "crates/caditor/src/system_motion.rs"
+  - "crates/caditor/src/system_settings.rs"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/configuration_export.rs"
@@ -626,20 +626,26 @@ paths:
   `backdrop::read` and `backdrop::write`, restored with the Rendered view section).
   Recovery's journal and atomic saving have no setting (`reliability.md`).
 - Reduced motion: Follow the system (`Transitions::System`, not the default) takes the standard
-  speed, or none while the desktop turns animations off. `system_motion.rs` keeps the answer in an
-  atomic that `ViewportState::advance` hands the camera each frame, so the UI thread only reads a
-  flag; a thread of its own (`system_motion::watch`, started when the preference is first applied
-  as Follow the system, never in tests) runs `portal::watch_motion`, which stores the answer once
-  and again on each change, and falls back to asking `portal::reduces_motion` every `POLL` (a
-  failure counts as animations on, logged once) only when the subscription cannot be made or ends.
-  On Unix that is the XDG desktop portal's Settings over `zbus`: `ReadOne` of three keys, each
+  speed, or none while the desktop turns animations off. `system_settings.rs` keeps the answers
+  (reduced motion, more contrast) in atomics that `ViewportState::advance` hands the camera each
+  frame, so the UI thread only reads flags; a thread of its own (`system_settings::watch`, started
+  when the preference is first applied as Follow the system for either, never in tests) runs
+  `portal::watch_desktop`, which stores both answers (`portal::DesktopSettings`) once and again on
+  each change, and falls back to asking `portal::desktop_settings` every `POLL` (a failure counts
+  as animations on and standard contrast, logged once) only when the subscription cannot be made or
+  ends. `app::apply_appearance` also sets egui's `animation_time` to `ANIMATION_SECONDS` times
+  `Transitions::scale`, so collapsing sections, hover fades and scrolling follow the same choice,
+  and the spinner stands still at zero (`app-look.md`).
+  On Unix that is the XDG desktop portal's Settings over `zbus`: `ReadOne` of four keys, each
   missing one simply not counting, and the `SettingChanged` signal, whose changes to one of those
-  three keys (`MotionKey`) trigger a re-read. Any key asking for less motion reduces it:
+  four keys (`SettingKey`) trigger a re-read. Any key asking for less motion reduces it:
   `org.freedesktop.appearance` `reduced-motion` equal to 1 (0 is no preference, so it never
   overrides the others), `org.gnome.desktop.interface` `enable-animations` false, and
   `org.kde.kdeglobals.KDE` `AnimationDurationFactor` of 0 or less (Plasma's portal gives it as
-  text or a number; both are read). On Windows it is `caditor_windows::client_area_animations`
-  (`windows.md`), polled, as Windows sends no signal. No Wayland or X11 protocol carries the
+  text or a number; both are read). The fourth key, `org.freedesktop.appearance` `contrast` equal
+  to 1, is the desktop asking for more contrast. On Windows they are
+  `caditor_windows::client_area_animations` and `caditor_windows::high_contrast` (`windows.md`),
+  polled, as Windows sends no signal. No Wayland or X11 protocol carries the
   setting, and winit reports none. View
   changes › No motion stays available for a fixed choice.
 - `Files` reads `files.startup` and `files.recent_listed` from every `Settings` it is handed, as it
@@ -651,6 +657,15 @@ paths:
 - Changes apply at once and save on the files worker (a slider on release,
   `PreferencesCommand::Preview` until then). The palette's Recent commands are kept the same way
   (`palette.recent`, `app-input.md`) but are no preference: Restore defaults leaves them alone.
+- Contrast (`appearance.contrast`: `system`, `off`, `on`; `ContrastSetting`, a `Choice`) is
+  Follow the system, by default, Standard or High contrast. It lives in `Appearance` as two flags
+  (`high_contrast` for On, `follows_system_contrast` for Follow the system) so the rest of the app
+  reads one bool; `Appearance::in_effect(system_asks_for_more)` resolves it each frame in
+  `app::apply_appearance` and wherever the 3D view or the preview swatches take the contrast.
+  A file written before the key existed reads `appearance.high_contrast` true as On and otherwise
+  Follow the system; the old key is still written. `appearance.notice_time` (`timed`,
+  `until_dismissed`; `NoticeTime`) is Preferences › Appearance › Interface › Refusal notes,
+  handed to the viewport by `follow_preferences`.
 - Appearance keys: `appearance.theme` (`system`, `dark`, `light`, `midnight`, `graphite`, `paper`,
   `slate`, `studio` or `user:<file stem>`), `appearance.accent` (`theme` or a hue),
   `appearance.view` (`theme` or a canvas key: `dark`, `grey`, `studio`, `blue_grey`, `light`,

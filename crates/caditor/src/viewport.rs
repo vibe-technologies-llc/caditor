@@ -67,8 +67,8 @@ use crate::{
     pattern_tools,
     pick_list::{self, PickList},
     preferences::{
-        InputMode, Navigation, OrbitAround, PreferenceChange, PreferencesCommand, Sketching,
-        StartingToggles, Transitions, ViewDetails, ZoomToward,
+        InputMode, Navigation, NoticeTime, OrbitAround, PreferenceChange, PreferencesCommand,
+        Sketching, StartingToggles, Transitions, ViewDetails, ZoomToward,
     },
     primitive_tools, projecting,
     queued::{Pending, Queued, Rerun},
@@ -91,7 +91,7 @@ use crate::{
     snapshot, solid_tools, split_face_tools,
     start_card::{self, Start, StartCard},
     symmetric_drawing::{self, Mirror, Symmetry},
-    system_motion,
+    system_settings,
     texting::TextSettings,
     toggles,
     trimming::{self, Trimming},
@@ -114,6 +114,7 @@ const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
 pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point or curve: \
                                     highlight one of the sketch's points or curves, or the origin.";
+pub const SCENE_ITEMS_NAME: &str = "3D view items";
 const VIEWPORT_NAME: &str = "3D view";
 const ISOMETRIC_NOT_CHANGED: &str = "The Isometric view has not been changed";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
@@ -512,6 +513,7 @@ pub struct ViewportState {
     start_card: StartCard,
     covered: bool,
     refusal: Option<RefusalNote>,
+    notice_time: NoticeTime,
     hover_delay: HoverDelay,
     orbit_mark: Option<OrbitMark>,
     pointer_labels: Vec<Rect>,
@@ -829,6 +831,7 @@ impl ViewportState {
             start_card: StartCard::default(),
             covered: false,
             refusal: None,
+            notice_time: NoticeTime::default(),
             hover_delay: HoverDelay::default(),
             orbit_mark: None,
             pointer_labels: Vec::new(),
@@ -1264,14 +1267,17 @@ impl ViewportState {
         self.camera
             .set_field_of_view(navigation.field_of_view.degrees());
         if navigation.transitions == Transitions::System {
-            system_motion::watch();
+            system_settings::watch();
         }
         self.follow_system_motion();
     }
 
     fn follow_system_motion(&mut self) {
-        self.camera
-            .set_transition_scale(self.navigation.transitions.scale(system_motion::reduces()));
+        self.camera.set_transition_scale(
+            self.navigation
+                .transitions
+                .scale(system_settings::reduces_motion()),
+        );
     }
 
     #[cfg(test)]
@@ -1288,7 +1294,11 @@ impl ViewportState {
         let mut camera = Camera::new(viewpoint);
         camera.set_projection(self.navigation.projection);
         camera.set_field_of_view(self.navigation.field_of_view.degrees());
-        camera.set_transition_scale(self.navigation.transitions.scale(system_motion::reduces()));
+        camera.set_transition_scale(
+            self.navigation
+                .transitions
+                .scale(system_settings::reduces_motion()),
+        );
         camera
     }
 
@@ -1296,6 +1306,20 @@ impl ViewportState {
         self.aids.edges = details.edges;
         self.view_cube_shown = details.view_cube;
         self.cube_placement = details.cube;
+    }
+
+    #[cfg(test)]
+    pub fn refuse(&mut self, text: &str) {
+        self.refusal = Some(RefusalNote::new(text, self.clock));
+    }
+
+    #[cfg(test)]
+    pub fn is_refusing(&self) -> bool {
+        self.refusal.is_some()
+    }
+
+    pub fn set_notice_time(&mut self, time: NoticeTime) {
+        self.notice_time = time;
     }
 
     pub fn set_sketching(&mut self, sketching: Sketching) {
@@ -1476,7 +1500,9 @@ impl ViewportState {
                 .is_some();
             if accessible {
                 let items = self.description.items(model, editing.feature());
-                scene_items(ui, response.id, rect.min, items);
+                if let Some(picks) = scene_items(ui, response.id, rect.min, items) {
+                    self.replace_selection(picks);
+                }
             }
 
             self.track_cursor(ui, &response, rect);
@@ -5835,14 +5861,28 @@ impl ViewportState {
         self.pointer_labels.clear();
         let chrome = canvas::chrome(ui.ctx());
         let mut labels = Vec::new();
-        if let Some(note) = &self.refusal {
-            match note.opacity(self.clock) {
+        let time = self.notice_time;
+        let input_arrived = ui.input(|input| {
+            input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Key { pressed: true, .. }
+                        | egui::Event::PointerButton { pressed: true, .. }
+                )
+            })
+        });
+        if let Some(note) = &mut self.refusal {
+            let dismissed = time.stays() && note.is_dismissed_by(input_arrived);
+            match note.opacity(self.clock, time).filter(|_| !dismissed) {
                 Some(opacity) => {
-                    let wait = note.repaint_after(self.clock);
-                    ui.ctx()
-                        .request_repaint_after(Duration::from_secs_f64(wait));
+                    if let Some(wait) = note.repaint_after(self.clock, time) {
+                        ui.ctx()
+                            .request_repaint_after(Duration::from_secs_f64(wait));
+                    }
                     labels.push(
-                        PointerLabel::new("refused", note.text(), chrome.warning).faded(opacity),
+                        PointerLabel::new("refused", note.text(), chrome.warning)
+                            .faded(opacity)
+                            .live(Live::Polite),
                     );
                 }
                 None => self.refusal = None,
@@ -8863,11 +8903,20 @@ mod navigation_tests {
     }
 }
 
-fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) {
+fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) -> Option<Vec<Pickable>> {
     let nowhere = Rect::from_min_size(corner, Vec2::ZERO);
-    let node = |ui: &mut Ui, id: Id, name: &str| {
-        let response = ui.interact(nowhere, id, Sense::hover());
-        response.widget_info(|| WidgetInfo::labeled(Role::Label, true, name));
+    let mut activated = None;
+    let mut node = |ui: &mut Ui, id: Id, role: Role, name: &str, picks: &[Pickable]| {
+        let sense = if picks.is_empty() {
+            Sense::hover()
+        } else {
+            Sense::click()
+        };
+        let response = ui.interact(nowhere, id, sense);
+        response.widget_info(|| WidgetInfo::labeled(role, true, name));
+        if response.clicked() {
+            activated = Some(picks.to_vec());
+        }
         response.id
     };
     let within = |parent: Id| {
@@ -8876,17 +8925,51 @@ fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) {
             .max_rect(nowhere)
             .sense(Sense::empty())
     };
-    ui.scope_builder(within(view), |ui| {
+    if items.is_empty() {
+        return None;
+    }
+    let list = ui
+        .scope_builder(within(view), |ui| {
+            node(
+                ui,
+                view.with("scene items"),
+                Role::List,
+                SCENE_ITEMS_NAME,
+                &[],
+            )
+        })
+        .inner;
+    ui.scope_builder(within(list), |ui| {
         for (index, item) in items.iter().enumerate() {
-            let parent = node(ui, view.with(("scene item", index)), &item.name);
+            let parent = node(
+                ui,
+                view.with(("scene item", index)),
+                Role::ListItem,
+                &item.name,
+                &item.picks,
+            );
             if item.parts.is_empty() {
                 continue;
             }
             ui.scope_builder(within(parent), |ui| {
                 for (part_index, part) in item.parts.iter().enumerate() {
-                    node(ui, parent.with(("part", part_index)), part);
+                    let picks: Vec<Pickable> = item
+                        .part_picks
+                        .get(part_index)
+                        .copied()
+                        .flatten()
+                        .into_iter()
+                        .collect();
+                    node(
+                        ui,
+                        parent.with(("part", part_index)),
+                        Role::ListItem,
+                        part,
+                        &picks,
+                    );
                 }
             });
         }
     });
+    activated
 }

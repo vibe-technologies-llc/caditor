@@ -19,3 +19,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   URL] No Flatpak or AUR package: both need a maintainer identity and repository URL in their
   metadata, which the project does not publish (`docs/RELEASING.md`); `packaging/arch/PKGBUILD` only
   builds locally.
+- [medium · medium] Screen readers and the system contrast and motion settings are tested only
+  through the accessibility tree and a pretended setting. On a real Windows machine, check NVDA
+  and Narrator against the list in `docs/ACCESSIBILITY.md` (`SPI_GETHIGHCONTRAST` read by
+  `caditor_windows::high_contrast`, the start-order of the screen reader and the window), and on
+  Linux Orca on GNOME and KDE, including the `contrast` and `reduced-motion` portal settings
+  changing while caditor runs.

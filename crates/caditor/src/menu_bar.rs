@@ -934,6 +934,15 @@ impl Menus<'_> {
                             Command::NormalInterface,
                         ],
                     );
+                    ui.separator();
+                    self.items(
+                        ui,
+                        [
+                            Command::WiderPanel,
+                            Command::NarrowerPanel,
+                            Command::NormalPanel,
+                        ],
+                    );
                 },
             );
         });

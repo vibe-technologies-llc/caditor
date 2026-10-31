@@ -154,7 +154,9 @@ fn a_material_brings_its_finish_and_high_contrast_draws_the_body_without_one() {
     );
 
     harness.perform(Action::Preferences(
-        crate::preferences::PreferencesCommand::Change(PreferenceChange::HighContrast(true)),
+        crate::preferences::PreferencesCommand::Change(PreferenceChange::Contrast(
+            crate::preferences::ContrastSetting::On,
+        )),
     ));
     harness.settle();
 

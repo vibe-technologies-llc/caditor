@@ -6,9 +6,15 @@ mod windows;
 mod xdg;
 
 #[cfg(windows)]
-pub use self::windows::{choose, own_dialogs, reduces_motion, watch_motion};
+pub use self::windows::{choose, desktop_settings, own_dialogs, watch_desktop};
 #[cfg(unix)]
-pub use self::xdg::{ParentWindow, choose, own_dialogs, reduces_motion, watch_motion};
+pub use self::xdg::{ParentWindow, choose, desktop_settings, own_dialogs, watch_desktop};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DesktopSettings {
+    pub reduces_motion: bool,
+    pub more_contrast: bool,
+}
 
 const TRY_AGAIN: &str = " Try again, or choose a file on this computer.";
 const ANY_EXTENSION: &str = "*";
@@ -50,13 +56,16 @@ pub enum SettingError {
     #[error("there is no desktop session bus to ask for settings ({0})")]
     NoSessionBus(zbus::Error),
     #[cfg(unix)]
-    #[error("the desktop portal does not give the desktop's animation settings ({0})")]
+    #[error("the desktop portal does not give the desktop's accessibility settings ({0})")]
     Unavailable(zbus::Error),
     #[cfg(windows)]
     #[error("Windows did not say whether it animates windows ({0})")]
-    Windows(io::Error),
+    Animations(io::Error),
     #[cfg(windows)]
-    #[error("Windows sends no signal when it changes its animation setting")]
+    #[error("Windows did not say whether a high contrast theme is on ({0})")]
+    HighContrast(io::Error),
+    #[cfg(windows)]
+    #[error("Windows sends no signal when it changes an accessibility setting")]
     NoChangeSignal,
 }
 

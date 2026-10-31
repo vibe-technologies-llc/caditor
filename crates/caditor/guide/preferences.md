@@ -73,11 +73,15 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   show on, bodies are drawn grey and Preferences says so. It changes only how caditor shows
   them: the model file and exports keep only colours you give a body in its
   [colour and material](bodies) card.
-- **High contrast**: stronger text, outlines and focus, in the panels and in the 3D view. It uses
-  its own colours in place of the theme's.
+- **Contrast**: Follow the system (the default), Standard or High contrast. High contrast is
+  stronger text, outlines and focus, in the panels and in the 3D view, in its own colours in place
+  of the theme's; following the system turns it on while Windows uses a contrast theme or the
+  desktop asks for more contrast, and off again when it stops. See [accessibility](accessibility).
 - The interface size from 75% to 200%, whether caditor draws its own title bar or uses the
-  system's, and how soon hover help appears: at once, after about a third of a second, or after a
-  second. See [accessibility](accessibility).
+  system's, how soon hover help appears: at once, after about a third of a second, or after a
+  second, and whether a **refusal note** (the reason an action did nothing, shown beside the
+  pointer) fades after a few seconds or stays until you press a key or click. See
+  [accessibility](accessibility).
 - **In the 3D view**: thin, standard or thick body edges, whether the outlines of round faces are
   drawn, whether the view cube with Fit all and the Isometric view button is shown, how large
   it is (small, standard or large) and which corner of the view it sits in (in a bottom corner the

@@ -78,7 +78,7 @@ use crate::{
     preferences::{
         self, Appearance, ExportMemory, PreferenceChange, Preferences, PreferencesCommand,
         PreferencesTab, PreferencesView, Restored, StartingToggles, Startup, TitleBar,
-        TooltipDelay,
+        TooltipDelay, Transitions,
     },
     queued::{self, Rerun},
     reference_picking::{self, Slot},
@@ -96,7 +96,7 @@ use crate::{
     sketch_toolbar, sketch_tools,
     startup_check::StartupCheck,
     status_bar::{self, StatusContext},
-    text_panel,
+    system_settings, text_panel,
     themes::{Look, Resolved, Theme, UserThemes},
     tidy_panel,
     tidying::Tidying,
@@ -213,6 +213,7 @@ pub struct Workspace {
     theme_noticed: Option<(Theme, u64)>,
     applied_title_bar: Option<TitleBar>,
     applied_tooltip_delay: Option<TooltipDelay>,
+    applied_animation_time: Option<f32>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
     pub(crate) dropped_commands: Vec<Command>,
@@ -285,6 +286,7 @@ impl Workspace {
             theme_noticed: None,
             applied_title_bar: None,
             applied_tooltip_delay: None,
+            applied_animation_time: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
             dropped_commands: Vec::new(),
@@ -331,6 +333,7 @@ impl Workspace {
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.applied_tooltip_delay = None;
+        self.applied_animation_time = None;
         self.keyboard_was_taken = false;
         self.deferred_commands.clear();
         self.awaiting_paste = None;
@@ -374,6 +377,7 @@ impl Workspace {
         self.viewport
             .set_view_details(self.preferences.view_details);
         self.viewport.set_sketching(self.preferences.sketching);
+        self.viewport.set_notice_time(self.preferences.notice_time);
         if self.preferences.sketching.at_start != started_with {
             self.viewport
                 .start_with(self.preferences.sketching.at_start);
@@ -959,7 +963,12 @@ pub fn show(
             bodies: viewport.bodies(),
             analyses: viewport.analyses(),
             style: viewport.style(),
-            contrast: Contrast::of(preferences.appearance.high_contrast),
+            contrast: Contrast::of(
+                preferences
+                    .appearance
+                    .in_effect(system_settings::more_contrast())
+                    .high_contrast,
+            ),
             canvas: canvas::canvas(ui.ctx()),
             shown: OnceCell::new(),
         };
@@ -1088,7 +1097,12 @@ pub fn show(
     panels.set_right_width(layout::shared_right_width(ui.ctx()));
     preferences.panels = panels.layout();
     viewport.set_section(section.planes(model));
-    let contrast = Contrast::of(preferences.appearance.high_contrast);
+    let contrast = Contrast::of(
+        preferences
+            .appearance
+            .in_effect(system_settings::more_contrast())
+            .high_contrast,
+    );
     viewport.set_contrast(contrast);
     viewport.set_start_card(preferences.onboarding.start_card);
     viewport.cover(home.is_open());
@@ -1674,10 +1688,17 @@ fn apply_appearance(
         ctx.set_fonts(fonts::definitions_with(workspace.fallback_fonts.found()));
         ctx.request_repaint();
     }
-    let wanted = (
-        workspace.preferences.appearance.clone(),
-        themes.generation(),
-    );
+    let transitions = workspace.preferences.navigation.transitions;
+    if workspace.preferences.appearance.follows_system_contrast
+        || transitions == Transitions::System
+    {
+        system_settings::watch();
+    }
+    let in_effect = workspace
+        .preferences
+        .appearance
+        .in_effect(system_settings::more_contrast());
+    let wanted = (in_effect.clone(), themes.generation());
     let changed = workspace.applied_appearance.as_ref() != Some(&wanted);
     if changed {
         let resolved = match wanted.0.look(themes) {
@@ -1722,11 +1743,22 @@ fn apply_appearance(
         ctx.all_styles_mut(|style| style.interaction.tooltip_delay = delay.seconds());
         workspace.applied_tooltip_delay = Some(delay);
     }
+    let animation_time = appearance::ANIMATION_SECONDS
+        * workspace
+            .preferences
+            .navigation
+            .transitions
+            .scale(system_settings::reduces_motion()) as f32;
+    let animated = changed || workspace.applied_animation_time != Some(animation_time);
+    if animated {
+        ctx.all_styles_mut(|style| style.animation_time = animation_time);
+        workspace.applied_animation_time = Some(animation_time);
+    }
     let skin = appearance::skin(ctx);
     canvas::set_canvas(ctx, skin.canvas);
     canvas::set_grid(ctx, skin.grid);
-    canvas::set_body(ctx, workspace.preferences.appearance.body_on(skin.canvas));
-    if delayed {
+    canvas::set_body(ctx, in_effect.body_on(skin.canvas));
+    if delayed || animated {
         Applied::Changed
     } else {
         Applied::Unchanged

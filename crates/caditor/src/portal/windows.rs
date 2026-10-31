@@ -3,7 +3,7 @@ use std::{num::NonZeroIsize, path::PathBuf, sync::OnceLock};
 use caditor_windows::DialogParent;
 use rfd::FileDialog;
 
-use super::{DialogError, FileRequest, Mode, SettingError};
+use super::{DesktopSettings, DialogError, FileRequest, Mode, SettingError};
 
 static OWNER: OnceLock<DialogParent> = OnceLock::new();
 
@@ -13,13 +13,16 @@ pub fn own_dialogs(window: NonZeroIsize) {
     }
 }
 
-pub fn reduces_motion() -> Result<bool, SettingError> {
-    caditor_windows::client_area_animations()
-        .map(|enabled| !enabled)
-        .map_err(SettingError::Windows)
+pub fn desktop_settings() -> Result<DesktopSettings, SettingError> {
+    let animated = caditor_windows::client_area_animations().map_err(SettingError::Animations)?;
+    let more_contrast = caditor_windows::high_contrast().map_err(SettingError::HighContrast)?;
+    Ok(DesktopSettings {
+        reduces_motion: !animated,
+        more_contrast,
+    })
 }
 
-pub fn watch_motion(_changed: impl FnMut(bool)) -> Result<(), SettingError> {
+pub fn watch_desktop(_changed: impl FnMut(DesktopSettings)) -> Result<(), SettingError> {
     Err(SettingError::NoChangeSignal)
 }
 

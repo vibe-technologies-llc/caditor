@@ -11,13 +11,113 @@ use super::{
     entities_of_kind, extruded_plate, feature_named, set_high_contrast,
 };
 use crate::{
-    annotations, canvas,
+    annotations, appearance, canvas,
+    commands::Command,
+    drawing::Refusal,
     editing::EditingCommand,
+    layout,
     model::Action,
-    preferences::{PreferenceChange, PreferencesCommand, PreferencesTab},
-    scene, scene_palette,
+    preferences::{
+        Choice, ContrastSetting, NoticeTime, PreferenceChange, PreferencesCommand, PreferencesTab,
+        Transitions,
+    },
+    scene, scene_palette, system_settings,
     units::LengthUnit,
 };
+
+fn choose_contrast(harness: &mut Harness, setting: ContrastSetting) {
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Contrast(setting),
+    )));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn contrast_follows_the_system_unless_the_user_chose_otherwise() {
+    let mut harness = Harness::new();
+
+    system_settings::pretend_contrast(false);
+    harness.frame();
+    harness.frame();
+    assert!(!appearance::skin(&harness.context).high_contrast);
+
+    system_settings::pretend_contrast(true);
+    harness.frame();
+    harness.frame();
+    assert!(appearance::skin(&harness.context).high_contrast);
+
+    choose_contrast(&mut harness, ContrastSetting::Off);
+    assert!(!appearance::skin(&harness.context).high_contrast);
+
+    choose_contrast(&mut harness, ContrastSetting::System);
+    assert!(appearance::skin(&harness.context).high_contrast);
+
+    system_settings::pretend_contrast(false);
+    harness.frame();
+    harness.frame();
+    assert!(!appearance::skin(&harness.context).high_contrast);
+
+    choose_contrast(&mut harness, ContrastSetting::On);
+    assert!(appearance::skin(&harness.context).high_contrast);
+}
+
+fn animation_time(harness: &Harness) -> f32 {
+    harness.context.global_style().animation_time
+}
+
+fn choose_transitions(harness: &mut Harness, transitions: Transitions) {
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Transitions(transitions),
+    )));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn interface_animations_follow_the_motion_preference_and_the_system() {
+    let mut harness = Harness::new();
+
+    choose_transitions(&mut harness, Transitions::Standard);
+    assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
+
+    choose_transitions(&mut harness, Transitions::Off);
+    assert_eq!(animation_time(&harness), 0.0);
+
+    choose_transitions(&mut harness, Transitions::Slow);
+    assert_eq!(
+        animation_time(&harness),
+        appearance::ANIMATION_SECONDS * 2.0
+    );
+
+    system_settings::pretend(true);
+    choose_transitions(&mut harness, Transitions::System);
+    assert_eq!(animation_time(&harness), 0.0);
+
+    system_settings::pretend(false);
+    harness.frame();
+    harness.frame();
+    assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
+}
+
+#[test]
+fn the_contrast_setting_is_offered_with_each_of_its_choices_named() {
+    let mut harness = Harness::new();
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.show_new_windows();
+    harness.click("Appearance");
+    harness.read_screen();
+
+    assert_readable(&harness, "The Appearance preferences");
+    for setting in ContrastSetting::ALL {
+        assert!(
+            harness.accessible_named(Role::Button, setting.label())
+                || harness.accessible_named(Role::RadioButton, setting.label()),
+            "{}",
+            setting.label()
+        );
+    }
+}
 
 fn frame_strokes(harness: &Harness, color: Color32) -> (usize, usize) {
     fn walk(shape: &Shape, color: Color32, counts: &mut (usize, usize)) {
@@ -189,6 +289,128 @@ fn the_3d_view_is_described_again_in_a_changed_unit() {
     );
 }
 
+fn act(harness: &mut Harness, action: egui::accesskit::Action, target: egui::accesskit::NodeId) {
+    harness.events.push(egui::Event::AccessKitActionRequest(
+        egui::accesskit::ActionRequest {
+            action,
+            target_tree: egui::accesskit::TreeId::ROOT,
+            target_node: target,
+            data: None,
+        },
+    ));
+    harness.frame();
+    harness.frame();
+}
+
+fn activate(harness: &mut Harness, target: egui::accesskit::NodeId) {
+    act(harness, egui::accesskit::Action::Click, target);
+}
+
+fn model_panel_width(harness: &Harness) -> f32 {
+    harness.panel_rect("model").width()
+}
+
+fn run_panel_command(harness: &mut Harness, command: Command) {
+    harness.workspace.queue_command(command);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn the_model_panel_is_widened_and_narrowed_without_dragging() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let usual = model_panel_width(&harness);
+
+    run_panel_command(&mut harness, Command::WiderPanel);
+    let wider = model_panel_width(&harness);
+    run_panel_command(&mut harness, Command::NarrowerPanel);
+    run_panel_command(&mut harness, Command::NarrowerPanel);
+    let narrower = model_panel_width(&harness);
+    run_panel_command(&mut harness, Command::NormalPanel);
+
+    assert_eq!(wider, usual + layout::SIDE_WIDTH_STEP);
+    assert_eq!(narrower, usual - layout::SIDE_WIDTH_STEP);
+    assert_eq!(model_panel_width(&harness), layout::DEFAULT_SIDE_WIDTH);
+}
+
+#[test]
+fn the_rollback_bar_is_a_slider_screen_readers_can_step() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let bar = |harness: &Harness| {
+        harness
+            .accessible
+            .iter()
+            .find(|(_, node)| node.role() == Role::Slider && node.label() == Some("Rollback bar"))
+            .map(|(id, node)| (*id, node.clone()))
+            .expect("the rollback bar is a slider")
+    };
+    let (id, slider) = bar(&harness);
+    let features = harness.document().features().len() as f64;
+
+    assert_eq!(slider.numeric_value(), Some(features));
+    assert_eq!(slider.min_numeric_value(), Some(0.0));
+    assert_eq!(slider.max_numeric_value(), Some(features));
+    assert_eq!(slider.value(), Some("End of model"));
+
+    act(&mut harness, egui::accesskit::Action::Decrement, id);
+    harness.settle();
+    let (id, slider) = bar(&harness);
+
+    assert_eq!(slider.numeric_value(), Some(features - 1.0));
+    assert_eq!(slider.value(), Some("1 feature rolled back"));
+
+    act(&mut harness, egui::accesskit::Action::Increment, id);
+    harness.settle();
+
+    assert_eq!(bar(&harness).1.numeric_value(), Some(features));
+}
+
+#[test]
+fn activating_an_item_of_the_3d_view_selects_what_it_describes() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let item = |harness: &Harness, start: &str| {
+        harness
+            .accessible
+            .iter()
+            .find(|(_, node)| {
+                node.role() == Role::ListItem && spoken(node).is_some_and(|l| l.starts_with(start))
+            })
+            .map(|(id, _)| *id)
+            .unwrap_or_else(|| panic!("no item starts with {start}"))
+    };
+    assert_eq!(harness.workspace.viewport.selection().len(), 0);
+
+    let body = item(&harness, "Body Extrude 1");
+    activate(&mut harness, body);
+    let whole_body = harness.workspace.viewport.selection().len();
+
+    harness.select([]);
+    harness.frame();
+    let face = harness
+        .accessible
+        .iter()
+        .find(|(_, node)| {
+            node.role() == Role::ListItem && spoken(node).is_some_and(|l| l.contains("end face"))
+        })
+        .map(|(id, _)| *id)
+        .expect("a face item");
+    activate(&mut harness, face);
+
+    assert_eq!(whole_body, 6);
+    assert_eq!(harness.workspace.viewport.selection().len(), 1);
+}
+
 #[test]
 fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_sketch_curve() {
     let mut harness = Harness::new();
@@ -232,7 +454,14 @@ fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_
         spoken(&datum)
     );
     assert!(shown.contains("(at 0, 0, 0 mm)"), "{shown}");
-    let (_, view) = labelled(&harness, "3D view").expect("the view has a node");
+    let (_, view) = harness
+        .accessible
+        .iter()
+        .find(|(_, node)| spoken(node) == Some("3D view"))
+        .map(|(id, node)| (*id, node.clone()))
+        .expect("the view has a node");
+    let (_, list) = labelled(&harness, "3D view items").expect("the items are a list");
+    assert_eq!(list.role(), Role::List);
     let listed = descendants(&harness, &view);
     assert!(
         listed
@@ -373,6 +602,51 @@ fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
     let (_, prompt) = prompt.expect("the prompt is on the accessibility tree");
     assert_eq!(prompt.live(), Some(egui::accesskit::Live::Polite));
     assert!(prompt.value().unwrap().contains("Esc: back to Select"));
+}
+
+fn refusal_note(harness: &Harness, reason: &str) -> Option<Node> {
+    harness
+        .accessible
+        .iter()
+        .find(|(_, node)| {
+            node.role() == Role::Label && node.value().is_some_and(|value| value.contains(reason))
+        })
+        .map(|(_, node)| node.clone())
+}
+
+#[test]
+fn a_refusal_note_in_the_view_is_announced_politely() {
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(30.0, 10.0));
+    harness.frame();
+
+    let reason = Refusal::Rectangle.reason();
+    let note = refusal_note(&harness, reason).expect("the note is on the accessibility tree");
+
+    assert_eq!(note.live(), Some(egui::accesskit::Live::Polite));
+}
+
+#[test]
+fn a_refusal_note_that_stays_waits_for_the_next_key() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::NoticeTime(NoticeTime::UntilDismissed),
+    )));
+    harness.frame();
+
+    harness.workspace.viewport.refuse("Nothing to do here");
+    harness.frame();
+    harness.frame();
+    harness.frame();
+    assert!(harness.workspace.viewport.is_refusing());
+
+    harness.key(Key::A, Modifiers::NONE);
+    harness.frame();
+    assert!(!harness.workspace.viewport.is_refusing());
 }
 
 #[test]

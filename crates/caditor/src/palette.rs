@@ -451,10 +451,13 @@ impl Palette {
                     let muted = appearance::tokens(ui).text_muted;
                     widgets::icon_label(ui, icons::SEARCH, muted);
                     widgets::text_field(ui, |ui| {
-                        ui.add(
-                            TextEdit::singleline(&mut self.query)
-                                .hint_text(FIELD_HINT)
-                                .desired_width(f32::INFINITY),
+                        widgets::spoken_as(
+                            ui.add(
+                                TextEdit::singleline(&mut self.query)
+                                    .hint_text(FIELD_HINT)
+                                    .desired_width(f32::INFINITY),
+                            ),
+                            FIELD_HINT,
                         )
                     })
                 })

@@ -6,9 +6,10 @@ use caditor_file::Retention;
 use egui::{Id, Label, TextEdit, TextStyle, TextWrapMode, Ui, WidgetText};
 
 use super::{
-    Accent, Appearance, BodyColour, Choice, DoubleClick, ExportMemory, GridColour, NewBodies,
-    PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, RecentListed, Restored,
-    Restoring, Section, Startup, Theme, TitleBar, TooltipDelay, ViewChoice, motion,
+    Accent, Appearance, BodyColour, Choice, ContrastSetting, DoubleClick, ExportMemory, GridColour,
+    NewBodies, NoticeTime, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab,
+    RecentListed, Restored, Restoring, Section, Startup, Theme, TitleBar, TooltipDelay, ViewChoice,
+    motion,
 };
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
@@ -21,6 +22,7 @@ use crate::{
     icons, lighting_panel,
     scene_palette::{self, Canvas, Contrast},
     slicer::{FindError, Installation, Slicer},
+    system_settings,
     themes::{Look, UserThemes},
     units::{AngleUnit, Decimals, LengthUnit, TrailingZeros, Units},
     view_aids::EdgeWeight,
@@ -167,11 +169,14 @@ fn search_field(ui: &mut Ui, search: &str) -> Option<PreferencesCommand> {
             let muted = appearance::tokens(ui).text_muted;
             widgets::icon_label(ui, icons::SEARCH, muted);
             widgets::text_field(ui, |ui| {
-                ui.add(
-                    TextEdit::singleline(&mut text)
-                        .id(Id::unique(SEARCH_FIELD))
-                        .hint_text(SEARCH_HINT)
-                        .desired_width(f32::INFINITY),
+                widgets::spoken_as(
+                    ui.add(
+                        TextEdit::singleline(&mut text)
+                            .id(Id::unique(SEARCH_FIELD))
+                            .hint_text(SEARCH_HINT)
+                            .desired_width(f32::INFINITY),
+                    ),
+                    SEARCH_HINT,
                 )
             })
             .changed()
@@ -1262,7 +1267,9 @@ fn appearance(
     command: &mut Option<PreferencesCommand>,
 ) {
     let preferences = shown.preferences;
-    let current = &preferences.appearance;
+    let current = &preferences
+        .appearance
+        .in_effect(system_settings::more_contrast());
     section_card(ui, shown, Section::Theme, |ui| {
         theme_cards(ui, current, themes, command);
         themes_folder(ui, themes, command);
@@ -1285,12 +1292,10 @@ fn appearance(
             ui.vertical(|ui| body_swatches(ui, current, themes, command));
         });
         widgets::property(ui, "Contrast", |ui| {
-            let mut high_contrast = current.high_contrast;
-            if widgets::checkbox(ui, &mut high_contrast, "High contrast")
-                .on_hover_text("Stronger text, outlined buttons and a bright focus outline")
-                .changed()
+            if let Some(setting) =
+                pick::<ContrastSetting>(ui, preferences.appearance.contrast_setting())
             {
-                change(command, PreferenceChange::HighContrast(high_contrast));
+                change(command, PreferenceChange::Contrast(setting));
             }
         });
     });
@@ -1318,6 +1323,11 @@ fn appearance(
         widgets::property(ui, "Hover help", |ui| {
             if let Some(delay) = pick::<TooltipDelay>(ui, preferences.tooltip_delay) {
                 change(command, PreferenceChange::TooltipDelay(delay));
+            }
+        });
+        widgets::property(ui, "Refusal notes", |ui| {
+            if let Some(time) = pick::<NoticeTime>(ui, preferences.notice_time) {
+                change(command, PreferenceChange::NoticeTime(time));
             }
         });
     });

@@ -62,8 +62,11 @@ paths:
   `start_card::NOT_EMPTY` or `ALREADY_SHOWN`. None of it touches the document.
 - Beside the pointer, stacked without overlap and kept inside the view
   (`canvas_guidance::paint_beside_pointer`, flipping left or above near an edge): a refused click's
-  note (any warning or error notice the click produced, `RefusalNote`, fading over its last
-  `NOTE_FADE_SECONDS` of `NOTE_SECONDS`), the snap label, the size readout, the drag-blocked cue and
+  note (any warning or error notice the click produced, `RefusalNote`, a polite live region,
+  fading over its last `NOTE_FADE_SECONDS` of `NOTE_SECONDS`, or with Preferences › Appearance ›
+  Interface › Refusal notes set to Stay until dismissed (`NoticeTime`, `appearance.notice_time`)
+  kept at full strength until the next key press, pointer press or release after the frame it
+  first showed in, or a newer note), the snap label, the size readout, the drag-blocked cue and
   the hover description. A tool's words (trim, modify, project, Smart dimension, handles, pattern
   copies) show at once; a plain hover's after `HOVER_DELAY` on the same words (`HoverDelay`,
   repainting when it is due). A keyboard highlight's description stays at the band's top left
@@ -334,6 +337,10 @@ paths:
   other feature refuses in words, and the context menu offers it only when it applies. The extrusion
   and revolve panels' Sketch row has the button too (`solid_panel::sketch_row`).
 - Window commands are egui viewport commands (`window_frame::commands`); closing the window is Quit.
+- The model panel's width has commands for those who cannot drag its edge (`WiderPanel`,
+  `NarrowerPanel`, `NormalPanel`: `layout::SIDE_WIDTH_STEP` more or less, or `DEFAULT_SIDE_WIDTH`),
+  no default keys, in View › Window and interface and the palette; `PanelState::pending_width`
+  builds the panel with `exact_size` for the one frame, after which egui keeps the width.
 - Viewport commands cover measure, standard views, projection, orbit, pan, zoom and looking straight
   at the selection (`look_at::look_target`, framed like Fit view). Repeating it while the view
   already looks that way turns a quarter turn about that direction (`look_at::quarter_turned`);

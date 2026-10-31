@@ -19,7 +19,7 @@ use egui::{
 };
 
 use crate::{
-    appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
+    appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
     blend_panel,
     blend_tools::{self, FormChoice},
     bodies_tree, coil_panel, combine_panel,
@@ -95,7 +95,7 @@ const ROLLED_BACK_HINT: &str = "Below the rollback bar: not computed";
 pub const DELETE_WITH_DEPENDENTS: &str = "Delete with dependents";
 pub const KEEP_DEPENDENTS: &str = "Keep dependents";
 pub const CANCEL_DELETE: &str = "Cancel";
-const BAR_ROW_HEIGHT: f32 = 16.0;
+const BAR_ROW_HEIGHT: f32 = CONTROL_HEIGHT;
 const BAR_THICKNESS: f32 = 3.0;
 const DROP_LINE_WIDTH: f32 = 2.0;
 const DROP_REASON_OFFSET: egui::Vec2 = vec2(18.0, 12.0);
@@ -341,11 +341,14 @@ fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
             let muted = appearance::tokens(ui).text_muted;
             widgets::icon_label(ui, icons::SEARCH, muted);
             let field = widgets::text_field(ui, |ui| {
-                ui.add(
-                    TextEdit::singleline(&mut state.tree_filter)
-                        .id(Focus::TreeFilter.field_id())
-                        .hint_text(FILTER_HINT)
-                        .desired_width(f32::INFINITY),
+                widgets::spoken_as(
+                    ui.add(
+                        TextEdit::singleline(&mut state.tree_filter)
+                            .id(Focus::TreeFilter.field_id())
+                            .hint_text(FILTER_HINT)
+                            .desired_width(f32::INFINITY),
+                    ),
+                    FILTER_HINT,
                 )
             });
             if wanted {
@@ -548,6 +551,35 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         Sense::click_and_drag(),
     );
     response.widget_info(|| WidgetInfo::labeled(Role::Button, true, ROLLBACK_BAR_NAME));
+    let included = document.bar_index();
+    let total = document.features().len();
+    let caption = if below > 0 {
+        format!("{} rolled back", count(below, "feature", "features"))
+    } else {
+        END_OF_MODEL.to_owned()
+    };
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_role(Role::Slider);
+        node.set_numeric_value(included as f64);
+        node.set_min_numeric_value(0.0);
+        node.set_max_numeric_value(total as f64);
+        node.set_numeric_value_step(1.0);
+        node.set_value(caption.clone());
+        node.add_action(egui::accesskit::Action::Increment);
+        node.add_action(egui::accesskit::Action::Decrement);
+    });
+    let (increment, decrement) = ui.input(|input| {
+        (
+            input.has_accesskit_action_request(response.id, egui::accesskit::Action::Increment),
+            input.has_accesskit_action_request(response.id, egui::accesskit::Action::Decrement),
+        )
+    });
+    if increment {
+        state.requested.push(Command::RollbackDown);
+    }
+    if decrement {
+        state.requested.push(Command::RollbackUp);
+    }
     let response = response
         .on_hover_text(ROLLBACK_BAR_HINT)
         .on_hover_cursor(CursorIcon::Grab);
@@ -570,11 +602,6 @@ fn rollback_bar(ui: &mut Ui, document: &Document, state: &mut PanelState) -> Rec
         FontId::new(ICON_SIZE, fonts::icons()),
         color,
     );
-    let caption = if below > 0 {
-        format!("{} rolled back", count(below, "feature", "features"))
-    } else {
-        END_OF_MODEL.to_owned()
-    };
     let caption = painter.text(
         pos2(grip.right() + SPACE_M, middle),
         Align2::LEFT_CENTER,

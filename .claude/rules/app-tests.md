@@ -29,6 +29,15 @@ paths:
 
 ## Sweeps and guards
 
+- `ui_tests/conformance.rs` holds the checks for the accessibility standards (`docs/ACCESSIBILITY.md`),
+  over the model, an edited sketch, the palette, every Preferences tab and the window each command
+  opens (four shares): every target of a button, check box, radio button, tab, link, slider,
+  combo box, text input or menu item is 24 points either way or has no other target (nor another
+  undersized one) within reach, at 100% and 200%, unless it is in `EQUIVALENT_ELSEWHERE`, which
+  names the route that does the same with large targets; every such control has a name (its label,
+  value or the label it is `labelled_by`); and Tab, pressed until a control repeats, comes round
+  in at most `MOST_TAB_STOPS` stops with every focus on screen, animations let finish between
+  presses since focus scrolling is animated.
 - `Harness::pass` fails a frame in which a command was triggered after the handler offering it had
   run (`Workspace::dropped_commands`, `CommandFrame::triggered_after_their_handler`): the click was
   left in the frame's list and dropped, as the menu bar's gear once was. Commands with no offer in

@@ -19,7 +19,7 @@ use crate::{
         Preferences, PreferencesCommand, PreferencesTab, RecentListed, Section, Startup,
         TooltipDelay, Transitions, ZoomToward,
     },
-    system_motion,
+    system_settings,
     view_aids::EdgeWeight,
 };
 
@@ -480,20 +480,20 @@ fn following_the_system_glides_between_views_unless_the_system_turns_animations_
         Transitions::System
     );
 
-    system_motion::pretend(false);
+    system_settings::pretend(false);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.key(Key::Num1, Modifiers::ALT);
     harness.frame();
     let glides = harness.workspace.viewport.is_animating();
     settle_camera(&mut harness);
 
-    system_motion::pretend(true);
+    system_settings::pretend(true);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.key(Key::Num2, Modifiers::ALT);
     harness.frame();
     let jumps = !harness.workspace.viewport.is_animating();
     let turned = harness.workspace.viewport.viewpoint().forward();
-    system_motion::pretend(false);
+    system_settings::pretend(false);
 
     assert!(glides);
     assert!(jumps);

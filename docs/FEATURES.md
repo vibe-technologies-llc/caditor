@@ -210,6 +210,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · medium] The feature tree, the Bodies group and the parameter table are read by screen
+  readers as lists of buttons. Giving them tree and row roles (AccessKit `Tree` and `TreeItem`
+  with level, expanded and selected, `Table` for parameters) needs the rows to be children of
+  one tree node inside the panel's scroll area, so `tree_row::sense` and the group rows share a
+  parent; `docs/ACCESSIBILITY.md` lists it as a known limit.
+- [low · easy] The ribbon group titles (14 points tall) and the corner marks that open a tool's
+  ways are below the 24 point target size; they pass only because every function behind them is
+  also in the menu bar and the palette (`ui_tests/conformance.rs`, `EQUIVALENT_ELSEWHERE`).
+  Making their hit area 24 points tall without moving the buttons they sit beside would remove
+  the exemption.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
@@ -223,6 +233,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps.
+- [low · medium] Keyboard focus scrolls into view in side panels, menus and dialog bodies
+  (`widgets::follow_keyboard_focus`) but not in the other scrolling lists (version history, saved
+  views, selection sets, configurations, the cloud dialog, import options, Home).
+- [low · medium] The window's own move and resize with caditor's title bar are pointer-only; a
+  keyboard route (the window menu's Move and Size, as the system title bar offers) is missing.
 - [medium · medium · blocked by: a live Fusion 360 and Autodesk account to confirm the open
   behaviour against (`DECISIONS.md`)] Upload to Fusion 360 and open online (`cloud.md`) opens only the
   uploaded file's web page, through `browser::open` on every platform. What remains:

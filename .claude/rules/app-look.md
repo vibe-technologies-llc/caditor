@@ -3,6 +3,7 @@ paths:
   - "crates/caditor/src/fonts.rs"
   - "crates/caditor/src/font_fallbacks.rs"
   - "crates/caditor/src/appearance.rs"
+  - "crates/caditor/src/colour_vision.rs"
   - "crates/caditor/src/themes.rs"
   - "crates/caditor/src/files/themes.rs"
   - "crates/caditor/src/icons.rs"
@@ -76,7 +77,8 @@ paths:
   `SMALL_SIZE` 11.5, `LABEL_SIZE` 12.5 (section titles, monospace, the 3D view's key hints),
   `BODY_SIZE` 13.5, `TITLE_SIZE` 15 (titles in the 3D view, side panel headers), `HEADING_SIZE` 17, `PAGE_TITLE_SIZE`
   20 (a guide page's title); radii `SMALL_RADIUS` (key caps), `WIDGET_RADIUS`, `CARD_RADIUS`,
-  `WINDOW_RADIUS`; `CONTROL_HEIGHT`, `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
+  `WINDOW_RADIUS`; `CONTROL_HEIGHT` (24, the least target size: tree chevrons and the rollback
+  bar's row are that tall), `CONTROL_MIN_WIDTH`, `BORDER_WIDTH`, `FOCUS_WIDTH` and
   `FOCUS_GAP`. The egui `Style` is built from named values only (`ITEM_SPACING`, `BUTTON_PADDING`,
   `TOOLTIP_WIDTH`, `MENU_WIDTH`, `COMBO_WIDTH`, …). `TOOLTIP_DELAY` is the Standard hover help
   delay; `app::apply_appearance` replaces it in every installed style with the Hover help
@@ -351,8 +353,15 @@ paths:
     accessible name.
   - Animated widgets repaint on a timer: `widgets::spinner` asks for the next frame after
     `SPINNER_FRAME` (about 15 a second), since egui's own `Spinner` repaints every frame
-    (`conventions_tests.rs` refuses the raw one). The text caret is solid (`text_cursor.blink` off
-    in `appearance::visuals`), so a focused field never wakes an idle app.
+    (`conventions_tests.rs` refuses the raw one). With egui's `animation_time` at zero (reduced
+    motion, `app-files.md`) it draws its arc still, at the sweep's widest, and asks for no frame;
+    it keeps its `ProgressIndicator` role. The text caret is solid (`text_cursor.blink` off in
+    `appearance::visuals`), so a focused field never wakes an idle app.
+  - A keyboard or assistive-technology move of focus scrolls the focused control into view inside
+    the kit's scrolling containers (`widgets::follow_keyboard_focus`, called at the end of
+    `panel_scroll`, `measured_menu` and the dialog body), only when it arrived in a frame with no
+    pointer press or release: `Context::read_response` surrenders the focus of a widget the pointer
+    clicked elsewhere, which would drop the focus a suggestion list's click holds.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
   (warning callout, destructive action left, primary Cancel right) and `undo_note`.
 - Sentence case everywhere: buttons, titles, commands ("Save as…", "Close without saving").
@@ -364,6 +373,10 @@ paths:
   and the feature's name ("Edit <name>"); the row itself a selectable label marked selected; a
   sketch dimension's field its constraint's description; shortcut editor and palette rows and the
   welcome's cards what they do; a tab an AccessKit `Role::Tab` marked selected.
+- A search or filter field takes its visible placeholder as its name (`widgets::spoken_as`), so the
+  name holds the visible text. The rollback bar is an AccessKit slider (value the features above
+  the bar, 0 to the feature count, the caption as its text, Increment and Decrement mapped to the
+  Move the rollback bar down and up commands through `PanelState::requested`).
 - Decorative glyphs are hidden from the AccessKit tree (`icon_label`, `decorative`), meaningful ones
   described (`described_icon`); a property `caption` labels the field, combo box or slider after it
   in its grid (`tie_to_caption`, via `field::commit_field`).

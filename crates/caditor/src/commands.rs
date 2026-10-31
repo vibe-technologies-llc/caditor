@@ -189,6 +189,9 @@ pub enum Command {
     LargerInterface,
     SmallerInterface,
     NormalInterface,
+    WiderPanel,
+    NarrowerPanel,
+    NormalPanel,
     View(StandardView),
     Camera(CameraMove),
     Filter(SelectionFilter),
@@ -755,6 +758,9 @@ plain_commands! {
     LargerInterface,
     SmallerInterface,
     NormalInterface,
+    WiderPanel,
+    NarrowerPanel,
+    NormalPanel,
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
@@ -1165,6 +1171,9 @@ impl Command {
             Self::LargerInterface => "view.interface_larger",
             Self::SmallerInterface => "view.interface_smaller",
             Self::NormalInterface => "view.interface_normal",
+            Self::WiderPanel => "view.panel_wider",
+            Self::NarrowerPanel => "view.panel_narrower",
+            Self::NormalPanel => "view.panel_normal",
             Self::View(view) => match view {
                 StandardView::Isometric => "view.isometric",
                 StandardView::Front => "view.front",
@@ -1484,6 +1493,9 @@ impl Command {
             Self::LargerInterface => "Make the interface larger",
             Self::SmallerInterface => "Make the interface smaller",
             Self::NormalInterface => "Interface at normal size",
+            Self::WiderPanel => "Make the model panel wider",
+            Self::NarrowerPanel => "Make the model panel narrower",
+            Self::NormalPanel => "Model panel at its usual width",
             Self::View(StandardView::Isometric) => "Isometric view",
             Self::View(view) => return format!("View from the {}", view.name()),
             Self::Camera(camera) => camera.title(),
@@ -1945,6 +1957,9 @@ impl Command {
             | Self::LargerInterface
             | Self::SmallerInterface
             | Self::NormalInterface
+            | Self::WiderPanel
+            | Self::NarrowerPanel
+            | Self::NormalPanel
             | Self::View(_)
             | Self::Camera(_)
             | Self::Filter(_)
@@ -2510,7 +2525,10 @@ impl Command {
             | Self::PointPattern
             | Self::Coil
             | Self::Helix
-            | Self::FlatSpiral => Vec::new(),
+            | Self::FlatSpiral
+            | Self::WiderPanel
+            | Self::NarrowerPanel
+            | Self::NormalPanel => Vec::new(),
         }
     }
 

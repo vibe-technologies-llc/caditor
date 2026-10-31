@@ -13,8 +13,8 @@ use crate::{
     canvas, colour_selector,
     model::Action,
     preferences::{
-        self, Accent, GridColour, PreferenceChange, PreferencesCommand, PreferencesTab, Theme,
-        ViewChoice,
+        self, Accent, ContrastSetting, GridColour, PreferenceChange, PreferencesCommand,
+        PreferencesTab, Theme, ViewChoice,
     },
     scene_palette::{Canvas, Contrast},
 };
@@ -145,7 +145,7 @@ fn an_accent_and_the_3d_view_change_any_theme_and_high_contrast_keeps_its_own() 
     assert_eq!(canvas::canvas(&harness.context), Canvas::Light);
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
-        PreferenceChange::HighContrast(true),
+        PreferenceChange::Contrast(ContrastSetting::On),
     )));
     harness.frame();
     harness.frame();

@@ -1,4 +1,9 @@
-use std::{f64::consts::TAU, ops::RangeInclusive, sync::Arc, time::Duration};
+use std::{
+    f64::consts::{FRAC_PI_2, TAU},
+    ops::RangeInclusive,
+    sync::Arc,
+    time::Duration,
+};
 
 use egui::{
     Align, Align2, AsIdSalt, AtomExt, Button, Checkbox, Color32, ComboBox, CornerRadius,
@@ -49,6 +54,7 @@ const SELECTED_WIDTH: f32 = 1.0;
 const CHECK_MARK_WIDTH: f32 = 1.75;
 pub const COMPACT_TOOL_GAP: f32 = SPACE_XS;
 pub const SPINNER_FRAME: Duration = Duration::from_millis(66);
+const SPINNER_STILL_TIME: f64 = FRAC_PI_2;
 const SPINNER_STROKE: f32 = 3.0;
 const SPINNER_INSET: f32 = 2.0;
 const SPINNER_SWEEP_DEGREES: f64 = 240.0;
@@ -186,11 +192,18 @@ pub fn spinner(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
     if ui.is_rect_visible(rect) {
-        ui.ctx().request_repaint_after(SPINNER_FRAME);
+        let still = ui.style().animation_time <= 0.0;
+        if !still {
+            ui.ctx().request_repaint_after(SPINNER_FRAME);
+        }
         let color = ui.visuals().strong_text_color();
         let radius = rect.height().min(rect.width()) / 2.0 - SPINNER_INSET;
         let count = (radius.round() as u32).clamp(*SPINNER_POINTS.start(), *SPINNER_POINTS.end());
-        let time = ui.input(|input| input.time);
+        let time = if still {
+            SPINNER_STILL_TIME
+        } else {
+            ui.input(|input| input.time)
+        };
         let start = time * TAU;
         let end = start + SPINNER_SWEEP_DEGREES.to_radians() * time.sin();
         let points = (0..count)
@@ -221,6 +234,13 @@ pub fn described_icon(ui: &mut Ui, glyph: &str, color: Color32, description: &st
 
 pub fn named(response: Response, name: &str) -> Response {
     name_button(response, name, None)
+}
+
+pub fn spoken_as(response: Response, name: &str) -> Response {
+    response
+        .ctx
+        .accesskit_node_builder(response.id, |node| node.set_label(name));
+    response
 }
 
 pub fn announced(ui: &Ui, response: &Response, urgent: bool) {
@@ -1162,12 +1182,38 @@ pub fn panel_footer<R>(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui) -> R) ->
         .inner
 }
 
+pub fn follow_keyboard_focus(ui: &mut Ui) {
+    let ctx = ui.ctx().clone();
+    let Some(id) = ctx.memory(|memory| memory.focused()) else {
+        return;
+    };
+    let pointer_acting =
+        ctx.input(|input| input.pointer.any_pressed() || input.pointer.any_released());
+    if pointer_acting {
+        return;
+    }
+    let Some(response) = ctx.read_response(id) else {
+        return;
+    };
+    if !response.gained_focus() {
+        return;
+    }
+    let within = ui.min_rect().contains(response.rect.center());
+    if within && !ui.clip_rect().contains_rect(response.rect) {
+        ui.scroll_to_rect(response.rect, None);
+    }
+}
+
 pub fn panel_scroll<R>(ui: &mut Ui, id_salt: impl AsIdSalt, add: impl FnOnce(&mut Ui) -> R) -> R {
     ScrollArea::vertical()
         .id_salt(id_salt)
         .auto_shrink([false, true])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
-        .show(ui, add)
+        .show(ui, |ui| {
+            let shown = add(ui);
+            follow_keyboard_focus(ui);
+            shown
+        })
         .inner
 }
 
@@ -1735,7 +1781,11 @@ pub fn measured_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, f32)
     let room = menu_room(ui);
     ui.set_max_height(room);
     let margins = ui.spacing().menu_margin.sum().y;
-    let shown = ScrollArea::vertical().max_height(room).show(ui, add);
+    let shown = ScrollArea::vertical().max_height(room).show(ui, |ui| {
+        let shown = add(ui);
+        follow_keyboard_focus(ui);
+        shown
+    });
     (shown.inner, shown.content_size.y + margins)
 }
 
@@ -2465,7 +2515,9 @@ impl DialogBody {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.set_min_height(least);
-                add(ui)
+                let shown = add(ui);
+                follow_keyboard_focus(ui);
+                shown
             })
             .inner;
         if let Some(open) = open {
@@ -2675,8 +2727,9 @@ pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem 
                 icon_button(ui, icons::REMOVE, entry.remove)
             })
             .inner;
-        if response.has_focus() != focused {
-            ui.data_mut(|data| data.insert_temp(focus_key, response.has_focus()));
+        let has_focus = response.has_focus();
+        if has_focus != focused {
+            ui.data_mut(|data| data.insert_temp(focus_key, has_focus));
             ui.ctx().request_repaint();
         }
         response.clicked()
@@ -2719,6 +2772,33 @@ mod tests {
             delay > Duration::ZERO && delay <= SPINNER_FRAME,
             "{delay:?}"
         );
+    }
+
+    #[test]
+    fn a_spinner_stands_still_and_asks_for_no_frame_when_animations_are_off() {
+        let context = Context::default();
+        context.set_fonts(fonts::definitions_with(&[]));
+        context.all_styles_mut(|style| style.animation_time = 0.0);
+        let input = || RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0))),
+            ..RawInput::default()
+        };
+        for _ in 0..3 {
+            context.run_ui(input(), |_| {}).textures_delta.clear();
+        }
+
+        let mut output = context.run_ui(input(), |ui| {
+            let response = spinner(ui);
+            assert!(response.rect.width() > 0.0);
+        });
+        output.textures_delta.clear();
+
+        let delay = output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|viewport| viewport.repaint_delay)
+            .unwrap();
+        assert!(delay > SPINNER_FRAME, "{delay:?}");
     }
 
     fn pills_in_a_wrapped_row(width: f32, texts: [&str; 2]) -> (Vec<Rect>, Vec<Rect>, Rect) {

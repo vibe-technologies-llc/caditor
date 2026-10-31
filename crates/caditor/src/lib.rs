@@ -31,6 +31,8 @@ mod cloud_parts;
 mod coil_panel;
 mod coil_tools;
 mod colour_selector;
+#[cfg(test)]
+mod colour_vision;
 mod comb;
 mod comb_panel;
 mod combine_panel;
@@ -225,7 +227,7 @@ mod status_bar;
 mod stepping;
 mod sweep_tools;
 mod symmetric_drawing;
-mod system_motion;
+mod system_settings;
 mod tangent_circling;
 mod text_panel;
 mod texting;

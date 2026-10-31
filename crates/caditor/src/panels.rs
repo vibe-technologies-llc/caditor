@@ -13,7 +13,9 @@ use crate::{
     editing::SketchEditing,
     feature_tree::{self, RowHeights, TreeOffers},
     icons,
-    layout::{self, MIN_SIDE_WIDTH, PanelLayout},
+    layout::{
+        self, DEFAULT_SIDE_WIDTH, MAX_SIDE_WIDTH, MIN_SIDE_WIDTH, PanelLayout, SIDE_WIDTH_STEP,
+    },
     model::{Action, Model},
     new_sketch_panel,
     parameter_table::{self, NoteDraft, ParameterUses},
@@ -145,6 +147,7 @@ pub struct PanelState {
     revealing: Option<PendingReveal>,
     layout: PanelLayout,
     layout_restored: bool,
+    pending_width: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,52 +436,55 @@ pub fn show(
     }
     state.restore_layout(ui.ctx());
     let widths = layout::panel_widths(room, MIN_SIDE_WIDTH);
-    let panel = egui::Panel::left("model")
+    let mut panel = egui::Panel::left("model")
         .resizable(true)
         .default_size(state.layout.side_width)
-        .size_range(widths)
-        .show(ui, |ui| {
-            if state.wants_features() {
-                widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
-            }
-            if state.wants_parameters() {
-                widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
-            }
-            widgets::panel_scroll(ui, "model", |ui| {
-                ui.add_space(SPACE_S);
-                if editing.is_choosing_plane() {
-                    new_sketch_panel::show(ui, model, actions);
-                    ui.add_space(SPACE_L);
-                }
-                let features = model.document().features().len();
-                let header = SectionHeader {
-                    title: FEATURES_TITLE,
-                    count: Some(features),
-                    action: None,
-                    explanation: Some(FEATURES_EXPLANATION),
-                };
-                widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
-                    feature_tree::show(ui, model, selection, editing, state, actions);
-                });
+        .size_range(widths);
+    if let Some(wanted) = state.pending_width.take() {
+        panel = panel.exact_size(wanted.clamp(widths.min, widths.max));
+    }
+    let panel = panel.show(ui, |ui| {
+        if state.wants_features() {
+            widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
+        }
+        if state.wants_parameters() {
+            widgets::reveal_section(ui.ctx(), PARAMETERS_SECTION);
+        }
+        widgets::panel_scroll(ui, "model", |ui| {
+            ui.add_space(SPACE_S);
+            if editing.is_choosing_plane() {
+                new_sketch_panel::show(ui, model, actions);
                 ui.add_space(SPACE_L);
-                let parameters = model.document().parameters().len();
-                let header = SectionHeader {
-                    title: PARAMETERS_TITLE,
-                    count: Some(parameters),
-                    action: Some(SectionAction {
-                        glyph: icons::ADD,
-                        hover: parameter_table::ADD_LABEL,
-                    }),
-                    explanation: Some(PARAMETERS_EXPLANATION),
-                };
-                let adding = widgets::panel_section(ui, PARAMETERS_SECTION, header, |ui| {
-                    parameter_table::show(ui, model, state, actions);
-                });
-                if adding {
-                    parameter_table::add(model, state, actions);
-                }
+            }
+            let features = model.document().features().len();
+            let header = SectionHeader {
+                title: FEATURES_TITLE,
+                count: Some(features),
+                action: None,
+                explanation: Some(FEATURES_EXPLANATION),
+            };
+            widgets::panel_section(ui, FEATURES_SECTION, header, |ui| {
+                feature_tree::show(ui, model, selection, editing, state, actions);
             });
+            ui.add_space(SPACE_L);
+            let parameters = model.document().parameters().len();
+            let header = SectionHeader {
+                title: PARAMETERS_TITLE,
+                count: Some(parameters),
+                action: Some(SectionAction {
+                    glyph: icons::ADD,
+                    hover: parameter_table::ADD_LABEL,
+                }),
+                explanation: Some(PARAMETERS_EXPLANATION),
+            };
+            let adding = widgets::panel_section(ui, PARAMETERS_SECTION, header, |ui| {
+                parameter_table::show(ui, model, state, actions);
+            });
+            if adding {
+                parameter_table::add(model, state, actions);
+            }
         });
+    });
     let width = panel.response.rect.width();
     state.observe_layout(ui.ctx(), width, width >= widths.max - CAPPED_SLACK);
 }
@@ -489,7 +495,41 @@ pub fn commands(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
+    side_width_commands(state, commands);
     feature_tree::commands(context, state, commands, actions);
     bodies_tree::commands(context, state, commands, actions);
     parameter_table::commands(context.model, state, commands, actions);
+}
+
+pub const PANEL_AT_ITS_WIDEST: &str = "The model panel is as wide as it can be";
+pub const PANEL_AT_ITS_NARROWEST: &str = "The model panel is as narrow as it can be";
+
+fn side_width_commands(state: &mut PanelState, commands: &mut CommandFrame<'_>) {
+    let width = state.layout.side_width;
+    let steps = [
+        (
+            Command::WiderPanel,
+            width + SIDE_WIDTH_STEP,
+            if width < MAX_SIDE_WIDTH {
+                Ok(())
+            } else {
+                Err(PANEL_AT_ITS_WIDEST.to_owned())
+            },
+        ),
+        (
+            Command::NarrowerPanel,
+            width - SIDE_WIDTH_STEP,
+            if width > MIN_SIDE_WIDTH {
+                Ok(())
+            } else {
+                Err(PANEL_AT_ITS_NARROWEST.to_owned())
+            },
+        ),
+        (Command::NormalPanel, DEFAULT_SIDE_WIDTH, Ok(())),
+    ];
+    for (command, wanted, availability) in steps {
+        if commands.invoke(command, &availability) && availability.is_ok() {
+            state.pending_width = Some(wanted.clamp(MIN_SIDE_WIDTH, MAX_SIDE_WIDTH));
+        }
+    }
 }

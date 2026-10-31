@@ -52,6 +52,9 @@ so call sites stay platform-free.
   - `client_area_animations`: `SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION)`, whether Windows
     animates its windows (Settings › Accessibility › Visual effects › Animation effects); the app
     reads it for Preferences › Navigation › View changes › Follow the system (`app-files.md`).
+  - `high_contrast`: `SystemParametersInfoW(SPI_GETHIGHCONTRAST)` with a `HIGHCONTRASTW`, whether
+    a Windows contrast theme is on (`HCF_HIGHCONTRASTON`); the app reads it for Preferences ›
+    Appearance › Colours › Contrast › Follow the system (`app-files.md`).
   - `attach_parent_console`: a release build is GUI-subsystem, so `--version`, `--help` and
     `--export` print only after attaching to the starting console.
   - `read_credential`, `write_credential` and `delete_credential`: generic Credential Manager entries

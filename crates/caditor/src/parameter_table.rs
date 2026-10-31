@@ -183,11 +183,14 @@ fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
         let muted = appearance::tokens(ui).text_muted;
         widgets::icon_label(ui, icons::SEARCH, muted);
         widgets::text_field(ui, |ui| {
-            ui.add(
-                TextEdit::singleline(&mut state.parameter_filter)
-                    .id(id)
-                    .hint_text(FILTER_HINT)
-                    .desired_width(f32::INFINITY),
+            widgets::spoken_as(
+                ui.add(
+                    TextEdit::singleline(&mut state.parameter_filter)
+                        .id(id)
+                        .hint_text(FILTER_HINT)
+                        .desired_width(f32::INFINITY),
+                ),
+                FILTER_HINT,
             )
         });
     });
@@ -1178,8 +1181,9 @@ fn delete_button(
         }
         widgets::icon_button(ui, icons::DELETE, &hover)
     });
-    if response.has_focus() != focused {
-        ui.data_mut(|data| data.insert_temp(focus_key, response.has_focus()));
+    let has_focus = response.has_focus();
+    if has_focus != focused {
+        ui.data_mut(|data| data.insert_temp(focus_key, has_focus));
         ui.ctx().request_repaint();
     }
     let response = if used {

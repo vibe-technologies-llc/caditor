@@ -17,7 +17,7 @@ pub const GROUP_INDENT: f32 = SPACE_L;
 pub const CHILD_CHEVRON_INDENT: f32 = CHILD_INDENT - CHEVRON_SIDE - SPACE_XS;
 const ROW_MARGIN: Margin = Margin::symmetric(SPACE_S as i8, SPACE_XS as i8);
 const OPEN_BAR_WIDTH: f32 = 3.0;
-const CHEVRON_SIDE: f32 = CONTROL_HEIGHT - SPACE_S;
+const CHEVRON_SIDE: f32 = CONTROL_HEIGHT;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Look {

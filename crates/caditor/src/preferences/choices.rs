@@ -166,6 +166,59 @@ impl Choice for Transitions {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ContrastSetting {
+    #[default]
+    System,
+    Off,
+    On,
+}
+
+impl ContrastSetting {
+    pub fn is_high(self, system_asks_for_more: bool) -> bool {
+        match self {
+            Self::System => system_asks_for_more,
+            Self::Off => false,
+            Self::On => true,
+        }
+    }
+}
+
+impl Choice for ContrastSetting {
+    const ALL: &'static [Self] = &[Self::System, Self::Off, Self::On];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Off => "off",
+            Self::On => "on",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::System => "Follow the system",
+            Self::Off => "Standard",
+            Self::On => "High contrast",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::System => {
+                "High contrast when the desktop asks for more contrast (a Windows contrast theme, \
+                 or the contrast setting of GNOME and KDE), standard otherwise, changing when it \
+                 changes"
+            }
+            Self::Off => "Standard contrast, whatever the desktop asks for",
+            Self::On => {
+                "Stronger text, outlined buttons and a bright focus outline, whatever the desktop \
+                 asks for"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FieldOfView {
     Narrow,
     #[default]
@@ -235,6 +288,49 @@ impl Choice for EdgeWeight {
             Self::Thin => "Body edges and outlines drawn thinner, for dense models",
             Self::Standard => "Body edges and outlines at their usual width",
             Self::Thick => "Body edges and outlines drawn wider, easier to see",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NoticeTime {
+    #[default]
+    Timed,
+    UntilDismissed,
+}
+
+impl NoticeTime {
+    pub fn stays(self) -> bool {
+        self == Self::UntilDismissed
+    }
+}
+
+impl Choice for NoticeTime {
+    const ALL: &'static [Self] = &[Self::Timed, Self::UntilDismissed];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Timed => "timed",
+            Self::UntilDismissed => "until_dismissed",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Timed => "Fade away",
+            Self::UntilDismissed => "Stay until dismissed",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::Timed => {
+                "A note in the 3D view saying why an action was refused fades after a few seconds"
+            }
+            Self::UntilDismissed => {
+                "A note in the 3D view saying why an action was refused stays until you press a \
+                 key, click or move on to another action"
+            }
         }
     }
 }
@@ -699,6 +795,8 @@ mod tests {
         keys_are_distinct_and_read_back::<FieldOfView>();
         keys_are_distinct_and_read_back::<EdgeWeight>();
         keys_are_distinct_and_read_back::<TooltipDelay>();
+        keys_are_distinct_and_read_back::<NoticeTime>();
+        keys_are_distinct_and_read_back::<ContrastSetting>();
         keys_are_distinct_and_read_back::<Startup>();
         keys_are_distinct_and_read_back::<RecentListed>();
         keys_are_distinct_and_read_back::<DoubleClick>();

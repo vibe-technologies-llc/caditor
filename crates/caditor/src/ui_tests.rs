@@ -38,7 +38,7 @@ use crate::{
     model::{Action, Model, RecomputeStatus, Services, WakerFactory},
     move_manipulator::Handle,
     panels::Focus,
-    preferences::{InputMode, PreferenceChange, Preferences, PreferencesCommand},
+    preferences::{ContrastSetting, InputMode, PreferenceChange, Preferences, PreferencesCommand},
     save_preview, scene,
     selection::{Pickable, PrincipalPlane},
     version_preview,
@@ -67,6 +67,7 @@ mod command_sweep;
 mod completion;
 mod configuration_files;
 mod configurations;
+mod conformance;
 mod coordinate_systems;
 mod curve_pattern_handles;
 mod custom_colours;
@@ -924,7 +925,9 @@ impl Harness {
         let bounds = self
             .accessible
             .iter()
-            .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+            .filter(|(_, node)| {
+                matches!(node.role(), Role::Button | Role::Slider) && node.label() == Some(name)
+            })
             .find_map(|(_, node)| node.bounds())
             .unwrap_or_else(|| panic!("no button named '{name}'"));
         Rect::from_min_max(
@@ -1571,7 +1574,11 @@ fn constraint_of_kind(sketch: &Sketch, kind: &str) -> caditor_sketch::Constraint
 
 fn set_high_contrast(harness: &mut Harness, on: bool) {
     harness.perform(Action::Preferences(PreferencesCommand::Change(
-        PreferenceChange::HighContrast(on),
+        PreferenceChange::Contrast(if on {
+            ContrastSetting::On
+        } else {
+            ContrastSetting::Off
+        }),
     )));
     harness.frame();
     harness.frame();

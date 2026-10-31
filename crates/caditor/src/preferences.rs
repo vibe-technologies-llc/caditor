@@ -15,8 +15,8 @@ pub use self::dialog::{
 };
 pub use self::{
     choices::{
-        Choice, DoubleClick, ExportMemory, FieldOfView, NewBodies, OrbitAround, RecentListed,
-        Startup, TooltipDelay, Transitions, ZoomToward,
+        Choice, ContrastSetting, DoubleClick, ExportMemory, FieldOfView, NewBodies, NoticeTime,
+        OrbitAround, RecentListed, Startup, TooltipDelay, Transitions, ZoomToward,
     },
     cloud::CloudPreferences,
     dialog::{PreferencesView, Shown, change, choice, dialog, pending_changes, pick, section},
@@ -60,6 +60,7 @@ const GRID_KEY: &str = "appearance.grid";
 const BODY_KEY: &str = "appearance.body";
 const SCALE_KEY: &str = "appearance.scale";
 const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
+const CONTRAST_KEY: &str = "appearance.contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
 const ZOOM_KEY: &str = "navigation.zoom_speed";
 const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
@@ -67,6 +68,7 @@ const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const TOOLTIP_DELAY_KEY: &str = "appearance.tooltip_delay";
+const NOTICE_TIME_KEY: &str = "appearance.notice_time";
 const ZOOM_TOWARD_KEY: &str = "navigation.zoom_toward";
 const ORBIT_AROUND_KEY: &str = "navigation.orbit_around";
 const INVERT_ORBIT_X_KEY: &str = "navigation.invert_orbit_x";
@@ -493,6 +495,7 @@ pub struct Preferences {
     pub navigation: Navigation,
     pub title_bar: TitleBar,
     pub tooltip_delay: TooltipDelay,
+    pub notice_time: NoticeTime,
     pub view_details: ViewDetails,
     pub sketching: Sketching,
     pub startup: Startup,
@@ -532,7 +535,7 @@ pub enum PreferenceChange {
     Grid(GridColour),
     Body(BodyColour),
     Scale(f32),
-    HighContrast(bool),
+    Contrast(ContrastSetting),
     OrbitSpeed(f64),
     ZoomSpeed(f64),
     InvertZoom(bool),
@@ -546,6 +549,7 @@ pub enum PreferenceChange {
     FieldOfView(FieldOfView),
     TitleBar(TitleBar),
     TooltipDelay(TooltipDelay),
+    NoticeTime(NoticeTime),
     EdgeWeight(EdgeWeight),
     Outlines(bool),
     ViewCube(bool),
@@ -705,6 +709,18 @@ fn recent_colours(raw: &Settings) -> Vec<Rgb> {
     recent
 }
 
+fn contrast_setting(raw: &Settings) -> ContrastSetting {
+    raw.text(CONTRAST_KEY)
+        .and_then(ContrastSetting::from_key)
+        .unwrap_or_else(|| {
+            if raw.flag(HIGH_CONTRAST_KEY).unwrap_or(false) {
+                ContrastSetting::On
+            } else {
+                ContrastSetting::System
+            }
+        })
+}
+
 fn speed(value: Option<f64>) -> f64 {
     value.map_or(1.0, |value| value.clamp(MIN_SPEED, MAX_SPEED))
 }
@@ -749,7 +765,8 @@ impl Preferences {
                 scale: raw
                     .number(SCALE_KEY)
                     .map_or(1.0, |scale| appearance::clamp_scale(scale as f32)),
-                high_contrast: raw.flag(HIGH_CONTRAST_KEY).unwrap_or(false),
+                high_contrast: contrast_setting(&raw) == ContrastSetting::On,
+                follows_system_contrast: contrast_setting(&raw) == ContrastSetting::System,
             },
             navigation: Navigation {
                 orbit_speed: speed(raw.number(ORBIT_KEY)),
@@ -775,6 +792,7 @@ impl Preferences {
                 .and_then(TitleBar::from_key)
                 .unwrap_or_default(),
             tooltip_delay: TooltipDelay::read(&raw, TOOLTIP_DELAY_KEY),
+            notice_time: NoticeTime::read(&raw, NOTICE_TIME_KEY),
             view_details: ViewDetails::from_settings(&raw),
             sketching: Sketching::from_settings(&raw),
             startup: Startup::read(&raw, STARTUP_KEY),
@@ -819,6 +837,7 @@ impl Preferences {
         settings.set_text(BODY_KEY, &self.appearance.body.key());
         settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
         settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
+        settings.set_text(CONTRAST_KEY, self.appearance.contrast_setting().key());
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
         settings.set_number(ZOOM_KEY, self.navigation.zoom_speed);
         settings.set_flag(INVERT_ZOOM_KEY, self.navigation.invert_zoom);
@@ -832,6 +851,7 @@ impl Preferences {
         settings.set_text(FIELD_OF_VIEW_KEY, self.navigation.field_of_view.key());
         settings.set_text(TITLE_BAR_KEY, self.title_bar.key());
         settings.set_text(TOOLTIP_DELAY_KEY, self.tooltip_delay.key());
+        settings.set_text(NOTICE_TIME_KEY, self.notice_time.key());
         self.view_details.write(&mut settings);
         self.sketching.write(&mut settings);
         settings.set_text(STARTUP_KEY, self.startup.key());
@@ -886,7 +906,7 @@ impl Preferences {
             PreferenceChange::Scale(scale) => {
                 self.appearance.scale = appearance::clamp_scale(scale);
             }
-            PreferenceChange::HighContrast(on) => self.appearance.high_contrast = on,
+            PreferenceChange::Contrast(setting) => self.appearance.set_contrast_setting(setting),
             PreferenceChange::OrbitSpeed(value) => {
                 self.navigation.orbit_speed = value.clamp(MIN_SPEED, MAX_SPEED);
             }
@@ -906,6 +926,7 @@ impl Preferences {
             PreferenceChange::FieldOfView(field) => self.navigation.field_of_view = field,
             PreferenceChange::TitleBar(bar) => self.title_bar = bar,
             PreferenceChange::TooltipDelay(delay) => self.tooltip_delay = delay,
+            PreferenceChange::NoticeTime(time) => self.notice_time = time,
             PreferenceChange::EdgeWeight(weight) => self.view_details.edges.weight = weight,
             PreferenceChange::Outlines(shown) => self.view_details.edges.outlines_hidden = !shown,
             PreferenceChange::ViewCube(shown) => self.view_details.view_cube = shown,
@@ -1250,6 +1271,46 @@ mod tests {
     }
 
     #[test]
+    fn contrast_follows_the_system_unless_a_file_chose_otherwise() {
+        let fresh = Preferences::from_settings(Settings::default());
+        assert_eq!(fresh.appearance.contrast_setting(), ContrastSetting::System);
+
+        let mut stored_on = Settings::default();
+        stored_on.set_flag(HIGH_CONTRAST_KEY, true);
+        let older = Preferences::from_settings(stored_on);
+        assert_eq!(older.appearance.contrast_setting(), ContrastSetting::On);
+
+        let mut stored_off = Settings::default();
+        stored_off.set_flag(HIGH_CONTRAST_KEY, false);
+        let older = Preferences::from_settings(stored_off);
+        assert_eq!(older.appearance.contrast_setting(), ContrastSetting::System);
+
+        for setting in ContrastSetting::ALL {
+            let mut preferences = Preferences::default();
+            preferences.apply(PreferenceChange::Contrast(*setting));
+            let settings = preferences.settings();
+            let again = Preferences::from_settings(settings.clone());
+
+            assert_eq!(settings.text(CONTRAST_KEY), Some(setting.key()));
+            assert_eq!(again.appearance.contrast_setting(), *setting);
+        }
+    }
+
+    #[test]
+    fn the_system_decides_contrast_only_when_followed() {
+        let mut appearance = Appearance::default();
+
+        assert!(appearance.in_effect(true).high_contrast);
+        assert!(!appearance.in_effect(false).high_contrast);
+
+        appearance.set_contrast_setting(ContrastSetting::Off);
+        assert!(!appearance.in_effect(true).high_contrast);
+
+        appearance.set_contrast_setting(ContrastSetting::On);
+        assert!(appearance.in_effect(false).high_contrast);
+    }
+
+    #[test]
     fn preferences_read_their_settings_and_keep_the_rest() {
         let mut raw = Settings::default();
         raw.set_text(UNIT_KEY, "cm");
@@ -1358,6 +1419,7 @@ mod tests {
         let mut odd = Settings::default();
         for key in [
             TOOLTIP_DELAY_KEY,
+            NOTICE_TIME_KEY,
             ZOOM_TOWARD_KEY,
             TRANSITIONS_KEY,
             FIELD_OF_VIEW_KEY,

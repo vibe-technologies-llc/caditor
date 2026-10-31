@@ -56,6 +56,18 @@ finished. Each rule avoids a failure mode FreeCAD is known for.
   (`troubled_edges_dashed`), canvas labels sit on an opaque backdrop holding every label colour to
   7:1 (`canvas::backdrop`), and the move arrows take the palette's axis colours.
 - The interface scales from 75% to 200%; panels and toolbars wrap rather than clip.
+- Contrast and motion follow the desktop by default (Windows contrast themes and animation
+  effects; freedesktop `contrast` and `reduced-motion`, GNOME and KDE animation settings) and can
+  be fixed by the user. Reduced motion stops every animation of the interface, spinners included.
+- Every control is at least 24 points either way or has no other target within 12 points of its
+  centre, unless every function it opens is also a command in a menu and the palette; no control is
+  without a name; Tab comes round on every screen with the focus always on screen
+  (`ui_tests/conformance.rs`, `app-tests.md`).
+- Nothing a screen reader user needs is on screen only briefly: a refusal note beside the pointer is
+  announced and can be kept until dismissed.
+- `docs/ACCESSIBILITY.md` maps these rules to WCAG 2.2, EN 301 549 and Section 508, lists the known
+  limits and the checks with assistive technology that tests cannot do; a change to any of the
+  above updates it.
 
 ## Look
 

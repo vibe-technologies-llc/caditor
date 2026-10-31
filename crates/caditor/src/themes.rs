@@ -10,6 +10,7 @@ use crate::{
         Skin, Skins, Token, Tokens, VISIBLE_OUTLINE,
     },
     body_appearance::{DEFAULT_COLOUR, color32},
+    preferences::ContrastSetting,
     scene_palette::{self, Canvas, Contrast, UnseenBody, UnseenGrid},
 };
 
@@ -388,6 +389,7 @@ pub struct Appearance {
     pub body: BodyColour,
     pub scale: f32,
     pub high_contrast: bool,
+    pub follows_system_contrast: bool,
 }
 
 impl Default for Appearance {
@@ -400,11 +402,36 @@ impl Default for Appearance {
             body: BodyColour::default(),
             scale: 1.0,
             high_contrast: false,
+            follows_system_contrast: true,
         }
     }
 }
 
 impl Appearance {
+    pub fn contrast_setting(&self) -> ContrastSetting {
+        if self.high_contrast {
+            ContrastSetting::On
+        } else if self.follows_system_contrast {
+            ContrastSetting::System
+        } else {
+            ContrastSetting::Off
+        }
+    }
+
+    pub fn set_contrast_setting(&mut self, setting: ContrastSetting) {
+        self.high_contrast = setting == ContrastSetting::On;
+        self.follows_system_contrast = setting == ContrastSetting::System;
+    }
+
+    pub fn in_effect(&self, system_asks_for_more_contrast: bool) -> Self {
+        Self {
+            high_contrast: self
+                .contrast_setting()
+                .is_high(system_asks_for_more_contrast),
+            ..self.clone()
+        }
+    }
+
     pub fn skin_of(&self, look: &Look) -> Skin {
         let canvas = self.view.canvas(look.canvas);
         let grid = self.grid_on(look, canvas);

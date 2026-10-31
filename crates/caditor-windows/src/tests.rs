@@ -11,7 +11,7 @@ use crate::{
     ButtonRect, CREDENTIAL_BLOB_LIMIT, FileId, HIDDEN_ATTRIBUTE, battery_flag, boot_id,
     client_area_animations, cluster_size, delete_credential, duplicate_extents,
     files::{verbatim_for_tests, without_verbatim_for_tests},
-    final_path, machine_guid,
+    final_path, high_contrast, machine_guid,
     maximize::client_point,
     move_file_durably, process_running, read_credential, replace_file, write_credential,
 };
@@ -193,6 +193,11 @@ fn the_battery_flag_is_read() {
 #[test]
 fn the_client_area_animation_setting_is_read() {
     assert!(client_area_animations().is_ok());
+}
+
+#[test]
+fn the_high_contrast_setting_is_read() {
+    assert!(high_contrast().is_ok());
 }
 
 #[test]

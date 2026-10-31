@@ -147,11 +147,14 @@ fn search_field(ui: &mut Ui, state: &mut Guide) {
         let muted = appearance::tokens(ui).text_muted;
         widgets::icon_label(ui, icons::SEARCH, muted);
         let field = widgets::text_field(ui, |ui| {
-            ui.add(
-                TextEdit::singleline(&mut state.query)
-                    .id(search_id())
-                    .hint_text(SEARCH_HINT)
-                    .desired_width(f32::INFINITY),
+            widgets::spoken_as(
+                ui.add(
+                    TextEdit::singleline(&mut state.query)
+                        .id(search_id())
+                        .hint_text(SEARCH_HINT)
+                        .desired_width(f32::INFINITY),
+                ),
+                SEARCH_HINT,
             )
         });
         if std::mem::take(&mut state.focus_search) {

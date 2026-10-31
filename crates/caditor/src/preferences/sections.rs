@@ -231,6 +231,9 @@ impl Section {
                 "background",
                 "grid",
                 "contrast",
+                "high contrast",
+                "accessibility",
+                "forced colours",
                 "body colour",
                 "default colour",
                 "bodies",
@@ -242,6 +245,12 @@ impl Section {
                 "hover help",
                 "tooltips",
                 "delay",
+                "messages",
+                "notes",
+                "accessibility",
+                "screen reader",
+                "text size",
+                "zoom",
             ],
             Self::InTheView => &[
                 "edges",
@@ -283,6 +292,8 @@ impl Section {
                 "view changes",
                 "animation",
                 "motion",
+                "reduced motion",
+                "accessibility",
             ],
             Self::Input => &[
                 "input mode",
@@ -406,11 +417,13 @@ impl Section {
                 to.appearance.grid = from.appearance.grid;
                 to.appearance.body = from.appearance.body;
                 to.appearance.high_contrast = from.appearance.high_contrast;
+                to.appearance.follows_system_contrast = from.appearance.follows_system_contrast;
             }
             Self::Interface => {
                 to.appearance.scale = from.appearance.scale;
                 to.title_bar = from.title_bar;
                 to.tooltip_delay = from.tooltip_delay;
+                to.notice_time = from.notice_time;
             }
             Self::InTheView => to.view_details = from.view_details,
             Self::RenderedView => {

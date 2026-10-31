@@ -184,10 +184,13 @@ pub fn dialog(
                 let muted = appearance::tokens(ui).text_muted;
                 widgets::icon_label(ui, icons::SEARCH, muted);
                 widgets::text_field(ui, |ui| {
-                    ui.add(
-                        TextEdit::singleline(&mut editor.query)
-                            .hint_text(FILTER_HINT)
-                            .desired_width(f32::INFINITY),
+                    widgets::spoken_as(
+                        ui.add(
+                            TextEdit::singleline(&mut editor.query)
+                                .hint_text(FILTER_HINT)
+                                .desired_width(f32::INFINITY),
+                        ),
+                        FILTER_HINT,
                     )
                 })
             })

@@ -1,14 +1,15 @@
 use caditor_document::{DatumResult, FeatureId};
 use caditor_expression::format_decimals;
 use caditor_geometry::{Plane, Vector3};
-use caditor_kernel::FaceId;
 use caditor_sketch::{Entity, EntityId, EntityState, SplineKind};
 
 use crate::{
-    bodies, datum_tools,
+    bodies::{self, FaceKey},
+    datum_tools,
     feature_tree::count,
     model::Model,
     scene,
+    selection::Pickable,
     sketch_status::{self, SketchSummary},
     units::Units,
     visibility,
@@ -33,6 +34,8 @@ struct Key {
 pub struct Item {
     pub name: String,
     pub parts: Vec<String>,
+    pub picks: Vec<Pickable>,
+    pub part_picks: Vec<Option<Pickable>>,
 }
 
 impl Item {
@@ -40,7 +43,13 @@ impl Item {
         Self {
             name,
             parts: Vec::new(),
+            picks: Vec::new(),
+            part_picks: Vec::new(),
         }
+    }
+
+    fn selecting(self, picks: Vec<Pickable>) -> Self {
+        Self { picks, ..self }
     }
 }
 
@@ -276,25 +285,37 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
                 )
             })
             .unwrap_or_default();
-        let faces: Vec<FaceId> = shown.solid.faces().map(|(face, _)| face).collect();
-        let mut parts: Vec<String> = faces
+        let keyed = bodies::face_keys(&shown.solid);
+        let face_pick = |key: FaceKey| Pickable::Face { body, face: key };
+        let mut parts: Vec<String> = keyed
             .iter()
             .take(FACES_AT_MOST)
-            .map(|face| bodies::describe_face_id(document, shown, *face))
+            .map(|(face, _)| bodies::describe_face_id(document, shown, *face))
             .collect();
-        if let Some(more) = faces
+        let mut part_picks: Vec<Option<Pickable>> = keyed
+            .iter()
+            .take(FACES_AT_MOST)
+            .map(|(_, key)| Some(face_pick(*key)))
+            .collect();
+        if let Some(more) = keyed
             .len()
             .checked_sub(FACES_AT_MOST)
             .filter(|more| *more > 0)
         {
-            parts.push(format!("and {} more", count(more, "face", "faces")));
+            parts.push(format!(
+                "and {} more; step through them with Highlight next",
+                count(more, "face", "faces")
+            ));
+            part_picks.push(None);
         }
         items.push(Item {
             name: format!(
                 "Body {name}{place}, {}",
-                count(faces.len(), "face", "faces")
+                count(keyed.len(), "face", "faces")
             ),
             parts,
+            picks: keyed.iter().map(|(_, key)| face_pick(*key)).collect(),
+            part_picks,
         });
     }
     for feature in document.active_features() {
@@ -318,7 +339,10 @@ fn items(model: &Model, edited: Option<FeatureId>) -> Vec<Item> {
             let place = datum_tools::result(evaluation, feature.id())
                 .map(|result| format!(", {}", datum_words(result, unit)))
                 .unwrap_or_else(|| ", not computed".to_owned());
-            items.push(Item::alone(format!("Datum {}{place}", feature.name)));
+            items.push(
+                Item::alone(format!("Datum {}{place}", feature.name))
+                    .selecting(vec![Pickable::Datum(feature.id())]),
+            );
         }
     }
     items
@@ -431,6 +455,10 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                 "{} {shape}{construction}{state}",
                 sketch.entity_label(id)
             ))
+            .selecting(vec![Pickable::SketchEntity {
+                feature,
+                entity: id,
+            }])
         })
         .collect()
 }

@@ -663,11 +663,15 @@ paths:
   and described in words (`scene_description.rs`, rebuilt only when the revision, evaluation, units
   or edited sketch changes): bodies, sketches and datums by name and count, the first
   `NAMED_AT_MOST` bodies with size and lowest corner, or while a sketch is edited its curves,
-  points, constraints, how constrained it is and the span of its points. Its children are one label
-  node per item (`SceneDescription::items`, `viewport::scene_items`, built only while AccessKit is
-  on, at most `ITEMS_AT_MOST`; a body's faces beneath it, at most `FACES_AT_MOST`; while a sketch is
-  edited each curve and point), zero-sized and sensing only hover, so they take no room, pointer or
-  Tab stop. Text painted over it (prompt, hover description, snap and measure labels) is also a
+  points, constraints, how constrained it is and the span of its points. Its child is a list named
+  `SCENE_ITEMS_NAME` of one list item per item (`SceneDescription::items`,
+  `viewport::scene_items`, built only while AccessKit is on, at most `ITEMS_AT_MOST`; a body's faces
+  beneath it, at most `FACES_AT_MOST`, the last part saying how many more and to step through them
+  with Highlight next; while a sketch is edited each curve and point), zero-sized, so they take no
+  room or pointer and are no Tab stop. An item that names something selectable carries its
+  `Pickable`s (`Item::picks`: a body's faces, a datum, a sketch curve or point; a face's own) and
+  senses clicks, so an AccessKit Click from a screen reader replaces the selection with them
+  (`ViewportState::replace_selection`), as clicking the whole body does. Text painted over it (prompt, hover description, snap and measure labels) is also a
   `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
   regions.
 - The about dialog names `THIRD-PARTY-NOTICES.txt`, the licences of the other fonts and of the

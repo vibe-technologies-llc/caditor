@@ -7,6 +7,7 @@ use egui::{
 use crate::{
     appearance::SPACE_S,
     canvas::{self, ChipLook, FEWER_KEYS, HintList, Hints, MORE_KEYS},
+    preferences::NoticeTime,
     scene_palette::{ScenePalette, color32},
 };
 
@@ -30,6 +31,7 @@ const MORE_KEYS_ID: &str = "more keys";
 pub struct RefusalNote {
     text: String,
     since: f64,
+    drawn: bool,
 }
 
 impl RefusalNote {
@@ -37,14 +39,24 @@ impl RefusalNote {
         Self {
             text: text.into(),
             since,
+            drawn: false,
         }
+    }
+
+    pub fn is_dismissed_by(&mut self, input_arrived: bool) -> bool {
+        let dismissed = self.drawn && input_arrived;
+        self.drawn = true;
+        dismissed
     }
 
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    pub fn opacity(&self, now: f64) -> Option<f32> {
+    pub fn opacity(&self, now: f64, time: NoticeTime) -> Option<f32> {
+        if time.stays() {
+            return Some(1.0);
+        }
         let age = now - self.since;
         if !(0.0..NOTE_SECONDS).contains(&age) {
             return None;
@@ -53,14 +65,17 @@ impl RefusalNote {
         Some((fading_for / NOTE_FADE_SECONDS).min(1.0) as f32)
     }
 
-    pub fn repaint_after(&self, now: f64) -> f64 {
+    pub fn repaint_after(&self, now: f64, time: NoticeTime) -> Option<f64> {
+        if time.stays() {
+            return None;
+        }
         let age = now - self.since;
         let fade_starts = NOTE_SECONDS - NOTE_FADE_SECONDS;
-        if age < fade_starts {
+        Some(if age < fade_starts {
             fade_starts - age
         } else {
             0.0
-        }
+        })
     }
 }
 
@@ -305,5 +320,40 @@ fn more_keys_chip(ui: &Ui, chip: Rect, more_keys: &mut bool) -> ChipLook {
         hovered: response.hovered(),
         pressed: response.is_pointer_button_down_on(),
         focused: response.has_focus(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_timed_note_fades_out_after_its_seconds() {
+        let note = RefusalNote::new("Not here", 10.0);
+
+        assert_eq!(note.opacity(10.0, NoticeTime::Timed), Some(1.0));
+        assert!(note.opacity(10.0 + NOTE_SECONDS - 0.1, NoticeTime::Timed) < Some(0.2));
+        assert_eq!(note.opacity(10.0 + NOTE_SECONDS, NoticeTime::Timed), None);
+        assert!(note.repaint_after(10.0, NoticeTime::Timed).is_some());
+    }
+
+    #[test]
+    fn a_note_that_stays_never_fades_and_asks_for_no_repaint() {
+        let note = RefusalNote::new("Not here", 10.0);
+
+        assert_eq!(
+            note.opacity(10.0 + NOTE_SECONDS * 100.0, NoticeTime::UntilDismissed),
+            Some(1.0)
+        );
+        assert_eq!(note.repaint_after(10.0, NoticeTime::UntilDismissed), None);
+    }
+
+    #[test]
+    fn input_in_the_frame_a_note_first_shows_does_not_dismiss_it() {
+        let mut note = RefusalNote::new("Not here", 0.0);
+
+        assert!(!note.is_dismissed_by(true));
+        assert!(!note.is_dismissed_by(false));
+        assert!(note.is_dismissed_by(true));
     }
 }
