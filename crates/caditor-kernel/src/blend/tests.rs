@@ -996,7 +996,7 @@ fn chosen_edges_meeting_at_a_corner_of_the_other_kind_are_mitred() {
 }
 
 #[test]
-fn a_convex_edge_rising_from_bevelled_concave_edges_is_refused_at_its_foot() {
+fn a_convex_edge_rising_from_bevelled_concave_edges_carries_their_bevel_round_its_own() {
     let boss = bossed_block();
     let rising = edge_through(&boss, (3.0, 3.0, 12.0));
     let corner = [
@@ -1004,24 +1004,25 @@ fn a_convex_edge_rising_from_bevelled_concave_edges_is_refused_at_its_foot() {
         edge_through(&boss, (3.0, 5.0, 10.0)),
         rising,
     ];
+    let section = 0.5 * 0.5 * 0.5;
+    let along_base = 3.5 + 3.5 + 0.5 * 2f64.sqrt();
+    let mitred_corner = section * 2.0 * (0.5 / 3.0) * (PI / 8.0).tan();
+    let upright = section * 4.0;
 
-    let refusal = blend(&boss, &corner, BlendShape::Chamfer { distance: 0.5 }, 50);
+    let chamfered = run(&boss, &corner, BlendShape::Chamfer { distance: 0.5 });
+    let filleted = run(&boss, &corner, fillet(0.5));
 
-    assert_eq!(
-        refusal,
-        Err(BlendError::UnsupportedEnd {
-            edge: rising,
-            vertex: None
-        })
+    check(
+        "bevel round the upright's bevel",
+        &chamfered,
+        1064.0 - upright + section * along_base + 2.0 * mitred_corner,
     );
-    assert!(
-        blend(
-            &boss,
-            &corner[1..],
-            BlendShape::Chamfer { distance: 0.5 },
-            50
-        )
-        .is_ok()
+    assert!(!has_edge_through(&chamfered, (3.25, 3.25, 10.0)));
+    check(
+        "round the upright's round",
+        &filleted,
+        1064.0 - 4.0 * spandrel(0.5)
+            + spandrel(0.5) * (7.0 + PI / 2.0 * 0.5 * (1.0 + SPANDREL_CENTROID)),
     );
 }
 
@@ -1034,9 +1035,65 @@ fn edges_where(solid: &Solid, keep: impl Fn(Point3) -> bool) -> Vec<EdgeId> {
 }
 
 #[test]
-fn feet_meeting_exactly_across_a_fill_are_refused() {
+fn feet_meeting_exactly_on_a_face_use_it_up() {
     let boss = bossed_block();
     let skirt_and_rim = edges_where(&boss, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let block = block_at((0.0, 0.0, 0.0), (10.0, 4.0, 10.0), 1);
+    let long_top_edges = edges_where(&block, |middle| {
+        (middle.z - 10.0).abs() < 1e-9 && (middle.x - 5.0).abs() < 1e-9
+    });
+    let section = |distance: f64| distance * distance / 2.0;
+    let skirt = section(1.5) * (4.0 * 4.0 + 4.0 * 1.0);
+    let rim = section(1.5) * 4.0 * (10.0 - 2.0 * 0.5);
+
+    let touching = run(&boss, &skirt_and_rim, BlendShape::Chamfer { distance: 1.5 });
+    let ridged = run(
+        &block,
+        &long_top_edges,
+        BlendShape::Chamfer { distance: 2.0 },
+    );
+
+    assert_eq!(skirt_and_rim.len(), 8);
+    check(
+        "skirt meeting the rim chamfer",
+        &touching,
+        1064.0 + skirt - rim,
+    );
+    assert!(!has_edge_through(&touching, (0.75, 5.0, 10.0)));
+    assert_eq!(long_top_edges.len(), 2);
+    check("ridge", &ridged, 400.0 - 2.0 * 10.0 * section(2.0));
+    assert!(has_edge_through(&ridged, (5.0, 2.0, 10.0)));
+}
+
+#[test]
+fn round_feet_meeting_exactly_on_a_face_use_it_up() {
+    let boss = bossed_block();
+    let skirt_and_rim = edges_where(&boss, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let block = block_at((0.0, 0.0, 0.0), (10.0, 4.0, 10.0), 1);
+    let long_top_edges = edges_where(&block, |middle| {
+        (middle.z - 10.0).abs() < 1e-9 && (middle.x - 5.0).abs() < 1e-9
+    });
+    let inset = 1.5 * SPANDREL_CENTROID;
+    let skirt = spandrel(1.5) * (4.0 * 4.0 + 4.0 * 2.0 * inset);
+    let rim = spandrel(1.5) * 4.0 * (10.0 - 2.0 * inset);
+
+    let touching = run(&boss, &skirt_and_rim, fillet(1.5));
+    let half_round = run(&block, &long_top_edges, fillet(2.0));
+
+    check(
+        "skirt meeting the rim fillet",
+        &touching,
+        1064.0 + skirt - rim,
+    );
+    check(
+        "half round",
+        &half_round,
+        400.0 - 2.0 * 10.0 * spandrel(2.0),
+    );
+}
+
+#[test]
+fn fills_using_up_a_pocket_s_walls_lose_its_rim() {
     let block = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
     let pocketed = boolean(
         &block,
@@ -1050,12 +1107,8 @@ fn feet_meeting_exactly_across_a_fill_are_refused() {
     });
     let chamfer = |distance| BlendShape::Chamfer { distance };
 
-    let touching = blend(&boss, &skirt_and_rim, chamfer(1.5), 50);
     let walls_gone = blend(&pocketed, &pocket, chamfer(2.0), 50);
 
-    assert_eq!(skirt_and_rim.len(), 8);
-    assert!(is_too_large(touching));
-    assert!(blend(&boss, &skirt_and_rim, chamfer(1.4), 50).is_ok());
     assert_eq!(pocket.len(), 12);
     assert_eq!(walls_gone, Err(BlendError::Lost(rim)));
     assert!(blend(&pocketed, &pocket, chamfer(1.9), 50).is_ok());

@@ -558,16 +558,26 @@ paths:
   one untouched edge (the body edge into an end face, a seam), solved across that edge in the
   face's tangent plane, whose interval follows; with no untouched edge, to where it crosses
   another fillet's row on the same face. Joints are kept sections, so their vertices never move.
-- `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
-  foot crosses an edge of its face (other than seams and edges at the blended edge's ends), whose
-  foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex excepted). An edge
+- `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge (a
+  sample on the face's boundary fits), whose foot crosses an edge of its face (other than seams and
+  edges at the blended edge's ends; a foot meeting an edge counts only where the foot, a thousandth
+  of its length either side of the meeting, leaves the face, so a foot lying along an edge or
+  touching a corner of it does not cross: feet meeting exactly across a face use it up, a skirt's
+  fill meeting a rim chamfer, two top edges of a block chamfered or filleted half its width each
+  into a ridge or a half round), whose foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex excepted). An edge
   whose faces meet back to back (opposite normals, where two bores touch) is `BackToBack`, since no
   size fits there. A sample past the plane of a flat face at one of the edge's ends
   (`end_planes`) fits whatever face it lands on, since that end extends or clips the tool there.
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
   solid (one not found is `Lost`; errors about unchosen edges of the filled solid are `AfterFill`
-  without an id).
+  without an id). When that fails after the fill (a convex edge `UnsupportedEnd` or `Lost`, or any
+  `AfterFill`) the convex edges go first instead (`convex_first`) and the concave ones are re-found
+  in the cut solid, joined by every concave edge of a face this blend made whose both ends lie on
+  re-found edges (`carried_round`), so a boss's upright chosen with its base edges has its bevel
+  first and the base bevel carried round it (a fillet's base arc is tangent and joins by its
+  chain, so one base edge and the upright round onto the next side too); if that fails as well
+  the first order's error is reported.
 - Ends continuing into another chosen edge stop flush, ends on a perpendicular face stop there, ends
   on a slanted face extend past it when the extension changes nothing, else are clipped by its
   plane. An end at a corner of two or more flat faces (where earlier chamfers met) extends past all
@@ -606,12 +616,12 @@ paths:
   other, the trimmed tool's face on the wall lay tangent to the torus region, which met the tool's
   edge on that face anywhere within some 2e-3 of the tangent circle and left the fillet's face
   untraceable (`Split`).
-- Refused corners, each pinned by a test: a convex edge rising from bevelled concave edges ends,
-  after the fill, where two fill faces meet and is `UnsupportedEnd`, as is the upright of a boss
-  whose foot an earlier blend rounded (the fills' seam there is concave); feet meeting exactly across a
-  fill are `TooLarge`; fills that use up a whole face (a pocket's walls) lose the edges on it
-  (`Lost`). A circular edge whose extended sweep would pass a full turn is `WrapsAround`.
-  `survey.rs` (ignored) chamfers every corner of twenty bodies.
+- Refused corners, each pinned by a test: the upright of a boss whose foot an earlier blend rounded
+  is `UnsupportedEnd` (the fills' seam there is concave); fills that use up a whole face (a pocket's
+  walls) lose the edges on it (`Lost`), and cutting first leaves the pocket's corner edges ending at
+  the rim chamfers' mitre. A circular edge whose extended sweep would pass a full turn is
+  `WrapsAround`. `survey.rs` (ignored) chamfers and fillets every corner of twenty bodies, all
+  of which blend.
 - Three convex straight edges filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.
 - A convex straight edge filleted, alone at its vertex, with the radius of the two earlier

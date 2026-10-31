@@ -1174,6 +1174,7 @@ fn beside_ends(
 
 const FIT_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
 const CROSSING_CLEARANCE: f64 = 10.0 * LINEAR_RESOLUTION;
+const TOUCH_STEP: f64 = 1e-3;
 
 fn foot_path(geometry: &EdgeGeometry, foot: Point2) -> Option<(Curve, Interval)> {
     let start = geometry.place(foot, 0.0)?;
@@ -1202,8 +1203,16 @@ fn crosses_boundary(
     edge: EdgeId,
     foot: &(Curve, Interval),
     trimmed_by: &BTreeSet<FaceId>,
+    leaves_face: &dyn Fn(Point3) -> bool,
 ) -> bool {
     let (path, range) = foot;
+    let step = range.length() * TOUCH_STEP;
+    let leaves_at = |parameter: f64| {
+        [parameter - step, parameter + step]
+            .into_iter()
+            .filter(|beside| range.contains(*beside))
+            .any(|beside| leaves_face(path.point(beside)))
+    };
     let Some(definition) = solid.edge(edge) else {
         return false;
     };
@@ -1252,7 +1261,10 @@ fn crosses_boundary(
         ) else {
             return false;
         };
-        !found.overlaps.is_empty() || found.points.iter().any(|hit| inside(hit.point))
+        found
+            .points
+            .iter()
+            .any(|hit| inside(hit.point) && leaves_at(hit.first))
     })
 }
 
@@ -1316,8 +1328,15 @@ fn fits(
         let Some(surface) = solid.face(*face).map(|face| face.surface()) else {
             return false;
         };
-        let crossed = foot_path(geometry, foot)
-            .is_some_and(|path| crosses_boundary(solid, *face, geometry.edge, &path, trimmed_by));
+        let leaves_face = |point: Point3| {
+            !matches!(
+                classifier.point_in_face(*face, surface.project(point, None)),
+                Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+            )
+        };
+        let crossed = foot_path(geometry, foot).is_some_and(|path| {
+            crosses_boundary(solid, *face, geometry.edge, &path, trimmed_by, &leaves_face)
+        });
         !crossed
             && FIT_FRACTIONS.iter().all(|fraction| {
                 let Some(point) = geometry.place(foot, *fraction) else {
@@ -1328,14 +1347,10 @@ fn fits(
                 }
                 let uv = surface.project(point, None);
                 let contained = classifier.point_in_face(*face, uv);
-                let accepted = if *fraction == 0.5 {
-                    contained == Some(FaceContainment::Inside)
-                } else {
-                    matches!(
-                        contained,
-                        Some(FaceContainment::Inside | FaceContainment::OnBoundary)
-                    )
-                };
+                let accepted = matches!(
+                    contained,
+                    Some(FaceContainment::Inside | FaceContainment::OnBoundary)
+                );
                 surface.point_at(uv).distance(point) <= LINEAR_RESOLUTION && accepted
             })
     })
@@ -1856,20 +1871,110 @@ fn blend_edges(
         return planned_and_applied(solid, &topology, &chosen, shape, feature);
     }
     let naming = EdgeNaming::new(solid);
-    let references: Vec<(EdgeId, EdgeReference)> = convex
+    let sides = Sides {
+        convex: &convex,
+        concave: &concave,
+    };
+    match concave_first(solid, &topology, &naming, sides, shape, feature) {
+        Err(error) if error.fails_after_the_fill(&convex) => {
+            interrupt::check()?;
+            convex_first(solid, &topology, &naming, sides, shape, feature).map_err(|_| error)
+        }
+        outcome => outcome,
+    }
+}
+
+impl BlendError {
+    fn fails_after_the_fill(&self, convex: &[EdgeId]) -> bool {
+        match self {
+            Self::UnsupportedEnd { edge, .. } | Self::Lost(edge) => convex.contains(edge),
+            Self::AfterFill(_) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Sides<'a> {
+    convex: &'a [EdgeId],
+    concave: &'a [EdgeId],
+}
+
+fn references_in(
+    naming: &EdgeNaming,
+    edges: &[EdgeId],
+) -> Result<Vec<(EdgeId, EdgeReference)>, BlendError> {
+    edges
         .iter()
         .map(|edge| {
-            EdgeReference::capture_in(&naming, *edge)
+            EdgeReference::capture_in(naming, *edge)
                 .map(|reference| (*edge, reference))
                 .ok_or(BlendError::MissingEdge(*edge))
         })
-        .collect::<Result<_, _>>()?;
-    let filling = propagate(solid, &topology, &concave)?;
-    let filled = planned_and_applied(solid, &topology, &filling, shape, feature)?;
+        .collect()
+}
+
+fn concave_first(
+    solid: &Solid,
+    topology: &Topology,
+    naming: &EdgeNaming,
+    sides: Sides,
+    shape: BlendShape,
+    feature: u64,
+) -> Result<Solid, BlendError> {
+    let references = references_in(naming, sides.convex)?;
+    let filling = propagate(solid, topology, sides.concave)?;
+    let filled = planned_and_applied(solid, topology, &filling, shape, feature)?;
     let original = find_again(&filled, &references)?;
     let remaining: Vec<EdgeId> = original.keys().copied().collect();
     apply(&filled, &remaining, shape, feature)
         .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
+}
+
+fn convex_first(
+    solid: &Solid,
+    topology: &Topology,
+    naming: &EdgeNaming,
+    sides: Sides,
+    shape: BlendShape,
+    feature: u64,
+) -> Result<Solid, BlendError> {
+    let references = references_in(naming, sides.concave)?;
+    let cutting = propagate(solid, topology, sides.convex)?;
+    let cut = planned_and_applied(solid, topology, &cutting, shape, feature)?;
+    let original = find_again(&cut, &references)?;
+    let mut remaining: BTreeSet<EdgeId> = original.keys().copied().collect();
+    remaining.extend(carried_round(&cut, &remaining, shape.origin(feature)));
+    let remaining: Vec<EdgeId> = remaining.into_iter().collect();
+    apply(&cut, &remaining, shape, feature)
+        .map_err(|error| error.remapped(|edge| original.get(&edge).copied()))
+}
+
+fn carried_round(solid: &Solid, found: &BTreeSet<EdgeId>, made: FaceOrigin) -> Vec<EdgeId> {
+    let ends_of = |edge: EdgeId| {
+        solid
+            .edge(edge)
+            .map(|definition| [definition.start(), definition.end()])
+    };
+    let found_ends: BTreeSet<VertexId> = found
+        .iter()
+        .filter_map(|edge| ends_of(*edge))
+        .flatten()
+        .collect();
+    solid
+        .edges()
+        .map(|(id, _)| id)
+        .filter(|edge| !found.contains(edge))
+        .filter(|edge| {
+            edge_faces(solid, *edge).iter().any(|(face, _)| {
+                solid.face(*face).and_then(|definition| definition.origin()) == Some(made)
+            })
+        })
+        .filter(|edge| edge_convexity(solid, *edge) == Some(EdgeConvexity::Concave))
+        .filter(|edge| {
+            ends_of(*edge).is_some_and(|ends| ends.iter().all(|end| found_ends.contains(end)))
+        })
+        .collect()
 }
 
 fn find_again(

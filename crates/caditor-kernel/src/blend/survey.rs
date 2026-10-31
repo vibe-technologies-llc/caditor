@@ -365,7 +365,7 @@ fn corner_sets(solid: &Solid, sharp: &BTreeSet<EdgeId>) -> BTreeSet<Vec<EdgeId>>
     sets
 }
 
-fn survey_body(name: &str, solid: &Solid, distance: f64) -> Vec<String> {
+fn survey_body(name: &str, solid: &Solid, shape: BlendShape) -> Vec<String> {
     let sharp: BTreeSet<EdgeId> = solid
         .edges()
         .map(|(id, _)| id)
@@ -374,7 +374,7 @@ fn survey_body(name: &str, solid: &Solid, distance: f64) -> Vec<String> {
     corner_sets(solid, &sharp)
         .iter()
         .filter_map(|set| {
-            let result = blend(solid, set, BlendShape::Chamfer { distance }, 50);
+            let result = blend(solid, set, shape, 50);
             let why = verdict(solid, &result)?;
             let edges: Vec<String> = set.iter().map(|edge| describe(solid, *edge)).collect();
             Some(format!("{name} {}: {why}", edges.join(" + ")))
@@ -383,17 +383,23 @@ fn survey_body(name: &str, solid: &Solid, distance: f64) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "a survey of every corner of twenty bodies, about a minute in a debug build"]
-fn every_corner_chamfers_but_a_convex_edge_rising_from_bevelled_concave_ones() {
+#[ignore = "a survey of every corner of twenty bodies chamfered, about a minute in a debug build"]
+fn every_corner_chamfers() {
     let failures: Vec<String> = bodies()
         .iter()
-        .flat_map(|(name, solid)| survey_body(name, solid, 0.5))
-        .collect();
-    let unexpected: Vec<&String> = failures
-        .iter()
-        .filter(|failure| !(failure.starts_with("boss ") && failure.contains("UnsupportedEnd")))
+        .flat_map(|(name, solid)| survey_body(name, solid, BlendShape::Chamfer { distance: 0.5 }))
         .collect();
 
-    assert!(unexpected.is_empty(), "{unexpected:#?}");
-    assert_eq!(failures.len(), 5);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+#[ignore = "a survey of every corner of twenty bodies filleted, about a minute in a debug build"]
+fn every_corner_fillets() {
+    let failures: Vec<String> = bodies()
+        .iter()
+        .flat_map(|(name, solid)| survey_body(name, solid, BlendShape::Fillet { radius: 0.5 }))
+        .collect();
+
+    assert!(failures.is_empty(), "{failures:#?}");
 }

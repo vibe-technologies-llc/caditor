@@ -51,17 +51,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   150×150×40 chamfered 15 mm opened at 20 to 22 mm, 100×100×30 chamfered 10 mm at 13 to 15 mm,
   80×80×60 chamfered 20 mm closed at 26 to 28 mm, and 60×60×20 chamfered 8 mm opened at 9.5 to
   11.5 mm.
-- [medium · hard] Blend corners still refused where a blend is possible (`blend/survey.rs` chamfers
-  every corner of twenty bodies): a convex edge chosen with the concave edges at its foot (a boss's
-  corner edge with its base) ends after the fill where two fill faces meet and is `UnsupportedEnd`
-  (`a_convex_edge_rising_from_bevelled_concave_edges_is_refused_at_its_foot`), a missing corner
-  case that needs the base blend carried round the corner's own blend; and feet meeting exactly
-  across a fill are refused, `TooLarge` when a rim chamfer meets a boss's skirt on the face between
-  them and `Lost` when the fills use up a pocket's walls
-  (`feet_meeting_exactly_across_a_fill_are_refused`), a tolerance question of whether a face
-  narrowed to nothing should vanish. Fillets fail more corners than chamfers: a concave edge with
-  the convex edge rising from its end (`AfterFill(TooLarge)`) and a notch's floor edge with its
-  wall edges (`Boolean(Invalid(PcurveEnds))`).
+- [low · hard] Fills that use up a whole face lose the edges on it: a 4 mm pocket's twelve edges
+  chamfered 2 mm (`fills_using_up_a_pocket_s_walls_lose_its_rim`) is `Lost` for the rim, since the
+  corner edges' bevels meet exactly across each wall and take it away; cutting first instead leaves
+  the corner edges ending at the rim chamfers' mitre, the concave mirror of a boss's upright, which
+  `carried_round` handles only for concave edges after convex ones. The rim would have to be
+  carried onto the edges between the top and the corner bevels.
 - [medium · hard] An edge ending at a corner earlier fillets made meets them along a crease, or is
   refused. The uprights of a 40×30×20 box whose top edges were filleted 2 mm take any fillet or
   chamfer, but only a 2 mm fillet ends in a smooth ball corner (`corner::after_blends`); a 1 mm one
