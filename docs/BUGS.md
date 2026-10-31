@@ -77,14 +77,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the foot's fills meet in a concave seam under a convex edge, and extending the edge's tool
   down would cut into the plate.
 - [medium · hard] The top rim of a box tapered to widen upwards, whose slanted corner edges were
-  filleted less than about twice the rim fillet, is refused: a 40×40×30 box tapered -4° with
-  3 mm corners refuses a 2 mm rim fillet as `Rounding(Untraced)` and with 2.2 mm corners as
-  `Intricate` (sections meeting at a joint too far apart), and at -8° with 2.2 mm or 2.5 mm
-  corners as `TooLarge`; 4 mm corners at -4° work. The ball's side contact there moves from a
-  corner's cylinder onto the side plane partway along the straight rim, a switch the run
-  splitting and the rounding's retraced edges do not yet follow. Tapering the other way works down
-  to corners a little larger than the fillet, and corners no larger than it are refused as
-  `TooLarge`.
+  filleted barely larger than the rim fillet, is refused as `TooLarge`: under a 2 mm rim fillet a
+  40×40×30 box tapered -4° needs corners of 2.5 mm (2.4 mm is refused), at -8° 2.7 mm (2.5 mm is
+  refused), at -2° 2.4 mm (2.2 mm is refused)
+  (`a_rim_fillet_whose_ball_pivots_inside_the_corners_of_a_box_widening_upwards_is_too_large`).
+  The ball's side contact lies below the top, where the leaning corner cylinder's axis has moved
+  in by about the drop times the lean, so the ball centre, `R − r` from that axis, stands almost
+  over the rim arc's centre of curvature: the top contact barely moves (or turns back) round the
+  corner, `Reach::unfolded` cuts the chord's overhang beyond it below `LEAST_OVERHANG`, and the
+  lofted tool's sections would cross there. Rounding these needs a tool whose sections are not
+  fanned about the rim's curvature axis, or the fillet surface trimmed where it folds.
 
 ## Sketch solver
 

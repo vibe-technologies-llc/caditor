@@ -665,6 +665,7 @@ fn pieces(
             wanted,
             feet_faces(high),
             [*low_fraction_start, *high_fraction_end],
+            switched,
             |fraction| station_cross(context, &left, None, convex, &station_at(fraction)?),
         )?
         .unwrap_or(switched);
@@ -730,6 +731,7 @@ fn onto_shared_edge(
     before: [FaceId; 2],
     after: [FaceId; 2],
     bracket: [f64; 2],
+    switched: f64,
     cross_at: impl Fn(f64) -> Result<Cross, BlendError>,
 ) -> Result<Option<f64>, BlendError> {
     let mut changed = before
@@ -756,11 +758,23 @@ fn onto_shared_edge(
             .get(side)
             .and_then(|foot| across_edge(solid, edge, *old, foot.point)))
     };
-    let [mut low, mut high] = bracket;
-    let (Some(low_value), Some(high_value)) = (signed(low)?, signed(high)?) else {
+    let [mut low, far] = bracket;
+    let Some(low_value) = signed(low)? else {
         return Ok(None);
     };
-    if low_value.signum() == high_value.signum() {
+    let crossed = |fraction: f64| -> Result<bool, BlendError> {
+        Ok(signed(fraction)?.is_some_and(|value| value.signum() != low_value.signum()))
+    };
+    let mut high = far;
+    let mut beyond = crossed(high)?;
+    for _ in 0..SWITCH_BISECTIONS {
+        if beyond {
+            break;
+        }
+        high = 0.5 * (switched + high);
+        beyond = crossed(high)?;
+    }
+    if !beyond {
         return Ok(None);
     }
     for _ in 0..SWITCH_BISECTIONS {

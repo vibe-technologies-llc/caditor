@@ -513,9 +513,15 @@ paths:
   across smooth edges (`tangent_faces`), the nearest solution with both feet inside its faces
   winning. A run is split where a contact moves onto the next face, at the parameter where it
   crosses the shared edge (bisection on its signed distance), so every piece is smooth on one face
-  per side; a section unsolvable on the earlier faces while bisecting leaves the switch where the
-  faces changed rather than failing (past a tapered rim's corner the ball no longer meets the
-  corner's cylinder). A chamfer's split is moved `BREAK_OFFSET` past that edge, as a tool joint on
+  per side. When the section on the earlier faces cannot be solved at the far end of the sampled
+  bracket (past a tapered rim's corner the ball no longer meets the corner's cylinder), that end
+  is pulled halfway towards where the chosen faces changed until it solves on the far side of the
+  edge; only a section unsolvable throughout, or while bisecting, leaves the switch where the faces
+  changed. That place alone is where the new foot comes within the resolution of its face, and
+  inside a corner barely wider than the ball (a box widening upwards, 2.2 mm corners under a 2 mm
+  rim fillet) the old foot then lies R/(R − r) times as far past the edge, so the two sections at
+  the joint stood more than `JOINT_GAP` apart (`Intricate`), or the retraced edges along the
+  switch missed their ends (`Rounding(Untraced)`). A chamfer's split is moved `BREAK_OFFSET` past that edge, as a tool joint on
   a body edge leaves the boolean nothing to divide; a fillet's is not, its contact moving by the
   radius over the face's radius times the offset. Sections double from `FIRST_STATIONS` until the
   interpolated rows hold the sections between them within `OUTLINE_FIT` (chamfer) or `FOOT_FIT`
