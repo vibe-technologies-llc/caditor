@@ -10,21 +10,35 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432 and 486) gave are pinned by tests and combine. Seeds 20 to 500 all combine.
-  Seeds beyond 500 are unsurveyed.
+  403, 405, 432 and 486) gave are pinned by tests and combine. Seeds 20 to 700 all combine but
+  632: a frustum (4, 2, 5) and its copy turned about (0.0731, -0.3603, -0.8102) by 5.2258 and moved
+  by (0.0303, 0.0442, -0.0480) fail every operation as `Unrefined` (`Unsolved`) near
+  (-1.9899, 2.8863, 1.2357), where the walls cross at sines of 2.7e-4 to 4e-4: the traced nodes
+  there alternate in heading (neighbours 3e-6 apart with opposite tangents), as if the march
+  stepped between two arms passing within a step of each other, and the Hermite segment over that
+  stretch has no point on both surfaces across its middle. It fails the same without the march
+  going on past far stalls. Seeds beyond 700 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
   they do about all ten axes `Random::new(7)` draws (components in -1 to 1) at 1e-4 and the next
-  ten at 1e-5. At 1e-6, four of the ten axes `Random::new(11)` draws fail (`Split`, `Open`).
-  A torus and its copy shifted 1e-5 along Y are `Split` in every operation, and shifted along X
-  their difference is `NonManifold`. Along Z, and along all three axes at once, they combine.
-  Shifted along X, the outer halves of the meridian sections at ±90° are traced only to about 45°
-  from the top and bottom, where the normals' sine falls below `STOP_SINE`, too far from the touch
-  point for `touch_at_stall`. Lowering `STOP_SINE` to 1e-7 traces further but fails refining
-  (`Unrefined`, `TooManyNodes`), since `refine_contact` accepts contacts with gaps up to 1e-9
-  there, which at sines near 2.5e-7 leaves them millimetres apart sideways. An exact Newton step
-  ahead of the damped one did not change that.
+  ten at 1e-5. At 1e-6, seven of the ten axes `Random::new(11)` draws fail (`Split`, `Open`), and
+  the other three combine into wrong volumes: their union plus intersection falls 4.6e-5 to 6.8e-5
+  short of both tori, the union ending about 1e-7 beyond one torus where the difference says 3e-5,
+  which the turned tori test's bound (1e-6 of a torus) does not see. Sines there stay below
+  `STOP_SINE` nearly everywhere, so most sections are never seeded (`TOUCH_SINE`); three of the
+  seven (the second, third and seventh axes) combined into such wrong volumes before branches
+  stalling far from a touch marched on to `FAR_STOP_SINE`, and now fail `Split` beside the
+  u seam on the inner equator, at (4, 0, ±1e-6).
+  A torus and its copy shifted 1e-5 along X combine exactly
+  (`a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly`); along Y they are
+  `Split` in every operation at (-8, 5e-6, 0), where the section in the plane y = 5e-6 crosses
+  both outer equator seams, which lie within the resolution of each other for about 0.8 either
+  side, the section also running 5e-6 from both tori's meridian seams at x = 8. Along Z, and
+  along all three axes at once, they combine. Lowering `STOP_SINE` itself to 1e-7 or 1e-8 fails
+  the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
+  (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
+  changed none of these.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

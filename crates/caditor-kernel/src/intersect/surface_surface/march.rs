@@ -27,6 +27,7 @@ const MAX_LEAF_FRACTION: f64 = 0.25;
 const MIN_LEAF: f64 = 1e3 * LINEAR_RESOLUTION;
 const TOUCH_SINE: f64 = STOP_SINE;
 const STOP_SINE: f64 = 1e-6;
+const FAR_STOP_SINE: f64 = 1e-8;
 const SEED_MERGE: f64 = 1e-7;
 const COVERED_SINE: f64 = 0.2;
 const ON_BRANCH: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -558,10 +559,16 @@ impl<'a> Tracer<'a> {
         best
     }
 
-    fn step(&self, current: &Contact, tangent: Vector3, step: &mut f64) -> Result<Step, Stalled> {
+    fn step(
+        &self,
+        current: &Contact,
+        tangent: Vector3,
+        step: &mut f64,
+        stop_sine: f64,
+    ) -> Result<Step, Stalled> {
         let surfaces = self.surfaces();
         let (direction, sine) = contact_direction(surfaces, current).ok_or(Stalled::Tangent)?;
-        if sine < STOP_SINE {
+        if sine < stop_sine {
             return Err(Stalled::Tangent);
         }
         let orientation = if direction.dot(tangent) < 0.0 {
@@ -920,13 +927,14 @@ impl<'a> Tracer<'a> {
         let mut tangent = seed_tangent;
         let mut step = self.max_step * 0.25;
         let mut steps = 0usize;
+        let mut stop_sine = STOP_SINE;
         while steps < MAX_STEPS {
             interrupt::check()?;
             steps += 1;
             let Some(current) = contacts.last().copied() else {
                 break;
             };
-            let next = match self.step(&current, tangent, &mut step) {
+            let next = match self.step(&current, tangent, &mut step, stop_sine) {
                 Ok(next) => next,
                 Err(Stalled::Tangent) => {
                     if let Some(touch) = self.touch_near(&current) {
@@ -937,6 +945,9 @@ impl<'a> Tracer<'a> {
                         }
                         let (StallTouch::Ahead(touch) | StallTouch::Passed(touch)) = touch;
                         end_at_touch(&mut contacts, touch);
+                    } else if stop_sine > FAR_STOP_SINE {
+                        stop_sine = FAR_STOP_SINE;
+                        continue;
                     }
                     return Ok(Marched {
                         contacts,

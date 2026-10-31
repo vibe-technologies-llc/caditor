@@ -121,6 +121,12 @@ paths:
     below it over 0.022 either side of where their equators touch, a step about 0.2 long lands
     past that point as often as short of it, and a meridian section stalling there, or an equator
     section jumping on to it across the forward march's stretch, left the tube undivided by it.
+    A branch stalling with no such touch marches on until the sine falls below `FAR_STOP_SINE`
+    (1e-8) before ending: a torus and its copy shifted 1e-5 along X meet along the meridians at
+    ±90° in sines below `STOP_SINE` from about 45° off the equator to the top and bottom circles
+    they cross, those crossings lie 1.5 along an arc turning past `MAX_TURN`, and the meridian
+    sections ending at the stall left the difference `NonManifold` and the union and intersection
+    6e-4 off in volume.
     A loop the backward march closes is that loop, whatever the forward march did: the forward
     one can stall at a tangent point the backward one passes through (a torus and its copy turned
     1e-4 radians), and joining the two traced the loop and the stall's stretch again.

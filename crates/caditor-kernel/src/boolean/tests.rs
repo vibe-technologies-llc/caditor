@@ -2676,3 +2676,28 @@ fn a_ray_leaving_a_spline_wall_far_from_the_foot_it_starts_at_is_seen() {
         (exact_volume(&body), exact_volume(&placed)),
     );
 }
+
+#[test]
+fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly() {
+    let (ring_radius, tube_radius) = (6.0, 2.0);
+    let ring = crate::fixtures::torus(ring_radius, tube_radius);
+    let torus_volume = 2.0 * PI * PI * ring_radius * tube_radius * tube_radius;
+    let shift = 1e-5;
+    let swept = 8.0 * ring_radius * tube_radius * shift;
+
+    let placed = moved(ring.clone(), (shift, 0.0, 0.0));
+
+    for (operation, expected) in [
+        (BooleanOperation::Union, torus_volume + swept),
+        (BooleanOperation::Difference, swept),
+        (BooleanOperation::Intersection, torus_volume - swept),
+    ] {
+        let result = run(&ring, &placed, operation);
+        assert_eq!(result.validate(), Ok(()), "{operation:?}");
+        let found = exact_volume(&result);
+        assert!(
+            (found - expected).abs() <= 1e-8,
+            "{operation:?}: {found} against {expected}"
+        );
+    }
+}
