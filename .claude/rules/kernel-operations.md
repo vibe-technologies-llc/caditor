@@ -378,8 +378,11 @@ paths:
   sliver or coaxial annulus narrower than `PCURVE_TOLERANCE` is sampled inside itself. A fragment
   whose area over perimeter is `DEEP_GATE` times its coarsest tolerance skips the depth scan.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
-  interior points (`classify_fragment_point`; inside or outside wins over coincident or touching;
-  inside and outside together, or coincident samples of opposite senses, are `Ambiguous`). A sample
+  interior points (`classify_fragment_point`; inside or outside wins over touching; inside and
+  outside together, inside or outside beside a coincident sample, or coincident samples of opposite
+  senses, are `Ambiguous`: a fragment only partly coincident was not split where the coincidence
+  ends, and either class keeps or drops the coincident part wrongly; none occurs in the boolean
+  tests, the aligned-contact surveys or random placement seeds 2 and 20 to 49). A sample
   is coincident only when exactly inside the coincident face (`SolidClassifier::exactly_inside_face`,
   no resolution band); one within the resolution of that face's boundary is decided by the
   thin-strip test and only failing that taken as coincident. A fragment whose samples only touch

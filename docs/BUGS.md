@@ -56,13 +56,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner rebuilt from the arrangement of its offset planes under its own union and intersection
   formula (convex edges intersect, concave ones unite), with an edge allowed to change its pair of
   faces and faces of one plane allowed to merge; the plan builds one face per original face.
-- [medium · hard] `select::classify` lets inside or outside samples win over coincident ones in a
-  partly coincident fragment (only coincident samples of opposite senses make it `Ambiguous`). A
-  sample now counts as coincident only on a face of the same elementary surface, which removed the
-  tangent-line noise that made every partly coincident fragment `Ambiguous` fail
-  `stress_cylinders_on_a_grid`, and none occurs in the boolean tests or the aligned-contact survey;
-  making a mixed fragment `Ambiguous` is unchecked against the random-placement survey, and
-  splitting fragments exactly at coincident boundaries would replace it.
 - [low · hard] Fills that use up a whole face lose the edges on it: a 4 mm pocket's twelve edges
   chamfered 2 mm (`fills_using_up_a_pocket_s_walls_lose_its_rim`) is `Lost` for the rim, since the
   corner edges' bevels meet exactly across each wall and take it away; cutting first instead leaves

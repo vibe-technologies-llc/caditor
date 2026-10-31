@@ -996,6 +996,40 @@ fn a_fragment_both_inside_and_outside_the_other_solid_is_ambiguous() {
 }
 
 #[test]
+fn a_fragment_partly_coincident_with_the_other_solid_and_partly_outside_is_ambiguous() {
+    let fragment = square_fragment(10.0);
+    let surface: Surface = PlaneSurface::new(Plane::XY).unwrap().into();
+    let points = trace::interior_points(&fragment, &surface);
+    let probe = points[0];
+    let first = cuboid(Vector3::splat(10.0));
+    let second = block(
+        (probe.x - 0.01, probe.y - 0.01, 0.0),
+        (probe.x + 0.01, probe.y + 0.01, 1.0),
+    );
+    let input = Input::new(&first, &second);
+    let key = FaceKey {
+        operand: Operand::First,
+        face: FaceId::from_index(0).unwrap(),
+    };
+
+    let error = select::classify(
+        &input,
+        key,
+        &surface,
+        Sense::Same,
+        &fragment,
+        select::Twin::Alone,
+    )
+    .unwrap_err();
+    let BooleanError::Ambiguous(site) = error else {
+        panic!("{error:?}");
+    };
+
+    assert_eq!(site.first, vec![key.face]);
+    assert_eq!(site.point, Some(surface.point_at(probe)));
+}
+
+#[test]
 fn failures_of_the_steps_become_boolean_errors_in_words() {
     assert_eq!(
         BooleanError::from(PlanError::Unassembled),

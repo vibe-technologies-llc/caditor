@@ -111,6 +111,7 @@ fn judge(
     let mut lying: Vec<Class> = Vec::new();
     let mut sampled = 0;
     let mut mixed_at = None;
+    let mut coincident_at = None;
     let mut first_sample = None;
     for uv in interior_points(fragment, surface) {
         let Some(normal) = surface.normal(uv.x, uv.y) else {
@@ -143,6 +144,7 @@ fn judge(
                 if coincident.is_some_and(|known| known != class) {
                     mixed_at.get_or_insert(point);
                 }
+                coincident_at.get_or_insert(point);
                 coincident = Some(class);
             }
             BoundaryClass::Touching(face) => {
@@ -158,7 +160,7 @@ fn judge(
             .or_faces([key])
             .or_point(|| point)
     };
-    if let Some(point) = mixed_at {
+    if let Some(point) = mixed_at.or(coincident_at.filter(|_| solid_side.is_some())) {
         return Err(ambiguous(Some(point)));
     }
     let lying_throughout = (lying.len() == sampled).then(|| agreed(&lying)).flatten();
