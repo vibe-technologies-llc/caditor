@@ -189,6 +189,31 @@ fn the_corners_of_a_pocket_rounded_at_the_floor_are_filled() {
 }
 
 #[test]
+fn a_pocket_s_corners_filleted_as_its_floor_was_end_in_the_ball_corners_of_a_pocket_filleted_at_once()
+ {
+    let block = cuboid(Vector3::new(60.0, 50.0, 30.0));
+    let cavity = cuboid(Vector3::new(40.0, 30.0, 25.0))
+        .transformed(&RigidTransform::translation(Vector3::new(10.0, 10.0, 10.0)).unwrap())
+        .unwrap();
+    let pocketed = boolean(&block, &cavity, BooleanOperation::Difference).unwrap();
+    let floor = rim_edges(&pocketed, (10.0, 10.0), 10.0);
+    let rounded = run(&pocketed, &floor, fillet(EARLIER));
+
+    let mut every = floor.clone();
+    every.extend(uprights(&pocketed, (10.0, 10.0), 20.0));
+    let at_once = blend(&pocketed, &every, fillet(EARLIER), 60).unwrap();
+    let corners = uprights(&rounded, (10.0, 10.0), 20.0);
+    let after = blend(&rounded, &corners, fillet(EARLIER), 60).unwrap();
+
+    assert_valid("at once", &at_once);
+    assert_eq!(sphere_corners(&at_once), 4);
+    assert_valid("after", &after);
+    assert_eq!(sphere_corners(&after), 4);
+    assert_eq!(after.faces().count(), at_once.faces().count());
+    assert!((volume(&after) - volume(&at_once)).abs() <= VOLUME_TOLERANCE);
+}
+
+#[test]
 fn an_upright_under_one_rounded_edge_rounds_over_its_end_unless_larger() {
     let solid = cuboid(Vector3::new(40.0, 30.0, HEIGHT));
     let rounded = run(

@@ -63,9 +63,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   meets the top fillets along their intersection, a crease of about 50° where the three faces meet
   (`out_through_blends`), where other modellers roll the ball on along the seam between the top
   fillets (a pipe surface pinched to a point at the top face; the seam is smooth there, so
-  `blend_chain` never follows it and the lofted path cannot end on it). A pocket's corners over its
-  rounded floor are creased at every size, the equal radius included (`after_blends` is convex
-  only). The upright of a boss whose foot an earlier fillet rounded is still `UnsupportedEnd` at
+  `blend_chain` never follows it and the lofted path cannot end on it). The seam, the two
+  cylinders' intersection in the bisecting plane, leaves the upright's top vertex along the
+  upright (so the chain would continue tangentially) and turns from 90° there to tangent at the
+  top face; the missing pieces are a sharpness test that does not judge the seam by its smooth end
+  and a lofted run whose sections narrow to nothing at its end. A pocket's corners over its
+  rounded floor likewise crease at any size but the floor's radius, where they end in a concave
+  ball corner (`a_pocket_s_corners_filleted_as_its_floor_was_end_in_the_ball_corners_of_a_pocket_filleted_at_once`).
+  The upright of a boss whose foot an earlier fillet rounded is still `UnsupportedEnd` at
   its foot, the refusal naming the earlier blend and saying to move the feature above it
   (`an_upright_of_a_boss_whose_foot_was_rounded_is_refused_at_its_foot`,
   `an_upright_rising_from_a_foot_an_earlier_blend_rounded_names_it_and_says_to_move_above_it`):

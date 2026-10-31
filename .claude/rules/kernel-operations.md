@@ -622,16 +622,21 @@ paths:
   the rim chamfers' mitre. A circular edge whose extended sweep would pass a full turn is
   `WrapsAround`. `survey.rs` (ignored) chamfers and fillets every corner of twenty bodies, all
   of which blend.
-- Three convex straight edges filleted at a vertex of three planes get a spherical corner
-  (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.
-- A convex straight edge filleted, alone at its vertex, with the radius of the two earlier
-  cylinder fillets that rise from its faces there and rest on one flat face (`after_blends`: the
-  uprights of a box whose top edges were filleted at the same radius) gets the same spherical
-  corner: the three planes are its faces and that flat face, the virtual edges along the earlier
-  fillets only give the setback planes' directions, and it applies only when the ball's centre lies
-  on both cylinders' axes and level with the vertex (`ON_AXIS`), so the edge's tool ends flush there.
-  The body equals filleting all the edges at once. A smaller or larger radius meets the earlier
-  fillets along a crease (`out_through_blends`, above), not a smooth blend.
+- Three straight edges of one kind filleted at a vertex of three planes get a spherical corner
+  (`corner.rs`: a hexahedron minus the rolling ball, subtracted at a convex corner and added at a
+  concave one, a pocket's inside corner at its floor); other corners mitre. The corner is built
+  in the planes' normals turned to face away from the tool (`away_from_tool`): outward for a
+  convex corner, whose tool lies in the material, inward for a concave one, whose tool lies in
+  the air, so one construction serves both.
+- A straight edge filleted, alone at its vertex, with the radius of the two earlier cylinder
+  fillets that rise from its faces there and rest on one flat face (`after_blends`: the uprights
+  of a box whose top edges were filleted at the same radius, convex, or the corners of a pocket
+  whose floor edges were, concave) gets the same spherical corner: the three planes are its faces
+  and that flat face, the virtual edges along the earlier fillets only give the setback planes'
+  directions, and it applies only when the ball's centre lies on both cylinders' axes and level
+  with the vertex (`ON_AXIS`), so the edge's tool ends flush there. The body equals filleting all
+  the edges at once. A smaller or larger radius meets the earlier fillets along a crease
+  (`out_through_blends`, above), not a smooth blend.
 - Three convex straight (`Sweep::Along`) edges chamfered at a vertex of three planes end on a flat
   triangle (`chamfer_corner.rs`), as other CAD tools make it, rather than the three half-spaces
   meeting in a point: on each face the two chamfers' foot lines meet at a point, and the corner

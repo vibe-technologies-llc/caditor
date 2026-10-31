@@ -2123,7 +2123,7 @@ fn apply_plan(
         interrupt::check()?;
         tools.push(Tool {
             solid: corner.tool(solid, feature, &blend_names)?,
-            convex: true,
+            convex: corner.convex,
             edge: None,
         });
     }

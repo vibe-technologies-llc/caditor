@@ -28,6 +28,7 @@ const ON_AXIS: f64 = 10.0 * LINEAR_RESOLUTION;
 pub(super) struct Corner {
     pub vertex: VertexId,
     pub setbacks: BTreeMap<EdgeId, f64>,
+    pub convex: bool,
     faces: [FaceId; 3],
     normals: [Vector3; 3],
     edges: [(Option<EdgeId>, [usize; 2], Vector3); 3],
@@ -65,8 +66,9 @@ pub(super) fn find(
         return None;
     };
     let ids = [*first, *second, *third];
+    let kind = *convex.get(first)?;
     let usable = ids.iter().all(|edge| {
-        convex.get(edge) == Some(&true)
+        convex.get(edge) == Some(&kind)
             && solid
                 .edge(*edge)
                 .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)))
@@ -92,10 +94,11 @@ pub(super) fn find(
         return None;
     };
     let faces = [f0, f1, f2];
+    let facing = away_from_tool(kind);
     let normals = [
-        plane_normal(solid, f0)?,
-        plane_normal(solid, f1)?,
-        plane_normal(solid, f2)?,
+        plane_normal(solid, f0)? * facing,
+        plane_normal(solid, f1)? * facing,
+        plane_normal(solid, f2)? * facing,
     ];
     let apex = solid.vertex(vertex)?.point();
     let offset = meet([
@@ -123,6 +126,7 @@ pub(super) fn find(
     Some(Corner {
         vertex,
         setbacks,
+        convex: kind,
         faces,
         normals,
         edges: [e0, e1, e2],
@@ -191,9 +195,12 @@ pub(super) fn after_blends(
     let straight = solid
         .edge(edge)
         .is_some_and(|definition| matches!(definition.curve(), Curve::Line(_)));
-    if convex.get(&edge) != Some(&true) || !straight {
+    let kind = *convex.get(&edge)?;
+    if !straight {
         return None;
     }
+    let facing = away_from_tool(kind);
+    let carved = |(normal, offset): (Vector3, f64)| (normal * facing, offset * facing);
     let own = face_set(solid, edge);
     let [first, second] = own.iter().copied().collect::<Vec<_>>()[..] else {
         return None;
@@ -206,23 +213,24 @@ pub(super) fn after_blends(
     let [one, other] = others[..] else {
         return None;
     };
-    let planes = [plane_of(solid, first)?, plane_of(solid, second)?];
+    let outward = [plane_of(solid, first)?, plane_of(solid, second)?];
+    let planes = outward.map(carved);
     let (one, other) = (rounded(solid, one, radius)?, rounded(solid, other, radius)?);
     let rises_from = |round: &Rounded, plane: (Vector3, f64)| {
         face_normal(solid, round.face, point).is_some_and(|normal| smooth_within(normal, plane.0))
     };
-    let (over_first, over_second) = if rises_from(&one, planes[0]) && rises_from(&other, planes[1])
-    {
-        (one, other)
-    } else if rises_from(&one, planes[1]) && rises_from(&other, planes[0]) {
-        (other, one)
-    } else {
-        return None;
-    };
+    let (over_first, over_second) =
+        if rises_from(&one, outward[0]) && rises_from(&other, outward[1]) {
+            (one, other)
+        } else if rises_from(&one, outward[1]) && rises_from(&other, outward[0]) {
+            (other, one)
+        } else {
+            return None;
+        };
     let tops: Vec<(FaceId, (Vector3, f64))> = neighbours(solid, over_first.face)
         .intersection(&neighbours(solid, over_second.face))
         .filter(|face| !own.contains(face))
-        .filter_map(|face| Some((*face, plane_of(solid, *face)?)))
+        .filter_map(|face| Some((*face, carved(plane_of(solid, *face)?))))
         .filter(|(_, plane)| {
             over_first.rests_on(*plane, radius) && over_second.rests_on(*plane, radius)
         })
@@ -253,6 +261,7 @@ pub(super) fn after_blends(
     Some(Corner {
         vertex,
         setbacks: BTreeMap::from([(edge, setback)]),
+        convex: kind,
         faces: [first, second, top],
         normals,
         edges: [
@@ -264,6 +273,10 @@ pub(super) fn after_blends(
         center,
         radius,
     })
+}
+
+fn away_from_tool(convex: bool) -> f64 {
+    if convex { 1.0 } else { -1.0 }
 }
 
 fn oriented(points: &[Point3], outward: Vector3) -> bool {
