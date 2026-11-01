@@ -9,7 +9,9 @@ use egui::{
 use crate::{
     analysis::AnalysisCommand,
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
-    commands::{self, CameraMove, Command, CommandFrame, Keymap, Offer, Scope, StandardView},
+    commands::{
+        self, CameraMove, Command, CommandFrame, Keymap, Offer, Scope, StandardView, WindowStep,
+    },
     display_style::DisplayStyle,
     editing::{SketchEditing, Tool},
     files::{self, FileCommand, Files},
@@ -943,6 +945,8 @@ impl Menus<'_> {
                             Command::NormalPanel,
                         ],
                     );
+                    ui.separator();
+                    self.items(ui, WindowStep::ALL.map(Command::Window));
                 },
             );
         });

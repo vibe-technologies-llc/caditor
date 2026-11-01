@@ -233,8 +233,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps.
-- [low · medium] The window's own move and resize with caditor's title bar are pointer-only; a
-  keyboard route (the window menu's Move and Size, as the system title bar offers) is missing.
 - [medium · medium · blocked by: a live Fusion 360 and Autodesk account to confirm the open
   behaviour against (`DECISIONS.md`)] Upload to Fusion 360 and open online (`cloud.md`) opens only the
   uploaded file's web page, through `browser::open` on every platform. What remains:

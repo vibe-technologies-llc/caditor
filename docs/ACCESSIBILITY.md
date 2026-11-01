@@ -97,9 +97,11 @@ and keeps its name and role.
 - The 3D view's list holds at most `ITEMS_AT_MOST` items and a body's first `FACES_AT_MOST` faces;
   the view's description says how many more there are and to step through them with Highlight
   next.
-- The window's own move and resize (with caditor's title bar) are pointer or window manager
-  operations; the system title bar can be chosen instead (Preferences › Appearance › Interface ›
-  Title bar).
+- The window's own move and resize have commands (Move the window left, right, up and down, Make
+  the window wider, narrower, taller and shorter, with keys) that work with caditor's title bar or
+  the system's. Where the system places windows itself (Wayland, for which the toolkit cannot read
+  or set a position), moving is not offered and the system's own keys for it apply; resizing works
+  there.
 - Text size cannot be changed apart from the whole interface's size; line and letter spacing cannot
   be overridden.
 - The lock file lists two `egui` and two `accesskit` versions because the icon font crate trails

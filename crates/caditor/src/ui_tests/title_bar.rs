@@ -1,16 +1,17 @@
 use egui::{
-    Event, Key, Modifiers, PointerButton, Pos2, ViewportCommand, viewport::ResizeDirection,
+    Event, Key, Modifiers, PointerButton, Pos2, Rect, ViewportCommand, vec2,
+    viewport::ResizeDirection,
 };
 use tempfile::TempDir;
 
 use super::{Harness, SCREEN, bar_row, click_window_button, drag_screen, logo_loaded};
 use crate::{
     appearance,
-    commands::Command,
+    commands::{Command, WindowStep},
     icons, menu_bar,
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand, TitleBar},
-    window_frame,
+    window_frame::{self, Unarrangeable},
 };
 
 fn in_bar(harness: &Harness, label: &str) -> bool {
@@ -269,4 +270,153 @@ fn the_built_in_title_bar_leads_with_the_logo_and_the_system_one_leaves_it_out()
 
     assert!(with_logo > without_logo + 10.0);
     assert!(logo_loaded(&harness, 32));
+}
+
+fn placed_window(harness: &mut Harness, outer: Rect, inner: Rect) {
+    harness.window.outer_rect = Some(outer);
+    harness.window.inner_rect = Some(inner);
+    harness.window.monitor_size = Some(vec2(1920.0, 1080.0));
+    harness.frame();
+}
+
+fn window_at_rest() -> Harness {
+    let mut harness = Harness::new();
+    placed_window(
+        &mut harness,
+        Rect::from_min_size(Pos2::new(100.0, 80.0), vec2(1000.0, 700.0)),
+        Rect::from_min_size(Pos2::new(100.0, 110.0), vec2(1000.0, 670.0)),
+    );
+    harness
+}
+
+fn refusal(harness: &Harness, command: Command) -> Option<String> {
+    super::offer(harness, command)
+        .availability
+        .err()
+        .map(|reason| reason.into_owned())
+}
+
+#[test]
+fn the_window_moves_and_resizes_by_steps_from_the_palette_and_the_keyboard() {
+    let mut harness = window_at_rest();
+    let step = window_frame::WINDOW_STEP;
+
+    harness
+        .workspace
+        .queue_command(Command::Window(WindowStep::MoveRight));
+    harness.frame();
+    assert!(asked_window(
+        &harness,
+        &ViewportCommand::OuterPosition(Pos2::new(100.0 + step, 80.0))
+    ));
+
+    harness.window_commands.clear();
+    harness.key(Key::ArrowUp, Modifiers::ALT | Modifiers::SHIFT);
+    harness.frame();
+    assert!(asked_window(
+        &harness,
+        &ViewportCommand::OuterPosition(Pos2::new(100.0, 80.0 - step))
+    ));
+
+    harness.window_commands.clear();
+    harness.key(
+        Key::ArrowRight,
+        Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT,
+    );
+    harness.frame();
+    assert!(asked_window(
+        &harness,
+        &ViewportCommand::InnerSize(vec2(1000.0 + step, 670.0))
+    ));
+
+    harness.window_commands.clear();
+    harness
+        .workspace
+        .queue_command(Command::Window(WindowStep::Shorter));
+    harness.frame();
+    assert!(asked_window(
+        &harness,
+        &ViewportCommand::InnerSize(vec2(1000.0, 670.0 - step))
+    ));
+}
+
+#[test]
+fn the_window_stops_shrinking_at_its_least_size_and_growing_at_the_screen() {
+    let mut harness = Harness::new();
+    placed_window(
+        &mut harness,
+        Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(500.0, 400.0)),
+        Rect::from_min_size(Pos2::new(0.0, 30.0), vec2(490.0, 370.0)),
+    );
+
+    harness
+        .workspace
+        .queue_command(Command::Window(WindowStep::Narrower));
+    harness.frame();
+    assert!(asked_window(
+        &harness,
+        &ViewportCommand::InnerSize(vec2(480.0, 370.0))
+    ));
+
+    placed_window(
+        &mut harness,
+        Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(500.0, 400.0)),
+        Rect::from_min_size(Pos2::new(0.0, 30.0), vec2(480.0, 360.0)),
+    );
+    assert_eq!(
+        refusal(&harness, Command::Window(WindowStep::Narrower)).as_deref(),
+        Some(Unarrangeable::AsSmallAsItGets.to_string().as_str())
+    );
+    assert_eq!(
+        refusal(&harness, Command::Window(WindowStep::Shorter)).as_deref(),
+        Some(Unarrangeable::AsSmallAsItGets.to_string().as_str())
+    );
+
+    placed_window(
+        &mut harness,
+        Rect::from_min_size(Pos2::new(0.0, 0.0), vec2(1920.0, 1080.0)),
+        Rect::from_min_size(Pos2::new(0.0, 30.0), vec2(1920.0, 1050.0)),
+    );
+    assert_eq!(
+        refusal(&harness, Command::Window(WindowStep::Wider)).as_deref(),
+        Some(Unarrangeable::AsLargeAsTheScreen.to_string().as_str())
+    );
+}
+
+#[test]
+fn a_maximized_or_full_screen_window_is_not_moved_and_a_system_that_places_windows_says_so() {
+    let mut harness = window_at_rest();
+    harness.window.maximized = Some(true);
+    harness.frame();
+    for step in WindowStep::ALL {
+        assert_eq!(
+            refusal(&harness, Command::Window(step)).as_deref(),
+            Some(Unarrangeable::Maximized.to_string().as_str())
+        );
+    }
+
+    harness.window.maximized = Some(false);
+    harness.window.fullscreen = Some(true);
+    harness.frame();
+    assert!(refusal(&harness, Command::Window(WindowStep::MoveLeft)).is_some());
+
+    harness.window.fullscreen = Some(false);
+    harness.window.outer_rect = None;
+    harness.window_commands.clear();
+    harness.frame();
+    assert_eq!(
+        refusal(&harness, Command::Window(WindowStep::MoveLeft)).as_deref(),
+        Some(Unarrangeable::PlacedBySystem.to_string().as_str())
+    );
+    assert!(refusal(&harness, Command::Window(WindowStep::Wider)).is_none());
+    harness
+        .workspace
+        .queue_command(Command::Window(WindowStep::MoveLeft));
+    harness.frame();
+    assert!(
+        !harness
+            .window_commands
+            .iter()
+            .any(|command| matches!(command, ViewportCommand::OuterPosition(_)))
+    );
 }

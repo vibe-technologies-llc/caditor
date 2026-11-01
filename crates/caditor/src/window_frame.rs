@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicU8, Ordering},
+};
 
 use egui::{
     Align, Area, Context, CornerRadius, CursorIcon, Id, LayerId, Layout, Order, PointerButton,
@@ -8,9 +11,10 @@ use egui::{
 
 use crate::{
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, FOCUS_WIDTH, SPACE_XS, WIDGET_RADIUS},
-    commands::{Command, CommandFrame},
+    commands::{Command, CommandFrame, Reason, WindowStep},
     files::FileCommand,
     icons,
+    layout::{MAX_WINDOW_SIDE, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH},
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand, TitleBar},
     widgets,
@@ -24,6 +28,7 @@ pub const LEAVE_FULL_SCREEN: &str = "Leave full screen";
 pub const FULL_SCREEN: &str = "Full screen";
 pub const SYSTEM_TITLE_BAR: &str = "Use the system title bar";
 const IN_FULL_SCREEN: &str = "Leave full screen first";
+pub const WINDOW_STEP: f32 = 40.0;
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 16.0;
 const CONTROL_SIZE: Vec2 = vec2(40.0, CONTROL_HEIGHT);
@@ -31,6 +36,28 @@ const CONTROL_GAP: f32 = SPACE_XS;
 const BAR_RECT_KEY: &str = "title-bar-rect";
 const CONTROLS_ROW_KEY: &str = "title-bar-controls-row";
 const MAXIMIZE_BUTTON_KEY: &str = "title-bar-maximize-button";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Unarrangeable {
+    #[error("{IN_FULL_SCREEN}")]
+    FullScreen,
+    #[error("Restore the window first; a maximized window fills the screen")]
+    Maximized,
+    #[error("This system places windows itself, so use its own keys to move the window")]
+    PlacedBySystem,
+    #[error("This system does not say how large the window is")]
+    SizeUnknown,
+    #[error("The window is as small as it can be")]
+    AsSmallAsItGets,
+    #[error("The window is as large as the screen")]
+    AsLargeAsTheScreen,
+}
+
+impl Reason for Unarrangeable {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
 
 static NON_CLIENT_POINTER: AtomicU8 = AtomicU8::new(0);
 
@@ -155,6 +182,62 @@ pub fn commands(ctx: &Context, state: WindowState, commands: &mut CommandFrame<'
     if commands.available(Command::FullScreen) {
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(!state.fullscreen));
     }
+    for step in WindowStep::ALL {
+        let arranged = arranged(ctx, state, step);
+        if commands.invoke(Command::Window(step), &arranged)
+            && let Ok(command) = arranged
+        {
+            ctx.send_viewport_cmd(command);
+        }
+    }
+}
+
+fn arranged(
+    ctx: &Context,
+    state: WindowState,
+    step: WindowStep,
+) -> Result<ViewportCommand, Unarrangeable> {
+    if state.fullscreen {
+        return Err(Unarrangeable::FullScreen);
+    }
+    if state.maximized {
+        return Err(Unarrangeable::Maximized);
+    }
+    let viewport = ctx.input(|input| input.viewport().clone());
+    let (offset, growth) = match step {
+        WindowStep::MoveLeft => (vec2(-WINDOW_STEP, 0.0), Vec2::ZERO),
+        WindowStep::MoveRight => (vec2(WINDOW_STEP, 0.0), Vec2::ZERO),
+        WindowStep::MoveUp => (vec2(0.0, -WINDOW_STEP), Vec2::ZERO),
+        WindowStep::MoveDown => (vec2(0.0, WINDOW_STEP), Vec2::ZERO),
+        WindowStep::Wider => (Vec2::ZERO, vec2(WINDOW_STEP, 0.0)),
+        WindowStep::Narrower => (Vec2::ZERO, vec2(-WINDOW_STEP, 0.0)),
+        WindowStep::Taller => (Vec2::ZERO, vec2(0.0, WINDOW_STEP)),
+        WindowStep::Shorter => (Vec2::ZERO, vec2(0.0, -WINDOW_STEP)),
+    };
+    if growth == Vec2::ZERO {
+        let outer = viewport.outer_rect.ok_or(Unarrangeable::PlacedBySystem)?;
+        return Ok(ViewportCommand::OuterPosition(outer.min + offset));
+    }
+    let inner = viewport.inner_rect.ok_or(Unarrangeable::SizeUnknown)?;
+    let largest = viewport
+        .monitor_size
+        .unwrap_or(Vec2::splat(MAX_WINDOW_SIDE as f32));
+    let smallest = vec2(MIN_WINDOW_WIDTH as f32, MIN_WINDOW_HEIGHT as f32);
+    let growing = growth.x + growth.y > 0.0;
+    let stepped = (inner.size() + growth).max(smallest).min(largest);
+    let wanted = if growing {
+        stepped.max(inner.size())
+    } else {
+        stepped.min(inner.size())
+    };
+    if wanted == inner.size() {
+        return Err(if growing {
+            Unarrangeable::AsLargeAsTheScreen
+        } else {
+            Unarrangeable::AsSmallAsItGets
+        });
+    }
+    Ok(ViewportCommand::InnerSize(wanted))
 }
 
 pub fn apply_title_bar(ctx: &Context, applied: &mut Option<TitleBar>, wanted: TitleBar) {

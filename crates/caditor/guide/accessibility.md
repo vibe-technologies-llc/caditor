@@ -19,6 +19,10 @@
   changes is No motion.
 - **Moving the panel**: {command:view.panel_wider}, {command:view.panel_narrower} and
   {command:view.panel_normal} change the width of the model panel without dragging its edge.
+- **Moving the window**: {command:view.window_left}, {command:view.window_right},
+  {command:view.window_up} and {command:view.window_down} move it, and {command:view.window_wider},
+  {command:view.window_narrower}, {command:view.window_taller} and {command:view.window_shorter}
+  resize it, without dragging the title bar or an edge; see [the window](window).
 - **Screen readers**: buttons, fields and rows are named, notices and the reason an action was
   refused are announced, and the 3D view is described in words, its bodies, sketches and datums
   each an item to step through; activating an item selects it. The rollback bar is a slider: step

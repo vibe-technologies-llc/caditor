@@ -904,6 +904,14 @@ paths:
 - When neither maximized nor full screen, a square outline marks the edge (the window is opaque, so
   rounding would leave corners showing) and thin foreground strips along it, with larger corners
   resizing diagonally, set the resize cursor and start `BeginResize`.
+- The window moves and resizes from the keyboard through `Command::Window(WindowStep)` (Alt+Shift
+  with an arrow moves, Ctrl+Alt+Shift with an arrow resizes; View › Window and interface and the
+  palette), handled in `window_frame::commands` as `OuterPosition` and `InnerSize` viewport commands
+  of `WINDOW_STEP` points each, so they work with either title bar. `window_frame::Unarrangeable`
+  words each refusal: full screen, maximized, no outer position (Wayland, where winit reports none:
+  move only; the size commands still work), and a size already at the least
+  (`MIN_WINDOW_WIDTH`/`MIN_WINDOW_HEIGHT`) or the monitor's. winit 0.30 has no keyboard-driven move
+  (`drag_window` needs the pointer, `show_window_menu` is Windows only), hence the steps.
 - The compositor takes the pointer during a move or resize and the release never reaches the window,
   so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`. On Windows both
   run the system's modal move and size loops, so dragging to an edge snaps; the undecorated window
