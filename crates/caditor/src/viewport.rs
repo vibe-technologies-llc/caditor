@@ -3,6 +3,7 @@ use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
     PasteOrigin, PatternKind, RegionChoice, Rgb, SavedView, SolidFeature, Transaction,
+    referred_geometry,
 };
 use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -601,6 +602,9 @@ impl LitRows {
         let mut lit = Self::default();
         for row in rows {
             lit.rows.push(*row);
+            if let Some(feature) = document.feature(*row) {
+                lit.add_referred(document, evaluation, feature);
+            }
             let Some(body) = document.feature(*row).and_then(row_body) else {
                 continue;
             };
@@ -618,6 +622,64 @@ impl LitRows {
         lit.rows.sort_unstable();
         lit.rows.dedup();
         lit
+    }
+
+    fn add_referred(&mut self, document: &Document, evaluation: &Evaluation, feature: &Feature) {
+        let referred = referred_geometry(&feature.kind);
+        self.rows.extend(
+            document
+                .dependencies_of(&feature.kind)
+                .into_iter()
+                .filter(|used| {
+                    document.feature(*used).is_some_and(|used| {
+                        used.kind.sketch().is_some() || used.kind.datum().is_some()
+                    })
+                }),
+        );
+        for (body, face) in referred.faces {
+            let Some(shown) = bodies::shown(evaluation, body) else {
+                continue;
+            };
+            let Ok(found) = face.resolve(&shown.solid) else {
+                continue;
+            };
+            if shown
+                .solid
+                .face(found)
+                .is_none_or(|drawn| drawn.name() != face.name())
+            {
+                continue;
+            }
+            self.made.extend(
+                bodies::face_keys(&shown.solid)
+                    .into_iter()
+                    .filter(|(id, _)| *id == found)
+                    .map(|(_, face)| Pickable::Face { body, face }),
+            );
+        }
+        for (body, edge) in referred.edges {
+            let Some(shown) = bodies::shown(evaluation, body) else {
+                continue;
+            };
+            let Ok(found) = edge.resolve(&shown.solid) else {
+                continue;
+            };
+            if bodies::is_seam(&shown.solid, found) {
+                continue;
+            }
+            if let Some(drawn) = shown
+                .solid
+                .edge(found)
+                .filter(|drawn| drawn.name() == edge.name())
+            {
+                self.made.push(Pickable::Edge {
+                    body,
+                    edge: drawn.name(),
+                });
+            }
+        }
+        self.made
+            .extend(referred.planes.into_iter().map(Pickable::Plane));
     }
 }
 
@@ -2022,6 +2084,11 @@ impl ViewportState {
             Some(PrimaryDrag::Grab(grab)) => grab.snap_entities(sketch),
             _ => Vec::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn lit_in_scene(&self) -> Vec<Pickable> {
+        self.scenes.lit().to_vec()
     }
 
     #[cfg(test)]

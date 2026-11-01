@@ -17,7 +17,13 @@ pub const GROUP_INDENT: f32 = SPACE_L;
 pub const CHILD_CHEVRON_INDENT: f32 = CHILD_INDENT - CHEVRON_SIDE - SPACE_XS;
 pub const TOP_LEVEL: usize = 1;
 pub const NESTED_LEVEL: usize = 2;
-const ROW_MARGIN: Margin = Margin::symmetric(SPACE_S as i8, SPACE_XS as i8);
+pub const LINK_GUTTER: f32 = SPACE_L;
+const ROW_MARGIN: Margin = Margin {
+    left: (SPACE_S + LINK_GUTTER) as i8,
+    right: SPACE_S as i8,
+    top: SPACE_XS as i8,
+    bottom: SPACE_XS as i8,
+};
 const OPEN_BAR_WIDTH: f32 = 3.0;
 const CHEVRON_SIDE: f32 = CONTROL_HEIGHT;
 

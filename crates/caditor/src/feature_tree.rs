@@ -29,6 +29,7 @@ use crate::{
     editing::{self, EditingCommand, Opened, SketchEditing},
     emboss_panel, feature_clipboard, feature_fields,
     feature_groups::{self, GroupError},
+    feature_links,
     field::{self, DimensionTarget},
     files::FileCommand,
     fonts, helix_panel, hole_panel, icons, image_panel, import_panel, loft_panel, manipulator,
@@ -321,6 +322,7 @@ fn rows(
     if let Some(end) = range_to {
         choose_range(state, &drawn, end);
     }
+    show_links(ui, model, state, &placed);
     if filtering {
         if placed.is_empty() {
             no_match(ui, state);
@@ -331,6 +333,34 @@ fn rows(
         placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
     }
     drag_and_drop(ui, document, state, actions, &placed);
+}
+
+fn show_links(ui: &Ui, model: &Model, state: &mut PanelState, placed: &[(TreeRow, Rect)]) {
+    let rows: Vec<(FeatureId, Rect)> = placed
+        .iter()
+        .filter_map(|(row, rect)| match row {
+            TreeRow::Feature(id) => Some((*id, *rect)),
+            TreeRow::Bar => None,
+        })
+        .collect();
+    let hovered = rows
+        .iter()
+        .find(|(_, rect)| rect.height() > 0.0 && ui.rect_contains_pointer(*rect))
+        .map(|(id, _)| *id);
+    let document = model.document();
+    let Some(feature) = hovered
+        .or(state.selected)
+        .and_then(|id| document.feature(id))
+    else {
+        return;
+    };
+    let links = state.links.links(document, model.revision(), feature);
+    feature_links::paint(ui, &rows, &feature_links::marks(feature.id(), links));
+    let description = links.description(document, feature);
+    ui.ctx()
+        .accesskit_node_builder(feature_links::row_id(feature.id()), |node| {
+            node.set_description(description);
+        });
 }
 
 fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
@@ -851,7 +881,7 @@ fn feature_row(
                     );
                     Name::Shown(tree_row::sense(
                         ui,
-                        Id::unique(("feature-row", id)),
+                        feature_links::row_id(id),
                         toggle.rect.right(),
                         &feature.name,
                         Item::new(
@@ -1916,19 +1946,12 @@ fn context_menu(
 }
 
 fn relations(ui: &mut Ui, document: &Document, state: &mut PanelState, feature: &Feature) {
-    let used = document.dependencies_of(&feature.kind);
-    let uses: Vec<&Feature> = document
-        .features()
-        .filter(|other| used.contains(&other.id()))
-        .collect();
-    let used_by: Vec<&Feature> = document
-        .features()
-        .filter(|other| {
-            document
-                .dependencies_of(&other.kind)
-                .contains(&feature.id())
-        })
-        .collect();
+    let links = feature_links::Links::of(document, feature);
+    let features = |ids: &[FeatureId]| -> Vec<&Feature> {
+        ids.iter().filter_map(|id| document.feature(*id)).collect()
+    };
+    let uses = features(&links.uses);
+    let used_by = features(&links.used_by);
     let name = &feature.name;
     relation_menu(
         ui,

@@ -453,6 +453,17 @@ fn screenshots() {
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
+        let linked = model
+            .document()
+            .features()
+            .find(|feature| feature.kind.solid().is_some())
+            .map(caditor_document::Feature::id);
+        if let Some(linked) = linked {
+            model.workspace.panels.choose_only(linked);
+            model.still();
+            shoot(&mut model, &gpu, &out, "feature-links", look);
+            model.workspace.panels.selected = None;
+        }
         model.select([]);
         model.click_tool("New sketch");
         model.still();
