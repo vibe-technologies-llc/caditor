@@ -91,12 +91,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   buffer, and a coarser mesh without a silhouette for bodies small on screen would cut both.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
-  mostly walking the entities, and a line or slot end walks every line again to find the nearest for
-  parallel and perpendicular inference (`drawing.rs` `guides`); the body items (`body_snap.rs`,
-  `point_within` and `edge_within`) are scanned whole on every hover, with no bounds test first; a drag of several points walks the
-  point-like targets once more for the moving point nearest one (`snap::nearest_moved`). A
-  screen-space index would need the preimage of the snap radius on the sketch plane, unbounded
-  near the horizon.
+  mostly walking the entities, and a line or slot end walks every line once more to find the nearest
+  for parallel and perpendicular inference (`drawing::nearest_lines`: one allocation-free pass, but
+  still 4.6 ms for 30,000 lines in release, against 5.2 ms before); a drag of several points still
+  enumerates every point-like target for the moving point nearest one (`snap::nearest_moved`),
+  dropping those off screen of the moved points before its cell lookups but not the walks that
+  build them. The body items are bounded (`body_snap.rs` `Bounds`, 83 µs against 677 µs for 200
+  bodies of 100 edges each) but a body or arc edge crossing the camera's near plane is scanned
+  whole. A screen-space index of the sketch would need the preimage of the snap radius on the
+  sketch plane, unbounded near the horizon.
 
 
 ## Memory

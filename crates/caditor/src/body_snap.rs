@@ -1,4 +1,7 @@
-use std::{f64::consts::TAU, sync::Arc};
+use std::{
+    f64::consts::{FRAC_PI_2, TAU},
+    sync::Arc,
+};
 
 use caditor_document::{
     FeatureId, FeatureResult, Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, SolidResult,
@@ -19,6 +22,7 @@ use crate::{
 const SAME_POINT: f64 = 1e-9;
 const SAME_PLACE: f64 = 1e-6;
 const ARC_PREVIEW_SEGMENTS: usize = 64;
+const SCREEN_SLACK: f64 = 1e-3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPart {
@@ -101,11 +105,68 @@ pub struct Source {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+struct Bounds {
+    min: Point2,
+    max: Point2,
+}
+
+impl Bounds {
+    fn of(points: impl IntoIterator<Item = Point2>) -> Option<Self> {
+        points.into_iter().fold(None, |bounds, point| {
+            Some(match bounds {
+                Some(Self { min, max }) => Self {
+                    min: min.min(point),
+                    max: max.max(point),
+                },
+                None => Self {
+                    min: point,
+                    max: point,
+                },
+            })
+        })
+    }
+
+    fn corners(self) -> [Point2; 4] {
+        [
+            self.min,
+            Point2::new(self.max.x, self.min.y),
+            self.max,
+            Point2::new(self.min.x, self.max.y),
+        ]
+    }
+
+    fn may_reach(self, screen: &impl Screen, pointer: Pointer, tolerance: f64) -> bool {
+        let [a, b, c, d] = self.corners();
+        let (Some(a), Some(b), Some(c), Some(d)) = (
+            screen.to_screen(a),
+            screen.to_screen(b),
+            screen.to_screen(c),
+            screen.to_screen(d),
+        ) else {
+            return true;
+        };
+        let low = a.min(b).min(c).min(d);
+        let high = a.max(b).max(c).max(d);
+        let outside = Vector2::new(
+            (low.x - pointer.screen.x)
+                .max(pointer.screen.x - high.x)
+                .max(0.0),
+            (low.y - pointer.screen.y)
+                .max(pointer.screen.y - high.y)
+                .max(0.0),
+        );
+        let gap = outside.length();
+        gap.is_nan() || gap <= tolerance + SCREEN_SLACK
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct SnapPoint {
     position: Point2,
     depth: f64,
     source: usize,
     part: BodyPart,
+    body: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +198,30 @@ impl Path {
                 .collect(),
             Self::Polyline(points) => points.clone(),
         }
+    }
+
+    fn bounds(&self) -> Option<Bounds> {
+        match self {
+            Self::Segment(start, end) => Bounds::of([*start, *end]),
+            Self::Arc {
+                center,
+                radius,
+                start,
+                sweep,
+            } => {
+                let at = |angle: f64| *center + Vector2::from_angle(angle) * *radius;
+                let quadrants = (0..4)
+                    .map(|quadrant| quadrant as f64 * FRAC_PI_2)
+                    .filter(|angle| (angle - start).rem_euclid(TAU) <= *sweep)
+                    .map(at);
+                Bounds::of([at(*start), at(start + sweep)].into_iter().chain(quadrants))
+            }
+            Self::Polyline(points) => Bounds::of(points.iter().copied()),
+        }
+    }
+
+    fn is_cheap(&self) -> bool {
+        matches!(self, Self::Segment(..))
     }
 
     fn closest(&self, point: Point2) -> Option<Point2> {
@@ -189,8 +274,19 @@ fn closest_on_segment(start: Point2, end: Point2, point: Point2) -> Point2 {
 #[derive(Debug, Clone, PartialEq)]
 struct SnapEdge {
     path: Path,
+    bounds: Option<Bounds>,
     depth: f64,
     source: usize,
+    body: usize,
+}
+
+impl SnapEdge {
+    fn may_reach(&self, screen: &impl Screen, pointer: Pointer, tolerance: f64) -> bool {
+        self.path.is_cheap()
+            || self
+                .bounds
+                .is_some_and(|bounds| bounds.may_reach(screen, pointer, tolerance))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +337,7 @@ pub struct BodySnaps {
     sources: Vec<Source>,
     points: Vec<SnapPoint>,
     edges: Vec<SnapEdge>,
+    volumes: Vec<Option<Bounds>>,
 }
 
 impl BodySnaps {
@@ -270,16 +367,17 @@ impl BodySnaps {
             ..Self::default()
         };
         let document = model.document();
-        for (body, state) in &basis.bodies {
+        for (index, (body, state)) in basis.bodies.iter().enumerate() {
             let Some(result) = state.solid() else {
                 continue;
             };
             let name = document
                 .body_label(*body)
                 .unwrap_or_else(|| "a body".to_owned());
-            snaps.add_corners(result, *body, &name, &basis.plane);
-            snaps.add_edges(result, *body, &name, &basis.plane);
+            snaps.add_corners(result, (*body, index), &name, &basis.plane);
+            snaps.add_edges(result, (*body, index), &name, &basis.plane);
         }
+        snaps.volumes = snaps.body_volumes(basis.bodies.len());
         snaps.points.sort_by(|a, b| a.depth.total_cmp(&b.depth));
         snaps.edges.sort_by(|a, b| a.depth.total_cmp(&b.depth));
         snaps.basis = Some(basis);
@@ -303,7 +401,45 @@ impl BodySnaps {
         self.sources.len() - 1
     }
 
-    fn add_corners(&mut self, result: &SolidResult, body: FeatureId, name: &str, plane: &Plane) {
+    fn body_volumes(&self, count: usize) -> Vec<Option<Bounds>> {
+        let mut volumes: Vec<Option<Bounds>> = vec![None; count];
+        let points = self
+            .points
+            .iter()
+            .map(|point| (point.body, Bounds::of([point.position])));
+        let edges = self.edges.iter().map(|edge| (edge.body, edge.bounds));
+        for (body, bounds) in points.chain(edges) {
+            let (Some(slot), Some(bounds)) = (volumes.get_mut(body), bounds) else {
+                continue;
+            };
+            *slot = Bounds::of(
+                slot.iter()
+                    .flat_map(|kept| kept.corners())
+                    .chain(bounds.corners()),
+            );
+        }
+        volumes
+    }
+
+    fn reachable_bodies(
+        &self,
+        screen: &impl Screen,
+        pointer: Pointer,
+        tolerance: f64,
+    ) -> Vec<bool> {
+        self.volumes
+            .iter()
+            .map(|volume| volume.is_some_and(|volume| volume.may_reach(screen, pointer, tolerance)))
+            .collect()
+    }
+
+    fn add_corners(
+        &mut self,
+        result: &SolidResult,
+        (body, index): (FeatureId, usize),
+        name: &str,
+        plane: &Plane,
+    ) {
         let names = result.names();
         for (id, vertex) in result.solid.vertices() {
             let Some(vertex_name) = names.vertex_name(id) else {
@@ -333,11 +469,18 @@ impl BodySnaps {
                 depth,
                 source,
                 part: BodyPart::Corner,
+                body: index,
             });
         }
     }
 
-    fn add_edges(&mut self, result: &SolidResult, body: FeatureId, name: &str, plane: &Plane) {
+    fn add_edges(
+        &mut self,
+        result: &SolidResult,
+        (body, index): (FeatureId, usize),
+        name: &str,
+        plane: &Plane,
+    ) {
         let names = result.names();
         for (id, edge) in result.solid.edges() {
             if names.edge_named(edge.name()) != Some(id) || bodies::is_seam(&result.solid, id) {
@@ -370,13 +513,16 @@ impl BodySnaps {
                         depth,
                         source,
                         part,
+                        body: index,
                     });
                 }
             }
             self.edges.push(SnapEdge {
+                bounds: path.bounds(),
                 path,
                 depth,
                 source,
+                body: index,
             });
         }
     }
@@ -399,10 +545,12 @@ impl BodySnaps {
         inferred: Inferences,
         tolerance: f64,
     ) -> Option<Snapped> {
+        let reachable = self.reachable_bodies(screen, pointer, tolerance);
         nearest(
             self.points
                 .iter()
                 .filter(|point| point.part.takes(accept, inferred))
+                .filter(|point| reachable.get(point.body).copied().unwrap_or(false))
                 .map(|point| (point.position, point.source, point.part)),
             screen,
             pointer,
@@ -432,14 +580,19 @@ impl BodySnaps {
         if !BodyPart::Edge.takes(accept, inferred) {
             return None;
         }
+        let reachable = self.reachable_bodies(screen, pointer, tolerance);
         nearest(
-            self.edges.iter().filter_map(|edge| {
-                Some((
-                    edge.path.closest(pointer.sketch)?,
-                    edge.source,
-                    BodyPart::Edge,
-                ))
-            }),
+            self.edges
+                .iter()
+                .filter(|edge| reachable.get(edge.body).copied().unwrap_or(false))
+                .filter(|edge| edge.may_reach(screen, pointer, tolerance))
+                .filter_map(|edge| {
+                    Some((
+                        edge.path.closest(pointer.sketch)?,
+                        edge.source,
+                        BodyPart::Edge,
+                    ))
+                }),
             screen,
             pointer,
             tolerance,
@@ -671,13 +824,152 @@ fn centre_of(outline: &Outline) -> Option<Point2> {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::FRAC_PI_2;
+    use std::{cell::Cell, f64::consts::FRAC_PI_2};
 
     use caditor_document::Outline;
     use caditor_geometry::{Point2, Vector2};
 
-    use super::{BodyPart, Path, middle_of, nearest};
-    use crate::snap::{Pointer, Screen, tests::Scaled};
+    use super::{BodyPart, BodySnaps, Path, SnapEdge, SnapPoint, middle_of, nearest};
+    use crate::{
+        inference::Inferences,
+        snap::{self, Accept, Pointer, Screen, Snapped, tests::Scaled},
+    };
+
+    struct Receding {
+        near: f64,
+        calls: Cell<usize>,
+    }
+
+    impl Receding {
+        fn new() -> Self {
+            Self {
+                near: 1.0,
+                calls: Cell::new(0),
+            }
+        }
+    }
+
+    impl Screen for Receding {
+        fn to_screen(&self, point: Point2) -> Option<Vector2> {
+            self.calls.set(self.calls.get() + 1);
+            let depth = 20.0 + 0.5 * point.y;
+            (depth > self.near).then(|| Vector2::new(point.x, -3.0) * 100.0 / depth)
+        }
+    }
+
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self, low: f64, high: f64) -> f64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            low + (high - low) * ((self.0 >> 11) as f64 / (1u64 << 53) as f64)
+        }
+
+        fn point(&mut self, low: f64, high: f64) -> Point2 {
+            Point2::new(self.next(low, high), self.next(low, high))
+        }
+    }
+
+    fn crowd(bodies: usize, per_body: usize, seed: u64, home_low: f64) -> BodySnaps {
+        let mut random = Lcg(seed);
+        let mut snaps = BodySnaps::default();
+        for body in 0..bodies {
+            let home = random.point(home_low, 30.0);
+            for _ in 0..per_body {
+                let place = |random: &mut Lcg| home + random.point(0.0, 6.0);
+                let path = match snaps.edges.len() % 3 {
+                    0 => Path::Segment(place(&mut random), place(&mut random)),
+                    1 => Path::Arc {
+                        center: place(&mut random),
+                        radius: random.next(0.5, 4.0),
+                        start: random.next(-3.0, 3.0),
+                        sweep: random.next(0.2, 6.0),
+                    },
+                    _ => Path::Polyline((0..8).map(|_| place(&mut random)).collect()),
+                };
+                let source = snaps.edges.len();
+                let corner = place(&mut random);
+                snaps.points.push(SnapPoint {
+                    position: corner,
+                    depth: 0.0,
+                    source,
+                    part: BodyPart::Corner,
+                    body,
+                });
+                snaps.points.push(SnapPoint {
+                    position: place(&mut random),
+                    depth: 0.0,
+                    source,
+                    part: BodyPart::Middle,
+                    body,
+                });
+                snaps.edges.push(SnapEdge {
+                    bounds: path.bounds(),
+                    path,
+                    depth: 0.0,
+                    source,
+                    body,
+                });
+            }
+        }
+        snaps.volumes = snaps.body_volumes(bodies);
+        snaps
+    }
+
+    fn whole_scan_point(
+        snaps: &BodySnaps,
+        screen: &impl Screen,
+        pointer: Pointer,
+        tolerance: f64,
+    ) -> Option<Snapped> {
+        nearest(
+            snaps
+                .points
+                .iter()
+                .map(|point| (point.position, point.source, point.part)),
+            screen,
+            pointer,
+            tolerance,
+        )
+        .map(|(position, source, part)| snaps.snapped(position, source, part))
+    }
+
+    fn whole_scan_edge(
+        snaps: &BodySnaps,
+        screen: &impl Screen,
+        pointer: Pointer,
+        tolerance: f64,
+    ) -> Option<Snapped> {
+        nearest(
+            snaps.edges.iter().filter_map(|edge| {
+                Some((
+                    edge.path.closest(pointer.sketch)?,
+                    edge.source,
+                    BodyPart::Edge,
+                ))
+            }),
+            screen,
+            pointer,
+            tolerance,
+        )
+        .map(|(position, source, part)| snaps.snapped(position, source, part))
+    }
+
+    fn pointers(screen: &Receding, count: usize, seed: u64) -> Vec<Pointer> {
+        let mut random = Lcg(seed);
+        (0..count)
+            .filter_map(|_| {
+                let sketch = random.point(-70.0, 40.0);
+                Some(Pointer {
+                    screen: screen.to_screen(sketch)?,
+                    sketch,
+                })
+            })
+            .collect()
+    }
 
     fn pointer_at(sketch: Point2) -> Pointer {
         Pointer {
@@ -741,5 +1033,134 @@ mod tests {
 
         assert_eq!(found, Some((at, 0, BodyPart::Corner)));
         assert_eq!(missed, None);
+    }
+
+    #[test]
+    fn an_arc_path_bounds_hold_the_arc_and_only_it() {
+        let quarter = Path::Arc {
+            center: Point2::ZERO,
+            radius: 10.0,
+            start: 0.0,
+            sweep: FRAC_PI_2,
+        };
+        let circle = Path::Arc {
+            center: Point2::new(5.0, 5.0),
+            radius: 2.0,
+            start: 1.0,
+            sweep: std::f64::consts::TAU,
+        };
+
+        let quarter = quarter.bounds().unwrap();
+        let circle = circle.bounds().unwrap();
+
+        assert!(quarter.min.distance(Point2::ZERO) < 1e-9);
+        assert!(quarter.max.distance(Point2::splat(10.0)) < 1e-9);
+        assert!(circle.min.distance(Point2::splat(3.0)) < 1e-9);
+        assert!(circle.max.distance(Point2::splat(7.0)) < 1e-9);
+    }
+
+    #[test]
+    fn bounded_body_scans_pick_what_the_whole_scan_picks_even_near_the_horizon() {
+        let screen = Receding::new();
+        let snaps = crowd(40, 12, 7, -60.0);
+        let mut hits = 0;
+
+        for pointer in pointers(&screen, 600, 11) {
+            for tolerance in [snap::POINT_TOLERANCE, snap::HELD_POINT_PULL] {
+                let bounded = snaps.point_within(
+                    &screen,
+                    pointer,
+                    Accept::Anything,
+                    Inferences::default(),
+                    tolerance,
+                );
+                hits += usize::from(bounded.is_some());
+                assert_eq!(
+                    bounded,
+                    whole_scan_point(&snaps, &screen, pointer, tolerance)
+                );
+            }
+            for tolerance in [snap::CURVE_TOLERANCE, snap::HELD_CURVE_PULL] {
+                let bounded = snaps.edge_within(
+                    &screen,
+                    pointer,
+                    Accept::Anything,
+                    Inferences::default(),
+                    tolerance,
+                );
+                hits += usize::from(bounded.is_some());
+                assert_eq!(
+                    bounded,
+                    whole_scan_edge(&snaps, &screen, pointer, tolerance)
+                );
+            }
+        }
+
+        assert!(hits > 200);
+    }
+
+    #[test]
+    fn a_pointer_far_from_every_body_projects_each_body_once_and_nothing_more() {
+        let screen = Receding::new();
+        let snaps = crowd(50, 40, 3, -20.0);
+        let far = Point2::new(5000.0, 5.0);
+        let pointer = Pointer {
+            screen: screen.to_screen(far).unwrap(),
+            sketch: far,
+        };
+
+        let point = snaps.point_within(
+            &screen,
+            pointer,
+            Accept::Anything,
+            Inferences::default(),
+            snap::POINT_TOLERANCE,
+        );
+        let projections_for_points = screen.calls.replace(0);
+        let edge = snaps.edge_within(
+            &screen,
+            pointer,
+            Accept::Anything,
+            Inferences::default(),
+            snap::CURVE_TOLERANCE,
+        );
+        let projections_for_edges = screen.calls.replace(0);
+
+        assert_eq!((point, edge), (None, None));
+        assert_eq!(projections_for_points, 1 + 4 * 50);
+        assert_eq!(projections_for_edges, 4 * 50);
+    }
+
+    #[test]
+    fn bodies_whose_bounds_cross_the_horizon_are_scanned_whole() {
+        let screen = Receding::new();
+        let mut snaps = crowd(1, 12, 5, -20.0);
+        snaps.points.push(SnapPoint {
+            position: Point2::new(0.0, -50.0),
+            depth: 0.0,
+            source: 999,
+            part: BodyPart::Corner,
+            body: 0,
+        });
+        snaps.volumes = snaps.body_volumes(1);
+        let at = Point2::new(0.0, 0.0);
+        let pointer = Pointer {
+            screen: screen.to_screen(at).unwrap(),
+            sketch: at,
+        };
+
+        let bounded = snaps.point_within(
+            &screen,
+            pointer,
+            Accept::Anything,
+            Inferences::default(),
+            snap::POINT_TOLERANCE,
+        );
+
+        assert_eq!(
+            bounded,
+            whole_scan_point(&snaps, &screen, pointer, snap::POINT_TOLERANCE)
+        );
+        assert!(screen.calls.get() > 4);
     }
 }
