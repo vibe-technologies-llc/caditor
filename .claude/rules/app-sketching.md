@@ -112,8 +112,9 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   point and curve using one; Alt lands as a held snap does (`Hold`). Any other moving point may
   land instead (`Grab::snapper_landing`): `snap::nearest_moved` buckets the moved points by screen
   cells of the snap radius and walks the sketch's point, middle, centre, quadrant and axis end
-  targets once (not crossings, tracks or body items), so a frame stays linear in the sketch and
-  the selection; the moving point nearest one, when nearer than the handle's own point-like or grid
+  targets once (not crossings, tracks or body items), dropping a target outside the moved points'
+  screen box widened by the radius before any cell is looked up, so a frame stays linear in the
+  sketch and the selection; the moving point nearest one, when nearer than the handle's own point-like or grid
   landing (else within `POINT_TOLERANCE`, `HELD_POINT_PULL` with Alt), lands through
   `tracking::land` with no acquired anchors and takes the drag and the joins when it finds a
   point-like target (`Grab::landed`). A circle dragged alone changes
@@ -562,7 +563,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   and of a polygon's side) within `ALIGN_ANGLE_DEGREES` or `ALIGN_TOLERANCE` of a direction from its
   start takes it exactly (`Snap::Aligned`). Horizontal and vertical win whenever either applies;
   otherwise parallel or perpendicular to one of the `NEARBY_LINES` lines nearest on screen
-  (construction included, `drawing::guides`). A line is never inferred parallel to a line through its
+  (construction included, `drawing::guides`, which keeps them in one pass over the sketch's lines
+  through a sorted list of that many, a tie kept to the earlier line, `drawing::nearest_lines`). A line is never inferred parallel to a line through its
   start point; perpendicular is offered. An arc's start (and an arc slot's ends), a polygon's corner
   from its centre and each spline control point from the one before take horizontal or vertical the
   same way (`Drawing::levelled_from`, `LEVEL_AND_UPRIGHT` only, `Direction::between`).
@@ -667,6 +669,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   behind an `Arc`, rebuilt only when the edited sketch, its plane or a shown body's result `Arc`
   changes (`Basis`), and shared with `Drawing` (`Drawing::use_bodies`), a grab and the constraint
   offers. A placement made from an older cache (its `generation`) lands free.
+  Each body keeps the sketch-plane bounds of its items and each arc or spline edge its own
+  (`Bounds`, built with the cache); a scan (`point_within`, `edge_within`) first projects a bound's four corners and
+  skips what lies further than the tolerance from the pointer in the box they span on screen, exact
+  because a perspective view maps a rectangle wholly in front of the camera inside the hull of its
+  corners. A bound with a corner behind the near plane is scanned whole, so the picks equal those of
+  a scan of every item (`bounded_body_scans_pick_what_the_whole_scan_picks_even_near_the_horizon`).
 - With Select or Smart dimension, a body item is picked as a sketch item is
   (`ViewportState::body_hover`, `Pickable::BodyItem` with the edited sketch, the body and a stable
   `BodyItem`: a corner by its `VertexName`, a round edge's centre or an edge by its `EdgeName`, so a

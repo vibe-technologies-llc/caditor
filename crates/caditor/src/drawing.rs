@@ -3129,6 +3129,53 @@ fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> 
     Some((curve, centre))
 }
 
+fn nearest_lines(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Vector2,
+    start: Option<Vector2>,
+    continued: Option<EntityId>,
+) -> Vec<NearbyLine> {
+    let mut nearest: Vec<NearbyLine> = Vec::with_capacity(NEARBY_LINES + 1);
+    for (line, entity) in sketch.entities() {
+        let Entity::Line {
+            start: first,
+            end: last,
+        } = entity
+        else {
+            continue;
+        };
+        let (Some(begin), Some(finish)) = (sketch.point(*first), sketch.point(*last)) else {
+            continue;
+        };
+        let (Some(from), Some(to)) = (screen.to_screen(begin), screen.to_screen(finish)) else {
+            continue;
+        };
+        let distance = std::iter::once(pointer)
+            .chain(start)
+            .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
+            .fold(f64::INFINITY, f64::min);
+        let place = nearest.partition_point(|kept| kept.distance.total_cmp(&distance).is_le());
+        if place >= NEARBY_LINES {
+            continue;
+        }
+        let Some(along) = (finish - begin).try_normalize() else {
+            continue;
+        };
+        nearest.insert(
+            place,
+            NearbyLine {
+                distance,
+                line,
+                along,
+                continued: continued.is_some_and(|point| point == *first || point == *last),
+            },
+        );
+        nearest.truncate(NEARBY_LINES);
+    }
+    nearest
+}
+
 fn guides(
     sketch: &Sketch,
     screen: &impl Screen,
@@ -3136,38 +3183,13 @@ fn guides(
     (start, continued, rounded): (Point2, Option<EntityId>, Option<(EntityId, Point2)>),
     inferred: Inferences,
 ) -> Vec<Guide> {
-    let start_on_screen = screen.to_screen(start);
-    let mut nearby: Vec<NearbyLine> = sketch
-        .entities()
-        .filter_map(|(line, entity)| {
-            let Entity::Line {
-                start: first,
-                end: last,
-            } = entity
-            else {
-                return None;
-            };
-            let (from, to) = sketch.line_endpoints(line)?;
-            let along = (to - from).try_normalize()?;
-            let (from, to) = (screen.to_screen(from)?, screen.to_screen(to)?);
-            let distance = std::iter::once(pointer.screen)
-                .chain(start_on_screen)
-                .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
-                .fold(f64::INFINITY, f64::min);
-            Some(NearbyLine {
-                distance,
-                line,
-                along,
-                continued: continued.is_some_and(|point| point == *first || point == *last),
-            })
-        })
-        .collect();
-    let by_distance = |a: &NearbyLine, b: &NearbyLine| a.distance.total_cmp(&b.distance);
-    if nearby.len() > NEARBY_LINES {
-        nearby.select_nth_unstable_by(NEARBY_LINES, by_distance);
-        nearby.truncate(NEARBY_LINES);
-    }
-    nearby.sort_by(by_distance);
+    let nearby = nearest_lines(
+        sketch,
+        screen,
+        pointer.screen,
+        screen.to_screen(start),
+        continued,
+    );
     let referenced = nearby.into_iter().flat_map(|nearby| {
         let parallel = (!nearby.continued).then_some(Guide {
             direction: Direction::Parallel(nearby.line),
@@ -4074,6 +4096,102 @@ mod tests {
             screen: Scaled(10.0).to_screen(sketch).unwrap(),
             sketch,
         }
+    }
+
+    fn whole_sort_lines(
+        sketch: &Sketch,
+        screen: &impl Screen,
+        pointer: Vector2,
+        start: Option<Vector2>,
+        continued: Option<EntityId>,
+    ) -> Vec<NearbyLine> {
+        let mut nearby: Vec<NearbyLine> = sketch
+            .entities()
+            .filter_map(|(line, entity)| {
+                let Entity::Line {
+                    start: first,
+                    end: last,
+                } = entity
+                else {
+                    return None;
+                };
+                let (from, to) = sketch.line_endpoints(line)?;
+                let along = (to - from).try_normalize()?;
+                let (from, to) = (screen.to_screen(from)?, screen.to_screen(to)?);
+                let distance = std::iter::once(pointer)
+                    .chain(start)
+                    .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
+                    .fold(f64::INFINITY, f64::min);
+                Some(NearbyLine {
+                    distance,
+                    line,
+                    along,
+                    continued: continued.is_some_and(|point| point == *first || point == *last),
+                })
+            })
+            .collect();
+        nearby.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        nearby.truncate(NEARBY_LINES);
+        nearby
+    }
+
+    #[test]
+    fn the_nearest_lines_in_one_pass_are_those_a_full_sort_of_every_line_keeps() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let mut seed = 5u64;
+        let mut next = |span: f64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64 * span
+        };
+        let lines: Vec<EntityId> = (0..400)
+            .map(|_| {
+                let from = Point2::new(next(100.0), next(100.0));
+                sketch.add_line(
+                    from,
+                    from + Vector2::new(next(10.0) - 5.0, next(10.0) - 5.0),
+                )
+            })
+            .collect();
+        let dot = Point2::new(50.0, 50.0);
+        sketch.add_line(dot, dot);
+        let screen = Scaled(10.0);
+
+        for _ in 0..50 {
+            let at = Point2::new(next(100.0), next(100.0));
+            let from = Point2::new(next(100.0), next(100.0));
+            let pointer = screen.to_screen(at).unwrap();
+            let start = screen.to_screen(from);
+            let continued = lines
+                .get(5)
+                .and_then(|line| sketch.entity(*line)?.points().first().copied());
+
+            let kept = nearest_lines(&sketch, &screen, pointer, start, continued);
+
+            assert_eq!(
+                kept,
+                whole_sort_lines(&sketch, &screen, pointer, start, continued)
+            );
+            assert_eq!(kept.len(), NEARBY_LINES);
+        }
+    }
+
+    #[test]
+    fn of_lines_equally_near_the_earlier_ones_are_kept() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let lines: Vec<EntityId> = (0..10)
+            .map(|_| sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0)))
+            .collect();
+        let screen = Scaled(10.0);
+        let pointer = screen.to_screen(Point2::new(5.0, 0.0)).unwrap();
+
+        let kept = nearest_lines(&sketch, &screen, pointer, None, None);
+
+        assert_eq!(
+            kept.iter().map(|nearby| nearby.line).collect::<Vec<_>>(),
+            lines[..NEARBY_LINES].to_vec()
+        );
     }
 
     #[test]

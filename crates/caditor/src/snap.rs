@@ -1246,8 +1246,10 @@ pub fn nearest_moved(
         (index.x, index.y)
     };
     let mut cells: BTreeMap<(i64, i64), Vec<(EntityId, Vector2)>> = BTreeMap::new();
+    let mut window = (Vector2::INFINITY, Vector2::NEG_INFINITY);
     for (point, at) in moved {
         cells.entry(cell(*at)).or_default().push((*point, *at));
+        window = (window.0.min(*at - reach), window.1.max(*at + reach));
     }
     let is_moving = |id: EntityId| moving.contains(&id);
     let targets = points(sketch)
@@ -1262,6 +1264,9 @@ pub fn nearest_moved(
         let Some(at) = screen.to_screen(target.position) else {
             continue;
         };
+        if at.cmplt(window.0).any() || at.cmpgt(window.1).any() {
+            continue;
+        }
         let (column, row) = cell(at);
         let near = (-1..=1)
             .flat_map(|across| (-1..=1).map(move |down| (column + across, row + down)))
@@ -2227,6 +2232,72 @@ pub mod tests {
         assert_eq!(found, Some(end));
         assert_eq!(far, None);
         assert_eq!(only_itself, None);
+    }
+
+    #[test]
+    fn the_moving_point_nearest_a_target_matches_a_scan_of_every_moved_point_against_every_target()
+    {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut seed = 99u64;
+        let mut next = |span: f64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64 * span
+        };
+        for _ in 0..200 {
+            let at = Point2::new(next(100.0), next(100.0));
+            sketch.add_point(at);
+        }
+        for _ in 0..60 {
+            let from = Point2::new(next(100.0), next(100.0));
+            sketch.add_line(from, from + Vector2::new(next(10.0), next(10.0)));
+        }
+        let screen = Scaled(10.0);
+        let moving = BTreeSet::new();
+        let mut found = 0;
+
+        for _ in 0..300 {
+            let moved: Vec<(EntityId, Vector2)> = (0..3)
+                .map(|index| {
+                    let at = Point2::new(next(100.0), next(100.0));
+                    (
+                        EntityId::from_raw(1000 + index),
+                        screen.to_screen(at).unwrap(),
+                    )
+                })
+                .collect();
+            let reach = POINT_TOLERANCE;
+
+            let indexed = nearest_moved(
+                &sketch,
+                &screen,
+                &moved,
+                &moving,
+                reach,
+                Inferences::default(),
+            );
+            let scanned = points(&sketch)
+                .into_iter()
+                .chain(midpoints(&sketch))
+                .chain(centres(&sketch, &|_| false))
+                .chain(quadrants(&sketch))
+                .chain(axis_ends(&sketch))
+                .flat_map(|target| {
+                    let at = screen.to_screen(target.position).unwrap();
+                    moved
+                        .iter()
+                        .map(move |(point, moved_at)| (moved_at.distance(at), *point))
+                })
+                .filter(|(offset, _)| *offset <= reach)
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, point)| point);
+
+            found += usize::from(indexed.is_some());
+            assert_eq!(indexed, scanned);
+        }
+
+        assert!(found > 20);
     }
 
     #[test]
