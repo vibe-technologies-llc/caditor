@@ -283,6 +283,7 @@ pub struct PrincipalView {
     pub chosen: PrincipalSet,
     pub used: PrincipalSet,
     pub previewed: PrincipalSet,
+    pub set_aside: PrincipalSet,
     pub fading: PrincipalFading,
     pub edge_on: EdgeOn,
 }
@@ -305,6 +306,14 @@ impl PrincipalView {
 
     pub fn reads_shown(self, document: &Document, geometry: PrincipalGeometry) -> bool {
         !document.is_principal_hidden(geometry) && self.shows(document, geometry)
+    }
+
+    pub fn reads_set_aside(self, geometry: PrincipalGeometry) -> bool {
+        self.set_aside.holds(geometry)
+    }
+
+    pub fn reads_drawn(self, document: &Document, geometry: PrincipalGeometry) -> bool {
+        self.reads_shown(document, geometry) && !self.reads_set_aside(geometry)
     }
 
     pub fn opacity(self, document: &Document, geometry: PrincipalGeometry) -> Option<f32> {
@@ -351,6 +360,19 @@ pub fn chosen_principal(needs: &Needs<'_>) -> PrincipalSet {
         )
 }
 
+pub fn set_aside_principal(needs: &Needs<'_>) -> PrincipalSet {
+    let editing = needs.editing;
+    let context = editing.context();
+    PrincipalSet::NONE
+        .and(PrincipalSet::PLANES.when(!context.intersecting))
+        .and(
+            PrincipalSet::AXES
+                .and(PrincipalSet::ORIGIN)
+                .when(!context.projecting),
+        )
+        .when(editing.feature().is_some())
+}
+
 pub fn used_principal(document: &Document, needs: &Needs<'_>) -> PrincipalSet {
     let open = needs.editing.solid().and_then(|id| document.feature(id));
     let datum_open = open.is_some_and(|feature| feature.kind.datum().is_some());
@@ -374,6 +396,7 @@ pub fn principal_view(
         chosen: chosen_principal(needs),
         used: used_principal(document, needs),
         previewed,
+        set_aside: set_aside_principal(needs),
         ..PrincipalView::default()
     }
 }
@@ -586,6 +609,12 @@ pub fn any_principal_shown(document: &Document, view: PrincipalView) -> bool {
     PrincipalGeometry::ALL
         .into_iter()
         .any(|geometry| view.reads_shown(document, geometry))
+}
+
+pub fn any_principal_drawn(document: &Document, view: PrincipalView) -> bool {
+    PrincipalGeometry::ALL
+        .into_iter()
+        .any(|geometry| view.reads_drawn(document, geometry))
 }
 
 pub fn toggle_principal_group(document: &Document, view: PrincipalView) -> Transaction {
