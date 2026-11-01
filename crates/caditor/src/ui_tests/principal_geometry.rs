@@ -6,6 +6,7 @@ use super::{
     CAMERA_SETTLE, Harness, canonical, extruded_plate, run_from_palette, top_edge_along_x,
 };
 use crate::{
+    appearance,
     editing::{EditingCommand, Tool},
     files::FileCommand,
     icons,
@@ -458,6 +459,39 @@ fn with_the_preference_off_principal_geometry_never_hides_by_itself() {
     assert_eq!(after_the_body, 7);
     assert!(toggled_on);
     assert!(after_toggling.is_empty());
+}
+
+#[test]
+fn the_principal_rows_read_as_set_aside_while_a_sketch_is_edited_and_their_eyes_still_toggle() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    let muted = appearance::tokens_of(&harness.context).text_muted;
+    set_when_needed(&mut harness, false);
+    harness.click_button("Show details of Principal planes, axes and origin");
+    harness.let_animations_finish();
+    harness.frame();
+
+    let idle = harness.color_of("XY plane");
+    harness.edit(base);
+    harness.frame();
+    harness.frame();
+    let editing = harness.color_of("XY plane");
+    let editing_group = harness.color_of(GROUP_TITLE);
+    harness.click_button("Hide XY plane");
+    harness.settle();
+    let hidden = harness
+        .document()
+        .principal_showing(PrincipalGeometry::Plane(PrincipalPlane::Xy));
+    harness.perform(Action::Editing(EditingCommand::Finish));
+    harness.settle();
+    harness.frame();
+    let closed = harness.color_of("YZ plane");
+
+    assert_ne!(idle, muted);
+    assert_eq!(editing, muted);
+    assert_eq!(editing_group, muted);
+    assert_eq!(hidden, PrincipalShowing::Hidden);
+    assert_ne!(closed, muted);
 }
 
 #[test]

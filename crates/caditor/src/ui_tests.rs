@@ -222,7 +222,7 @@ mod view_menu;
 mod view_navigation;
 mod welcome_and_about;
 
-const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
+const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1004.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(60);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;

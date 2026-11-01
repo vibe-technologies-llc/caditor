@@ -10,7 +10,7 @@ use egui::{
 };
 
 use crate::{
-    appearance::{self, BORDER_WIDTH, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
+    appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
     commands::Command,
     menu_bar::MenuEntries,
     widgets::{self, CornerMenu},
@@ -27,7 +27,7 @@ pub const BAR_MARGIN: Margin = Margin {
     bottom: SPACE_S as i8,
 };
 pub const MOST_LABELLED_SHARE: f32 = 0.2;
-const CAPTION_GAP: f32 = SPACE_XS;
+const CAPTION_REACH: f32 = CONTROL_HEIGHT;
 const WIDTH_TOLERANCE: f32 = 0.5;
 
 pub fn bar_frame(style: &Style) -> Frame {
@@ -119,10 +119,14 @@ pub fn rows_height(ui: &Ui, rows: usize) -> f32 {
 pub fn height(ui: &Ui, captions: bool) -> f32 {
     let band = widgets::tool_height(ui);
     if captions {
-        band + CAPTION_GAP + ui.text_style_height(&TextStyle::Small)
+        band + caption_row_height(ui)
     } else {
         band
     }
+}
+
+fn caption_row_height(ui: &Ui) -> f32 {
+    (CAPTION_REACH - f32::from(BAR_MARGIN.bottom)).max(ui.text_style_height(&TextStyle::Small))
 }
 
 pub fn captioned(
@@ -133,7 +137,11 @@ pub fn captioned(
 ) -> (Rect, f32) {
     let galley = caption.map(|caption| caption_galley(ui, caption));
     captioned_by(ui, galley, show_caption, content, |ui, rect, galley| {
-        ui.put(rect, Label::new(galley).selectable(false));
+        let label = Rect::from_min_size(
+            pos2(rect.left(), rect.center().y - galley.size().y / 2.0),
+            vec2(rect.width(), galley.size().y),
+        );
+        ui.put(label, Label::new(galley).selectable(false));
     })
 }
 
@@ -151,9 +159,9 @@ pub fn captioned_by(
         };
         let natural = content.max(galley.size().x);
         if show_caption {
-            let top = ui.min_rect().bottom() + CAPTION_GAP;
+            let top = ui.min_rect().bottom();
             let width = ui.min_rect().width().max(galley.size().x);
-            let height = ui.text_style_height(&TextStyle::Small);
+            let height = caption_row_height(ui);
             let rect = Rect::from_min_size(pos2(ui.min_rect().left(), top), vec2(width, height));
             caption(ui, rect, galley);
         }
@@ -216,9 +224,11 @@ pub fn menu_group(
             let height = rect.height().max(title.size().y);
             let strip = Rect::from_min_size(rect.min, vec2(rect.width(), height));
             ui.allocate_rect(strip, Sense::hover());
+            let reach =
+                Rect::from_min_size(rect.min, vec2(rect.width(), CAPTION_REACH.max(height)));
             caption = Some(widgets::group_title(
                 ui,
-                rect,
+                reach,
                 menu.id.with("title"),
                 title,
                 menu.name,

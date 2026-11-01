@@ -207,6 +207,30 @@ fn every_target_is_at_least_24_points_or_clear_of_the_others_at_double_size() {
     at_interface_size(2.0);
 }
 
+#[test]
+fn the_ribbon_group_titles_are_24_points_tall_on_both_ribbons() {
+    for (name, harness) in screens()
+        .into_iter()
+        .filter(|(name, _)| name == "the model" || name == "a sketch being edited")
+    {
+        let titles: Vec<Target> = targets(&harness)
+            .into_iter()
+            .filter(|target| target.role == Role::Button && target.name.ends_with(" commands"))
+            .collect();
+        let short: Vec<&Target> = titles
+            .iter()
+            .filter(|title| is_undersized(title.rect))
+            .collect();
+
+        assert!(
+            titles.len() >= 5,
+            "{name} has {} group titles",
+            titles.len()
+        );
+        assert!(short.is_empty(), "{name}: {short:#?}");
+    }
+}
+
 fn focused(harness: &Harness) -> Option<(egui::Id, Option<Rect>)> {
     let id = harness.context.memory(|memory| memory.focused())?;
     let node = id.accesskit_id();

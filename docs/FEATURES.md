@@ -210,11 +210,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · easy] The ribbon group titles (14 points tall) and the corner marks that open a tool's
-  ways are below the 24 point target size; they pass only because every function behind them is
-  also in the menu bar and the palette (`ui_tests/conformance.rs`, `EQUIVALENT_ELSEWHERE`).
-  Making their hit area 24 points tall without moving the buttons they sit beside would remove
-  the exemption.
+- [low · medium] The corner marks that open a tool's ways or a group's commands (a 14 point caret
+  on a full button, an 11 point notch on a compact 24 point one) are below the 24 point target
+  size; they pass only because every function behind them is also in the menu bar and the palette
+  (`ui_tests/conformance.rs`, `EQUIVALENT_ELSEWHERE`). A 24 point hit area at the corner would
+  cover half of a full button and all of a compact one, so removing the exemption needs the
+  marks beside their buttons (a split button whose arrow has its own column) and the sketch
+  ribbon's rows made wider to hold them.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.

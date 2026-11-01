@@ -31,6 +31,7 @@ pub fn show(
         false,
     );
     let shown = visibility::any_principal_shown(document, view);
+    let drawn = visibility::any_principal_drawn(document, view);
     let muted = appearance::tokens(ui).text_muted;
     let open = collapsing.is_open();
     let row = tree_row::show(
@@ -40,7 +41,7 @@ pub fn show(
             let toggle = tree_row::chevron(ui, open, GROUP_TITLE);
             widgets::icon_label(ui, icons::PRINCIPAL_GROUP, muted);
             ui.add(
-                Label::new(title(ui, GROUP_TITLE, shown))
+                Label::new(title(ui, GROUP_TITLE, drawn))
                     .selectable(false)
                     .truncate(),
             );
@@ -91,6 +92,7 @@ fn item(
     let document = model.document();
     let view = model.principal_view();
     let shown = view.reads_shown(document, geometry);
+    let drawn = view.reads_drawn(document, geometry);
     let choosable = !document.is_principal_hidden(geometry);
     let muted = appearance::tokens(ui).text_muted;
     let pickable = visibility::pickable(geometry);
@@ -106,7 +108,7 @@ fn item(
             ui.add_space(CHILD_INDENT);
             widgets::icon_label(ui, icons::principal(geometry), muted);
             ui.add(
-                Label::new(title(ui, geometry.name(), shown))
+                Label::new(title(ui, geometry.name(), drawn))
                     .selectable(false)
                     .truncate(),
             );
