@@ -415,8 +415,9 @@ paths:
 - Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural widths
   (`remembered_width`), so widths never depend on the selection or active tool and selecting never
   moves the 3D view. Groups keep one rhythm on both: `DIVIDER_SPACE` with a divider between groups,
-  `TOOL_GAP` between buttons, `ROW_GAP` between rows, captions `CAPTION_GAP` under their buttons,
-  shown only while the ribbon fits one labelled row. A labelled group's natural width counts its
+  `TOOL_GAP` between buttons, `ROW_GAP` between rows, captions in a row directly under their buttons
+  that with the bar's bottom margin is `CAPTION_REACH` (`CONTROL_HEIGHT`) tall, a group title's hit
+  area spanning both so it is the least target size, shown only while the ribbon fits one labelled row. A labelled group's natural width counts its
   caption whether shown or not (`ribbon::captioned`), so hiding captions never narrows the groups
   into fitting one row again and the layout never flips between frames
   (`the_ribbons_settle_on_one_layout_at_every_interface_size`). Each ribbon turns compact while its labelled
@@ -754,7 +755,11 @@ paths:
   a click or tab selects in the view (clearing the tree's feature selection), and a row reads as
   selected while its pickable is. Rows and eyes read `PrincipalView::reads_shown`, so geometry
   tucked away while not needed reads hidden, yet its row still selects it, which shows it; a
-  `Hidden` row is not selected or hovered from the tree (`app-modelling.md`, Visibility).
+  `Hidden` row is not selected or hovered from the tree (`app-modelling.md`, Visibility). While a
+  sketch is edited the view draws only the planes Intersect and the axes and origin Project offer
+  (`PrincipalView::set_aside`), so the other rows' titles read muted
+  (`PrincipalView::reads_drawn`) while their eyes, which read `reads_shown`, keep their setting and
+  what a click does.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar"), at the
   end of the tree when nothing is rolled back. It and every row name drag (`PanelState::dragging`):
   the gap under the pointer shows an accent line, or an error one with a reason when

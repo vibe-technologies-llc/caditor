@@ -8,7 +8,9 @@ paths:
 
 - `ui_tests.rs` drives the real toolbars, panels and viewport through a headless egui context with
   synthetic input. It holds only the harness, the helpers more than one topic uses and the `mod`
-  list; every test lives in a topic module under `ui_tests/`, with the helpers only that topic
+  list; the screen is 1400 by 1004 points, the 4 over a round 1000 being what the ribbons' caption row
+  (`app-look.md`) added, so the 3D view keeps the height the camera-sensitive tests were written for;
+  every test lives in a topic module under `ui_tests/`, with the helpers only that topic
   uses, so parallel changes meet in a small file rather than a 20,000-line one.
 - Picking needs the GPU, so the harness answers pick requests as the renderer would: nothing under
   the cursor until a test hovers a chosen `Pickable` (`hover_pickable`); `picks_held` holds answers
@@ -33,8 +35,9 @@ paths:
   over the model, an edited sketch, the palette, every Preferences tab and the window each command
   opens (four shares): every target of a button, check box, radio button, tab, link, slider,
   combo box, text input or menu item is 24 points either way or has no other target (nor another
-  undersized one) within reach, at 100% and 200%, unless it is in `EQUIVALENT_ELSEWHERE`, which
-  names the route that does the same with large targets; every such control has a name (its label,
+  undersized one) within reach, at 100% and 200%, unless it is in `EQUIVALENT_ELSEWHERE` (the ribbons' corner marks),
+  which names the route that does the same with large targets, and the ribbon group titles are
+  held 24 points tall apart from it; every such control has a name (its label,
   value or the label it is `labelled_by`); and Tab, pressed until a control repeats, comes round
   in at most `MOST_TAB_STOPS` stops with every focus on screen, animations let finish between
   presses since focus scrolling is animated.

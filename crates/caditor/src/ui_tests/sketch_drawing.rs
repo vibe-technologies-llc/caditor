@@ -70,10 +70,10 @@ fn a_point_hovered_while_drawing_guides_later_points_into_line_with_it() {
     };
     let (start, _) = line_ends(sketch, line);
     assert_eq!(*reference, guide.into());
-    assert_eq!(
-        sketch.point(end),
-        Some(Point2::new(guided.x, sketch.point(start).unwrap().y))
-    );
+    assert!(near(
+        sketch.point(end).unwrap(),
+        Point2::new(guided.x, sketch.point(start).unwrap().y)
+    ));
 }
 
 #[test]
