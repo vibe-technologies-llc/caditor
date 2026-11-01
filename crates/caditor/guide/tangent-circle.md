@@ -1,7 +1,7 @@
 # Tangent circle
 
 {command:sketch.tangent_circle} draws a circle touching other curves, and keeps it touching them as
-they change. It has no key or button of its own: open the small menu in the corner of the Offset
+they change. It has no key or button of its own: open the menu of the arrow beside the Offset
 button, or use the Sketch menu or {command:palette}.
 
 - Select one or two lines, circles or arcs before starting, or click them after.

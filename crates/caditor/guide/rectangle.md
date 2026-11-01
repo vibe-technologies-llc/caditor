@@ -9,7 +9,7 @@
 - {command:sketch.rectangle.three_points}: click the two ends of one side, then a point setting
   the width. The rectangle can lie at any angle.
 
-Pressing the tool's key again while it is active steps to the next way; the small menu on the
+Pressing the tool's key again while it is active steps to the next way; the menu of the arrow beside the
 ribbon button lists them all. The way last used is remembered while caditor runs.
 
 Add a dimension to two sides to fix its size; see [dimensions](dimensions).

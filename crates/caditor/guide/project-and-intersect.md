@@ -38,7 +38,7 @@ edge projects it for you.
 
 ## Intersect
 
-{command:sketch.intersect}, also in the small menu in the corner of the Project button, draws where
+{command:sketch.intersect}, also in the menu of the arrow beside the Project button, draws where
 the model crosses the sketch plane. Click a face for the cut
 through that face, or Shift-click it for the cut through the whole body
 ({command:sketch.intersect_body} from the keyboard). Click a datum or principal plane for the line

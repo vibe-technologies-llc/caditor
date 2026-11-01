@@ -5,6 +5,7 @@ use crate::{
     commands::Command,
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand, PreferencesTab},
+    toolbar,
 };
 
 const LEAST_TARGET: f32 = 24.0;
@@ -120,53 +121,13 @@ fn screens() -> Vec<(String, Harness)> {
     screens
 }
 
-enum Named {
-    EndingWith(&'static str),
-    StartingWith(&'static str),
-}
-
-struct Equivalent {
-    name: Named,
-    route: &'static str,
-}
-
-const EQUIVALENT_ELSEWHERE: &[Equivalent] = &[
-    Equivalent {
-        name: Named::EndingWith(" commands"),
-        route: "every command of a ribbon group is in the menu bar and the command palette",
-    },
-    Equivalent {
-        name: Named::StartingWith("Ways to draw "),
-        route: "each way to draw a shape is a command of Sketch > Ways to draw shapes",
-    },
-    Equivalent {
-        name: Named::StartingWith("Bring in model geometry"),
-        route: "its tools are commands of Sketch > Modify geometry",
-    },
-    Equivalent {
-        name: Named::StartingWith("Mirror or repeat geometry"),
-        route: "its tools are commands of Sketch > Modify geometry",
-    },
-    Equivalent {
-        name: Named::StartingWith("Draw from existing curves"),
-        route: "its tools are commands of Sketch > Drawing tools",
-    },
-];
-
-fn equivalent_route(target: &Target) -> Option<&'static str> {
-    EQUIVALENT_ELSEWHERE
-        .iter()
-        .find(|equivalent| match equivalent.name {
-            Named::EndingWith(end) => target.name.ends_with(end),
-            Named::StartingWith(start) => target.name.starts_with(start),
-        })
-        .map(|equivalent| equivalent.route)
-}
-
-fn undersized_without_excuse(harness: &Harness) -> Vec<String> {
+fn undersized_with_others_near(harness: &Harness) -> Vec<String> {
     let all = targets(harness);
+    let compact_ribbon_notches = toolbar::group_menu_names();
     all.iter()
-        .filter(|target| fails_target_size(target, &all) && equivalent_route(target).is_none())
+        .filter(|target| {
+            fails_target_size(target, &all) && !compact_ribbon_notches.contains(&target.name)
+        })
         .map(|target| {
             format!(
                 "{:?} '{}' {:.0}x{:.0} at {:.0},{:.0}",
@@ -188,7 +149,7 @@ fn at_interface_size(scale: f32) {
         )));
         harness.frame();
         harness.frame();
-        let failures = undersized_without_excuse(&harness);
+        let failures = undersized_with_others_near(&harness);
         assert!(
             failures.is_empty(),
             "{name} at {:.0}% has targets under {LEAST_TARGET} points with another target within reach: {failures:#?}",
@@ -354,7 +315,7 @@ fn every_window_is_named_and_sized(share: usize) {
             (
                 targets(&harness).len(),
                 unnamed_controls(&harness),
-                undersized_without_excuse(&harness),
+                undersized_with_others_near(&harness),
             )
         }));
         if let Ok((count, unnamed, small)) = outcome {

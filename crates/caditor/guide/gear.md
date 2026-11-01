@@ -1,8 +1,8 @@
 # Spur gear
 
 {command:sketch.gear} draws the outline of an involute spur gear, of a pair of meshing gears or of
-a sprocket for roller chain, each as closed profiles ready to extrude. Find it in the corner menu
-of the Polygon button, the Sketch menu or {command:palette}.
+a sprocket for roller chain, each as closed profiles ready to extrude. Find it in the menu of the
+arrow beside the Polygon button, the Sketch menu or {command:palette}.
 
 While it is active the Spur gear panel opens with a choice of what to draw: **Single gear**, **Gear
 pair** or **Sprocket**. Below it sit that choice's values. Each takes units and expressions using
