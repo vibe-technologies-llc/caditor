@@ -11,6 +11,9 @@ paths:
   (`Point3`, `Vector3`, `Rotation3`), `Plane` (origin, normal, x axis, orthonormal), `Ray`, `Aabb`,
   `Aabb2`, `RigidTransform`, `RigidTransform2` and `Similarity` (rigid motion with a scale and an
   optional mirror). Its only tolerances keep frames orthonormal; model tolerances are the kernel's.
+  `Plane::with_x_axis` rejects its x direction from the normal a second time when the first leaves
+  them further from square than `Plane::from_frame` keeps, so an x direction nearly along the
+  normal still gives a frame that saves and loads to the same bits.
 - Operations return a valid solid or an error naming what failed; iterations are bounded and
   constructors reject non-finite and degenerate input with a `GeometryError` each.
 - `LINEAR_RESOLUTION` is the one absolute length tolerance; `ANGULAR_RESOLUTION` moves a point at
