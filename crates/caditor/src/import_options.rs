@@ -301,6 +301,7 @@ fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptions
                     *command = Some(ImportOptionsCommand::Layer { layer, included });
                 }
             }
+            widgets::follow_keyboard_focus(ui);
         });
     });
 }

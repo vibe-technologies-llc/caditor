@@ -225,6 +225,7 @@ pub fn show(ctx: &egui::Context, area: Rect, view: &HomeView<'_>) -> Vec<Choice>
                             sections(ui, view, &mut choices);
                         });
                     });
+                    widgets::follow_keyboard_focus(ui);
                 });
         });
     choices

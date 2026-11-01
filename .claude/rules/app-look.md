@@ -359,7 +359,10 @@ paths:
     `appearance::visuals`), so a focused field never wakes an idle app.
   - A keyboard or assistive-technology move of focus scrolls the focused control into view inside
     the kit's scrolling containers (`widgets::follow_keyboard_focus`, called at the end of
-    `panel_scroll`, `measured_menu` and the dialog body), only when it arrived in a frame with no
+    `panel_scroll`, `measured_menu` and the dialog body, and by hand at the end of every list's
+    own `ScrollArea`: version history, saved views, selection sets, configurations, the cloud
+    dialog, import and export option lists, Home; `ui_tests/focus_scrolling.rs` tabs to the last
+    row of each), only when it arrived in a frame with no
     pointer press or release: `Context::read_response` surrenders the focus of a widget the pointer
     clicked elsewhere, which would drop the focus a suggestion list's click holds.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`

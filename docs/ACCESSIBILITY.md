@@ -62,7 +62,7 @@ and keeps its name and role.
 | 2.4.3 Focus order | Supported: see 1.3.2. |
 | 2.4.6 Headings and labels | Supported: sections, dialogs and fields carry plain titles and captions. |
 | 2.4.7 Focus visible | Supported: one focus ring in the `focus` token, held to 3:1 and strengthened in high contrast. |
-| 2.4.11 Focus not obscured | Supported in side panels, menus and dialog bodies: keyboard or assistive technology focus scrolls into view (`widgets::follow_keyboard_focus`, checked by the Tab walk). Partly: other scrolling lists (version history, saved views and similar) rely on egui. |
+| 2.4.11 Focus not obscured | Supported: keyboard or assistive technology focus scrolls into view in side panels, menus, dialog bodies and every scrolling list (version history, saved views, selection sets, configurations, the cloud dialog, import options, Home) through `widgets::follow_keyboard_focus` (checked by the Tab walk and `ui_tests/focus_scrolling.rs`). |
 | 2.5.1 Pointer gestures | Supported: orbit, pan and zoom have key commands; box, lasso and paint selection have highlighting and Activate. |
 | 2.5.3 Label in name | Supported: a control is named by its visible label, and an icon-only control by the text it shows on hover. |
 | 2.5.7 Dragging movements | Supported: the rollback bar is a slider with increment and decrement and has commands; tree order has commands; panel width has commands (Make the model panel wider, narrower, usual width); handles take typed values. |

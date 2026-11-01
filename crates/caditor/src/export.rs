@@ -1223,6 +1223,7 @@ pub fn body_list(
                         });
                     }
                 }
+                widgets::follow_keyboard_focus(ui);
             });
     });
     pick

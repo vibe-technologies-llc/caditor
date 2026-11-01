@@ -91,6 +91,7 @@ mod feature_tree;
 mod feature_tree_choice;
 mod feature_tree_marks;
 mod files_and_history;
+mod focus_scrolling;
 mod frame_costs;
 mod group_menus;
 mod handle_drags;

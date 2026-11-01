@@ -485,6 +485,7 @@ fn project_list(ui: &mut Ui, projects: &[Project], state: &mut Browser) {
                     state.choose(project.id.clone());
                 }
             }
+            widgets::follow_keyboard_focus(ui);
         });
 }
 
@@ -585,6 +586,7 @@ fn contents(
                     for upload in &folder.uploads {
                         upload_row(ui, view, service, linked, upload, outcomes);
                     }
+                    widgets::follow_keyboard_focus(ui);
                 });
         }
     }
