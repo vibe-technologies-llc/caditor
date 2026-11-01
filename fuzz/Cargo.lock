@@ -784,7 +784,7 @@ dependencies = [
 name = "caditor-geometry"
 version = "0.1.0"
 dependencies = [
- "glam 0.34.1",
+ "glam 0.34.2",
 ]
 
 [[package]]
@@ -814,7 +814,7 @@ dependencies = [
  "ahash",
  "caditor-geometry",
  "caditor-windows",
- "glam 0.34.1",
+ "glam 0.34.2",
  "half",
  "log",
  "parking_lot 0.13.0",
@@ -1723,9 +1723,9 @@ checksum = "37bfe73dc8ec21f54d181e5a60554327ec3f1c600c455a75ccbfc65d2106a6c4"
 
 [[package]]
 name = "glam"
-version = "0.34.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc148d4ddd3930c52f9e5ae79b89805c6f07e9ff417e7b083e0348cea60a5aba"
+checksum = "54af5066834d6c2d404eb26ea036a15b15d9ff80db510b9a73ff95ab07f30831"
 
 [[package]]
 name = "glifo"
