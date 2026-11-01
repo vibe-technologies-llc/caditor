@@ -366,6 +366,13 @@ impl BSpline {
         })
     }
 
+    pub fn looped(control_points: &[Point2], spans: &[f64]) -> Option<Self> {
+        if control_points.len() != spans.len() {
+            return None;
+        }
+        Self::periodic_on(control_points, looped_knots(spans)?)
+    }
+
     pub fn interpolate_closed(points: &[Point2]) -> Option<Self> {
         Self::periodic(&periodic_through(points)?)
     }
@@ -799,6 +806,30 @@ pub(crate) fn span_knots(spans: &[f64]) -> Option<(usize, Vec<f64>)> {
         .chain(std::iter::repeat_n(1.0, degree + 1))
         .collect();
     Some((degree, knots))
+}
+
+pub(crate) fn looped_knots(spans: &[f64]) -> Option<Vec<f64>> {
+    let count = spans.len();
+    if count < MIN_CLOSED_POINTS || !SplineKind::spans_are_valid(spans) {
+        return None;
+    }
+    let total: f64 = spans.iter().sum();
+    let starts: Vec<f64> = spans
+        .iter()
+        .scan(0.0, |reached, span| {
+            let start = *reached / total;
+            *reached += span;
+            Some(start)
+        })
+        .collect();
+    let degree = MAX_SPLINE_DEGREE as isize;
+    let looped = isize::try_from(count).ok()?;
+    (-degree..=looped + degree)
+        .map(|index| {
+            let within = usize::try_from(index.rem_euclid(looped)).ok()?;
+            Some(starts.get(within)? + index.div_euclid(looped) as f64)
+        })
+        .collect()
 }
 
 pub(crate) fn piece_knots(count: usize, lead: f64, trail: f64) -> Option<(usize, Vec<f64>)> {

@@ -26,7 +26,7 @@ use caditor_kernel::{
     FaceReference, LoftSkin, PipeShape, RegionKey, RegionReference, Side, Solid, SweepOrientation,
     VertexName, WallSide,
 };
-use caditor_sketch::{ChainSize, Gear, Text, TextAlign};
+use caditor_sketch::{ChainSize, Gear, SplineKind, Text, TextAlign};
 use serde::{
     Deserializer,
     de::{DeserializeOwned, Error as _, Visitor, value::Error as ValueError},
@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 67] = [
+const KEPT: [(&str, &str); 68] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -107,6 +107,10 @@ const KEPT: [(&str, &str); 67] = [
     (
         "model-1/bodies.caditor",
         "8e65cdd34444ca11d831fa7ae40b30d81c3de5e3386608a59b33fbe6e7a7f9c9",
+    ),
+    (
+        "model-1/closed-spline-knots.caditor",
+        "b75fe53c0a71798fd9c431931ff5a05ee635a32900e37fa2e988a3d4809894ae",
     ),
     (
         "model-1/coils.caditor",
@@ -859,6 +863,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("spline-knots"),
             saved(&spline_knots(), "Spline knots"),
         ),
+        (
+            model("closed-spline-knots"),
+            saved(&closed_spline_knots(), "Closed spline knots"),
+        ),
         (model("texts"), saved(&texts().0, "Texts")),
         (model("gears"), saved(&gears().0, "Gears")),
         (model("gear-pairs"), saved(&gear_pairs().0, "Gear pairs")),
@@ -1080,6 +1088,26 @@ fn spline_knots() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Spline knots");
     transaction.add_feature("Refined spline", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn closed_spline_knots() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let loop_points = [
+        Point2::new(100.0, 100.0),
+        Point2::new(130.0, 90.0),
+        Point2::new(160.0, 110.0),
+        Point2::new(140.0, 140.0),
+        Point2::new(105.0, 130.0),
+    ];
+    let spline = drawn.add_spline_of(&loop_points, SplineKind::Control { closed: true });
+    for near in [Point2::new(130.0, 95.0), Point2::new(115.0, 133.0)] {
+        drawn.insert_control_point(spline, Some(near)).unwrap();
+    }
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Closed spline knots");
+    transaction.add_feature("Refined loop", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

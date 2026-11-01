@@ -219,7 +219,7 @@ pub enum SplineKind {
     Fit { closed: bool, spacing: FitSpacing },
     Conic { rho: f64 },
     Piece { lead: f64, trail: f64 },
-    Knotted { spans: Vec<f64> },
+    Knotted { spans: Vec<f64>, closed: bool },
 }
 
 impl SplineKind {
@@ -234,8 +234,10 @@ impl SplineKind {
 
     pub fn is_closed(&self) -> bool {
         match self {
-            Self::Control { closed } | Self::Fit { closed, .. } => *closed,
-            Self::Conic { .. } | Self::Piece { .. } | Self::Knotted { .. } => false,
+            Self::Control { closed } | Self::Fit { closed, .. } | Self::Knotted { closed, .. } => {
+                *closed
+            }
+            Self::Conic { .. } | Self::Piece { .. } => false,
         }
     }
 
@@ -276,15 +278,18 @@ impl SplineKind {
             Self::Control { closed: false } | Self::Fit { closed: false, .. } => 2,
             Self::Control { closed: true }
             | Self::Fit { closed: true, .. }
+            | Self::Knotted { closed: true, .. }
             | Self::Conic { .. } => 3,
-            Self::Piece { .. } | Self::Knotted { .. } => MIN_PIECE_POINTS,
+            Self::Piece { .. } | Self::Knotted { closed: false, .. } => MIN_PIECE_POINTS,
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Control { closed: false } | Self::Piece { .. } | Self::Knotted { .. } => "Spline",
-            Self::Control { closed: true } => "Closed spline",
+            Self::Control { closed: false }
+            | Self::Piece { .. }
+            | Self::Knotted { closed: false, .. } => "Spline",
+            Self::Control { closed: true } | Self::Knotted { closed: true, .. } => "Closed spline",
             Self::Fit { closed: false, .. } => "Fit-point spline",
             Self::Fit { closed: true, .. } => "Closed fit-point spline",
             Self::Conic { .. } => "Conic",

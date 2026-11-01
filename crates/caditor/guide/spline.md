@@ -34,11 +34,13 @@ points one at a time to refine a stretch as far as you like; Undo takes the poin
 
 To keep the curve exactly, the two control points beside the new one move a little along the
 control polygon. If either has a constraint or another curve on it, the command stops and names it,
-or, when you gave no place, picks a stretch that leaves them alone.
+or, when you gave no place, picks a stretch that leaves them alone. Closed splines take points the
+same way, all the way round. A spline of two control points is straight, and its new point lies on
+that line where you asked; a spline of three becomes one of four on exactly the same curve, its
+middle point moving towards one end and the new point appearing towards the other.
 
-Splines through fit points, conics, closed splines and splines of fewer than four points cannot
-take a point without changing shape, and the command says which. Taking a control point away while
-keeping the shape is not possible exactly.
+Splines through fit points and conics cannot take a point without changing shape, and the command
+says which. Taking a control point away while keeping the shape is not possible exactly.
 
 A spline drawn by control points shows its control polygon dashed while its sketch is edited;
 {command:view.toggle_control_polygons} hides or shows it. A spline through fit points shows none,

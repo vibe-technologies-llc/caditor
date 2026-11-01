@@ -121,9 +121,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading
   them; the degree cannot be chosen; a point cannot be removed while keeping the shape (only
-  approximately possible); and a point can be inserted keeping the shape only in an open control
-  spline of four points or more, not in a closed one (it needs a closed spline with knots of its
-  own), a conic or one of fewer points.
+  approximately possible); and a point cannot be inserted into a conic keeping the shape (its two
+  halves would be rational arcs with weights of their own, which no spline kind but the conic
+  holds).
 - [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
   along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is

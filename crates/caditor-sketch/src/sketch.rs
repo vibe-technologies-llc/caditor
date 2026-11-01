@@ -56,7 +56,20 @@ pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<
         (&SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
         (SplineKind::Conic { .. }, _) => None,
         (&SplineKind::Piece { lead, trail }, _) => BSpline::piece(positions.to_vec(), lead, trail),
-        (SplineKind::Knotted { spans }, _) => BSpline::knotted(positions.to_vec(), spans),
+        (
+            SplineKind::Knotted {
+                spans,
+                closed: false,
+            },
+            _,
+        ) => BSpline::knotted(positions.to_vec(), spans),
+        (
+            SplineKind::Knotted {
+                spans,
+                closed: true,
+            },
+            _,
+        ) => BSpline::looped(positions, spans),
     }
 }
 
@@ -108,6 +121,8 @@ pub enum SketchError {
     InvalidKnotSpans,
     #[error("a spline with knot spans of its own has three control points more than it has spans")]
     KnotSpanCount,
+    #[error("a closed spline with knot spans of its own has one span for each control point")]
+    LoopedKnotSpanCount,
     #[error("{label} cannot be cut at that point into pieces that keep its shape")]
     NoExactPiece { entity: EntityId, label: String },
     #[error("it uses {label} twice")]
@@ -463,8 +478,8 @@ impl Sketch {
             SplineKind::Control { closed: false }
             | SplineKind::Conic { .. }
             | SplineKind::Piece { .. }
-            | SplineKind::Knotted { .. } => Some(positions),
-            SplineKind::Control { closed: true } => {
+            | SplineKind::Knotted { closed: false, .. } => Some(positions),
+            SplineKind::Control { closed: true } | SplineKind::Knotted { closed: true, .. } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
             SplineKind::Fit { .. } => {
@@ -2075,16 +2090,30 @@ impl Sketch {
                 return Err(SketchError::InvalidEndSpans);
             }
             Entity::Spline {
-                kind: SplineKind::Knotted { ref spans },
+                kind: SplineKind::Knotted { ref spans, .. },
                 ..
             } if !SplineKind::spans_are_valid(spans) => {
                 return Err(SketchError::InvalidKnotSpans);
             }
             Entity::Spline {
                 ref points,
-                kind: SplineKind::Knotted { ref spans },
+                kind:
+                    SplineKind::Knotted {
+                        ref spans,
+                        closed: false,
+                    },
             } if points.len() != spans.len() + MAX_SPLINE_DEGREE => {
                 return Err(SketchError::KnotSpanCount);
+            }
+            Entity::Spline {
+                ref points,
+                kind:
+                    SplineKind::Knotted {
+                        ref spans,
+                        closed: true,
+                    },
+            } if points.len() != spans.len() => {
+                return Err(SketchError::LoopedKnotSpanCount);
             }
             Entity::Spline {
                 ref points,

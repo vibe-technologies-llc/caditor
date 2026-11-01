@@ -87,11 +87,20 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
                     lead: input.arbitrary()?,
                     trail: input.arbitrary()?,
                 },
-                _ => SplineKind::Knotted {
-                    spans: (0..count.saturating_sub(3))
-                        .map(|_| input.arbitrary())
-                        .collect::<Result<_>>()?,
-                },
+                _ => {
+                    let closed: bool = input.arbitrary()?;
+                    let spans = if closed {
+                        count
+                    } else {
+                        count.saturating_sub(3)
+                    };
+                    SplineKind::Knotted {
+                        spans: (0..spans)
+                            .map(|_| input.arbitrary())
+                            .collect::<Result<_>>()?,
+                        closed,
+                    }
+                }
             };
             insert(sketch, Entity::Spline { points, kind })
         }

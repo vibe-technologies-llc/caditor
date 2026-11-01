@@ -267,7 +267,6 @@ fn constraints_on_the_spline_itself_survive_an_added_point() {
 fn splines_that_cannot_take_a_point_exactly_are_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
     let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
-    let closed = sketch.add_spline_of(&long_wave(), SplineKind::Control { closed: true });
     let conic = sketch.add_spline_of(
         &[
             Point2::new(0.0, 0.0),
@@ -276,7 +275,6 @@ fn splines_that_cannot_take_a_point_exactly_are_refused_in_words() {
         ],
         SplineKind::Conic { rho: 0.7 },
     );
-    let quadratic = sketch.add_spline(&bezier()[..3]);
     let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let before = sketch.clone();
 
@@ -285,20 +283,172 @@ fn splines_that_cannot_take_a_point_exactly_are_refused_in_words() {
         Err(InsertError::FitSpline { .. })
     ));
     assert!(matches!(
-        sketch.insert_control_point(closed, None),
-        Err(InsertError::ClosedSpline { .. })
-    ));
-    assert!(matches!(
         sketch.insert_control_point(conic, None),
         Err(InsertError::Conic { .. })
     ));
     assert!(matches!(
-        sketch.insert_control_point(quadratic, None),
-        Err(InsertError::TooFewPoints { points: 3, .. })
-    ));
-    assert!(matches!(
         sketch.insert_control_point(line, None),
         Err(InsertError::NotASpline { .. })
+    ));
+    assert!(sketch.same_content(&before));
+}
+
+fn closed_loop() -> Vec<Point2> {
+    vec![
+        Point2::new(0.0, 0.0),
+        Point2::new(30.0, -10.0),
+        Point2::new(60.0, 10.0),
+        Point2::new(40.0, 40.0),
+        Point2::new(5.0, 30.0),
+    ]
+}
+
+#[test]
+fn a_point_added_to_a_closed_spline_keeps_its_curve_exactly_wherever_it_is_added() {
+    for points in [closed_loop(), closed_loop()[..3].to_vec()] {
+        let spans = points.len();
+        for at in (0..spans)
+            .flat_map(|span| [0.1, 0.5, 0.9].map(|share| (span as f64 + share) / spans as f64))
+        {
+            let mut sketch = Sketch::new(Plane::XY);
+            let spline = sketch.add_spline_of(&points, SplineKind::Control { closed: true });
+            let before = sketch.spline(spline).unwrap();
+
+            let added = sketch
+                .insert_control_point(spline, Some(before.point_at(at)))
+                .unwrap();
+
+            let after = sketch.spline(spline).unwrap();
+            assert_eq!(points_of(&sketch, spline).len(), spans + 1);
+            assert!(points_of(&sketch, spline).contains(&added));
+            assert!(matches!(
+                kind_of(&sketch, spline),
+                SplineKind::Knotted { closed: true, .. }
+            ));
+            assert_same_curve(&before, &after);
+            assert_solves_in_place(&sketch);
+        }
+    }
+}
+
+#[test]
+fn points_added_again_and_again_to_a_closed_spline_keep_its_curve() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
+    let before = sketch.spline(spline).unwrap();
+
+    for step in 0..7 {
+        let near = before.point_at((0.07 + 0.31 * step as f64).fract());
+        sketch.insert_control_point(spline, Some(near)).unwrap();
+    }
+    sketch.insert_control_point(spline, None).unwrap();
+
+    assert_eq!(points_of(&sketch, spline).len(), 13);
+    assert!(sketch.entity(spline).unwrap().spline_ends().is_none());
+    assert_same_curve(&before, &sketch.spline(spline).unwrap());
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_closed_spline_refuses_a_point_that_would_move_a_held_control_point() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
+    let held = points_of(&sketch, spline)[1];
+    let constraint = fixed(&sketch, held);
+    sketch.add_constraint(constraint).unwrap();
+    let before = sketch.clone();
+    let near = sketch.spline(spline).unwrap().point_at(0.1);
+
+    let refused = sketch.insert_control_point(spline, Some(near));
+
+    assert!(matches!(
+        refused,
+        Err(InsertError::HeldPoint { point, .. }) if point == held
+    ));
+    assert!(sketch.same_content(&before));
+}
+
+#[test]
+fn a_closed_spline_with_added_points_trims_along_its_own_curve() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(&closed_loop(), SplineKind::Control { closed: true });
+    let whole = sketch.spline(spline).unwrap();
+    for at in [0.15, 0.62] {
+        sketch
+            .insert_control_point(spline, Some(whole.point_at(at)))
+            .unwrap();
+    }
+    sketch.add_line(Point2::new(20.0, -40.0), Point2::new(20.0, 60.0));
+    sketch.add_line(Point2::new(45.0, -40.0), Point2::new(45.0, 60.0));
+
+    sketch.trim(spline, Point2::new(60.0, 10.0)).unwrap();
+
+    let trimmed = sketch.spline(spline).unwrap();
+    assert!(sketch.entity(spline).unwrap().spline_ends().is_some());
+    assert_lies_on(&trimmed, &whole);
+}
+
+#[test]
+fn a_two_point_spline_takes_points_along_its_line_and_grows_into_a_cubic_on_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[Point2::new(0.0, 0.0), Point2::new(40.0, 20.0)]);
+    let line = sketch.spline(spline).unwrap();
+    let off_line = Point2::new(10.0, 15.0);
+
+    let added = sketch.insert_control_point(spline, Some(off_line)).unwrap();
+
+    let straight = sketch.spline(spline).unwrap();
+    assert_eq!(points_of(&sketch, spline)[1], added);
+    let along = closest_spline_parameter(&line, off_line);
+    assert!(sketch.point(added).unwrap().distance(line.point_at(along)) < EXACT);
+    assert_lies_on(&straight, &line);
+    assert_lies_on(&line, &straight);
+
+    sketch.insert_control_point(spline, None).unwrap();
+    assert_same_curve(&straight, &sketch.spline(spline).unwrap());
+    sketch.insert_control_point(spline, None).unwrap();
+    assert_same_curve(&straight, &sketch.spline(spline).unwrap());
+
+    assert_eq!(points_of(&sketch, spline).len(), 5);
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_three_point_spline_is_raised_to_a_cubic_keeping_its_curve_exactly() {
+    for (at, new_place) in [(0.2, 1), (0.8, 2)] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline(&bezier()[..3]);
+        let middle = points_of(&sketch, spline)[1];
+        let before = sketch.spline(spline).unwrap();
+
+        let added = sketch
+            .insert_control_point(spline, Some(before.point_at(at)))
+            .unwrap();
+
+        let points = points_of(&sketch, spline);
+        assert_eq!(points.len(), 4);
+        assert_eq!(points[new_place], added);
+        assert!(points.contains(&middle));
+        assert_eq!(kind_of(&sketch, spline), SplineKind::OPEN);
+        assert_same_curve(&before, &sketch.spline(spline).unwrap());
+        assert_solves_in_place(&sketch);
+    }
+}
+
+#[test]
+fn a_three_point_spline_with_a_held_middle_point_refuses_a_point_naming_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&bezier()[..3]);
+    let middle = points_of(&sketch, spline)[1];
+    let constraint = fixed(&sketch, middle);
+    sketch.add_constraint(constraint).unwrap();
+    let before = sketch.clone();
+
+    let refused = sketch.insert_control_point(spline, None);
+
+    assert!(matches!(
+        refused,
+        Err(InsertError::HeldPoint { point, .. }) if point == middle
     ));
     assert!(sketch.same_content(&before));
 }
@@ -355,7 +505,10 @@ fn a_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
         .collect();
     let knotted = |spans: Vec<f64>| Entity::Spline {
         points: points.clone(),
-        kind: SplineKind::Knotted { spans },
+        kind: SplineKind::Knotted {
+            spans,
+            closed: false,
+        },
     };
     let id = EntityId::from_raw(100);
 
@@ -374,6 +527,38 @@ fn a_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
     assert!(
         sketch
             .insert_entity(id, knotted(vec![1.0, 2.0, 1.0, 1.0]))
+            .is_ok()
+    );
+    assert!(sketch.spline(id).is_some());
+}
+
+#[test]
+fn a_closed_spline_with_spans_that_do_not_fit_its_points_is_refused_in_words() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let points: Vec<EntityId> = closed_loop()
+        .into_iter()
+        .map(|position| sketch.add_point(position))
+        .collect();
+    let looped = |spans: Vec<f64>| Entity::Spline {
+        points: points.clone(),
+        kind: SplineKind::Knotted {
+            spans,
+            closed: true,
+        },
+    };
+    let id = EntityId::from_raw(100);
+
+    assert_eq!(
+        sketch.insert_entity(id, looped(vec![1.0, 1.0])),
+        Err(SketchError::LoopedKnotSpanCount)
+    );
+    assert_eq!(
+        sketch.insert_entity(id, looped(vec![1.0, 0.0, 1.0, 1.0, 1.0])),
+        Err(SketchError::InvalidKnotSpans)
+    );
+    assert!(
+        sketch
+            .insert_entity(id, looped(vec![1.0, 2.0, 1.0, 3.0, 1.0]))
             .is_ok()
     );
     assert!(sketch.spline(id).is_some());
