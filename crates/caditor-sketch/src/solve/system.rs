@@ -1223,7 +1223,7 @@ impl System {
     }
 }
 
-fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
+pub(super) fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
     let largest = magnitudes
         .into_iter()
         .map(f64::abs)

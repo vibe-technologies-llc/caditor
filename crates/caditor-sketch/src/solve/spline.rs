@@ -13,11 +13,11 @@ use crate::{
     sketch::{Sketch, SketchError},
     solve::{
         equation::{
-            CircleHandle, Equation, Form, LengthOf, LineHandle, PointHandle, SplineEndHandle,
-            SplineHandle, fallback_direction,
+            CircleHandle, Context, Equation, Form, LengthOf, LineHandle, PointHandle,
+            SplineEndHandle, SplineHandle, fallback_direction,
         },
         pair::{Course, closest_pair, curve_pair_gap, is_elliptic_pair},
-        system::{Joints, System},
+        system::{Joints, System, scale_of},
     },
     spacing::{FitLayout, fit_controls},
 };
@@ -194,14 +194,10 @@ impl System {
         }
         let curve = self.curve(sketch, spline)?;
         let start = self.values.get(parameter).copied().unwrap_or(0.0);
-        let [tangent, _] = curve.derivatives(start);
-        let fallback = fallback_direction(tangent);
+        let offset = handle.at(&self.values) - curve.point_at(start);
+        let fallback = start_tangent(&curve, start, fallback_direction(offset.perp()));
         let normal = fallback.perp();
-        let side = if normal.dot(handle.at(&self.values) - curve.point_at(start)) < 0.0 {
-            -1.0
-        } else {
-            1.0
-        };
+        let side = if normal.dot(offset) < 0.0 { -1.0 } else { 1.0 };
         let spline = self.spline_handle(sketch, spline)?;
         Ok(vec![
             Form::SplineFoot {
@@ -280,11 +276,11 @@ impl System {
         let values = &self.values;
         let start = values.get(parameter).copied().unwrap_or(0.0);
         let at = curve.point_at(start);
-        let [tangent, _] = curve.derivatives(start);
-        let tangent_fallback = fallback_direction(tangent);
         if sketch.role(other) == Some(Role::Line) {
             let line = self.line(sketch, other)?;
-            let normal = fallback_direction(line.end.at(values) - line.start.at(values)).perp();
+            let along = fallback_direction(line.end.at(values) - line.start.at(values));
+            let tangent_fallback = start_tangent(&curve, start, along);
+            let normal = along.perp();
             let (side, value) = contact.side_and_value(normal.dot(at - line.start.at(values)));
             return Ok(vec![
                 Form::SplineOnLine {
@@ -305,6 +301,7 @@ impl System {
         let circle: CircleHandle = self.circle(sketch, other)?;
         let center = circle.center.at(values);
         let radial_fallback = fallback_direction(at - center);
+        let tangent_fallback = start_tangent(&curve, start, radial_fallback.perp());
         let (side, value) = contact.side_and_value(at.distance(center) - circle.radius(values));
         Ok(vec![
             Form::SplineOnCircle {
@@ -478,6 +475,19 @@ impl System {
         }
         handle
     }
+}
+
+fn start_tangent(curve: &BSpline, start: f64, default: Vector2) -> Vector2 {
+    let coordinates = curve
+        .control_points()
+        .iter()
+        .flat_map(|point| [point.x, point.y]);
+    let shortest = Context::at_scale(scale_of(coordinates)).degenerate_length;
+    let [tangent, bend] = curve.derivatives(start);
+    [tangent, bend]
+        .into_iter()
+        .find(|vector| vector.length() > shortest && vector.is_finite())
+        .map_or(default, Vector2::normalize)
 }
 
 fn clamped_handle(points: Vec<PointHandle>) -> SplineHandle {

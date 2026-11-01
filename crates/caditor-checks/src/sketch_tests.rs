@@ -116,9 +116,6 @@ fn solves_again(input: &mut Unstructured) {
     let Ok(drawn) = sketch(input, Plane::XY) else {
         return;
     };
-    if has_a_degenerate_spline(&drawn) {
-        return;
-    }
     let Some(first) = solve(&drawn) else {
         return;
     };
@@ -169,4 +166,14 @@ fn a_solved_sketch_does_not_move_when_solved_again() {
 #[test]
 fn a_point_level_with_a_crossing_at_a_splines_end_keeps_it_when_solved_again() {
     replay_case(22192, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_closed_spline_of_one_point_solves_again_from_its_own_result() {
+    replay_case(407588, |_, input| solves_again(input));
+}
+
+#[test]
+fn a_line_left_just_over_the_collapse_length_is_refused_the_first_time() {
+    replay_case(246355, |_, input| solves_again(input));
 }

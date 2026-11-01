@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
 };
 
@@ -628,9 +629,12 @@ impl Solver<'_> {
             self.residuals(part, values)
                 .all(|residual| residual.abs() <= tolerance)
         };
-        self.admissible(part, values)
-            && holds(part)
-            && (reached.context.scale >= part.context.scale || holds(&reached))
+        let holds_where_it_landed = match reached.context.scale.total_cmp(&part.context.scale) {
+            Ordering::Less => holds(&reached),
+            Ordering::Equal => true,
+            Ordering::Greater => !self.collapses(&reached, values),
+        };
+        self.admissible(part, values) && holds(part) && holds_where_it_landed
     }
 
     fn gauss_newton(&self, part: &Part<'_>, values: &mut [f64]) -> Result<Ending, Cancelled> {

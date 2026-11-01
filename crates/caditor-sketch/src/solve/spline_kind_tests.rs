@@ -513,3 +513,88 @@ fn constraints_only_a_collapsed_line_satisfies_are_a_conflict_not_a_solution() {
         Err(SketchError::Conflict { .. } | SketchError::NoLength { .. })
     ));
 }
+
+fn millimetres(value: f64) -> Expression {
+    Expression::Measure(value, Unit::Millimetre)
+}
+
+fn solves_again_in_place(sketch: &Sketch) {
+    let first = solve(sketch).unwrap();
+    let again = first
+        .geometry
+        .solve_from(&no_parameters, &|| false, &[], Some(&first.memo))
+        .unwrap();
+
+    assert!(stayed_put(&first, &again));
+}
+
+fn stayed_put(first: &Solved, again: &Solved) -> bool {
+    first
+        .geometry
+        .entities()
+        .zip(again.geometry.entities())
+        .all(|((_, own), (_, theirs))| match (own, theirs) {
+            (Entity::Point(own), Entity::Point(theirs)) => own.distance(*theirs) <= EXACT,
+            _ => true,
+        })
+}
+
+#[test]
+fn a_closed_spline_of_one_point_solves_again_from_its_own_result() {
+    for kind in [SplineKind::fit(true), SplineKind::Control { closed: true }] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let point = sketch.add_point(Point2::new(-9.00002, -8.50002));
+        let spline = sketch.insert(Entity::Spline {
+            points: vec![point, point, point],
+            kind,
+        });
+        let away = sketch.add_point(Point2::new(3.5, -7.0));
+        sketch
+            .add_constraint(Constraint::Distance {
+                from: away,
+                to: spline,
+                value: millimetres(3.0),
+            })
+            .unwrap();
+
+        solves_again_in_place(&sketch);
+    }
+}
+
+#[test]
+fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_result() {
+    for kind in [
+        SplineKind::OPEN,
+        SplineKind::fit(false),
+        SplineKind::fit(true),
+    ] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline_of(
+            &[
+                Point2::new(9.5001, 10.499999),
+                Point2::new(9.5, 10.5),
+                Point2::new(9.4999, 10.500001),
+                Point2::new(14.0, 3.0),
+            ],
+            kind,
+        );
+        let points = points_of(&sketch, spline);
+        for pair in points.windows(2).take(2) {
+            if let [one, other] = *pair {
+                sketch
+                    .add_constraint(Constraint::Coincident(one, other))
+                    .unwrap();
+            }
+        }
+        let line = sketch.add_line(Point2::new(-4.0, -6.0), Point2::new(-4.0, 6.0));
+        sketch
+            .add_constraint(Constraint::Distance {
+                from: line,
+                to: spline,
+                value: millimetres(5.49998),
+            })
+            .unwrap();
+
+        solves_again_in_place(&sketch);
+    }
+}

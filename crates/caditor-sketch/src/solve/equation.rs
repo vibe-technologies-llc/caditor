@@ -402,7 +402,7 @@ struct SplineAt {
 
 impl SplineAt {
     fn tangent_line(&self, fallback: Vector2, context: &Context) -> Direction {
-        let at_cusp = self.bend.try_normalize().unwrap_or(fallback);
+        let at_cusp = Direction::of(self.bend, fallback, context).unit;
         Direction::of(self.tangent, at_cusp, context)
     }
 }

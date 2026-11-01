@@ -37,8 +37,10 @@ paths:
 - Each part solves at its own scale (largest coordinate or length dimension, at least 1, rounded up
   to a power of two; `system.rs`), which sets tolerance, step limit and degenerate lengths. A part
   has converged only when its residuals also hold at the scale of where it landed when that is
-  smaller (`System::context_at`), since solving the result again starts at that scale: a conflict
-  of 1e-9 mm passing at the drawing's scale of 16 would otherwise fail from its own solution.
+  smaller (`System::context_at`), and only when its spans clear a collapse at that scale when it is
+  larger, since solving the result again starts at that scale: a conflict of 1e-9 mm passing at the
+  drawing's scale of 16 would otherwise fail from its own solution, and a line left at 1.7e-8 mm,
+  clear of a collapse at 16 but not at 32, be refused from it as having no length.
 - Parts (`numeric::Parts`) are worked out once per solve from the starting values and shared by
   memo, solver and analysis; only a sketch with spline parameters redoes them from current values,
   since a parameter moving along its spline changes which control points its equations reach.
@@ -162,7 +164,12 @@ paths:
   solution would be moved onto it.
 - Forms read a `CurveHandle` (a spline's or an ellipse's) evaluated at its parameter (`CurveAt`:
   point, tangent, second derivative, gradients pushed into the handle), so the same forms serve
-  both. Spline cases: a point on a spline, at a distance from it (`Form::SplineFoot` square to it
+  both. A spline's direction there is its tangent, else its second derivative, else the fallback
+  the form was built with, each taken only above the degenerate length: a spline whose control
+  points all coincide has derivatives of rounding noise, which would turn the direction with every
+  evaluation. That fallback (`start_tangent`) is likewise the tangent or second derivative at the
+  start, else the direction holding the drawn geometry: square to the offset to a point, along a
+  line, across a circle's radius, so a spline collapsed to a point measures a plain distance. Spline cases: a point on a spline, at a distance from it (`Form::SplineFoot` square to it
   there, `Form::SplineDistance` signed distance along its normal on the starting side), a tangent
   between a spline and a curve not sharing one of its end points, a distance from a spline to a
   line or circle (the tangency forms `Form::SplineOnLine` and `SplineOnCircle`, which carry a side

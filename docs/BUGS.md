@@ -101,10 +101,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   witness's about 219,000 (trimming 12,000), some 85% of it in the two perturbed retries (23 to 32
   steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
   fraction of the whole chain's extent before Newton steps settle it.
-- [medium · hard] A sketch solved from a degenerate spline can fail to solve again from its own
-  result: a spline with repeated control points (a closed spline of one point, three of four
-  coincident). `a_solved_sketch_solves_again_from_its_own_result` (`caditor-checks`) skips splines
-  with control points within a micrometre.
+- [medium · hard] A sketch with a degenerate fit-point spline can move when solved again from its
+  own result: an open centripetal spline whose fit points repeat (starting and ending on one point,
+  three of five on one point) moves by up to 3 mm, about one sketch in 500 with such a spline
+  (seeds 11281 and 43873 of `a_solved_sketch_does_not_move_when_solved_again`, which skips splines
+  with control points within a micrometre; solving again no longer fails on them).
 - [low · hard] A conflict smaller than the solver's clear residual (a `Distance` of 1e-9 mm from an
   axis to a point `Coincident` with it, seed 53733 of the solving-again suite) is reported as not
   solving rather than as a conflict naming the two: the diagnosis's verdict takes only residuals
