@@ -11,6 +11,7 @@ use crate::{
     bodies_tree,
     commands::{Command, CommandFrame},
     editing::SketchEditing,
+    feature_links::LinksCache,
     feature_tree::{self, RowHeights, TreeOffers},
     icons,
     layout::{
@@ -135,6 +136,7 @@ pub struct PanelState {
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
     pub tree_offers: TreeOffers,
+    pub links: LinksCache,
     pub parameter_uses: ParameterUses,
     pub tree_filter: String,
     pub parameter_filter: String,

@@ -123,6 +123,22 @@ fn model() -> Model {
     }
 }
 
+#[test]
+fn a_fillet_refers_to_its_edges_and_a_sketch_on_xy_to_that_plane() {
+    let model = model();
+
+    let fillet = referred_geometry(&model.document.feature(model.fillet).unwrap().kind);
+    let outline = model.document.features().next().unwrap();
+    let sketch = referred_geometry(&outline.kind);
+    let base = referred_geometry(&model.document.feature(model.base).unwrap().kind);
+
+    assert_eq!(fillet.edges.len(), 2);
+    assert!(fillet.edges.iter().all(|(body, _)| *body == model.base));
+    assert!(fillet.faces.is_empty() && fillet.planes.is_empty());
+    assert_eq!(sketch.planes, vec![PrincipalPlane::Xy]);
+    assert_eq!(base, ReferredGeometry::default());
+}
+
 fn set(model: &mut Model, parameter: caditor_expression::ParameterId, text: &str) {
     let expression = model.document.parse(text).unwrap();
     model

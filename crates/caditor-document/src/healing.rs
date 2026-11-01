@@ -9,7 +9,7 @@ use crate::{
     blend::EdgeGroup,
     datum::{
         AxisReference, CurveStation, Datum, DatumAxis, PlaneReference, PlaneThrough, PointBy,
-        PointReference,
+        PointReference, PrincipalPlane,
     },
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
@@ -137,6 +137,54 @@ pub(crate) trait ReferenceVisitor {
     fn regions(&mut self, sketch: FeatureId, choice: &mut RegionChoice);
 
     fn vertex(&mut self, _body: FeatureId, _vertex: &mut VertexName, _what: &str) {}
+
+    fn principal_plane(&mut self, _plane: PrincipalPlane) {}
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReferredGeometry {
+    pub faces: Vec<(FeatureId, FaceReference)>,
+    pub edges: Vec<(FeatureId, EdgeReference)>,
+    pub planes: Vec<PrincipalPlane>,
+}
+
+impl ReferenceVisitor for ReferredGeometry {
+    fn face(&mut self, body: FeatureId, face: &mut FaceReference, _what: &str) {
+        self.faces.push((body, face.clone()));
+    }
+
+    fn edges(
+        &mut self,
+        body: FeatureId,
+        edges: &mut [EdgeReference],
+        _what: &dyn Fn(usize) -> String,
+    ) {
+        self.edges.extend(edges.iter().map(|edge| (body, *edge)));
+    }
+
+    fn regions(&mut self, _sketch: FeatureId, _choice: &mut RegionChoice) {}
+
+    fn principal_plane(&mut self, plane: PrincipalPlane) {
+        if !self.planes.contains(&plane) {
+            self.planes.push(plane);
+        }
+    }
+}
+
+pub fn referred_geometry(kind: &FeatureKind) -> ReferredGeometry {
+    let mut referred = ReferredGeometry::default();
+    let mut visited = kind.clone();
+    visit(&mut visited, &mut referred);
+    visit_projections(&mut visited, &mut referred);
+    if let FeatureKind::Sketch(sketch) = kind
+        && sketch.attachment.is_none()
+        && let Some(plane) = PrincipalPlane::ALL
+            .into_iter()
+            .find(|plane| plane.plane() == sketch.sketch.plane())
+    {
+        referred.principal_plane(plane);
+    }
+    referred
 }
 
 pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor) {
@@ -638,8 +686,12 @@ fn visit_split_along(along: &mut SplitAlong, visitor: &mut impl ReferenceVisitor
 }
 
 fn visit_plane(plane: &mut PlaneReference, what: &str, visitor: &mut impl ReferenceVisitor) {
-    if let PlaneReference::Face(attachment) = plane {
-        visitor.face(attachment.body, &mut attachment.face, what);
+    match plane {
+        PlaneReference::Face(attachment) => {
+            visitor.face(attachment.body, &mut attachment.face, what);
+        }
+        PlaneReference::Principal(principal) => visitor.principal_plane(*principal),
+        PlaneReference::Datum(_) | PlaneReference::Frame { .. } => {}
     }
 }
 

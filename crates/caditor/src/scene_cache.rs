@@ -325,6 +325,13 @@ impl SceneCache {
             .is_some_and(|built| built.picks.pickables().next().is_some())
     }
 
+    #[cfg(test)]
+    pub fn lit(&self) -> &[Pickable] {
+        self.highlighted
+            .as_ref()
+            .map_or(&[], |highlighted| highlighted.hovered.as_slice())
+    }
+
     pub fn highlightable(&mut self) -> &[Pickable] {
         &self.highlightable_set().ordered
     }

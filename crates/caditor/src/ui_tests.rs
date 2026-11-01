@@ -86,6 +86,7 @@ mod extrusion_detection;
 mod face_tools;
 mod far_cuts;
 mod feature_handles;
+mod feature_links;
 mod feature_panels;
 mod feature_tree;
 mod feature_tree_choice;

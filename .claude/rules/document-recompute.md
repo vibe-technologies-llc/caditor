@@ -118,6 +118,10 @@ paths:
   failure's message, when the names it could hold change. `Healing::update` is the undoable "Update
   references", refused once the feature differs from the one checked so a lagging evaluation never
   reverts an edit.
+- The same visitor (`healing::visit`, `visit_projections`) serves `referred_geometry`, which lists
+  a feature kind's face and edge references by body and the principal planes it names (a
+  `PlaneReference::Principal`, or an unattached sketch lying exactly on one) for the view to light
+  (`app-look.md`); visitors that ignore planes keep `ReferenceVisitor::principal_plane`'s default.
 
 ## Bodies
 

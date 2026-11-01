@@ -27,6 +27,7 @@ paths:
   - "crates/caditor/src/undo_history.rs"
   - "crates/caditor/src/panels.rs"
   - "crates/caditor/src/feature_tree.rs"
+  - "crates/caditor/src/feature_links.rs"
   - "crates/caditor/src/feature_clipboard.rs"
   - "crates/caditor/src/pasting.rs"
   - "crates/caditor/src/parameter_table.rs"
@@ -719,6 +720,25 @@ paths:
   was split from. Fit view
   still frames the whole body of such a row: `viewport::with_their_bodies` adds each row's
   `row_body`, as `visibility::hideable_rows` does.
+- Each such row also lights what its feature refers to (`LitRows::add_referred`): the faces and
+  edges `caditor_document::referred_geometry` gathers through the healing visitor, each only where
+  it resolves on the body's shown result to geometry of the same name (a face or edge the feature
+  or a later one consumed is not drawn, so it stays dark rather than lighting a neighbour), the
+  principal planes it names (a lit plane shows even while the planes step aside), and the sketches
+  and datums among `Document::dependencies_of` as chosen rows. Bodies it uses are not lit whole.
+- Every row of the Features tree (`tree_row::show`, so feature, folder, Bodies and principal rows
+  alike) keeps `tree_row::LINK_GUTTER` inside its left margin, within the row so the panel's width
+  never grows for it. The hovered feature row, else the primary chosen one (so keyboard focus, which
+  chooses its row, moves them too), gets connection marks there (`feature_tree::show_links`,
+  `feature_links::paint`): a rail through the centres of the row and every drawn related row, a bar
+  and tick in `text` into the row itself, a filled dot at each feature it uses and a ring at each
+  feature using it, so shape alone tells them apart. Rail, dots and rings are `text_muted`, which
+  `appearance::check` holds to 4.5:1 on the panel and on every row fill (hover, chosen, open). A
+  row inside a folded folder is marked at the folder header; rows a filter hides are not marked.
+  Nothing animates. The same links are the row's AccessKit description (`Links::description`). The
+  Uses and Used by submenus and the marks share `feature_links::Links::of`
+  (`Document::dependencies_of`, both directions), kept in `PanelState::links` until the feature or
+  the revision changes.
   The view's selection stays as it was, and nothing is highlighted while a sketch or feature is open
   for editing. A feature or body row under the pointer (`PanelState::hovered_row`,
   `ViewportState::hover_row`) is lit the same way while hovered, without counting as chosen.

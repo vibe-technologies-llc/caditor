@@ -33,8 +33,17 @@ Shift-click takes only the rows shown. Escape with nothing selected in the view,
 empty space in the view, lets go of the chosen rows. Choosing or hovering a row lights what it
 made in the view: a body's row the whole body, a row that changes a body, such as a hole or a
 fillet, only the faces it made, so each hole lights on its own. A split lights the body it split
-off, never the body it was split from. The other way round, selecting a face or edge in the view
-marks the row of the feature that made it: the rim of a boss joined to a plate marks the boss.
+off, never the body it was split from. It also lights what the feature refers to, where that is
+still drawn: the face a sketch lies on or a hole is drilled up to, an edge a datum axis runs
+along, the principal plane a sketch or mirror uses, and the sketches and datums it is built from.
+Faces and edges the feature itself used up, such as the edges a fillet rounded, are not drawn any
+more, so they do not light. The other way round, selecting a face or edge in the view marks the row
+of the feature that made it: the rim of a boss joined to a plate marks the boss.
+
+The margin left of the tree joins the chosen or hovered row to the features it uses, each marked
+with a filled dot, and to the features using it, each marked with a ring, along a line through
+them all; the row itself has a short bar pointing into it. Moving the choice with the keyboard
+moves the marks with it, and a screen reader reads the same links on the chosen row.
 
 The eye on a row hides or shows what it made. The principal planes, axes and origin have a group
 row of their own, read as hidden while they step aside after the first body (see

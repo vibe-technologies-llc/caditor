@@ -71,6 +71,7 @@ mod faceting;
 mod feature_clipboard;
 mod feature_fields;
 mod feature_groups;
+mod feature_links;
 mod feature_tree;
 mod feature_values;
 mod field;
