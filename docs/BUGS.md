@@ -110,12 +110,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   axis to a point `Coincident` with it, seed 53733 of the solving-again suite) is reported as not
   solving rather than as a conflict naming the two: the diagnosis's verdict takes only residuals
   above `CLEAR_RESIDUAL` tolerances as a contradiction.
-- [medium · hard] A `Distance` from a spline to a line it crosses can be returned as solved
-  although the measured distance misses its value: pushing the nearest bulge to the value brings
-  another nearer, the `PARAMETER_ROUNDS` re-solves run out, and the last round's geometry is
-  returned. Seed 22573 of `a_solved_sketch_does_not_move_when_solved_again` (a closed fit spline
-  through a rectangle's corner, 7 mm from that rectangle's side) measures 5.18 mm after the first
-  solve and moves by 0.5 mm on the second; the test holds for the first 22,500 seeds.
+- [medium · hard] A `Distance` from a spline to a line it crosses is refused as a conflict where
+  the sketch could hold it: holding the nearest bulge at the value brings one on the other side
+  nearer, and after `PARAMETER_ROUNDS` re-solves the constraint still misses (seed 22573 of the
+  staying-put suite, a closed fit spline through a rectangle's corner 7 mm from that rectangle's
+  side, reaches 5.6 mm). Holding every bulge nearer than the value at once, or the measured
+  distance as a minimum over the stationary points, would let it converge.
 - [low · hard] A dimension placed on entities that still have other freedom is added as a driving
   dimension although the measured value is already determined by their constraints: `determines`
   (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is

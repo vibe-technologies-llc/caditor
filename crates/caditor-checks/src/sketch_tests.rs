@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use arbitrary::Unstructured;
 use caditor_geometry::Plane;
-use caditor_sketch::{Entity, Sketch};
+use caditor_sketch::{Constraint, Entity, Sketch};
 
 use crate::{
     seeded::{for_each_case, replay_case},
@@ -176,4 +176,38 @@ fn a_closed_spline_of_one_point_solves_again_from_its_own_result() {
 #[test]
 fn a_line_left_just_over_the_collapse_length_is_refused_the_first_time() {
     replay_case(246355, |_, input| solves_again(input));
+}
+
+fn holds_every_spline_distance(input: &mut Unstructured) {
+    let Ok(drawn) = sketch(input, Plane::XY) else {
+        return;
+    };
+    let Some(solved) = solve(&drawn) else {
+        return;
+    };
+
+    for (id, constraint) in solved.geometry.constraints() {
+        let Constraint::Distance { from, to, .. } = constraint else {
+            continue;
+        };
+        if solved.geometry.spline(*from).is_none() && solved.geometry.spline(*to).is_none() {
+            continue;
+        }
+        let (Some(wanted), Some(measured)) = (
+            solved.solution.dimension(id),
+            solved.geometry.measured(constraint),
+        ) else {
+            continue;
+        };
+        assert!(
+            (measured - wanted).abs() <= LARGEST_SHIFT,
+            "{id:?} was solved at {measured} mm instead of {wanted} mm"
+        );
+    }
+}
+
+#[test]
+fn a_distance_from_a_spline_to_a_line_it_crosses_is_never_solved_short_of_its_value() {
+    replay_case(22573, |_, input| holds_every_spline_distance(input));
+    replay_case(22573, |_, input| stays_put(input));
 }

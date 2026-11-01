@@ -102,56 +102,68 @@ fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> 
         .then_some(moved)
 }
 
+struct Unsettled {
+    moved: Sketch,
+    missing: Vec<ConstraintId>,
+}
+
 fn misses_a_measured_distance(
     sketch: &Sketch,
     dimensions: &DimensionValues,
     system: &System,
     values: &[f64],
-) -> Option<Sketch> {
+) -> Option<Unsettled> {
     let moved = sketch.with_values(system, values);
-    system
+    let missing: Vec<ConstraintId> = system
         .parameters
         .keys()
-        .any(|id| match moved.constraint(*id) {
-            Some(constraint @ Constraint::Distance { from, to, .. })
-                if moved.spline(*from).is_some() || moved.spline(*to).is_some() =>
-            {
-                let (Some(wanted), Some(measured)) =
-                    (dimensions.dimension(*id), moved.measured(constraint))
-                else {
-                    return false;
-                };
-                (measured - wanted).abs() > DISTANCE_SETTLING * wanted.abs().max(1.0)
-            }
-            Some(Constraint::Tangent(first, second)) => {
-                let (spline, other) = if moved.spline(*first).is_some() {
-                    (*first, *second)
-                } else {
-                    (*second, *first)
-                };
-                moved.spline(other).is_none()
-                    && moved
-                        .spline_gap(spline, other)
-                        .is_some_and(|(on_spline, on_other)| {
-                            on_spline.distance(on_other) > DISTANCE_SETTLING
-                        })
-            }
-            Some(Constraint::Coincident(first, second)) => {
-                let (point, spline) = if moved.spline(*first).is_some() {
-                    (*second, *first)
-                } else {
-                    (*first, *second)
-                };
-                moved.spline(spline).is_some()
-                    && moved.point(point).is_some_and(|at| {
-                        moved
-                            .closest_on_curve(spline, at)
-                            .is_some_and(|closest| closest.distance(at) > DISTANCE_SETTLING)
+        .rev()
+        .copied()
+        .filter(|id| misses_its_measure(&moved, dimensions, *id))
+        .collect();
+    (!missing.is_empty()).then_some(Unsettled { moved, missing })
+}
+
+fn misses_its_measure(moved: &Sketch, dimensions: &DimensionValues, id: ConstraintId) -> bool {
+    match moved.constraint(id) {
+        Some(constraint @ Constraint::Distance { from, to, .. })
+            if moved.spline(*from).is_some() || moved.spline(*to).is_some() =>
+        {
+            let (Some(wanted), Some(measured)) =
+                (dimensions.dimension(id), moved.measured(constraint))
+            else {
+                return false;
+            };
+            (measured - wanted).abs() > DISTANCE_SETTLING * wanted.abs().max(1.0)
+        }
+        Some(Constraint::Tangent(first, second)) => {
+            let (spline, other) = if moved.spline(*first).is_some() {
+                (*first, *second)
+            } else {
+                (*second, *first)
+            };
+            moved.spline(other).is_none()
+                && moved
+                    .spline_gap(spline, other)
+                    .is_some_and(|(on_spline, on_other)| {
+                        on_spline.distance(on_other) > DISTANCE_SETTLING
                     })
-            }
-            _ => false,
-        })
-        .then_some(moved)
+        }
+        Some(Constraint::Coincident(first, second)) => {
+            let (point, spline) = if moved.spline(*first).is_some() {
+                (*second, *first)
+            } else {
+                (*first, *second)
+            };
+            moved.spline(spline).is_some()
+                && moved.point(point).is_some_and(|at| {
+                    moved
+                        .closest_on_curve(spline, at)
+                        .is_some_and(|closest| closest.distance(at) > DISTANCE_SETTLING)
+                })
+        }
+        _ => false,
+    }
 }
 
 fn solve_from_drawn(
@@ -479,10 +491,14 @@ impl Sketch {
                 round += 1;
                 continue;
             }
-            if reparameterised < PARAMETER_ROUNDS
-                && let Some(moved) =
-                    misses_a_measured_distance(&current, &dimensions, &system, &values)
+            if let Some(Unsettled { moved, missing }) =
+                misses_a_measured_distance(&current, &dimensions, &system, &values)
             {
+                if reparameterised == PARAMETER_ROUNDS {
+                    return Err(SketchError::Conflict {
+                        constraints: missing,
+                    });
+                }
                 current = Cow::Owned(moved);
                 reparameterised += 1;
                 continue;

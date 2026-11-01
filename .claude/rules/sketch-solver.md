@@ -159,6 +159,9 @@ paths:
   `spline_gap`, `closest_on_curve`); one missing its value or contact by more than
   `DISTANCE_SETTLING` solves again from the solved sketch, whose parameters then start at the
   nearest stationary point, at most `PARAMETER_ROUNDS` times (`misses_a_measured_distance`).
+  One still missing after the last round is a conflict naming it, never solved: a distance from a
+  spline to a line it crosses can hold one bulge at the value while another comes nearer, round
+  after round.
   Measured values are the ones the canvas shows, so what is drawn and what is held agree. Ellipse
   and circle gaps are not re-measured: their start heuristic can pick the far tip, and a correct
   solution would be moved onto it.
