@@ -5,7 +5,7 @@ use crate::{
     appearance, field, icons,
     model::Action,
     panels::{Focus, PanelState, Renaming},
-    tree_row::{self, Look},
+    tree_row::{self, Item, Look, TOP_LEVEL},
     widgets,
 };
 
@@ -110,7 +110,7 @@ pub fn header(
                         Id::unique(("feature-group-row", first)),
                         toggle.rect.right(),
                         name,
-                        selected,
+                        Item::new(TOP_LEVEL, selected).expanded(open),
                     ))
                 }
             };

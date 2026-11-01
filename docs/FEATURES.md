@@ -210,11 +210,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · medium] The feature tree, the Bodies group and the parameter table are read by screen
-  readers as lists of buttons. Giving them tree and row roles (AccessKit `Tree` and `TreeItem`
-  with level, expanded and selected, `Table` for parameters) needs the rows to be children of
-  one tree node inside the panel's scroll area, so `tree_row::sense` and the group rows share a
-  parent; `docs/ACCESSIBILITY.md` lists it as a known limit.
 - [low · easy] The ribbon group titles (14 points tall) and the corner marks that open a tool's
   ways are below the 24 point target size; they pass only because every function behind them is
   also in the menu bar and the palette (`ui_tests/conformance.rs`, `EQUIVALENT_ELSEWHERE`).

@@ -6,7 +6,7 @@ use crate::{
     model::{Action, Model},
     panels::PanelState,
     selection::Selection,
-    tree_row::{self, CHILD_INDENT, Look},
+    tree_row::{self, CHILD_INDENT, Item, Look, NESTED_LEVEL, TOP_LEVEL},
     visibility, widgets,
 };
 
@@ -49,7 +49,7 @@ pub fn show(
                 Id::unique("principal-group-row"),
                 toggle.rect.right(),
                 GROUP_TITLE,
-                false,
+                Item::new(TOP_LEVEL, false).expanded(open),
             );
             (toggle.clicked(), name)
         },
@@ -115,7 +115,7 @@ fn item(
                 Id::unique(("principal-row", geometry)),
                 ui.min_rect().left(),
                 geometry.name(),
-                look.selected,
+                Item::new(NESTED_LEVEL, look.selected),
             )
         },
         |ui| {

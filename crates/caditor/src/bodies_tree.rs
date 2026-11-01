@@ -17,7 +17,7 @@ use crate::{
     removal,
     selection::Selection,
     split_tools,
-    tree_row::{self, CHILD_INDENT, GROUP_INDENT, Look},
+    tree_row::{self, CHILD_INDENT, GROUP_INDENT, Item, Look, NESTED_LEVEL, TOP_LEVEL},
     visibility, widgets,
 };
 
@@ -114,7 +114,7 @@ pub fn show(
                 Id::unique("bodies-group-row"),
                 toggle.rect.right(),
                 &title,
-                false,
+                Item::new(TOP_LEVEL, false).expanded(open),
             );
             (toggle.clicked(), name)
         },
@@ -235,7 +235,13 @@ fn item(
                     .selectable(false)
                     .truncate(),
             );
-            tree_row::sense(ui, row_id(body), ui.min_rect().left(), name, look.selected)
+            tree_row::sense(
+                ui,
+                row_id(body),
+                ui.min_rect().left(),
+                name,
+                Item::new(depth + NESTED_LEVEL, look.selected),
+            )
         },
         |ui| {
             let paint = tree_row::slot(ui, |ui| paint_button(ui, name, painting.is_some()));

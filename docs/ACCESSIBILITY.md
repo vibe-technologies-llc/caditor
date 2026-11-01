@@ -44,7 +44,7 @@ and keeps its name and role.
 | --- | --- |
 | 1.1.1 Non-text content | Supported: icon buttons are named by their hover text, decorative glyphs are hidden, pictures are named (`ui_tests::conformance::every_control_on_every_screen_has_a_name_a_screen_reader_can_speak`, `assert_readable`). |
 | 1.2 Time-based media | Not applicable: no audio or video. |
-| 1.3.1 Info and relationships | Supported: captions label their fields, tabs and lists have roles. Partly: feature tree rows are selectable buttons, not tree items (see Known limits). |
+| 1.3.1 Info and relationships | Supported: captions label their fields, tabs and lists have roles, the feature tree is a tree of items with level, expansion and selection, and the parameter tables are tables of rows, cells and column headers (`ui_tests::tree_roles`). |
 | 1.3.2 Meaningful sequence | Supported: the Tab walk visits every screen in reading order and comes round (`tab_comes_round_on_every_screen_without_a_trap_or_focus_off_screen`). |
 | 1.3.3 Sensory characteristics | Supported: instructions name keys and actions, never only a shape or colour. |
 | 1.4.1 Use of colour | Supported: every status tone has its own icon and words; selection widens, failed bodies are dashed, free points are hollow. `colour_vision.rs` simulates protan, deutan and tritan vision and fails when two tones that look alike share an icon. |
@@ -92,8 +92,6 @@ and keeps its name and role.
 
 ## Known limits
 
-- Feature tree rows, the Bodies rows and parameter rows are selectable buttons, not tree items or
-  table rows; a screen reader reads them but not their depth or expansion as a tree.
 - The 3D view's list holds at most `ITEMS_AT_MOST` items and a body's first `FACES_AT_MOST` faces;
   the view's description says how many more there are and to step through them with Highlight
   next.

@@ -29,6 +29,7 @@ fn is_target(role: Role) -> bool {
             | Role::ComboBox
             | Role::TextInput
             | Role::MenuItem
+            | Role::TreeItem
     )
 }
 

@@ -6,8 +6,8 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use egui::{
-    Align2, Grid, Id, Label, Rect, RichText, TextEdit, TextStyle, TextWrapMode, Ui, Vec2,
-    WidgetText, vec2,
+    Align2, Grid, Id, InnerResponse, Label, Rect, RichText, Role, TextEdit, TextStyle,
+    TextWrapMode, Ui, UiBuilder, Vec2, WidgetText, vec2,
 };
 
 use crate::{
@@ -31,6 +31,16 @@ const MODEL_PARAMETERS_EXPLANATION: &str = "Dimensions and feature values given 
 const OWNER_GONE: &str = "Its dimension or feature was deleted";
 pub const INSERT_HINT: &str = "Click to put its name in the field being edited";
 const COLUMNS: usize = 4;
+const FIRST_CAPTION: &str = "Name";
+const OTHER_CAPTIONS: [&str; 2] = ["Expression", "Value"];
+const OWN_TABLE: TableName = TableName {
+    id: "parameters",
+    spoken: "Parameters",
+};
+const NAMED_TABLE: TableName = TableName {
+    id: "model-parameters",
+    spoken: MODEL_PARAMETERS,
+};
 const SPACING: Vec2 = vec2(SPACE_M, SPACE_S);
 const VALUE_WIDTH: f32 = 64.0;
 const FIELD_MARGIN: f32 = SPACE_M;
@@ -152,7 +162,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         });
     }
     if !own.is_empty() {
-        table(ui, "parameters", model, state, actions, &own, widths);
+        table(ui, OWN_TABLE, model, state, actions, &own, widths);
     }
     if !named.is_empty() {
         if !own.is_empty() {
@@ -160,15 +170,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         }
         ui.label(widgets::strong(MODEL_PARAMETERS))
             .on_hover_text(MODEL_PARAMETERS_EXPLANATION);
-        table(
-            ui,
-            "model-parameters",
-            model,
-            state,
-            actions,
-            &named,
-            widths,
-        );
+        table(ui, NAMED_TABLE, model, state, actions, &named, widths);
     }
     delete_unused_button(ui, model, state, actions);
 }
@@ -314,46 +316,145 @@ fn delete_unused_button(
     }
 }
 
+#[derive(Clone, Copy)]
+struct TableName {
+    id: &'static str,
+    spoken: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct Place {
+    row: usize,
+    column: usize,
+}
+
+#[derive(Clone, Copy)]
+enum Kind {
+    Data,
+    Header(&'static str),
+}
+
+fn cell<R>(
+    ui: &mut Ui,
+    kind: Kind,
+    parent: Option<Id>,
+    place: Place,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> InnerResponse<R> {
+    let builder = match kind {
+        Kind::Data => UiBuilder::new().accessibility_role(Role::Cell),
+        Kind::Header(caption) => UiBuilder::new()
+            .accessibility_role(Role::ColumnHeader)
+            .accessibility_label(caption),
+    };
+    let builder = match parent {
+        Some(parent) => builder.accessibility_parent(parent),
+        None => builder,
+    };
+    let scope = ui.scope_builder(builder, add);
+    ui.ctx().accesskit_node_builder(scope.response.id, |node| {
+        node.set_row_index(place.row);
+        node.set_column_index(place.column);
+    });
+    scope
+}
+
+fn first_cell<R>(ui: &mut Ui, kind: Kind, row: usize, add: impl FnOnce(&mut Ui) -> R) -> (R, Id) {
+    let scope = ui.scope_builder(UiBuilder::new().accessibility_role(Role::Row), |ui| {
+        cell(ui, kind, None, Place { row, column: 0 }, add).inner
+    });
+    ui.ctx().accesskit_node_builder(scope.response.id, |node| {
+        node.set_row_index(row);
+    });
+    (scope.inner, scope.response.id)
+}
+
 fn table(
     ui: &mut Ui,
-    id: &str,
+    name: TableName,
     model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     parameters: &[&Parameter],
     widths: FieldWidths,
 ) {
-    Grid::new(id)
-        .num_columns(COLUMNS)
-        .striped(true)
-        .spacing(SPACING)
-        .show(ui, |ui| {
-            for caption in ["Name", "Expression", "Value"] {
-                widgets::column_caption(ui, caption);
-            }
-            ui.end_row();
-            for parameter in parameters {
-                let error = row(ui, model, state, actions, parameter, widths);
-                ui.end_row();
-                if let Some(owner) = &parameter.owner {
-                    owner_row(ui, model.document(), state, parameter, owner, widths);
-                }
-                if let Some(error) = error {
-                    widgets::error_row(ui, &error);
-                }
-            }
-        });
+    let scope = ui.scope_builder(
+        UiBuilder::new()
+            .accessibility_role(Role::Table)
+            .accessibility_label(name.spoken),
+        |ui| {
+            Grid::new(name.id)
+                .num_columns(COLUMNS)
+                .striped(true)
+                .spacing(SPACING)
+                .show(ui, |ui| {
+                    let mut row_index = 0;
+                    let (_, header) =
+                        first_cell(ui, Kind::Header(FIRST_CAPTION), row_index, |ui| {
+                            widgets::column_caption(ui, FIRST_CAPTION);
+                        });
+                    for (column, caption) in OTHER_CAPTIONS.into_iter().enumerate() {
+                        let place = Place {
+                            row: row_index,
+                            column: column + 1,
+                        };
+                        cell(ui, Kind::Header(caption), Some(header), place, |ui| {
+                            widgets::column_caption(ui, caption);
+                        });
+                    }
+                    ui.end_row();
+                    for parameter in parameters {
+                        row_index += 1;
+                        let error = row(ui, model, state, actions, parameter, (widths, row_index));
+                        ui.end_row();
+                        if let Some(owner) = &parameter.owner {
+                            row_index += 1;
+                            owner_row(
+                                ui,
+                                model.document(),
+                                state,
+                                (parameter, owner),
+                                (widths, row_index),
+                            );
+                        }
+                        if let Some(error) = error {
+                            row_index += 1;
+                            refusal_row(ui, &error, row_index);
+                        }
+                    }
+                    row_index + 1
+                })
+                .inner
+        },
+    );
+    ui.ctx().accesskit_node_builder(scope.response.id, |node| {
+        node.set_row_count(scope.inner);
+        node.set_column_count(COLUMNS);
+    });
+}
+
+fn refusal_row(ui: &mut Ui, text: &str, row_index: usize) {
+    let (_, row) = first_cell(ui, Kind::Data, row_index, |ui| {
+        ui.label("");
+    });
+    let place = Place {
+        row: row_index,
+        column: 1,
+    };
+    cell(ui, Kind::Data, Some(row), place, |ui| {
+        widgets::error_text(ui, text);
+    });
+    ui.end_row();
 }
 
 fn owner_row(
     ui: &mut Ui,
     document: &Document,
     state: &mut PanelState,
-    parameter: &Parameter,
-    owner: &ParameterOwner,
-    widths: FieldWidths,
+    (parameter, owner): (&Parameter, &ParameterOwner),
+    (widths, row_index): (FieldWidths, usize),
 ) {
-    ui.scope(|ui| {
+    first_cell(ui, Kind::Data, row_index, |ui| {
         ui.set_max_width(widths.name);
         match document.owner_text(owner) {
             Some(text) => {
@@ -536,31 +637,37 @@ fn row(
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     parameter: &Parameter,
-    widths: FieldWidths,
+    (widths, row_index): (FieldWidths, usize),
 ) -> Option<String> {
     let document = model.document();
     let id = parameter.id();
 
     let name_focus = Focus::ParameterName(id);
-    let name = field::commit_field(
-        ui,
-        name_focus.field_id(),
-        &parameter.name,
-        widths.name,
-        state.wants_focus(name_focus),
-        |text| {
-            field::checked::<field::CheckError>(
-                document,
-                Transaction::single(
-                    format!("Rename {}", parameter.name),
-                    Edit::RenameParameter {
-                        id,
-                        name: text.to_owned(),
-                    },
-                ),
-            )
-        },
-    );
+    let (name, row_id) = first_cell(ui, Kind::Data, row_index, |ui| {
+        field::commit_field(
+            ui,
+            name_focus.field_id(),
+            &parameter.name,
+            widths.name,
+            state.wants_focus(name_focus),
+            |text| {
+                field::checked::<field::CheckError>(
+                    document,
+                    Transaction::single(
+                        format!("Rename {}", parameter.name),
+                        Edit::RenameParameter {
+                            id,
+                            name: text.to_owned(),
+                        },
+                    ),
+                )
+            },
+        )
+    });
+    let place = |column| Place {
+        row: row_index,
+        column,
+    };
     let value_focus = Focus::ParameterValue(id);
     let measured_by = document
         .measurement_of(id)
@@ -570,39 +677,42 @@ fn row(
         _ => document.expression_text(&parameter.expression),
     };
     completion::editing_parameter(ui, value_focus.field_id(), id);
-    let expression = field::value_field(
-        ui,
-        value_focus.field_id(),
-        &expression_text,
-        widths.expression,
-        state.wants_focus(value_focus),
-        |text| -> Result<_, ValueEditError> {
-            if let Some(measurement) = &measured_by {
-                return Err(ValueEditError::MeasuredReading {
-                    parameter: parameter.name.clone(),
-                    measurement: measurement.clone(),
-                });
-            }
-            let current = match model.parameters().get(id) {
-                Some(Ok(value)) => Some(value.dimension),
-                _ => None,
-            };
-            let expression = field::parameter_expression(
-                document,
-                model.parameters(),
-                text,
-                current,
-                model.units(),
-            )?;
-            field::checked(
-                document,
-                Transaction::single(
-                    format!("Edit {}", parameter.name),
-                    Edit::SetParameterExpression { id, expression },
-                ),
-            )
-        },
-    );
+    let expression = cell(ui, Kind::Data, Some(row_id), place(1), |ui| {
+        field::value_field(
+            ui,
+            value_focus.field_id(),
+            &expression_text,
+            widths.expression,
+            state.wants_focus(value_focus),
+            |text| -> Result<_, ValueEditError> {
+                if let Some(measurement) = &measured_by {
+                    return Err(ValueEditError::MeasuredReading {
+                        parameter: parameter.name.clone(),
+                        measurement: measurement.clone(),
+                    });
+                }
+                let current = match model.parameters().get(id) {
+                    Some(Ok(value)) => Some(value.dimension),
+                    _ => None,
+                };
+                let expression = field::parameter_expression(
+                    document,
+                    model.parameters(),
+                    text,
+                    current,
+                    model.units(),
+                )?;
+                field::checked(
+                    document,
+                    Transaction::single(
+                        format!("Edit {}", parameter.name),
+                        Edit::SetParameterExpression { id, expression },
+                    ),
+                )
+            },
+        )
+    })
+    .inner;
     if ellipsize_clipped_name(ui, &name.response, &parameter.name) {
         name.response.clone().on_hover_text(&parameter.name);
     }
@@ -624,7 +734,7 @@ fn row(
         });
     }
     let insertable = insertable_into_focused(ui, document, id);
-    let value_cell = ui.scope(|ui| {
+    let value_cell = cell(ui, Kind::Data, Some(row_id), place(2), |ui| {
         ui.set_width(widths.value);
         ui.horizontal(|ui| match model.parameters().get(id) {
             Some(Ok(value)) => {
@@ -667,7 +777,9 @@ fn row(
         name.response.rect.expand(SPACING.y / 2.0).y_range(),
     );
     let hovered = ui.rect_contains_pointer(band);
-    delete_button(ui, document, actions, parameter, hovered, used);
+    cell(ui, Kind::Data, Some(row_id), place(3), |ui| {
+        delete_button(ui, document, actions, parameter, hovered, used);
+    });
     name.error.or(expression.error)
 }
 

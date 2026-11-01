@@ -146,7 +146,7 @@ fn a_mirror_takes_and_leaves_out_bodies_from_the_panel_and_clicks_in_the_view() 
     let (_, definition) = open_mirror(&harness);
     assert_eq!(definition.more_bodies, [peg]);
 
-    harness.click_button("Stop mirroring this body");
+    harness.click_topmost_button("Stop mirroring this body");
     harness.settle();
     let (_, definition) = open_mirror(&harness);
     assert_eq!(definition.body, peg);
