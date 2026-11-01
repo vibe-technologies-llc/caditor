@@ -62,7 +62,7 @@ and keeps its name and role.
 | 2.4.3 Focus order | Supported: see 1.3.2. |
 | 2.4.6 Headings and labels | Supported: sections, dialogs and fields carry plain titles and captions. |
 | 2.4.7 Focus visible | Supported: one focus ring in the `focus` token, held to 3:1 and strengthened in high contrast. |
-| 2.4.11 Focus not obscured | Supported in side panels, menus and dialog bodies: keyboard or assistive technology focus scrolls into view (`widgets::follow_keyboard_focus`, checked by the Tab walk). Partly: other scrolling lists (version history, saved views and similar) rely on egui. |
+| 2.4.11 Focus not obscured | Supported: keyboard or assistive technology focus scrolls into view in side panels, menus, dialog bodies and every scrolling list (version history, saved views, selection sets, configurations, the cloud dialog, import options, Home) through `widgets::follow_keyboard_focus` (checked by the Tab walk and `ui_tests/focus_scrolling.rs`). |
 | 2.5.1 Pointer gestures | Supported: orbit, pan and zoom have key commands; box, lasso and paint selection have highlighting and Activate. |
 | 2.5.3 Label in name | Supported: a control is named by its visible label, and an icon-only control by the text it shows on hover. |
 | 2.5.7 Dragging movements | Supported: the rollback bar is a slider with increment and decrement and has commands; tree order has commands; panel width has commands (Make the model panel wider, narrower, usual width); handles take typed values. |
@@ -95,9 +95,11 @@ and keeps its name and role.
 - The 3D view's list holds at most `ITEMS_AT_MOST` items and a body's first `FACES_AT_MOST` faces;
   the view's description says how many more there are and to step through them with Highlight
   next.
-- The window's own move and resize (with caditor's title bar) are pointer or window manager
-  operations; the system title bar can be chosen instead (Preferences › Appearance › Interface ›
-  Title bar).
+- The window's own move and resize have commands (Move the window left, right, up and down, Make
+  the window wider, narrower, taller and shorter, with keys) that work with caditor's title bar or
+  the system's. Where the system places windows itself (Wayland, for which the toolkit cannot read
+  or set a position), moving is not offered and the system's own keys for it apply; resizing works
+  there.
 - Text size cannot be changed apart from the whole interface's size; line and letter spacing cannot
   be overridden.
 - The lock file lists two `egui` and two `accesskit` versions because the icon font crate trails

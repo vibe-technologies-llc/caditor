@@ -229,6 +229,7 @@ fn body(ui: &mut Ui, model: &Model, draft: &mut ConfigurationsDraft) -> Option<O
                 if let Some(chosen) = table(ui, model, draft, &values) {
                     outcome = Some(chosen);
                 }
+                widgets::follow_keyboard_focus(ui);
             });
     }
     ui.add_space(SPACE_M);

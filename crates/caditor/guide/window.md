@@ -26,6 +26,18 @@ or triangle in the corner of one of its tools (its last on the main ribbon; on t
 Redo, Select, Line, Delete, the last constraint and Disable). Tools without a button are in the
 menus and in {command:palette}.
 
+## Moving and resizing the window
+
+With the keyboard, {command:view.window_left}, {command:view.window_right},
+{command:view.window_up} and {command:view.window_down} move the window by a small step, and
+{command:view.window_wider}, {command:view.window_narrower}, {command:view.window_taller} and
+{command:view.window_shorter} change its size by the same step; hold the keys to keep going. They are in
+View › Window and interface and in {command:palette}, and work with caditor's title bar or the
+system's. A maximized or full screen window is not moved; restore it first. The window never gets
+smaller than caditor needs or larger than the screen. Where the system decides where windows go,
+as on Wayland, the move commands say so and are not offered; resizing still works, and the
+system's own keys for moving the window do the rest.
+
 ## The model panel
 
 On the left, the model panel lists the Bodies, the Features and the Parameters. The

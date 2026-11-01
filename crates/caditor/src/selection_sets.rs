@@ -467,6 +467,7 @@ fn body(
                         outcome = Some(chosen);
                     }
                 }
+                widgets::follow_keyboard_focus(ui);
             });
     }
     ui.add_space(SPACE_M);

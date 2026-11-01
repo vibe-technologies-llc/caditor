@@ -381,6 +381,7 @@ fn versions(
                         },
                     );
                 }
+                widgets::follow_keyboard_focus(ui);
             });
     });
     if let Some(preview) = &history.preview

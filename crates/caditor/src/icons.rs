@@ -7,7 +7,7 @@ use egui_phosphor::regular as phosphor;
 use crate::{
     analysis::AnalysisCommand,
     body_snap::BodyItem,
-    commands::{CameraMove, Command},
+    commands::{CameraMove, Command, WindowStep},
     display_style::DisplayStyle,
     editing::Tool,
     icon_font,
@@ -307,6 +307,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ChooseBackdrop => SKY_PICTURE,
         Command::Style(_) => phosphor::CUBE_TRANSPARENT,
         Command::Camera(camera) => camera_move(camera),
+        Command::Window(step) => window_step(step),
         Command::HighlightNext => phosphor::ARROW_RIGHT,
         Command::HighlightPrevious => phosphor::ARROW_LEFT,
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
@@ -552,6 +553,19 @@ pub fn blend(kind: BlendKind) -> &'static str {
     match kind {
         BlendKind::Fillet => icon_font::FILLET,
         BlendKind::Chamfer => icon_font::CHAMFER,
+    }
+}
+
+fn window_step(step: WindowStep) -> &'static str {
+    match step {
+        WindowStep::MoveLeft => phosphor::ARROW_LEFT,
+        WindowStep::MoveRight => phosphor::ARROW_RIGHT,
+        WindowStep::MoveUp => phosphor::ARROW_UP,
+        WindowStep::MoveDown => phosphor::ARROW_DOWN,
+        WindowStep::Wider => phosphor::ARROWS_OUT_LINE_HORIZONTAL,
+        WindowStep::Narrower => phosphor::ARROWS_IN_LINE_HORIZONTAL,
+        WindowStep::Taller => phosphor::ARROWS_OUT_LINE_VERTICAL,
+        WindowStep::Shorter => phosphor::ARROWS_IN_LINE_VERTICAL,
     }
 }
 

@@ -359,7 +359,10 @@ paths:
     `appearance::visuals`), so a focused field never wakes an idle app.
   - A keyboard or assistive-technology move of focus scrolls the focused control into view inside
     the kit's scrolling containers (`widgets::follow_keyboard_focus`, called at the end of
-    `panel_scroll`, `measured_menu` and the dialog body), only when it arrived in a frame with no
+    `panel_scroll`, `measured_menu` and the dialog body, and by hand at the end of every list's
+    own `ScrollArea`: version history, saved views, selection sets, configurations, the cloud
+    dialog, import and export option lists, Home; `ui_tests/focus_scrolling.rs` tabs to the last
+    row of each), only when it arrived in a frame with no
     pointer press or release: `Context::read_response` surrenders the focus of a widget the pointer
     clicked elsewhere, which would drop the focus a suggestion list's click holds.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
@@ -918,6 +921,14 @@ paths:
 - When neither maximized nor full screen, a square outline marks the edge (the window is opaque, so
   rounding would leave corners showing) and thin foreground strips along it, with larger corners
   resizing diagonally, set the resize cursor and start `BeginResize`.
+- The window moves and resizes from the keyboard through `Command::Window(WindowStep)` (Alt+Shift
+  with an arrow moves, Ctrl+Alt+Shift with an arrow resizes; View › Window and interface and the
+  palette), handled in `window_frame::commands` as `OuterPosition` and `InnerSize` viewport commands
+  of `WINDOW_STEP` points each, so they work with either title bar. `window_frame::Unarrangeable`
+  words each refusal: full screen, maximized, no outer position (Wayland, where winit reports none:
+  move only; the size commands still work), and a size already at the least
+  (`MIN_WINDOW_WIDTH`/`MIN_WINDOW_HEIGHT`) or the monitor's. winit 0.30 has no keyboard-driven move
+  (`drag_window` needs the pointer, `show_window_menu` is Windows only), hence the steps.
 - The compositor takes the pointer during a move or resize and the release never reaches the window,
   so `Overlay` queues a synthetic primary release after `StartDrag` or `BeginResize`. On Windows both
   run the system's modal move and size loops, so dragging to an edge snaps; the undecorated window

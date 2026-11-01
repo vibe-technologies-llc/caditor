@@ -19,6 +19,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   URL] No Flatpak or AUR package: both need a maintainer identity and repository URL in their
   metadata, which the project does not publish (`docs/RELEASING.md`); `packaging/arch/PKGBUILD` only
   builds locally.
+- [low · medium · blocked by: winit reading and setting a Wayland window's position] The keyboard
+  commands that move the window (`Command::Window`) are refused on Wayland, which gives a client no
+  position, so moving a window there takes the compositor's own keys; resizing works. Check them by
+  hand on X11, Windows, and GNOME and KDE on Wayland.
 - [medium · medium] Screen readers and the system contrast and motion settings are tested only
   through the accessibility tree and a pretended setting. On a real Windows machine, check NVDA
   and Narrator against the list in `docs/ACCESSIBILITY.md` (`SPI_GETHIGHCONTRAST` read by

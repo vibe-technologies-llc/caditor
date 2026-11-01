@@ -194,6 +194,7 @@ pub enum Command {
     NormalPanel,
     View(StandardView),
     Camera(CameraMove),
+    Window(WindowStep),
     Filter(SelectionFilter),
     Style(DisplayStyle),
     Analysis(AnalysisCommand),
@@ -423,6 +424,7 @@ impl Command {
         matches!(
             self,
             Self::Camera(_)
+                | Self::Window(_)
                 | Self::HighlightNext
                 | Self::HighlightPrevious
                 | Self::Undo
@@ -621,6 +623,64 @@ impl CameraMove {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WindowStep {
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    Wider,
+    Narrower,
+    Taller,
+    Shorter,
+}
+
+all_variants!(WindowStep: MoveLeft, MoveRight, MoveUp, MoveDown, Wider, Narrower, Taller, Shorter);
+
+impl WindowStep {
+    fn id(self) -> &'static str {
+        match self {
+            Self::MoveLeft => "view.window_left",
+            Self::MoveRight => "view.window_right",
+            Self::MoveUp => "view.window_up",
+            Self::MoveDown => "view.window_down",
+            Self::Wider => "view.window_wider",
+            Self::Narrower => "view.window_narrower",
+            Self::Taller => "view.window_taller",
+            Self::Shorter => "view.window_shorter",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::MoveLeft => "Move the window left",
+            Self::MoveRight => "Move the window right",
+            Self::MoveUp => "Move the window up",
+            Self::MoveDown => "Move the window down",
+            Self::Wider => "Make the window wider",
+            Self::Narrower => "Make the window narrower",
+            Self::Taller => "Make the window taller",
+            Self::Shorter => "Make the window shorter",
+        }
+    }
+
+    fn shortcut(self) -> KeyboardShortcut {
+        let moving = Modifiers::ALT | Modifiers::SHIFT;
+        let sizing = Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT;
+        let (modifiers, key) = match self {
+            Self::MoveLeft => (moving, Key::ArrowLeft),
+            Self::MoveRight => (moving, Key::ArrowRight),
+            Self::MoveUp => (moving, Key::ArrowUp),
+            Self::MoveDown => (moving, Key::ArrowDown),
+            Self::Wider => (sizing, Key::ArrowRight),
+            Self::Narrower => (sizing, Key::ArrowLeft),
+            Self::Taller => (sizing, Key::ArrowDown),
+            Self::Shorter => (sizing, Key::ArrowUp),
+        };
+        KeyboardShortcut::new(modifiers, key)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
     File,
@@ -678,6 +738,7 @@ macro_rules! plain_commands {
             | Command::Constraint(_)
             | Command::View(_)
             | Command::Camera(_)
+            | Command::Window(_)
             | Command::Filter(_)
             | Command::Style(_)
             | Command::Analysis(_)
@@ -980,6 +1041,7 @@ impl Command {
             .chain(ConstraintTool::ALL.into_iter().map(Self::Constraint))
             .chain(StandardView::ALL.into_iter().map(Self::View))
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
+            .chain(WindowStep::ALL.into_iter().map(Self::Window))
             .chain(SelectionFilter::ALL.into_iter().map(Self::Filter))
             .chain(DisplayStyle::ALL.into_iter().map(Self::Style))
             .chain(AnalysisCommand::ALL.into_iter().map(Self::Analysis))
@@ -1184,6 +1246,7 @@ impl Command {
                 StandardView::Left => "view.left",
             },
             Self::Camera(camera) => camera.id(),
+            Self::Window(step) => step.id(),
             Self::HighlightNext => "view.highlight_next",
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
@@ -1499,6 +1562,7 @@ impl Command {
             Self::View(StandardView::Isometric) => "Isometric view",
             Self::View(view) => return format!("View from the {}", view.name()),
             Self::Camera(camera) => camera.title(),
+            Self::Window(step) => step.title(),
             Self::Filter(filter) => filter.title(),
             Self::Style(style) => style.title(),
             Self::Analysis(analysis) => analysis.title(),
@@ -1962,6 +2026,7 @@ impl Command {
             | Self::NormalPanel
             | Self::View(_)
             | Self::Camera(_)
+            | Self::Window(_)
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
@@ -2259,6 +2324,7 @@ impl Command {
             Self::NormalInterface => vec![command(Key::Num0)],
             Self::View(view) => vec![KeyboardShortcut::new(Modifiers::ALT, view.key())],
             Self::Camera(camera) => vec![camera.shortcut()],
+            Self::Window(step) => vec![step.shortcut()],
             Self::HighlightNext => vec![plain(Key::N)],
             Self::HighlightPrevious => vec![alt_shift(Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
