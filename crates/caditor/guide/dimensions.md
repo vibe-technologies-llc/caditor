@@ -50,8 +50,9 @@ highlighted one and one in conflict always keep their label.
 
 ## Reference dimensions
 
-A dimension added to geometry that is already fully held only shows the measured size, in
-parentheses; it is a reference. {command:sketch.toggle_constraint_active} makes it drive the
+A dimension measuring a size the sketch already holds, on geometry fully held or not (the width
+across a rectangle from its dimensioned side, while the rectangle can still move), only shows the
+measured size, in parentheses; it is a reference. {command:sketch.toggle_constraint_active} makes it drive the
 geometry instead, or turns a driving dimension into a reference.
 
 {command:sketch.toggle_first_dimension_scales} makes the first dimension of an unconstrained

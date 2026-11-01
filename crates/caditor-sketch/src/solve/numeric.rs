@@ -972,6 +972,37 @@ impl Solver<'_> {
 }
 
 impl Solver<'_> {
+    pub fn adds_rank_over_the_rest(
+        &self,
+        component: &Component,
+        values: &[f64],
+        constraint: ConstraintId,
+    ) -> Result<bool, Cancelled> {
+        if (self.cancelled)() {
+            return Err(Cancelled);
+        }
+        let part = self.part(component);
+        let mut own = Vec::new();
+        let mut rest = Vec::new();
+        let mut gradient = Gradient::new();
+        tally::add(component.equations.len());
+        for equation in self.equations(component) {
+            equation.linearize(values, &part.context, &mut gradient);
+            let row = sparse::normalized(sparse::row(&gradient, &component.variables));
+            if equation.owner == Some(constraint) {
+                own.push(row);
+            } else {
+                rest.push(row);
+            }
+        }
+        let mut triangular =
+            sparse::Triangular::ordered_for(component.variables.len(), rest.iter().chain(&own));
+        for row in &rest {
+            triangular.insert(row, RANK_TOLERANCE);
+        }
+        Ok(own.iter().any(|row| triangular.insert(row, RANK_TOLERANCE)))
+    }
+
     fn analyze_sparse(
         &self,
         part: &Part<'_>,

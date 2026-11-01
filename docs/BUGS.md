@@ -116,12 +116,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   returned. Seed 22573 of `a_solved_sketch_does_not_move_when_solved_again` (a closed fit spline
   through a rectangle's corner, 7 mm from that rectangle's side) measures 5.18 mm after the first
   solve and moves by 0.5 mm on the second; the test holds for the first 22,500 seeds.
-- [low · hard] A dimension placed on entities that still have other freedom is added as a driving
-  dimension although the measured value is already determined by their constraints: `determines`
-  (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is
-  `FullyConstrained`. Such a dimension is reported as redundant, not as a conflict, since its value
-  equals the measured one; deciding it from the freedom along the one measured direction would need
-  the solver's Jacobian.
 
 ## STEP import
 

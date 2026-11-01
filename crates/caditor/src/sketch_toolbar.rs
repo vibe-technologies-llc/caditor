@@ -170,7 +170,7 @@ const SELECT_KEY: &str = "Esc once nothing is being drawn or picked";
 const FINISH_KEYS: &str = "Esc with Select active and nothing selected";
 const DISABLE_HELP: &str = "A disabled constraint stays in the sketch but no longer holds; a disabled dimension shows the measured value instead";
 const ENABLE_HELP: &str = "Make the selected constraints hold again";
-pub const REFERENCE_ADDED: &str = "That geometry is already fully determined, so the dimension shows the measured value as a reference; enable it to make it drive instead";
+pub const REFERENCE_ADDED: &str = "That size is already determined by the other constraints, so the dimension shows the measured value as a reference; enable it to make it drive instead";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
 const MOVE_HELP: &str = "Move the selected geometry to a typed position, or by a typed offset";

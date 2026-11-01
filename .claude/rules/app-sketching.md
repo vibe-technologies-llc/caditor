@@ -756,10 +756,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   settled sketch about its origin by the new value over the measured one, in the same transaction. It
   applies only to an active length dimension that is the sketch's only active dimension, with no
   active `Fix`, no projected geometry and the sketch settled.
-- A new dimension whose every entity is `EntityState::FullyConstrained` in the settled solution
-  (`Model::settled_solution`, none while a recompute is pending) is already determined, so it is added
-  inactive in the same transaction ("Add reference ...") with a notice, and takes no focus. The test is
-  conservative: a circle counts only when its centre and radius are both determined.
+- A new dimension is already determined when every entity it measures is
+  `EntityState::FullyConstrained` in the settled solution (`Model::settled_solution`, none while a
+  recompute is pending), or else when `Sketch::determines` finds its measurement held by the other
+  constraints on the settled geometry (`sketch-solver.md`), so a rectangle's width across from its
+  dimensioned side is determined while the rectangle still moves. It is added inactive in the same
+  transaction ("Add reference ...") with a notice, and takes no focus (`sketch_tools::determines`).
 - Smart dimension (`Tool::Dimension`, `dimensioning.rs`) takes the geometry clicked after it, not the
   selection: the selection is cleared when it starts, holds its picks, and is cleared when it ends. A
   click on a sketch item picks it (again lets it go); `dimensioning::fitting` chooses the dimension: a

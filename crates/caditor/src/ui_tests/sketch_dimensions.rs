@@ -249,6 +249,93 @@ fn the_smart_dimension_takes_a_line_clicked_after_it_and_enter_dimensions_its_le
 }
 
 #[test]
+fn the_smart_dimension_adds_a_size_the_constraints_already_hold_as_a_reference() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(5.0, 5.0),
+        Point2::new(45.0, 5.0),
+        Point2::new(45.0, 25.0),
+        Point2::new(5.0, 25.0),
+    ];
+    let sides = [0, 1, 2, 3].map(|index| sketch.add_line(corners[index], corners[(index + 1) % 4]));
+    let [bottom, right, top, left] = sides;
+    for (index, side) in sides.iter().enumerate() {
+        let (_, end) = line_ends(&sketch, *side);
+        let (next, _) = line_ends(&sketch, sides[(index + 1) % 4]);
+        sketch
+            .add_constraint(Constraint::Coincident(end, next))
+            .unwrap();
+    }
+    let (start, end) = line_ends(&sketch, bottom);
+    for constraint in [
+        Constraint::Horizontal(bottom),
+        Constraint::Vertical(right),
+        Constraint::Horizontal(top),
+        Constraint::Vertical(left),
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        },
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    let before = harness.sketch(feature).constraints().count();
+    let (top_start, top_end) = line_ends(harness.sketch(feature), top);
+
+    harness.use_tool(Key::D);
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(25.0, 25.0),
+        sketch_entity(feature, top),
+    );
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    assert!(
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("already determined"))
+    );
+    let sketch = harness.sketch(feature);
+    assert_eq!(sketch.constraints().count(), before + 1);
+    let (added, constraint) = sketch
+        .constraints()
+        .last()
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    assert_eq!(
+        constraint,
+        Constraint::Distance {
+            from: top_start,
+            to: top_end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        }
+    );
+    assert!(!sketch.is_active(added));
+    assert_eq!(harness.model.undo_label(), Some("Add reference Distance"));
+    assert_ne!(
+        harness.focused(),
+        Some(annotations::field_id(feature, added))
+    );
+    harness.settle();
+    assert!(
+        harness
+            .model
+            .settled_solution(feature)
+            .is_some_and(
+                |solution| solution.redundancies().is_empty() && solution.degrees_of_freedom() == 3
+            )
+    );
+}
+
+#[test]
 fn the_smart_dimension_dimensions_two_lines_by_their_angle_and_a_circle_by_a_click_on_nothing() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
