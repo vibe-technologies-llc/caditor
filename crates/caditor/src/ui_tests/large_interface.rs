@@ -347,7 +347,7 @@ fn the_ribbon_drops_its_labels_in_a_short_window_and_keeps_them_otherwise() {
 }
 
 #[test]
-fn the_sketch_bar_folds_into_two_rows_of_named_icons_at_the_largest_size() {
+fn the_sketch_bar_folds_into_rows_of_named_icons_at_the_largest_size() {
     let dir = TempDir::new().unwrap();
     let mut large = with_sample(LARGEST, &dir, Sample::Bracket);
 
@@ -359,7 +359,7 @@ fn the_sketch_bar_folds_into_two_rows_of_named_icons_at_the_largest_size() {
     let parallel = large.button_rect("Parallel");
 
     assert!(
-        bar.height() < 0.25 * window.height(),
+        bar.height() < 0.35 * window.height(),
         "{bar:?} in {window:?}"
     );
     assert!(!large.shows("Line"));

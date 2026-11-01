@@ -31,7 +31,7 @@ A closed notch stays closed if the original is later widened; offset again to op
 ## Both sides
 
 Offset has three ways, chosen by running {command:sketch.offset} again while it is active, from
-the corner menu of its button or from the Sketch menu's ways of drawing:
+the arrow beside its button or from the Sketch menu's ways of drawing:
 {command:sketch.offset.one_side}, {command:sketch.offset.both_round} and
 {command:sketch.offset.both_flat}. The two ways to both sides put a copy at the distance on each
 side, so the pointer or the typed value sets the distance on each side, not the width.

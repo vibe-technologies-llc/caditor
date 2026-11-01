@@ -210,13 +210,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · medium] The corner marks that open a tool's ways or a group's commands (a 14 point caret
-  on a full button, an 11 point notch on a compact 24 point one) are below the 24 point target
-  size; they pass only because every function behind them is also in the menu bar and the palette
-  (`ui_tests/conformance.rs`, `EQUIVALENT_ELSEWHERE`). A 24 point hit area at the corner would
-  cover half of a full button and all of a compact one, so removing the exemption needs the
-  marks beside their buttons (a split button whose arrow has its own column) and the sketch
-  ribbon's rows made wider to hold them.
+- [low · medium] The compact main ribbon's group menus open from an 11 point notch over each
+  group's last button, below the 24 point target size; they pass `ui_tests/conformance.rs` only
+  because every function behind them is also in the menu bar and the palette (the test exempts
+  the group menu names, `toolbar::group_menu_names`). An arrow column per group, as the sketch bar
+  and the uncaptioned full ribbon have (`widgets::arrow_beside`), costs 26 points a group and wraps
+  the compact ribbon into a second row at 200%, which leaves the start card no room in the view
+  (`ui_tests/start_card.rs`): the removal needs the compact ribbon's groups to take less width, or
+  the start card to fit a view one row shorter.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.

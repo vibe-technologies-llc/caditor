@@ -2,10 +2,11 @@ use egui::{Key, Modifiers, Pos2, Rect, accesskit::Role};
 use tempfile::TempDir;
 
 use super::{
-    Harness, SCREEN, assert_readable, drag_screen, edit_base_sketch, entities_of_kind, lowest_in,
-    open_menus, sketch_bar, sketch_bar_problems, top_level_panel,
+    Harness, SCREEN, assert_readable, drag_screen, edit_base_sketch, entities_of_kind, open_menus,
+    sketch_bar, sketch_bar_problems, top_level_panel,
 };
 use crate::{
+    appearance::CONTROL_HEIGHT,
     commands::Command,
     editing::Tool,
     model::{Action, Notice},
@@ -17,9 +18,14 @@ use crate::{
     status_bar,
 };
 
-fn in_sketch_bar(harness: &Harness, label: &str) -> Pos2 {
-    lowest_in(harness, sketch_bar(harness), label)
-}
+const GROUP_CAPTIONS: [&str; 6] = [
+    "History",
+    "Select",
+    "Draw",
+    "Modify",
+    "Constrain",
+    "Dimension",
+];
 
 fn sketch_bar_buttons() -> Vec<String> {
     Tool::ALL
@@ -79,29 +85,37 @@ fn at_200_percent_the_side_panels_leave_the_view_a_usable_width() {
 }
 
 #[test]
-fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
+fn the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();
     let base = edit_base_sketch(&mut harness);
     harness.frame();
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
 
-    let row = in_sketch_bar(&harness, "Draw").y;
     let bar = sketch_bar(&harness);
+    let first_row = harness.button_rect("Line").center().y;
+    let second_row = harness.button_rect("Parallel").center().y;
     let finish = harness.position_of(sketch_toolbar::FINISH_LABEL);
     assert!(harness.shows("Editing Base sketch"));
     assert_eq!(sketch_bar_problems(&harness, SCREEN), Vec::<String>::new());
-    for caption in ["Select", "Modify", "Constrain", "Dimension"] {
-        assert!(
-            (in_sketch_bar(&harness, caption).y - row).abs() < 0.5,
-            "{caption}"
-        );
-    }
-    assert!(harness.position_of("Select").y < row);
-    assert!(finish.x > in_sketch_bar(&harness, "Dimension").x);
-    assert!(finish.y < row);
+    assert!((harness.button_rect("Select").center().y - first_row).abs() < 0.5);
+    assert!(
+        (harness
+            .button_rect(&sketch_toolbar::group_menu_name("Modify"))
+            .center()
+            .y
+            - first_row)
+            .abs()
+            < 0.5
+    );
+    assert!(second_row > first_row + CONTROL_HEIGHT);
+    assert!((finish.y - first_row).abs() < CONTROL_HEIGHT);
     assert_readable(&harness, "The sketch bar");
     for name in sketch_bar_buttons() {
+        assert!(harness.accessible_named(Role::Button, &name), "{name}");
+    }
+    for caption in GROUP_CAPTIONS {
+        let name = sketch_toolbar::group_menu_name(caption);
         assert!(harness.accessible_named(Role::Button, &name), "{name}");
     }
 

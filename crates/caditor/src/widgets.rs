@@ -65,8 +65,7 @@ const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
 const SEGMENT_INSET: i8 = SPACE_XS as i8;
 const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
 const EMPTY_STATE_MARGIN: Margin = appearance::margin(SPACE_S, SPACE_SM);
-const MIN_CORNER_BUTTON_SIDE: f32 = 14.0;
-const COMPACT_CORNER_SIDE: f32 = 11.0;
+const COMPACT_NOTCH_SIDE: f32 = 11.0;
 const NOTCH_INSET: f32 = 1.0;
 const DIALOG_FOOTER_GAP: f32 = SPACE_L;
 const UNDERLINE_WIDTH: f32 = 1.0;
@@ -1827,38 +1826,65 @@ pub fn menu_choice(
     ui.add(Named::new(button, title).selected(chosen))
 }
 
-pub struct CornerMenu<'a> {
+pub struct ArrowMenu<'a> {
     pub id: Id,
     pub name: &'a str,
     pub contents: &'a str,
     pub on_selected: bool,
 }
 
-pub fn corner_menu_button(ui: &mut Ui, host: Rect, menu: &CornerMenu<'_>) -> Response {
+pub const ARROW_WIDTH: f32 = CONTROL_HEIGHT;
+
+pub fn arrow_button(ui: &mut Ui, height: f32, menu: &ArrowMenu<'_>) -> Response {
+    let (rect, _) = ui.allocate_exact_size(vec2(ARROW_WIDTH, height), Sense::hover());
+    arrow(ui, rect, menu)
+}
+
+pub fn arrow_beside(ui: &mut Ui, group: Rect, menu: &ArrowMenu<'_>) -> Response {
+    let rect = Rect::from_min_size(
+        pos2(group.right() + ui.spacing().item_spacing.x, group.top()),
+        vec2(ARROW_WIDTH, group.height()),
+    );
+    ui.allocate_rect(rect, Sense::hover());
+    arrow(ui, rect, menu)
+}
+
+fn arrow(ui: &mut Ui, rect: Rect, menu: &ArrowMenu<'_>) -> Response {
     let glyph = unwrapped(
         ui,
         RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
         TextStyle::Small,
     );
-    let side = glyph.size().max_elem().max(MIN_CORNER_BUTTON_SIDE);
-    let rect = Rect::from_min_size(pos2(host.right() - side, host.top()), Vec2::splat(side));
-    corner_menu(ui, rect, menu, CornerMark::Caret(glyph))
+    trigger(ui, rect, menu, |ui, rect, color| {
+        ui.painter().galley_with_override_text_color(
+            rect.center() - glyph.size() / 2.0,
+            glyph,
+            color,
+        );
+    })
 }
 
-pub fn compact_corner_menu_button(ui: &mut Ui, host: Rect, menu: &CornerMenu<'_>) -> Response {
+pub fn notch_button(ui: &mut Ui, host: Rect, menu: &ArrowMenu<'_>) -> Response {
     let rect = Rect::from_min_max(
-        host.right_bottom() - Vec2::splat(COMPACT_CORNER_SIDE),
+        host.right_bottom() - Vec2::splat(COMPACT_NOTCH_SIDE),
         host.right_bottom(),
     );
-    corner_menu(ui, rect, menu, CornerMark::Notch)
+    trigger(ui, rect, menu, |ui, rect, color| {
+        let inner = rect.shrink(NOTCH_INSET);
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![inner.right_top(), inner.right_bottom(), inner.left_bottom()],
+            color,
+            Stroke::NONE,
+        ));
+    })
 }
 
-enum CornerMark {
-    Caret(Arc<Galley>),
-    Notch,
-}
-
-fn corner_menu(ui: &mut Ui, rect: Rect, menu: &CornerMenu<'_>, mark: CornerMark) -> Response {
+fn trigger(
+    ui: &mut Ui,
+    rect: Rect,
+    menu: &ArrowMenu<'_>,
+    mark: impl FnOnce(&Ui, Rect, Color32),
+) -> Response {
     let tokens = appearance::tokens(ui);
     let response = ui.interact(rect, menu.id, Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), menu.name));
@@ -1888,20 +1914,7 @@ fn corner_menu(ui: &mut Ui, rect: Rect, menu: &CornerMenu<'_>, mark: CornerMark)
             stroke,
             StrokeKind::Inside,
         );
-        match mark {
-            CornerMark::Caret(glyph) => {
-                ui.painter()
-                    .galley(rect.center() - glyph.size() / 2.0, glyph, color);
-            }
-            CornerMark::Notch => {
-                let inner = rect.shrink(NOTCH_INSET);
-                ui.painter().add(egui::Shape::convex_polygon(
-                    vec![inner.right_top(), inner.right_bottom(), inner.left_bottom()],
-                    color,
-                    Stroke::NONE,
-                ));
-            }
-        }
+        mark(ui, rect, color);
     }
     response.on_hover_ui(|ui| {
         ui.label(strong(menu.name));

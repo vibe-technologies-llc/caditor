@@ -46,7 +46,7 @@ paths:
 
 Default keys come from `Command::default_shortcuts`, not from here. A tool or command listed
 without a key has none (every free one is taken) and is reached from the Sketch menu, the palette,
-the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a partner's corner menu.
+the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a partner's arrow menu.
 
 ## Editing context
 
@@ -294,7 +294,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - Running a tool's command while it is active steps to its next way, round to the first; clicking
   its ribbon button only chooses the tool (`sketch_toolbar::partnered_tool_button` for compact
   buttons, `off_ribbon_tool` for off-ribbon tools). Every way is also its own command
-  (`Command::ShapeMode`, id `sketch.<shape>.<way>`) in the palette, the corner menu and Sketch ›
+  (`Command::ShapeMode`, id `sketch.<shape>.<way>`) in the palette, the arrow menu and Sketch ›
   Ways to draw shapes.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
   sketches and documents; it is not a preference, as no tool state is.
@@ -323,7 +323,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   curve, construction included, and every lone point (`Sketch::free_points`), each through the same
   `add_projection` a click makes. Sources already projected are left out and an info notice says
   how many (`Projection::left_out`); all already projected, or a later sketch, is refused in words.
-- Intersect (`Tool::Intersect`, Alt+I; in Project's corner menu, `sketch_toolbar::OFF_RIBBON`,
+- Intersect (`Tool::Intersect`, Alt+I; in Project's arrow menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
   (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and
   shown principal planes crossing it. A click on a face adds the cut through that face
@@ -404,7 +404,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   what was gathered (`Modifying::lets_go_of_selection`), then leaves the tool; started with a
   selection they go straight to the line or centre and Escape leaves the tool keeping it.
 - Rectangular and Circular pattern (`Tool::RectangularPattern`, `CircularPattern`, `patterning.rs`;
-  Mirror's corner menu) repeat the selection (`sketch.md`, Patterns). Numbers go in the typed-point
+  Mirror's arrow menu) repeat the selection (`sketch.md`, Patterns). Numbers go in the typed-point
   field ("Repeat"), opened by a digit or `=`, previewed live while the text parses; Enter makes one
   "Pattern geometry" transaction and an error keeps the field open. Rectangular reads
   `count x spacing`, optionally `< angle`, and a second term after a comma for rows (square to the
@@ -413,7 +413,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   expressions with parameters, kept as typed. Circular first needs its centre: the one selected point
   no selected curve uses, else a point clicked or highlighted (origin included), shown highlighted
   until Escape lets it go.
-- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's corner menu) takes the
+- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's arrow menu) takes the
   lines, circles and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two
   selected at start, then each one clicked or highlighted and chosen with Space or Enter (axes
   included; clicking a chosen curve lets it go, Escape lets go of the last). A third curve finishes it
@@ -421,7 +421,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   triangle's sides picks its incircle or an excircle). With two chosen the typed-point field
   ("Radius") draws the circle of that radius nearest the pointer. One "Draw tangent circle"
   transaction.
-- Spur gear (`Tool::Gear`, `gearing.rs`; Polygon's corner menu) draws an involute gear outline, a
+- Spur gear (`Tool::Gear`, `gearing.rs`; Polygon's arrow menu) draws an involute gear outline, a
   pair of meshing gears or a roller chain sprocket (`sketch.md`, Spur gears). While active, the Spur
   gear panel (`gear_panel.rs`, a right-hand panel closing back to Select) opens with a segmented
   control for the `GearKind` (Single gear, Gear pair, Sprocket) and holds that kind's fields
@@ -460,7 +460,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   deleted with Delete through `remove_sketch_items` (a first gear takes its meshing gears) and
   dragged by its centre (`ViewportState` grabs the centre for a gear; a pair moves together, the
   solver holding the distance).
-- Text (`Tool::Text`, `texting.rs`; Polygon's corner menu, the palette's "Write or edit sketch
+- Text (`Tool::Text`, `texting.rs`; Polygon's arrow menu, the palette's "Write or edit sketch
   text") writes text of one or several lines (`sketch.md`, Text). While active the Text panel
   (`text_panel.rs`, a right-hand panel closing back to Select) holds a multi-line Text field
   (Enter starts a line; `\r` from a paste is normalised to `\n` when evaluated), Height and Angle
@@ -479,7 +479,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   as one `SketchShape` under its id (`scene::sketch_shapes`, coloured by its anchor's state), kept by
   the selection while the sketch has it (`Pickable::is_available`), deleted with Delete through
   `remove_sketch_items`, and dragged by its anchor (`ViewportState` grabs the anchor for a text).
-- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's corner menu) joins two
+- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Offset's arrow menu) joins two
   curve ends with a spline (`sketch.md`, Blend curves). It takes the end of a line, arc or spline
   (projected included) nearest the pointer on the curve under it, or a selected point ending exactly
   one curve; the highlight commands step through every such end and Space or Enter chooses. Clicking
@@ -510,10 +510,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (both curves), `5, 3` (a distance on each, in the corner's curve order) or `5 < 45` (a distance on
   the first curve and the cut's angle from it) as a `ChamferSize` (`sketch.md`). Its compact button
   sits beside Sketch fillet's in the Modify group.
-- Tools without a button (`sketch_toolbar::OFF_RIBBON`) sit in the corner menu of a partner's
-  compact button (`sketch_toolbar::Partners`, `widgets::compact_corner_menu_button`): Offset with
+- Tools without a button (`sketch_toolbar::OFF_RIBBON`) sit in the arrow menu beside a partner's
+  compact button (`sketch_toolbar::Partners`, `widgets::arrow_button`): Offset with
   Tangent circle and Blend curve (`CURVE_FROM_GEOMETRY_TOOLS`), Mirror with both patterns
-  (`COPYING_TOOLS`), Project with Intersect (`MODEL_GEOMETRY_TOOLS`). The notch takes the accent
+  (`COPYING_TOOLS`), Project with Intersect (`MODEL_GEOMETRY_TOOLS`). The arrow takes the accent
   colour while any is active, and its hover lists the tools inside (`app-look.md`).
 - Offset, Sketch fillet and Sketch chamfer take a typed value in the point field: the preview follows
   while it parses, Enter commits the expression as typed (parameters included) and an error keeps the
@@ -806,8 +806,8 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   open the Constrain automatically panel (`tidy_panel.rs`, a right-hand panel sharing the side
   panels' room) at its Relations, Dimensions or Check task; a segmented control switches between
   them. They are in the Sketch menu, the palette and the sketch bar's Constrain and Dimension group
-  menus, with no button there, as the Dimension group would push the bar past one row at 1400
-  points.
+  menus, with no button there, as the Dimension group would widen the bar and wrap it into
+  another row.
 - `Tidying` (`tidying.rs`, in the `Workspace`) works on the settled sketch only
   (`Model::settled_sketch`; "Waiting for the sketch to solve…" otherwise) on a thread of its own, since
   finding relations and dimensions solves (`sketch.md`): a job per basis (feature, revision,

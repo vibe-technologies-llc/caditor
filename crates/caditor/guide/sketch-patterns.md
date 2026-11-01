@@ -1,7 +1,7 @@
 # Patterns in a sketch
 
 Two tools repeat the selected geometry, keeping the copies in step with the original. Neither has a
-key or a button of its own: open the small menu in the corner of the Mirror button, or use the
+key or a button of its own: open the menu of the arrow beside the Mirror button, or use the
 Sketch menu or {command:palette}.
 
 Select the geometry before starting, or select it in the tool: click items to add or remove them,

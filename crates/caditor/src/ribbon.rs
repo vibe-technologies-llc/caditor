@@ -5,15 +5,15 @@ use std::{
 };
 
 use egui::{
-    Frame, Galley, Id, Label, Margin, Popup, Rect, Response, RichText, Sense, Stroke, Style,
-    TextStyle, TextWrapMode, Ui, WidgetText, pos2, vec2,
+    Frame, Galley, Id, Label, Margin, Popup, Rect, RectAlign, Response, RichText, Sense, Stroke,
+    Style, TextStyle, TextWrapMode, Ui, WidgetText, pos2, vec2,
 };
 
 use crate::{
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
     commands::Command,
     menu_bar::MenuEntries,
-    widgets::{self, CornerMenu},
+    widgets::{self, ArrowMenu},
 };
 
 pub const TOOL_GAP: f32 = widgets::COMPACT_TOOL_GAP;
@@ -173,8 +173,16 @@ pub fn captioned_by(
 #[derive(Debug, Clone, Copy)]
 pub struct GroupTools {
     pub width: f32,
-    pub host: Rect,
-    pub compact_host: bool,
+    pub notch_at: Option<Rect>,
+}
+
+impl GroupTools {
+    pub fn arrowed(width: f32) -> Self {
+        Self {
+            width,
+            notch_at: None,
+        }
+    }
 }
 
 pub struct GroupMenu<'a> {
@@ -184,14 +192,27 @@ pub struct GroupMenu<'a> {
 }
 
 impl GroupMenu<'_> {
-    fn corner(&self) -> CornerMenu<'_> {
-        CornerMenu {
+    fn arrow(&self) -> ArrowMenu<'_> {
+        ArrowMenu {
             id: self.id,
             name: self.name,
             contents: self.contents,
             on_selected: false,
         }
     }
+}
+
+pub fn with_arrows<G: Copy>(widths: &[(G, f32)], has_menu: impl Fn(G) -> bool) -> Vec<(G, f32)> {
+    widths
+        .iter()
+        .map(|&(group, width)| {
+            if has_menu(group) {
+                (group, width + TOOL_GAP + widgets::ARROW_WIDTH)
+            } else {
+                (group, width)
+            }
+        })
+        .collect()
 }
 
 pub fn menu_group(
@@ -205,7 +226,7 @@ pub fn menu_group(
     let title_width = title
         .as_ref()
         .map_or(0.0, |title| widgets::group_title_width(ui, title));
-    let mut corner = None;
+    let mut arrow = None;
     let mut caption = None;
     let shown = captioned_by(
         ui,
@@ -214,7 +235,13 @@ pub fn menu_group(
         |ui| {
             let tools = content(ui);
             if !titled {
-                corner = Some(corner_trigger(ui, tools, menu));
+                arrow = Some(match tools.notch_at {
+                    Some(host) => widgets::notch_button(ui, host, &menu.arrow()),
+                    None => {
+                        let group = ui.min_rect();
+                        widgets::arrow_beside(ui, group, &menu.arrow())
+                    }
+                });
             }
             tools.width.max(title_width)
         },
@@ -235,16 +262,7 @@ pub fn menu_group(
             ));
         },
     );
-    (shown, caption.or(corner))
-}
-
-fn corner_trigger(ui: &mut Ui, tools: GroupTools, menu: &GroupMenu<'_>) -> Response {
-    let corner = menu.corner();
-    if tools.compact_host {
-        widgets::compact_corner_menu_button(ui, tools.host, &corner)
-    } else {
-        widgets::corner_menu_button(ui, tools.host, &corner)
-    }
+    (shown, caption.or(arrow))
 }
 
 pub fn group_menu(
@@ -257,14 +275,17 @@ pub fn group_menu(
     } else {
         entries
     };
-    let shown = Popup::menu(trigger).show(|ui| {
-        widgets::fitted_menu(ui, |ui| body(ui, &mut entries));
-        let picked = entries.take_chosen();
-        if !picked.is_empty() {
-            ui.close();
-        }
-        picked
-    });
+    let shown = Popup::menu(trigger)
+        .align(RectAlign::BOTTOM_START)
+        .align_alternatives(&[])
+        .show(|ui| {
+            widgets::fitted_menu(ui, |ui| body(ui, &mut entries));
+            let picked = entries.take_chosen();
+            if !picked.is_empty() {
+                ui.close();
+            }
+            picked
+        });
     shown.map(|shown| shown.inner).unwrap_or_default()
 }
 

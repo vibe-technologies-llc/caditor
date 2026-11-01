@@ -491,8 +491,8 @@ fn in_a_sketch_the_menu_constrains_the_curve_clicked_and_mid_shape_it_finishes_t
         .count();
 
     harness.use_tool(Key::L);
-    harness.click_at(Point2::new(5.0, 12.0));
-    let pending = harness.on_screen(Point2::new(20.0, 16.0));
+    harness.click_at(Point2::new(5.0, 10.0));
+    let pending = harness.on_screen(Point2::new(20.0, 14.0));
     point_at(&mut harness, pending);
     right_click(&mut harness, pending);
     let mid_shape = menu(&harness);

@@ -303,10 +303,19 @@ fn sketch_menu_name(group: &str) -> String {
     sketch_toolbar::group_menu_name(group)
 }
 
+const MOST_SETTLING_FRAMES: usize = 120;
+
 fn open_sketch_menu(harness: &mut Harness, group: &str) {
     harness.click_button(&sketch_menu_name(group));
     harness.frame();
     harness.frame();
+    for _ in 0..MOST_SETTLING_FRAMES {
+        let before = harness.texts.clone();
+        harness.frame();
+        if harness.texts == before {
+            return;
+        }
+    }
 }
 
 fn choose(harness: &mut Harness, command: Command) {
@@ -498,12 +507,12 @@ fn the_sketch_menus_open_and_stay_on_screen_from_75_to_200_percent() {
         ),
         (
             "Constrain",
-            Command::Constraint(ConstraintTool::Curvature),
+            Command::Constraint(ConstraintTool::Coincident),
             Command::CheckSketch,
         ),
         (
             "Dimension",
-            Command::DimensionFromDatum,
+            Command::SketchTool(Tool::Dimension),
             Command::ToggleFirstDimensionScales,
         ),
     ];

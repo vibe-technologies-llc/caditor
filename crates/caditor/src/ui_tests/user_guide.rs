@@ -1,6 +1,6 @@
 use egui::{Key, Modifiers, Pos2};
 
-use super::Harness;
+use super::{Harness, Wheel};
 use crate::{defender, guide::Page, guide_panel, model::Action, preferences::PreferencesCommand};
 
 const LINK_INSET: f32 = 3.0;
@@ -30,6 +30,7 @@ fn f1_opens_the_page_of_the_tool_in_use_and_its_links_and_back_lead_on() {
     assert_eq!(harness.workspace.guide.page(), Some(Page::Line));
     assert!(harness.shows("Sketch tools"));
 
+    harness.wheel_until_shown(Pos2::new(1200.0, 600.0), "arcs", Wheel::Down);
     click_link(&mut harness, "arcs");
 
     assert_eq!(harness.workspace.guide.page(), Some(Page::Arcs));

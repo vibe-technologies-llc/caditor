@@ -226,6 +226,11 @@ impl Group {
     }
 }
 
+#[cfg(test)]
+pub fn group_menu_names() -> Vec<String> {
+    Group::ALL.into_iter().map(Group::menu_name).collect()
+}
+
 pub fn show(
     ui: &mut Ui,
     model: &Model,
@@ -239,11 +244,13 @@ pub fn show(
     egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
-        let labelled = ribbon::rows(
-            &ribbon::remembered_widths(ui, RIBBON, &Group::ALL),
-            full,
-            full,
-        );
+        let widths = ribbon::remembered_widths(ui, RIBBON, &Group::ALL);
+        let single = ribbon::rows(&widths, full, full);
+        let labelled = if single.len() == 1 {
+            single
+        } else {
+            ribbon::rows(&ribbon::with_arrows(&widths, |_| true), full, full)
+        };
         let compact = ribbon::labelled_too_tall(ui, labelled.len());
         let (ribbon_name, rows) = if compact {
             let widths = ribbon::remembered_widths(ui, COMPACT_RIBBON, &Group::ALL);
@@ -276,8 +283,7 @@ pub fn show(
                             .rect;
                         GroupTools {
                             width: tools.width(),
-                            host: tools,
-                            compact_host: compact,
+                            notch_at: compact.then_some(tools),
                         }
                     });
                     if let Some(trigger) = trigger {

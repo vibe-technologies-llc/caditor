@@ -419,7 +419,7 @@ paths:
   window when it fits between menus and search, else as near as it can; clicking opens the model
   details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy file
   location).
-- Every menu, submenu, context menu and corner menu runs through `widgets::fitted_menu`: as tall as
+- Every menu, submenu, context menu and arrow menu runs through `widgets::fitted_menu`: as tall as
   the room below its top (at least half the window), scrolling past that
   (`every_menu_stays_on_screen_at_the_largest_interface_size`). The 3D view's context menu, which
   egui would flip above its spot, measures itself (`widgets::measured_menu`) and opens downward from
@@ -452,13 +452,15 @@ paths:
   `ribbon::group_menu` shows the menu and `ribbon::menu_sections` its paragraphs split by separators.
   The trigger is the group's caption while captions show (`widgets::group_title`: the caption and a
   caret, a strip as wide as the group, drawn in the caption's place by `ribbon::captioned_by`), else
-  a corner mark over one tool the group names (`ribbon::GroupTools::host`): the caret
-  (`widgets::corner_menu_button`) on a full button, the notch (`compact_corner_menu_button`) on a
-  compact one. The title with its caret (`widgets::group_title_width`) counts in the group's natural
-  width like the caption alone did; that widens only a group narrower than it (the sketch ribbon's
-  History column), so the main ribbon's widths and every layout's packing stay as
-  they were (`the_ribbons_settle_on_one_layout_at_every_interface_size`, `interface_fit`,
-  `large_interface`). Both triggers are buttons whose screen-reader name is the menu's and open an
+  a split-button arrow in a column of its own at the group's right (`widgets::arrow_beside`): a caret
+  `widgets::ARROW_WIDTH` (24 points) wide and as tall as the group, so the 24 point target size holds
+  (`ui_tests/conformance.rs`), except on the compact main ribbon (below). The title with its caret
+  (`widgets::group_title_width`) counts in the group's natural width like the caption alone did; that
+  widens only a group narrower than it (the sketch ribbon's History column). Remembered widths are
+  always the captioned ones; a layout that shows no captions, the compact main ribbon apart, adds the arrow's column to each
+  (`ribbon::with_arrows`), so the choice between one captioned row and several arrowed ones never
+  flips on its own result (`the_ribbons_settle_on_one_layout_at_every_interface_size`,
+  `interface_fit`, `large_interface`). Both triggers are buttons whose screen-reader name is the menu's and open an
   egui `Popup` of `PopupKind::Menu` through `widgets::fitted_menu`, so Escape or a click outside
   closes it and it scrolls when taller than the room. Group menus hold no submenus: scrolling one
   with the wheel would pass a submenu's button under the pointer, open it and send the wheel to it.
@@ -472,8 +474,7 @@ paths:
 - The main ribbon's menus are named "<group> commands" (`Group::menu_name`) and listed by
   `Group::sections` (Thread, the primitives, Offset face, Delete face, Emboss, Move face, Split face, Copy body, Mirror faces,
   Split, Mates, Scale model, the face analyses, the comb, isocurves, Add a section plane, centres of
-  mass without buttons); their trigger's host is the whole row of tools, so the corner sits over the
-  last tool. `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
+  mass without buttons). `ToolbarContext::analysing`, `combing`, `isocurving` and the measure and interference
   flags mark the open panels. Analyse is where the analysis and inspection commands live: Measure,
   Check interference, the six face analyses, comb, isocurves, section view and centres of mass; no
   command of another group belongs to it, and it keeps two buttons because the ribbon already fills
@@ -492,8 +493,7 @@ paths:
   every dimension; Disable, Dimension fully from a datum point; Scale the whole sketch on its first
   dimension). The active tool, Construction while drawing construction and each shape's current way
   (`ShapeModes::of`) are marked; choosing the active tool again is dropped, so the menu never steps
-  its way. Corner hosts: Redo, Select, Line (`DRAW_MENU_HOST`, the last Draw button without a corner
-  menu of its own), Delete, the last constraint button and Disable.
+  its way.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on `accent_surface`
   with an accent line along its top: a header without a caption (sketch badge, "Editing <name>"
   truncating with the full name on hover, the sketch's counts as `count_pill`s at the right and its
@@ -508,20 +508,28 @@ paths:
   centred on the whole bar, captions included. Left of it Cancel sketch, a compact `ToolButton` (a
   cross, named `sketch_toolbar::CANCEL_LABEL`, disabled with the reason when the session cannot be
   cancelled), sits over Look at sketch, a framed `framed_icon_button`, the pair one compact column
-  (`Beside::Stacked`) so the bar keeps one row at 1400 points; on a row of its own (the header
+  (`Beside::Stacked`) so the bar keeps its rows to the groups; on a row of its own (the header
   leaving Finish no room beside the groups) the three sit side by side (`Beside::InRow`).
-- Corner menus: shape tools with several ways to draw carry a `widgets::corner_menu_button` (a caret
-  at the top right, `compact_corner_menu_button` on a compact ribbon) listing them as
-  `menu_choice`s; the compact Offset, Mirror and Project buttons a `compact_corner_menu_button` (a
-  notch at the bottom right) listing the tools without a button of their own, then the host's ways
-  when it has some (Offset's). Both marks are drawn in the text colour (accent while one of their
-  tools is active), and each takes a `widgets::CornerMenu` whose hover names the menu and lists
-  what is inside (`Partners::contents`, `sketch_toolbar::menu_contents`).
+- Arrow menus: shape tools with several ways to draw are split buttons, a `widgets::arrow_button`
+  (a caret column `ARROW_WIDTH` wide and as tall as the button, full or compact, so it is a target
+  of its own) beside the tool, listing them as `menu_choice`s; the compact Offset, Mirror and
+  Project buttons carry one listing the tools without a button of their own, then the host's ways
+  when it has some (Offset's). The caret is drawn in the text colour (accent while one of the
+  tools is active), and each takes a `widgets::ArrowMenu` whose hover names the menu and lists what
+  is inside (`Partners::contents`, `sketch_toolbar::menu_contents`). The columns widen the Draw and
+  Modify groups, so at 1400 points the sketch bar takes two rows of arrowed groups, without captions, where it
+  once took one captioned row, and at 200% three rows of icons
+  (`the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button`,
+  `the_sketch_bar_folds_into_rows_of_named_icons_at_the_largest_size`). The compact main ribbon
+  keeps the notch over its group's last button (`widgets::notch_button`), the one mark left
+  under the 24 point target size, exempted in `ui_tests/conformance.rs` by the group menu names
+  (`toolbar::group_menu_names`): an arrow per group would wrap it into a second row at 200%,
+  and the start card then no longer fits the view (`docs/FEATURES.md`).
 - Several tools share one Draw button showing the one last used or chosen, each keeping its own key
   and command, which the button handles whichever is shown: the three arcs (`ARC_TOOLS`), Spline,
   Ellipse, Elliptical arc and Conic (`CURVE_TOOLS`, a `ToolGroup`), Polygon and Spur gear
-  (`POLYGON_TOOLS`, labelled Polygon whichever is shown), so the sketch bar fits one row at 1400
-  points. A group's corner menu lists its tools, then the ways of the one shown.
+  (`POLYGON_TOOLS`, labelled Polygon whichever is shown), so the sketch bar stays as narrow as
+  it can. A group's arrow menu lists its tools, then the ways of the one shown.
 - While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
   `ViewportState::set_uploading` before the interface runs), the status bar's file
   activity ends with a `widgets::progress` of `upload_badge::TEXT` (`StatusContext::uploading`),
