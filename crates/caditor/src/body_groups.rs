@@ -13,7 +13,7 @@ use crate::{
     model::{Action, Model, Notice},
     panels::{GroupRenaming, PanelState},
     selection::Selection,
-    tree_row::{self, CHILD_CHEVRON_INDENT, GROUP_INDENT, Look},
+    tree_row::{self, CHILD_CHEVRON_INDENT, GROUP_INDENT, Item, Look, NESTED_LEVEL},
     visibility, widgets,
 };
 
@@ -437,7 +437,7 @@ pub fn header(
                         Id::unique(("body-group-row", &group.folder)),
                         chevron.rect.right(),
                         name,
-                        selected,
+                        Item::new(depth + NESTED_LEVEL, selected).expanded(open),
                     ))
                 }
             };

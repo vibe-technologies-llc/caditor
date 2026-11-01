@@ -370,9 +370,21 @@ paths:
 
 - Every button drawn with a glyph takes a name without it (`Named`, `named`): icon buttons their
   hover text; small buttons, menu items and section headers their label; tree row buttons the action
-  and the feature's name ("Edit <name>"); the row itself a selectable label marked selected; a
+  and the feature's name ("Edit <name>"); the row itself a tree item (below); a
   sketch dimension's field its constraint's description; shortcut editor and palette rows and the
   welcome's cards what they do; a tab an AccessKit `Role::Tab` marked selected.
+- The feature tree is one AccessKit `Role::Tree` named `feature_tree::TREE_NAME` (`tree_row::tree`,
+  a scope with that role around everything the tree draws, so every row shares it as an ancestor).
+  Each row's name is a `Role::TreeItem` (`tree_row::sense`, given a `tree_row::Item`): its level
+  (`TOP_LEVEL` 1 for the Principal and Bodies headers, feature folders and ungrouped features;
+  `NESTED_LEVEL` 2 for what sits under the Principal header or in a feature folder, and 2 plus the
+  group depth for body groups and bodies),
+  selected, and expanded where a chevron folds it. The row's other buttons (chevron, menu, eye)
+  are siblings of the item, not its children. Each parameter table is a `Role::Table` (named
+  Parameters or Model parameters, row and column counts) of `Role::Row`s whose `Role::Cell`s and
+  `Role::ColumnHeader`s are scopes with `accessibility_parent` set to the row, since a grid lays
+  every cell out in one `Ui`; the row's own node is the scope around its first cell, so its bounds
+  are that cell's. Owner and refusal lines are rows of their own.
 - A search or filter field takes its visible placeholder as its name (`widgets::spoken_as`), so the
   name holds the visible text. The rollback bar is an AccessKit slider (value the features above
   the bar, 0 to the feature count, the caption as its text, Increment and Decrement mapped to the

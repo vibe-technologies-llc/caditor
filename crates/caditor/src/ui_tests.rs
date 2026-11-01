@@ -210,6 +210,7 @@ mod themes;
 mod thread_features;
 mod threads;
 mod title_bar;
+mod tree_roles;
 mod turn_snaps;
 mod typed_values;
 mod undo_history;
@@ -945,6 +946,23 @@ impl Harness {
     fn click_button(&mut self, name: &str) {
         let position = self.button_rect(name).center();
         self.click_screen(position);
+        self.show_new_windows();
+    }
+
+    fn click_topmost_button(&mut self, name: &str) {
+        self.read_screen();
+        let bounds = self
+            .accessible
+            .iter()
+            .filter(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
+            .filter_map(|(_, node)| node.bounds())
+            .min_by(|a, b| a.y0.total_cmp(&b.y0))
+            .unwrap_or_else(|| panic!("no button named '{name}'"));
+        let centre = Pos2::new(
+            ((bounds.x0 + bounds.x1) / 2.0) as f32,
+            ((bounds.y0 + bounds.y1) / 2.0) as f32,
+        );
+        self.click_screen(centre);
         self.show_new_windows();
     }
 

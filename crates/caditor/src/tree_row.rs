@@ -15,6 +15,8 @@ pub const CHILD_INDENT: f32 = CHEVRON_SIDE + SPACE_XS + SPACE_L;
 pub const BODY_INDENT: f32 = SPACE_M;
 pub const GROUP_INDENT: f32 = SPACE_L;
 pub const CHILD_CHEVRON_INDENT: f32 = CHILD_INDENT - CHEVRON_SIDE - SPACE_XS;
+pub const TOP_LEVEL: usize = 1;
+pub const NESTED_LEVEL: usize = 2;
 const ROW_MARGIN: Margin = Margin::symmetric(SPACE_S as i8, SPACE_XS as i8);
 const OPEN_BAR_WIDTH: f32 = 3.0;
 const CHEVRON_SIDE: f32 = CONTROL_HEIGHT;
@@ -23,6 +25,30 @@ const CHEVRON_SIDE: f32 = CONTROL_HEIGHT;
 pub struct Look {
     pub selected: bool,
     pub open: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Item {
+    pub level: usize,
+    pub selected: bool,
+    pub expanded: Option<bool>,
+}
+
+impl Item {
+    pub fn new(level: usize, selected: bool) -> Self {
+        Self {
+            level,
+            selected,
+            expanded: None,
+        }
+    }
+
+    pub fn expanded(self, open: bool) -> Self {
+        Self {
+            expanded: Some(open),
+            ..self
+        }
+    }
 }
 
 pub struct Shown<L, T> {
@@ -144,12 +170,29 @@ pub fn chevron(ui: &mut Ui, open: bool, subject: &str) -> Response {
     response
 }
 
-pub fn sense(ui: &mut Ui, id: Id, from: f32, name: &str, selected: bool) -> Response {
+pub fn sense(ui: &mut Ui, id: Id, from: f32, name: &str, item: Item) -> Response {
     let area = ui.max_rect().with_min_x(from);
     let response = ui.interact(area, id, Sense::click_and_drag());
     let enabled = ui.is_enabled();
-    response.widget_info(|| WidgetInfo::selected(Role::Button, enabled, selected, name));
+    response.widget_info(|| WidgetInfo::labeled(Role::TreeItem, enabled, name));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_level(item.level);
+        node.set_selected(item.selected);
+        if let Some(expanded) = item.expanded {
+            node.set_expanded(expanded);
+        }
+    });
     response
+}
+
+pub fn tree<R>(ui: &mut Ui, name: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.scope_builder(
+        UiBuilder::new()
+            .accessibility_role(Role::Tree)
+            .accessibility_label(name),
+        add,
+    )
+    .inner
 }
 
 pub fn focus_outline(ui: &Ui, rect: Rect) {

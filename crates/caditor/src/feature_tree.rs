@@ -51,13 +51,14 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools, solid_panel, solid_tools, split_face_panel, split_face_tools, split_panel,
     split_tools, thread_panel,
-    tree_row::{self, GROUP_INDENT, Look},
+    tree_row::{self, GROUP_INDENT, Item, Look, NESTED_LEVEL, TOP_LEVEL},
     units::Units,
     viewport,
     visibility::{self, VisibilityError},
     widgets::{self, DialogWidth, Tone},
 };
 
+pub const TREE_NAME: &str = "Feature tree";
 pub const REPLACE_FROM_FILE: &str = "Replace from file…";
 const REPLACE_HINT: &str = "Read a STEP or mesh file again, or a newer one, in place of this body; \
                             features using it keep it";
@@ -210,8 +211,10 @@ pub fn show(
         state.opened_for_editing = None;
         state.finished_editing = Some(finished);
     }
-    tree_row::rows(ui, |ui| {
-        rows(ui, model, selection, editing, state, actions);
+    tree_row::tree(ui, TREE_NAME, |ui| {
+        tree_row::rows(ui, |ui| {
+            rows(ui, model, selection, editing, state, actions);
+        });
     });
     combining_card(ui, model, editing, actions);
 }
@@ -851,7 +854,11 @@ fn feature_row(
                         Id::unique(("feature-row", id)),
                         toggle.rect.right(),
                         &feature.name,
-                        row.selected,
+                        Item::new(
+                            if row.grouped { NESTED_LEVEL } else { TOP_LEVEL },
+                            row.selected,
+                        )
+                        .expanded(open),
                     ))
                 }
             };
