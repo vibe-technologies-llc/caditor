@@ -94,7 +94,8 @@ fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
     harness.type_into_field(name_field_id(), "hidden bore");
     harness.frame();
     let refused = harness.shows_containing("There is already a view named");
-    harness.type_into_field(name_field_id(), "As drawn");
+    harness.focus_field(name_field_id());
+    harness.replace_text("As drawn");
     harness.click(SAVE_LABEL);
     harness.frame();
     let two = harness.document().saved_views().named.len();
@@ -134,7 +135,8 @@ fn escape_in_a_saved_view_s_rename_row_keeps_the_name_and_the_dialog() {
     harness.settle();
     run_from_palette(&mut harness, "saved views");
     harness.frame();
-    harness.type_into_field(name_field_id(), "As drawn");
+    harness.focus_field(name_field_id());
+    harness.replace_text("As drawn");
     harness.click(SAVE_LABEL);
     harness.frame();
     harness.click_button("Rename it");
