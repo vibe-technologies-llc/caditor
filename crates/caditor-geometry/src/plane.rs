@@ -38,7 +38,12 @@ impl Plane {
         if in_plane.length() <= FRAME_TOLERANCE * x_direction.length() {
             return None;
         }
-        let x_axis = in_plane.try_normalize()?;
+        let first_pass = in_plane.try_normalize()?;
+        let x_axis = if first_pass.dot(normal).abs() <= FRAME_TOLERANCE {
+            first_pass
+        } else {
+            first_pass.reject_from_normalized(normal).try_normalize()?
+        };
         Some(Self {
             origin,
             normal,
@@ -153,6 +158,28 @@ mod tests {
         assert!(Plane::with_x_axis(Point3::ZERO, normal, along).is_none());
         assert!(Plane::from_frame(Point3::ZERO, normal, along).is_none());
         assert!(Plane::with_x_axis(Point3::ZERO, normal, along + Vector3::X * 1e-6).is_some());
+    }
+
+    #[test]
+    fn an_x_direction_nearly_along_the_normal_still_gives_a_frame_that_loads_unchanged() {
+        let normal = Vector3::new(-2.0, 0.0, 1.0);
+        let nudges = (1..=40).map(|step| f64::from(step) * 1e-8);
+
+        let planes: Vec<Plane> = nudges
+            .filter_map(|nudge| {
+                Plane::with_x_axis(
+                    Point3::ZERO,
+                    normal,
+                    normal + Vector3::new(nudge, 0.0, nudge),
+                )
+            })
+            .collect();
+
+        assert_eq!(planes.len(), 40);
+        for plane in planes {
+            let restored = Plane::from_frame(plane.origin(), plane.normal(), plane.x_axis());
+            assert_eq!(restored, Some(plane));
+        }
     }
 
     #[test]

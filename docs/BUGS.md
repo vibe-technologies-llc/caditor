@@ -39,6 +39,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
   (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
   changed none of these.
+- [medium · hard] Near-tangent booleans can turn on the last bit of the C library's `sin`, `cos`
+  and `atan2`, which glibc and the Windows UCRT round differently: a plug 2e-6 off its bore's axis
+  at 247.5 degrees and 1e-6 narrower fails as `Open` on glibc (the bore's rim at the start face is
+  used by the plate's side and start face and the peg's start face but not the peg's side) and as
+  edge contact on Windows and whenever every transcendental result is moved one ulp either way.
+  The combine test of a failing place now uses a plug 2.5e-6 off at 292.5 degrees (`Split` at the
+  plate's start face), whose outcome survived the pure-Rust `libm` and every result moved one ulp
+  up, down or at random. Taking the kernel's maths from `libm` would make Linux and Windows agree
+  bit for bit, but with it `boolean::tests::a_marched_boolean_cancelled_anywhere_stops_with_cancelled`
+  fails: the union of a radius-1 cylinder and a radius-1.5 sphere centred on its wall is
+  `Unfollowable` once `cos` rounds one ulp differently, a marching fragility to fix first.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

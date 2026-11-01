@@ -17,7 +17,7 @@ use caditor_kernel::MeshQuality;
 use crate::{
     document::{References, run_steps},
     invariants::assert_sound,
-    seeded::for_each_case,
+    seeded::{for_each_case, replay_case},
     sketch_tests::largest_shift,
 };
 
@@ -290,19 +290,28 @@ fn undoing_every_step_restores_the_empty_document_and_redoing_them_restores_the_
     });
 }
 
+fn saves_and_loads_to_the_same_content(input: &mut Unstructured) {
+    let mut editor = Editor::default();
+    run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
+
+    let bytes = caditor_file::fuzzing::save_over(editor.document(), None, 0).unwrap();
+    let loaded = caditor_file::decode(&bytes).unwrap();
+
+    assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+    assert!(
+        loaded.document.same_content(editor.document()),
+        "a saved document loaded differently"
+    );
+}
+
 #[test]
 fn a_random_document_saves_and_loads_to_the_same_content() {
     for_each_case("save and load", SAVING_CASES, |_, input| {
-        let mut editor = Editor::default();
-        run_steps(input, &mut editor, &References::default(), STEPS, |_, _| {});
-
-        let bytes = caditor_file::fuzzing::save_over(editor.document(), None, 0).unwrap();
-        let loaded = caditor_file::decode(&bytes).unwrap();
-
-        assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
-        assert!(
-            loaded.document.same_content(editor.document()),
-            "a saved document loaded differently"
-        );
+        saves_and_loads_to_the_same_content(input);
     });
+}
+
+#[test]
+fn a_sketch_plane_whose_x_direction_nearly_follows_its_normal_saves_and_loads_unchanged() {
+    replay_case(3076, |_, input| saves_and_loads_to_the_same_content(input));
 }
