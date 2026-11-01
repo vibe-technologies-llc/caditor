@@ -61,11 +61,18 @@ paths:
 
 ## Waiting
 
-- `settle` waits for the recompute, body meshing and requested mass properties
+- `settle` flushes the model's storage worker first (`Model::flush_journal`), so the notice a harness
+  with no recovery folder always gets from it (the journal is not protected) has landed before
+  the frames that follow, never in the middle of a click or over a notice the test is waiting for.
+  It then waits for the recompute, body meshing and requested mass properties
   (`Model::masses_pending`), runs two frames, and repeats while those started more work, so the
   scene after it is the finished one. `point_at` (so `click_at`) and `open_combo` settle first when
   work is running, because a result landing between working out a position and the press shifts
   the panel; `open_combo` also holds the pointer still until the list stops moving.
+- `click` and `click_button` follow their target: after the pointer-move frame they look the label
+  or button up again and move the pointer there while it keeps moving (a scrolling panel animates
+  for as many frames as the settle before it happened to run, which depends on how fast the
+  background work finished), pressing only once two frames agree.
 - A harness's model wakes count into `Harness::wakes`; `frames_while_woken` runs a frame only after
   a wake or queued input, as the app does, until a second passes without one, so a test sees what
   a still pointer would (`a_distance_typed_after_extruding_by_key_is_previewed_without_moving_the_pointer`).
@@ -75,7 +82,7 @@ paths:
   (`Model::close` and `Closing::wait` before another harness opens the same model, since Windows
   locks the journal until the worker lets go).
 - The view can move between frames without input: a notice the storage worker reports (a harness
-  has no recovery folder, so the first change reports one whenever the worker gets to it) or a
+  has no recovery folder, so a new worker reports one as it starts; `settle` waits for it) or a
   progress line changes the status bar's height and so the view's. A drag aims afresh each frame
   (`drag_in_sketch` takes the sketch point, not a screen position fixed before the press).
 - A value typed into a sketch field right after an edit waits for `settle` first:

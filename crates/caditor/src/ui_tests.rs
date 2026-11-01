@@ -228,6 +228,7 @@ const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1004.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(60);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
+const STEADY_TRIES: usize = 100;
 const WHEEL_TRIES: usize = 40;
 const WHEEL_STEP: f32 = 60.0;
 
@@ -752,6 +753,7 @@ impl Harness {
 
     fn settle(&mut self) {
         let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
+        self.model.flush_journal(RECOMPUTE_TIMEOUT);
         loop {
             while self.computing() {
                 assert!(Instant::now() < deadline, "the recompute did not finish");
@@ -920,6 +922,11 @@ impl Harness {
     }
 
     fn button_rect(&mut self, name: &str) -> Rect {
+        self.find_button_rect(name)
+            .unwrap_or_else(|| panic!("no button named '{name}'"))
+    }
+
+    fn find_button_rect(&mut self, name: &str) -> Option<Rect> {
         if self.accessible.is_empty() {
             self.context.enable_accesskit();
             self.frame();
@@ -931,12 +938,11 @@ impl Harness {
             .filter(|(_, node)| {
                 matches!(node.role(), Role::Button | Role::Slider) && node.label() == Some(name)
             })
-            .find_map(|(_, node)| node.bounds())
-            .unwrap_or_else(|| panic!("no button named '{name}'"));
-        Rect::from_min_max(
+            .find_map(|(_, node)| node.bounds())?;
+        Some(Rect::from_min_max(
             Pos2::new(bounds.x0 as f32, bounds.y0 as f32),
             Pos2::new(bounds.x1 as f32, bounds.y1 as f32),
-        )
+        ))
     }
 
     fn has_button(&self, name: &str) -> bool {
@@ -946,8 +952,10 @@ impl Harness {
     }
 
     fn click_button(&mut self, name: &str) {
-        let position = self.button_rect(name).center();
-        self.click_screen(position);
+        let first = self.button_rect(name).center();
+        self.click_steadily(first, |harness| {
+            harness.find_button_rect(name).map(|rect| rect.center())
+        });
         self.show_new_windows();
     }
 
@@ -1130,8 +1138,8 @@ impl Harness {
     }
 
     fn click(&mut self, label: &str) {
-        let position = self.position_of(label);
-        self.click_screen(position);
+        let first = self.position_of(label);
+        self.click_steadily(first, |harness| harness.find_position_of(label));
         self.show_new_windows();
     }
 
@@ -1187,12 +1195,15 @@ impl Harness {
     }
 
     fn position_of(&self, label: &str) -> Pos2 {
+        self.find_position_of(label)
+            .unwrap_or_else(|| panic!("'{label}' is not on screen"))
+    }
+
+    fn find_position_of(&self, label: &str) -> Option<Pos2> {
         self.texts
             .iter()
             .find(|(shown, _)| shown == label)
-            .unwrap_or_else(|| panic!("'{label}' is not on screen"))
-            .1
-            .center()
+            .map(|(_, rect)| rect.center())
     }
 
     fn fully_shown(&self, label: &str) -> bool {
@@ -1230,6 +1241,19 @@ impl Harness {
     fn click_screen(&mut self, position: Pos2) {
         self.events.push(Event::PointerMoved(position));
         self.frame();
+        self.press(position);
+    }
+
+    fn click_steadily(&mut self, first: Pos2, mut find: impl FnMut(&mut Self) -> Option<Pos2>) {
+        let mut position = first;
+        for _ in 0..STEADY_TRIES {
+            self.events.push(Event::PointerMoved(position));
+            self.frame();
+            match find(self) {
+                Some(found) if found != position => position = found,
+                Some(_) | None => break,
+            }
+        }
         self.press(position);
     }
 
@@ -1309,9 +1333,13 @@ impl Harness {
         self.frame();
     }
 
-    fn type_into_field(&mut self, id: Id, text: &str) {
+    fn focus_field(&mut self, id: Id) {
         self.context.memory_mut(|memory| memory.request_focus(id));
         self.frame();
+    }
+
+    fn type_into_field(&mut self, id: Id, text: &str) {
+        self.focus_field(id);
         self.key(Key::A, Modifiers::COMMAND);
         self.events.push(Event::Text(text.to_owned()));
         self.frame();
