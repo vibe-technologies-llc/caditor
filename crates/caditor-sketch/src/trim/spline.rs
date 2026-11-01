@@ -108,19 +108,31 @@ impl Knotted {
         }
     }
 
-    fn periodic(points: &[Point2], turns: usize) -> Option<Self> {
+    fn periodic(points: &[Point2], spans: &[f64], turns: usize) -> Option<Self> {
         let count = points.len();
-        if count < MIN_CLOSED_POINTS {
+        if count < MIN_CLOSED_POINTS || spans.len() != count {
             return None;
         }
+        let total_span: f64 = spans.iter().sum();
+        let starts: Vec<f64> = spans
+            .iter()
+            .scan(0.0, |reached, span| {
+                let start = *reached / total_span;
+                *reached += span;
+                Some(start)
+            })
+            .collect();
         let degree = MAX_SPLINE_DEGREE;
         let total = count * turns + degree;
         let wrapped = (0..total)
             .map(|index| points.get(index % count).map(|point| point.extend(1.0)))
             .collect::<Option<Vec<_>>>()?;
         let knots = (0..=total + degree)
-            .map(|index| (index as f64 - degree as f64) / count as f64)
-            .collect();
+            .map(|index| {
+                let looped = index + count - degree;
+                Some(starts.get(looped % count)? + (looped / count) as f64 - 1.0)
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some(Self {
             degree,
             knots,
@@ -181,16 +193,6 @@ impl Knotted {
             }
         }
         points.get(degree).copied()
-    }
-
-    pub(crate) fn spans(&self) -> Vec<KnotSpan> {
-        (self.degree..self.points.len())
-            .filter_map(|index| {
-                let low = *self.knots.get(index)?;
-                let high = *self.knots.get(index + 1)?;
-                (high > low).then_some(KnotSpan { low, high })
-            })
-            .collect()
     }
 
     pub(crate) fn inserted(&self, parameter: f64) -> Option<Inserted> {
@@ -291,12 +293,6 @@ impl Knotted {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct KnotSpan {
-    pub(crate) low: f64,
-    pub(crate) high: f64,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Inserted {
     pub(crate) kind: SplineKind,
@@ -378,6 +374,7 @@ impl Part {
             let total: f64 = spans.iter().sum();
             return Some(SplineKind::Knotted {
                 spans: spans.iter().map(|span| span / total).collect(),
+                closed: false,
             });
         }
         let (lead, trail) = (lead / unit, trail / unit);
@@ -470,9 +467,13 @@ impl Sketch {
         let count = positions.len();
         let (knotted, width) = match kind {
             SplineKind::Control { closed: true } => (
-                Knotted::periodic(&positions, CLOSED_TURNS)?,
+                Knotted::periodic(&positions, &vec![1.0; count], CLOSED_TURNS)?,
                 Some(1.0 / count as f64),
             ),
+            SplineKind::Knotted {
+                ref spans,
+                closed: true,
+            } => (Knotted::periodic(&positions, spans, CLOSED_TURNS)?, None),
             SplineKind::Control { closed: false } => {
                 let spline = BSpline::clamped(positions)?;
                 let spans = count.saturating_sub(spline.degree()).max(1);
@@ -485,9 +486,9 @@ impl Sketch {
                     Some(1.0 / spans),
                 )
             }
-            SplineKind::Knotted { .. } | SplineKind::Conic { .. } | SplineKind::Fit { .. } => {
-                (Knotted::of(&self.spline(curve)?), None)
-            }
+            SplineKind::Knotted { closed: false, .. }
+            | SplineKind::Conic { .. }
+            | SplineKind::Fit { .. } => (Knotted::of(&self.spline(curve)?), None),
         };
         Some(SplineSource {
             knotted,

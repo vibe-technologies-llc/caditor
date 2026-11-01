@@ -1,5 +1,5 @@
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch, SplineKind};
 use egui::{Key, Modifiers};
 
 use super::{
@@ -488,6 +488,63 @@ fn a_control_point_is_added_to_a_spline_from_the_palette_keeping_its_shape_and_u
         Some(caditor_sketch::Entity::Spline { points, .. }) if points.len() == 8
     ));
     assert!(moved_by(sketch) < 1e-9);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::sketch_tools::INSERT_TITLE)
+    );
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn a_closed_spline_and_a_short_one_take_control_points_from_the_palette_keeping_their_shapes() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let closed = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(30.0, -10.0),
+            Point2::new(60.0, 10.0),
+            Point2::new(40.0, 40.0),
+        ],
+        SplineKind::Control { closed: true },
+    );
+    let short = sketch.add_spline(&[
+        Point2::new(0.0, 60.0),
+        Point2::new(20.0, 80.0),
+        Point2::new(40.0, 60.0),
+    ]);
+    let shapes = [closed, short].map(|spline| sketch.spline(spline).unwrap());
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.select([closed, short].map(|entity| Pickable::SketchEntity { feature, entity }));
+    run_from_palette(&mut harness, "add a control point to the selected spline");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    for (spline, (shape, count)) in [closed, short].into_iter().zip(shapes.iter().zip([5, 4])) {
+        assert!(matches!(
+            sketch.entity(spline),
+            Some(Entity::Spline { points, .. }) if points.len() == count
+        ));
+        let after = sketch.spline(spline).unwrap();
+        let moved = (0..=200)
+            .map(|step| f64::from(step) / 200.0)
+            .map(|parameter| {
+                shape
+                    .point_at(parameter)
+                    .distance(after.point_at(parameter))
+            })
+            .fold(0.0, f64::max);
+        assert!(moved < 1e-9, "the spline moved by {moved}");
+    }
+    assert!(matches!(
+        sketch.entity(closed).and_then(Entity::spline_kind),
+        Some(SplineKind::Knotted { closed: true, .. })
+    ));
     assert_eq!(
         harness.model.undo_label(),
         Some(crate::sketch_tools::INSERT_TITLE)

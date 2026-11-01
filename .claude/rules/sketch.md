@@ -83,12 +83,16 @@ paths:
     long (`curve::piece_knots`): what trim and extend leave of a control spline, so the curve keeps
     its shape exactly. At least `MIN_PIECE_POINTS` (`TooFewPiecePoints`), spans finite and above
     zero (`InvalidEndSpans`); `same_form` compares the spans, which nothing solves.
-  - Knotted (`SplineKind::Knotted { spans }`, named "Spline", saved as `spline_knots`) is an open
-    cubic control spline whose spans between knots are the given widths (relative, summing to one
-    when made by the sketch): what knot insertion leaves, since no other kind holds a knot where
-    the old ones are not uniform. The spans are at least two, finite and above zero
-    (`InvalidKnotSpans`) and three fewer than the points (`KnotSpanCount`); `curve::span_knots`
-    builds the knots, `same_form` compares the spans, nothing solves them. `SplineKind` is not
+  - Knotted (`SplineKind::Knotted { spans, closed }`) is a cubic control spline whose spans
+    between knots are the given widths (relative, summing to one when made by the sketch): what
+    knot insertion leaves, since no other kind holds a knot where the old ones are not uniform. The
+    spans are at least two, finite and above zero (`InvalidKnotSpans`). Open (named "Spline", saved
+    as `spline_knots`) it has three fewer spans than points (`KnotSpanCount`) and
+    `curve::span_knots` builds the knots; closed (named "Closed spline", saved as
+    `closed_spline_knots`) it is periodic like a closed control spline, one span per point
+    (`LoopedKnotSpanCount`), span `i` starting at control point `i`, at least three points, and
+    `curve::looped_knots` builds the periodic knots that `BSpline::looped`, the solver and trim
+    (`Knotted::periodic`) share. `same_form` compares the spans, nothing solves them. `SplineKind` is not
     `Copy` because of it, so `Entity::spline_kind` returns a clone. Trim and extend read the result
     as a `Piece` when its inner spans are all equal (always with up to six points), else as a
     `Knotted` of the spans of the part's knots (`Part::kind`).
@@ -532,19 +536,30 @@ relative to the extent.
   found by measuring, `AngleNotHeld` if none does; an elliptical arc's measured from its tangent at
   the new end).
 - Insert a control point (`insertion.rs`): `insert_control_point(spline, near)` adds one control
-  point to an open control spline, piece or knotted spline of at least four points, keeping the
-  curve exactly by Boehm's knot insertion (`Knotted::inserted`, in homogeneous coordinates like the
-  blossoms): a knot goes into the span at the parameter closest to `near` (clamped `SPAN_MARGIN`
-  of the span from its knots so no span collapses), else into the span with the longest curve
-  that leaves its neighbours alone. With degree three the knot replaces the two control points
-  before the span's end by three, so those two keep their IDs and move along the polygon, the
-  third is new and gets the next place in the list, and the result is `Part::kind` (a `Piece` or
-  `Knotted`). Moving them may not break a constraint, so they must be free: no constraint, no
-  other user, not projected, listed once (`InsertError::HeldPoint` names the first that is not;
-  with no `near` the next longest span is tried). Constraints on the spline itself hold, since
-  its curve does not change. Refused with `FitSpline`, `ClosedSpline` (a periodic spline would
-  need a closed knotted kind), `Conic`, `TooFewPoints` (degrees one and two would change degree),
-  `Projected`, `NotASpline`. It works on a clone, so a refusal changes nothing.
+  point to a control spline, open or closed, a piece or a knotted spline, keeping the curve exactly:
+  a knot goes into the span at the parameter closest to `near` (clamped `SPAN_MARGIN` of the span
+  from its knots so no span collapses), else into the span with the longest curve that leaves its
+  neighbours alone.
+  - Open cubic (four points or more): Boehm's knot insertion (`Knotted::inserted`, in homogeneous
+    coordinates like the blossoms). The knot replaces the two control points before the span's end
+    by three, so those two keep their IDs and move along the polygon, the third is new and gets the
+    next place in the list, and the result is `Part::kind` (a `Piece` or `Knotted`).
+  - Closed (`Plan::looped`): the same insertion round the loop on the periodic knots
+    (`curve::looped_knots`), giving a closed `Knotted` of one more span. The lists are rotated so
+    the first span still starts at parameter zero, so the curve keeps its parameter as well as its
+    shape; a point inserted in the last two spans moves the first points, and the new point may
+    head the list.
+  - Two points (degree one): the new point goes on the line at the parameter, giving a quadratic on
+    the same segment (`Plan::straight`); nothing moves.
+  - Three points (degree two): degree elevation to the cubic Bézier of four (`Plan::elevated`),
+    exact in curve and parameter; the middle point moves to one inner place and the new point takes
+    the other, the new one on the side of `near` (the far side without it).
+  Moved points may not break a constraint, so they must be free: no constraint, no other user, not
+  projected, listed once (`InsertError::HeldPoint` names the first that is not; with no `near` the
+  next longest span is tried). Constraints on the spline itself hold, since its curve does not
+  change. Refused with `FitSpline`, `Conic` (its halves would be rational arcs needing weights no
+  kind but the conic holds), `Projected`, `NotASpline`. It works on a clone, so a refusal changes
+  nothing.
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point on it between its ends
   (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve dropped.
   A line's pieces are `Collinear` or each keeps horizontal or vertical; a point that was the line's

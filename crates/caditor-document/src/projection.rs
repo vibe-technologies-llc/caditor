@@ -235,7 +235,7 @@ enum SplineForm {
     ClosedFit(FitSpacing),
     Conic,
     Piece,
-    Knotted,
+    Knotted(bool),
 }
 
 impl SplineForm {
@@ -253,7 +253,7 @@ impl SplineForm {
             } => Self::ClosedFit(spacing),
             SplineKind::Conic { .. } => Self::Conic,
             SplineKind::Piece { .. } => Self::Piece,
-            SplineKind::Knotted { .. } => Self::Knotted,
+            SplineKind::Knotted { closed, .. } => Self::Knotted(closed),
         }
     }
 }

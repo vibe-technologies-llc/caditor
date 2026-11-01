@@ -6,7 +6,7 @@ use crate::{
     constraint::Constraint,
     curve::{
         BSpline, CONIC_DEGREE, CONIC_KNOTS, MAX_SPLINE_DEGREE, clamped_knots, conic_weight,
-        periodic_knots, piece_knots, span_knots,
+        looped_knots, periodic_knots, piece_knots, span_knots,
     },
     entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId},
@@ -395,7 +395,17 @@ impl System {
                     self.fit_handle(id, &handles, *closed, *spacing)
                 }
                 SplineKind::Piece { lead, trail } => piece_handle(handles, *lead, *trail),
-                SplineKind::Knotted { spans } => knotted_handle(handles, spans),
+                SplineKind::Knotted {
+                    spans,
+                    closed: false,
+                } => knotted_handle(handles, spans),
+                SplineKind::Knotted {
+                    spans,
+                    closed: true,
+                } => periodic_handle(
+                    &handles,
+                    looped_knots(spans).unwrap_or_else(|| periodic_knots(handles.len()).1),
+                ),
             };
             self.splines.insert(id, Arc::new(handle));
         }
