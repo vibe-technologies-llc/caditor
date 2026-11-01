@@ -230,6 +230,11 @@ impl DimensionValues {
         self.values.get(&constraint).copied()
     }
 
+    pub(crate) fn with_dimension(mut self, constraint: ConstraintId, value: f64) -> Self {
+        self.values.insert(constraint, value);
+        self
+    }
+
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (ConstraintId, f64)> + '_ {
         self.values.iter().map(|(id, value)| (*id, *value))
     }

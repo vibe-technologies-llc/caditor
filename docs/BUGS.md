@@ -116,12 +116,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   staying-put suite, a closed fit spline through a rectangle's corner 7 mm from that rectangle's
   side, reaches 5.6 mm). Holding every bulge nearer than the value at once, or the measured
   distance as a minimum over the stationary points, would let it converge.
-- [low · hard] A dimension placed on entities that still have other freedom is added as a driving
-  dimension although the measured value is already determined by their constraints: `determines`
-  (`sketch_tools.rs`) takes a new dimension as a reference only when every entity involved is
-  `FullyConstrained`. Such a dimension is reported as redundant, not as a conflict, since its value
-  equals the measured one; deciding it from the freedom along the one measured direction would need
-  the solver's Jacobian.
+- [low · hard] A new dimension that brings a variable of its own (a curve parameter or a hidden
+  point: a distance from a spline or an ellipse) is always added as driving, though the other
+  constraints may already fix the size it measures: `Sketch::determines` (`solve/determined.rs`)
+  counts the rank that variable adds, so it cannot tell such a dimension from a free one.
 
 ## STEP import
 

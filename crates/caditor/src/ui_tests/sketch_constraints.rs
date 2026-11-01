@@ -815,7 +815,7 @@ fn a_dimension_of_geometry_already_determined_is_added_as_a_reference() {
         harness
             .model
             .notice()
-            .is_some_and(|notice| notice.text.contains("already fully determined"))
+            .is_some_and(|notice| notice.text.contains("already determined"))
     );
     harness.settle();
 

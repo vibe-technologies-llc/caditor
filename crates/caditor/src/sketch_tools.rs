@@ -1092,13 +1092,16 @@ pub fn add_constraints(
     constraints: Vec<Constraint>,
     projections: &Projections,
 ) -> Added {
-    let solution = model
-        .settled_solution(feature)
+    let settled = model
+        .settled_sketch(feature)
+        .zip(model.settled_solution(feature))
         .filter(|_| tool.is_dimension());
     let determined: Vec<bool> = constraints
         .iter()
         .map(|constraint| {
-            solution.is_some_and(|solution| determines(solution, constraint, projections))
+            settled.is_some_and(|(geometry, solution)| {
+                determines(geometry, solution, constraint, projections)
+            })
         })
         .collect();
     let label = if determined.iter().all(|determined| *determined) && !determined.is_empty() {
@@ -1129,17 +1132,26 @@ pub fn add_constraints(
 }
 
 fn determines(
+    geometry: &Sketch,
     solution: &SketchSolution,
     constraint: &Constraint,
     projections: &Projections,
 ) -> bool {
     let shapes_without_freedom = matches!(constraint, Constraint::Rho { .. });
-    constraint.dimension().is_some()
-        && !shapes_without_freedom
-        && constraint.entities().into_iter().all(|entity| {
+    let held_still = || {
+        constraint.entities().into_iter().all(|entity| {
             projections.is_fixed(entity)
                 || solution.entity_state(entity) == Some(EntityState::FullyConstrained)
         })
+    };
+    let measured_already = || {
+        geometry
+            .determines(solution.dimensions(), constraint)
+            .unwrap_or(false)
+    };
+    constraint.dimension().is_some()
+        && !shapes_without_freedom
+        && (held_still() || measured_already())
 }
 
 pub fn remove_items(

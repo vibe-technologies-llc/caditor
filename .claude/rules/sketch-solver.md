@@ -258,6 +258,14 @@ paths:
 
 - Degrees of freedom and each entity's state come from the rank and null space of the Jacobian at
   the solution. A constraint adding no rank over older ones is redundant, naming what it duplicates.
+- `Sketch::determines` (`determined.rs`) tells whether a new dimension's measurement is already
+  held: on the settled geometry and its solution's dimension values, the dimension is added at its
+  literal value and, without solving, each part holding its equations is linearised
+  (`Solver::adds_rank_over_the_rest`): every other row is merged into a `sparse::Triangular` as the
+  large-part analysis does (no null space), and the dimension is determined when none of its rows
+  then adds rank, so its gradient lies in the other constraints' row space. A dimension bringing
+  variables of its own (a curve parameter or hidden point) adds rank through them and counts as not
+  determined.
 - Above `DENSE_LIMIT` the analysis (`sparse::Triangular`) merges the normalised rows, in
   constraint order, into an upper-triangular basis by Givens rotations, columns in minimum-degree
   order, so fill stays within the symbolic Cholesky structure and a closed chain analyses in

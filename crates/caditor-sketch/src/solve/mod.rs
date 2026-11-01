@@ -1,3 +1,6 @@
+mod determined;
+#[cfg(test)]
+mod determined_tests;
 mod diagnosis;
 #[cfg(test)]
 mod diagnosis_tests;
