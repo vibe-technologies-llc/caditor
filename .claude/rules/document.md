@@ -1480,9 +1480,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `MAX_PATTERN_INSTANCES` (`Pattern::settle_skipped`), as loading does. One
   past the current counts is kept but changes nothing, so lowering and raising a count brings the
   same copies back. Copies made keep their indices and names.
-- `PatternKind::Curve` (`CurvePattern`) follows an earlier sketch whose non-construction curves form
-  one chain, open or closed (`pattern_path.rs`, `curve_path`); a branch, second chain or zero-length
-  curve fails with the fix on the sketch. An open chain is walked from its end on the curve of
+- `PatternKind::Curve` (`CurvePattern`) follows a `CurvePatternPath`: `Sketch`, an earlier sketch
+  whose non-construction curves form one chain, open or closed (`pattern_path.rs`, `curve_path`); a
+  branch, second chain or zero-length curve fails with the fix on the sketch. An open chain is walked from its end on the curve of
   lowest entity id (that curve's start if both are), a closed one from the start of its lowest
   curve, the other way when `reversed` (an open one from its far end). Copy `[i, 0]` stands at arc
   length `i` steps along it: `CurveSpacing::Spread` shares the whole length (over `count - 1` steps,
@@ -1492,7 +1492,25 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   the change of tangent when `CopyOrientation::Following`. Arc length is exact on lines and arcs
   and bisected on splines and ellipses. `PatternPath` hands the walk to the interface: the length,
   whether it is closed, and `copy_at` for the placement, point and tangent of the copy at an arc
-  length, so the pattern's arrows stand where its copies do.
+  length, so the pattern's arrows stand where its copies do (`PatternPath::of` a sketch,
+  `along_edges` of a solid).
+- `CurvePatternPath::Edges { body, edges }` follows a chain of model edges, the 3D path: the
+  `EdgeReference`s are resolved with `EdgeNaming` in the body as it stands at the pattern
+  (`edge_segments`, each a `PathSegment` keyed by its edge name's digest, as a sweep's) and ordered
+  by kernel `chained_path`, which walks an open chain from the first free end met among the edges
+  in their order. The walk (`EdgeWalk`) carries a frame along each leg by double reflection over
+  `TRANSPORT_STEPS` samples and turns it at a corner by the least rotation between the tangents,
+  so it is rotation-minimising (no spin about the path) and, on a path in one plane, keeps the
+  plane's normal: copies turn exactly as a sketch path's would. `reversed` walks the reversed chain
+  (its own frames), so a closed chain still starts at its first edge's start. Following, a copy is
+  the rotation from the start frame to its station's frame about the start point, then moved there;
+  kept, it is moved only. Count, spacing and running past the end are as for a sketch. No edges
+  waits (`MissingInput::Path`); an edge lost or tied asks to choose the edges again
+  (`PathEdgeGone`, `PathEdgeTied`), a branch or gap (`PathEdgesBroken`), an edge too short
+  (`PathEdgeNoLength`, named by its faces) or one not followable fail the pattern with the fix on
+  it. The path's body is in `Pattern::bodies` (so `bodies_used` and `features()`), its edges'
+  origins among `origin_features`, healing visits its edges as a sweep's, and pasting renames its
+  body (`CurvePatternPath::with_features_renamed`).
 - `PatternKind::Points` (`PointsPattern`) places a copy at every lone point of an earlier sketch
   (`Sketch::layout_points`, solved), moved from `base`, a `PointReference` resolved like a datum
   point's (datum, frame, body, sketch and origins counted, edge or face healed). A point on the base
@@ -1500,8 +1518,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   is its point's id plus one split into two words (`point_instance`, `instance_point`; the original
   stays `[0, 0]`), so adding or deleting points never renames others; copies are worded "the copy at
   point N" (`Pattern::instance_words`, `describe_origin`). `instances` is none.
-- Both sketches are in `features()` and `reference_sketches` (an edit naming a non-sketch is
-  `NotASketch`), so an edit to the sketch recomputes the pattern, which stays below it; a failed
+- Both sketches (a curve pattern's when it follows one) are in `features()` and
+  `reference_sketches` (an edit naming a non-sketch is `NotASketch`), so an edit to the sketch recomputes the pattern, which stays below it; a failed
   sketch fails the pattern naming it. `SetFeatureKind` may switch a pattern between all four kinds.
 
 ### Sketch and datum (`attachment.rs`, `datum.rs`)

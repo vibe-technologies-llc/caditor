@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::mcp::{
-    feature_schemas::{amount, axis, features, name, on_edge, on_face, plane, point},
+    feature_schemas::{amount, axis, features, keys, name, on_edge, on_face, plane, point},
     sweep_schemas::{choice, flag},
     tools::{object, reference},
 };
@@ -133,22 +133,36 @@ pub fn helix() -> Value {
     )
 }
 
+fn path_edges() -> Value {
+    json!({
+        "type": "object",
+        "description": "Instead of a sketch: model edges joined end to end, open or closed, for the copies to follow",
+        "properties": {
+            "body": reference("The body, by id or name"),
+            "edges": keys("Edge keys from list_edges, joined end to end")
+        },
+        "required": ["body", "edges"],
+        "additionalProperties": false
+    })
+}
+
 pub fn curve_pattern() -> Value {
     object(
         json!({
             "body": reference("The body repeated"),
             "features": features("Instead of a body: holes, cuts, bosses or embossed outlines of one body, repeated on it"),
-            "sketch": reference("The sketch whose curves, joined end to end, the copies follow"),
+            "sketch": reference("The sketch whose curves, joined end to end, the copies follow; or give edges"),
+            "edges": path_edges(),
             "count": amount("How many, the original included; 4 by default"),
             "spacing": amount("How far apart the copies stand along the curve; gives spread false"),
             "spread": flag("Share the whole curve evenly between the copies (the default)"),
-            "follow": flag("Turn each copy as the curve turns"),
+            "follow": flag("Turn each copy as the curve turns, about its normal too where the edges leave a plane"),
             "reversed": flag("Run along the curve the other way"),
             "skipped": skipped(),
             "result": { "type": "string", "enum": ["add_to_body", "new_bodies"], "description": "What a pattern of the whole body makes: the copies joined to the body (the default), or each copy a body of its own beside the untouched original" },
             "name": name()
         }),
-        &["sketch"],
+        &[],
     )
 }
 

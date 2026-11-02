@@ -255,7 +255,7 @@ pub fn source(
     Ok(SweepStart { profile, path })
 }
 
-fn captured_edges(
+pub fn captured_edges(
     body: &SolidResult,
     edges: &[EdgeName],
 ) -> Result<Vec<EdgeReference>, SweepError> {

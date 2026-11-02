@@ -6357,8 +6357,8 @@ fn patterns_are_saved_and_loaded() {
 #[test]
 fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
     use caditor_document::{
-        CopyOrientation, CurvePattern, CurveSpacing, Pattern, PatternKind, PointReference,
-        PointsPattern, point_instance,
+        CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Pattern, PatternKind,
+        PointReference, PointsPattern, point_instance,
     };
     let (mut document, base, _) = solid_model();
     let outline = document
@@ -6370,7 +6370,7 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
     let mut along = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
-            sketch: outline,
+            path: CurvePatternPath::Sketch(outline),
             count: transaction.parse("depth + 1").unwrap(),
             spacing: transaction.parse("12 mm").unwrap(),
             measured: CurveSpacing::Distance,
@@ -6416,6 +6416,61 @@ fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
+}
+
+#[test]
+fn a_curve_pattern_along_edges_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::{
+        CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Pattern, PatternKind,
+    };
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, VertexName};
+    let (mut document, base, _) = solid_model();
+    let edge = |digest| {
+        EdgeReference::new(
+            EdgeName::from_digest(digest),
+            [FaceName::from_digest(1), FaceName::from_digest(2)],
+            [VertexName::from_digest(3), VertexName::from_digest(4)],
+        )
+    };
+    let mut transaction = document.transaction("Pattern");
+    let mut pattern = Pattern::new(
+        base,
+        PatternKind::Curve(CurvePattern {
+            path: CurvePatternPath::Edges {
+                body: base,
+                edges: vec![edge(0xed), edge(0xee)],
+            },
+            count: transaction.parse("3").unwrap(),
+            spacing: transaction.parse("12 mm").unwrap(),
+            measured: CurveSpacing::Distance,
+            orientation: CopyOrientation::Following,
+            reversed: true,
+        }),
+    );
+    pattern.skipped.insert([2, 0]);
+    let along = transaction.add_feature("Curve pattern 1", FeatureKind::from(pattern));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("\"edge_curve_pattern\"", "\"later_pattern\""));
+    let damaged =
+        decode_text(&text.replacen("000000000000000000000000000000ee", "not a digest", 1));
+    let kind = document.feature(along).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: along, kind });
+    let record =
+        through_binary(&serde_json::to_string(&format::transaction_record(&transaction)).unwrap());
+
+    assert!(text.contains("\"edge_curve_pattern\":{\"body\":1,"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(along).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(
+        damaged.issues,
+        ["Some edges of the path of “Curve pattern 1” could not be read and were left out."]
+    );
+    assert_eq!(format::restore_transaction(record), Some(transaction));
 }
 
 #[test]

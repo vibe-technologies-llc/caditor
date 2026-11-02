@@ -1,6 +1,6 @@
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
-use caditor_kernel::SamplingTolerance;
+use caditor_kernel::{Curve, EdgeReference, SamplingTolerance, Solid};
 use caditor_sketch::{EntityId, Sketch};
 
 use crate::*;
@@ -56,24 +56,25 @@ struct Model {
     pattern: FeatureId,
 }
 
+fn extruded(sketch: FeatureId, depth: &str) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(Expression::parse(depth, &|_| None).unwrap(), false),
+        operation: BodyOperation::NewBody,
+        start: None,
+        other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
+        direction: None,
+    }))
+}
+
 fn model(path: Sketch, kind: impl FnOnce(FeatureId) -> PatternKind) -> Model {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let outline = transaction.add_feature("Outline", FeatureKind::from(bar()));
-    let base = transaction.add_feature(
-        "Base",
-        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
-            sketch: outline,
-            regions: RegionChoice::All,
-            extent: ExtrudeExtent::one_side(Expression::parse("2 mm", &|_| None).unwrap(), false),
-            operation: BodyOperation::NewBody,
-            start: None,
-            other_bodies: Vec::new(),
-            taper: None,
-            wall: None,
-            direction: None,
-        })),
-    );
+    let base = transaction.add_feature("Base", extruded(outline, "2 mm"));
     let path = transaction.add_feature("Path", FeatureKind::from(path));
     let pattern = transaction.add_feature(
         "Pattern 1",
@@ -100,7 +101,7 @@ fn quarter_arc() -> Sketch {
 
 fn along(path: FeatureId, count: &str, orientation: CopyOrientation) -> PatternKind {
     PatternKind::Curve(CurvePattern {
-        sketch: path,
+        path: CurvePatternPath::Sketch(path),
         count: Expression::parse(count, &|_| None).unwrap(),
         spacing: Expression::parse("10 mm", &|_| None).unwrap(),
         measured: CurveSpacing::Spread,
@@ -191,7 +192,7 @@ fn a_set_distance_along_a_chain_of_lines_stops_at_its_end() {
     set_kind(
         &mut model,
         PatternKind::Curve(CurvePattern {
-            sketch: path,
+            path: CurvePatternPath::Sketch(path),
             count: Expression::Number(6.0),
             spacing: Expression::parse("10 mm", &|_| None).unwrap(),
             measured: CurveSpacing::Distance,
@@ -371,4 +372,244 @@ fn a_pattern_path_places_a_copy_at_a_distance_along_the_curve_and_reports_its_ta
     assert!((back.point - Point3::new(10.0, 6.0, 0.0)).length() < 1e-9);
     assert!((back.tangent + Vector3::Y).length() < 1e-9);
     assert!(PatternPath::of(&Sketch::new(Plane::XY)).is_none());
+}
+
+fn rectangle(from: Point2, to: Point2) -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        from,
+        Point2::new(to.x, from.y),
+        to,
+        Point2::new(from.x, to.y),
+    ];
+    for index in 0..4 {
+        sketch.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+    sketch
+}
+
+struct Railed {
+    document: Document,
+    base: FeatureId,
+    rail: FeatureId,
+}
+
+fn rail_model() -> Railed {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(bar()));
+    let base = transaction.add_feature("Base", extruded(outline, "2 mm"));
+    let footprint = transaction.add_feature(
+        "Footprint",
+        FeatureKind::from(rectangle(Point2::new(0.0, 10.0), Point2::new(30.0, 30.0))),
+    );
+    let rail = transaction.add_feature("Rail", extruded(footprint, "10 mm"));
+    document.apply(transaction.finish()).unwrap();
+    Railed {
+        document,
+        base,
+        rail,
+    }
+}
+
+fn edge_through(solid: &Solid, middle: Point3) -> EdgeReference {
+    let (id, _) = solid
+        .edges()
+        .find(|(_, edge)| {
+            let curve = edge.curve();
+            matches!(curve, Curve::Line(_))
+                && curve.point(edge.interval().middle()).distance(middle) < 1e-9
+        })
+        .unwrap();
+    EdgeReference::capture(solid, id).unwrap()
+}
+
+fn rail_edges(railed: &Railed, middles: &[Point3]) -> Vec<EdgeReference> {
+    let evaluation = evaluate(&railed.document);
+    let solid = evaluation.body(railed.rail).unwrap();
+    middles
+        .iter()
+        .map(|middle| edge_through(solid, *middle))
+        .collect()
+}
+
+fn along_edges(
+    railed: &mut Railed,
+    edges: Vec<EdgeReference>,
+    orientation: CopyOrientation,
+) -> FeatureId {
+    let kind = PatternKind::Curve(CurvePattern {
+        path: CurvePatternPath::Edges {
+            body: railed.rail,
+            edges,
+        },
+        count: Expression::Number(3.0),
+        spacing: Expression::parse("10 mm", &|_| None).unwrap(),
+        measured: CurveSpacing::Spread,
+        orientation,
+        reversed: false,
+    });
+    let mut transaction = railed.document.transaction("Pattern");
+    let pattern = transaction.add_feature(
+        "Pattern 1",
+        FeatureKind::from(Pattern::new(railed.base, kind)),
+    );
+    railed.document.apply(transaction.finish()).unwrap();
+    pattern
+}
+
+const ALONG_X: Point3 = Point3::new(15.0, 10.0, 0.0);
+const ALONG_Y: Point3 = Point3::new(30.0, 20.0, 0.0);
+const UPRIGHT: Point3 = Point3::new(30.0, 10.0, 5.0);
+
+#[test]
+fn a_curve_pattern_follows_a_chain_of_model_edges_kept_or_turned_with_it() {
+    let mut railed = rail_model();
+    let edges = rail_edges(&railed, &[ALONG_X, ALONG_Y]);
+    let kept = along_edges(&mut railed, edges.clone(), CopyOrientation::Kept);
+
+    let evaluation = evaluate(&railed.document);
+    let bounds = evaluation
+        .body(railed.base)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_copies(&evaluation, railed.base, 3.0);
+    assert!((bounds.max().x - 32.0).abs() < 1e-6, "{bounds:?}");
+    assert!((bounds.max().y - 21.0).abs() < 1e-6, "{bounds:?}");
+    assert!(
+        railed
+            .document
+            .dependents_of(&[railed.rail])
+            .contains(&kept)
+    );
+
+    let mut turning = rail_model();
+    let edges = rail_edges(&turning, &[ALONG_X, ALONG_Y]);
+    along_edges(&mut turning, edges, CopyOrientation::Following);
+
+    let evaluation = evaluate(&turning.document);
+    let bounds = evaluation
+        .body(turning.base)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_copies(&evaluation, turning.base, 3.0);
+    assert!((bounds.max().x - 41.0).abs() < 1e-6, "{bounds:?}");
+    assert!((bounds.max().y - 32.0).abs() < 1e-6, "{bounds:?}");
+}
+
+#[test]
+fn copies_along_edges_that_leave_a_plane_turn_with_the_tangent_into_space() {
+    let railed = rail_model();
+    let evaluation = evaluate(&railed.document);
+    let solid = evaluation.body(railed.rail).unwrap();
+    let edges = [ALONG_X, UPRIGHT].map(|middle| edge_through(solid, middle));
+    let path = PatternPath::along_edges(solid, &edges).unwrap();
+
+    let top = path
+        .copy_at(40.0, false, CopyOrientation::Following)
+        .unwrap();
+    let back = path
+        .copy_at(15.0, true, CopyOrientation::Following)
+        .unwrap();
+
+    assert!((path.length() - 40.0).abs() < 1e-9);
+    assert!(!path.is_closed());
+    assert!((top.point - Point3::new(30.0, 10.0, 10.0)).length() < 1e-9);
+    assert!((top.tangent - Vector3::Z).length() < 1e-9);
+    assert!((top.placement.apply_vector(Vector3::X) - Vector3::Z).length() < 1e-9);
+    assert!((top.placement.apply_vector(Vector3::Y) - Vector3::Y).length() < 1e-9);
+    assert!((top.placement.apply_point(Point3::new(0.0, 10.0, 0.0)) - top.point).length() < 1e-9);
+    assert!((back.point - Point3::new(25.0, 10.0, 0.0)).length() < 1e-9);
+    assert!((back.tangent + Vector3::X).length() < 1e-9);
+    assert!((back.placement.apply_vector(Vector3::Z) - Vector3::X).length() < 1e-9);
+}
+
+#[test]
+fn edges_that_do_not_chain_fail_the_pattern_with_the_fix_on_it() {
+    let mut railed = rail_model();
+    let edges = rail_edges(&railed, &[ALONG_X, Point3::new(15.0, 30.0, 0.0)]);
+    let pattern = along_edges(&mut railed, edges, CopyOrientation::Kept);
+
+    let evaluation = evaluate(&railed.document);
+    let error = failure(&evaluation, pattern);
+
+    assert!(
+        error.reason().contains("do not join end to end"),
+        "{}",
+        error.reason()
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(pattern)));
+    assert!(evaluation.body(railed.base).is_some());
+}
+
+#[test]
+fn a_curve_pattern_along_no_edges_waits_for_its_path() {
+    let mut railed = rail_model();
+    let pattern = along_edges(&mut railed, Vec::new(), CopyOrientation::Kept);
+
+    let evaluation = evaluate(&railed.document);
+
+    assert!(matches!(
+        evaluation.feature(pattern).unwrap().state,
+        FeatureState::Waiting(MissingInput::Path)
+    ));
+}
+
+#[test]
+fn copies_round_a_closed_edge_share_its_length() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(bar()));
+    let base = transaction.add_feature("Base", extruded(outline, "2 mm"));
+    let mut round = Sketch::new(Plane::XY);
+    round.add_circle(Point2::new(60.0, 0.0), 20.0);
+    let disc = transaction.add_feature("Round", FeatureKind::from(round));
+    let drum = transaction.add_feature("Drum", extruded(disc, "5 mm"));
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document);
+    let solid = evaluation.body(drum).unwrap();
+    let (rim, _) = solid
+        .edges()
+        .find(|(_, edge)| {
+            matches!(edge.curve(), Curve::Circle(_))
+                && edge.curve().point(edge.interval().start()).z.abs() < 1e-9
+        })
+        .unwrap();
+    let edges = vec![EdgeReference::capture(solid, rim).unwrap()];
+    let path = PatternPath::along_edges(solid, &edges).unwrap();
+    assert!(path.is_closed());
+    assert!((path.length() - 40.0 * std::f64::consts::PI).abs() < 1e-6);
+
+    let mut transaction = document.transaction("Pattern");
+    let pattern = transaction.add_feature(
+        "Pattern 1",
+        FeatureKind::from(Pattern::new(
+            base,
+            PatternKind::Curve(CurvePattern {
+                path: CurvePatternPath::Edges { body: drum, edges },
+                count: Expression::Number(4.0),
+                spacing: Expression::parse("10 mm", &|_| None).unwrap(),
+                measured: CurveSpacing::Spread,
+                orientation: CopyOrientation::Following,
+                reversed: true,
+            }),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(pattern)
+    );
+    assert_copies(&evaluation, base, 4.0);
 }

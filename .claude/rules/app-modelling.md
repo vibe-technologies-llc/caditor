@@ -1421,12 +1421,21 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   points or regions are selected (several sketches, one made after the bar, or one that does not fit
   are refused in words), else the last sketch above the bar that no later feature uses and that fits
   (`guess`): its curves one chain (`is_curve_path`) for a curve pattern, at least one lone point for a
-  point pattern. A curve pattern starts with 4 copies spread evenly, kept as they are; a point pattern
-  moves its copies from the origin.
+  point pattern. A curve pattern with model edges selected follows them instead of a sketch
+  (`sketch_pattern_tools::selected_edge_path`, edges of one body captured in its shown state, else
+  refused in words; `PatternSource::edges`), the body being the edges' unless chosen in the tree. A
+  curve pattern starts with 4 copies spread evenly, kept as they are (`sketch_pattern_tools::curve`);
+  a point pattern moves its copies from the origin.
 - The Shape switch has all four kinds (Linear, Circular, Curve, Points). Switching to Curve or Points
   keeps the pattern's sketch when it fits, else guesses one, else is refused saying what to draw
   (`pattern_tools::reshaped`); a count carries over between Linear, Circular and Curve. A curve
-  pattern's Curve row lists fitting sketches above it (`sketch_pattern_tools::listed`, `Slot::PatternPath`);
+  pattern's Curve row lists fitting sketches above it (`sketch_pattern_tools::listed`, `Slot::PatternPath`),
+  reading "None, it follows edges" while it follows edges, and its Edges row
+  (`pattern_panel::edges_row`, `edges_words`) counts the edges and their body and takes edges by
+  `Slot::PatternEdges`, which keeps choosing: a click adds an edge of the path's body or takes it
+  out again (`sketch_pattern_tools::toggled_edges`, resolved in the body as the pattern sees it),
+  an edge of another body starts a new path, and the copies left out are cleared. A curve pattern
+  waiting for its edges opens that slot from the tree;
   a point pattern's Base point takes a point as a datum point does (`Slot::PatternBase`) and, as its
   copies are named by point, it has no instance grid but a line counting the copies left out with Bring
   the copies back. Reverse the direction refuses a point pattern in words.

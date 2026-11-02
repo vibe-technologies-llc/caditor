@@ -1,7 +1,7 @@
 use caditor_document::{
-    CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurveSpacing, DEFAULT_PITCH,
-    DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind, Pattern,
-    PatternKind, PointReference, PointsPattern, is_curve_path,
+    CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing,
+    DEFAULT_PITCH, DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix,
+    HelixKind, Pattern, PatternKind, PointReference, PointsPattern, is_curve_path,
 };
 use caditor_expression::Expression;
 use caditor_sketch::Sketch;
@@ -11,17 +11,16 @@ use crate::{
     coil_tools, helix_tools,
     mcp::{
         features::{
-            Amount, Built, CopyName, PatternResult, added, count, kept_subject, length, parsed,
-            pattern_built, pattern_outcome, sketch_of, skipped_copies, turn,
+            Amount, Built, CopyName, PatternResult, added, count, edge_references, kept_subject,
+            length, parsed, pattern_built, pattern_outcome, sketch_of, skipped_copies, turn,
         },
         places::{self, AxisChoice, PointChoice},
-        references::Named,
+        references::{self, Named},
         session::{Session, Work},
-        sweeps::coil_length,
+        sweeps::{EdgePath, coil_length},
         tools::{Answer, ToolError},
     },
-    pattern_tools::{self, Shape},
-    sketch_pattern_tools,
+    pattern_tools, sketch_pattern_tools,
     units::LengthUnit,
 };
 
@@ -49,6 +48,7 @@ pub struct CurvePatterning {
     pub body: Option<Named>,
     pub features: Option<Vec<Named>>,
     pub sketch: Option<Named>,
+    pub edges: Option<EdgePath>,
     pub count: Option<Amount>,
     pub spacing: Option<Amount>,
     pub spread: Option<bool>,
@@ -78,6 +78,10 @@ pub enum CurveToolError {
          curves construction geometry"
     )]
     NotAPath { sketch: String },
+    #[error("give the curve pattern a sketch or edges to follow, not both")]
+    SketchAndEdges,
+    #[error("name at least one edge for the copies to follow")]
+    NoPathEdges,
     #[error("{sketch} has no lone points to place copies at; draw points with add_sketch_geometry")]
     NoPoints { sketch: String },
     #[error("a flat spiral has no height; give its outer_diameter instead")]
@@ -216,33 +220,13 @@ pub fn curve_pattern_built(
         Some(PatternKind::Curve(curve)) => Some(curve),
         Some(_) | None => None,
     };
-    let document = session.document();
-    let (sketch, sketch_name, _) = sketch_of(
-        document,
-        asked.sketch.as_ref(),
-        kept.map(|kept| kept.sketch),
-    )?;
-    if !solved(session.evaluation(), sketch).is_some_and(is_curve_path) {
-        return Err(CurveToolError::NotAPath {
-            sketch: sketch_name.to_owned(),
-        }
-        .into());
-    }
-    let mut curve = match (
-        kept,
-        sketch_pattern_tools::kind(Shape::Curve, sketch, LengthUnit::Millimetre),
-    ) {
-        (Some(kept), _) => CurvePattern {
-            sketch,
+    let path = curve_path_of(session, &asked, kept.map(|kept| &kept.path))?;
+    let mut curve = match kept {
+        Some(kept) => CurvePattern {
+            path,
             ..kept.clone()
         },
-        (None, PatternKind::Curve(fresh)) => fresh,
-        (None, _) => {
-            return Err(CurveToolError::NotAPath {
-                sketch: sketch_name.to_owned(),
-            }
-            .into());
-        }
+        None => sketch_pattern_tools::curve(path, LengthUnit::Millimetre),
     };
     if let Some(copies) = copies {
         curve.count = copies;
@@ -276,6 +260,39 @@ pub fn curve_pattern_built(
         ),
         (asked.name, pattern_tools::CURVE_TITLE),
     ))
+}
+
+fn curve_path_of(
+    session: &Session,
+    asked: &CurvePatterning,
+    kept: Option<&CurvePatternPath>,
+) -> Result<CurvePatternPath, ToolError> {
+    let document = session.document();
+    let sketch = match (asked.sketch.as_ref(), asked.edges.as_ref(), kept) {
+        (Some(_), Some(_), _) => return Err(CurveToolError::SketchAndEdges.into()),
+        (None, Some(along), _) => {
+            if along.edges.is_empty() {
+                return Err(CurveToolError::NoPathEdges.into());
+            }
+            let body = references::body(document, session.evaluation(), &along.body)?;
+            return Ok(CurvePatternPath::Edges {
+                body,
+                edges: edge_references(session, body, &along.edges)?,
+            });
+        }
+        (None, None, Some(kept @ CurvePatternPath::Edges { .. })) => return Ok(kept.clone()),
+        (Some(named), None, _) => Some(named),
+        (None, None, Some(CurvePatternPath::Sketch(_)) | None) => None,
+    };
+    let (sketch, sketch_name, _) =
+        sketch_of(document, sketch, kept.and_then(CurvePatternPath::sketch))?;
+    if !solved(session.evaluation(), sketch).is_some_and(is_curve_path) {
+        return Err(CurveToolError::NotAPath {
+            sketch: sketch_name.to_owned(),
+        }
+        .into());
+    }
+    Ok(CurvePatternPath::Sketch(sketch))
 }
 
 pub fn curve_pattern(

@@ -746,7 +746,9 @@ impl FeatureKind {
                 pattern.body = rename(pattern.body);
                 each(&mut pattern.repeated);
                 match &mut pattern.kind {
-                    PatternKind::Curve(curve) => curve.sketch = rename(curve.sketch),
+                    PatternKind::Curve(curve) => {
+                        curve.path = curve.path.with_features_renamed(rename)
+                    }
                     PatternKind::Points(points) => {
                         points.sketch = rename(points.sketch);
                         rename_point(&mut points.base, rename);

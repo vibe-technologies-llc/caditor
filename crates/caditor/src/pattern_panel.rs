@@ -1,8 +1,8 @@
 use caditor_document::{
-    AxisReference, CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Feature,
-    FeatureId, Instance, LinearDirection, LinearSpacing, ORIGINAL_INSTANCE, Pattern, PatternKind,
-    PatternOutcome, PointReference, PointsPattern, Transaction, capitalized, describe_axis,
-    describe_point, instance_name,
+    AxisReference, CircularPattern, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing,
+    Document, Feature, FeatureId, Instance, LinearDirection, LinearSpacing, ORIGINAL_INSTANCE,
+    Pattern, PatternKind, PatternOutcome, PointReference, PointsPattern, Transaction, capitalized,
+    describe_axis, describe_point, instance_name,
 };
 use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
@@ -28,6 +28,9 @@ pub const POINTS_HINT: &str = "Each copy is moved from the base point to one lon
 const COUNT: (Dimension, Rule) = (Dimension::NONE, Rule::Count);
 
 pub const CURVE: &str = "Curve";
+pub const EDGES: &str = "Edges";
+pub const NO_EDGES: &str = "None, it follows a sketch";
+pub const FOLLOWS_EDGES: &str = "None, it follows edges";
 pub const POINTS: &str = "Points";
 pub const BASE_POINT: &str = "Base point";
 pub const SPACED: &str = "Spaced";
@@ -609,18 +612,24 @@ impl Panel<'_> {
         }
     }
 
-    fn sketch_row(&mut self, ui: &mut Ui, caption: &str, current: FeatureId, hover: &'static str) {
+    fn sketch_row(
+        &mut self,
+        ui: &mut Ui,
+        caption: &str,
+        current: Option<FeatureId>,
+        hover: &'static str,
+    ) {
         let shape = Shape::of(&self.pattern.kind);
         let document = self.model.document();
         widgets::caption(ui, caption);
         let before = document.feature_index(self.id()).unwrap_or(0);
         let id = Id::unique(("pattern-sketch", self.id()));
         ui.vertical(|ui| {
-            let shown = feature_fields::combo_text(
-                ui,
-                feature_fields::feature_name(document, current),
-                "Missing sketch",
-            );
+            let name = match current {
+                Some(current) => feature_fields::feature_name(document, current),
+                None => Some(FOLLOWS_EDGES),
+            };
+            let shown = feature_fields::combo_text(ui, name, "Missing sketch");
             let chosen = feature_fields::combo(ui, id, shown, || {
                 sketch_pattern_tools::listed(self.model, shape, before)
                     .into_iter()
@@ -628,7 +637,7 @@ impl Panel<'_> {
                         label: feature_fields::feature_name(document, sketch)
                             .unwrap_or_default()
                             .to_owned(),
-                        selected: sketch == current,
+                        selected: Some(sketch) == current,
                         change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
                             .map_err(PatternToolError::from)
                             .and_then(|pattern| {
@@ -658,13 +667,38 @@ impl Panel<'_> {
         ui.end_row();
     }
 
+    fn edges_row(&mut self, ui: &mut Ui, path: &CurvePatternPath) {
+        widgets::caption(ui, EDGES);
+        let (model, selection, feature, pattern) =
+            (self.model, self.selection, self.id(), self.pattern);
+        ui.vertical(|ui| {
+            ui.label(edges_words(model.document(), path));
+            let picker = Picker {
+                feature,
+                slot: Slot::PatternEdges,
+                selected: feature_fields::offered_change(
+                    ui.ctx(),
+                    model,
+                    selection,
+                    (feature, Slot::PatternEdges),
+                    || sketch_pattern_tools::edges_change(model, selection, feature, pattern),
+                ),
+                hover: "Follow the selected edges of a body, joined end to end, instead of a \
+                        sketch",
+            };
+            feature_fields::reference_picker(ui, model, picker, self.actions);
+        });
+        ui.end_row();
+    }
+
     fn curve_rows(&mut self, ui: &mut Ui, curve: &CurvePattern) {
         self.sketch_row(
             ui,
             CURVE,
-            curve.sketch,
+            curve.path.sketch(),
             "Follow the curves of the selected sketch",
         );
+        self.edges_row(ui, &curve.path);
         self.expression(ui, "Count", "count", &curve.count, COUNT, |count| {
             PatternKind::Curve(CurvePattern {
                 count,
@@ -734,7 +768,7 @@ impl Panel<'_> {
         self.sketch_row(
             ui,
             POINTS,
-            points.sketch,
+            Some(points.sketch),
             "Place the copies at the lone points of the selected sketch",
         );
         widgets::caption(ui, BASE_POINT);
@@ -845,6 +879,22 @@ impl Panel<'_> {
                 ..circular.clone()
             })
         });
+    }
+}
+
+pub fn edges_words(document: &Document, path: &CurvePatternPath) -> String {
+    match path {
+        CurvePatternPath::Sketch(_) => NO_EDGES.to_owned(),
+        CurvePatternPath::Edges { body, edges } => {
+            let body = document
+                .body_label(*body)
+                .unwrap_or_else(|| "a missing body".to_owned());
+            match edges.len() {
+                0 => format!("None yet on {body}; click its edges in the view"),
+                1 => format!("1 edge of {body}"),
+                count => format!("{count} edges of {body}"),
+            }
+        }
     }
 }
 

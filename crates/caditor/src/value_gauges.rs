@@ -1,15 +1,15 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern, CurveSpacing,
-    Datum, DatumPlane, Draft, Emboss, EmbossForm, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FeatureId, FeatureKind, Helix, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
-    LinearDirection, LinearSpacing, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES,
-    MIN_PRISM_SIDES, MoveFace, OffsetFace, Pattern, PatternKind, PatternPath, Pipe, Primitive,
-    PrimitiveAnchor, PrimitiveShape, ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell,
-    ShellSide, SizeRule, SketchRegion, SolidFeature, SolidStart, Wall, capitalized, circle_sizes,
-    coil_size_name, displayed_axis, displayed_plane, face_plane, flat_normal, hole_centres,
-    hole_thread, pipe_size_name, pipe_stand, rib_stand,
+    Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern,
+    CurvePatternPath, CurveSpacing, Datum, DatumPlane, Draft, Emboss, EmbossForm, Evaluation,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Helix, Hole, HoleDepth, HoleShape,
+    HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
+    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, MoveFace, OffsetFace, Pattern,
+    PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd,
+    ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion, SolidFeature,
+    SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane,
+    face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -2245,11 +2245,26 @@ impl Builder<'_> {
         self.curve_gauge(curve, centre).into_iter().collect()
     }
 
+    fn pattern_path(&self, path: &CurvePatternPath) -> Option<PatternPath> {
+        match path {
+            CurvePatternPath::Sketch(sketch) => {
+                let sketch = self
+                    .model
+                    .displayed_sketch(self.model.document().feature(*sketch)?)?;
+                PatternPath::of(&sketch)
+            }
+            CurvePatternPath::Edges { body, edges } => {
+                let seen = self
+                    .model
+                    .evaluation()
+                    .body_result_seen_by(self.feature, *body)?;
+                PatternPath::along_edges(&seen.solid, edges)
+            }
+        }
+    }
+
     fn curve_gauge(&self, curve: &CurvePattern, centre: Point3) -> Option<Gauge> {
-        let sketch = self
-            .model
-            .displayed_sketch(self.model.document().feature(curve.sketch)?)?;
-        let path = PatternPath::of(&sketch)?;
+        let path = self.pattern_path(&curve.path)?;
         let count = self.count(&curve.count)?.round();
         (count >= 2.0).then_some(())?;
         let steps = count - 1.0;
