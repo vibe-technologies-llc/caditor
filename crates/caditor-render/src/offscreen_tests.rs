@@ -5661,6 +5661,72 @@ fn a_wall_edge_on_to_the_sun_still_stops_the_light_it_would_bounce_there() {
     );
 }
 
+fn leaning_sheet_mesh(along: Vector3, half_width: f64, length: f64) -> ShadedMesh {
+    let normal = along.cross(Vector3::Y).normalize_or(Vector3::X);
+    let corner = |across: f64, reach: f64| MeshPoint {
+        position: Point3::ZERO + Vector3::Y * (across * half_width) + along * (reach * length),
+        normal,
+    };
+    ShadedMesh::new([MeshFace {
+        points: vec![
+            corner(-1.0, 0.0),
+            corner(1.0, 0.0),
+            corner(1.0, 1.0),
+            corner(-1.0, 1.0),
+        ],
+        triangles: vec![[0, 1, 2], [0, 2, 3]],
+    }])
+}
+
+#[test]
+fn a_wall_edge_on_to_the_sun_and_the_cross_light_still_stops_the_light_it_would_bounce_there() {
+    let sun = Vector3::new(0.5, 0.0, 0.75_f64.sqrt());
+    let floor = Arc::new(quad_mesh(0.0, 60.0));
+    let source = Arc::new(cuboid_mesh(Vector3::new(10.0, 4.0, 10.0)));
+    let sheet = Arc::new(leaning_sheet_mesh(sun, 30.0, 18.0));
+    let white = Color::from_rgb8(220, 220, 220);
+    let red = Color::from_rgb8(220, 30, 30);
+    let dark = Color::from_rgb8(20, 20, 20);
+    let wall = RigidTransform::translation(Vector3::new(-20.0, 4.0, 10.0));
+    let leaning = RigidTransform::translation(Vector3::new(-9.44, 0.0, 0.0));
+    let view = oblique_view(220.0);
+    let spots = [Point3::new(-6.0, -2.0, 0.0)];
+    let scene_with = |bounce: f32, screened: bool| Scene {
+        meshes: [
+            Some(finished_mesh(&floor, white, MATTE, None)),
+            Some(finished_mesh(&source, red, MATTE, wall)),
+            screened.then(|| finished_mesh(&sheet, dark, MATTE, leaning)),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        lighting: Some(crate::Lighting {
+            shadows: true,
+            bounce,
+            environment: 0.2,
+            ..lit_by(0.0, std::f64::consts::FRAC_PI_3)
+        }),
+        ..Scene::default()
+    };
+    let warmth = |[red, _, blue, _]: [u8; 4]| i32::from(red) - i32::from(blue);
+    let tint = |screened: bool| {
+        let plain = rendered_pixels(&scene_with(0.0, screened), &view, &spots)?;
+        let bounced = rendered_pixels(&scene_with(4.0, screened), &view, &spots)?;
+        Some((warmth(bounced[0]) - warmth(plain[0]), plain, bounced))
+    };
+
+    let Some((open, open_plain, open_bounced)) = tint(false) else {
+        return;
+    };
+    let (screened, screened_plain, screened_bounced) = tint(true).unwrap();
+
+    assert!(open > 10, "{open_plain:?} {open_bounced:?}");
+    assert!(
+        screened * 2 < open,
+        "{open_plain:?} {open_bounced:?} {screened_plain:?} {screened_bounced:?}"
+    );
+}
+
 #[test]
 fn the_visible_floor_bounces_light_onto_the_foot_of_a_body_and_not_while_it_is_hidden() {
     let cube = Arc::new(box_mesh(10.0));

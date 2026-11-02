@@ -912,7 +912,7 @@ impl Model {
         self.pending_save.is_some()
     }
 
-    pub fn mesh_before(&mut self, feature: Option<FeatureId>) {
+    pub fn mesh_before(&mut self, feature: Option<FeatureId>, ghosted: &[FeatureId]) {
         if self
             .draft
             .as_ref()
@@ -921,21 +921,27 @@ impl Model {
             self.drop_draft();
         }
         let drafted = self.draft_body_result().map(|(_, result)| result);
-        let ShownWhileOpen { open, clipping } = feature.map_or_else(Default::default, |feature| {
-            self.shown_while_open(feature, drafted)
-        });
+        let ShownWhileOpen { mut open, clipping } = feature
+            .map_or_else(Default::default, |feature| {
+                self.shown_while_open(feature, drafted)
+            });
+        open.extend(
+            ghosted
+                .iter()
+                .filter_map(|ghost| self.evaluation.body_before(*ghost).cloned()),
+        );
         self.mesh_requested.retain(|requested| {
             open.iter()
                 .chain(clipping.iter().map(|(cut, _)| cut))
                 .any(|result| Arc::ptr_eq(result, requested))
         });
         self.shown_before = open.clone();
-        let Some(feature) = feature else {
+        let Some(named) = feature.or_else(|| ghosted.first().copied()) else {
             return;
         };
         let name = self
             .document()
-            .feature(feature)
+            .feature(named)
             .map_or_else(String::new, |feature| feature.name.clone());
         for (cut, within) in clipping {
             if self

@@ -20,7 +20,9 @@ pub(crate) const CROSS_MAP_SIDE: u32 = 1024;
 const PEELED_BINDING: u32 = 8;
 const PREVIOUS_LAYER_BINDING: u32 = 10;
 const CROSSED_BINDING: u32 = 11;
+const SLOPED_BINDING: u32 = 12;
 const CROSS_TILT: f64 = 1.0;
+const SLOPE_TILT: f64 = 1.0;
 const SKEW_ACROSS: (f64, f64) = (0.8, 0.6);
 const MOST_VERTICAL_SUN_FOR_LEVEL: f64 = 0.99;
 const BOUNCE_REACH: f64 = 0.12;
@@ -194,6 +196,14 @@ impl LightFrame {
         Self::fitted(cross_direction(toward_light), eye, casters, CROSS_MAP_SIDE)
     }
 
+    pub(crate) fn sloping(
+        toward_light: Vector3,
+        eye: Point3,
+        casters: impl IntoIterator<Item = [Point3; 8]>,
+    ) -> Option<Self> {
+        Self::fitted(slope_direction(toward_light), eye, casters, CROSS_MAP_SIDE)
+    }
+
     pub(crate) fn fitted(
         toward_light: Vector3,
         eye: Point3,
@@ -248,13 +258,25 @@ impl LightFrame {
     }
 }
 
-fn cross_direction(toward_light: Vector3) -> Vector3 {
-    let level_across = if toward_light.z.abs() < MOST_VERTICAL_SUN_FOR_LEVEL {
+pub(crate) type SideFrames = (Option<LightFrame>, Option<LightFrame>);
+
+fn level_across(toward_light: Vector3) -> Vector3 {
+    if toward_light.z.abs() < MOST_VERTICAL_SUN_FOR_LEVEL {
         toward_light.cross(Vector3::Z).normalize_or(Vector3::X)
     } else {
         Vector3::new(SKEW_ACROSS.0, SKEW_ACROSS.1, 0.0)
-    };
-    (toward_light + level_across * CROSS_TILT).normalize_or(toward_light)
+    }
+}
+
+fn cross_direction(toward_light: Vector3) -> Vector3 {
+    (toward_light + level_across(toward_light) * CROSS_TILT).normalize_or(toward_light)
+}
+
+fn slope_direction(toward_light: Vector3) -> Vector3 {
+    let up_the_slope = toward_light
+        .cross(level_across(toward_light))
+        .normalize_or(Vector3::Z);
+    (toward_light + up_the_slope * SLOPE_TILT).normalize_or(toward_light)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -273,6 +295,9 @@ pub(crate) struct LightUniform {
     cross_matrix: Mat4,
     relative_from_cross: Mat4,
     cross_frame: [f32; 4],
+    slope_matrix: Mat4,
+    relative_from_slope: Mat4,
+    slope_frame: [f32; 4],
 }
 
 impl LightUniform {
@@ -291,17 +316,21 @@ impl LightUniform {
         cross_matrix: Mat4::ZERO,
         relative_from_cross: Mat4::ZERO,
         cross_frame: [0.0; 4],
+        slope_matrix: Mat4::ZERO,
+        relative_from_slope: Mat4::ZERO,
+        slope_frame: [0.0; 4],
     };
 
     pub(crate) fn of(
         (lighting, view): (&Lighting, &View),
         toward_light: Vector3,
-        (frame, cross, ground): (Option<LightFrame>, Option<LightFrame>, Option<Ground>),
+        (frame, (cross, slope), ground): (Option<LightFrame>, SideFrames, Option<Ground>),
     ) -> Self {
         let tan_y = view.tan_half_fov_y();
         let shadow = frame.filter(|_| lighting.shadows);
         let bounce = finite_at_least_zero(lighting.bounce);
         let cross = cross.filter(|_| frame.is_some() && bounce > 0.0);
+        let slope = slope.filter(|_| cross.is_some());
         let toward = toward_light.as_vec3();
         let [red, green, blue] = lighting.colour.map(finite_at_least_zero);
         Self {
@@ -337,6 +366,28 @@ impl LightUniform {
                 0.0,
                 0.0,
             ],
+            slope_matrix: slope.map_or(Mat4::ZERO, |slope| slope.matrix),
+            relative_from_slope: slope.map_or(Mat4::ZERO, |slope| slope.relative_from_light),
+            slope_frame: [
+                slope.map_or(0.0, |slope| slope.normal_offset),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    }
+
+    pub(crate) fn sloping(&self) -> Self {
+        Self {
+            shadow_matrix: self.slope_matrix,
+            relative_from_light: self.relative_from_slope,
+            exposure_shadow: [
+                self.exposure_shadow[0],
+                self.exposure_shadow[1],
+                self.exposure_shadow[2],
+                self.slope_frame[0],
+            ],
+            ..*self
         }
     }
 
@@ -392,7 +443,10 @@ impl LightUniform {
             .mat4(self.relative_from_light)
             .mat4(self.cross_matrix)
             .mat4(self.relative_from_cross)
-            .floats(&self.cross_frame);
+            .floats(&self.cross_frame)
+            .mat4(self.slope_matrix)
+            .mat4(self.relative_from_slope)
+            .floats(&self.slope_frame);
     }
 }
 
@@ -449,6 +503,7 @@ struct LightTargets {
     peeled: Vec<wgpu::TextureView>,
     peel_depth: wgpu::TextureView,
     crossed: wgpu::TextureView,
+    sloped: wgpu::TextureView,
     cross_depth: wgpu::TextureView,
 }
 
@@ -460,6 +515,7 @@ impl LightTargets {
                 .collect(),
             peel_depth: light_texture(device, "peel depth", side, SHADOW_FORMAT),
             crossed: light_texture(device, "crossed depth", cross_side, LIT_DEPTH_FORMAT),
+            sloped: light_texture(device, "sloped depth", cross_side, LIT_DEPTH_FORMAT),
             cross_depth: light_texture(device, "cross depth", cross_side, SHADOW_FORMAT),
             depth: light_texture(device, "shadow map", side, SHADOW_FORMAT),
             albedo: light_texture(device, "lit albedo", side, BOUNCE_FORMAT),
@@ -516,6 +572,7 @@ impl LightPass {
                 bounce_entry(PEELED_BINDING, wgpu::TextureSampleType::Uint),
                 bounce_entry(PEELED_BINDING + 1, wgpu::TextureSampleType::Uint),
                 bounce_entry(CROSSED_BINDING, wgpu::TextureSampleType::Uint),
+                bounce_entry(SLOPED_BINDING, wgpu::TextureSampleType::Uint),
             ],
         });
         let peel_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -754,6 +811,19 @@ impl LightPass {
             &targets.cross_depth,
         ))
     }
+
+    pub(crate) fn begin_slope_pass<'a>(
+        &'a self,
+        encoder: &'a mut wgpu::CommandEncoder,
+    ) -> Option<wgpu::RenderPass<'a>> {
+        let targets = self.targets.as_ref()?;
+        Some(layer_pass(
+            encoder,
+            "sloped depth",
+            &targets.sloped,
+            &targets.cross_depth,
+        ))
+    }
 }
 
 fn layer_pass<'a>(
@@ -894,10 +964,16 @@ fn bind_group(
                     binding,
                     resource: wgpu::BindingResource::TextureView(layer),
                 })
-                .chain([wgpu::BindGroupEntry {
-                    binding: CROSSED_BINDING,
-                    resource: wgpu::BindingResource::TextureView(&targets.crossed),
-                }]),
+                .chain([
+                    wgpu::BindGroupEntry {
+                        binding: CROSSED_BINDING,
+                        resource: wgpu::BindingResource::TextureView(&targets.crossed),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: SLOPED_BINDING,
+                        resource: wgpu::BindingResource::TextureView(&targets.sloped),
+                    },
+                ]),
         )
         .collect::<Vec<_>>(),
     })

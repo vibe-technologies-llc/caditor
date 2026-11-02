@@ -631,8 +631,12 @@ impl Harness {
         self.render_thumbnail();
         self.render_preview();
         self.render_save_preview();
+        let ghosted = self
+            .workspace
+            .viewport
+            .ghosted(&self.model, &self.workspace.editing);
         self.model
-            .mesh_before(self.workspace.editing.context().solid);
+            .mesh_before(self.workspace.editing.context().solid, &ghosted);
         self.model.request_regions(self.workspace.editing.feature());
         self.workspace
             .viewport

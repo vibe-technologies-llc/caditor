@@ -37,8 +37,12 @@ off, never the body it was split from. It also lights what the feature refers to
 still drawn: the face a sketch lies on or a hole is drilled up to, an edge a datum axis runs
 along, a corner a coordinate system sits at, the principal plane or the plane of a coordinate
 system a sketch or mirror uses, and the sketches and datums it is built from.
-Faces and edges the feature itself used up, such as the edges a fillet rounded, are not drawn any
-more, so they do not light. The other way round, selecting a face or edge in the view marks the row
+Faces and edges the feature itself used up, such as the edges a fillet rounded or the face a shell
+opened, are not drawn any more, so the view shows the body as it was before the feature as a faint
+ghost with those faces and edges lit on it: the ghost's other edges are dashed, the lit edges solid
+and heavier, and the lit faces fill more strongly than the rest of the ghost, so none of it is
+told by colour alone. Nothing fades in or out, so it follows the reduced motion setting by
+having none. The other way round, selecting a face or edge in the view marks the row
 of the feature that made it: the rim of a boss joined to a plate marks the boss.
 
 The margin left of the tree joins the chosen or hovered row to the features it uses, each marked

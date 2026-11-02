@@ -846,6 +846,14 @@ pub struct BodyBefore {
     pub choice: OpenChoice,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ghost {
+    pub feature: FeatureId,
+    pub body: FeatureId,
+    pub faces: Vec<FaceKey>,
+    pub edges: Vec<EdgeName>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OpenDraft<'a> {
     pub evaluation: Option<&'a Evaluation>,
@@ -865,6 +873,7 @@ pub struct DraftShown {
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
+    ghosts: Vec<BodyBefore>,
     cuts: Vec<Arc<BodyMesh>>,
     cuts_of: Option<FeatureId>,
     draft: Option<DraftShown>,
@@ -876,6 +885,10 @@ pub struct BodyMeshes {
 impl BodyMeshes {
     pub fn body_before(&self) -> Option<&BodyBefore> {
         self.open.as_ref()
+    }
+
+    pub fn ghost(&self, feature: FeatureId) -> Option<&BodyBefore> {
+        self.ghosts.iter().find(|ghost| ghost.feature == feature)
     }
 
     pub fn cuts(&self) -> &[Arc<BodyMesh>] {
@@ -930,9 +943,11 @@ impl BodyMeshes {
         evaluation: &Evaluation,
         meshing: &BodyMeshing,
         feature: Option<FeatureId>,
+        ghosted: &[FeatureId],
         draft: OpenDraft<'_>,
     ) {
         self.show_draft(meshing, feature, draft);
+        self.show_ghosts(evaluation, meshing, ghosted);
         let shown_before = self.open.clone();
         let previous = self
             .open
@@ -1015,6 +1030,40 @@ impl BodyMeshes {
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
         };
+        if !same {
+            self.changed();
+        }
+    }
+
+    fn show_ghosts(
+        &mut self,
+        evaluation: &Evaluation,
+        meshing: &BodyMeshing,
+        ghosted: &[FeatureId],
+    ) {
+        let ghosts: Vec<BodyBefore> = ghosted
+            .iter()
+            .filter_map(|feature| {
+                let input = evaluation.body_before(*feature)?;
+                let body = input.solid()?.body;
+                let before = match meshing.lookup(input) {
+                    Converted::Ready(mesh) => Arc::clone(mesh),
+                    Converted::Pending => Arc::clone(&self.ghost(*feature)?.before),
+                    Converted::Missing => return None,
+                };
+                Some(BodyBefore {
+                    feature: *feature,
+                    body,
+                    before,
+                    choice: OpenChoice::Nothing,
+                })
+            })
+            .collect();
+        let same = ghosts.len() == self.ghosts.len()
+            && ghosts.iter().zip(&self.ghosts).all(|(new, old)| {
+                new.feature == old.feature && Arc::ptr_eq(&new.before, &old.before)
+            });
+        self.ghosts = ghosts;
         if !same {
             self.changed();
         }

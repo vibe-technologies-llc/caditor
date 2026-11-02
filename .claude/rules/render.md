@@ -297,17 +297,22 @@ paths:
   texel of any layer, so with bounce on one more depth map is drawn along the cross direction
   (`cross_direction`, `LightFrame::crossing`): the sun tilted `CROSS_TILT` toward the horizontal
   square to it (a skewed horizontal for an overhead sun), which turns every vertical wall the sun
-  runs along to 45 degrees from the cross light; only a wall whose normal points up the sun's slope
-  is edge-on to both. It is fitted to the casters alone, `CROSS_MAP_SIDE` across, with
-  `LightUniform::crossing` giving the pass its own view uniform (`cross_view_uniform`: the cross
-  matrices in place of the sun's `shadow_matrix` and `relative_from_light`, and its own normal
-  offset) and `fs_depth` drawing one `R32Uint` target (`crossed_depth`, binding 11), unpeeled. Its
-  test (`bounce_blocked_in_cross`) is not the sun's, whose one-sided "behind a surface" rule would
+  runs along to 45 degrees from the cross light; a wall whose normal points up the sun's slope is
+  edge-on to both, so a third map is drawn along the slope direction (`slope_direction`,
+  `LightFrame::sloping`): the sun tilted `SLOPE_TILT` toward that normal, in the vertical plane of
+  the sun. No wall is edge-on to the sun, the cross light and the slope light at once, since the
+  walls edge-on to the sun and the slope light are those whose normal points across the sun and
+  the cross light sees them. Each is fitted to the casters alone, `CROSS_MAP_SIDE` across, with
+  `LightUniform::crossing` and `sloping` giving the passes their own view uniforms
+  (`cross_view_uniform`, `slope_view_uniform`: the cross or slope matrices in place of the sun's
+  `shadow_matrix` and `relative_from_light`, and its own normal offset) and `fs_depth` drawing one
+  `R32Uint` target each (`crossed_depth` and `sloped_depth`, bindings 11 and 12), unpeeled, over one
+  shared depth buffer. Their test (`bounce_blocked_in_side`, one function for both) is not the sun's, whose one-sided "behind a surface" rule would
   count any wall beside a segment once the light comes in low: the segment's lifted ends and
   `BOUNCE_BLOCK_STEPS` points between are walked pair by pair, and a pair on opposite sides of the
   stored surface, each within `BOUNCE_CROSS_SPACINGS` steps of it, has crossed a wall, thin or
-  not. A wall edge-on to the cross light too, or behind the cross map's one layer, is still
-  missed. The sun's test runs first and the cross test only on what it lets through. The
+  not. A wall behind the side maps' one layer is still missed. The sun's test runs first and the
+  side tests only on what it lets through. The
   targets are made lazily inside `gpu::scoped`; a refusal draws without shadows and bounce and
   reports `RenderFault::LightRefused` once. Image siblings make their own.
 - The visible floor (`Surroundings::floor`, only while it is drawn, the eye above it) is also a

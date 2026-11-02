@@ -25,7 +25,8 @@ use caditor_sketch::{
 use crate::{
     analysis::{Analysed, Analyses, Band, FaceAnalysis, Outcome},
     bodies::{
-        self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceChoice, FaceKey, OpenChoice,
+        self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceChoice, FaceKey, Ghost,
+        OpenChoice,
     },
     body_appearance, datum_tools,
     display::DisplayedSketches,
@@ -282,6 +283,7 @@ pub struct Highlight<'a> {
     pub selection: &'a Selection,
     pub hovered: &'a [Pickable],
     pub chosen_rows: &'a [FeatureId],
+    pub ghosts: &'a [Ghost],
 }
 
 impl Highlight<'_> {
@@ -1281,6 +1283,14 @@ pub fn build_keeping(
         }
         Some((open, OpenView::Ghost)) => builder.ghost(document, evaluation, open),
         Some((_, OpenView::Result)) | None => {}
+    }
+    for ghost in highlight.ghosts {
+        let shown = bodies
+            .ghost(ghost.feature)
+            .filter(|before| !document.body_hidden(before.body));
+        if let Some(before) = shown {
+            builder.lit_ghost(document, evaluation, before, ghost);
+        }
     }
     if cutting.is_some() {
         for cut in bodies.cuts() {
@@ -2593,6 +2603,65 @@ impl<'a> Builder<'a> {
                 .collect(),
             placement: None,
         });
+    }
+
+    fn lit_ghost(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        before: &BodyBefore,
+        ghost: &Ghost,
+    ) {
+        let colour = body_color((self.palette, self.body), document, evaluation, before.body)
+            .with_alpha(GHOST_ALPHA);
+        let lit = self.palette.faces.hovered.with_alpha(PREVIEW_ALPHA);
+        let faces = before
+            .before
+            .faces
+            .iter()
+            .map(|face| FaceStyle {
+                color: if ghost.faces.contains(&face.key) {
+                    lit
+                } else {
+                    colour
+                },
+                pick: None,
+                finish: None,
+            })
+            .collect();
+        self.translucent_meshes.push(MeshInstance {
+            mesh: Arc::clone(&before.before.mesh),
+            faces,
+            placement: None,
+        });
+        for edge in &before.before.edges {
+            let (colour, width, dashed) = if ghost.edges.contains(&edge.name) {
+                (
+                    self.palette.lines.hovered,
+                    self.edge_width() + HIGHLIGHT_EXTRA_WIDTH,
+                    false,
+                )
+            } else {
+                (self.palette.body_edge, self.edge_width(), true)
+            };
+            let mut along = 0.0;
+            for (start, end) in before.before.points(edge).segments() {
+                let stroke = match dashed {
+                    true => Stroke::Dashed { along },
+                    false => Stroke::Solid,
+                };
+                along += start.distance(end) as f32;
+                self.scene.lines.push(Line {
+                    start,
+                    end,
+                    color: colour,
+                    width,
+                    layer: Layer::Model,
+                    pick: None,
+                    stroke,
+                });
+            }
+        }
     }
 
     fn choosable_faces(
@@ -3966,6 +4035,7 @@ mod tests {
                 selection: &selection,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             None,
         );
@@ -3991,6 +4061,7 @@ mod tests {
                 selection: &selection,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             None,
         );
@@ -4039,6 +4110,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
 
         let editing = build_for(&document, &evaluation, &highlight, Some(feature));
@@ -4080,6 +4152,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
 
         let built = build_for(&document, &Evaluation::default(), &highlight, Some(side));
@@ -4150,6 +4223,7 @@ mod tests {
             selection: &selection,
             hovered: &hovered,
             chosen_rows: &[],
+            ghosts: &[],
         };
 
         let editing = build_for(&document, &Evaluation::default(), &highlight, Some(side));
@@ -4249,6 +4323,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
@@ -4284,6 +4359,7 @@ mod tests {
             selection: &selection,
             hovered: &[entity(fixed)],
             chosen_rows: &[],
+            ghosts: &[],
         };
         let built = build_for(&document, &evaluate(&document), &hovered, Some(feature));
         assert_eq!(line_color(&built, entity(fixed)), STANDARD.lines.hovered);
@@ -4352,6 +4428,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
@@ -4444,6 +4521,7 @@ mod tests {
             selection: &selection,
             hovered: &hovered,
             chosen_rows: &[],
+            ghosts: &[],
         };
 
         let high = build_in(
@@ -4474,6 +4552,7 @@ mod tests {
             selection: &selection,
             hovered: &[Pickable::Origin],
             chosen_rows: &[],
+            ghosts: &[],
         };
         assert_eq!(
             highlight.color(&STANDARD.lines, Pickable::Origin, STANDARD.origin),
@@ -4496,6 +4575,7 @@ mod tests {
                 selection: &selection,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             None,
         );
@@ -4532,6 +4612,7 @@ mod tests {
                 selection: &selection,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             None,
         );
@@ -4609,6 +4690,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
         let guides = |hidden: bool| {
             let sources = Sources {
@@ -4654,6 +4736,7 @@ mod tests {
             selection: &selection,
             hovered: &[],
             chosen_rows: &[],
+            ghosts: &[],
         };
         let sources = Sources {
             document: &document,
@@ -4728,6 +4811,7 @@ mod tests {
                 selection: &selection,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             Context::default(),
             &mut SketchShapes::new(crowded),
