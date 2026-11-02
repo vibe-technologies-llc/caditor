@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
-    Handedness, HelixSpec,
+    Handedness, HelixEnds, HelixSpec,
     bspline::BSpline,
     coil::helix,
     curve::{Circle, Curve, Line},
@@ -560,6 +560,7 @@ fn helix_path(pitch: f64, turns: f64, taper: f64, hand: Handedness) -> Vec<PathS
         taper,
         hand,
         start_angle: 0.0,
+        ends: None,
     };
     helix(&spec)
         .unwrap()
@@ -696,4 +697,46 @@ fn a_profile_across_the_helix_axis_is_refused() {
         matches!(folded, Err(PathSweepError::ProfileTooLarge { .. })),
         "{folded:?}"
     );
+}
+
+#[test]
+fn a_triangle_winds_along_a_helix_with_closed_ends() {
+    let spec = HelixSpec {
+        frame: Plane::with_x_axis(Point3::ZERO, Vector3::Z, Vector3::X).unwrap(),
+        radius: 10.0,
+        pitch: 4.0,
+        turns: 3.0,
+        taper: 0.0,
+        hand: Handedness::Right,
+        start_angle: 0.0,
+        ends: Some(HelixEnds {
+            turns: 0.5,
+            pitch: 2.1,
+        }),
+    };
+    let path: Vec<PathSegment> = helix(&spec)
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(turn, piece)| piece.path_segment(20 + turn as u128))
+        .collect();
+    let centroid = 31.0 / 3.0;
+
+    let wound = swept(
+        &upright(),
+        &thread_triangle(),
+        &path,
+        SweepOrientation::Square,
+    )
+    .unwrap();
+    let top = extreme(&wound, |point| point.z, f64::MIN, f64::max);
+
+    assert_eq!(wound.validate(), Ok(()));
+    assert_close(
+        "closed ends",
+        meshed_volume(&wound),
+        2.0 * TAU * 3.0 * centroid,
+        1e-3,
+    );
+    assert!((top - spec.height() - 1.0).abs() < 1e-6, "{top}");
 }

@@ -142,7 +142,10 @@ pub use crate::{
     emboss::{Emboss, EmbossForm, MAX_EMBOSS_DRAFT_DEGREES},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::{Healing, ReferredGeometry, referred_geometry},
-    helix::{HELIX_SHAPE, Helix, HelixKind, HelixResult, SPIRAL_SHAPE},
+    helix::{
+        ClosedEnds, DEFAULT_END_PITCH, DEFAULT_END_TURNS, HELIX_SHAPE, Helix, HelixKind,
+        HelixResult, SPIRAL_SHAPE, span_with_ends,
+    },
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
         MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, TappedThread, centres as hole_centres,

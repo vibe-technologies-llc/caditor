@@ -265,7 +265,12 @@ Extrusions and revolves:
   `helix`, `helix_start` or `helix_point` record (`feature`), written only for a
   `HelixKind::FlatSpiral`, whose `length` height is the outer diameter; an older reader reports the
   spiral as from a newer version rather than winding a helix; a wrapped kind that is not a helix
-  loads without it, reported. The corpus holds it in `flat-spirals.caditor`.
+  loads without it, reported. The corpus holds it in `flat-spirals.caditor`. `helix_ends`: a wrapper around
+  a `helix`, `helix_start` or `helix_point` record (`feature`, inside any `flat_spiral`) with
+  `turns` and `pitch`, the closed ends' texts (unreadable 1 and 2.5 mm, reported), written only
+  when `ends` is set; an older reader reports the helix as from a newer version rather than
+  winding it at one pitch; a wrapped kind that is not a helix loads without it, reported. The
+  corpus holds it in `helix-ends.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

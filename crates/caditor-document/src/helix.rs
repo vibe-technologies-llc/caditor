@@ -3,12 +3,15 @@ use std::collections::BTreeSet;
 use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
 use caditor_kernel::{
-    HelixError, HelixSpec, HelixTurn, LEAST_COIL_TURNS, LINEAR_RESOLUTION, MAX_COIL_TURNS,
-    SpiralError, SpiralSpec, helix, spiral,
+    HelixEnds, HelixError, HelixSpec, HelixTurn, LEAST_COIL_TURNS, LINEAR_RESOLUTION,
+    MAX_COIL_TURNS, SpiralError, SpiralSpec, helix, spiral,
 };
 
 use crate::{
-    coil::{self, CoilCause, CoilLength, CoilSpan, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS},
+    coil::{
+        self, CoilCause, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH,
+        DEFAULT_TURNS,
+    },
     datum::{AxisReference, PointReference},
     document::{Feature, FeatureId},
     primitive::Context,
@@ -17,6 +20,23 @@ use crate::{
 
 pub const HELIX_SHAPE: &str = "helix";
 pub const SPIRAL_SHAPE: &str = "flat spiral";
+pub const DEFAULT_END_TURNS: f64 = 1.0;
+pub const DEFAULT_END_PITCH: f64 = 2.5;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClosedEnds {
+    pub turns: Expression,
+    pub pitch: Expression,
+}
+
+impl Default for ClosedEnds {
+    fn default() -> Self {
+        Self {
+            turns: Expression::number(DEFAULT_END_TURNS),
+            pitch: Expression::measure(DEFAULT_END_PITCH, Unit::Millimetre),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum HelixKind {
@@ -54,6 +74,7 @@ pub struct Helix {
     pub turning: CoilTurning,
     pub start: Expression,
     pub start_point: Option<PointReference>,
+    pub ends: Option<ClosedEnds>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -90,6 +111,7 @@ impl Helix {
             turning: CoilTurning::CounterClockwise,
             start: Expression::measure(0.0, Unit::Degree),
             start_point: None,
+            ends: None,
         }
     }
 
@@ -107,19 +129,32 @@ impl Helix {
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.diameter, &self.taper, &self.start];
         expressions.extend(self.length.expressions());
+        if let Some(ends) = &self.ends {
+            expressions.extend([&ends.turns, &ends.pitch]);
+        }
         expressions
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.diameter, &mut self.taper, &mut self.start];
         expressions.extend(self.length.expressions_mut());
+        if let Some(ends) = &mut self.ends {
+            expressions.extend([&mut ends.turns, &mut ends.pitch]);
+        }
         expressions
     }
 
     pub fn lengths_mut(&mut self) -> Vec<&mut Expression> {
         let mut lengths = vec![&mut self.diameter];
         lengths.extend(self.length.lengths_mut());
+        if let Some(ends) = &mut self.ends {
+            lengths.push(&mut ends.pitch);
+        }
         lengths
+    }
+
+    pub fn has_closed_ends(&self) -> bool {
+        !self.is_flat() && self.ends.is_some()
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -193,6 +228,12 @@ fn failure(context: &Context<'_>, feature: &Feature, error: &HelixError) -> Fail
             context.error(CoilCause::TurnsRangeOf { name })
         }
         HelixError::TaperTooSteep => context.error(CoilCause::TaperSteep { subject: name }),
+        HelixError::EndTurns { .. } => context.error(CoilCause::EndTurnsRange { name }),
+        HelixError::EndsTooLong { taken, turns } => context.error(CoilCause::EndsTooLong {
+            name,
+            taken: *taken,
+            turns: *turns,
+        }),
         HelixError::TooLarge => context.error(CoilCause::TooFar { name }),
         HelixError::NonFinite
         | HelixError::NoRadius
@@ -218,6 +259,101 @@ fn spiral_failure(context: &Context<'_>, feature: &Feature, error: &SpiralError)
         | SpiralError::Geometry(_) => {
             log::warn!("{name} could not be built: {error}");
             context.error(CoilCause::SpiralUnbuildable { name })
+        }
+    }
+}
+
+pub fn span_with_ends(sizing: CoilSizing, span: CoilSpan, ends: HelixEnds) -> CoilSpan {
+    match sizing {
+        CoilSizing::TurnsAndPitch => CoilSpan {
+            height: ends.height(span.pitch, span.turns),
+            ..span
+        },
+        CoilSizing::HeightAndTurns => CoilSpan {
+            pitch: ends.pitch_for(span.height, span.turns),
+            ..span
+        },
+        CoilSizing::HeightAndPitch => CoilSpan {
+            turns: ends.turns_for(span.height, span.pitch),
+            ..span
+        },
+    }
+}
+
+fn closed_ends(context: &Context<'_>, definition: &Helix) -> Result<Option<HelixEnds>, Failure> {
+    let Some(ends) = &definition.ends else {
+        return Ok(None);
+    };
+    let turns = context.value_as(&ends.turns, "end turns", Dimension::NONE)?;
+    let pitch = context.size(&ends.pitch, "end pitch")?;
+    Ok(Some(HelixEnds { turns, pitch }))
+}
+
+fn helix_span(
+    context: &Context<'_>,
+    feature: &Feature,
+    length: &CoilLength,
+    ends: Option<HelixEnds>,
+) -> Result<CoilSpan, Failure> {
+    let Some(ends) = ends else {
+        return coil::span(context, length);
+    };
+    let name = || feature.name.clone();
+    match length {
+        CoilLength::TurnsAndPitch { .. } => {
+            let span = coil::span(context, length)?;
+            Ok(CoilSpan {
+                height: ends.height(span.pitch, span.turns),
+                ..span
+            })
+        }
+        CoilLength::HeightAndTurns { height, turns } => {
+            let height = context.size(height, "height")?;
+            let turns = coil::number(context, turns, "turns")?;
+            let taken = ends.turns_taken();
+            if turns < taken {
+                return Err(context.error(CoilCause::EndsTooLong {
+                    name: name(),
+                    taken,
+                    turns,
+                }));
+            }
+            let pitch = ends.pitch_for(height, turns);
+            if !pitch.is_finite() || pitch <= LINEAR_RESOLUTION {
+                return Err(context.error(CoilCause::EndsFillHeight {
+                    name: name(),
+                    height,
+                }));
+            }
+            Ok(CoilSpan {
+                height,
+                pitch,
+                turns,
+            })
+        }
+        CoilLength::HeightAndPitch { height, pitch } => {
+            let height = context.size(height, "height")?;
+            let pitch = context.size(pitch, "pitch")?;
+            let turns = ends.turns_for(height, pitch);
+            if turns < ends.turns_taken() {
+                return Err(context.error(CoilCause::EndsFillHeight {
+                    name: name(),
+                    height,
+                }));
+            }
+            if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
+                return Err(context.error(CoilCause::HeightPitchTurns {
+                    shape: HELIX_SHAPE.to_owned(),
+                    height,
+                    pitch,
+                    turns,
+                }));
+            }
+            Ok(CoilSpan {
+                height,
+                pitch,
+                turns,
+            })
         }
     }
 }
@@ -286,7 +422,8 @@ pub(crate) fn evaluate(
     }
     let context = Context::new(feature, inputs, HELIX_SHAPE);
     let diameter = context.size(&definition.diameter, "diameter")?;
-    let span = coil::span(&context, &definition.length)?;
+    let ends = closed_ends(&context, definition)?;
+    let span = helix_span(&context, feature, &definition.length, ends)?;
     let taper = coil::taper(&context, &definition.taper)?;
     let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
@@ -301,6 +438,7 @@ pub(crate) fn evaluate(
         taper,
         hand: definition.turning.hand(),
         start_angle: start,
+        ends,
     };
     let turns = helix(&spec).map_err(|error| failure(&context, feature, &error))?;
     Ok(FeatureResult::Helix(HelixResult {

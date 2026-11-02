@@ -221,6 +221,7 @@ fn helix_spec(turns: f64, taper: f64) -> HelixSpec {
         taper,
         hand: Handedness::Right,
         start_angle: 0.0,
+        ends: None,
     }
 }
 
@@ -325,5 +326,104 @@ fn a_start_angle_turns_where_the_helix_starts_about_its_axis_whichever_way_it_tu
             ..right
         }),
         Err(HelixError::NonFinite)
+    );
+}
+
+fn closed_spring_helix(turns: f64, end_turns: f64) -> HelixSpec {
+    HelixSpec {
+        ends: Some(HelixEnds {
+            turns: end_turns,
+            pitch: 2.2,
+        }),
+        ..helix_spec(turns, 0.0)
+    }
+}
+
+#[test]
+fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
+    let spec = closed_spring_helix(5.0, 1.0);
+    let turns = helix(&spec).unwrap();
+
+    assert_eq!(turns.len(), 6);
+    assert!((spec.height() - 15.5).abs() < 1e-12, "{}", spec.height());
+
+    let mut unwrapped = 0.0_f64;
+    let mut previous: Option<Point3> = None;
+    let mut last_tangent: Option<Vector3> = None;
+    for turn in &turns {
+        let range = turn.range();
+        let first = turn.curve().evaluate(range.start()).first.normalize();
+        if let Some(tangent) = last_tangent {
+            assert!(
+                tangent.angle_between(first) < 1e-9,
+                "{tangent} then {first}"
+            );
+        }
+        for step in 0..=64 {
+            let point = turn.curve().point(range.at(f64::from(step) / 64.0));
+            if let Some(before) = previous {
+                let turned = point.y.atan2(point.x) - before.y.atan2(before.x);
+                unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
+            }
+            previous = Some(point);
+            let expected = spec.point_at(unwrapped).unwrap();
+
+            assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
+            assert!(
+                (point.z - expected.z).abs() < 1e-3,
+                "{point} against {expected}"
+            );
+        }
+        last_tangent = Some(turn.curve().evaluate(range.end()).first.normalize());
+    }
+    let end = previous.unwrap();
+
+    assert!(end.distance(Point3::new(10.0, 0.0, 15.5)) < 1e-9, "{end}");
+    assert!(
+        spec.point_at(PI)
+            .is_some_and(|point| (point.z - 1.1).abs() < 1e-12)
+    );
+}
+
+#[test]
+fn closed_ends_find_the_body_pitch_or_turns_from_a_height() {
+    let ends = HelixEnds {
+        turns: 1.0,
+        pitch: 2.2,
+    };
+
+    assert!((ends.height(4.0, 5.0) - 15.5).abs() < 1e-12);
+    assert!((ends.pitch_for(15.5, 5.0) - 4.0).abs() < 1e-12);
+    assert!((ends.turns_for(15.5, 4.0) - 5.0).abs() < 1e-12);
+    assert!((ends.turns_taken() - 3.0).abs() < 1e-12);
+}
+
+#[test]
+fn closed_ends_longer_than_the_helix_or_of_a_sliver_of_a_turn_are_refused() {
+    assert_eq!(
+        helix(&closed_spring_helix(2.0, 1.0)),
+        Err(HelixError::EndsTooLong {
+            taken: 3.0,
+            turns: 2.0
+        })
+    );
+    assert_eq!(
+        helix(&closed_spring_helix(3.01, 1.0)),
+        Err(HelixError::EndsTooLong {
+            taken: 3.0,
+            turns: 3.01
+        })
+    );
+    assert_eq!(
+        helix(&closed_spring_helix(5.0, 0.01)),
+        Err(HelixError::EndTurns { turns: 0.01 })
+    );
+    assert_eq!(
+        helix(&closed_spring_helix(3.0, 1.0)).map(|turns| turns.len()),
+        Ok(4)
+    );
+    assert_eq!(
+        helix(&closed_spring_helix(4.0, 0.0)).map(|turns| turns.len()),
+        Ok(5)
     );
 }

@@ -48,11 +48,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ending at a point or leaving its end profiles square, but takes no guide rails or centreline, no
   end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
   middle profile.
-- [medium · hard] No varying helix: Helix gives a sweep or pipe a helix (tapered or not) or a flat
-  spiral of one pitch to follow, but neither can change its pitch along the way, so a closed-end
-  spring's closed and ground ends cannot be swept. Turns cannot touch (a closed coil, a profile as
-  tall as the pitch swept along a helix or as wide as it along a flat spiral, or a pipe as thick
-  as a flat spiral's pitch, needs a pitch a hair larger).
+- [medium · hard] Few helix pitch laws: Helix gives a sweep or pipe a helix (tapered or not) of
+  one pitch or with a compression spring's closed ends (end turns at an end pitch, changing to the
+  pitch over a fixed half turn), or a flat spiral of one pitch, but takes no other law (a
+  progressive spring's pitch growing along it, a table of pitches by turn, a change over a chosen
+  number of turns) and a flat spiral none. A sweep along a changing pitch keeps the section's lean
+  to the axis it starts with, so a round wire is a hair out of round where the pitch differs from
+  the end's. Turns cannot touch (a closed coil, a profile as tall as the pitch swept along a helix
+  or as wide as it along a flat spiral, or a pipe as thick as a flat spiral's pitch, needs a pitch
+  a hair larger), so a closed end's turns stand a hair apart.
 - [medium · hard] Patterns stop short of what other modellers repeat: a pattern repeats features or
   whole bodies but never chosen faces.
   A feature pattern or mirror repeats a shell only when nothing else changes the body between the

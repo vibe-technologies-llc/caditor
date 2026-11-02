@@ -61,18 +61,18 @@ impl Motion {
     }
 
     fn rise(&self, angle: f64) -> f64 {
-        self.winding.pitch * angle / TAU
+        self.winding.law.rise(angle)
     }
 
-    fn control(&self, angle: f64, at: Point2, stretch: f64) -> Point3 {
+    fn control(&self, (angle, rise): (f64, f64), at: Point2, stretch: f64) -> Point3 {
         let frame = &self.winding.frame;
         frame.origin()
-            + self.radial(angle) * (stretch * (at.x + self.winding.slope * angle))
-            + frame.normal() * (self.rise(angle) + at.y)
+            + self.radial(angle) * (stretch * (at.x + self.winding.spread * rise))
+            + frame.normal() * (rise + at.y)
     }
 
     fn point(&self, angle: f64, at: Point2) -> Point3 {
-        self.control(angle, at, 1.0)
+        self.control((angle, self.rise(angle)), at, 1.0)
     }
 
     fn net(&self, at: Point2, weight: f64, piece: Piece) -> (Vec<Point3>, Vec<f64>) {
@@ -85,7 +85,8 @@ impl Motion {
             let start = piece.angle(span as f64);
             points.push(self.point(start, at));
             weights.push(weight);
-            points.push(self.control(start + half, at, 1.0 / middle_weight));
+            let middle = (start + half, self.winding.law.middle_rise(start, half));
+            points.push(self.control(middle, at, 1.0 / middle_weight));
             weights.push(weight * middle_weight);
         }
         points.push(self.point(piece.end(), at));
@@ -118,7 +119,7 @@ impl Motion {
     }
 
     fn is_round(&self, section: &SectionPiece) -> bool {
-        section.is_upright() && self.winding.slope == 0.0
+        section.is_upright() && self.winding.spread == 0.0
     }
 
     fn side_surface(&self, section: &SectionPiece, piece: Piece) -> Result<Surface, CoilError> {
@@ -166,12 +167,25 @@ impl Motion {
 }
 
 pub(super) fn pieces(turns: f64) -> Vec<Piece> {
+    pieces_between(0.0, turns)
+}
+
+pub(super) fn pieces_through(breaks: &[f64]) -> Vec<Piece> {
+    breaks
+        .iter()
+        .zip(breaks.iter().skip(1))
+        .flat_map(|(from, to)| pieces_between(*from, *to))
+        .collect()
+}
+
+fn pieces_between(from: f64, to: f64) -> Vec<Piece> {
+    let turns = to - from;
     let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
     let length = turns / count;
     let spans = ((length * SPANS_PER_TURN as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
     (0..count as usize)
         .map(|index| Piece {
-            start: TAU * length * index as f64,
+            start: TAU * (from + length * index as f64),
             spans,
             step: TAU * length / spans as f64,
         })
