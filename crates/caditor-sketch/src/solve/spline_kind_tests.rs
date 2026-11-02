@@ -598,3 +598,37 @@ fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_resul
         solves_again_in_place(&sketch);
     }
 }
+
+#[test]
+fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nearer_bulge_alternates()
+ {
+    let mut sketch = Sketch::new(Plane::XY);
+    let side = sketch.add_line(
+        Point2::new(2.000099, -2.500001),
+        Point2::new(-5.000001, -2.500001),
+    );
+    let Some(Entity::Line { end: corner, .. }) = sketch.entity(side).cloned() else {
+        panic!("expected a line");
+    };
+    let right = sketch.add_point(Point2::new(8.500001, -0.5));
+    let top = sketch.add_point(Point2::new(8.0, 8.500001));
+    let spline = sketch.insert(Entity::Spline {
+        points: vec![right, corner, top],
+        kind: SplineKind::Fit {
+            closed: true,
+            spacing: FitSpacing::Even,
+        },
+    });
+    let distance = Constraint::Distance {
+        from: spline,
+        to: side,
+        value: Expression::Measure(7.000001, Unit::Millimetre),
+    };
+    sketch.add_constraint(distance.clone()).unwrap();
+
+    let solved = solve(&sketch).unwrap();
+
+    let measured = solved.geometry.measured(&distance).unwrap();
+    assert!((measured - 7.000001).abs() < 1e-5, "{measured}");
+    assert!(passes_through(&solved.geometry, spline));
+}

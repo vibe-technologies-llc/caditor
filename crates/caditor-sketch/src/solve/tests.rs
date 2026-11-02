@@ -2118,17 +2118,17 @@ fn a_sparse_cholesky_factorisation_solves_a_positive_definite_system_and_refuses
 }
 
 #[test]
-fn a_conflict_too_small_for_where_it_lands_is_refused_rather_than_failing_on_the_next_solve() {
+fn a_conflict_too_small_for_where_it_lands_is_named_rather_than_failing_on_the_next_solve() {
     let mut sketch = Sketch::new(Plane::XY);
     let first = sketch.add_circle(Point2::new(1.0, -3.5), 7.0);
     let second = sketch.add_circle(Point2::new(-0.5, 10.0), 3.5);
     let (low, high) = (center(&sketch, first), center(&sketch, second));
 
-    add(
+    let on_axis = add(
         &mut sketch,
         Constraint::Coincident(EntityId::HORIZONTAL_AXIS, high),
     );
-    add(
+    let apart = add(
         &mut sketch,
         Constraint::Distance {
             from: EntityId::HORIZONTAL_AXIS,
@@ -2145,8 +2145,10 @@ fn a_conflict_too_small_for_where_it_lands_is_refused_rather_than_failing_on_the
         },
     );
 
-    assert!(matches!(
+    assert_eq!(
         solve(&sketch),
-        Err(SketchError::Unsolvable { .. })
-    ));
+        Err(SketchError::Conflict {
+            constraints: vec![on_axis, apart]
+        })
+    );
 }

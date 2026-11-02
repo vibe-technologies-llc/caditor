@@ -66,6 +66,8 @@ const SPACING_ROUNDS: usize = 8;
 const KNOT_SETTLING: f64 = 1e-10;
 const DISTANCE_SETTLING: f64 = 1e-6;
 const PARAMETER_ROUNDS: usize = 16;
+const CONVERGING_SHARE: f64 = 0.5;
+const MOST_PARAMETER_ROUNDS: usize = 1024;
 
 fn spaced_fit_variables(sketch: &Sketch, system: &System) -> Vec<usize> {
     sketch
@@ -108,6 +110,7 @@ fn respaced(sketch: &Sketch, system: &System, values: &[f64]) -> Option<Sketch> 
 struct Unsettled {
     moved: Sketch,
     missing: Vec<ConstraintId>,
+    worst: f64,
 }
 
 fn misses_a_measured_distance(
@@ -117,56 +120,67 @@ fn misses_a_measured_distance(
     values: &[f64],
 ) -> Option<Unsettled> {
     let moved = sketch.with_values(system, values);
-    let missing: Vec<ConstraintId> = system
+    let misses: Vec<(ConstraintId, f64)> = system
         .parameters
         .keys()
         .rev()
-        .copied()
-        .filter(|id| misses_its_measure(&moved, dimensions, *id))
+        .filter_map(|id| Some((*id, miss_of_its_measure(&moved, dimensions, *id)?)))
         .collect();
-    (!missing.is_empty()).then_some(Unsettled { moved, missing })
+    let worst = misses.iter().map(|(_, miss)| *miss).fold(0.0, f64::max);
+    (!misses.is_empty()).then(|| Unsettled {
+        moved,
+        missing: misses.into_iter().map(|(id, _)| id).collect(),
+        worst,
+    })
 }
 
-fn misses_its_measure(moved: &Sketch, dimensions: &DimensionValues, id: ConstraintId) -> bool {
-    match moved.constraint(id) {
-        Some(constraint @ Constraint::Distance { from, to, .. })
+fn miss_of_its_measure(
+    moved: &Sketch,
+    dimensions: &DimensionValues,
+    id: ConstraintId,
+) -> Option<f64> {
+    let miss = match moved.constraint(id)? {
+        constraint @ Constraint::Distance { from, to, .. }
             if moved.spline(*from).is_some() || moved.spline(*to).is_some() =>
         {
-            let (Some(wanted), Some(measured)) =
-                (dimensions.dimension(id), moved.measured(constraint))
-            else {
-                return false;
-            };
-            (measured - wanted).abs() > DISTANCE_SETTLING * wanted.abs().max(1.0)
+            let (wanted, measured) = (dimensions.dimension(id)?, moved.measured(constraint)?);
+            let miss = (measured - wanted).abs();
+            return (miss > DISTANCE_SETTLING * wanted.abs().max(1.0)).then_some(miss);
         }
-        Some(Constraint::Tangent(first, second)) => {
+        Constraint::Tangent(first, second) => {
             let (spline, other) = if moved.spline(*first).is_some() {
                 (*first, *second)
             } else {
                 (*second, *first)
             };
-            moved.spline(other).is_none()
-                && moved
-                    .spline_gap(spline, other)
-                    .is_some_and(|(on_spline, on_other)| {
-                        on_spline.distance(on_other) > DISTANCE_SETTLING
-                    })
+            if moved.spline(other).is_some() {
+                return None;
+            }
+            let (on_spline, on_other) = moved.spline_gap(spline, other)?;
+            on_spline.distance(on_other)
         }
-        Some(Constraint::Coincident(first, second)) => {
+        Constraint::Coincident(first, second) => {
             let (point, spline) = if moved.spline(*first).is_some() {
                 (*second, *first)
             } else {
                 (*first, *second)
             };
-            moved.spline(spline).is_some()
-                && moved.point(point).is_some_and(|at| {
-                    moved
-                        .closest_on_curve(spline, at)
-                        .is_some_and(|closest| closest.distance(at) > DISTANCE_SETTLING)
-                })
+            moved.spline(spline)?;
+            let at = moved.point(point)?;
+            moved.closest_on_curve(spline, at)?.distance(at)
         }
-        _ => false,
-    }
+        _ => return None,
+    };
+    (miss > DISTANCE_SETTLING).then_some(miss)
+}
+
+fn keeps_converging(worst: &[f64]) -> bool {
+    let Some(start) = worst.len().checked_sub(2 * PARAMETER_ROUNDS) else {
+        return true;
+    };
+    let (before, recent) = worst.split_at(start + PARAMETER_ROUNDS);
+    let largest = |misses: &[f64]| misses.iter().copied().fold(0.0, f64::max);
+    largest(recent) <= CONVERGING_SHARE * largest(before.get(start..).unwrap_or_default())
 }
 
 fn solve_from_drawn(
@@ -419,6 +433,7 @@ impl Sketch {
         let mut current: Cow<'_, Sketch> = Cow::Borrowed(self);
         let mut round = 0;
         let mut reparameterised = 0;
+        let mut misses = Vec::new();
         loop {
             let mut system = System::build(&current, &dimensions)?;
             let drawn = system.values.clone();
@@ -494,10 +509,18 @@ impl Sketch {
                 round += 1;
                 continue;
             }
-            if let Some(Unsettled { moved, missing }) =
-                misses_a_measured_distance(&current, &dimensions, &system, &values)
+            if let Some(Unsettled {
+                moved,
+                missing,
+                worst,
+            }) = misses_a_measured_distance(&current, &dimensions, &system, &values)
             {
-                if reparameterised == PARAMETER_ROUNDS {
+                let out_of_rounds = reparameterised >= MOST_PARAMETER_ROUNDS
+                    || (reparameterised >= PARAMETER_ROUNDS
+                        && reparameterised % PARAMETER_ROUNDS == 0
+                        && !keeps_converging(&misses));
+                misses.push(worst);
+                if out_of_rounds {
                     return Err(SketchError::Conflict {
                         constraints: missing,
                     });

@@ -159,9 +159,12 @@ paths:
   `spline_gap`, `closest_on_curve`); one missing its value or contact by more than
   `DISTANCE_SETTLING` solves again from the solved sketch, whose parameters then start at the
   nearest stationary point, at most `PARAMETER_ROUNDS` times (`misses_a_measured_distance`).
-  One still missing after the last round is a conflict naming it, never solved: a distance from a
-  spline to a line it crosses can hold one bulge at the value while another comes nearer, round
-  after round.
+  A distance from a spline to a line it crosses holds one bulge at the value while another comes
+  nearer, round after round, an alternating projection that closes in linearly (about 190 rounds
+  for a closed fit spline through a rectangle's corner dimensioned 7 mm from its side), so after
+  `PARAMETER_ROUNDS` the rounds go on in windows of that many while the worst miss of a window is
+  at most `CONVERGING_SHARE` of the window before it, up to `MOST_PARAMETER_ROUNDS`. One still
+  missing when the rounds stop is a conflict naming it, never solved.
   Measured values are the ones the canvas shows, so what is drawn and what is held agree. Ellipse
   and circle gaps are not re-measured: their start heuristic can pick the far tip, and a correct
   solution would be moved onto it.
@@ -264,8 +267,10 @@ paths:
   (`Solver::adds_rank_over_the_rest`): every other row is merged into a `sparse::Triangular` as the
   large-part analysis does (no null space), and the dimension is determined when none of its rows
   then adds rank, so its gradient lies in the other constraints' row space. A dimension bringing
-  variables of its own (a curve parameter or hidden point) adds rank through them and counts as not
-  determined.
+  variables of its own (a curve parameter or hidden point, `System::parameters` and `targets`) adds
+  rank through them: those columns are reached by no other row, so the rank its rows add beyond the
+  rank of their own-variable columns (`own_variables_rank`) is what the measurement adds to the
+  geometry, and the dimension is determined when that is zero.
 - Above `DENSE_LIMIT` the analysis (`sparse::Triangular`) merges the normalised rows, in
   constraint order, into an upper-triangular basis by Givens rotations, columns in minimum-degree
   order, so fill stays within the symbolic Cholesky structure and a closed chain analyses in
@@ -291,7 +296,10 @@ paths:
 - A probe's failure only steers the search. The set found is trimmed, oldest first, of every
   constraint without which it still fails; each kept constraint comes with a witness, a solution of
   the set without it. A descent is conclusive when its unperturbed attempt ends at a least-squares
-  minimum clearly above tolerance, or pressed against a collapse, and no retry converges. The set
+  minimum clearly above tolerance, or pressed against a collapse, and no retry converges. A
+  minimum within `CLEAR_RESIDUAL` tolerances is clear too when a residual exceeds the tolerance at
+  the smaller of the drawing's and the landing scale and survives the best linear step
+  (`is_a_small_conflict`): contradictory rows leave it where only slow convergence would not. The set
   cannot hold when its own probe and every descent from the drawn shape (also with spline
   parameters mid-range and held) and from the closest witnesses are conclusive; any descent that
   converges means it holds (remembered, the search reruns); otherwise inconclusive.

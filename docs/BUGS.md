@@ -117,20 +117,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   three of five on one point) moves by up to 3 mm, about one sketch in 500 with such a spline
   (seeds 11281 and 43873 of `a_solved_sketch_does_not_move_when_solved_again`, which skips splines
   with control points within a micrometre; solving again no longer fails on them).
-- [low · hard] A conflict smaller than the solver's clear residual (a `Distance` of 1e-9 mm from an
-  axis to a point `Coincident` with it, seed 53733 of the solving-again suite) is reported as not
-  solving rather than as a conflict naming the two: the diagnosis's verdict takes only residuals
-  above `CLEAR_RESIDUAL` tolerances as a contradiction.
-- [medium · hard] A `Distance` from a spline to a line it crosses is refused as a conflict where
-  the sketch could hold it: holding the nearest bulge at the value brings one on the other side
-  nearer, and after `PARAMETER_ROUNDS` re-solves the constraint still misses (seed 22573 of the
-  staying-put suite, a closed fit spline through a rectangle's corner 7 mm from that rectangle's
-  side, reaches 5.6 mm). Holding every bulge nearer than the value at once, or the measured
-  distance as a minimum over the stationary points, would let it converge.
-- [low · hard] A new dimension that brings a variable of its own (a curve parameter or a hidden
-  point: a distance from a spline or an ellipse) is always added as driving, though the other
-  constraints may already fix the size it measures: `Sketch::determines` (`solve/determined.rs`)
-  counts the rank that variable adds, so it cannot tell such a dimension from a free one.
 
 ## STEP import
 
