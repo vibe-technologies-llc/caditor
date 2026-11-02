@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 72] = [
+const KEPT: [(&str, &str); 73] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -184,6 +184,10 @@ const KEPT: [(&str, &str); 72] = [
     (
         "model-1/helix-laws.caditor",
         "d2bfc1ef357cb64ad10181c3a51afa76e8cb803e70517177d1148f6254ed30e8",
+    ),
+    (
+        "model-1/revolve-stops.caditor",
+        "62a28bacc756b96186daa5327a0b983e7aed86b2af2ae0fafbd5926f6a11eea4",
     ),
     (
         "model-1/helix-points.caditor",
@@ -932,6 +936,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("helix-laws"),
             saved(&helix_laws(), "Helix pitch laws"),
+        ),
+        (
+            model("revolve-stops"),
+            saved(&revolve_stops(), "Revolve stops"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
@@ -2346,6 +2354,44 @@ fn flat_spirals() -> Document {
             parse("0 mm"),
         )),
     );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn revolve_stops() -> Document {
+    let (mut document, base, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let mut transaction = document.transaction("Revolve stops");
+    let face = caditor_document::FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0x51de),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(7)],
+        ),
+    };
+    let revolutions = [
+        (
+            "Up to next",
+            Revolve {
+                extent: RevolveExtent::UpToNext { reversed: true },
+                ..plain_revolve(sketch, BodyOperation::Add(base))
+            },
+        ),
+        (
+            "Up to the face",
+            Revolve {
+                extent: RevolveExtent::up_to_surface(face, false),
+                side: Some(AxisSide::Left),
+                ..plain_revolve(sketch, BodyOperation::NewBody)
+            },
+        ),
+    ];
+    for (name, revolve) in revolutions {
+        transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Revolve(revolve)));
+    }
     document.apply(transaction.finish()).unwrap();
     document
 }

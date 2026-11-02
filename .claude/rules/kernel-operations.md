@@ -273,6 +273,13 @@ paths:
   name). A void shell is `Enclosed`, a kept shell reaching `far` `PassesBeside`, nothing kept
   `Nothing`. Spans and `far` are heights square to the sketch, so a tool swept along a slanted
   direction (`extrude_along`, `extrude_tapered_along`) is cut back the same way.
+- `stop_turning_at_body(tool, body, plane, regions, axis, turn)` does the same for a revolve turned
+  one-sided by `turn` (short of a full turn): the profile leaves its plane along the normal times the
+  turn's sign, negated for a profile right of the axis (as `revolve` reverses the axis), so the start
+  probes are as `stop_at_body`'s; shells are measured by arc from the start half-plane (angle about
+  the axis, wrapped at the middle of the unswept gap, times radius, `Solid::shell_spans_by`),
+  ignoring points within `AXIS_CLEARANCE` of the profile's size of the axis. A kept shell must reach
+  back to the start and stop short of the end cap (`PassesBeside` otherwise).
 
 # Booleans (`boolean/`)
 

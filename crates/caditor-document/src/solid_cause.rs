@@ -33,8 +33,64 @@ impl TargetFor {
                 "Select a flat face or plane and use it for this end, or choose another end."
             }
             Self::RevolutionEnd => {
-                "Select a flat face or plane through the axis and use it for the end, or enter an \
+                "Select a face, or a plane through the axis, and use it for the end, or enter an \
                  angle."
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unstopped {
+    AddsInside,
+    RemovesEntering,
+    PassesBeside,
+    Straddles,
+    Enclosed,
+    Unbuilt,
+}
+
+impl Unstopped {
+    fn reason(self, sketch: &str, body: &str) -> String {
+        match self {
+            Self::AddsInside => format!(
+                "The profile of {sketch} starts inside the body of {body}, so turning it up to \
+                 the next face adds nothing."
+            ),
+            Self::RemovesEntering => format!(
+                "The profile of {sketch} first meets the body of {body} where it enters it, so \
+                 turning up to that face removes nothing."
+            ),
+            Self::PassesBeside => format!(
+                "Part of the profile of {sketch} turns past the body of {body} without meeting \
+                 it, so there is no one face to stop at."
+            ),
+            Self::Straddles => format!(
+                "The profile of {sketch} starts partly inside the body of {body} and partly \
+                 outside it, so there is no one face to stop at."
+            ),
+            Self::Enclosed => format!(
+                "The body of {body} lies wholly within the revolution of {sketch}, so it has no \
+                 face to stop at."
+            ),
+            Self::Unbuilt => format!(
+                "The revolution of {sketch} could not be stopped where it meets the body of \
+                 {body}."
+            ),
+        }
+    }
+
+    fn remedy(self) -> &'static str {
+        match self {
+            Self::AddsInside => "Choose Remove from body, or place the sketch outside the body.",
+            Self::RemovesEntering => "Place the sketch on or inside the body, or turn by an angle.",
+            Self::PassesBeside => {
+                "Keep the whole profile in the way of the body, or turn up to a plane through the \
+                 axis or by an angle."
+            }
+            Self::Straddles => "Turn by an angle, or move the sketch.",
+            Self::Enclosed | Self::Unbuilt => {
+                "Turn by an angle, or up to a plane through the axis."
             }
         }
     }
@@ -303,6 +359,16 @@ pub(crate) enum SolidCause {
     WouldNotTurn {
         name: String,
         sketch: String,
+    },
+    TurnNextNeedsBody,
+    TurnSurfaceFace {
+        body: String,
+        split: bool,
+    },
+    TurnUnstopped {
+        sketch: String,
+        body: String,
+        why: Unstopped,
     },
     AnglesOverflow,
     DirectionAlong {
@@ -615,6 +681,19 @@ impl SolidCause {
             Self::WouldNotTurn { name, sketch } => {
                 format!("{name} holds the profile of {sketch}, so the revolution would not turn.")
             }
+            Self::TurnNextNeedsBody => {
+                "Up to next stops at the body this revolution changes, and it makes a new body \
+                 instead."
+                    .to_owned()
+            }
+            Self::TurnSurfaceFace { body, split: false } => format!(
+                "The face this revolution turns up to is no longer part of the body of {body}."
+            ),
+            Self::TurnSurfaceFace { body, split: true } => format!(
+                "The face of {body} this revolution turns up to was split, and several parts \
+                 match it equally."
+            ),
+            Self::TurnUnstopped { sketch, body, why } => why.reason(sketch, body),
             Self::AnglesOverflow => "The two angles add up to more than 360°.".to_owned(),
             Self::DirectionAlong { axis, sketch } => format!(
                 "{axis} runs along the plane of {sketch}, so the extrusion cannot follow it."
@@ -802,8 +881,15 @@ impl SolidCause {
                 "Choose the face the profile meets first, or use Up to next.".to_owned()
             }
             Self::NotThroughAxis { .. } => {
-                "Choose a face or plane through the axis, or enter an angle.".to_owned()
+                "Choose a face, or a plane through the axis, or enter an angle.".to_owned()
             }
+            Self::TurnNextNeedsBody => {
+                "Choose Add, Remove or Intersect with a body, or enter an angle.".to_owned()
+            }
+            Self::TurnSurfaceFace { .. } => {
+                "Select a face and turn up to it, or enter an angle.".to_owned()
+            }
+            Self::TurnUnstopped { why, .. } => why.remedy().to_owned(),
             Self::WouldNotTurn { .. } => {
                 "Choose another face or plane through the axis, or enter an angle.".to_owned()
             }

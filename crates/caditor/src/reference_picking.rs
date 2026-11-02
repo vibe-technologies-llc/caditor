@@ -282,7 +282,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                                     along"
             .to_owned(),
         Slot::RevolveTarget => {
-            "Click a flat face or plane through the axis to turn up to".to_owned()
+            "Click a face, or a plane through the axis, to turn up to".to_owned()
         }
         Slot::StartPlane => {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()

@@ -1708,3 +1708,175 @@ fn an_extrusion_along_a_slant_runs_up_to_a_chosen_curved_face_tapered_or_not() {
         "{narrowed} {found}"
     );
 }
+
+fn facing(solid: &Solid, normal: Vector3) -> FaceId {
+    solid
+        .faces()
+        .find(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => {
+                (plane.frame().normal() * face.sense().sign() - normal).length() < 1e-9
+            }
+            _ => false,
+        })
+        .map(|(id, _)| id)
+        .unwrap()
+}
+
+fn beside_the_axis(radius: f64, from: f64) -> f64 {
+    let at = |x: f64| {
+        x / 2.0 * (radius * radius - x * x).sqrt() + radius * radius / 2.0 * (x / radius).asin()
+    };
+    at(radius) - at(from)
+}
+
+fn turning(section: FeatureId, extent: RevolveExtent, operation: BodyOperation) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+        sketch: section,
+        regions: RegionChoice::All,
+        axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+        extent,
+        operation,
+        start: None,
+        other_bodies: Vec::new(),
+        side: None,
+        wall: None,
+    }))
+}
+
+#[test]
+fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
+    let mut document = Document::default();
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+    );
+    let wall_sketch = add(
+        &mut document,
+        "Wall sketch",
+        FeatureKind::from(rectangle(at(-1.0), (-0.5, 0.0), (0.5, 10.0))),
+    );
+    let wall = add(
+        &mut document,
+        "Wall",
+        extrusion(
+            wall_sketch,
+            ExtrudeExtent::one_side(millimetres(5.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let post_sketch = add(
+        &mut document,
+        "Post sketch",
+        FeatureKind::from(circle(at(-1.0), (-3.0, 0.0), 1.5)),
+    );
+    let post = add(
+        &mut document,
+        "Post",
+        extrusion(
+            post_sketch,
+            ExtrudeExtent::one_side(millimetres(5.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let wall_solid = evaluation.body(wall).unwrap();
+    let (side, _) =
+        FaceAttachment::capture(wall, wall_solid, facing(wall_solid, Vector3::X)).unwrap();
+    let post_solid = evaluation.body(post).unwrap();
+    let round = FaceAttachment {
+        body: post,
+        face: caditor_kernel::FaceReference::capture(post_solid, curved_face(post_solid)).unwrap(),
+    };
+    let to_side = [("To side", false), ("To side reversed", true)].map(|(name, reversed)| {
+        add(
+            &mut document,
+            name,
+            turning(
+                section,
+                RevolveExtent::up_to(PlaneReference::Face(side.clone()), reversed),
+                BodyOperation::NewBody,
+            ),
+        )
+    });
+    let to_post = add(
+        &mut document,
+        "To post",
+        turning(
+            section,
+            RevolveExtent::up_to_surface(round, false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let unchanged = add(
+        &mut document,
+        "Unchanged",
+        turning(
+            section,
+            RevolveExtent::UpToNext { reversed: false },
+            BodyOperation::NewBody,
+        ),
+    );
+    let forward = add(
+        &mut document,
+        "Forward",
+        turning(
+            section,
+            RevolveExtent::UpToNext { reversed: false },
+            BodyOperation::Add(wall),
+        ),
+    );
+    let backward = add(
+        &mut document,
+        "Backward",
+        turning(
+            section,
+            RevolveExtent::UpToNext { reversed: true },
+            BodyOperation::Add(post),
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let quarter = 3.0 * (beside_the_axis(4.0, 0.5) - beside_the_axis(2.0, 0.5));
+    let full = PI * (16.0 - 4.0) * 3.0;
+    assert!(matches!(
+        evaluation.feature(forward).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    let added = volume(&evaluation, wall) - 50.0;
+    assert!((added - quarter).abs() < 2e-3 * full, "{added} {quarter}");
+    assert!(matches!(
+        evaluation.feature(backward).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert_eq!(
+        failure(&evaluation, unchanged).reason(),
+        "Up to next stops at the body this revolution changes, and it makes a new body instead."
+    );
+    let side_volume = volume(&evaluation, to_side[0]);
+    assert!(
+        (side_volume - quarter).abs() < 2e-3 * full,
+        "{side_volume} {quarter}"
+    );
+    assert!(
+        failure(&evaluation, to_side[1])
+            .reason()
+            .starts_with("The profile of Section meets"),
+        "{}",
+        failure(&evaluation, to_side[1]).reason()
+    );
+    let reaching = volume(&evaluation, to_post);
+    assert!(
+        reaching > 0.3 * full && reaching < 0.5 * full,
+        "{reaching} {full}"
+    );
+    assert!(
+        document
+            .feature(to_post)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&post)
+    );
+}

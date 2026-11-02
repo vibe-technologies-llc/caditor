@@ -1,12 +1,15 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
-use caditor_geometry::{Aabb2, Plane, Point2, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
 use thiserror::Error;
 
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{
-        LinearBound, SweepError,
+        Axis2, LinearBound, SweepError,
         extrude::{Level, span},
     },
     interrupt::{self, Interrupted},
@@ -14,7 +17,7 @@ use crate::{
     surface::Surface,
     tessellation::TessellationError,
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance, same_direction},
-    topology::{FaceId, PointClass, RayCrossing, ShellId, Solid},
+    topology::{FaceId, PointClass, RayCrossing, ShellId, ShellSpan, Solid},
 };
 
 const RAY_SAMPLES: usize = 256;
@@ -25,6 +28,7 @@ const VERTEX_NUDGE: f64 = 2e-4;
 const NUDGES: [(f64, f64); 4] = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
 const RAY_START: f64 = 4.0 * LINEAR_RESOLUTION;
 const MAX_START_PROBES: usize = 64;
+const AXIS_CLEARANCE: f64 = 1e-3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Heights {
@@ -307,6 +311,101 @@ pub fn stop_at_body(
     } else {
         plane.normal()
     };
+    let entering = entering_from(body, plane, regions, direction)?;
+    let piece = cut_back(tool, body, entering)?;
+    let spans = piece.shell_spans(plane.origin(), direction)?;
+    let solid = kept_from_start(&piece, &spans, far)?;
+    Ok(Stopped { solid, entering })
+}
+
+pub fn stop_turning_at_body(
+    tool: &Solid,
+    body: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    axis: Axis2,
+    turn: f64,
+) -> Result<Stopped, StopError> {
+    let turning = Turning::of(plane, regions, axis, turn)?;
+    let entering = entering_from(body, plane, regions, turning.onward)?;
+    let piece = cut_back(tool, body, entering)?;
+    let spans = piece.shell_spans_by(
+        |point| turning.arc(point).map(|(angle, radius)| angle * radius),
+        |point| {
+            turning
+                .arc(point)
+                .map(|(angle, radius)| (angle - turning.far) * radius)
+        },
+    )?;
+    let solid = kept_from_start(&piece, &spans, 0.0)?;
+    Ok(Stopped { solid, entering })
+}
+
+struct Turning {
+    origin: Point3,
+    along: Vector3,
+    outward: Vector3,
+    onward: Vector3,
+    far: f64,
+    wrap: f64,
+    near_axis: f64,
+}
+
+impl Turning {
+    fn of(plane: &Plane, regions: &[Region], axis: Axis2, turn: f64) -> Result<Self, StopError> {
+        let near_axis = (profile_size(regions) * AXIS_CLEARANCE).max(RAY_START);
+        let side = ray_origins(regions)
+            .into_iter()
+            .map(|origin| axis.signed_distance(origin))
+            .max_by(|first, second| first.abs().total_cmp(&second.abs()))
+            .filter(|distance| distance.abs() > near_axis)
+            .ok_or(StopError::NoRegions)?;
+        let origin = plane.to_world(axis.origin());
+        let along = plane.to_world(axis.origin() + axis.direction()) - origin;
+        let left = plane.to_world(axis.origin() + axis.direction().perp()) - origin;
+        let (outward, onward) = if side < 0.0 {
+            (-left, -plane.normal())
+        } else {
+            (left, plane.normal())
+        };
+        let far = turn.abs();
+        Ok(Self {
+            origin,
+            along,
+            outward,
+            onward: if turn < 0.0 { -onward } else { onward },
+            far,
+            wrap: far + 0.5 * (TAU - far),
+            near_axis,
+        })
+    }
+
+    fn arc(&self, point: Point3) -> Option<(f64, f64)> {
+        let offset = point - self.origin;
+        let radial = offset - self.along * offset.dot(self.along);
+        let radius = radial.length();
+        if radius <= self.near_axis {
+            return None;
+        }
+        let angle = radial
+            .dot(self.onward)
+            .atan2(radial.dot(self.outward))
+            .rem_euclid(TAU);
+        let angle = if angle >= self.wrap {
+            angle - TAU
+        } else {
+            angle
+        };
+        Some((angle, radius))
+    }
+}
+
+fn entering_from(
+    body: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    direction: Vector3,
+) -> Result<bool, StopError> {
     let origins = ray_origins(regions);
     if origins.is_empty() {
         return Err(StopError::NoRegions);
@@ -322,23 +421,32 @@ pub fn stop_at_body(
             PointClass::OnBoundary(_) | PointClass::Undecided => {}
         }
     }
-    let entering = match (inside, outside) {
-        (0, 0) => return Err(StopError::Straddles),
-        (0, _) => true,
-        (_, 0) => false,
-        _ => return Err(StopError::Straddles),
-    };
+    match (inside, outside) {
+        (0, 0) => Err(StopError::Straddles),
+        (0, _) => Ok(true),
+        (_, 0) => Ok(false),
+        _ => Err(StopError::Straddles),
+    }
+}
+
+fn cut_back(tool: &Solid, body: &Solid, entering: bool) -> Result<Solid, StopError> {
     let operation = if entering {
         BooleanOperation::Difference
     } else {
         BooleanOperation::Intersection
     };
-    let piece = match boolean(tool, body, operation) {
-        Ok(piece) => piece,
-        Err(BooleanError::Empty) => return Err(StopError::Nothing),
-        Err(error) => return Err(error.into()),
-    };
-    let spans = piece.shell_spans(plane.origin(), direction)?;
+    match boolean(tool, body, operation) {
+        Ok(piece) => Ok(piece),
+        Err(BooleanError::Empty) => Err(StopError::Nothing),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn kept_from_start(
+    piece: &Solid,
+    spans: &BTreeMap<ShellId, ShellSpan>,
+    far: f64,
+) -> Result<Solid, StopError> {
     if spans.values().any(|span| span.void) {
         return Err(StopError::Enclosed);
     }
@@ -357,6 +465,5 @@ pub fn stop_at_body(
     if kept.is_empty() {
         return Err(StopError::Nothing);
     }
-    let solid = piece.keeping_shells(&kept).ok_or(StopError::Nothing)?;
-    Ok(Stopped { solid, entering })
+    piece.keeping_shells(&kept).ok_or(StopError::Nothing)
 }

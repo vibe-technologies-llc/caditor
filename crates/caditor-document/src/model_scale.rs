@@ -1237,7 +1237,9 @@ fn revolve_anchored(revolve: &mut Revolve) -> Vec<Anchored<'_>> {
         RevolveExtent::Full
         | RevolveExtent::OneSide { .. }
         | RevolveExtent::Symmetric { .. }
-        | RevolveExtent::TwoSides { .. } => None,
+        | RevolveExtent::TwoSides { .. }
+        | RevolveExtent::UpToNext { .. }
+        | RevolveExtent::UpToSurface { .. } => None,
     };
     axis.into_iter()
         .chain(start_anchored(start))

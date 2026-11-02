@@ -26,9 +26,17 @@ through a hidden sketch that follows their edges.
   (hold Ctrl to drag freely); a one-sided angle's arrow dragged back past the sketch turns the
   revolve the other way. A thin wall's arrow drags its thickness, and dragged back through the
   curves switches the wall between Inside and Outside. Type a value with the pointer on an arrow to set it exactly.
-- **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
-  reversed; a plane can be picked from the list as well as selected or clicked.
-- {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.
+- **Up to next** turns until the whole profile meets the body the revolve changes (Add, Remove or
+  Intersect), stopping on whatever face it meets first, flat or curved. A revolve that adds and
+  starts inside the body, or cuts and first enters it, is refused, as is one where part of the
+  profile turns past the body without meeting it.
+- **Up to face** turns until the profile reaches a face or plane, forward or reversed. A face or
+  plane that contains the axis ends the turn on it; any other face, flat or curved, ends it where
+  the profile first meets that face, and is refused when the profile meets other faces of its body
+  first. A datum or principal plane must contain the axis. A plane can be picked from the list as
+  well as selected or clicked.
+- {command:model.reverse_direction} turns a one-sided, Up to next or Up to face revolve the other
+  way.
 - **Profile**: Whole, or One side keeping only the regions on one side of the axis; Keep the other
   side of the axis swaps.
 - **Start** begins at the sketch plane or another face or plane, as for [Extrude](extrude); the

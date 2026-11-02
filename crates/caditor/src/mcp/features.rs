@@ -2,11 +2,11 @@ use std::{collections::BTreeSet, fmt};
 
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
-    CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceThickness, FeatureId,
-    FeatureKind, LinearDirection, LinearSpacing, Mirror, MirrorOutcome, Move, OffsetFace, Pattern,
-    PatternKind, PatternOutcome, PlaneReference, Primitive, PrimitiveAnchor, PrimitiveKind,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, Shell, ShellSide, SketchRegion,
-    SolidFeature, TurnCentre, repeatable_on,
+    CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceAttachment,
+    FaceThickness, FeatureId, FeatureKind, LinearDirection, LinearSpacing, Mirror, MirrorOutcome,
+    Move, OffsetFace, Pattern, PatternKind, PatternOutcome, PlaneReference, Primitive,
+    PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Shell,
+    ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -19,10 +19,10 @@ use crate::{
     combine_tools, editing,
     field::{self, Expected},
     mcp::{
-        places::{self, AxisChoice, PlaneChoice},
+        places::{self, AxisChoice, OnFace, PlaneChoice},
         references::{self, EntityName, Named, body_label},
         session::{Session, Work},
-        solids::{WallName, wall_of},
+        solids::{NextFace, UpTo, WallName, wall_of},
         tools::{Answer, ToolError},
         writing::{ModellingError, OperationName, apply, operation_words, with_feature},
     },
@@ -65,7 +65,8 @@ pub struct Revolution {
     pub axis: Option<RevolveAxisChoice>,
     pub angle: Option<Amount>,
     pub second_angle: Option<Amount>,
-    pub up_to: Option<PlaneChoice>,
+    pub up_to: Option<UpTo>,
+    pub up_to_surface: Option<OnFace>,
     pub symmetric: Option<bool>,
     pub reversed: Option<bool>,
     pub regions: Option<RegionsAsk>,
@@ -471,7 +472,9 @@ pub enum FeatureError {
     NoRegionAt { sketch: String, x: f64, y: f64 },
     #[error("regions takes a point inside each region wanted, such as [[5, 5]], or \"all\"")]
     NoRegionPoints,
-    #[error("a revolve ends up_to a plane or turns by an angle, not both")]
+    #[error(
+        "a revolve ends up_to the next face, a plane or a face, or turns by an angle, not both"
+    )]
     UpToWithAngle,
     #[error("the original stays; skipped names copies from 1 on (or [column, row] in a grid)")]
     SkippedOriginal,
@@ -745,7 +748,9 @@ impl RevolveSides {
             RevolveExtent::TwoSides { forward, backward } => {
                 (Some(forward.clone()), Some(backward.clone()), false, false)
             }
-            RevolveExtent::UpTo { reversed, .. } => (None, None, false, *reversed),
+            RevolveExtent::UpTo { reversed, .. }
+            | RevolveExtent::UpToNext { reversed }
+            | RevolveExtent::UpToSurface { reversed, .. } => (None, None, false, *reversed),
         };
         Self {
             angle,
@@ -816,25 +821,40 @@ pub fn revolve_built(
         }
     };
     let turns = angle.is_some() || second.is_some() || asked.symmetric.is_some();
-    if asked.up_to.is_some() && turns {
+    if (asked.up_to.is_some() || asked.up_to_surface.is_some()) && turns {
         return Err(FeatureError::UpToWithAngle.into());
     }
-    let kept_end = base.and_then(|base| match &base.extent {
-        RevolveExtent::UpTo { target, reversed } => Some((target.clone(), *reversed)),
-        _ => None,
-    });
-    let extent = match (&asked.up_to, kept_end, base) {
-        (Some(choice), kept, _) => RevolveExtent::up_to(
-            places::plane(document, evaluation, choice)?,
-            asked
-                .reversed
-                .unwrap_or(kept.is_some_and(|(_, reversed)| reversed)),
-        ),
-        (None, Some((target, reversed)), _) if !turns => RevolveExtent::UpTo {
-            target,
-            reversed: asked.reversed.unwrap_or(reversed),
-        },
-        (None, _, Some(base)) if !turns && asked.reversed.is_none() => base.extent.clone(),
+    if asked.up_to.is_some() && asked.up_to_surface.is_some() {
+        return Err(ModellingError::TwoEnds.into());
+    }
+    let reversed = asked
+        .reversed
+        .unwrap_or(base.is_some_and(|base| base.extent.reversed_up_to()));
+    let extent = match (&asked.up_to, &asked.up_to_surface, base) {
+        (Some(UpTo::Next(NextFace::Next)), _, _) => RevolveExtent::UpToNext { reversed },
+        (Some(UpTo::Plane(choice)), _, _) => {
+            RevolveExtent::up_to(places::plane(document, evaluation, choice)?, reversed)
+        }
+        (None, Some(on), _) => {
+            let (at, face) = places::face_at_bar(document, evaluation, on)?;
+            RevolveExtent::up_to_surface(
+                FaceAttachment {
+                    body: at.body,
+                    face,
+                },
+                reversed,
+            )
+        }
+        (None, None, Some(base)) if !turns && base.extent.turns_up_to() => {
+            if reversed == base.extent.reversed_up_to() {
+                base.extent.clone()
+            } else {
+                base.extent
+                    .flipped_up_to()
+                    .unwrap_or_else(|| base.extent.clone())
+            }
+        }
+        (None, None, Some(base)) if !turns && asked.reversed.is_none() => base.extent.clone(),
         _ => {
             let kept = base.map_or(
                 RevolveSides {

@@ -320,7 +320,9 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
                 }
                 RevolveExtent::Symmetric { .. }
                 | RevolveExtent::TwoSides { .. }
-                | RevolveExtent::UpTo { .. } => {}
+                | RevolveExtent::UpTo { .. }
+                | RevolveExtent::UpToNext { .. }
+                | RevolveExtent::UpToSurface { .. } => {}
             },
             SolidFeature::Sweep(_) => {}
         }

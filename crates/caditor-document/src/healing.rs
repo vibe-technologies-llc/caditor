@@ -752,8 +752,18 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             if let RevolveAxis::Model(axis) = &mut revolve.axis {
                 visit_axis(axis, "axis", visitor);
             }
-            if let RevolveExtent::UpTo { target, .. } = &mut revolve.extent {
-                visit_plane(target, "the face it turns up to", visitor);
+            match &mut revolve.extent {
+                RevolveExtent::UpTo { target, .. } => {
+                    visit_plane(target, "the face it turns up to", visitor);
+                }
+                RevolveExtent::UpToSurface { face, .. } => {
+                    visitor.face(face.body, &mut face.face, "the face it turns up to");
+                }
+                RevolveExtent::Full
+                | RevolveExtent::OneSide { .. }
+                | RevolveExtent::Symmetric { .. }
+                | RevolveExtent::TwoSides { .. }
+                | RevolveExtent::UpToNext { .. } => {}
             }
             if let Some(SolidStart::Plane(target)) = &mut revolve.start {
                 visit_plane(target, "the face it starts from", visitor);
