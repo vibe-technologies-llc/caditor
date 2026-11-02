@@ -35,7 +35,8 @@ made in the view: a body's row the whole body, a row that changes a body, such a
 fillet, only the faces it made, so each hole lights on its own. A split lights the body it split
 off, never the body it was split from. It also lights what the feature refers to, where that is
 still drawn: the face a sketch lies on or a hole is drilled up to, an edge a datum axis runs
-along, the principal plane a sketch or mirror uses, and the sketches and datums it is built from.
+along, a corner a coordinate system sits at, the principal plane or the plane of a coordinate
+system a sketch or mirror uses, and the sketches and datums it is built from.
 Faces and edges the feature itself used up, such as the edges a fillet rounded, are not drawn any
 more, so they do not light. The other way round, selecting a face or edge in the view marks the row
 of the feature that made it: the rim of a boss joined to a plate marks the boss.

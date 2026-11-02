@@ -139,6 +139,8 @@ pub(crate) trait ReferenceVisitor {
     fn vertex(&mut self, _body: FeatureId, _vertex: &mut VertexName, _what: &str) {}
 
     fn principal_plane(&mut self, _plane: PrincipalPlane) {}
+
+    fn frame_plane(&mut self, _frame: FeatureId, _plane: PrincipalPlane) {}
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -146,6 +148,8 @@ pub struct ReferredGeometry {
     pub faces: Vec<(FeatureId, FaceReference)>,
     pub edges: Vec<(FeatureId, EdgeReference)>,
     pub planes: Vec<PrincipalPlane>,
+    pub vertices: Vec<(FeatureId, VertexName)>,
+    pub frame_planes: Vec<(FeatureId, PrincipalPlane)>,
 }
 
 impl ReferenceVisitor for ReferredGeometry {
@@ -164,9 +168,19 @@ impl ReferenceVisitor for ReferredGeometry {
 
     fn regions(&mut self, _sketch: FeatureId, _choice: &mut RegionChoice) {}
 
+    fn vertex(&mut self, body: FeatureId, vertex: &mut VertexName, _what: &str) {
+        self.vertices.push((body, *vertex));
+    }
+
     fn principal_plane(&mut self, plane: PrincipalPlane) {
         if !self.planes.contains(&plane) {
             self.planes.push(plane);
+        }
+    }
+
+    fn frame_plane(&mut self, frame: FeatureId, plane: PrincipalPlane) {
+        if !self.frame_planes.contains(&(frame, plane)) {
+            self.frame_planes.push((frame, plane));
         }
     }
 }
@@ -691,7 +705,8 @@ fn visit_plane(plane: &mut PlaneReference, what: &str, visitor: &mut impl Refere
             visitor.face(attachment.body, &mut attachment.face, what);
         }
         PlaneReference::Principal(principal) => visitor.principal_plane(*principal),
-        PlaneReference::Datum(_) | PlaneReference::Frame { .. } => {}
+        PlaneReference::Frame { frame, plane } => visitor.frame_plane(*frame, *plane),
+        PlaneReference::Datum(_) => {}
     }
 }
 
