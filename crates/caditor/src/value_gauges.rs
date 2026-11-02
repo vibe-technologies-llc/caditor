@@ -3,14 +3,14 @@ use std::f64::consts::{PI, TAU};
 use caditor_document::{
     Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CoilSpan, CurvePattern,
     CurvePatternPath, CurveSpacing, Datum, DatumPlane, Draft, Emboss, EmbossForm, Evaluation,
-    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Helix, Hole, HoleDepth, HoleShape,
-    HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
-    MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, MoveFace, OffsetFace, Pattern,
-    PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape, ReachedEnd,
-    ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion, SolidFeature,
-    SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane,
-    face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
-    span_with_ends,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, FilletSizing, Helix, Hole,
+    HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing,
+    MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES, MoveFace, OffsetFace,
+    Pattern, PatternKind, PatternPath, Pipe, Primitive, PrimitiveAnchor, PrimitiveShape,
+    ReachedEnd, ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion,
+    SolidFeature, SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis,
+    displayed_plane, face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name,
+    pipe_stand, rib_stand, span_with_ends,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -494,7 +494,7 @@ impl Measured {
                     return format!(
                         "Drag to change the {}'s {}",
                         blend.kind.noun(),
-                        blend.kind.size_name()
+                        blend.size_name()
                     );
                 }
                 None => "Drag to change the size",
@@ -1682,7 +1682,12 @@ impl Builder<'_> {
         let gauges = match (blend.kind, blend.chamfer_form()) {
             (BlendKind::Fillet, _) => {
                 let half = corner.opening / 2.0;
-                vec![corner.bisected(size, 1.0 / half.cos() - 1.0)]
+                let per_radius = 1.0 / half.cos() - 1.0;
+                let per_size = match blend.sizing {
+                    FilletSizing::Radius => per_radius,
+                    FilletSizing::ChordLength => per_radius / (2.0 * half.cos()),
+                };
+                vec![corner.bisected(size, per_size)]
             }
             (BlendKind::Chamfer, ChamferForm::Equal) => {
                 vec![corner.bisected(size, (corner.opening / 2.0).sin())]

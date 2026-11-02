@@ -11,15 +11,15 @@ use caditor_document::{
     CombineOperation, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Datum,
     DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss,
     EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness,
-    Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate, MatePair, MetricSize,
-    Mirror, MirrorOutcome, ModelProperties, Move, MoveFace, OffsetFace, Outline, ParameterOwner,
-    ParameterValues, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
-    PrincipalGeometry, PrincipalShowing, ProjectionSource, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
-    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
+    Feature, FilletSizing, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
+    MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties, Move, MoveFace, OffsetFace,
+    Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PatternOutcome, PieceKey,
+    PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern,
+    PrincipalAxis, PrincipalGeometry, PrincipalShowing, ProjectionSource, RegionChoice, Remove,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
+    ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
+    Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
     point_instance,
 };
 use caditor_kernel::{
@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 71] = [
+const KEPT: [(&str, &str); 72] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -108,6 +108,10 @@ const KEPT: [(&str, &str); 71] = [
     (
         "model-1/bodies.caditor",
         "8e65cdd34444ca11d831fa7ae40b30d81c3de5e3386608a59b33fbe6e7a7f9c9",
+    ),
+    (
+        "model-1/chord-fillets.caditor",
+        "a7c8a8af9e3d87df5e6a1265553551b9814f8114e908a3746143596d9380f1fc",
     ),
     (
         "model-1/closed-spline-knots.caditor",
@@ -947,6 +951,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (model("faces"), saved(&faces(), "Faces")),
         (model("edge-rules"), saved(&edge_rules(), "Edge rules")),
         (
+            model("chord-fillets"),
+            saved(&chord_fillets(), "Chord fillets"),
+        ),
+        (
             model("deleted-faces"),
             saved(&deleted_faces(), "Deleted faces"),
         ),
@@ -1231,6 +1239,7 @@ pub(super) fn separate_pieces() -> Document {
             size: Expression::parse_stored("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -2842,6 +2851,34 @@ fn edge_rules() -> Document {
             name,
             FeatureKind::Blend(caditor_document::Blend {
                 groups: vec![EdgeGroup::Rule(rule)],
+                ..rounded.clone()
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn chord_fillets() -> Document {
+    let (mut document, fillet, _) = blended_model();
+    let FeatureKind::Blend(rounded) = document.feature(fillet).unwrap().kind.clone() else {
+        panic!("a blend");
+    };
+    let mut transaction = document.transaction("Chord fillets");
+    let sizings = [
+        ("Chord fillet", Vec::new()),
+        (
+            "Chord fillet of convex edges",
+            vec![EdgeGroup::Rule(EdgeRule::Convex)],
+        ),
+    ];
+    for (name, groups) in sizings {
+        transaction.add_feature(
+            name,
+            FeatureKind::Blend(caditor_document::Blend {
+                sizing: FilletSizing::ChordLength,
+                groups,
+                size: Expression::parse_stored("2 mm").unwrap(),
                 ..rounded.clone()
             }),
         );

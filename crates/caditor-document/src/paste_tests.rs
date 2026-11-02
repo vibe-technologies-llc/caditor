@@ -221,6 +221,7 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
             size: Expression::measure(1.0, caditor_expression::Unit::Millimetre),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();

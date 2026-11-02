@@ -820,7 +820,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
-- A `Blend` is a fillet or chamfer of `size`. A chamfer's `form` is `Equal`,
+- A `Blend` is a fillet or chamfer of `size`. A fillet's `sizing` (`FilletSizing`) is `Radius` or
+  `ChordLength`, the straight distance between the fillet's two tangent lines: recompute evaluates
+  `size` with the dimension's own name ("chord length" in every cause, `Blend::size_name`), resolves
+  the edges, then asks the kernel for the radius that chord gives on them
+  (`chord_fillet_radius`, `kernel-operations.md`) and blends with it, so the `BlendRecipe` of a
+  chord fillet holds the radius and patterns and mirrors repeat it. Faces turning by a changing
+  angle along an edge fail as `ChordVaries`, edges at different angles as `ChordDiffers`, each
+  saying to size by radius or to fillet the angles in features of their own. A chamfer ignores
+  `sizing` but keeps it. A chamfer's `form` is `Equal`,
   `TwoDistances { second }` or `DistanceAngle { angle }` (below 180), with `flipped` swapping which
   face of each edge the first distance is on (the kernel's choice: the face more chosen edges
   share). A fillet ignores both but keeps them; the extra expression counts among the feature's

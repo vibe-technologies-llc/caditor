@@ -262,6 +262,49 @@ fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_pal
 }
 
 #[test]
+fn a_fillet_is_sized_by_chord_length_from_its_panel_or_the_palette() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    let size = Id::unique(("blend-size", fillet));
+    assert!(harness.shows("Sized by"));
+    assert!(harness.shows("Radius"));
+
+    harness.click("Chord length");
+    harness.settle();
+    assert_eq!(
+        blend_of(&harness, fillet).sizing,
+        caditor_document::FilletSizing::ChordLength
+    );
+    assert!(harness.shows("Chord length"));
+    harness.type_into_field(size, "4 mm");
+    harness.settle();
+    let radius = 4.0 / 2.0_f64.sqrt();
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(radius)));
+
+    run_from_palette(&mut harness, "Size the fillet by its radius");
+    harness.settle();
+    assert_eq!(
+        blend_of(&harness, fillet).sizing,
+        caditor_document::FilletSizing::Radius
+    );
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(4.0)));
+    assert_eq!(harness.model.undo_label(), Some("Edit Fillet 1"));
+}
+
+#[test]
 fn enter_confirms_a_fillet_whose_row_then_closes_and_choosing_in_the_view_keeps_the_selection() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

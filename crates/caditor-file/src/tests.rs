@@ -6,9 +6,9 @@ use std::{
 };
 
 use caditor_document::{
-    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, MAX_RECORDS,
-    MirrorOutcome, PlaneReference, PrincipalPlane, RegionChoice, RollbackBar, SketchAttachment,
-    Transaction,
+    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, FilletSizing,
+    MAX_RECORDS, MirrorOutcome, PlaneReference, PrincipalPlane, RegionChoice, RollbackBar,
+    SketchAttachment, Transaction,
 };
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -4280,6 +4280,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             size: transaction.parse("depth / 3").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     transaction.add_feature(
@@ -4307,6 +4308,7 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             size: transaction.parse("0.5 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
@@ -8672,6 +8674,7 @@ fn filleted_model() -> (Document, FeatureId) {
             size: transaction.parse("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -11072,6 +11075,36 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
         "{:?}",
         older.issues
     );
+}
+
+#[test]
+fn a_fillet_sized_by_chord_length_round_trips_and_a_radius_one_stays_plain() {
+    let (mut document, blend) = filleted_model();
+    let plain = encode(&document).unwrap();
+    let mut kind = document.feature(blend).unwrap().kind.clone();
+    if let FeatureKind::Blend(definition) = &mut kind {
+        definition.sizing = FilletSizing::ChordLength;
+    }
+    document
+        .apply(Transaction::single(
+            "Size by chord",
+            Edit::SetFeatureKind { id: blend, kind },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("chord_fillet", "fillet_of_a_later_version"));
+
+    assert!(!plain.contains("chord_fillet"));
+    assert!(text.contains("\"chord_fillet\":{\"feature\":{\"fillet\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(
+        loaded.document.feature(blend).map(|feature| &feature.kind),
+        document.feature(blend).map(|feature| &feature.kind)
+    );
+    assert!(older.document.feature(blend).is_none());
+    assert!(!older.issues.is_empty());
 }
 
 #[test]

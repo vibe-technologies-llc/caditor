@@ -133,6 +133,7 @@ fn rounded_plate() -> (Document, Recompute, FeatureId) {
             size: Expression::parse_stored("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();

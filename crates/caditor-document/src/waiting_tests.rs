@@ -227,6 +227,7 @@ fn a_blend_and_an_offset_face_with_nothing_chosen_wait_for_their_body() {
             size: length("1 mm"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     let offset = transaction.add_feature(

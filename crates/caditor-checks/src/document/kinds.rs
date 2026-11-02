@@ -12,11 +12,11 @@ use caditor_document::{
     CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane,
     DatumPoint, DeleteFace, Draft, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd,
     ExtrudeExtent, FaceAngle, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
-    FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane,
-    ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate,
-    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of,
-    OffsetFace, Pattern, PatternKind, PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation,
+    FaceThickness, FeatureId, FeatureKind, FilletSizing, FinePitch, Helix, HelixKind, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
+    Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, Move, MoveFace,
+    Of, OffsetFace, Pattern, PatternKind, PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation,
     PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
     PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove, ReplaceFace,
     Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
@@ -757,6 +757,7 @@ fn blend(input: &mut Unstructured, scene: &Scene) -> Result<Blend> {
     } else {
         BlendKind::Chamfer
     };
+    let chord_sized = kind == BlendKind::Fillet && input.arbitrary::<bool>()?;
     let mut groups = Vec::new();
     for _ in 0..input.int_in_range(0u8..=2)? {
         groups.push(match input.int_in_range(0u8..=4)? {
@@ -783,6 +784,11 @@ fn blend(input: &mut Unstructured, scene: &Scene) -> Result<Blend> {
             },
         },
         flipped: input.arbitrary()?,
+        sizing: if chord_sized {
+            FilletSizing::ChordLength
+        } else {
+            FilletSizing::Radius
+        },
     })
 }
 

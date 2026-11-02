@@ -320,6 +320,9 @@ Edge treatments:
 - `shaped_chamfer`: inner `chamfer` of the first distance, or `fillet` keeping the chamfer form it
   would switch back to, `form` (`two_distances` with `second`, or `distance_angle` with `angle`;
   unreadable 1 mm and 45 deg), `flipped` when set. An equal chamfer stays `chamfer`.
+- `chord_fillet`: inner `fillet` (or `blend_groups` of one) whose `size` is a chord length rather
+  than a radius; a record without it is sized by radius, so every earlier file reads as before. The
+  corpus holds it in `chord-fillets.caditor`.
 - `blend_groups`: inner `fillet`, `chamfer` or `shaped_chamfer` of its edges alone, `groups`, each
   `face` (face record), `body`, `convex`, `concave` or `made_by` (the feature's id); unreadable
   group left out, reported, so an older reader reads a rule as unreadable and drops it. The corpus

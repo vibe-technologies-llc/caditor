@@ -170,7 +170,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   refused in words). The arguments are decoded with that tool's struct, whose fields are all
   optional so an edit gives only what changes: the same `*_built` function runs with the feature's
   kind as its base, keeping every part not given (references too, so a fillet's edges need not be
-  named again), and a missing required argument is `FeatureError::Missing` only when adding. The
+  named again; `add_fillet` takes `radius` or `chord_length`, never both, and giving one switches the
+  fillet to that sizing), and a missing required argument is `FeatureError::Missing` only when adding. The
   edit first evaluates, then runs the rebuild inside `Session::looking_before(feature, …)`:
   `Session::document()` and `evaluation()` then answer with the document rolled back to before the
   feature (`Document::rolled_back_before`) and the evaluation with every body the feature uses

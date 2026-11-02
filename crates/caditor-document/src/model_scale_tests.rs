@@ -130,6 +130,7 @@ fn model() -> Model {
             size: transaction.parse("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();

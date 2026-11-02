@@ -14,9 +14,9 @@ use caditor_document::{
     DatumPlane, DatumPoint, DeleteFace, Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss,
     EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate,
     FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
-    FeatureKind, Finish, HOME_VIEW_NAME, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit,
-    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
-    LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS,
+    FeatureKind, FilletSizing, Finish, HOME_VIEW_NAME, Helix, HelixKind, Hole, HoleBottom,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import,
+    LinearDirection, LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS,
     MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
     MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
     MetricSize, Mirror, MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
@@ -337,6 +337,7 @@ pub(crate) enum FeatureKindRecord {
     HelixPoint(Box<HelixPointRecord>),
     FlatSpiral(Box<FlatSpiralRecord>),
     HelixEnds(Box<HelixEndsRecord>),
+    ChordFillet(Box<ChordFilletRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
@@ -716,6 +717,11 @@ pub(crate) enum SplitFaceToolRecord {
     Plane(Lenient<PlaneReferenceRecord>),
     Body(u64),
     Sketch(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChordFilletRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3242,6 +3248,18 @@ fn restore_folder(record: &[Lenient<String>], name: &str, issues: &mut Vec<Strin
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    if let FeatureKind::Blend(blend) = kind
+        && blend.kind == BlendKind::Fillet
+        && blend.sizing == FilletSizing::ChordLength
+    {
+        let radius_sized = Blend {
+            sizing: FilletSizing::Radius,
+            ..blend.clone()
+        };
+        return FeatureKindRecord::ChordFillet(Box::new(ChordFilletRecord {
+            feature: feature_kind_record(&FeatureKind::Blend(radius_sized)),
+        }));
+    }
     if let FeatureKind::Blend(blend) = kind
         && !blend.groups.is_empty()
     {
@@ -7155,6 +7173,19 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::ChordFillet(chord) => {
+            let mut kind = restore_kind(&chord.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Blend(blend) if blend.kind == BlendKind::Fillet => {
+                    blend.sizing = FilletSizing::ChordLength;
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to be sized by chord length, but it is not a fillet, so it is \
+                     sized as the feature it is."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::BlendGroups(grouped) => {
             let mut kind = restore_kind(&grouped.feature, name, texts, issues);
             let groups: Vec<EdgeGroup> = grouped
@@ -10018,6 +10049,7 @@ fn restore_blend(
         size,
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     }
 }
 
