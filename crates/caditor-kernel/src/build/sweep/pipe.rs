@@ -443,6 +443,35 @@ fn first_corner(chain: &Chain, bend: f64) -> Option<PipeCorner> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainedLeg {
+    pub curve: Curve,
+    pub range: Interval,
+    pub segment: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainedPath {
+    pub legs: Vec<ChainedLeg>,
+    pub closed: bool,
+}
+
+pub fn chained_path(path: &[PathSegment]) -> Result<ChainedPath, PathSweepError> {
+    let tolerance = (path_reach(path) * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
+    let Chain { legs, closed } = path::ordered(path, tolerance)?;
+    Ok(ChainedPath {
+        legs: legs
+            .into_iter()
+            .map(|leg| ChainedLeg {
+                curve: leg.curve,
+                range: leg.range,
+                segment: leg.segment,
+            })
+            .collect(),
+        closed,
+    })
+}
+
 pub fn pipe_stand(path: &[PathSegment], bend: f64, up: Vector3) -> Result<PipeStand, PipeError> {
     let tolerance = (path_reach(path) * RELATIVE_TOLERANCE).max(LINEAR_RESOLUTION);
     let chain = path::ordered(path, tolerance)?;

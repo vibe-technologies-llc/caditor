@@ -179,9 +179,9 @@ pub use crate::{
     },
     paste_picks::{PickSearch, copied_picks},
     pattern::{
-        CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Instance, LinearDirection,
-        LinearSpacing, MAX_PATTERN_INSTANCES, ORIGINAL_INSTANCE, Pattern, PatternKind,
-        PatternOutcome, PointsPattern, instance_name, instance_point, point_copy_name,
+        CircularPattern, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Instance,
+        LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES, ORIGINAL_INSTANCE, Pattern,
+        PatternKind, PatternOutcome, PointsPattern, instance_name, instance_point, point_copy_name,
         point_instance, repeatable_on,
     },
     pattern_path::{CopyStop, PathError, PatternPath, is_curve_path},

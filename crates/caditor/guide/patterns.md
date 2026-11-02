@@ -2,7 +2,7 @@
 
 {command:model.linear_pattern} repeats a body along one or two directions;
 {command:model.circular_pattern} repeats it about an axis. {command:model.curve_pattern} repeats
-it along a curve of a sketch, and {command:model.point_pattern} places a copy at each lone point of
+it along a curve of a sketch or a chain of edges of a body, and {command:model.point_pattern} places a copy at each lone point of
 a sketch (the points of a [circular sketch pattern](sketch-patterns) count, its centre does not).
 
 A new linear or circular pattern starts from the count last used on one, kept between sessions,
@@ -40,8 +40,17 @@ chosen.
   a closed loop such as a circle. Make other curves of the sketch construction geometry.
 - Select a curve or point of the sketch to use it; otherwise the last sketch above the pattern
   that nothing else uses and that fits is taken.
+- A curve pattern can follow edges of a body instead: select them before starting it (the body of
+  the edges is repeated unless you choose another body in the tree), or use **Edges** in the panel
+  and click them in the view, again to leave one out. They must join end to end into one chain, open
+  or closed, and may leave a plane, such as along an edge and up a corner. The pattern holds the
+  edges by name, so they are found again when earlier features change; an edge no longer there
+  makes it fail asking you to choose the edges again. An open chain runs from its free end met
+  first among the edges in the order you chose them.
 - Along a curve the copies are carried from where the curve starts, as its start would move to
-  reach each place, so the body need not lie on the curve. At points each copy is moved from the
+  reach each place, so the body need not lie on the curve. Turned with the curve, a copy turns as
+  the curve's direction does; along edges that leave a plane it also tilts with them, without
+  spinning about the curve. At points each copy is moved from the
   **Base point**, the origin unless you choose another.
 
 ## The panel
@@ -52,7 +61,8 @@ chosen.
 - The count and, for a linear pattern, **Spacing** between copies or the **Total length**, each
   previewed as you type. {command:model.reverse_direction} reverses the first direction, the turn
   of a circular pattern, or the way along the curve.
-- For a curve: **Curve**, the **Count**, **Spaced** **Evenly** over the whole curve (round a
+- For a curve: **Curve**, the sketch it follows, or **Edges**, the edges of a body it follows
+  instead, the **Count**, **Spaced** **Evenly** over the whole curve (round a
   closed one) or **By distance** with its **Spacing**, and **Copies** **Kept as they are** or
   **Turned with the curve**.
 - For points: **Points**, the sketch whose lone points take the copies, and the **Base point**.

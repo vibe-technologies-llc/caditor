@@ -122,7 +122,9 @@ paths:
 - `sweep(plane, regions, path, SweepOrientation, feature)` (`sweep/`) sweeps regions along a path of
   `PathSegment`s (curve, range, the caller's key): valid or a `PathSweepError`, whose path errors
   name segments by their index in the input (`segments()`) and which wraps `SweepError` for the
-  profile's. `path.rs` chains segments by their ends (`Branches`, `Apart`, `SegmentTooShort`),
+  profile's. `path.rs` chains segments by their ends (`Branches`, `Apart`, `SegmentTooShort`;
+  `chained_path` hands that ordering out alone, each leg's curve turned to run along the walk and
+  its input index, at the pipe's tolerance, for a curve pattern along edges),
   walks an open chain from the end nearest the profile plane (then nearest the profile's middle),
   and opens a closed one where it crosses the profile plane nearest the profile's middle, splitting
   that segment (`ClosedPathMissesProfile` when it never crosses), walked so it leaves along the

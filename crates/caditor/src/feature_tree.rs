@@ -3244,6 +3244,9 @@ fn waiting(
         let id = row.feature.id();
         let start = match missing {
             MissingInput::Axis => EditingCommand::Pick(Picking::new(id, Slot::PatternDirection)),
+            MissingInput::Path if matches!(row.feature.kind, FeatureKind::Pattern(_)) => {
+                EditingCommand::Pick(Picking::new(id, Slot::PatternEdges))
+            }
             MissingInput::Path => EditingCommand::Pick(Picking::new(id, Slot::SweepPath)),
             MissingInput::Profiles => EditingCommand::Pick(Picking::new(id, Slot::LoftProfiles)),
             MissingInput::TargetPlane { .. } => {

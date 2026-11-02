@@ -231,6 +231,48 @@ fn curve_and_point_patterns_follow_their_sketches() {
 }
 
 #[test]
+fn a_curve_pattern_follows_the_edges_it_is_given() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let rail = box_of(&mut client, [40.0, 30.0, 20.0], [100.0, 0.0], "Rail");
+    let cube = box_of(&mut client, [5.0, 5.0, 5.0], [0.0, 0.0], "Cube");
+    let listed = client.tool("list_edges", json!({ "body": rail }));
+    let long = listed["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|edge| edge["kind"] == "line" && near(number(&edge["length"]), 40.0))
+        .unwrap()["edge"]
+        .clone();
+    let path = sketch_with(
+        &mut client,
+        json!([{ "kind": "line", "from": [0, -20], "to": [100, -20] }]),
+    );
+
+    let pattern = added(
+        &mut client,
+        "add_curve_pattern",
+        json!({ "body": cube, "edges": { "body": rail, "edges": [long] }, "count": 3 }),
+    );
+    let followed = total_volume(&mut client);
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": pattern, "count": 2 }),
+    );
+    let fewer = total_volume(&mut client);
+    let both = client.tool_error(
+        "add_curve_pattern",
+        json!({ "body": cube, "sketch": path, "edges": { "body": rail, "edges": [long] } }),
+    );
+
+    assert!(close(followed, 24000.0 + 375.0), "{followed}");
+    assert!(close(fewer, 24000.0 + 250.0), "{fewer}");
+    assert!(both.contains("not both"), "{both}");
+    client.finish();
+}
+
+#[test]
 fn files_are_imported_and_the_model_saved_under_another_name_within_the_folders() {
     let folder = TempDir::new().unwrap();
     let outside = TempDir::new().unwrap();

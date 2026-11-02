@@ -53,9 +53,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   spring's closed and ground ends cannot be swept. Turns cannot touch (a closed coil, a profile as
   tall as the pitch swept along a helix or as wide as it along a flat spiral, or a pipe as thick
   as a flat spiral's pitch, needs a pitch a hair larger).
-- [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
-  the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
-  its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
+- [medium · hard] Patterns stop short of what other modellers repeat: a pattern repeats features or
+  whole bodies but never chosen faces.
   A feature pattern or mirror repeats a shell only when nothing else changes the body between the
   shell and it (`repeat_shell.rs` hollows again from the body before the shell, so later features
   would be lost), refusing otherwise.

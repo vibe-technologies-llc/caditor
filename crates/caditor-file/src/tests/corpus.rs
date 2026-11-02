@@ -8,14 +8,14 @@ use std::{
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
-    CopyOrientation, CurvePattern, CurveSpacing, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish, Helix, Hole,
-    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
-    Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties,
-    Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern, PatternKind,
-    PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy,
-    PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing,
+    CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Datum, DatumAxis, DatumFrame,
+    DatumPlane, DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude,
+    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
+    Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
+    HoleStyle, Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome,
+    ModelProperties, Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern,
+    PatternKind, PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough,
+    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing,
     ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
     RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
     SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 68] = [
+const KEPT: [(&str, &str); 69] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -135,6 +135,10 @@ const KEPT: [(&str, &str); 68] = [
     (
         "model-1/drafts.caditor",
         "dcb865f43993e3a12a35e0ac8abecded8dc91ac2fc081c2da43674d7e0f0d10d",
+    ),
+    (
+        "model-1/edge-patterns.caditor",
+        "5fb1e18a16ef106938986454bffaf26548b6b0ecd13ae2d6fe273f47c3c58b10",
     ),
     (
         "model-1/edge-rules.caditor",
@@ -959,6 +963,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&mirrored_several_bodies(), "Mirrored several bodies"),
         ),
         (model("patterns"), saved(&patterns(), "Patterns")),
+        (
+            model("edge-patterns"),
+            saved(&edge_patterns(), "Edge patterns"),
+        ),
         (
             model("patterned-bodies"),
             saved(&patterned_bodies(), "Patterned bodies"),
@@ -3560,7 +3568,7 @@ fn patterns() -> Document {
     let mut along = Pattern::new(
         base,
         PatternKind::Curve(CurvePattern {
-            sketch: outline,
+            path: CurvePatternPath::Sketch(outline),
             count: parse("$0 + 1"),
             spacing: parse("12 mm"),
             measured: CurveSpacing::Distance,
@@ -3587,6 +3595,51 @@ fn patterns() -> Document {
     transaction.add_feature(
         "Feature pattern",
         FeatureKind::from(plain.repeating(vec![turned])),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn edge_patterns() -> Document {
+    let (mut document, _, _) = patterned_model();
+    let base = named(&document, "Base");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Edge patterns");
+    let mut along = Pattern::new(
+        base,
+        PatternKind::Curve(CurvePattern {
+            path: CurvePatternPath::Edges {
+                body: base,
+                edges: vec![edge(0x5eed), edge(0xed9e)],
+            },
+            count: parse("3"),
+            spacing: parse("12 mm"),
+            measured: CurveSpacing::Distance,
+            orientation: CopyOrientation::Following,
+            reversed: true,
+        }),
+    );
+    along.skipped.insert([1, 0]);
+    transaction.add_feature("Along edges", FeatureKind::from(along));
+    transaction.add_feature(
+        "Spread along an edge",
+        FeatureKind::from(
+            Pattern::new(
+                base,
+                PatternKind::Curve(CurvePattern {
+                    path: CurvePatternPath::Edges {
+                        body: base,
+                        edges: vec![edge(0x5eed)],
+                    },
+                    count: parse("4"),
+                    spacing: parse("10 mm"),
+                    measured: CurveSpacing::Spread,
+                    orientation: CopyOrientation::Kept,
+                    reversed: false,
+                }),
+            )
+            .with_outcome(PatternOutcome::NewBodies),
+        ),
     );
     document.apply(transaction.finish()).unwrap();
     document

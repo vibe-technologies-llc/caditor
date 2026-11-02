@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
 use caditor_document::{
-    AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
-    LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
+    AxisReference, CircularPattern, CurvePatternPath, Document, Edit, FeatureId, FeatureKind,
+    Instance, LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
     displayed_axis, repeatable_on,
 };
 use caditor_expression::Expression;
@@ -154,6 +154,7 @@ pub struct PatternSource {
     pub axis: Option<AxisReference>,
     pub repeated: Vec<FeatureId>,
     pub sketch: Option<FeatureId>,
+    pub edges: Option<CurvePatternPath>,
 }
 
 impl PatternSource {
@@ -247,6 +248,7 @@ pub fn source(
         axis,
         repeated,
         sketch: None,
+        edges: None,
     })
 }
 
@@ -374,10 +376,13 @@ pub fn create(
     source: &PatternSource,
 ) -> Result<(Transaction, FeatureId), PatternToolError> {
     let document = model.document();
-    let kind = match (shape.follows_sketch(), source.sketch) {
-        (true, Some(sketch)) => sketch_pattern_tools::kind(shape, sketch, model.length_unit()),
-        (true, None) => return Err(PatternToolError::NoPath),
-        (false, _) => kind_for(
+    let kind = match (shape.follows_sketch(), &source.edges, source.sketch) {
+        (true, Some(edges), _) if shape == Shape::Curve => PatternKind::Curve(
+            sketch_pattern_tools::curve(edges.clone(), model.length_unit()),
+        ),
+        (true, _, Some(sketch)) => sketch_pattern_tools::kind(shape, sketch, model.length_unit()),
+        (true, _, None) => return Err(PatternToolError::NoPath),
+        (false, _, _) => kind_for(
             model,
             shape,
             (source.body, &source.repeated),

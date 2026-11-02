@@ -10,26 +10,26 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
     CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
-    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss, EmbossForm, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
-    FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind, Finish, HOME_VIEW_NAME,
-    Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
-    MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
-    MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
-    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, ModelProperties,
-    ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace,
-    Parameter, ParameterOwner, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks,
-    PieceStandIns, Pieces, Pipe, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing, ProjectionSource, Reading,
-    RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection,
-    RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, Shell, ShellSide,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
-    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
-    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
-    group_name, material_name, unscaled, untwisted, view_name,
+    CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane,
+    DatumPoint, DeleteFace, Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss, EmbossForm,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate, FaceColour,
+    FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind,
+    Finish, HOME_VIEW_NAME, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
+    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
+    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
+    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
+    MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT,
+    ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind,
+    PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
+    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    PrincipalShowing, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar, SavedView,
+    SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    TurnCentre, Wall, folder_label, group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -347,6 +347,7 @@ pub(crate) enum FeatureKindRecord {
     MirrorNewBody(MirrorNewBodyRecord),
     MirrorSeveral(Box<MirrorSeveralRecord>),
     PatternNewBodies(Box<PatternNewBodiesRecord>),
+    EdgeCurvePattern(Box<EdgeCurvePatternRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -649,6 +650,23 @@ pub(crate) struct MeasurementRecord {
 pub(crate) struct CurvePatternRecord {
     pub body: u64,
     pub sketch: u64,
+    pub count: String,
+    pub spacing: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub distance: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<[u32; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct EdgeCurvePatternRecord {
+    pub body: u64,
+    pub path_body: u64,
+    pub edges: Vec<Lenient<EdgeRecord>>,
     pub count: String,
     pub spacing: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -4718,18 +4736,37 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
             })),
             skipped,
         ),
-        PatternKind::Curve(curve) => {
-            FeatureKindRecord::CurvePattern(Box::new(CurvePatternRecord {
+        PatternKind::Curve(curve) => match &curve.path {
+            CurvePatternPath::Sketch(sketch) => {
+                FeatureKindRecord::CurvePattern(Box::new(CurvePatternRecord {
+                    body,
+                    sketch: sketch.raw(),
+                    count: curve.count.to_stored_text(),
+                    spacing: curve.spacing.to_stored_text(),
+                    distance: curve.measured == CurveSpacing::Distance,
+                    follow: curve.orientation == CopyOrientation::Following,
+                    reversed: curve.reversed,
+                    skipped,
+                }))
+            }
+            CurvePatternPath::Edges {
+                body: path_body,
+                edges,
+            } => FeatureKindRecord::EdgeCurvePattern(Box::new(EdgeCurvePatternRecord {
                 body,
-                sketch: curve.sketch.raw(),
+                path_body: path_body.raw(),
+                edges: edges
+                    .iter()
+                    .map(|edge| Lenient::Read(edge_record(edge)))
+                    .collect(),
                 count: curve.count.to_stored_text(),
                 spacing: curve.spacing.to_stored_text(),
                 distance: curve.measured == CurveSpacing::Distance,
                 follow: curve.orientation == CopyOrientation::Following,
                 reversed: curve.reversed,
                 skipped,
-            }))
-        }
+            })),
+        },
         PatternKind::Points(points) => {
             FeatureKindRecord::PointPattern(Box::new(PointPatternRecord {
                 body,
@@ -7601,6 +7638,9 @@ fn restore_kind(
         FeatureKindRecord::CurvePattern(record) => {
             FeatureKind::from(restore_curve_pattern(record, name, issues))
         }
+        FeatureKindRecord::EdgeCurvePattern(record) => {
+            FeatureKind::from(restore_edge_curve_pattern(record, name, issues))
+        }
         FeatureKindRecord::PointPattern(record) => {
             FeatureKind::from(restore_point_pattern(record, name, issues))
         }
@@ -8374,31 +8414,41 @@ fn restore_pattern(record: &PatternRecord, feature: &str, issues: &mut Vec<Strin
     pattern
 }
 
-fn restore_curve_pattern(
-    record: &CurvePatternRecord,
+struct CurveSettings<'a> {
+    count: &'a str,
+    spacing: &'a str,
+    distance: bool,
+    follow: bool,
+    reversed: bool,
+    skipped: &'a [[u32; 2]],
+}
+
+fn restore_curve(
+    (body, path): (u64, CurvePatternPath),
+    settings: CurveSettings<'_>,
     feature: &str,
     issues: &mut Vec<String>,
 ) -> Pattern {
     let mut pattern = Pattern::new(
-        FeatureId::from_raw(record.body),
+        FeatureId::from_raw(body),
         PatternKind::Curve(CurvePattern {
-            sketch: FeatureId::from_raw(record.sketch),
-            count: restore_value(&record.count, "count", "1", feature, issues),
-            spacing: restore_value(&record.spacing, "spacing", "10 mm", feature, issues),
-            measured: if record.distance {
+            path,
+            count: restore_value(settings.count, "count", "1", feature, issues),
+            spacing: restore_value(settings.spacing, "spacing", "10 mm", feature, issues),
+            measured: if settings.distance {
                 CurveSpacing::Distance
             } else {
                 CurveSpacing::Spread
             },
-            orientation: if record.follow {
+            orientation: if settings.follow {
                 CopyOrientation::Following
             } else {
                 CopyOrientation::Kept
             },
-            reversed: record.reversed,
+            reversed: settings.reversed,
         }),
     );
-    pattern.skipped = record
+    pattern.skipped = settings
         .skipped
         .iter()
         .copied()
@@ -8408,6 +8458,68 @@ fn restore_curve_pattern(
         })
         .collect();
     pattern
+}
+
+fn restore_curve_pattern(
+    record: &CurvePatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    restore_curve(
+        (
+            record.body,
+            CurvePatternPath::Sketch(FeatureId::from_raw(record.sketch)),
+        ),
+        CurveSettings {
+            count: &record.count,
+            spacing: &record.spacing,
+            distance: record.distance,
+            follow: record.follow,
+            reversed: record.reversed,
+            skipped: &record.skipped,
+        },
+        feature,
+        issues,
+    )
+}
+
+fn restore_edge_curve_pattern(
+    record: &EdgeCurvePatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    let edges: Vec<EdgeReference> = record
+        .edges
+        .iter()
+        .filter_map(|edge| match edge {
+            Lenient::Read(edge) => restore_edge(edge),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if edges.len() < record.edges.len() {
+        issues.push(format!(
+            "Some edges of the path of “{feature}” could not be read and were left out."
+        ));
+    }
+    restore_curve(
+        (
+            record.body,
+            CurvePatternPath::Edges {
+                body: FeatureId::from_raw(record.path_body),
+                edges,
+            },
+        ),
+        CurveSettings {
+            count: &record.count,
+            spacing: &record.spacing,
+            distance: record.distance,
+            follow: record.follow,
+            reversed: record.reversed,
+            skipped: &record.skipped,
+        },
+        feature,
+        issues,
+    )
 }
 
 fn restore_point_pattern(

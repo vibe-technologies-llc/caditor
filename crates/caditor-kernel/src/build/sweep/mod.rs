@@ -17,8 +17,8 @@ use caditor_geometry::{
 use thiserror::Error;
 
 pub use self::pipe::{
-    BendMiddle, BendMiddles, PipeCorner, PipeError, PipeSection, PipeShape, PipeStand, pipe,
-    pipe_stand,
+    BendMiddle, BendMiddles, ChainedLeg, ChainedPath, PipeCorner, PipeError, PipeSection,
+    PipeShape, PipeStand, chained_path, pipe, pipe_stand,
 };
 use self::{
     path::{Chain, Leg},

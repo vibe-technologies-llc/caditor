@@ -8,9 +8,9 @@ use arbitrary::{Result, Unstructured};
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
     BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
-    CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurveSpacing,
-    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, Draft,
-    EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle,
+    CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurvePatternPath,
+    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
+    Draft, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle,
     FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId,
     FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
     HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot, Import,
@@ -1057,7 +1057,15 @@ fn pattern(input: &mut Unstructured, scene: &Scene) -> Result<Pattern> {
             reversed: input.arbitrary()?,
         }),
         2 => PatternKind::Curve(CurvePattern {
-            sketch: scene.sketch(input)?,
+            path: if input.ratio(1u8, 3)? {
+                let body = scene.body(input)?;
+                CurvePatternPath::Edges {
+                    body,
+                    edges: scene.edges(input, body)?,
+                }
+            } else {
+                CurvePatternPath::Sketch(scene.sketch(input)?)
+            },
             count: scene.count(input)?,
             spacing: scene.distance(input)?,
             measured: if input.arbitrary::<bool>()? {

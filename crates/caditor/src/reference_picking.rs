@@ -78,6 +78,7 @@ pub enum Slot {
     ShellOwnThickness,
     DraftOwnAngle,
     SweepPath,
+    PatternEdges,
     LoftProfiles,
     LoftEnd,
     ImagePlace,
@@ -89,6 +90,7 @@ impl Slot {
         matches!(
             self,
             Self::SweepPath
+                | Self::PatternEdges
                 | Self::MirrorBodies
                 | Self::AlsoCutBody
                 | Self::LoftProfiles
@@ -146,6 +148,7 @@ impl Slot {
             | Self::SweepPath
             | Self::LoftProfiles
             | Self::PatternPath
+            | Self::PatternEdges
             | Self::EmbossSketch
             | Self::MateMoving(_) => PrincipalSet::NONE,
         }
@@ -364,6 +367,11 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             }
             _ => "Click a curve of the sketch for the copies to follow".to_owned(),
         },
+        Slot::PatternEdges => {
+            "Click the edges of a body for the copies to follow, again to leave one out; press \
+             Escape when the path is complete"
+                .to_owned()
+        }
         Slot::PatternBase => {
             "Click a corner, round edge, sphere or torus, sketch point or datum point to move the \
              copies from"
@@ -585,6 +593,10 @@ pub fn change(
         }
         (Slot::PatternPath, FeatureKind::Pattern(pattern)) => {
             sketch_pattern_tools::sketch_change(model, selection, feature, pattern)
+                .map_err(ChangeError::from)
+        }
+        (Slot::PatternEdges, FeatureKind::Pattern(pattern)) => {
+            sketch_pattern_tools::edges_change(model, selection, feature, pattern)
                 .map_err(ChangeError::from)
         }
         (Slot::PatternBase, FeatureKind::Pattern(pattern)) => {

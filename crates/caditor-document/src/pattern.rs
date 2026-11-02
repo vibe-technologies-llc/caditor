@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use caditor_expression::{Dimension, Expression, ParameterId, format_number};
 use caditor_geometry::{Plane, Ray, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, LINEAR_RESOLUTION, MAX_SIZE, PatternCopy, PatternError, Solid,
-    boolean, pattern, pattern_copies,
+    BooleanError, BooleanOperation, EdgeReference, LINEAR_RESOLUTION, MAX_SIZE, PathSegment,
+    PathSweepError, PatternCopy, PatternError, ReferenceError, Solid, boolean, pattern,
+    pattern_copies,
 };
 use caditor_sketch::{EntityId, Sketch};
 
@@ -12,9 +13,13 @@ use crate::{
     blend::BlendRecipe,
     body_pieces::PieceKey,
     datum::{AxisReference, PointReference, Resolver, feature_name},
+    describe::describe_edge,
     document::{Feature, FeatureId, FeatureKind},
     failure::Cause,
-    pattern_path::{CurvePath, PathError, Station, curve_path},
+    origins,
+    pattern_path::{
+        EdgePathError, PathError, PatternPath, Station, curve_path, edge_segments, edge_walk,
+    },
     recompute::{
         CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, MissingInput,
     },
@@ -22,6 +27,7 @@ use crate::{
     repeat_shell,
     shell::ShellRecipe,
     solid::{BodyOperation, SolidResult},
+    sweep::capital,
     tolerance,
     trouble::{self, Adjust, Trouble},
     values::ParameterValues,
@@ -73,8 +79,59 @@ pub enum CopyOrientation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum CurvePatternPath {
+    Sketch(FeatureId),
+    Edges {
+        body: FeatureId,
+        edges: Vec<EdgeReference>,
+    },
+}
+
+impl CurvePatternPath {
+    pub fn sketch(&self) -> Option<FeatureId> {
+        match self {
+            Self::Sketch(sketch) => Some(*sketch),
+            Self::Edges { .. } => None,
+        }
+    }
+
+    pub fn body(&self) -> Option<FeatureId> {
+        match self {
+            Self::Edges { body, .. } => Some(*body),
+            Self::Sketch(_) => None,
+        }
+    }
+
+    pub fn edges(&self) -> &[EdgeReference] {
+        match self {
+            Self::Edges { edges, .. } => edges,
+            Self::Sketch(_) => &[],
+        }
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.edges().iter().flat_map(origins::of_edge).collect()
+    }
+
+    pub fn heap_size(&self) -> usize {
+        size_of_val(self.edges())
+    }
+
+    #[must_use]
+    pub fn with_features_renamed(&self, rename: &dyn Fn(FeatureId) -> FeatureId) -> Self {
+        match self {
+            Self::Sketch(sketch) => Self::Sketch(rename(*sketch)),
+            Self::Edges { body, edges } => Self::Edges {
+                body: rename(*body),
+                edges: edges.clone(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CurvePattern {
-    pub sketch: FeatureId,
+    pub path: CurvePatternPath,
     pub count: Expression,
     pub spacing: Expression,
     pub measured: CurveSpacing,
@@ -166,7 +223,9 @@ impl PatternKind {
                     + circular.count.heap_size()
                     + circular.angle.heap_size()
             }
-            Self::Curve(curve) => curve.count.heap_size() + curve.spacing.heap_size(),
+            Self::Curve(curve) => {
+                curve.path.heap_size() + curve.count.heap_size() + curve.spacing.heap_size()
+            }
             Self::Points(points) => points.base.heap_size(),
         }
     }
@@ -186,9 +245,16 @@ impl PatternKind {
 
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
-            Self::Curve(curve) => Some(curve.sketch),
+            Self::Curve(curve) => curve.path.sketch(),
             Self::Points(points) => Some(points.sketch),
             Self::Linear { .. } | Self::Circular(_) => None,
+        }
+    }
+
+    pub fn curve_path(&self) -> Option<&CurvePatternPath> {
+        match self {
+            Self::Curve(curve) => Some(&curve.path),
+            Self::Linear { .. } | Self::Circular(_) | Self::Points(_) => None,
         }
     }
 
@@ -432,6 +498,7 @@ impl Pattern {
             .into_iter()
             .filter_map(AxisReference::body)
             .chain(self.kind.base().and_then(PointReference::body))
+            .chain(self.kind.curve_path().and_then(CurvePatternPath::body))
             .collect()
     }
 
@@ -443,6 +510,12 @@ impl Pattern {
                 self.kind
                     .base()
                     .map(PointReference::origin_features)
+                    .unwrap_or_default(),
+            )
+            .chain(
+                self.kind
+                    .curve_path()
+                    .map(CurvePatternPath::origin_features)
                     .unwrap_or_default(),
             )
             .collect()
@@ -668,25 +741,78 @@ impl Context<'_> {
         self.error_at(cause, sketch)
     }
 
+    fn walk(&self, path: &CurvePatternPath) -> Result<PatternPath, Failure> {
+        match path {
+            CurvePatternPath::Sketch(sketch) => {
+                let placed = self.sketch(*sketch)?;
+                let walked = curve_path(placed.sketch)
+                    .map_err(|error| self.path_failure(&placed, *sketch, &error))?;
+                Ok(PatternPath::flat(walked, placed.sketch.plane()))
+            }
+            CurvePatternPath::Edges { body, edges } => self.edge_walk(*body, edges),
+        }
+    }
+
+    fn edge_walk(&self, body: FeatureId, edges: &[EdgeReference]) -> Result<PatternPath, Failure> {
+        let inputs = self.resolver.inputs;
+        if edges.is_empty() {
+            return Err(Failure::Waiting(MissingInput::Path));
+        }
+        let solid = inputs.body(body).ok_or_else(|| inputs.missing_body(body))?;
+        let name = inputs.document.body_label(body).unwrap_or_default();
+        let found =
+            edge_segments(solid, edges).map_err(|error| self.edges_failure(&name, error))?;
+        let labels: Vec<String> = found
+            .iter()
+            .map(|(_, edge)| describe_edge(inputs.document, solid, *edge))
+            .collect();
+        let segments: Vec<PathSegment> = found.into_iter().map(|(segment, _)| segment).collect();
+        edge_walk(&segments).map_err(|error| match error {
+            EdgePathError::Chain(PathSweepError::SegmentTooShort { segment }) => {
+                self.error(PatternCause::PathEdgeNoLength {
+                    body: name,
+                    edge: labels.get(segment).cloned().unwrap_or_default(),
+                })
+            }
+            other => self.edges_failure(&name, other),
+        })
+    }
+
+    fn edges_failure(&self, body: &str, error: EdgePathError) -> Failure {
+        let body = body.to_owned();
+        self.error(match error {
+            EdgePathError::Lost {
+                cause: ReferenceError::Missing,
+                ..
+            } => PatternCause::PathEdgeGone { body },
+            EdgePathError::Lost {
+                cause: ReferenceError::Ambiguous { .. },
+                ..
+            } => PatternCause::PathEdgeTied { body },
+            EdgePathError::Chain(PathSweepError::Cancelled(_)) => return Failure::Cancelled,
+            EdgePathError::Chain(PathSweepError::NoPath) => {
+                return Failure::Waiting(MissingInput::Path);
+            }
+            EdgePathError::Chain(
+                PathSweepError::Branches { .. } | PathSweepError::Apart { .. },
+            ) => PatternCause::PathEdgesBroken { body },
+            EdgePathError::Chain(PathSweepError::TooLong) => PatternCause::ReachTooFar,
+            EdgePathError::Chain(_) | EdgePathError::Unfollowable => {
+                PatternCause::PathEdgesUnfollowable { body }
+            }
+        })
+    }
+
     fn curve(&self, curve: &CurvePattern) -> Result<Vec<PatternCopy>, Failure> {
         let count = self.count(&curve.count, "count")?;
-        let placed = self.sketch(curve.sketch)?;
-        let path = curve_path(placed.sketch)
-            .map_err(|error| self.path_failure(&placed, curve.sketch, &error))?;
-        let step = self.curve_step(curve, count, &path)?;
-        let plane = placed.sketch.plane();
-        let start = path
-            .station(0.0, curve.reversed)
-            .ok_or_else(|| self.unplaceable())?;
+        let walk = self.walk(&curve.path)?;
+        let step = self.curve_step(curve, count, &walk)?;
         (1..count)
             .map(|index| {
-                let station = path
-                    .station(step * f64::from(index), curve.reversed)
+                let stop = walk
+                    .copy_at(step * f64::from(index), curve.reversed, curve.orientation)
                     .ok_or_else(|| self.unplaceable())?;
-                self.copy(
-                    [index, 0],
-                    along_curve(&plane, start, station, curve.orientation),
-                )
+                self.copy([index, 0], Some(stop.placement))
             })
             .collect()
     }
@@ -695,7 +821,7 @@ impl Context<'_> {
         &self,
         curve: &CurvePattern,
         count: u32,
-        path: &CurvePath,
+        path: &PatternPath,
     ) -> Result<f64, Failure> {
         let length = path.length();
         let steps = f64::from(count.saturating_sub(1));
@@ -1226,6 +1352,22 @@ pub(crate) enum PatternCause {
     PathUnfollowable {
         name: String,
     },
+    PathEdgeGone {
+        body: String,
+    },
+    PathEdgeTied {
+        body: String,
+    },
+    PathEdgesBroken {
+        body: String,
+    },
+    PathEdgeNoLength {
+        body: String,
+        edge: String,
+    },
+    PathEdgesUnfollowable {
+        body: String,
+    },
     PastEnd {
         closed: bool,
         length: f64,
@@ -1304,6 +1446,26 @@ impl PatternCause {
             Self::PathNoLength { name, curve } => format!("{curve} in {name} has no length."),
             Self::PathUnfollowable { name } => {
                 format!("A curve of {name} could not be followed.")
+            }
+            Self::PathEdgeGone { body } => {
+                format!("An edge of its path is no longer on the body of {body}.")
+            }
+            Self::PathEdgeTied { body } => format!(
+                "An edge of its path now matches several edges of the body of {body}, so it is \
+                 unclear which to follow."
+            ),
+            Self::PathEdgesBroken { body } => format!(
+                "The edges of its path on the body of {body} do not join end to end into one \
+                 chain, so it is unclear which way the copies run."
+            ),
+            Self::PathEdgeNoLength { body, edge } => {
+                format!(
+                    "{} of the body of {body} is too short to follow.",
+                    capital(edge)
+                )
+            }
+            Self::PathEdgesUnfollowable { body } => {
+                format!("An edge of its path on the body of {body} could not be followed.")
             }
             Self::PastEnd {
                 closed: true,
@@ -1397,6 +1559,16 @@ impl PatternCause {
                 format!("Give it a length or delete it from {name}.")
             }
             Self::PathUnfollowable { name } => format!("Redraw the curves of {name}."),
+            Self::PathEdgeGone { .. } | Self::PathEdgeTied { .. } => {
+                "Choose the edges of the path again.".to_owned()
+            }
+            Self::PathEdgesBroken { .. } => {
+                "Choose edges that join end to end without branches.".to_owned()
+            }
+            Self::PathEdgeNoLength { .. } => "Leave that edge out of the path.".to_owned(),
+            Self::PathEdgesUnfollowable { .. } => {
+                "Choose other edges for the path, or follow a sketch instead.".to_owned()
+            }
             Self::PastEnd { .. } => {
                 "Lower the count or the spacing, or spread the copies over the whole curve."
                     .to_owned()

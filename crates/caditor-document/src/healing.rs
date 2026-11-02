@@ -17,7 +17,7 @@ use crate::{
     mate::{AngleSides, AxisMate, Mate, MatePair, PointTarget},
     measurement::{MeasuredItem, Measurement, Reading},
     movement::TurnCentre,
-    pattern::PatternKind,
+    pattern::{CurvePatternPath, PatternKind},
     projection::ProjectionSource,
     recompute::Inputs,
     reference_image::ImagePlane,
@@ -409,7 +409,11 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 }
             }
             PatternKind::Points(points) => visit_point(&mut points.base, "base point", visitor),
-            PatternKind::Curve(_) => {}
+            PatternKind::Curve(curve) => {
+                if let CurvePatternPath::Edges { body, edges } = &mut curve.path {
+                    visit_path_edges(*body, edges, visitor);
+                }
+            }
         },
         FeatureKind::Datum(Datum::Plane(plane)) => {
             visit_plane(&mut plane.base, "the face it is based on", visitor);
@@ -749,15 +753,23 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
 
 fn visit_path(path: &mut SweepPath, visitor: &mut impl ReferenceVisitor) {
     if let SweepPath::Edges { body, edges } = path {
-        let count = edges.len();
-        visitor.edges(*body, edges, &|index| {
-            if count == 1 {
-                "the edge of its path".to_owned()
-            } else {
-                format!("edge {} of {count} of its path", index + 1)
-            }
-        });
+        visit_path_edges(*body, edges, visitor);
     }
+}
+
+fn visit_path_edges(
+    body: FeatureId,
+    edges: &mut [EdgeReference],
+    visitor: &mut impl ReferenceVisitor,
+) {
+    let count = edges.len();
+    visitor.edges(body, edges, &|index| {
+        if count == 1 {
+            "the edge of its path".to_owned()
+        } else {
+            format!("edge {} of {count} of its path", index + 1)
+        }
+    });
 }
 
 struct Healer<'a> {
