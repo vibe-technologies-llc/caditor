@@ -14,6 +14,7 @@ use crate::{
 
 const ARM_SHARE: f64 = 1.0 / 3.0;
 const SINGULAR_SHARE: f64 = 1e-12;
+const SEAM_SNAP: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FitHandle {
@@ -35,12 +36,18 @@ pub(crate) struct HandledLayout {
     pub knots: Vec<f64>,
     pub parameters: Vec<f64>,
     pub rows: Vec<Row>,
+    pub closed: bool,
 }
 
 impl HandledLayout {
-    pub fn of(points: &[Point2], spacing: FitSpacing, handled: &[usize]) -> Option<Self> {
-        let base = FitLayout::open(points, spacing)
-            .or_else(|| FitLayout::open(points, FitSpacing::Even))?;
+    pub fn of(
+        points: &[Point2],
+        closed: bool,
+        spacing: FitSpacing,
+        handled: &[usize],
+    ) -> Option<Self> {
+        let base = FitLayout::of(points, closed, spacing)
+            .or_else(|| FitLayout::of(points, closed, FitSpacing::Even))?;
         let mut rows = Vec::with_capacity(points.len() + handled.len());
         let mut sites = Vec::with_capacity(points.len() + handled.len());
         for (index, parameter) in base.parameters.iter().enumerate() {
@@ -51,22 +58,44 @@ impl HandledLayout {
                 sites.push(*parameter);
             }
         }
-        let degree = MAX_SPLINE_DEGREE.min(rows.len().checked_sub(1)?);
+        let (degree, knots) = if closed {
+            (
+                MAX_SPLINE_DEGREE,
+                looped_averaged_knots(&sites, MAX_SPLINE_DEGREE)?,
+            )
+        } else {
+            let degree = MAX_SPLINE_DEGREE.min(rows.len().checked_sub(1)?);
+            (degree, averaged_knots(&sites, degree))
+        };
         Some(Self {
             degree,
-            knots: averaged_knots(&sites, degree),
+            knots,
             parameters: base.parameters,
             rows,
+            closed,
         })
     }
 
     pub fn arm(&self, index: usize) -> f64 {
+        let count = self.parameters.len();
         let at = |offset: usize| self.parameters.get(offset).copied();
-        let gap = match (index.checked_sub(1).and_then(at), at(index), at(index + 1)) {
-            (Some(before), Some(_), Some(after)) => (after - before) / 2.0,
-            (None, Some(own), Some(after)) => after - own,
-            (Some(before), Some(own), None) => own - before,
-            _ => 1.0,
+        let gap = if self.closed {
+            let before = (index + count).checked_sub(1).map(|before| before % count);
+            match (
+                before.and_then(at),
+                at(index),
+                at((index + 1) % count.max(1)),
+            ) {
+                (Some(before), Some(_), Some(after)) => (after - before).rem_euclid(1.0) / 2.0,
+                _ => 1.0,
+            }
+        } else {
+            match (index.checked_sub(1).and_then(at), at(index), at(index + 1)) {
+                (Some(before), Some(_), Some(after)) => (after - before) / 2.0,
+                (None, Some(own), Some(after)) => after - own,
+                (Some(before), Some(own), None) => own - before,
+                _ => 1.0,
+            }
         };
         gap * ARM_SHARE
     }
@@ -75,18 +104,33 @@ impl HandledLayout {
         self.parameters.get(index).copied()
     }
 
+    pub fn width(&self) -> usize {
+        if self.closed {
+            self.knots.len().saturating_sub(self.degree + 1)
+        } else {
+            self.rows.len()
+        }
+    }
+
+    pub fn wrapped<T: Copy>(&self, controls: &[T]) -> Option<Vec<T>> {
+        let count = controls.len();
+        (0..self.width())
+            .map(|slot| controls.get(slot % count.max(1)).copied())
+            .collect()
+    }
+
     pub fn row_weights(&self, row: Row) -> Option<(usize, Vec<f64>)> {
-        let count = self.rows.len();
+        let width = self.width();
         match row {
             Row::Point(index) => Some(basis_values(
                 self.degree,
                 &self.knots,
-                count,
+                width,
                 self.parameter(index)?,
             )),
             Row::Slope(index) => {
                 let (first, values) =
-                    basis_derivatives(self.degree, &self.knots, count, self.parameter(index)?, 1);
+                    basis_derivatives(self.degree, &self.knots, width, self.parameter(index)?, 1);
                 let arm = self.arm(index);
                 Some((first, values.iter().map(|value| value * arm).collect()))
             }
@@ -100,7 +144,7 @@ impl HandledLayout {
         for (row, kind) in matrix.iter_mut().zip(&self.rows) {
             let (first, weights) = self.row_weights(*kind)?;
             for (offset, weight) in weights.iter().enumerate() {
-                *row.get_mut(first + offset)? = *weight;
+                *row.get_mut((first + offset) % count)? += *weight;
             }
             right.push(match kind {
                 Row::Point(index) => points.get(*index)?.to_array(),
@@ -117,6 +161,9 @@ impl HandledLayout {
 
     pub fn curve(&self, points: &[Point2], reaches: &[(usize, Vector2)]) -> Option<BSpline> {
         let controls = self.controls(points, reaches)?;
+        if self.closed {
+            return BSpline::periodic_clamped(self.degree, &self.knots, &self.wrapped(&controls)?);
+        }
         Some(BSpline::from_parts(
             controls,
             self.degree,
@@ -124,6 +171,39 @@ impl HandledLayout {
             None,
         ))
     }
+}
+
+fn looped_averaged_knots(sites: &[f64], degree: usize) -> Option<Vec<f64>> {
+    let count = isize::try_from(sites.len())
+        .ok()
+        .filter(|count| *count > 0)?;
+    let lead = isize::try_from(degree / 2).ok()?;
+    let window = isize::try_from(degree).ok()?;
+    let site = |index: isize| -> Option<f64> {
+        let within = usize::try_from(index.rem_euclid(count)).ok()?;
+        Some(sites.get(within)? + index.div_euclid(count) as f64)
+    };
+    let knot = |index: isize| -> Option<f64> {
+        let total =
+            (index - lead..index - lead + window).try_fold(0.0, |sum, at| Some(sum + site(at)?))?;
+        let average = total / degree as f64;
+        let seam = average.round();
+        Some(if (average - seam).abs() <= SEAM_SNAP {
+            seam
+        } else {
+            average
+        })
+    };
+    let mut start = 0;
+    while knot(start)? > 0.0 {
+        start -= 1;
+    }
+    while knot(start + 1)? <= 0.0 {
+        start += 1;
+    }
+    let first = start - window;
+    let length = count + 2 * window + 2;
+    (first..first + length).map(knot).collect()
 }
 
 fn solve_dense(mut matrix: Vec<Vec<f64>>, mut right: Vec<[f64; 2]>) -> Option<Vec<[f64; 2]>> {
@@ -191,7 +271,7 @@ impl Sketch {
     pub fn spline_handles(&self, spline: EntityId) -> Vec<FitHandle> {
         let Some(Entity::Spline {
             points,
-            kind: SplineKind::Fit { closed: false, .. },
+            kind: SplineKind::Fit { .. },
         }) = self.entity(spline)
         else {
             return Vec::new();
@@ -270,7 +350,7 @@ impl Sketch {
     pub(crate) fn handled_curve(
         &self,
         positions: &[Point2],
-        spacing: FitSpacing,
+        (closed, spacing): (bool, FitSpacing),
         handles: &[FitHandle],
     ) -> Option<BSpline> {
         let reaches = handles
@@ -283,17 +363,13 @@ impl Sketch {
             })
             .collect::<Option<Vec<_>>>()?;
         let handled: Vec<usize> = handles.iter().map(|handle| handle.index).collect();
-        HandledLayout::of(positions, spacing, &handled)?.curve(positions, &reaches)
+        HandledLayout::of(positions, closed, spacing, &handled)?.curve(positions, &reaches)
     }
 
     pub fn spline_handle_reach(&self, spline: EntityId, point: EntityId) -> Option<Vector2> {
         let Some(Entity::Spline {
             points,
-            kind:
-                SplineKind::Fit {
-                    closed: false,
-                    spacing,
-                },
+            kind: SplineKind::Fit { closed, spacing },
         }) = self.entity(spline)
         else {
             return None;
@@ -304,7 +380,7 @@ impl Sketch {
             .map(|own| self.point(*own))
             .collect::<Option<Vec<_>>>()?;
         let curve = self.spline(spline)?;
-        let layout = HandledLayout::of(&positions, *spacing, &[])?;
+        let layout = HandledLayout::of(&positions, *closed, *spacing, &[])?;
         let parameter = layout.parameter(index)?;
         let [slope, _] = curve.derivatives(parameter);
         let reach = slope * layout.arm(index);
@@ -318,7 +394,7 @@ impl Sketch {
     ) -> Result<(EntityId, ConstraintId), SketchError> {
         let fit_point = matches!(
             self.entity(spline),
-            Some(Entity::Spline { points, kind: SplineKind::Fit { closed: false, .. } })
+            Some(Entity::Spline { points, kind: SplineKind::Fit { .. } })
                 if points.contains(&point)
         );
         if !fit_point {
@@ -351,10 +427,10 @@ impl Sketch {
         line: EntityId,
         refuse_second: bool,
     ) -> Result<(), SketchError> {
-        let needed = "an open fit-point spline";
+        let needed = "a fit-point spline";
         let Some(Entity::Spline {
             points,
-            kind: SplineKind::Fit { closed: false, .. },
+            kind: SplineKind::Fit { .. },
         }) = self.entity(spline)
         else {
             return Err(SketchError::WrongKind {

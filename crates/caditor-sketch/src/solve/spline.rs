@@ -392,12 +392,10 @@ impl System {
                         periodic: false,
                     }
                 }
-                SplineKind::Fit {
-                    closed: false,
-                    spacing,
-                } if !sketch.spline_handles(id).is_empty() => self
-                    .handled_fit(sketch, id, &handles, *spacing)
-                    .unwrap_or_else(|| self.fit_handle(id, &handles, false, *spacing)),
+                SplineKind::Fit { closed, spacing } if !sketch.spline_handles(id).is_empty() => {
+                    self.handled_fit(sketch, id, &handles, (*closed, *spacing))
+                        .unwrap_or_else(|| self.fit_handle(id, &handles, *closed, *spacing))
+                }
                 SplineKind::Fit { closed, spacing } => {
                     self.fit_handle(id, &handles, *closed, *spacing)
                 }
@@ -500,7 +498,7 @@ impl System {
         sketch: &Sketch,
         id: EntityId,
         fits: &[PointHandle],
-        spacing: FitSpacing,
+        (closed, spacing): (bool, FitSpacing),
     ) -> Option<SplineHandle> {
         let handles = sketch.spline_handles(id);
         let positions: Vec<Point2> = fits.iter().map(|fit| fit.at(&self.values)).collect();
@@ -519,13 +517,14 @@ impl System {
             })
             .collect();
         let handled: Vec<usize> = handles.iter().map(|handle| handle.index).collect();
-        let layout = HandledLayout::of(&positions, spacing, &handled)?;
+        let layout = HandledLayout::of(&positions, closed, spacing, &handled)?;
         let starts = layout.controls(&positions, &reaches)?;
         let last = starts.len().checked_sub(1)?;
-        let mut hidden = Vec::with_capacity(last.saturating_sub(1));
+        let mut hidden = Vec::with_capacity(starts.len());
         let mut controls = Vec::with_capacity(starts.len());
         for (index, start) in starts.iter().enumerate() {
             let fixed_end = match index {
+                _ if closed => None,
                 0 => fits.first(),
                 _ if index == last => fits.last(),
                 _ => None,
@@ -541,11 +540,11 @@ impl System {
         }
         self.hidden.insert(id, hidden);
         let handle = SplineHandle {
-            points: controls,
+            points: layout.wrapped(&controls)?,
             degree: layout.degree,
             knots: layout.knots.clone(),
             weights: None,
-            periodic: false,
+            periodic: closed,
         };
         let terms_of = |row: Row| -> Option<Vec<(PointHandle, f64)>> {
             let (first, weights) = layout.row_weights(row)?;
@@ -560,7 +559,7 @@ impl System {
         };
         for row in &layout.rows {
             match *row {
-                Row::Point(index) if index == 0 || index + 1 == fits.len() => {}
+                Row::Point(index) if !closed && (index == 0 || index + 1 == fits.len()) => {}
                 Row::Point(index) => {
                     let fit = *fits.get(index)?;
                     let terms: Arc<[(PointHandle, f64)]> = terms_of(*row)?.into();

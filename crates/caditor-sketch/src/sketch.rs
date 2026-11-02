@@ -478,14 +478,10 @@ impl Sketch {
             .iter()
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
-        if let SplineKind::Fit {
-            closed: false,
-            spacing,
-        } = *kind
-        {
+        if let SplineKind::Fit { closed, spacing } = *kind {
             let handles = self.spline_handles(id);
             if !handles.is_empty()
-                && let Some(curve) = self.handled_curve(&positions, spacing, &handles)
+                && let Some(curve) = self.handled_curve(&positions, (closed, spacing), &handles)
             {
                 return Some(curve);
             }

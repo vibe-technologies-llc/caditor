@@ -120,12 +120,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   laying each letter's middle on a sketch curve turned to its tangent, as SVG `textPath` does,
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
-- [medium · hard] A spline's points take only tangent handles, and only on open fit-point splines:
-  a point has no curvature handle; a closed fit-point spline takes no tangent handle (its periodic
-  interpolation would need the derivative rows round the loop); the degree cannot be chosen; a
-  point cannot be removed while keeping the shape (only approximately possible); and a point cannot
-  be inserted into a conic keeping the shape (its two halves would be rational arcs with weights of
-  their own, which no spline kind but the conic holds).
+- [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
+  point has no curvature handle; the degree cannot be chosen; a point cannot be removed while
+  keeping the shape (only approximately possible); and a point cannot be inserted into a conic
+  keeping the shape (its two halves would be rational arcs with weights of their own, which no
+  spline kind but the conic holds).
 - [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
   along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is

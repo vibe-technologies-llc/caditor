@@ -2243,7 +2243,7 @@ pub const NOTHING_TO_INSERT: &str = "Select a spline drawn from control points, 
 pub const INSERT_TITLE: &str = "Add control point";
 pub const HANDLE_TITLE: &str = "Add tangent handle";
 pub const NOTHING_TO_HANDLE: &str =
-    "Select a fit point of an open fit-point spline, with the spline when the point is shared";
+    "Select a fit point of a fit-point spline, with the spline when the point is shared";
 pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
                                       the spacing of their points";
 pub const RESPACE_TITLE: &str = "Respace fit-point splines";
@@ -2453,7 +2453,7 @@ impl HandleChange {
                 sketch.entity(spline),
                 Some(Entity::Spline {
                     points,
-                    kind: SplineKind::Fit { closed: false, .. },
+                    kind: SplineKind::Fit { .. },
                 }) if points.contains(&point)
             ) && !sketch.is_projected(spline)
         };
