@@ -59,9 +59,9 @@ pub use crate::{
     },
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec,
-        END_CHANGE_TURNS, HelixEnds, HelixError, HelixSpec, HelixTurn, LEAST_COIL_TURNS,
-        MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, SPIRAL_TOLERANCE, SpiralError, SpiralSpec, coil,
-        helix, spiral,
+        END_CHANGE_TURNS, HelixEnds, HelixError, HelixPitch, HelixSpec, HelixTurn,
+        LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, SPIRAL_TOLERANCE, SpiralError,
+        SpiralSpec, coil, helix, spiral,
     },
     coordinates::Coordinates,
     curve::{

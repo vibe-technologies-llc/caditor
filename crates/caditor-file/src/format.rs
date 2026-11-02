@@ -338,6 +338,8 @@ pub(crate) enum FeatureKindRecord {
     FlatSpiral(Box<FlatSpiralRecord>),
     HelixEnds(Box<HelixEndsRecord>),
     ChordFillet(Box<ChordFilletRecord>),
+    HelixEndChange(Box<HelixEndChangeRecord>),
+    HelixProgressive(Box<HelixProgressiveRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
@@ -400,6 +402,18 @@ pub(crate) struct FlatSpiralRecord {
 pub(crate) struct HelixEndsRecord {
     pub feature: FeatureKindRecord,
     pub turns: String,
+    pub pitch: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixEndChangeRecord {
+    pub feature: FeatureKindRecord,
+    pub turns: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixProgressiveRecord {
+    pub feature: FeatureKindRecord,
     pub pitch: String,
 }
 
@@ -4242,6 +4256,33 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             feature: helix_record(&helical),
         }));
     }
+    if let Some(last) = &helix.final_pitch {
+        let even = Helix {
+            final_pitch: None,
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixProgressive(Box::new(HelixProgressiveRecord {
+            feature: helix_record(&even),
+            pitch: text(last),
+        }));
+    }
+    if let Some(ends) = helix
+        .ends
+        .as_ref()
+        .filter(|ends| !ends.changes_by_default())
+    {
+        let quick = Helix {
+            ends: Some(ClosedEnds {
+                change: ClosedEnds::default().change,
+                ..ends.clone()
+            }),
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixEndChange(Box::new(HelixEndChangeRecord {
+            feature: helix_record(&quick),
+            turns: text(&ends.change),
+        }));
+    }
     if let Some(ends) = &helix.ends {
         let open = Helix {
             ends: None,
@@ -4339,6 +4380,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
         start: Expression::measure(0.0, Unit::Degree),
         start_point: None,
         ends: None,
+        final_pitch: None,
     }
 }
 
@@ -7060,11 +7102,51 @@ fn restore_kind(
                     helix.ends = Some(ClosedEnds {
                         turns: restore_value(&ends.turns, "end turns", "1", name, issues),
                         pitch: restore_value(&ends.pitch, "end pitch", "2.5 mm", name, issues),
+                        change: ClosedEnds::default().change,
                     });
                 }
                 _ => issues.push(format!(
                     "“{name}” was to have closed ends, but it is not a helix, so that was left \
                      out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::HelixEndChange(changed) => {
+            let mut kind = restore_kind(&changed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => match &mut helix.ends {
+                    Some(ends) => {
+                        ends.change =
+                            restore_value(&changed.turns, "end change", "0.5", name, issues);
+                    }
+                    None => issues.push(format!(
+                        "“{name}” was to change pitch over a number of turns at its closed ends, \
+                         but has none, so that was left out."
+                    )),
+                },
+                _ => issues.push(format!(
+                    "“{name}” was to change pitch over a number of turns at its closed ends, but \
+                     it is not a helix, so that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::HelixProgressive(progressive) => {
+            let mut kind = restore_kind(&progressive.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.final_pitch = Some(restore_value(
+                        &progressive.pitch,
+                        "final pitch",
+                        "5 mm",
+                        name,
+                        issues,
+                    ));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to change its pitch along it, but it is not a helix, so that \
+                     was left out."
                 )),
             }
             kind

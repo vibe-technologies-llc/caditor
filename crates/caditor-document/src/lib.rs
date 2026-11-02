@@ -144,7 +144,7 @@ pub use crate::{
     healing::{Healing, ReferredGeometry, referred_geometry},
     helix::{
         ClosedEnds, DEFAULT_END_PITCH, DEFAULT_END_TURNS, HELIX_SHAPE, Helix, HelixKind,
-        HelixResult, SPIRAL_SHAPE, span_with_ends,
+        HelixResult, SPIRAL_SHAPE, span_with_pitch,
     },
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,

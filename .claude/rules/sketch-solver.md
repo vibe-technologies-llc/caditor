@@ -122,9 +122,11 @@ paths:
   and holds the inner ones, a closed one holds all). Knots and parameters are the `FitLayout` where
   the solve starts. It counts two degrees of freedom per fit point, which take constraints and
   dimensions like any point.
-- An open fit spline with active tangent handles (`System::handled_fit`) takes the
+- A fit spline with active tangent handles (`System::handled_fit`) takes the
   `HandledLayout` of its handles where the solve starts: one hidden control point more per handle,
-  the inner fit points held by `Form::Through` as before, and each handle by two `Form::Through`
+  the inner fit points held by `Form::Through` as before (an open spline sharing its end points; a
+  closed one hiding every control point, holding every fit point, and wrapping the controls into a
+  periodic `SplineHandle` over the layout's knots), and each handle by two `Form::Through`
   rows (the handle's end equals its anchor plus `arm` times the derivative's basis weights over the
   control points), kept in `System::handle_forms` and owned by the `SplineHandle` constraint, so a
   conflict names it. A handle adds two variables and two rows: the spline's freedom is unchanged

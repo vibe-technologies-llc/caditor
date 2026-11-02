@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 72] = [
+const KEPT: [(&str, &str); 73] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -184,6 +184,10 @@ const KEPT: [(&str, &str); 72] = [
     (
         "model-1/helix-ends.caditor",
         "6d6129e773c5b6ffaff9f40cca01f076afd58d770ba5417c27ebeb01220bbc97",
+    ),
+    (
+        "model-1/helix-laws.caditor",
+        "d2bfc1ef357cb64ad10181c3a51afa76e8cb803e70517177d1148f6254ed30e8",
     ),
     (
         "model-1/helix-points.caditor",
@@ -928,6 +932,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("helix-ends"),
             saved(&helix_ends(), "Closed helix ends"),
+        ),
+        (
+            model("helix-laws"),
+            saved(&helix_laws(), "Helix pitch laws"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
@@ -2365,6 +2373,7 @@ fn helix_ends() -> Document {
             ends: Some(ClosedEnds {
                 turns: parse("1"),
                 pitch: parse("2.2 mm"),
+                change: parse("0.5"),
             }),
             start: parse("30 deg"),
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
@@ -2378,6 +2387,51 @@ fn helix_ends() -> Document {
             parse("0 mm"),
         )),
     );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn helix_laws() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Helix pitch laws");
+    let progressive = transaction.add_feature(
+        "Progressive path",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("8"),
+                pitch: parse("3 mm"),
+            },
+            final_pitch: Some(parse("9 mm")),
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        }),
+    );
+    let closed = transaction.add_feature(
+        "Slow closed path",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::HeightAndTurns {
+                height: parse("60 mm"),
+                turns: parse("10"),
+            },
+            ends: Some(ClosedEnds {
+                turns: parse("1"),
+                pitch: parse("2.2 mm"),
+                change: parse("1.5"),
+            }),
+            final_pitch: Some(parse("8 mm")),
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("16 mm"))
+        }),
+    );
+    for (name, helix) in [("Progressive", progressive), ("Spring", closed)] {
+        transaction.add_feature(
+            name,
+            FeatureKind::Pipe(Pipe::new(
+                SweepPath::Helix { helix },
+                parse("2 mm"),
+                parse("0 mm"),
+            )),
+        );
+    }
     document.apply(transaction.finish()).unwrap();
     document
 }

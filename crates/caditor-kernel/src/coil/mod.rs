@@ -14,7 +14,7 @@ use thiserror::Error;
 
 use self::pitch::PitchLaw;
 pub use self::{
-    helix::{HelixEnds, HelixError, HelixSpec, HelixTurn, helix},
+    helix::{HelixEnds, HelixError, HelixPitch, HelixSpec, HelixTurn, helix},
     pitch::END_CHANGE_TURNS,
     spiral::{SPIRAL_TOLERANCE, SpiralError, SpiralSpec, spiral},
 };

@@ -49,10 +49,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
   middle profile.
 - [medium · hard] Few helix pitch laws: Helix gives a sweep or pipe a helix (tapered or not) of
-  one pitch or with a compression spring's closed ends (end turns at an end pitch, changing to the
-  pitch over a fixed half turn), or a flat spiral of one pitch, but takes no other law (a
-  progressive spring's pitch growing along it, a table of pitches by turn, a change over a chosen
-  number of turns) and a flat spiral none. A sweep along a changing pitch keeps the section's lean
+  one pitch, a pitch changing evenly along it (a progressive spring's) or with a compression
+  spring's closed ends (end turns at an end pitch, changing to the pitch over chosen turns), or a
+  flat spiral of one pitch, but takes no other law (a table of pitches by turn) and a flat spiral
+  none. A sweep along a changing pitch keeps the section's lean
   to the axis it starts with, so a round wire is a hair out of round where the pitch differs from
   the end's. Turns cannot touch (a closed coil, a profile as tall as the pitch swept along a helix
   or as wide as it along a flat spiral, or a pipe as thick as a flat spiral's pitch, needs a pitch
@@ -120,12 +120,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   laying each letter's middle on a sketch curve turned to its tangent, as SVG `textPath` does,
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
-- [medium · hard] A spline's points take only tangent handles, and only on open fit-point splines:
-  a point has no curvature handle; a closed fit-point spline takes no tangent handle (its periodic
-  interpolation would need the derivative rows round the loop); the degree cannot be chosen; a
-  point cannot be removed while keeping the shape (only approximately possible); and a point cannot
-  be inserted into a conic keeping the shape (its two halves would be rational arcs with weights of
-  their own, which no spline kind but the conic holds).
+- [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
+  point has no curvature handle; the degree cannot be chosen; a point cannot be removed while
+  keeping the shape (only approximately possible); and a point cannot be inserted into a conic
+  keeping the shape (its two halves would be rational arcs with weights of their own, which no
+  spline kind but the conic holds).
 - [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
   along the spline's offset and the spline cut at the touching
   parameter by blossoming, as trim cuts it). A trimmed fit-point spline is

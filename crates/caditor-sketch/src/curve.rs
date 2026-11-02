@@ -313,18 +313,29 @@ impl BSpline {
             return None;
         }
         let degree = MAX_SPLINE_DEGREE;
-        let mut points: Vec<Point2> = (0..count + degree)
+        let wrapped: Vec<Point2> = (0..count + degree)
             .filter_map(|index| control_points.get(index % count).copied())
             .collect();
-        let mut knots = knots;
+        Self::periodic_clamped(degree, &knots, &wrapped)
+    }
+
+    pub(crate) fn periodic_clamped(
+        degree: usize,
+        knots: &[f64],
+        wrapped: &[Point2],
+    ) -> Option<Self> {
+        let mut points = wrapped.to_vec();
+        let mut knots = knots.to_vec();
         for end in [0.0, 1.0] {
-            for _ in 1..degree {
+            let present = knots.iter().filter(|knot| **knot == end).count();
+            for _ in present..degree {
                 (knots, points) = inserted(degree, &knots, &points, end)?;
             }
         }
-        let skipped = degree - 1;
+        let first_start = knots.iter().position(|knot| *knot >= 0.0)?;
+        let last_end = knots.iter().rposition(|knot| *knot <= 1.0)?;
         let kept = points
-            .get(skipped..points.len().checked_sub(skipped)?)?
+            .get(first_start.checked_sub(1)?..=last_end.checked_sub(degree)?)?
             .to_vec();
         let clamped: Vec<f64> = std::iter::repeat_n(0.0, degree + 1)
             .chain(

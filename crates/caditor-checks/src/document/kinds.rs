@@ -339,7 +339,13 @@ pub fn feature_kind(
                 Some(ClosedEnds {
                     turns: scene.count(input)?,
                     pitch: scene.distance(input)?,
+                    change: scene.count(input)?,
                 })
+            } else {
+                None
+            },
+            final_pitch: if input.arbitrary()? {
+                Some(scene.distance(input)?)
             } else {
                 None
             },

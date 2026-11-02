@@ -1066,19 +1066,24 @@ paths:
   taper drawing it into the axis `ReachesAxis`.
 - A helix's pitch follows a `PitchLaw` (`coil/pitch.rs`; a coil's is `PitchLaw::even`), carried in
   `Winding` with the taper as `spread` (radial growth per unit of rise), so radius and height both
-  follow the law's rise. `HelixSpec::ends` (`HelixEnds { turns, pitch }`) makes it
-  `closed_ends`: the end pitch for `turns` at each end, changing linearly in angle to the pitch
-  over `END_CHANGE_TURNS` (half a turn), so the pitch is continuous. Pieces are cut at the law's
+  follow the law's rise. `HelixSpec::final_pitch` makes it `progressive`: linear in angle from the
+  pitch to the final pitch over all the turns. `HelixSpec::ends` (`HelixEnds { turns, pitch,
+  change }`) makes it `closed_ends`: the end pitch for `turns` at each end, changing linearly in
+  angle to the pitch (to the final pitch at the far end) over `change` turns (`HelixEnds::
+  with_default_change` uses `END_CHANGE_TURNS`, half a turn), so the pitch is continuous. Pieces are cut at the law's
   breaks (`faces::pieces_through`, each stretch between breaks in `ceil` equal pieces of at most a
   turn), so the law is linear across every span: span ends lie at the exact rise (the integral of
   the pitch) and the middle control at the start's rise plus `half · pitch(start) / 2π`
   (`PitchLaw::middle_rise`), which equals the end's rise less `half · pitch(end) / 2π`, so the legs
   either side of every joint match and the curve is C1 (for an even law the old net exactly).
   `HelixSpec::height`, `point_at` (the law's analytic rise) and `body_start` (where the end
-  pitch has changed) follow the law; `HelixEnds::height`, `pitch_for` and `turns_for` solve the
-  sizing. Refusals: an end pitch not above the resolution `NoPitch`, end turns neither zero nor at
-  least `LEAST_COIL_TURNS` `EndTurns`, ends taking more turns than the helix makes or leaving fewer
-  than `LEAST_COIL_TURNS` between them `EndsTooLong`. A sweep along it keeps the screw motion's
+  pitch has changed) follow the law; `HelixPitch` (`ends` and `final_pitch`) solves the sizing: the
+  height is the ends' turns at the end pitch plus the rest at the mean of the pitch and final
+  pitch (`height`, `pitch_for` giving the start pitch, `turns_for`). Refusals: an end pitch or
+  final pitch not above the resolution `NoPitch`, end turns neither zero nor at least
+  `LEAST_COIL_TURNS` `EndTurns`, a change under `LEAST_COIL_TURNS` `EndChange`, ends taking more
+  turns than the helix makes or leaving fewer than `LEAST_COIL_TURNS` between them `EndsTooLong`,
+  and ends taking every turn of a helix whose final pitch differs `ProgressionWithoutBody`. A sweep along it keeps the screw motion's
   placement, so its section keeps the lean to the axis it starts with where the pitch changes.
 - `spiral(SpiralSpec)` (`coil/spiral.rs`) winds a flat (Archimedean) spiral in the frame's plane:
   radius from the inner `radius` growing by `pitch` a turn, `hand`, `start_angle` and pieces as a

@@ -825,6 +825,23 @@ impl Sketch {
                 Fate::Dropped
             }
         };
+        let cut_at = |parameter: f64| {
+            spline.point_at(if closed {
+                parameter.rem_euclid(1.0)
+            } else {
+                parameter
+            })
+        };
+        let cuts = [
+            (near.from > 0.0 || closed).then(|| cut_at(near.from)),
+            (near.to < 1.0 || closed).then(|| cut_at(near.to)),
+        ];
+        let reach = TOLERANCE * SplineCourse::reach_of(&spline).max(1.0);
+        let clear_of_cuts = |position: Point2| {
+            cuts.iter()
+                .flatten()
+                .all(|cut| cut.distance(position) > reach)
+        };
         let ends = self.entity(curve).and_then(Entity::spline_ends);
         let keeps_start = near.from <= 0.0;
         let keeps_end = near.to >= 1.0;
@@ -861,9 +878,11 @@ impl Sketch {
                 Constraint::SplineHandle { line, .. } => self
                     .handle_anchor(curve, line)
                     .and_then(|anchor| self.point(anchor))
-                    .map_or(Fate::Dropped, |position| match fate_at(position) {
-                        Fate::Kept => Fate::Kept,
-                        Fate::Moved | Fate::Dropped => Fate::Dropped,
+                    .map_or(Fate::Dropped, |position| {
+                        match (fate_at(position), clear_of_cuts(position)) {
+                            (Fate::Kept, true) => Fate::Kept,
+                            _ => Fate::Dropped,
+                        }
                     }),
                 _ => Fate::Kept,
             };

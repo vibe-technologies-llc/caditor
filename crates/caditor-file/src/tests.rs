@@ -11731,6 +11731,48 @@ fn a_flat_spiral_wraps_its_helix_record_so_an_older_reader_leaves_it_out() {
 }
 
 #[test]
+fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_round_trip() {
+    use caditor_document::{AxisReference, ClosedEnds, CoilLength, Helix, PrincipalAxis};
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Laws");
+    let law = |ends: Option<ClosedEnds>, final_pitch: Option<&str>| {
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("9"),
+                pitch: parse("3 mm"),
+            },
+            ends,
+            final_pitch: final_pitch.map(parse),
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        })
+    };
+    let slow = ClosedEnds {
+        change: parse("1.5"),
+        ..ClosedEnds::default()
+    };
+    let plain = transaction.add_feature("Plain", law(Some(ClosedEnds::default()), None));
+    let changed = transaction.add_feature("Changed", law(Some(slow.clone()), None));
+    let progressive = transaction.add_feature("Progressive", law(None, Some("8 mm")));
+    let both = transaction.add_feature("Both", law(Some(slow), Some("8 mm")));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("helix_end_change", "helix_end_chunge"));
+
+    assert_eq!(text.matches("\"helix_end_change\"").count(), 2, "{text}");
+    assert_eq!(text.matches("\"helix_progressive\"").count(), 2, "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    for feature in [plain, changed, progressive, both] {
+        assert!(loaded.document.feature(feature).is_some());
+    }
+    assert!(older.document.feature(changed).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn an_unreadable_taper_of_a_helix_loads_as_none_and_is_reported() {
     let (document, helix, _) = helix_model();
     let text = encode(&document)

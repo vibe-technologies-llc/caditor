@@ -449,6 +449,41 @@ fn a_closed_fit_spline_opens_through_the_points_left_on_it() {
 }
 
 #[test]
+fn opening_a_closed_fit_spline_keeps_the_handles_left_on_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let fit = sketch.add_spline_of(
+        &[at(-20.0, 0.0), at(0.0, -20.0), at(20.0, 0.0), at(0.0, 20.0)],
+        SplineKind::fit(true),
+    );
+    let points = points_of(&sketch, fit);
+    let (kept, _) = sketch.add_spline_handle(fit, points[0]).unwrap();
+    let (cut, _) = sketch.add_spline_handle(fit, points[2]).unwrap();
+    upright(&mut sketch, 10.0);
+
+    assert_eq!(sketch.trim(fit, at(20.0, 0.0)), Ok(Trimmed::Opened));
+
+    let handles = sketch.spline_handles(fit);
+
+    assert_eq!(handles.len(), 1);
+    assert_eq!(handles[0].anchor, points[0]);
+    assert!(has(
+        &sketch,
+        &Constraint::SplineHandle {
+            spline: fit,
+            line: kept
+        }
+    ));
+    assert!(!has(
+        &sketch,
+        &Constraint::SplineHandle {
+            spline: fit,
+            line: cut
+        }
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
 fn a_conic_extends_along_its_own_curve() {
     let mut sketch = Sketch::new(Plane::XY);
     let conic = sketch.add_spline_of(

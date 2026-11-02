@@ -7,7 +7,7 @@ use super::{
     AXIS_CLEARANCE, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, STRAIGHT_TAPER,
     Winding,
     faces::{Motion, pieces_through},
-    pitch::{END_CHANGE_TURNS, PitchLaw},
+    pitch::{ClosedEndLaw, END_CHANGE_TURNS, PitchLaw},
 };
 use crate::{
     build::PathSegment,
@@ -24,30 +24,69 @@ const ROUNDING_SLACK: f64 = 1e-9;
 pub struct HelixEnds {
     pub turns: f64,
     pub pitch: f64,
+    pub change: f64,
 }
 
 impl HelixEnds {
+    pub fn with_default_change(turns: f64, pitch: f64) -> Self {
+        Self {
+            turns,
+            pitch,
+            change: END_CHANGE_TURNS,
+        }
+    }
+
     pub fn turns_taken(&self) -> f64 {
-        2.0 * (self.turns + END_CHANGE_TURNS)
+        2.0 * (self.turns + self.change)
     }
 
     fn turns_at_end_pitch(&self) -> f64 {
-        2.0 * self.turns + END_CHANGE_TURNS
+        2.0 * self.turns + self.change
+    }
+
+    fn law(&self) -> ClosedEndLaw {
+        ClosedEndLaw {
+            pitch: self.pitch,
+            turns: self.turns,
+            change: self.change,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct HelixPitch {
+    pub ends: Option<HelixEnds>,
+    pub final_pitch: Option<f64>,
+}
+
+impl HelixPitch {
+    pub fn turns_taken(&self) -> f64 {
+        self.ends.map_or(0.0, |ends| ends.turns_taken())
+    }
+
+    fn at_end_pitch(&self) -> (f64, f64) {
+        self.ends
+            .map_or((0.0, 0.0), |ends| (ends.turns_at_end_pitch(), ends.pitch))
+    }
+
+    fn mean(&self, pitch: f64) -> f64 {
+        self.final_pitch.map_or(pitch, |last| 0.5 * (pitch + last))
     }
 
     pub fn height(&self, pitch: f64, turns: f64) -> f64 {
-        let at_end = self.turns_at_end_pitch();
-        at_end * self.pitch + (turns - at_end) * pitch
+        let (at_end, end_pitch) = self.at_end_pitch();
+        at_end * end_pitch + (turns - at_end) * self.mean(pitch)
     }
 
     pub fn pitch_for(&self, height: f64, turns: f64) -> f64 {
-        let at_end = self.turns_at_end_pitch();
-        (height - at_end * self.pitch) / (turns - at_end)
+        let (at_end, end_pitch) = self.at_end_pitch();
+        let mean = (height - at_end * end_pitch) / (turns - at_end);
+        self.final_pitch.map_or(mean, |last| 2.0 * mean - last)
     }
 
     pub fn turns_for(&self, height: f64, pitch: f64) -> f64 {
-        let at_end = self.turns_at_end_pitch();
-        (height - at_end * self.pitch) / pitch + at_end
+        let (at_end, end_pitch) = self.at_end_pitch();
+        (height - at_end * end_pitch) / self.mean(pitch) + at_end
     }
 }
 
@@ -61,13 +100,14 @@ pub struct HelixSpec {
     pub hand: Handedness,
     pub start_angle: f64,
     pub ends: Option<HelixEnds>,
+    pub final_pitch: Option<f64>,
 }
 
 impl HelixSpec {
-    fn values(&self) -> [f64; 7] {
-        let (end_turns, end_pitch) = self
-            .ends
-            .map_or((0.0, self.pitch), |ends| (ends.turns, ends.pitch));
+    fn values(&self) -> [f64; 9] {
+        let (end_turns, end_pitch, change) = self.ends.map_or((0.0, self.pitch, 0.0), |ends| {
+            (ends.turns, ends.pitch, ends.change)
+        });
         [
             self.radius,
             self.pitch,
@@ -76,19 +116,34 @@ impl HelixSpec {
             self.start_angle,
             end_turns,
             end_pitch,
+            change,
+            self.last_pitch(),
         ]
     }
 
+    fn last_pitch(&self) -> f64 {
+        self.final_pitch.unwrap_or(self.pitch)
+    }
+
+    pub fn plan(&self) -> HelixPitch {
+        HelixPitch {
+            ends: self.ends,
+            final_pitch: self.final_pitch,
+        }
+    }
+
     fn law(&self) -> PitchLaw {
-        match self.ends {
-            Some(ends) => PitchLaw::closed_ends(self.pitch, ends.pitch, ends.turns, self.turns),
-            None => PitchLaw::even(self.pitch),
+        let body = (self.pitch, self.last_pitch());
+        match (self.ends, self.final_pitch) {
+            (Some(ends), _) => PitchLaw::closed_ends(body, ends.law(), self.turns),
+            (None, Some(last)) => PitchLaw::progressive(self.pitch, last, self.turns),
+            (None, None) => PitchLaw::even(self.pitch),
         }
     }
 
     pub fn body_start(&self) -> f64 {
         self.ends
-            .map_or(0.0, |ends| TAU * (ends.turns + END_CHANGE_TURNS))
+            .map_or(0.0, |ends| TAU * (ends.turns + ends.change))
     }
 
     pub fn start_frame(&self) -> Option<Plane> {
@@ -107,9 +162,7 @@ impl HelixSpec {
     }
 
     pub fn height(&self) -> f64 {
-        self.ends.map_or(self.pitch * self.turns, |ends| {
-            ends.height(self.pitch, self.turns)
-        })
+        self.plan().height(self.pitch, self.turns)
     }
 
     pub fn end_radius(&self) -> f64 {
@@ -148,6 +201,13 @@ pub enum HelixError {
          {LEAST_COIL_TURNS} for the rest, but the helix makes {turns}"
     )]
     EndsTooLong { taken: f64, turns: f64 },
+    #[error("a change of pitch must take at least {LEAST_COIL_TURNS} of a turn, not {turns}")]
+    EndChange { turns: f64 },
+    #[error(
+        "the closed ends and their changes of pitch take all {turns} turns, leaving none for the \
+         pitch to change over from {from} to {to}"
+    )]
+    ProgressionWithoutBody { from: f64, to: f64, turns: f64 },
     #[error("the helix reaches farther than {MAX_SIZE} mm")]
     TooLarge,
     #[error("the helix's geometry cannot be built: {0}")]
@@ -190,6 +250,12 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     if spec.pitch <= LINEAR_RESOLUTION {
         return Err(HelixError::NoPitch);
     }
+    if spec
+        .final_pitch
+        .is_some_and(|last| last <= LINEAR_RESOLUTION)
+    {
+        return Err(HelixError::NoPitch);
+    }
     if spec.turns < LEAST_COIL_TURNS {
         return Err(HelixError::TooFewTurns { turns: spec.turns });
     }
@@ -200,7 +266,7 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
         return Err(HelixError::TaperTooSteep);
     }
     if let Some(ends) = spec.ends {
-        checked_ends(&ends, spec.turns)?;
+        checked_ends(&ends, spec)?;
     }
     let reach = spec.radius.max(spec.end_radius())
         + spec.height()
@@ -218,17 +284,29 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     })
 }
 
-fn checked_ends(ends: &HelixEnds, turns: f64) -> Result<(), HelixError> {
+fn checked_ends(ends: &HelixEnds, spec: &HelixSpec) -> Result<(), HelixError> {
+    let turns = spec.turns;
     if ends.pitch <= LINEAR_RESOLUTION {
         return Err(HelixError::NoPitch);
     }
     if ends.turns < 0.0 || (ends.turns > 0.0 && ends.turns < LEAST_COIL_TURNS) {
         return Err(HelixError::EndTurns { turns: ends.turns });
     }
+    if ends.change < LEAST_COIL_TURNS {
+        return Err(HelixError::EndChange { turns: ends.change });
+    }
     let taken = ends.turns_taken();
     let rest = turns - taken;
     if rest < -ROUNDING_SLACK || (rest > ROUNDING_SLACK && rest < LEAST_COIL_TURNS) {
         return Err(HelixError::EndsTooLong { taken, turns });
+    }
+    let last = spec.last_pitch();
+    if rest <= ROUNDING_SLACK && (last - spec.pitch).abs() > LINEAR_RESOLUTION {
+        return Err(HelixError::ProgressionWithoutBody {
+            from: spec.pitch,
+            to: last,
+            turns,
+        });
     }
     Ok(())
 }

@@ -160,8 +160,11 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `outer_diameter` takes the place of `height`, either given to the other kind refused in words,
   `CurveToolError::FlatHeight`, `HelixOuterDiameter`; two of turns, pitch and height through
   `coil_length`, a `start_angle` or a `start_point` that replaces it, each given clearing the other;
-  `end_turns` or `end_pitch` close the ends, `closed_ends: false` opens them, refused with either
-  (`OpenEndsSized`) or on a flat spiral (`FlatEnds`), an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
+  `end_turns`, `end_pitch` or `end_change` close the ends, `closed_ends: false` opens them, refused
+  with any (`OpenEndsSized`) or on a flat spiral (`FlatEnds`); `final_pitch` makes the pitch
+  progressive, `progressive: false` winds at one pitch again, refused with a `final_pitch`
+  (`EvenPitchSized`), `progressive: true` with none to keep (`ProgressiveUnsized`) or on a flat
+  spiral (`FlatProgressive`); an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
   `is_curve_path`, or `edges` `{body, edges}` with keys from `list_edges` instead, never both;
   an edit keeps the path it is not given; spread or `spacing`, following or keeping the turn) and point patterns
   (`PointsPattern` from a base point, the sketch needing lone points).

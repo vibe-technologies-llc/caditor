@@ -222,6 +222,7 @@ fn helix_spec(turns: f64, taper: f64) -> HelixSpec {
         hand: Handedness::Right,
         start_angle: 0.0,
         ends: None,
+        final_pitch: None,
     }
 }
 
@@ -331,10 +332,7 @@ fn a_start_angle_turns_where_the_helix_starts_about_its_axis_whichever_way_it_tu
 
 fn closed_spring_helix(turns: f64, end_turns: f64) -> HelixSpec {
     HelixSpec {
-        ends: Some(HelixEnds {
-            turns: end_turns,
-            pitch: 2.2,
-        }),
+        ends: Some(HelixEnds::with_default_change(end_turns, 2.2)),
         ..helix_spec(turns, 0.0)
     }
 }
@@ -387,14 +385,15 @@ fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
 
 #[test]
 fn closed_ends_find_the_body_pitch_or_turns_from_a_height() {
-    let ends = HelixEnds {
-        turns: 1.0,
-        pitch: 2.2,
+    let ends = HelixEnds::with_default_change(1.0, 2.2);
+    let plan = HelixPitch {
+        ends: Some(ends),
+        final_pitch: None,
     };
 
-    assert!((ends.height(4.0, 5.0) - 15.5).abs() < 1e-12);
-    assert!((ends.pitch_for(15.5, 5.0) - 4.0).abs() < 1e-12);
-    assert!((ends.turns_for(15.5, 4.0) - 5.0).abs() < 1e-12);
+    assert!((plan.height(4.0, 5.0) - 15.5).abs() < 1e-12);
+    assert!((plan.pitch_for(15.5, 5.0) - 4.0).abs() < 1e-12);
+    assert!((plan.turns_for(15.5, 4.0) - 5.0).abs() < 1e-12);
     assert!((ends.turns_taken() - 3.0).abs() < 1e-12);
 }
 
@@ -425,5 +424,130 @@ fn closed_ends_longer_than_the_helix_or_of_a_sliver_of_a_turn_are_refused() {
     assert_eq!(
         helix(&closed_spring_helix(4.0, 0.0)).map(|turns| turns.len()),
         Ok(5)
+    );
+}
+
+fn progressive_helix(turns: f64, first: f64, last: f64) -> HelixSpec {
+    HelixSpec {
+        pitch: first,
+        final_pitch: Some(last),
+        ..helix_spec(turns, 0.0)
+    }
+}
+
+fn assert_follows_the_law(spec: &HelixSpec) {
+    let turns = helix(spec).unwrap();
+    let mut unwrapped = 0.0_f64;
+    let mut previous: Option<Point3> = None;
+    let mut last_tangent: Option<Vector3> = None;
+    for turn in &turns {
+        let range = turn.range();
+        let first = turn.curve().evaluate(range.start()).first.normalize();
+        if let Some(tangent) = last_tangent {
+            assert!(
+                tangent.angle_between(first) < 1e-9,
+                "{tangent} then {first}"
+            );
+        }
+        for step in 0..=64 {
+            let point = turn.curve().point(range.at(f64::from(step) / 64.0));
+            if let Some(before) = previous {
+                let turned = point.y.atan2(point.x) - before.y.atan2(before.x);
+                unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
+            }
+            previous = Some(point);
+            let expected = spec.point_at(unwrapped).unwrap();
+
+            assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
+            assert!(
+                (point.z - expected.z).abs() < 1e-3,
+                "{point} against {expected}"
+            );
+        }
+        last_tangent = Some(turn.curve().evaluate(range.end()).first.normalize());
+    }
+    let end = previous.unwrap();
+
+    assert!(
+        (end.z - spec.height()).abs() < 1e-9,
+        "{end} against {}",
+        spec.height()
+    );
+}
+
+#[test]
+fn a_progressive_helix_changes_its_pitch_evenly_from_one_end_to_the_other() {
+    let spec = progressive_helix(6.0, 2.0, 6.0);
+
+    assert_follows_the_law(&spec);
+    assert!((spec.height() - 24.0).abs() < 1e-12, "{}", spec.height());
+    assert!(
+        spec.point_at(TAU * 6.0)
+            .is_some_and(|point| (point.z - 24.0).abs() < 1e-12)
+    );
+    assert!(
+        spec.point_at(TAU * 3.0)
+            .is_some_and(|point| (point.z - 9.0).abs() < 1e-12)
+    );
+}
+
+#[test]
+fn closed_ends_change_over_the_turns_asked_and_a_progressive_body_follows() {
+    let ends = HelixEnds {
+        turns: 1.0,
+        pitch: 2.2,
+        change: 1.5,
+    };
+    let spec = HelixSpec {
+        ends: Some(ends),
+        ..progressive_helix(10.0, 4.0, 6.0)
+    };
+
+    assert_follows_the_law(&spec);
+    assert!((spec.height() - 40.2).abs() < 1e-12, "{}", spec.height());
+    assert!((spec.body_start() - TAU * 2.5).abs() < 1e-12);
+}
+
+#[test]
+fn a_progressive_helix_is_sized_from_a_height_by_its_mean_pitch() {
+    let plan = HelixPitch {
+        ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
+        final_pitch: Some(6.0),
+    };
+    let height = plan.height(4.0, 8.0);
+
+    assert!((plan.pitch_for(height, 8.0) - 4.0).abs() < 1e-12);
+    assert!((plan.turns_for(height, 4.0) - 8.0).abs() < 1e-12);
+}
+
+#[test]
+fn a_progression_with_no_turns_to_change_over_or_a_change_of_a_sliver_is_refused() {
+    let all_ends = HelixSpec {
+        ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
+        ..progressive_helix(3.0, 3.0, 5.0)
+    };
+
+    assert_eq!(
+        helix(&all_ends),
+        Err(HelixError::ProgressionWithoutBody {
+            from: 3.0,
+            to: 5.0,
+            turns: 3.0
+        })
+    );
+    assert_eq!(
+        helix(&HelixSpec {
+            ends: Some(HelixEnds {
+                turns: 1.0,
+                pitch: 2.2,
+                change: 0.01
+            }),
+            ..progressive_helix(8.0, 3.0, 5.0)
+        }),
+        Err(HelixError::EndChange { turns: 0.01 })
+    );
+    assert_eq!(
+        helix(&progressive_helix(4.0, 3.0, 0.0)),
+        Err(HelixError::NoPitch)
     );
 }

@@ -1,7 +1,7 @@
 # Helix
 
 {command:model.helix} adds a helix: a curve winding around an axis at a steady pitch (or with the
-closed ends of a compression spring), for a
+closed ends of a compression spring, or a pitch that changes along it), for a
 [Sweep](sweep) or [Pipe](pipe) to follow. Sweep a triangle of your own along it for a thread, a
 rectangle for a flat-wound spring, or run a pipe along it for a coil with a section a [Coil](coil)
 does not offer. It makes no body. It is in the Reference group of the ribbon, the Model menu and the
@@ -36,13 +36,19 @@ drawn on the YZ plane is carried along it instead.
 - **Diameter** is the helix's diameter at its start.
 - **Taper** narrows or widens it as it rises: a positive angle widens it, a negative one draws it
   in, within 80° either way.
-- **Ends**: **Open** winds at one pitch from end to end; **Closed** closes the ends as a
-  compression spring's are. **End turns** at each end wind at the **End pitch**, and the pitch
-  then changes evenly to the helix's own over the next half turn. The turns, pitch and height
-  above then size the whole spring with its ends: the pitch is the one between the ends, and a
-  height includes them. Each end with its change of pitch takes its end turns and half a turn, so
-  the helix must make at least that many turns at both ends together. Not offered for a flat
-  spiral.
+- **Pitch**: **Even** winds at one pitch from end to end; **Progressive** changes the pitch
+  evenly from the pitch above, at the start, to the **Final pitch** at the far end, as a
+  progressive spring's. The turns, pitch and height above then size the helix by its mean pitch:
+  typing a height and turns, the start pitch is solved for, and typing a height and the pitch, the
+  turns. Not offered for a flat spiral.
+- **Ends**: **Open** winds as the pitch above says from end to end; **Closed** closes the ends as
+  a compression spring's are. **End turns** at each end wind at the **End pitch**, and the pitch
+  then changes evenly to the helix's own over the next **End change** turns (half a turn at
+  first, at least 0.05). The turns, pitch and height above then size the whole spring with its
+  ends: the pitch is the one between the ends (the start pitch, if the pitch is progressive), and
+  a height includes them. Each end with its change of pitch takes its end turns and its change, so
+  the helix must make at least that many turns at both ends together; a progressive pitch needs
+  turns left between the ends to change over. Not offered for a flat spiral.
 - **Starts at** starts the helix at the angle of a point: select a corner of a body (the end of an
   edge is one), the centre of a round edge, a sketch point or a datum point, then use the
   selection or choose it in the view. The helix then begins on the half-plane through that point
@@ -87,6 +93,14 @@ spring with an extrusion or a split at each end.
 
 The pitch arrow then stands past the closed end, where the helix winds at its own pitch, and the
 height arrow measures the whole spring.
+
+## Progressive springs
+
+For a progressive spring, whose coils close up as it is compressed, choose **Progressive** under
+**Pitch** and set the **Final pitch**: the pitch changes evenly along the helix from the pitch at
+its start to the final one. With closed ends it changes between the two closed ends' changes, over
+the turns between them. A pipe or sweep along it keeps the section's lean to the axis that it
+starts with, so a round wire is a hair out of round where the pitch differs from the start's.
 
 ## Sweeping along it
 
