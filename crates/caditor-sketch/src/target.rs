@@ -382,7 +382,7 @@ fn crossing_places(sketch: &Sketch, first: EntityId, second: EntityId) -> Vec<Po
         .filter_map(|point| sketch.point(point))
         .fold(1.0_f64, |most, point| most.max(point.abs().max_element()));
     let tolerance = CROSSING_TOLERANCE * scale;
-    match (carrier_of(sketch, first), carrier_of(sketch, second)) {
+    let crossed = match (carrier_of(sketch, first), carrier_of(sketch, second)) {
         (Some(carrier), Some(Carrier::Line { through, direction }))
         | (Some(Carrier::Line { through, direction }), Some(carrier)) => {
             line_crossings(carrier, through, direction, tolerance)
@@ -390,7 +390,39 @@ fn crossing_places(sketch: &Sketch, first: EntityId, second: EntityId) -> Vec<Po
         (Some(carrier), Some(Carrier::Circle { center, radius })) => {
             crossings(carrier, &Shape::Circle { center, radius }, tolerance)
         }
-        (None, _) => sketch.curve_crossings(first, second),
-        (Some(_), None) => sketch.curve_crossings(second, first),
+        (Some(carrier), None) => carried_crossings(sketch, carrier, second, tolerance),
+        (None, Some(carrier)) => carried_crossings(sketch, carrier, first, tolerance),
+        (None, None) => sketch.curve_crossings(first, second),
+    };
+    if crossed.is_empty() {
+        touching_places(sketch, first, second)
+    } else {
+        crossed
     }
+}
+
+fn carried_crossings(
+    sketch: &Sketch,
+    carrier: Carrier,
+    curve: EntityId,
+    tolerance: f64,
+) -> Vec<Point2> {
+    sketch
+        .shape_of(curve)
+        .map(|shape| crossings(carrier, &shape, tolerance))
+        .unwrap_or_default()
+}
+
+fn touching_places(sketch: &Sketch, first: EntityId, second: EntityId) -> Vec<Point2> {
+    [(first, second), (second, first)]
+        .into_iter()
+        .find_map(|(spline, other)| match carrier_of(sketch, other) {
+            Some(carrier) => sketch.spline_touching(spline, |point| carrier.closest(point)),
+            None => {
+                let shape = sketch.shape_of(other)?;
+                sketch.spline_touching(spline, |point| shape.closest(point))
+            }
+        })
+        .into_iter()
+        .collect()
 }

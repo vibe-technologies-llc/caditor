@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use arbitrary::Unstructured;
 use caditor_geometry::Plane;
-use caditor_sketch::{Constraint, Entity, Sketch};
+use caditor_sketch::{Constraint, Entity, FitSpacing, Sketch, SplineKind};
 
 use crate::{
     seeded::{for_each_case, replay_case},
@@ -13,11 +13,18 @@ const POLL_LIMIT: u64 = 5_000_000;
 const SOLVING_CASES: u64 = 3000;
 const FEWEST_SOLVED: usize = 300;
 const LARGEST_SHIFT: f64 = 1e-3;
-const DEGENERATE_GAP: f64 = 1e-3;
+const REPEATED_POINT_GAP: f64 = 1e-3;
 
-fn has_a_degenerate_spline(sketch: &Sketch) -> bool {
+fn has_a_closed_spaced_spline_through_one_point_twice(sketch: &Sketch) -> bool {
     sketch.entities().any(|(_, entity)| match entity {
-        Entity::Spline { points, .. } => points.iter().enumerate().any(|(index, point)| {
+        Entity::Spline {
+            points,
+            kind:
+                SplineKind::Fit {
+                    closed: true,
+                    spacing: FitSpacing::Centripetal,
+                },
+        } => points.iter().enumerate().any(|(index, point)| {
             points
                 .iter()
                 .skip(index + 1)
@@ -33,7 +40,7 @@ fn near(
     second: caditor_sketch::EntityId,
 ) -> bool {
     match (sketch.point(first), sketch.point(second)) {
-        (Some(first), Some(second)) => first.distance(second) < DEGENERATE_GAP,
+        (Some(first), Some(second)) => first.distance(second) < REPEATED_POINT_GAP,
         _ => false,
     }
 }
@@ -129,10 +136,13 @@ fn stays_put(input: &mut Unstructured) {
     let Ok(drawn) = sketch(input, Plane::XY) else {
         return;
     };
-    if has_a_degenerate_spline(&drawn) {
-        return;
+    if !has_a_closed_spaced_spline_through_one_point_twice(&drawn) {
+        solved_stays_put(&drawn);
     }
-    let Some(first) = solve(&drawn) else {
+}
+
+fn solved_stays_put(drawn: &Sketch) {
+    let Some(first) = solve(drawn) else {
         return;
     };
     let Ok(again) = solve_again(&first) else {
@@ -166,6 +176,38 @@ fn a_solved_sketch_does_not_move_when_solved_again() {
 #[test]
 fn a_point_level_with_a_crossing_at_a_splines_end_keeps_it_when_solved_again() {
     replay_case(22192, |_, input| stays_put(input));
+}
+
+#[test]
+fn an_open_spline_of_four_fit_points_two_on_one_point_stays_put_when_solved_again() {
+    replay_case(301558, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_spline_resting_its_tip_on_another_keeps_that_crossing_when_solved_again() {
+    replay_case(352728, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_crossing_of_a_spline_with_a_line_beyond_its_end_stays_put_when_solved_again() {
+    replay_case(254339, |_, input| {
+        let drawn = sketch(input, Plane::XY).unwrap();
+
+        assert!(has_a_closed_spaced_spline_through_one_point_twice(&drawn));
+        solved_stays_put(&drawn);
+    });
+}
+
+#[test]
+fn a_spacing_round_failing_with_its_fit_points_held_solves_from_the_round_start() {
+    replay_case(290879, |_, input| {
+        let drawn = sketch(input, Plane::XY).unwrap();
+
+        let first = solve(&drawn).unwrap();
+        let again = solve_again(&first).unwrap();
+
+        assert!(largest_shift(&first.geometry, &again.geometry) <= LARGEST_SHIFT);
+    });
 }
 
 #[test]

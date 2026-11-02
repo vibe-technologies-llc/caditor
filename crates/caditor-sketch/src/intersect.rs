@@ -11,6 +11,7 @@ const BISECTION_STEPS: usize = 100;
 const NEWTON_STEPS: usize = 30;
 const NEWTON_SETTLED: f64 = 1e-6;
 const CLOSEST_REFINEMENTS: usize = 16;
+const TOUCH_REFINEMENTS: usize = 32;
 const ELLIPSE_SAMPLES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +27,17 @@ pub(crate) enum Shape {
 pub(crate) enum Carrier {
     Line { through: Point2, direction: Vector2 },
     Circle { center: Point2, radius: f64 },
+}
+
+impl Carrier {
+    pub(crate) fn closest(&self, to: Point2) -> Point2 {
+        match *self {
+            Self::Line { through, direction } => {
+                through + direction * (to - through).dot(direction)
+            }
+            Self::Circle { center, radius } => closest_on_circle(center, radius, to),
+        }
+    }
 }
 
 impl Shape {
@@ -290,6 +302,33 @@ fn circle_circle(
     }
     let across = toward.perp() * height;
     vec![base + across, base - across]
+}
+
+pub(crate) fn spline_touching(
+    spline: &BSpline,
+    closest_on_other: impl Fn(Point2) -> Point2,
+    tolerance: f64,
+) -> Option<Point2> {
+    let samples = spline_samples(spline);
+    let gap_from = |own: Point2| {
+        let other = closest_on_other(own);
+        (own, other, own.distance(other))
+    };
+    let (mut own, mut other, rough) = (0..=samples)
+        .map(|index| gap_from(spline.point_at(index as f64 / samples as f64)))
+        .min_by(|a, b| a.2.total_cmp(&b.2))?;
+    let mut gap = rough;
+    for _ in 0..TOUCH_REFINEMENTS {
+        if gap <= tolerance * NEWTON_SETTLED {
+            break;
+        }
+        let (closer, beside, nearer) = gap_from(closest_on_spline(spline, other));
+        if nearer >= gap {
+            break;
+        }
+        (own, other, gap) = (closer, beside, nearer);
+    }
+    (gap <= tolerance).then(|| own.midpoint(other))
 }
 
 fn closest_on_spline(spline: &BSpline, to: Point2) -> Point2 {

@@ -132,12 +132,15 @@ paths:
   conflict names it. A handle adds two variables and two rows: the spline's freedom is unchanged
   and the handle line's free end brings its own two. A layout that will not solve leaves the
   spline unhandled, as `Sketch::spline` draws it.
-- A centripetal spline's knots depend on its fit points, which no equation differentiates, so
-  `solve_with` solves in rounds: when the solved fit points give knots more than `KNOT_SETTLING`
-  from the round's start (`respaced`), it solves again from the solved sketch with centripetal fit
+- A centripetal spline's knots and fit parameters depend on its fit points, which no equation
+  differentiates, so `solve_with` solves in rounds: when the solved fit points give knots or fit
+  parameters more than `KNOT_SETTLING` from the round's start (`respaced`,
+  `FitLayout::settled_against`; an open spline of three or four points has no inner knot, so only
+  its parameters show the change), it solves again from the solved sketch with centripetal fit
   points held stiff (`spaced_fit_variables`, frozen first like dragged points), at most
-  `SPACING_ROUNDS`, the last system finishing the solve. A point on the spline then lies on the
-  drawn curve.
+  `SPACING_ROUNDS`, the last system finishing the solve. A part failing with its fit points stiff
+  solves again from the round's start with only dragged points stiff (`solve_again_from`) before
+  it is diagnosed. A point on the spline then lies on the drawn curve.
 - A spline's ends (`SplineEnd`) take their legs from the handle (`end_legs`), so tangent or
   curvature at a fit-point spline's end uses its hidden control points and a conic's end curvature
   its weights (`end_factor` of the knots at that end, times `w_end w_after / w_next²`). Closed

@@ -112,11 +112,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   witness's about 219,000 (trimming 12,000), some 85% of it in the two perturbed retries (23 to 32
   steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
   fraction of the whole chain's extent before Newton steps settle it.
-- [medium · hard] A sketch with a degenerate fit-point spline can move when solved again from its
-  own result: an open centripetal spline whose fit points repeat (starting and ending on one point,
-  three of five on one point) moves by up to 3 mm, about one sketch in 500 with such a spline
-  (seeds 11281 and 43873 of `a_solved_sketch_does_not_move_when_solved_again`, which skips splines
-  with control points within a micrometre; solving again no longer fails on them).
+- [medium · hard] A sketch with a closed centripetal spline through one point twice can move when
+  solved again from its own result, by up to 0.6 mm, or be refused: the spacing rounds do not
+  settle within `SPACING_ROUNDS` (seeds 269470 and 306204, a distance to or a tangent with such a
+  spline), the result is left a few micrometres off its own layout (173746), or the second solve
+  reports a conflict (257788, `a_solved_sketch_solves_again_from_its_own_result`). The knots near
+  the repeated point sit `SHORTEST_GAP_SHARE` apart, where the curve swings with the smallest move
+  of its fit points; `a_solved_sketch_does_not_move_when_solved_again` skips these splines.
+- [medium · hard] Beyond the 3,000 cases CI runs, sketches with no spline can move when solved
+  again from their own result, by up to 25 mm (seeds 12821, 35380, 42213, 48899, 49857, 53753,
+  55335 and 62097 of `a_solved_sketch_does_not_move_when_solved_again`): 12821 holds a point level
+  with the crossing of two concentric circles, 49857 a point on a direction through the crossing
+  of an axis and a line; neither yet traced.
 
 ## STEP import
 
