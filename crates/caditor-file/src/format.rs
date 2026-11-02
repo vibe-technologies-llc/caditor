@@ -2391,6 +2391,10 @@ pub(crate) enum ConstraintKindRecord {
         point: u64,
         corners: Vec<u64>,
     },
+    SplineHandle {
+        spline: u64,
+        line: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2485,7 +2489,7 @@ impl TargetRecord {
     }
 }
 
-const CONSTRAINT_KINDS: [&str; 31] = [
+const CONSTRAINT_KINDS: [&str; 32] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -2517,6 +2521,7 @@ const CONSTRAINT_KINDS: [&str; 31] = [
     "vertical_through",
     "on_direction",
     "centroid",
+    "spline_handle",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -5972,6 +5977,10 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         Constraint::OnMinorAxis { point, ellipse } => ConstraintKindRecord::OnMinorAxis {
             point: point.raw(),
             ellipse: ellipse.raw(),
+        },
+        Constraint::SplineHandle { spline, line } => ConstraintKindRecord::SplineHandle {
+            spline: spline.raw(),
+            line: line.raw(),
         },
     }
 }
@@ -10804,6 +10813,10 @@ fn constraint_from_record(
         ConstraintKindRecord::OnMinorAxis { point, ellipse } => Constraint::OnMinorAxis {
             point: entity(*point),
             ellipse: entity(*ellipse),
+        },
+        ConstraintKindRecord::SplineHandle { spline, line } => Constraint::SplineHandle {
+            spline: entity(*spline),
+            line: entity(*line),
         },
     })
 }

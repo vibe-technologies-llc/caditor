@@ -184,6 +184,7 @@ pub fn command(command: Command) -> &'static str {
         Command::UnlinkProjection => phosphor::LINK_BREAK,
         Command::RespaceFitSplines => phosphor::BEZIER_CURVE,
         Command::InsertSplinePoint => phosphor::PLUS_CIRCLE,
+        Command::AddTangentHandle => phosphor::BEZIER_CURVE,
         Command::RotateGeometry => phosphor::ARROW_ARC_LEFT,
         Command::ScaleGeometry => phosphor::RESIZE,
         Command::Construction => CONSTRUCTION,

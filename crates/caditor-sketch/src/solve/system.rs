@@ -42,6 +42,7 @@ pub(crate) struct System {
     pub splines: BTreeMap<EntityId, Arc<SplineHandle>>,
     pub hidden: BTreeMap<EntityId, Vec<usize>>,
     pub targets: BTreeMap<ConstraintId, Vec<usize>>,
+    pub handle_forms: BTreeMap<ConstraintId, Vec<Form>>,
     pub rhos: BTreeMap<EntityId, f64>,
     pub text_sizes: BTreeMap<EntityId, TextSize>,
     pub gear_values: BTreeMap<EntityId, GearValues>,
@@ -115,6 +116,7 @@ impl System {
             splines: BTreeMap::new(),
             hidden: BTreeMap::new(),
             targets: BTreeMap::new(),
+            handle_forms: BTreeMap::new(),
             rhos: sketch
                 .active_constraints()
                 .filter_map(|(id, constraint)| match *constraint {
@@ -736,6 +738,9 @@ impl System {
                 }
                 _ => return Err(not_applicable(a, b)),
             },
+            Constraint::SplineHandle { .. } => {
+                self.handle_forms.get(&id).cloned().unwrap_or_default()
+            }
             Constraint::Curvature(a, b) => {
                 let joints = joints.get_or_init(|| Joints::of(sketch));
                 match (role(a)?, role(b)?) {

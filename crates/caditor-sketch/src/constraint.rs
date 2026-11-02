@@ -22,6 +22,10 @@ pub enum Constraint {
     Perpendicular(EntityId, EntityId),
     Tangent(EntityId, EntityId),
     Curvature(EntityId, EntityId),
+    SplineHandle {
+        spline: EntityId,
+        line: EntityId,
+    },
     Equal(EntityId, EntityId),
     Midpoint {
         point: EntityId,
@@ -122,6 +126,7 @@ impl Constraint {
             Self::Perpendicular(..) => "Perpendicular",
             Self::Tangent(..) => "Tangent",
             Self::Curvature(..) => "Curvature",
+            Self::SplineHandle { .. } => "Tangent handle",
             Self::Equal(..) => "Equal",
             Self::Midpoint { .. } => "Midpoint",
             Self::Concentric(..) => "Concentric",
@@ -193,6 +198,7 @@ impl Constraint {
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
             | Self::Curvature(a, b)
+            | Self::SplineHandle { spline: a, line: b }
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
             | Self::OnMinorAxis {
@@ -239,6 +245,7 @@ impl Constraint {
             | Self::Perpendicular(..)
             | Self::Tangent(..)
             | Self::Curvature(..)
+            | Self::SplineHandle { .. }
             | Self::Equal(..)
             | Self::Midpoint { .. }
             | Self::Concentric(..)
@@ -313,6 +320,7 @@ impl Constraint {
             | Self::Perpendicular(..)
             | Self::Tangent(..)
             | Self::Curvature(..)
+            | Self::SplineHandle { .. }
             | Self::Equal(..)
             | Self::Midpoint { .. }
             | Self::Concentric(..)
@@ -390,6 +398,7 @@ impl Constraint {
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
             | Self::Curvature(a, b)
+            | Self::SplineHandle { spline: a, line: b }
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
             | Self::OnMinorAxis {

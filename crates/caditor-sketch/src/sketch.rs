@@ -175,6 +175,16 @@ pub enum SketchError {
     },
     #[error("{label} has no length")]
     NoLength { entity: EntityId, label: String },
+    #[error("{label} is not a fit point of {spline}")]
+    NotAFitPoint {
+        point: EntityId,
+        label: String,
+        spline: String,
+    },
+    #[error("the spline has no direction at {label} to start a tangent handle from")]
+    NoTangent { point: EntityId, label: String },
+    #[error("{label} already has a tangent handle")]
+    AlreadyHandled { point: EntityId, label: String },
     #[error("{label} is a point, and only curves can be construction geometry")]
     PointAsConstruction { entity: EntityId, label: String },
     #[error("{label} cannot be a piece split from itself")]
@@ -468,6 +478,18 @@ impl Sketch {
             .iter()
             .map(|point| self.point(*point))
             .collect::<Option<Vec<_>>>()?;
+        if let SplineKind::Fit {
+            closed: false,
+            spacing,
+        } = *kind
+        {
+            let handles = self.spline_handles(id);
+            if !handles.is_empty()
+                && let Some(curve) = self.handled_curve(&positions, spacing, &handles)
+            {
+                return Some(curve);
+            }
+        }
         spline_through(&positions, kind)
     }
 
@@ -487,9 +509,9 @@ impl Sketch {
             SplineKind::Control { closed: true } | SplineKind::Knotted { closed: true, .. } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
-            SplineKind::Fit { .. } => {
-                spline_through(&positions, kind).map(|spline| spline.control_points().to_vec())
-            }
+            SplineKind::Fit { .. } => self
+                .spline(id)
+                .map(|spline| spline.control_points().to_vec()),
         }
     }
 
@@ -617,6 +639,7 @@ impl Sketch {
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
             | Constraint::Curvature(a, b)
+            | Constraint::SplineHandle { spline: a, line: b }
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b) => format!("{kind} {} and {}", label(a), label(b)),
@@ -709,6 +732,7 @@ impl Sketch {
             | Constraint::Perpendicular(..)
             | Constraint::Tangent(..)
             | Constraint::Curvature(..)
+            | Constraint::SplineHandle { .. }
             | Constraint::Equal(..)
             | Constraint::Midpoint { .. }
             | Constraint::Concentric(..)
@@ -1506,6 +1530,15 @@ impl Sketch {
                     }
                     _ => Ok(()),
                 }
+            }
+            Constraint::SplineHandle { spline, line } => {
+                self.check_spline_handle(
+                    constraint,
+                    spline,
+                    line,
+                    unmoving == Unmoving::FixedGeometry,
+                )?;
+                self.check_not_only_reference(&entities, unmoving)
             }
             Constraint::Curvature(a, b) => {
                 let needed = "a line, a circle, an arc or a spline";

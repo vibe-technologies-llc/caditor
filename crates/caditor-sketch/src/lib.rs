@@ -13,6 +13,7 @@ mod entity;
 mod fillet;
 mod fit;
 mod gear;
+mod handle;
 mod id;
 mod inference;
 mod insertion;
@@ -50,6 +51,7 @@ pub use crate::{
         MIN_TEETH, MeshPlacement, Meshing, PairOutline, Sprocket, SprocketCircles, SprocketOutline,
         SpurGear, ToothedOutline, gear_curve,
     },
+    handle::FitHandle,
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
     insertion::InsertError,

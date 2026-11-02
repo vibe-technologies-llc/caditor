@@ -55,7 +55,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 69] = [
+const KEPT: [(&str, &str); 70] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -295,6 +295,10 @@ const KEPT: [(&str, &str); 69] = [
     (
         "model-1/sliced.caditor",
         "4d56af94bbefdc7ca4d04154800c5ee3b009a13b6083696abbaf7c5c728ead87",
+    ),
+    (
+        "model-1/spline-handles.caditor",
+        "2063ddd450e5164926b3c2cff948b326dc08343c42d1e1f16953051eebbee75f",
     ),
     (
         "model-1/spline-knots.caditor",
@@ -871,6 +875,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("closed-spline-knots"),
             saved(&closed_spline_knots(), "Closed spline knots"),
         ),
+        (
+            model("spline-handles"),
+            saved(&spline_handles(), "Spline handles"),
+        ),
         (model("texts"), saved(&texts().0, "Texts")),
         (model("gears"), saved(&gears().0, "Gears")),
         (model("gear-pairs"), saved(&gear_pairs().0, "Gear pairs")),
@@ -1096,6 +1104,28 @@ fn spline_knots() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Spline knots");
     transaction.add_feature("Refined spline", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn spline_handles() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let wave = [
+        Point2::new(0.0, 0.0),
+        Point2::new(20.0, 15.0),
+        Point2::new(45.0, -5.0),
+        Point2::new(70.0, 10.0),
+    ];
+    let spline = drawn.add_spline_of(&wave, SplineKind::fit(false));
+    let Some(Entity::Spline { points, .. }) = drawn.entity(spline).cloned() else {
+        panic!("the spline was just added");
+    };
+    let (line, _) = drawn.add_spline_handle(spline, points[1]).unwrap();
+    drawn.add_constraint(Constraint::Horizontal(line)).unwrap();
+    drawn.add_spline_handle(spline, points[3]).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Spline handles");
+    transaction.add_feature("Handled wave", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

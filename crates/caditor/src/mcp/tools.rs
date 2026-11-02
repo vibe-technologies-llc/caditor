@@ -791,11 +791,11 @@ impl Tool {
                         "maxItems": writing::MOST_ITEMS,
                         "items": {
                             "type": "object",
-                            "description": "coincident, parallel, perpendicular, equal, tangent, concentric, collinear take a and b; horizontal and vertical take line; midpoint takes point and curve; symmetric takes a, b and about; fix takes point; distance, horizontal_distance, vertical_distance and angle take from, to and value; radius and diameter take curve and value",
+                            "description": "coincident, parallel, perpendicular, equal, tangent, concentric, collinear take a and b; horizontal and vertical take line; midpoint takes point and curve; symmetric takes a, b and about; fix takes point; tangent_handle takes curve (an open fit-point spline) and line (a line ending on one of its fit points, whose other end then sets the curve's direction and pull there); distance, horizontal_distance, vertical_distance and angle take from, to and value; radius and diameter take curve and value",
                             "properties": {
                                 "kind": { "type": "string", "enum": [
                                     "coincident", "horizontal", "vertical", "parallel", "perpendicular", "equal",
-                                    "tangent", "concentric", "collinear", "midpoint", "symmetric", "fix",
+                                    "tangent", "tangent_handle", "concentric", "collinear", "midpoint", "symmetric", "fix",
                                     "distance", "horizontal_distance", "vertical_distance", "radius", "diameter", "angle"
                                 ] },
                                 "a": entity(), "b": entity(), "line": entity(), "point": entity(),

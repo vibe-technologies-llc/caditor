@@ -898,6 +898,7 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         Constraint::Perpendicular(a, b) => on_each(GlyphKind::Perpendicular, [a, b]),
         Constraint::Tangent(a, b) => on_each(GlyphKind::Tangent, [a, b]),
         Constraint::Curvature(a, b) => on_each(GlyphKind::Curvature, [a, b]),
+        Constraint::SplineHandle { line, .. } => vec![(line, GlyphKind::Tangent)],
         Constraint::Equal(a, b) => on_each(GlyphKind::Equal, [a, b]),
         Constraint::Coincident(a, b) => {
             let is_point = |entity| sketch.point(entity).is_some();

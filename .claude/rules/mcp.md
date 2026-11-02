@@ -236,7 +236,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   switching every curve the other way unless `construction` says), split (`check_split`,
   `split_at`), break (`break_curves`) respace (`respace_fit_spline`, only for splines still
   evenly spaced) and insert_control_point (`splines`, and `point` with a single one;
-  `check_point_insertion`, `insert_control_point`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
+  `check_point_insertion`, `insert_control_point`) and tangent_handle (`curve` and its fit `point`,
+  `Sketch::add_spline_handle`, answering the new line as `handle`) are `sketch_cuts.rs`; tangent circle (two curves and a `radius`, or three),
   blend (`first` and `second` ends, `continuity`), gear (a gear, `pair` or `sprocket` as
   `gearing::Part`, at `center` or `at`, defaults of the Spur gear panel; a single gear is stored
   with literal expressions, a pair as two stored gears (`StoredPair::literal`, the second at

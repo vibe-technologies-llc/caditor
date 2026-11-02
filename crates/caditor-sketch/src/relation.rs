@@ -142,6 +142,7 @@ impl Sketch {
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
             | Constraint::Curvature(a, b)
+            | Constraint::SplineHandle { spline: a, line: b }
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b)

@@ -24,6 +24,27 @@ this for you.
 
 A point held on a closed spline slides all the way round it, past where the spline started.
 
+## Tangent handles
+
+{command:sketch.add_tangent_handle} gives a fit point of an open spline drawn through fit points a
+handle: a construction line from the point along the curve. The curve leaves the point in the
+handle's direction, and the handle's length is how strongly it pulls: a longer handle carries the
+direction further before the curve turns away. Select the fit point (with the spline too when the
+point is shared by another curve) and run the command from the Modify menu, the right-click menu or
+the palette. The handle starts along the curve as it was, so adding it changes the shape very
+little.
+
+Drag the handle's free end to turn and stretch it, or constrain it like any line: make it
+**Horizontal** or **Vertical**, give it an **Angle** to another line or a length to fix the pull,
+make it **Parallel** to an edge, all of which the curve then follows. The handle is shown with a
+tangent mark; select that mark and use Disable to let the curve go back to passing the point
+freely, or delete the handle line to remove it. A point takes one handle; the spline's two ends
+take them too, which sets the direction the spline starts or finishes in. Undo takes a handle away.
+
+Mirroring or patterning a spline together with its handles gives the copies handles of their own,
+so they keep the same shape. Trimming keeps the handles on fit points still on the kept piece.
+Closed splines, splines drawn by control points and conics take no handles.
+
 ## Adding control points
 
 {command:sketch.insert_spline_point} gives a spline drawn from control points one more control

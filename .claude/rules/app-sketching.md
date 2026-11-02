@@ -165,6 +165,13 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Sketch::check_point_insertion`, `CannotInsert`) and inserts keeping the shape
   (`Sketch::insert_control_point`, `sketch.md`); else `NOTHING_TO_INSERT`. A held neighbour
   point fails the transaction as a warning notice (`Insert`).
+  Add a tangent handle (`Command::AddTangentHandle`, `sketch_tools::HandleChange`, beside it in
+  the Modify menu, the context menu and the palette) takes one selected fit point of one open fit
+  spline (the spline selected with it when several hold the point) without a handle there, else
+  `NOTHING_TO_HANDLE` or the sketch's refusal (`CannotHandle`), and adds the construction line and
+  `SplineHandle` (`Sketch::add_spline_handle`) through `reshape_sketch`. The handle is an ordinary
+  construction line: its free end drags and snaps like any point, and its tangent glyph sits on the
+  line (`annotation_layout::glyphs_of`), where Disable and Delete reach the constraint.
   Respace (`Command::RespaceFitSplines`, `RespaceChange`) turns selected evenly spaced fit-point
   splines (files saved before centripetal spacing) into centripetal ones
   (`Sketch::respace_fit_spline` through `reshape_sketch`); else `NOTHING_TO_RESPACE`.

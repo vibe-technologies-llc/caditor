@@ -9,7 +9,9 @@ use crate::{
         tools::ToolError,
         writing,
     },
-    sketch_tools::{BREAK_TITLE, ConstructionChange, INSERT_TITLE, RESPACE_TITLE, SPLIT_TITLE},
+    sketch_tools::{
+        BREAK_TITLE, ConstructionChange, HANDLE_TITLE, INSERT_TITLE, RESPACE_TITLE, SPLIT_TITLE,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -41,6 +43,14 @@ pub struct InsertingPoints {
     pub sketch: Named,
     pub splines: Vec<EntityName>,
     pub point: Option<EntityName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Handling {
+    pub sketch: Named,
+    pub curve: EntityName,
+    pub point: EntityName,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -153,6 +163,27 @@ pub(super) fn insert_control_points(
     planned
         .details
         .insert("refined".to_owned(), writing::ids(&splines));
+    Ok(planned)
+}
+
+pub(super) fn tangent_handle(target: &Target<'_>, asked: &Handling) -> Result<Planned, ToolError> {
+    let spline = target.entity(&asked.curve)?;
+    let point = target.point_of(&asked.point)?;
+    let mut made = None;
+    let transaction = target.reshaped(HANDLE_TITLE.to_owned(), |sketch| {
+        made = Some(
+            sketch
+                .add_spline_handle(spline, point)
+                .map_err(|error| ToolError::from(SketchEditError::Handle(error)))?,
+        );
+        Ok(())
+    })?;
+    let mut planned = Planned::of(transaction);
+    if let Some((line, _)) = made {
+        planned
+            .details
+            .insert("handle".to_owned(), json!(line.raw()));
+    }
     Ok(planned)
 }
 

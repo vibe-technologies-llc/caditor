@@ -354,7 +354,9 @@ impl Sketch {
         let mut copies = Vec::new();
         let mut maps: Vec<BTreeMap<EntityId, EntityId>> = Vec::with_capacity(plan.instances.len());
         let mut equal = Vec::new();
+        let mut curve_maps = Vec::with_capacity(plan.instances.len());
         for instance in &plan.instances {
+            let mut curve_images = BTreeMap::new();
             let mut map: BTreeMap<EntityId, EntityId> =
                 plan.shared.iter().map(|point| (*point, *point)).collect();
             for point in &plan.points {
@@ -420,8 +422,10 @@ impl Sketch {
                 if round {
                     equal.push((*curve, copy));
                 }
+                curve_images.insert(*curve, copy);
                 copies.push(copy);
             }
+            curve_maps.push(curve_images);
             let lone = plan
                 .points
                 .iter()
@@ -437,6 +441,9 @@ impl Sketch {
         }
         for (original, copy) in equal {
             self.add_constraint(Constraint::Equal(original, copy))?;
+        }
+        for curve_images in &curve_maps {
+            self.copy_handles(curve_images)?;
         }
         Ok(copies)
     }

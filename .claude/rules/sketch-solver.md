@@ -122,6 +122,14 @@ paths:
   and holds the inner ones, a closed one holds all). Knots and parameters are the `FitLayout` where
   the solve starts. It counts two degrees of freedom per fit point, which take constraints and
   dimensions like any point.
+- An open fit spline with active tangent handles (`System::handled_fit`) takes the
+  `HandledLayout` of its handles where the solve starts: one hidden control point more per handle,
+  the inner fit points held by `Form::Through` as before, and each handle by two `Form::Through`
+  rows (the handle's end equals its anchor plus `arm` times the derivative's basis weights over the
+  control points), kept in `System::handle_forms` and owned by the `SplineHandle` constraint, so a
+  conflict names it. A handle adds two variables and two rows: the spline's freedom is unchanged
+  and the handle line's free end brings its own two. A layout that will not solve leaves the
+  spline unhandled, as `Sketch::spline` draws it.
 - A centripetal spline's knots depend on its fit points, which no equation differentiates, so
   `solve_with` solves in rounds: when the solved fit points give knots more than `KNOT_SETTLING`
   from the round's start (`respaced`), it solves again from the solved sketch with centripetal fit
