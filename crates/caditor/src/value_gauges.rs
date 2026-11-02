@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CurvePattern,
+    Blend, BlendKind, ChamferForm, CircularPattern, Coil, CoilLength, CoilSpan, CurvePattern,
     CurvePatternPath, CurveSpacing, Datum, DatumPlane, Draft, Emboss, EmbossForm, Evaluation,
     Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, Helix, Hole, HoleDepth, HoleShape,
     HoleSizing, HoleStep, HoleStyle, LinearDirection, LinearSpacing, MAX_CONE_ANGLE,
@@ -10,13 +10,14 @@ use caditor_document::{
     ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion, SolidFeature,
     SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane,
     face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
+    span_with_ends,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    BendMiddles, CoilPlacement, EdgeId, FaceId, HelixSpec, MAX_TAPER_DEGREES, PipeCorner,
-    PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface, WallSide, measured_face,
-    wrapped_stand,
+    BendMiddles, CoilPlacement, EdgeId, FaceId, HelixEnds, HelixSpec, MAX_TAPER_DEGREES,
+    PipeCorner, PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface, WallSide,
+    measured_face, wrapped_stand,
 };
 use caditor_sketch::Entity;
 
@@ -1959,6 +1960,25 @@ impl Builder<'_> {
         let Some((pitch, turns)) = self.coil_span(&helix.length) else {
             return Vec::new();
         };
+        let ends = match &helix.ends {
+            None => None,
+            Some(ends) => match (self.count(&ends.turns), self.length(&ends.pitch)) {
+                (Some(turns), Some(pitch)) => Some(HelixEnds { turns, pitch }),
+                _ => return Vec::new(),
+            },
+        };
+        let (pitch, turns) = match ends {
+            None => (pitch, turns),
+            Some(ends) => {
+                let even = CoilSpan {
+                    height: pitch * turns,
+                    pitch,
+                    turns,
+                };
+                let closed = span_with_ends(helix.length.sizing(), even, ends);
+                (closed.pitch, closed.turns)
+            }
+        };
         let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
             .and_then(|axis| helix.frame(axis))
         else {
@@ -1972,6 +1992,7 @@ impl Builder<'_> {
             taper: taper.to_radians(),
             hand: helix.turning.hand(),
             start_angle: start.to_radians(),
+            ends,
         };
         let Some(started) = spec.start_frame() else {
             return Vec::new();
@@ -1983,7 +2004,7 @@ impl Builder<'_> {
             diameter,
         )];
         if helix.length.pitch().is_some()
-            && let Some(turned) = spec.point_at(TAU)
+            && let Some(turned) = spec.point_at(spec.body_start() + TAU)
         {
             gauges.push(Gauge::line(
                 Measured::CoilPitch,
@@ -1999,7 +2020,7 @@ impl Builder<'_> {
                 Measured::CoilHeight,
                 (end, frame.normal()),
                 1.0,
-                pitch * turns,
+                spec.height(),
             ));
         }
         gauges

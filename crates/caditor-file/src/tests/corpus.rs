@@ -7,19 +7,20 @@ use std::{
 
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
-    BodyPlacement, ChamferForm, Coil, CoilLength, CoilTurning, Combine, CombineOperation,
-    CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Datum, DatumAxis, DatumFrame,
-    DatumPlane, DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness, Feature, FinePitch, Finish,
-    Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
-    HoleStyle, Import, Loft, LoftSection, Mate, MatePair, MetricSize, Mirror, MirrorOutcome,
-    ModelProperties, Move, MoveFace, OffsetFace, Outline, ParameterOwner, ParameterValues, Pattern,
-    PatternKind, PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough,
-    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
-    RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchFeature, SolidFeature,
-    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
-    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
+    BodyPlacement, ChamferForm, ClosedEnds, Coil, CoilLength, CoilTurning, Combine,
+    CombineOperation, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing, Datum,
+    DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace, EdgeGroup, EdgeRule, Emboss,
+    EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceColour, FaceTangent, FaceThickness,
+    Feature, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate, MatePair, MetricSize,
+    Mirror, MirrorOutcome, ModelProperties, Move, MoveFace, OffsetFace, Outline, ParameterOwner,
+    ParameterValues, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern, PrincipalAxis,
+    PrincipalGeometry, PrincipalShowing, ProjectionSource, RegionChoice, Remove, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide,
+    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep,
+    SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
+    point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -55,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 69] = [
+const KEPT: [(&str, &str); 70] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -175,6 +176,10 @@ const KEPT: [(&str, &str); 69] = [
     (
         "model-1/helices.caditor",
         "2d1bcb33f8ca6c8bf457cffddf2a4d0d434917beb2645bc3c7e0bedc04181ced",
+    ),
+    (
+        "model-1/helix-ends.caditor",
+        "6d6129e773c5b6ffaff9f40cca01f076afd58d770ba5417c27ebeb01220bbc97",
     ),
     (
         "model-1/helix-points.caditor",
@@ -907,6 +912,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("flat-spirals"),
             saved(&flat_spirals(), "Flat spirals"),
+        ),
+        (
+            model("helix-ends"),
+            saved(&helix_ends(), "Closed helix ends"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
@@ -2296,6 +2305,37 @@ fn flat_spirals() -> Document {
         FeatureKind::Pipe(Pipe::new(
             SweepPath::Helix { helix: spiral },
             parse("1.5 mm"),
+            parse("0 mm"),
+        )),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn helix_ends() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Closed helix ends");
+    let helix = transaction.add_feature(
+        "Spring path",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::HeightAndTurns {
+                height: parse("40 mm"),
+                turns: parse("8"),
+            },
+            ends: Some(ClosedEnds {
+                turns: parse("1"),
+                pitch: parse("2.2 mm"),
+            }),
+            start: parse("30 deg"),
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Spring",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix },
+            parse("2 mm"),
             parse("0 mm"),
         )),
     );

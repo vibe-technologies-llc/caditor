@@ -1,7 +1,7 @@
 use caditor_document::{
-    CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurvePatternPath, CurveSpacing,
-    DEFAULT_PITCH, DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix,
-    HelixKind, Pattern, PatternKind, PointReference, PointsPattern, is_curve_path,
+    ClosedEnds, CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurvePatternPath,
+    CurveSpacing, DEFAULT_PITCH, DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult,
+    Helix, HelixKind, Pattern, PatternKind, PointReference, PointsPattern, is_curve_path,
 };
 use caditor_expression::Expression;
 use caditor_sketch::Sketch;
@@ -39,6 +39,9 @@ pub struct Helixing {
     pub start_angle: Option<Amount>,
     pub start_point: Option<PointChoice>,
     pub clockwise: Option<bool>,
+    pub closed_ends: Option<bool>,
+    pub end_turns: Option<Amount>,
+    pub end_pitch: Option<Amount>,
     pub name: Option<String>,
 }
 
@@ -88,6 +91,10 @@ pub enum CurveToolError {
     FlatHeight,
     #[error("only a flat spiral has an outer diameter; give the helix's height, or flat: true")]
     HelixOuterDiameter,
+    #[error("a flat spiral has no closed ends; leave out closed_ends, end_turns and end_pitch")]
+    FlatEnds,
+    #[error("closed_ends: false leaves the ends open, so give no end_turns or end_pitch with it")]
+    OpenEndsSized,
 }
 
 fn solved(evaluation: &Evaluation, sketch: FeatureId) -> Option<&Sketch> {
@@ -124,6 +131,12 @@ pub fn helix_built(
     })?;
     let start = parsed(session, asked.start_angle.as_ref(), |session, start| {
         turn(session, "start_angle", start)
+    })?;
+    let end_turns = parsed(session, asked.end_turns.as_ref(), |session, turns| {
+        count(session, "end_turns", turns)
+    })?;
+    let end_pitch = parsed(session, asked.end_pitch.as_ref(), |session, pitch| {
+        length(session, "end_pitch", pitch)
     })?;
     session.evaluate(work)?;
     let unit = LengthUnit::Millimetre;
@@ -177,6 +190,7 @@ pub fn helix_built(
         )?);
     }
     helix.length = coil_length(&helix.length, (turns, pitch, reach))?;
+    helix.ends = closed_ends(&helix, asked.closed_ends, (end_turns, end_pitch))?;
     if let Some(clockwise) = asked.clockwise {
         helix.turning = if clockwise {
             CoilTurning::Clockwise
@@ -186,6 +200,32 @@ pub fn helix_built(
     }
     let title = helix_tools::title(helix.kind);
     Ok(Built::new(FeatureKind::Helix(helix), title, asked.name))
+}
+
+fn closed_ends(
+    helix: &Helix,
+    closed: Option<bool>,
+    (turns, pitch): (Option<Expression>, Option<Expression>),
+) -> Result<Option<ClosedEnds>, CurveToolError> {
+    let sized = turns.is_some() || pitch.is_some();
+    if closed == Some(false) {
+        return if sized {
+            Err(CurveToolError::OpenEndsSized)
+        } else {
+            Ok(None)
+        };
+    }
+    if !sized && closed.is_none() {
+        return Ok(helix.ends.clone().filter(|_| !helix.is_flat()));
+    }
+    if helix.is_flat() {
+        return Err(CurveToolError::FlatEnds);
+    }
+    let kept = helix.ends.clone().unwrap_or_default();
+    Ok(Some(ClosedEnds {
+        turns: turns.unwrap_or(kept.turns),
+        pitch: pitch.unwrap_or(kept.pitch),
+    }))
 }
 
 pub fn helix(session: &mut Session, work: &Work<'_>, asked: Helixing) -> Result<Answer, ToolError> {

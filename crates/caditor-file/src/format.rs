@@ -8,20 +8,20 @@ use std::{
 
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
-    BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Coil, CoilLength,
-    CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation, CurvePattern,
-    CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane,
-    DatumPoint, DeleteFace, Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss, EmbossForm,
-    Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate, FaceColour,
-    FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId, FeatureKind,
-    Finish, HOME_VIEW_NAME, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, Loft,
-    LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
-    MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView, OPAQUE_PERCENT,
-    ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind,
-    PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
+    BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, ClosedEnds, Coil,
+    CoilLength, CoilTurning, Combine, CombineOperation, ConfigurationId, CopyOrientation,
+    CurvePattern, CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame,
+    DatumPlane, DatumPoint, DeleteFace, Document, Draft, EdgeGroup, EdgeRule, Edit, Emboss,
+    EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle, FaceAttachment, FaceAxisMate,
+    FaceColour, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, Feature, FeatureId,
+    FeatureKind, Finish, HOME_VIEW_NAME, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
+    LinearSpacing, Loft, LoftSection, MAX_BODY_FOLDER_DEPTH, MAX_BODY_NAME_CHARS,
+    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
+    MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
+    MetricSize, Mirror, MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
     PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
     Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     PrincipalShowing, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace, Revolve,
@@ -336,6 +336,7 @@ pub(crate) enum FeatureKindRecord {
     HelixStart(Box<HelixStartRecord>),
     HelixPoint(Box<HelixPointRecord>),
     FlatSpiral(Box<FlatSpiralRecord>),
+    HelixEnds(Box<HelixEndsRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
     LoftEnds(Box<LoftEndsRecord>),
@@ -392,6 +393,13 @@ pub(crate) struct HelixPointRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FlatSpiralRecord {
     pub feature: FeatureKindRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixEndsRecord {
+    pub feature: FeatureKindRecord,
+    pub turns: String,
+    pub pitch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4211,6 +4219,17 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             feature: helix_record(&helical),
         }));
     }
+    if let Some(ends) = &helix.ends {
+        let open = Helix {
+            ends: None,
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixEnds(Box::new(HelixEndsRecord {
+            feature: helix_record(&open),
+            turns: text(&ends.turns),
+            pitch: text(&ends.pitch),
+        }));
+    }
     if let Some(point) = &helix.start_point {
         let typed = Helix {
             start_point: None,
@@ -4296,6 +4315,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
         turning: restore_turning(record.turning),
         start: Expression::measure(0.0, Unit::Degree),
         start_point: None,
+        ends: None,
     }
 }
 
@@ -7001,6 +7021,22 @@ fn restore_kind(
                 }
                 _ => issues.push(format!(
                     "“{name}” was to start at a point, but it is not a helix, so that was left \
+                     out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::HelixEnds(ends) => {
+            let mut kind = restore_kind(&ends.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.ends = Some(ClosedEnds {
+                        turns: restore_value(&ends.turns, "end turns", "1", name, issues),
+                        pitch: restore_value(&ends.pitch, "end pitch", "2.5 mm", name, issues),
+                    });
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to have closed ends, but it is not a helix, so that was left \
                      out."
                 )),
             }

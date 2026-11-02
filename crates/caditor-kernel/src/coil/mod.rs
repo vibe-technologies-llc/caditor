@@ -1,5 +1,6 @@
 mod faces;
 mod helix;
+mod pitch;
 mod spiral;
 #[cfg(test)]
 mod spiral_tests;
@@ -11,8 +12,10 @@ use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 use caditor_geometry::{Plane, Point2};
 use thiserror::Error;
 
+use self::pitch::PitchLaw;
 pub use self::{
-    helix::{HelixError, HelixSpec, HelixTurn, helix},
+    helix::{HelixEnds, HelixError, HelixSpec, HelixTurn, helix},
+    pitch::END_CHANGE_TURNS,
     spiral::{SPIRAL_TOLERANCE, SpiralError, SpiralSpec, spiral},
 };
 use crate::{
@@ -244,8 +247,8 @@ impl SectionPiece {
 struct Winding {
     frame: Plane,
     hand: Handedness,
-    pitch: f64,
-    slope: f64,
+    law: PitchLaw,
+    spread: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -355,8 +358,8 @@ fn layout(spec: &CoilSpec) -> Result<Layout, CoilError> {
         winding: Winding {
             frame: spec.frame,
             hand: spec.hand,
-            pitch: spec.pitch,
-            slope: spec.pitch * taper.tan() / TAU,
+            law: PitchLaw::even(spec.pitch),
+            spread: taper.tan(),
         },
         turns: spec.turns,
         centre,

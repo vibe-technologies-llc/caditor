@@ -1,6 +1,7 @@
 # Helix
 
-{command:model.helix} adds a helix: a curve winding around an axis at a steady pitch, for a
+{command:model.helix} adds a helix: a curve winding around an axis at a steady pitch (or with the
+closed ends of a compression spring), for a
 [Sweep](sweep) or [Pipe](pipe) to follow. Sweep a triangle of your own along it for a thread, a
 rectangle for a flat-wound spring, or run a pipe along it for a coil with a section a [Coil](coil)
 does not offer. It makes no body. It is in the Reference group of the ribbon, the Model menu and the
@@ -35,6 +36,13 @@ drawn on the YZ plane is carried along it instead.
 - **Diameter** is the helix's diameter at its start.
 - **Taper** narrows or widens it as it rises: a positive angle widens it, a negative one draws it
   in, within 80° either way.
+- **Ends**: **Open** winds at one pitch from end to end; **Closed** closes the ends as a
+  compression spring's are. **End turns** at each end wind at the **End pitch**, and the pitch
+  then changes evenly to the helix's own over the next half turn. The turns, pitch and height
+  above then size the whole spring with its ends: the pitch is the one between the ends, and a
+  height includes them. Each end with its change of pitch takes its end turns and half a turn, so
+  the helix must make at least that many turns at both ends together. Not offered for a flat
+  spiral.
 - **Starts at** starts the helix at the angle of a point: select a corner of a body (the end of an
   edge is one), the centre of a round edge, a sketch point or a datum point, then use the
   selection or choose it in the view. The helix then begins on the half-plane through that point
@@ -68,6 +76,17 @@ pitch) and one at its end for the height (when it is sized by a height); draggin
 past where the helix starts reverses it. Each drag is one undoable
 change and follows the same steps and snapping as other arrows; Ctrl drags freely, and typing a
 number while holding or hovering an arrow sets the value as the panel field would.
+
+## Springs with closed ends
+
+For a compression spring with closed and ground ends, choose **Closed** under **Ends**, set the end
+turns (one or so) and an end pitch a hair more than the wire's size, and pipe the wire along it.
+The turns of the closed ends cannot quite touch: an end pitch equal to the wire's size runs the
+wire into itself and the pipe fails saying so. Grind the ends flat afterwards by cutting the
+spring with an extrusion or a split at each end.
+
+The pitch arrow then stands past the closed end, where the helix winds at its own pitch, and the
+height arrow measures the whole spring.
 
 ## Sweeping along it
 

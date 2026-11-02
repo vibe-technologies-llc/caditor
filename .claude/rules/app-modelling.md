@@ -630,7 +630,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   fields (a flat spiral's height field captioned `OUTER_DIAMETER`, its sizings "Outer diameter and
   turns" and "and pitch", resized by `helix_tools::spiral_span` through
   `coil_tools::resized_length` since its turns are the outer minus the inner radius over the
-  pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper (left out for a flat spiral),
+  pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper and Ends (`ENDS`, Open or Closed,
+  `helix_tools::with_closed_ends` setting `ClosedEnds::default`, and while closed End turns,
+  `Rule::ZeroOrMore`, and End pitch; left out for a flat spiral, and dropped by `with_kind`
+  switching to one; `sized_by` resizes through `span_with_ends`),
   Starts at (`STARTS_AT`: a `Slot::HelixStart` picker for a corner, round edge,
   sketch point or datum point made before the helix, `datum_tools::only_point`, through
   `helix_tools::start_point_change`; its remove button, `with_start_point(None)`, returns to the
@@ -638,7 +641,7 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   it), Start angle (`helix_panel::START_ANGLE`, any angle, shown only while no point is chosen) and
   Turning, built like the coil's (`coil_panel::length_fields`, `with_length_value`,
   `turning_hover`; `helix_tools::sized_by` through `coil_tools::sized_length`). Fields are keyed `("helix-field", feature, "diameter" |
-  "taper" | "start" | "turns" | "pitch" | "height")`. Reverse direction flips `reversed`. Its value
+  "taper" | "start" | "turns" | "pitch" | "height" | "end-turns" | "end-pitch")`. Reverse direction flips `reversed`. Its value
   arrows are the coil's `Measured::CoilDiameter`, `CoilPitch` and `CoilHeight` (Value handles).
 - The scene draws a built helix like a datum (`Builder::helix`: `helix_tools::points`, 64 per turn,
   as reference-layer lines in the datum colour, widened when open, tinted when failed), picked as
@@ -1076,7 +1079,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     the helix's fields, the hover names a helix, `winding_noun`), standing on the kernel's
     `HelixSpec` made of the displayed axis (`Builder::helix`): the diameter from the axis along
     `HelixSpec::start_frame`'s x axis, so it follows the start angle, at half speed; the pitch
-    upward from `HelixSpec::point_at` a turn round, the height from its end, left out as a coil's.
+    upward from `HelixSpec::point_at` a turn past `body_start` (past the closed end and its
+    change of pitch), the height (`HelixSpec::height`) from its end, left out as a coil's.
     A flat spiral's arrows stand on `SpiralSpec` instead (`Builder::spiral` in `value_gauges.rs`):
     the inner diameter as the helix's, the pitch outward from where it starts, the outer diameter
     (`CoilHeight`, captioned and hovered as one, `is_flat_spiral`) from the axis through its end at

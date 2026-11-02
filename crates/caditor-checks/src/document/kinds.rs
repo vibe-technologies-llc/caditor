@@ -7,22 +7,22 @@ use std::{
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisSide, AxisTurn, Between, Blend, BlendKind, BodyOperation,
-    BodyPlacement, Calibration, ChamferForm, CircularPattern, Coil, CoilLength, CoilSizing,
-    CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern, CurvePatternPath,
-    CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, DeleteFace,
-    Draft, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAngle,
-    FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent, FaceThickness, FeatureId,
-    FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane, ImageSize, ImageSpot, Import,
-    LinearDirection, LinearSpacing, Loft, LoftSection, Mate, MatePair, MeasuredItem, Measurement,
-    MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of, OffsetFace, Pattern, PatternKind,
-    PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalPlane,
-    Reading, ReferenceImage, RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis,
-    RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale, Shell, ShellSide, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText,
-    Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
-    ThreadSide, TurnCentre, Wall, sketch_regions,
+    BodyPlacement, Calibration, ChamferForm, CircularPattern, ClosedEnds, Coil, CoilLength,
+    CoilSizing, CoilTurning, Combine, CombineOperation, CopyOrientation, CurvePattern,
+    CurvePatternPath, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane,
+    DatumPoint, DeleteFace, Draft, EdgeGroup, EdgeRule, Emboss, EmbossForm, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceAngle, FaceAxisMate, FaceMate, FaceOnRound, FacePair, FaceTangent,
+    FaceThickness, FeatureId, FeatureKind, FinePitch, Helix, HelixKind, Hole, HoleBottom,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, ImagePlane,
+    ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Loft, LoftSection, Mate,
+    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, Move, MoveFace, Of,
+    OffsetFace, Pattern, PatternKind, PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
+    PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove, ReplaceFace,
+    Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
+    ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
+    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
+    ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -332,6 +332,14 @@ pub fn feature_kind(
             start: scene.turn(input)?,
             start_point: if input.arbitrary()? {
                 Some(scene.point(input)?)
+            } else {
+                None
+            },
+            ends: if input.arbitrary()? {
+                Some(ClosedEnds {
+                    turns: scene.count(input)?,
+                    pitch: scene.distance(input)?,
+                })
             } else {
                 None
             },

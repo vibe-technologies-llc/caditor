@@ -467,6 +467,18 @@ pub(crate) enum CoilCause {
     SpiralUnbuildable {
         name: String,
     },
+    EndTurnsRange {
+        name: String,
+    },
+    EndsTooLong {
+        name: String,
+        taken: f64,
+        turns: f64,
+    },
+    EndsFillHeight {
+        name: String,
+        height: f64,
+    },
 }
 
 impl CoilCause {
@@ -521,6 +533,19 @@ impl CoilCause {
                  {MAX_COIL_TURNS}."
             ),
             Self::SpiralUnbuildable { name } => format!("{name} cannot be built with these sizes."),
+            Self::EndTurnsRange { name } => format!(
+                "The closed ends of {name} must make no turns or at least {LEAST_COIL_TURNS} of a \
+                 turn each."
+            ),
+            Self::EndsTooLong { name, taken, turns } => format!(
+                "The closed ends of {name} and the changes of pitch beside them take {taken} \
+                 turns, leaving none or at least {LEAST_COIL_TURNS} between them, but it makes \
+                 {turns:.2}."
+            ),
+            Self::EndsFillHeight { name, height } => format!(
+                "The closed ends of {name} and the changes of pitch beside them rise {height} mm \
+                 or more on their own, leaving nothing for the turns between them."
+            ),
         }
     }
 
@@ -569,6 +594,15 @@ impl CoilCause {
             Self::OuterPitchTurns { .. } => "Change the outer diameter or the pitch.".to_owned(),
             Self::SpiralUnbuildable { .. } => {
                 "Change its inner diameter, turns or pitch.".to_owned()
+            }
+            Self::EndTurnsRange { .. } => {
+                format!("Enter 0 end turns, or {LEAST_COIL_TURNS} or more.")
+            }
+            Self::EndsTooLong { .. } => {
+                "Make more turns or fewer end turns, or leave the ends open.".to_owned()
+            }
+            Self::EndsFillHeight { .. } => {
+                "Make the height larger, or the end turns or end pitch smaller.".to_owned()
             }
         }
     }

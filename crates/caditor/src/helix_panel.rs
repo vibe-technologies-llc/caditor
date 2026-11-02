@@ -1,6 +1,6 @@
 use caditor_document::{
-    CoilSizing, CoilTurning, Feature, FeatureId, Helix, HelixKind, Transaction, capitalized,
-    describe_axis, describe_point,
+    ClosedEnds, CoilSizing, CoilTurning, Feature, FeatureId, Helix, HelixKind, Transaction,
+    capitalized, describe_axis, describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -26,6 +26,15 @@ pub const OUTER_DIAMETER: &str = "Outer diameter";
 pub const START_ANGLE: &str = "Start angle";
 pub const STARTS_AT: &str = "Starts at";
 pub const BY_ANGLE: &str = "The start angle below";
+pub const ENDS: &str = "Ends";
+pub const END_TURNS: &str = "End turns";
+pub const END_PITCH: &str = "End pitch";
+const OPEN_ENDS: &str = "Open";
+const CLOSED_ENDS: &str = "Closed";
+const OPEN_ENDS_HOVER: &str = "Wind at the same pitch from end to end";
+const CLOSED_ENDS_HOVER: &str = "Close the ends as a compression spring's are: the end turns wind at \
+                                 the end pitch, changing evenly to the pitch over the next half \
+                                 turn";
 const START_POINT_HOVER: &str =
     "Start the helix at the angle of the selected corner, round edge, sketch point or datum point";
 const START_POINT_REMOVE_HOVER: &str = "Start at the typed angle again";
@@ -236,6 +245,46 @@ impl Panel<'_> {
         });
     }
 
+    fn ends_rows(&mut self, ui: &mut Ui) {
+        let closed = self.helix.ends.is_some();
+        let segments = [
+            (false, OPEN_ENDS, OPEN_ENDS_HOVER),
+            (true, CLOSED_ENDS, CLOSED_ENDS_HOVER),
+        ]
+        .into_iter()
+        .map(|(closing, label, hover)| Segment {
+            label,
+            hover,
+            change: (closing != closed)
+                .then(|| self.change(helix_tools::with_closed_ends(self.helix, closing))),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, ENDS, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        let current = self.helix;
+        let Some(ends) = &current.ends else {
+            return;
+        };
+        let (helix, kept) = (current.clone(), ends.clone());
+        let field = ("end-turns", &ends.turns, Dimension::NONE, Rule::ZeroOrMore);
+        self.value_row(ui, END_TURNS, field, move |turns| Helix {
+            ends: Some(ClosedEnds {
+                turns,
+                ..kept.clone()
+            }),
+            ..helix.clone()
+        });
+        let (helix, kept) = (current.clone(), ends.clone());
+        let field = ("end-pitch", &ends.pitch, Dimension::LENGTH, Rule::AboveZero);
+        self.value_row(ui, END_PITCH, field, move |pitch| Helix {
+            ends: Some(ClosedEnds {
+                pitch,
+                ..kept.clone()
+            }),
+            ..helix.clone()
+        });
+    }
+
     fn start_point_row(&mut self, ui: &mut Ui) {
         let (model, id, helix) = (self.model, self.id(), self.helix);
         let shown = match &helix.start_point {
@@ -333,6 +382,7 @@ pub fn show(
         panel.diameter_row(ui);
         if !flat {
             panel.taper_row(ui);
+            panel.ends_rows(ui);
         }
         panel.start_row(ui);
         panel.turning_row(ui);

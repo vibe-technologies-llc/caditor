@@ -87,6 +87,55 @@ fn helices_are_wound_edited_and_followed() {
 }
 
 #[test]
+fn a_helix_closes_its_ends_for_a_spring_and_opens_them_again() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+
+    let helix = added(
+        &mut client,
+        "add_helix",
+        json!({ "axis": "Z", "diameter": 20, "turns": 5, "pitch": 6, "end_turns": 1, "end_pitch": 2.5 }),
+    );
+    let closed = saved_helix(&mut client, &folder);
+
+    assert_eq!(
+        closed.ends.as_ref().map(|ends| &ends.turns),
+        Some(&Expression::number(1.0))
+    );
+
+    added(
+        &mut client,
+        "add_pipe",
+        json!({ "path": { "helix": helix }, "size": 2 }),
+    );
+    let height = 2.5 * 2.5 + 2.5 * 6.0;
+    let lean = 2.5_f64.atan2(20.0 * PI);
+    let travel = 5.0 * 20.0 * PI * lean.cos() + height * lean.sin();
+
+    assert!(near(total_volume(&mut client), PI * travel));
+
+    let crowded = client.tool("edit_feature", json!({ "feature": helix, "end_turns": 3 }));
+
+    assert!(crowded.to_string().contains("closed ends"), "{crowded}");
+
+    client.tool("undo", json!({}));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "closed_ends": false }),
+    );
+    let opened = saved_helix(&mut client, &folder);
+    let sized = client.tool_error(
+        "edit_feature",
+        json!({ "feature": helix, "closed_ends": false, "end_pitch": 3 }),
+    );
+
+    assert_eq!(opened.ends, None);
+    assert!(sized.contains("no end_turns or end_pitch"), "{sized}");
+    client.finish();
+}
+
+#[test]
 fn a_flat_spiral_is_wound_by_its_outer_diameter_and_carries_a_pipe() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

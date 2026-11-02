@@ -1,10 +1,11 @@
 use caditor_document::{
-    AxisReference, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS,
-    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind,
-    HelixResult, PointReference, Transaction,
+    AxisReference, ClosedEnds, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH,
+    DEFAULT_TURNS, Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix,
+    HelixKind, HelixResult, PointReference, Transaction, span_with_ends,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point3;
+use caditor_kernel::HelixEnds;
 
 use crate::{
     coil_tools::{self, CoilStart, DEFAULT_AXIS, DEFAULT_DIAMETER},
@@ -166,6 +167,13 @@ pub fn reversed(helix: &Helix) -> Helix {
     }
 }
 
+pub fn with_closed_ends(helix: &Helix, closed: bool) -> Helix {
+    Helix {
+        ends: closed.then(ClosedEnds::default),
+        ..helix.clone()
+    }
+}
+
 pub fn with_turning(helix: &Helix, turning: CoilTurning) -> Helix {
     Helix {
         turning,
@@ -176,6 +184,12 @@ pub fn with_turning(helix: &Helix, turning: CoilTurning) -> Helix {
 pub fn sized_by(model: &Model, helix: &Helix, sizing: CoilSizing) -> Helix {
     let length = if helix.is_flat() {
         coil_tools::resized_length(&helix.length, sizing, spiral_span(model, helix))
+    } else if let (Some(span), Some(ends)) = (
+        coil_tools::evaluated_span(model, &helix.length),
+        evaluated_ends(model, helix),
+    ) {
+        let closed = span_with_ends(helix.length.sizing(), span, ends);
+        coil_tools::resized_length(&helix.length, sizing, closed)
     } else {
         coil_tools::sized_length(model, &helix.length, sizing)
     };
@@ -191,6 +205,18 @@ fn value(model: &Model, expression: Option<&Expression>, dimension: Dimension) -
         .evaluate_as(dimension, &|id| parameters.value(id))
         .ok()
         .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+pub fn evaluated_ends(model: &Model, helix: &Helix) -> Option<HelixEnds> {
+    let ends = helix.ends.as_ref().filter(|_| !helix.is_flat())?;
+    let parameters = &model.evaluation().parameters;
+    let turns = ends
+        .turns
+        .evaluate_as(Dimension::NONE, &|id| parameters.value(id))
+        .ok()
+        .filter(|turns| turns.is_finite() && *turns >= 0.0)?;
+    let pitch = value(model, Some(&ends.pitch), Dimension::LENGTH)?;
+    Some(HelixEnds { turns, pitch })
 }
 
 fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
@@ -216,7 +242,15 @@ fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
 
 pub fn with_kind(model: &Model, helix: &Helix, kind: HelixKind) -> Helix {
     let turned = sized_by(model, helix, CoilSizing::TurnsAndPitch);
-    Helix { kind, ..turned }
+    let ends = match kind {
+        HelixKind::Helix => turned.ends.clone(),
+        HelixKind::FlatSpiral => None,
+    };
+    Helix {
+        kind,
+        ends,
+        ..turned
+    }
 }
 
 fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<&HelixResult> {
