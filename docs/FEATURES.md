@@ -258,7 +258,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] Hovering or choosing a feature row lights the geometry it refers to only where
   that is still drawn: faces and edges the feature or a later one consumed (a fillet's rounded
   edges, a shell's opened faces) are not shown, which needs the body before the feature drawn
-  as a ghost; references by vertex and by datum frame plane are not lit either.
+  as a ghost.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

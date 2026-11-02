@@ -134,6 +134,73 @@ fn a_coordinate_system_takes_the_selection_and_its_axes_and_planes_are_picked_an
 }
 
 #[test]
+fn a_chosen_coordinate_system_lights_the_corner_it_sits_at() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let corner = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
+    let other = vertex_at(&harness, body, Point3::ZERO);
+    let system = coordinate_system_at_far_corner(&mut harness, body);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    harness.frame();
+    let editing = harness.editing();
+    let plain = harness.workspace.viewport.lit_in_scene();
+
+    harness.workspace.panels.choose_only(system);
+    harness.frame();
+    harness.frame();
+    let lit = harness.workspace.viewport.lit_in_scene();
+
+    assert_eq!(editing, None);
+    assert!(!plain.contains(&corner));
+    assert!(lit.contains(&corner));
+    assert!(!lit.contains(&other));
+}
+
+#[test]
+fn a_chosen_mirror_lights_the_plane_of_the_coordinate_system_it_mirrors_across() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let system = coordinate_system_at_far_corner(&mut harness, body);
+    let plane = Pickable::FramePlane {
+        feature: system,
+        plane: PrincipalPlane::Yz,
+    };
+    let other = Pickable::FramePlane {
+        feature: system,
+        plane: PrincipalPlane::Xy,
+    };
+    let corner = vertex_at(&harness, body, Point3::ZERO);
+    harness.select([corner, plane]);
+    harness.click("Mirror body");
+    harness.settle();
+    let mirror = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    harness.frame();
+    let plain = harness.workspace.viewport.lit_in_scene();
+
+    harness.workspace.panels.choose_only(mirror);
+    harness.frame();
+    harness.frame();
+    let lit = harness.workspace.viewport.lit_in_scene();
+
+    assert!(!plain.contains(&plane));
+    assert!(lit.contains(&plane));
+    assert!(!lit.contains(&other));
+}
+
+#[test]
 fn measure_reads_positions_and_offsets_in_the_chosen_coordinate_system() {
     let mut harness = Harness::new();
     let (body, _) = extruded_plate(&mut harness);

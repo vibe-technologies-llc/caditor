@@ -718,9 +718,9 @@ paths:
 - The other way round, the rows chosen in the tree (`PanelState::chosen`, handed to the viewport each
   frame by `Viewport::show_chosen_rows`) highlight what they made as hovered geometry is: faces and
   edges of a body, curves of a sketch, a datum (`Highlight::chosen_rows`, part of the scene cache's
-  highlight key), never vertices or regions. A row of a feature that changes a body it did not make
-  (fillet, shell, hole, cut extrusion) lights only the faces whose `FaceOrigin` names it on that
-  body's shown result and the edges bounding them (`bodies::made_by`, joined to the hovered items),
+  highlight key), never vertices or regions of what they made. A row of a feature that changes a
+  body it did not make (fillet, shell, hole, cut extrusion) lights only the faces whose
+  `FaceOrigin` names it on that body's shown result and the edges bounding them (`bodies::made_by`, joined to the hovered items),
   so two holes of one body light apart; one that made no face there (combine, move, remove) lights
   the whole body (`viewport::LitRows`, kept until the rows, revision or evaluation change). A row
   whose feature makes a body of its own lights and frames that body alone (`viewport::row_body`): a
@@ -732,8 +732,11 @@ paths:
   edges `caditor_document::referred_geometry` gathers through the healing visitor, each only where
   it resolves on the body's shown result to geometry of the same name (a face or edge the feature
   or a later one consumed is not drawn, so it stays dark rather than lighting a neighbour), the
-  principal planes it names (a lit plane shows even while the planes step aside), and the sketches
-  and datums among `Document::dependencies_of` as chosen rows. Bodies it uses are not lit whole.
+  principal planes it names (a lit plane shows even while the planes step aside), the corners it
+  names (a vertex of the body's shown result, lit only when exactly one carries the name, as the
+  reference itself resolves), the planes of coordinate systems it names (`Pickable::FramePlane`,
+  only while the system is placed), and the sketches and datums among `Document::dependencies_of`
+  as chosen rows. Bodies it uses are not lit whole.
 - Every row of the Features tree (`tree_row::show`, so feature, folder, Bodies and principal rows
   alike) keeps `tree_row::LINK_GUTTER` inside its left margin, within the row so the panel's width
   never grows for it. The hovered feature row, else the primary chosen one (so keyboard focus, which

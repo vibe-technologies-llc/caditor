@@ -3,7 +3,7 @@ use std::{borrow::Cow, fmt::Display, sync::Arc, time::Duration};
 use caditor_document::{
     BlendKind, CarriedParameters, Datum, Document, Evaluation, Feature, FeatureId, FeatureKind,
     PasteOrigin, PatternKind, RegionChoice, Rgb, SavedView, SolidFeature, Transaction,
-    referred_geometry,
+    displayed_frame, referred_geometry,
 };
 use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
@@ -678,6 +678,25 @@ impl LitRows {
                 });
             }
         }
+        for (body, vertex) in referred.vertices {
+            let Some(shown) = bodies::shown(evaluation, body) else {
+                continue;
+            };
+            let mut named = bodies::vertex_keys(shown)
+                .into_iter()
+                .map(|(_, key)| key)
+                .filter(|key| key.name == vertex);
+            if let (Some(key), None) = (named.next(), named.next()) {
+                self.made.push(Pickable::Vertex { body, vertex: key });
+            }
+        }
+        self.made.extend(
+            referred
+                .frame_planes
+                .into_iter()
+                .filter(|(frame, _)| displayed_frame(evaluation, *frame).is_some())
+                .map(|(feature, plane)| Pickable::FramePlane { feature, plane }),
+        );
         self.made
             .extend(referred.planes.into_iter().map(Pickable::Plane));
     }
