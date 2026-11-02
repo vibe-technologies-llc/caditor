@@ -207,6 +207,7 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         | Constraint::Perpendicular(..)
         | Constraint::Tangent(..)
         | Constraint::Curvature(..)
+        | Constraint::SplineHandle { .. }
         | Constraint::Equal(..)
         | Constraint::Midpoint { .. }
         | Constraint::OnMinorAxis { .. }

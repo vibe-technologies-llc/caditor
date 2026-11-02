@@ -291,6 +291,7 @@ impl Sketch {
         }
         let image_of = |point: EntityId| images.get(&point).copied().unwrap_or(point);
         let mut copies = Vec::with_capacity(plan.curves.len());
+        let mut curve_images = BTreeMap::new();
         let mut equal = Vec::new();
         for curve in &plan.curves {
             let entity = self
@@ -349,6 +350,7 @@ impl Sketch {
                 equal.push((*curve, copy));
             }
 
+            curve_images.insert(*curve, copy);
             copies.push(copy);
         }
         for (first, second) in symmetric {
@@ -364,6 +366,7 @@ impl Sketch {
         for point in held {
             self.add_constraint(Constraint::Coincident(point, about))?;
         }
+        self.copy_handles(&curve_images)?;
         Ok(copies)
     }
 

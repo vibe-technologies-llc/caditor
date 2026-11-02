@@ -9,6 +9,7 @@ use crate::{
         looped_knots, periodic_knots, piece_knots, span_knots,
     },
     entity::{Entity, FitSpacing, Role, SplineKind},
+    handle::{HandledLayout, Row},
     id::{ConstraintId, EntityId},
     sketch::{Sketch, SketchError},
     solve::{
@@ -391,6 +392,12 @@ impl System {
                         periodic: false,
                     }
                 }
+                SplineKind::Fit {
+                    closed: false,
+                    spacing,
+                } if !sketch.spline_handles(id).is_empty() => self
+                    .handled_fit(sketch, id, &handles, *spacing)
+                    .unwrap_or_else(|| self.fit_handle(id, &handles, false, *spacing)),
                 SplineKind::Fit { closed, spacing } => {
                     self.fit_handle(id, &handles, *closed, *spacing)
                 }
@@ -484,6 +491,109 @@ impl System {
             }
         }
         handle
+    }
+}
+
+impl System {
+    fn handled_fit(
+        &mut self,
+        sketch: &Sketch,
+        id: EntityId,
+        fits: &[PointHandle],
+        spacing: FitSpacing,
+    ) -> Option<SplineHandle> {
+        let handles = sketch.spline_handles(id);
+        let positions: Vec<Point2> = fits.iter().map(|fit| fit.at(&self.values)).collect();
+        let anchored = handles
+            .iter()
+            .map(|handle| {
+                let anchor = self.point(handle.anchor).ok()?;
+                let end = self.point(handle.end).ok()?;
+                Some((*handle, anchor, end))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let reaches: Vec<(usize, Vector2)> = anchored
+            .iter()
+            .map(|(handle, anchor, end)| {
+                (handle.index, end.at(&self.values) - anchor.at(&self.values))
+            })
+            .collect();
+        let handled: Vec<usize> = handles.iter().map(|handle| handle.index).collect();
+        let layout = HandledLayout::of(&positions, spacing, &handled)?;
+        let starts = layout.controls(&positions, &reaches)?;
+        let last = starts.len().checked_sub(1)?;
+        let mut hidden = Vec::with_capacity(last.saturating_sub(1));
+        let mut controls = Vec::with_capacity(starts.len());
+        for (index, start) in starts.iter().enumerate() {
+            let fixed_end = match index {
+                0 => fits.first(),
+                _ if index == last => fits.last(),
+                _ => None,
+            };
+            if let Some(end) = fixed_end {
+                controls.push(*end);
+                continue;
+            }
+            let variable = self.values.len();
+            self.values.extend([start.x, start.y]);
+            hidden.push(variable);
+            controls.push(PointHandle::Variable(variable));
+        }
+        self.hidden.insert(id, hidden);
+        let handle = SplineHandle {
+            points: controls,
+            degree: layout.degree,
+            knots: layout.knots.clone(),
+            weights: None,
+            periodic: false,
+        };
+        let terms_of = |row: Row| -> Option<Vec<(PointHandle, f64)>> {
+            let (first, weights) = layout.row_weights(row)?;
+            Some(
+                weights
+                    .iter()
+                    .zip(handle.points.iter().skip(first))
+                    .filter(|(weight, _)| **weight != 0.0)
+                    .map(|(weight, point)| (*point, *weight))
+                    .collect(),
+            )
+        };
+        for row in &layout.rows {
+            match *row {
+                Row::Point(index) if index == 0 || index + 1 == fits.len() => {}
+                Row::Point(index) => {
+                    let fit = *fits.get(index)?;
+                    let terms: Arc<[(PointHandle, f64)]> = terms_of(*row)?.into();
+                    for along in [Vector2::X, Vector2::Y] {
+                        let form = Form::Through {
+                            point: fit,
+                            terms: Arc::clone(&terms),
+                            along,
+                        };
+                        self.equations.push(Equation { owner: None, form });
+                    }
+                }
+                Row::Slope(index) => {
+                    let Some((handle, anchor, end)) =
+                        anchored.iter().find(|(handle, ..)| handle.index == index)
+                    else {
+                        continue;
+                    };
+                    let mut terms = terms_of(*row)?;
+                    terms.push((*anchor, 1.0));
+                    let terms: Arc<[(PointHandle, f64)]> = terms.into();
+                    let forms = [Vector2::X, Vector2::Y]
+                        .map(|along| Form::Through {
+                            point: *end,
+                            terms: Arc::clone(&terms),
+                            along,
+                        })
+                        .to_vec();
+                    self.handle_forms.insert(handle.constraint, forms);
+                }
+            }
+        }
+        Some(handle)
     }
 }
 

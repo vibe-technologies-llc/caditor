@@ -858,6 +858,13 @@ impl Sketch {
                         None => Fate::Kept,
                     }
                 }
+                Constraint::SplineHandle { line, .. } => self
+                    .handle_anchor(curve, line)
+                    .and_then(|anchor| self.point(anchor))
+                    .map_or(Fate::Dropped, |position| match fate_at(position) {
+                        Fate::Kept => Fate::Kept,
+                        Fate::Moved | Fate::Dropped => Fate::Dropped,
+                    }),
                 _ => Fate::Kept,
             };
             match fate {

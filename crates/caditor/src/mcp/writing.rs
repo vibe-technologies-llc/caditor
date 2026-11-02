@@ -139,6 +139,10 @@ pub enum ConstraintItem {
         a: EntityName,
         b: EntityName,
     },
+    TangentHandle {
+        curve: EntityName,
+        line: EntityName,
+    },
     Concentric {
         a: EntityName,
         b: EntityName,
@@ -757,6 +761,10 @@ fn constraint_of(
             let (a, b) = resolver.pair(a, b)?;
             Constraint::Tangent(a, b)
         }
+        ConstraintItem::TangentHandle { curve, line } => Constraint::SplineHandle {
+            spline: resolver.entity(curve)?,
+            line: resolver.entity(line)?,
+        },
         ConstraintItem::Concentric { a, b } => {
             let (a, b) = resolver.pair(a, b)?;
             Constraint::Concentric(a, b)

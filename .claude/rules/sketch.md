@@ -104,6 +104,25 @@ paths:
     similarity-invariant: mirror, patterns, copies and uniform scaling keep the kind; only a
     non-uniform map (oblique projection, skewed DXF block) bends a centripetal spline between its
     mapped points.
+  - Tangent handles (`handle.rs`): `Constraint::SplineHandle { spline, line }` ("Tangent handle")
+    gives a fit point of an open fit spline a handle, a line with one end on that fit point (the
+    anchor) and the other free. The curve is no longer the kind applied to its points alone:
+    `Sketch::spline` reads the active handles (`spline_handles`, the lowest constraint id per fit
+    point, sorted by index) and interpolates with a derivative row per handle
+    (`HandledLayout`: the base `FitLayout` parameters, each handled one repeated, knots averaged
+    over that sequence, degree `min(3, rows - 1)`, solved densely with partial pivoting), so the
+    curve passes every fit point and `arm(i) * C'(u_i)` equals the handle's vector, `arm` a third
+    of the mean parameter gap beside the point (one gap at an end). Two fit points with both end
+    handles are the cubic Bézier whose inner control points are the start handle's end and the end
+    point minus the end handle. An inactive handle shapes nothing. Direction and pull are both the
+    line's, so it takes Horizontal, Angle, Parallel, a length and drags like any line.
+    `check_constraint` refuses a spline that is not an open fit spline (`WrongKind`), a line
+    joined to none or both of its points (`NotJoined`), and a second handle at one point
+    (`AlreadyHandled`, add only; loading keeps it, shaping nothing). `add_spline_handle(spline,
+    point)` adds a construction line along the curve as it is (`spline_handle_reach`; `NotAFitPoint`,
+    `NoTangent`) and the constraint. Mirror and the patterns copy a handle whose spline and line
+    are both copied (`copy_handles`), exact since the interpolation is similarity-invariant; trim
+    keeps a handle whose anchor stays on the kept piece and drops the rest.
 - Text (`text.rs`, `Sketch::texts`): a map of `Text` beside the entities, keyed by `EntityId`s from
   the same counter (`check_new_id` refuses one an entity, text or constraint holds), part of
   `same_geometry` and `heap_size`. A `Text` is its anchor (a point entity: `NotAPoint`,

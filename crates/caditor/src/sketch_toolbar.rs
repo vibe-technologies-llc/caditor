@@ -32,8 +32,8 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
         self, ActivityChange, BreakChange, ConstraintOfferError, ConstraintTool,
-        ConstructionChange, RespaceChange, SketchChangeError, SplinePointChange, SplitChange,
-        UnlinkChange,
+        ConstructionChange, HandleChange, RespaceChange, SketchChangeError, SplinePointChange,
+        SplitChange, UnlinkChange,
     },
     toggles::ToggleStates,
     units::Units,
@@ -230,6 +230,7 @@ const MODIFY_MENU: &[&[Command]] = &[
         Command::BreakCurves,
         Command::RespaceFitSplines,
         Command::InsertSplinePoint,
+        Command::AddTangentHandle,
         Command::UnlinkProjection,
     ],
     &[
@@ -488,6 +489,7 @@ pub fn show(
     };
     let respacing = RespaceChange::of(&shown, &selected);
     let inserting = SplinePointChange::of(&shown, &selected);
+    let handling = HandleChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
@@ -536,6 +538,10 @@ pub fn show(
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
         inserting: inserting
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        handling: handling
             .as_ref()
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
@@ -689,6 +695,14 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
+    if request.handling
+        && let Ok(change) = &handling
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
+        });
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -750,6 +764,7 @@ struct Request {
     unlinking: bool,
     respacing: bool,
     inserting: bool,
+    handling: bool,
     delete: bool,
     finish: bool,
     cancel: bool,
@@ -811,6 +826,7 @@ struct Bar<'a, 'b> {
     unlinking: Result<(), Unavailable>,
     respacing: Result<(), Unavailable>,
     inserting: Result<(), Unavailable>,
+    handling: Result<(), Unavailable>,
     deletable: Result<(), Unavailable>,
     moving: Result<(), Unavailable>,
     select_all: Result<(), Unavailable>,
@@ -1414,6 +1430,12 @@ impl Bar<'_, '_> {
             .invoke(Command::InsertSplinePoint, &self.inserting)
         {
             self.request.inserting = true;
+        }
+        if self
+            .commands
+            .invoke(Command::AddTangentHandle, &self.handling)
+        {
+            self.request.handling = true;
         }
         for tool in OFF_RIBBON {
             self.off_ribbon_tool(tool);

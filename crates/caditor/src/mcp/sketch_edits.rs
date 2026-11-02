@@ -21,7 +21,9 @@ use crate::{
         sketch_additions::{
             self, Blending, Copying, GearEditing, Gearing, Lettered, TangentCircling, TextEditing,
         },
-        sketch_cuts::{self, Breaking, Constructing, InsertingPoints, Respacing, Splitting},
+        sketch_cuts::{
+            self, Breaking, Constructing, Handling, InsertingPoints, Respacing, Splitting,
+        },
         sketch_moves,
         sketch_projections::{self, Intersecting, Projecting},
         tools::{Answer, ToolError, ValueRefusal},
@@ -95,6 +97,8 @@ pub enum SketchEditError {
     Respace(SketchError),
     #[error("a control point cannot be added there: {0}")]
     Insert(InsertError),
+    #[error("a tangent handle cannot be added there: {0}")]
+    Handle(SketchError),
     #[error(
         "give at least one spline in {sketch} to add a control point to, and a point only with a single spline"
     )]
@@ -205,6 +209,7 @@ pub enum Modification {
     Break(Breaking),
     Respace(Respacing),
     InsertControlPoint(InsertingPoints),
+    TangentHandle(Handling),
     TangentCircle(TangentCircling),
     Blend(Blending),
     Gear(Gearing),
@@ -542,6 +547,7 @@ fn sketch_of(asked: &Modification) -> &Named {
         Modification::Break(asked) => &asked.sketch,
         Modification::Respace(asked) => &asked.sketch,
         Modification::InsertControlPoint(asked) => &asked.sketch,
+        Modification::TangentHandle(asked) => &asked.sketch,
         Modification::TangentCircle(asked) => &asked.sketch,
         Modification::Blend(asked) => &asked.sketch,
         Modification::Gear(asked) => &asked.sketch,
@@ -579,6 +585,7 @@ fn plan(
         Modification::InsertControlPoint(asked) => {
             sketch_cuts::insert_control_points(target, asked)
         }
+        Modification::TangentHandle(asked) => sketch_cuts::tangent_handle(target, asked),
         Modification::TangentCircle(asked) => {
             sketch_additions::tangent_circle(session, target, asked)
         }

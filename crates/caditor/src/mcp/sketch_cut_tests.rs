@@ -7,7 +7,8 @@ use tempfile::TempDir;
 use super::{
     feature_tests::started,
     sketch_edit_tests::{
-        count_of, described, draw, ends, entity, modify, near, new_sketch, of_kind, refused,
+        count_of, described, descriptions, draw, ends, entity, modify, near, new_sketch, of_kind,
+        refused,
     },
     tests::{Client, opening},
 };
@@ -287,4 +288,45 @@ fn a_control_point_is_added_to_a_control_spline_and_refused_for_a_fit_spline() {
         6
     );
     assert!(refusal.contains("passes through its points"), "{refusal}");
+}
+
+#[test]
+fn a_fit_point_takes_a_tangent_handle_that_constraints_turn() {
+    let folder = TempDir::new().unwrap();
+    let mut client = Client::start(opening(model_with_a_control_spline(&folder)));
+    client.initialize("2025-06-18");
+
+    let before = described(&mut client, &json!("Splines"));
+    let fit = of_kind(&before, "spline")
+        .into_iter()
+        .find(|spline| spline["form"] == "fit")
+        .unwrap();
+    let (spline, middle) = (fit["id"].clone(), fit["points"][1].clone());
+    let added = modify(
+        &mut client,
+        &json!("Splines"),
+        json!({ "operation": "tangent_handle", "curve": spline, "point": middle }),
+    );
+    let handle = added["handle"].clone();
+    client.tool(
+        "add_sketch_constraints",
+        json!({ "sketch": "Splines", "constraints": [{ "kind": "horizontal", "line": handle }] }),
+    );
+    let after = described(&mut client, &json!("Splines"));
+    let again = refused(
+        &mut client,
+        &json!("Splines"),
+        json!({ "operation": "tangent_handle", "curve": spline, "point": middle }),
+    );
+    client.finish();
+
+    assert_eq!(added["change"], "Add tangent handle");
+    assert_eq!(entity_count(&after), entity_count(&before) + 2);
+    assert!(
+        descriptions(&after)
+            .iter()
+            .any(|description| description.starts_with("tangent handle")),
+        "{after}"
+    );
+    assert!(again.contains("already has a tangent handle"), "{again}");
 }

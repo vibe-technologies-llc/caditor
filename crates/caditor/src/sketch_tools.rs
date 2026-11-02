@@ -2241,6 +2241,9 @@ pub const BREAK_TITLE: &str = "Break curves";
 pub const NOTHING_TO_INSERT: &str = "Select a spline drawn from control points, with a point near \
                                      where it should get its new control point if you like";
 pub const INSERT_TITLE: &str = "Add control point";
+pub const HANDLE_TITLE: &str = "Add tangent handle";
+pub const NOTHING_TO_HANDLE: &str =
+    "Select a fit point of an open fit-point spline, with the spline when the point is shared";
 pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
                                       the spacing of their points";
 pub const RESPACE_TITLE: &str = "Respace fit-point splines";
@@ -2263,6 +2266,12 @@ pub enum SketchChangeError {
     CannotInsert(InsertError),
     #[error("{}: {source}.", INSERT_TITLE)]
     Insert { source: InsertError },
+    #[error("{}", NOTHING_TO_HANDLE)]
+    NothingToHandle,
+    #[error("{}", sentence(&.0.to_string()))]
+    CannotHandle(SketchError),
+    #[error("{}: {source}.", HANDLE_TITLE)]
+    Handle { source: SketchError },
     #[error("{}", NOTHING_TO_RESPACE)]
     NothingToRespace,
     #[error("{}", NOTHING_TO_UNLINK)]
@@ -2419,6 +2428,72 @@ impl SplinePointChange {
                     .map_err(|source| SketchChangeError::Insert { source })?;
             }
             Ok(())
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HandleChange {
+    pub spline: EntityId,
+    pub point: EntityId,
+}
+
+impl HandleChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, SketchChangeError> {
+        let (points, curves): (Vec<EntityId>, Vec<EntityId>) = selected
+            .iter()
+            .copied()
+            .filter(|id| !id.is_reference())
+            .partition(|id| matches!(sketch.entity(*id), Some(Entity::Point(_))));
+        let [point] = points[..] else {
+            return Err(SketchChangeError::NothingToHandle);
+        };
+        let holding = |spline: EntityId| {
+            matches!(
+                sketch.entity(spline),
+                Some(Entity::Spline {
+                    points,
+                    kind: SplineKind::Fit { closed: false, .. },
+                }) if points.contains(&point)
+            ) && !sketch.is_projected(spline)
+        };
+        let splines: Vec<EntityId> = if curves.is_empty() {
+            sketch
+                .entities()
+                .map(|(id, _)| id)
+                .filter(|id| holding(*id))
+                .collect()
+        } else {
+            curves.into_iter().filter(|id| holding(*id)).collect()
+        };
+        let [spline] = splines[..] else {
+            return Err(SketchChangeError::NothingToHandle);
+        };
+        if sketch
+            .spline_handles(spline)
+            .iter()
+            .any(|handle| handle.anchor == point)
+        {
+            return Err(SketchChangeError::CannotHandle(
+                SketchError::AlreadyHandled {
+                    point,
+                    label: sketch.entity_label(point),
+                },
+            ));
+        }
+        Ok(Self { spline, point })
+    }
+
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        trimming::reshape(model, feature, HANDLE_TITLE.to_owned(), |sketch| {
+            sketch
+                .add_spline_handle(self.spline, self.point)
+                .map(|_| ())
+                .map_err(|source| SketchChangeError::Handle { source })
         })
     }
 }

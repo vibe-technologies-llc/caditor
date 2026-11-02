@@ -109,6 +109,7 @@ pub enum Command {
     BreakCurves,
     RespaceFitSplines,
     InsertSplinePoint,
+    AddTangentHandle,
     UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
@@ -930,6 +931,7 @@ plain_commands! {
     BreakCurves,
     RespaceFitSplines,
     InsertSplinePoint,
+    AddTangentHandle,
     UnlinkProjection,
     RotateGeometry,
     ScaleGeometry,
@@ -1100,6 +1102,7 @@ impl Command {
             Self::UnlinkProjection => "sketch.unlink_projection",
             Self::RespaceFitSplines => "sketch.respace_fit_splines",
             Self::InsertSplinePoint => "sketch.insert_spline_point",
+            Self::AddTangentHandle => "sketch.add_tangent_handle",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
@@ -1459,6 +1462,9 @@ impl Command {
             Self::RespaceFitSplines => "Respace the selected fit-point splines by their points",
             Self::InsertSplinePoint => {
                 "Add a control point to the selected spline, keeping its shape exactly"
+            }
+            Self::AddTangentHandle => {
+                "Add a tangent handle to the selected fit point, setting the spline's direction and pull there"
             }
             Self::RotateGeometry => "Rotate selected sketch geometry",
             Self::ScaleGeometry => "Scale selected sketch geometry",
@@ -2220,6 +2226,7 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::AddTangentHandle
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -2264,6 +2271,7 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::AddTangentHandle
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -2443,6 +2451,7 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::AddTangentHandle
             | Self::ProjectSketch
             | Self::RotateGeometry
             | Self::ScaleGeometry
