@@ -274,6 +274,19 @@ fn the_title_menus_open_and_stay_on_screen_from_75_to_200_percent() {
 }
 
 #[test]
+fn the_compact_ribbon_opens_each_group_from_a_column_of_at_least_24_points() {
+    let mut harness = Harness::new();
+    scaled(&mut harness, 2.0);
+
+    for group in GROUPS {
+        let rect = harness.button_rect(&menu_name(group));
+
+        assert!(rect.width() >= 24.0, "{group} {rect:?}");
+        assert!(rect.height() >= 24.0, "{group} {rect:?}");
+    }
+}
+
+#[test]
 fn at_75_percent_the_captions_stay_and_choosing_from_a_title_still_runs_the_command() {
     let mut harness = Harness::new();
     scaled(&mut harness, 0.75);

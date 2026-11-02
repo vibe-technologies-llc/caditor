@@ -170,21 +170,6 @@ pub fn captioned_by(
     (shown.response.rect, shown.inner)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GroupTools {
-    pub width: f32,
-    pub notch_at: Option<Rect>,
-}
-
-impl GroupTools {
-    pub fn arrowed(width: f32) -> Self {
-        Self {
-            width,
-            notch_at: None,
-        }
-    }
-}
-
 pub struct GroupMenu<'a> {
     pub id: Id,
     pub name: &'a str,
@@ -220,7 +205,7 @@ pub fn menu_group(
     title: Option<Arc<Galley>>,
     show_caption: bool,
     menu: &GroupMenu<'_>,
-    content: impl FnOnce(&mut Ui) -> GroupTools,
+    content: impl FnOnce(&mut Ui) -> f32,
 ) -> ((Rect, f32), Option<Response>) {
     let titled = show_caption && title.is_some();
     let title_width = title
@@ -233,17 +218,12 @@ pub fn menu_group(
         title,
         show_caption,
         |ui| {
-            let tools = content(ui);
+            let tools_width = content(ui);
             if !titled {
-                arrow = Some(match tools.notch_at {
-                    Some(host) => widgets::notch_button(ui, host, &menu.arrow()),
-                    None => {
-                        let group = ui.min_rect();
-                        widgets::arrow_beside(ui, group, &menu.arrow())
-                    }
-                });
+                let group = ui.min_rect();
+                arrow = Some(widgets::arrow_beside(ui, group, &menu.arrow()));
             }
-            tools.width.max(title_width)
+            tools_width.max(title_width)
         },
         |ui, rect, title| {
             let rect =

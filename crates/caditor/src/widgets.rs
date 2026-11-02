@@ -65,8 +65,6 @@ const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
 const SEGMENT_INSET: i8 = SPACE_XS as i8;
 const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
 const EMPTY_STATE_MARGIN: Margin = appearance::margin(SPACE_S, SPACE_SM);
-const COMPACT_NOTCH_SIDE: f32 = 11.0;
-const NOTCH_INSET: f32 = 1.0;
 const DIALOG_FOOTER_GAP: f32 = SPACE_L;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const TAB_PADDING: egui::Vec2 = vec2(SPACE_M, SPACE_SM);
@@ -1861,21 +1859,6 @@ fn arrow(ui: &mut Ui, rect: Rect, menu: &ArrowMenu<'_>) -> Response {
             glyph,
             color,
         );
-    })
-}
-
-pub fn notch_button(ui: &mut Ui, host: Rect, menu: &ArrowMenu<'_>) -> Response {
-    let rect = Rect::from_min_max(
-        host.right_bottom() - Vec2::splat(COMPACT_NOTCH_SIDE),
-        host.right_bottom(),
-    );
-    trigger(ui, rect, menu, |ui, rect, color| {
-        let inner = rect.shrink(NOTCH_INSET);
-        ui.painter().add(egui::Shape::convex_polygon(
-            vec![inner.right_top(), inner.right_bottom(), inner.left_bottom()],
-            color,
-            Stroke::NONE,
-        ));
     })
 }
 

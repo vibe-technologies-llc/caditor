@@ -1,7 +1,7 @@
-use egui::{Align, Layout, Rect, Sense, Sides, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Layout, Margin, Rect, Sense, Sides, Ui, UiBuilder, pos2, vec2};
 
 use crate::{
-    appearance::{SPACE_L, SPACE_M},
+    appearance::{DIALOG_MARGIN, SPACE_L, SPACE_M, SPACE_S},
     canvas,
     commands::Command,
     icons, widgets,
@@ -22,8 +22,34 @@ const WIDTH: f32 = 400.0;
 const MIN_WIDTH: f32 = 300.0;
 const TOP_MARGIN: f32 = 16.0;
 const BUTTON_HEIGHT: f32 = 30.0;
-const BUTTON_GAP: f32 = SPACE_M;
-const SECTION_GAP: f32 = SPACE_L;
+
+#[derive(Debug, Clone, Copy)]
+struct Spacing {
+    margin: i8,
+    button_gap: f32,
+    section_gap: f32,
+}
+
+impl Spacing {
+    const ROOMY: Self = Self {
+        margin: DIALOG_MARGIN,
+        button_gap: SPACE_M,
+        section_gap: SPACE_L,
+    };
+    const TIGHT: Self = Self {
+        margin: SPACE_M as i8,
+        button_gap: SPACE_S,
+        section_gap: SPACE_S,
+    };
+
+    fn for_placement(placed: &Placed) -> Self {
+        if placed.under_cube {
+            Self::TIGHT
+        } else {
+            Self::ROOMY
+        }
+    }
+}
 
 pub struct Start {
     pub command: Command,
@@ -92,7 +118,8 @@ impl StartCard {
                 .sense(Sense::click_and_drag()),
         );
         child.set_clip_rect(view);
-        let frame = widgets::dialog_frame(ui.ctx());
+        let spacing = Spacing::for_placement(&placed);
+        let frame = widgets::dialog_frame(ui.ctx()).inner_margin(Margin::same(spacing.margin));
         let inner_width = placed.area.width() - frame.total_margin().sum().x;
         let mut chosen = None;
         let mut closed = false;
@@ -104,16 +131,16 @@ impl StartCard {
                     ui.add_space(SPACE_M);
                     widgets::balanced_label(ui, widgets::muted(TEXT, ui));
                 }
-                ui.add_space(SECTION_GAP);
-                chosen = start_buttons(ui, starts);
-                ui.add_space(SECTION_GAP);
+                ui.add_space(spacing.section_gap);
+                chosen = start_buttons(ui, starts, spacing.button_gap);
+                ui.add_space(spacing.section_gap);
                 widgets::checkbox(ui, &mut self.dont_show_again, DONT_SHOW_AGAIN)
                     .on_hover_text(DONT_SHOW_AGAIN_HOVER);
             })
             .response
             .rect;
         let drawn_height = area.height().ceil() as u32;
-        if drawn_height != self.drawn_height {
+        if !placed.under_cube && drawn_height != self.drawn_height {
             self.drawn_height = drawn_height;
             ui.ctx().request_repaint();
         }
@@ -147,7 +174,7 @@ fn header(ui: &mut Ui) -> bool {
         .1
 }
 
-fn start_buttons(ui: &mut Ui, starts: &[Start]) -> Option<Command> {
+fn start_buttons(ui: &mut Ui, starts: &[Start], button_gap: f32) -> Option<Command> {
     let width = ui.available_width();
     let mut chosen = None;
     let mut starts = starts.iter();
@@ -163,12 +190,12 @@ fn start_buttons(ui: &mut Ui, starts: &[Start]) -> Option<Command> {
     }
     let rest: Vec<&Start> = starts.collect();
     let count = rest.len().max(1) as f32;
-    let share = (width - BUTTON_GAP * (count - 1.0)) / count;
+    let share = (width - button_gap * (count - 1.0)) / count;
     let side_by_side = rest
         .iter()
         .all(|start| widgets::icon_text_button_width(ui, start.label) <= share);
     let button_width = if side_by_side { share } else { width };
-    ui.add_space(BUTTON_GAP - ui.spacing().item_spacing.y);
+    ui.add_space((button_gap - ui.spacing().item_spacing.y).max(0.0));
     let mut secondary = |ui: &mut Ui, start: &Start| {
         let button = widgets::sized_icon_button(
             ui,
@@ -184,7 +211,7 @@ fn start_buttons(ui: &mut Ui, starts: &[Start]) -> Option<Command> {
     };
     if side_by_side {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = BUTTON_GAP;
+            ui.spacing_mut().item_spacing.x = button_gap;
             for start in &rest {
                 secondary(ui, start);
             }

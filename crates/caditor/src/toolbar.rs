@@ -26,7 +26,7 @@ use crate::{
     offset_face_tools,
     pattern_tools::{self, Shape},
     pipe_tools, primitive_tools, queued, replace_face_tools, rib_tools,
-    ribbon::{self, GroupMenu, GroupTools},
+    ribbon::{self, GroupMenu},
     scale_tools,
     section::SectionCommand,
     selection::Selection,
@@ -226,11 +226,6 @@ impl Group {
     }
 }
 
-#[cfg(test)]
-pub fn group_menu_names() -> Vec<String> {
-    Group::ALL.into_iter().map(Group::menu_name).collect()
-}
-
 pub fn show(
     ui: &mut Ui,
     model: &Model,
@@ -254,7 +249,10 @@ pub fn show(
         let compact = ribbon::labelled_too_tall(ui, labelled.len());
         let (ribbon_name, rows) = if compact {
             let widths = ribbon::remembered_widths(ui, COMPACT_RIBBON, &Group::ALL);
-            (COMPACT_RIBBON, ribbon::rows(&widths, full, full))
+            (
+                COMPACT_RIBBON,
+                ribbon::rows(&ribbon::with_arrows(&widths, |_| true), full, full),
+            )
         } else {
             (RIBBON, labelled)
         };
@@ -281,10 +279,7 @@ pub fn show(
                             })
                             .response
                             .rect;
-                        GroupTools {
-                            width: tools.width(),
-                            notch_at: compact.then_some(tools),
-                        }
+                        tools.width()
                     });
                     if let Some(trigger) = trigger {
                         let entries =

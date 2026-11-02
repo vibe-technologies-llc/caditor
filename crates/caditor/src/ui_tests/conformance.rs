@@ -5,7 +5,6 @@ use crate::{
     commands::Command,
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand, PreferencesTab},
-    toolbar,
 };
 
 const LEAST_TARGET: f32 = 24.0;
@@ -123,11 +122,8 @@ fn screens() -> Vec<(String, Harness)> {
 
 fn undersized_with_others_near(harness: &Harness) -> Vec<String> {
     let all = targets(harness);
-    let compact_ribbon_notches = toolbar::group_menu_names();
     all.iter()
-        .filter(|target| {
-            fails_target_size(target, &all) && !compact_ribbon_notches.contains(&target.name)
-        })
+        .filter(|target| fails_target_size(target, &all))
         .map(|target| {
             format!(
                 "{:?} '{}' {:.0}x{:.0} at {:.0},{:.0}",

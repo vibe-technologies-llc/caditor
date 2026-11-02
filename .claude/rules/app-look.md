@@ -217,7 +217,10 @@ paths:
   `start_card::placement`: `WIDTH` wide, centred in the view `TOP_MARGIN` below its top when that
   clears the view cube's area (`ViewportState::cube_area`, wherever the cube sits); else as near
   the centre as the band beside a top cube allows while it is at least `MIN_WIDTH`; else under the
-  cube, centred, and without the sentence. A bottom cube shortens its area while the card, as tall
+  cube, centred, without the sentence and in a tight layout (`Spacing::TIGHT`: `SPACE_M` margin,
+  `SPACE_S` gaps) that keeps the card in the view at 200%, where the ribbon takes two rows; the
+  card's `drawn_height` is recorded only from roomy frames, so the choice cannot flip between
+  frames. A bottom cube shortens its area while the card, as tall
   as it was drawn the frame before (`StartCard::drawn_height`), ends above it, and otherwise is
   treated as a top cube is, its fallback being the top without the sentence
   (`the_card_keeps_clear_of_the_view_cube_in_every_corner_and_size`,
@@ -454,10 +457,10 @@ paths:
   caret, a strip as wide as the group, drawn in the caption's place by `ribbon::captioned_by`), else
   a split-button arrow in a column of its own at the group's right (`widgets::arrow_beside`): a caret
   `widgets::ARROW_WIDTH` (24 points) wide and as tall as the group, so the 24 point target size holds
-  (`ui_tests/conformance.rs`), except on the compact main ribbon (below). The title with its caret
+  (`ui_tests/conformance.rs`) on every ribbon, the compact main ribbon included. The title with its caret
   (`widgets::group_title_width`) counts in the group's natural width like the caption alone did; that
   widens only a group narrower than it (the sketch ribbon's History column). Remembered widths are
-  always the captioned ones; a layout that shows no captions, the compact main ribbon apart, adds the arrow's column to each
+  always the captioned ones; a layout that shows no captions, the compact main ribbon included, adds the arrow's column to each
   (`ribbon::with_arrows`), so the choice between one captioned row and several arrowed ones never
   flips on its own result (`the_ribbons_settle_on_one_layout_at_every_interface_size`,
   `interface_fit`, `large_interface`). Both triggers are buttons whose screen-reader name is the menu's and open an
@@ -521,10 +524,10 @@ paths:
   once took one captioned row, and at 200% three rows of icons
   (`the_sketch_bar_wraps_into_arrowed_rows_at_the_usual_size_and_names_every_button`,
   `the_sketch_bar_folds_into_rows_of_named_icons_at_the_largest_size`). The compact main ribbon
-  keeps the notch over its group's last button (`widgets::notch_button`), the one mark left
-  under the 24 point target size, exempted in `ui_tests/conformance.rs` by the group menu names
-  (`toolbar::group_menu_names`): an arrow per group would wrap it into a second row at 200%,
-  and the start card then no longer fits the view (`docs/FEATURES.md`).
+  has the same arrow column per group (its seven groups and their arrows need 700 points, more
+  than the 684 a 200% window leaves, so it takes two rows there: the start card's tight layout,
+  below, keeps the card in the view), so no control is exempt from the target size in
+  `ui_tests/conformance.rs` (`the_compact_ribbon_opens_each_group_from_a_column_of_at_least_24_points`).
 - Several tools share one Draw button showing the one last used or chosen, each keeping its own key
   and command, which the button handles whichever is shown: the three arcs (`ARC_TOOLS`), Spline,
   Ellipse, Elliptical arc and Conic (`CURVE_TOOLS`, a `ToolGroup`), Polygon and Spur gear

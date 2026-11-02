@@ -24,7 +24,7 @@ use crate::{
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
     queued::{self, Pending},
-    ribbon::{self, GroupMenu, GroupTools, explained},
+    ribbon::{self, GroupMenu, explained},
     section::SectionCommand,
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
@@ -926,7 +926,7 @@ impl Bar<'_, '_> {
             contents: &contents,
         };
         let (shown, trigger) = ribbon::menu_group(ui, title, packing.captions, &menu, |ui| {
-            GroupTools::arrowed(self.tools(ui, group, packing))
+            self.tools(ui, group, packing)
         });
         if let Some(trigger) = trigger {
             let entries = MenuEntries::new(self.last_offers, self.toggles, self.commands.keymap());
