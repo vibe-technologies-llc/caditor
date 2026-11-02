@@ -479,6 +479,18 @@ pub(crate) enum CoilCause {
         name: String,
         height: f64,
     },
+    EndChangeRange {
+        name: String,
+    },
+    ProgressionNeedsTurns {
+        name: String,
+        turns: f64,
+    },
+    FinalPitchFillsHeight {
+        name: String,
+        height: f64,
+        final_pitch: f64,
+    },
 }
 
 impl CoilCause {
@@ -546,6 +558,23 @@ impl CoilCause {
                 "The closed ends of {name} and the changes of pitch beside them rise {height} mm \
                  or more on their own, leaving nothing for the turns between them."
             ),
+            Self::EndChangeRange { name } => format!(
+                "The pitch of the closed ends of {name} must change over at least \
+                 {LEAST_COIL_TURNS} of a turn."
+            ),
+            Self::ProgressionNeedsTurns { name, turns } => format!(
+                "The closed ends of {name} and the changes of pitch beside them take all {turns:.2} \
+                 turns it makes, leaving none for the pitch to change over from its pitch to its \
+                 final pitch."
+            ),
+            Self::FinalPitchFillsHeight {
+                name,
+                height,
+                final_pitch,
+            } => format!(
+                "A height of {height} mm with a final pitch of {final_pitch} mm leaves {name} no \
+                 pitch above zero to start at."
+            ),
         }
     }
 
@@ -603,6 +632,17 @@ impl CoilCause {
             }
             Self::EndsFillHeight { .. } => {
                 "Make the height larger, or the end turns or end pitch smaller.".to_owned()
+            }
+            Self::EndChangeRange { .. } => {
+                format!("Enter {LEAST_COIL_TURNS} or more turns for the change.")
+            }
+            Self::ProgressionNeedsTurns { .. } => {
+                "Make more turns, fewer or shorter end turns, or give the final pitch the \
+                 pitch's value."
+                    .to_owned()
+            }
+            Self::FinalPitchFillsHeight { .. } => {
+                "Make the height larger or the final pitch smaller.".to_owned()
             }
         }
     }

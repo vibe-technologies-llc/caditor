@@ -561,6 +561,7 @@ fn helix_path(pitch: f64, turns: f64, taper: f64, hand: Handedness) -> Vec<PathS
         hand,
         start_angle: 0.0,
         ends: None,
+        final_pitch: None,
     };
     helix(&spec)
         .unwrap()
@@ -709,10 +710,8 @@ fn a_triangle_winds_along_a_helix_with_closed_ends() {
         taper: 0.0,
         hand: Handedness::Right,
         start_angle: 0.0,
-        ends: Some(HelixEnds {
-            turns: 0.5,
-            pitch: 2.1,
-        }),
+        ends: Some(HelixEnds::with_default_change(0.5, 2.1)),
+        final_pitch: None,
     };
     let path: Vec<PathSegment> = helix(&spec)
         .unwrap()

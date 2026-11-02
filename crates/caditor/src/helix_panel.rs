@@ -29,12 +29,19 @@ pub const BY_ANGLE: &str = "The start angle below";
 pub const ENDS: &str = "Ends";
 pub const END_TURNS: &str = "End turns";
 pub const END_PITCH: &str = "End pitch";
+pub const END_CHANGE: &str = "End change";
+pub const PITCH_LAW: &str = "Pitch";
+pub const FINAL_PITCH: &str = "Final pitch";
+const EVEN_PITCH: &str = "Even";
+const PROGRESSIVE_PITCH: &str = "Progressive";
+const EVEN_PITCH_HOVER: &str = "Wind at the same pitch from end to end";
+const PROGRESSIVE_PITCH_HOVER: &str = "Change the pitch evenly from the pitch at the start to the \
+                                       final pitch at the end, as a progressive spring's";
 const OPEN_ENDS: &str = "Open";
 const CLOSED_ENDS: &str = "Closed";
 const OPEN_ENDS_HOVER: &str = "Wind at the same pitch from end to end";
 const CLOSED_ENDS_HOVER: &str = "Close the ends as a compression spring's are: the end turns wind at \
-                                 the end pitch, changing evenly to the pitch over the next half \
-                                 turn";
+                                 the end pitch, changing evenly to the pitch over the end change";
 const START_POINT_HOVER: &str =
     "Start the helix at the angle of the selected corner, round edge, sketch point or datum point";
 const START_POINT_REMOVE_HOVER: &str = "Start at the typed angle again";
@@ -245,6 +252,38 @@ impl Panel<'_> {
         });
     }
 
+    fn pitch_law_rows(&mut self, ui: &mut Ui) {
+        let progressive = self.helix.final_pitch.is_some();
+        let segments = [
+            (false, EVEN_PITCH, EVEN_PITCH_HOVER),
+            (true, PROGRESSIVE_PITCH, PROGRESSIVE_PITCH_HOVER),
+        ]
+        .into_iter()
+        .map(|(progressing, label, hover)| Segment {
+            label,
+            hover,
+            change: (progressing != progressive).then(|| {
+                self.change(helix_tools::with_progression(
+                    self.model,
+                    self.helix,
+                    progressing,
+                ))
+            }),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, PITCH_LAW, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        let Some(last) = &self.helix.final_pitch else {
+            return;
+        };
+        let helix = self.helix.clone();
+        let field = ("final-pitch", last, Dimension::LENGTH, Rule::AboveZero);
+        self.value_row(ui, FINAL_PITCH, field, move |pitch| Helix {
+            final_pitch: Some(pitch),
+            ..helix.clone()
+        });
+    }
+
     fn ends_rows(&mut self, ui: &mut Ui) {
         let closed = self.helix.ends.is_some();
         let segments = [
@@ -279,6 +318,15 @@ impl Panel<'_> {
         self.value_row(ui, END_PITCH, field, move |pitch| Helix {
             ends: Some(ClosedEnds {
                 pitch,
+                ..kept.clone()
+            }),
+            ..helix.clone()
+        });
+        let (helix, kept) = (current.clone(), ends.clone());
+        let field = ("end-change", &ends.change, Dimension::NONE, Rule::AboveZero);
+        self.value_row(ui, END_CHANGE, field, move |change| Helix {
+            ends: Some(ClosedEnds {
+                change,
                 ..kept.clone()
             }),
             ..helix.clone()
@@ -382,6 +430,7 @@ pub fn show(
         panel.diameter_row(ui);
         if !flat {
             panel.taper_row(ui);
+            panel.pitch_law_rows(ui);
             panel.ends_rows(ui);
         }
         panel.start_row(ui);

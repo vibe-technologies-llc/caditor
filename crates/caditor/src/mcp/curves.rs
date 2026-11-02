@@ -42,6 +42,9 @@ pub struct Helixing {
     pub closed_ends: Option<bool>,
     pub end_turns: Option<Amount>,
     pub end_pitch: Option<Amount>,
+    pub end_change: Option<Amount>,
+    pub progressive: Option<bool>,
+    pub final_pitch: Option<Amount>,
     pub name: Option<String>,
 }
 
@@ -95,6 +98,12 @@ pub enum CurveToolError {
     FlatEnds,
     #[error("closed_ends: false leaves the ends open, so give no end_turns or end_pitch with it")]
     OpenEndsSized,
+    #[error("a flat spiral has no changing pitch; leave out progressive and final_pitch")]
+    FlatProgressive,
+    #[error("progressive: false winds at one pitch, so give no final_pitch with it")]
+    EvenPitchSized,
+    #[error("progressive: true needs a final_pitch")]
+    ProgressiveUnsized,
 }
 
 fn solved(evaluation: &Evaluation, sketch: FeatureId) -> Option<&Sketch> {
@@ -137,6 +146,12 @@ pub fn helix_built(
     })?;
     let end_pitch = parsed(session, asked.end_pitch.as_ref(), |session, pitch| {
         length(session, "end_pitch", pitch)
+    })?;
+    let end_change = parsed(session, asked.end_change.as_ref(), |session, turns| {
+        count(session, "end_change", turns)
+    })?;
+    let final_pitch = parsed(session, asked.final_pitch.as_ref(), |session, pitch| {
+        length(session, "final_pitch", pitch)
     })?;
     session.evaluate(work)?;
     let unit = LengthUnit::Millimetre;
@@ -190,7 +205,12 @@ pub fn helix_built(
         )?);
     }
     helix.length = coil_length(&helix.length, (turns, pitch, reach))?;
-    helix.ends = closed_ends(&helix, asked.closed_ends, (end_turns, end_pitch))?;
+    helix.ends = closed_ends(
+        &helix,
+        asked.closed_ends,
+        (end_turns, end_pitch, end_change),
+    )?;
+    helix.final_pitch = progression(&helix, asked.progressive, final_pitch)?;
     if let Some(clockwise) = asked.clockwise {
         helix.turning = if clockwise {
             CoilTurning::Clockwise
@@ -205,9 +225,9 @@ pub fn helix_built(
 fn closed_ends(
     helix: &Helix,
     closed: Option<bool>,
-    (turns, pitch): (Option<Expression>, Option<Expression>),
+    (turns, pitch, change): (Option<Expression>, Option<Expression>, Option<Expression>),
 ) -> Result<Option<ClosedEnds>, CurveToolError> {
-    let sized = turns.is_some() || pitch.is_some();
+    let sized = turns.is_some() || pitch.is_some() || change.is_some();
     if closed == Some(false) {
         return if sized {
             Err(CurveToolError::OpenEndsSized)
@@ -225,7 +245,31 @@ fn closed_ends(
     Ok(Some(ClosedEnds {
         turns: turns.unwrap_or(kept.turns),
         pitch: pitch.unwrap_or(kept.pitch),
+        change: change.unwrap_or(kept.change),
     }))
+}
+
+fn progression(
+    helix: &Helix,
+    progressive: Option<bool>,
+    last: Option<Expression>,
+) -> Result<Option<Expression>, CurveToolError> {
+    if progressive == Some(false) {
+        return if last.is_some() {
+            Err(CurveToolError::EvenPitchSized)
+        } else {
+            Ok(None)
+        };
+    }
+    if last.is_none() && progressive.is_none() {
+        return Ok(helix.final_pitch.clone().filter(|_| !helix.is_flat()));
+    }
+    if helix.is_flat() {
+        return Err(CurveToolError::FlatProgressive);
+    }
+    last.or_else(|| helix.final_pitch.clone())
+        .map(Some)
+        .ok_or(CurveToolError::ProgressiveUnsized)
 }
 
 pub fn helix(session: &mut Session, work: &Work<'_>, asked: Helixing) -> Result<Answer, ToolError> {
