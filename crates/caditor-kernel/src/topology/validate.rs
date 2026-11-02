@@ -728,21 +728,26 @@ impl Solid {
         origin: Point3,
         direction: Vector3,
     ) -> Result<BTreeMap<ShellId, ShellSpan>, TessellationError> {
+        let height = |point: Point3| Some((point - origin).dot(direction));
+        self.shell_spans_by(height, height)
+    }
+
+    pub(crate) fn shell_spans_by(
+        &self,
+        least_of: impl Fn(Point3) -> Option<f64>,
+        most_of: impl Fn(Point3) -> Option<f64>,
+    ) -> Result<BTreeMap<ShellId, ShellSpan>, TessellationError> {
         let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
         let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
         let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
         Ok(by_shell
             .into_iter()
             .map(|(shell, shell_mesh)| {
-                let heights = shell_mesh
-                    .triangles
-                    .iter()
-                    .flatten()
-                    .map(|point| (*point - origin).dot(direction));
-                let (least, most) = heights.fold(
-                    (f64::INFINITY, f64::NEG_INFINITY),
-                    |(least, most), height| (least.min(height), most.max(height)),
-                );
+                let points = || shell_mesh.triangles.iter().flatten().copied();
+                let least = points().filter_map(&least_of).fold(f64::INFINITY, f64::min);
+                let most = points()
+                    .filter_map(&most_of)
+                    .fold(f64::NEG_INFINITY, f64::max);
                 let void = MassProperties::of(&shell_mesh.triangles).volume < 0.0;
                 (shell, ShellSpan { void, least, most })
             })

@@ -183,7 +183,10 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
             let mut expressions = match &mut revolve.extent {
-                RevolveExtent::Full | RevolveExtent::UpTo { .. } => Vec::new(),
+                RevolveExtent::Full
+                | RevolveExtent::UpTo { .. }
+                | RevolveExtent::UpToNext { .. }
+                | RevolveExtent::UpToSurface { .. } => Vec::new(),
                 RevolveExtent::OneSide { angle, .. } | RevolveExtent::Symmetric { angle } => {
                     vec![angle]
                 }

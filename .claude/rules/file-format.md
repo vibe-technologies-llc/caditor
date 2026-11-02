@@ -213,6 +213,9 @@ Extrusions and revolves:
 - `revolve_one_side`: `side` `left`/`right`; wrongly-kinded inner turns the whole profile.
 - `extrude_along`: `direction`, an axis reference; unreadable runs square.
 - `revolve_up_to`: `target` plane reference, `reversed` when set; unreadable is a full turn.
+- `revolve_up_to_next`: `reversed` when set. `revolve_up_to_surface`: `face`, an attachment record,
+  and `reversed` when set; unreadable is a full turn. A wrapped kind that is not a revolve loads
+  without it, reported. The corpus holds both in `revolve-stops.caditor`.
 - `offset_ends`: `forward` (the one end of a one-sided extrusion, or the forward end) and
   `backward`, each an offset text only when set; unreadable 0 mm, offset for an end not running to
   a face left out. May be wrapped by `shaped_sweep`.

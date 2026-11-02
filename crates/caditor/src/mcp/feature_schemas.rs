@@ -1,7 +1,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::mcp::{
-    sweep_schemas::{regions, thin_wall, wall_side},
+    sweep_schemas::{regions, surface, thin_wall, wall_side},
     tools::{object, reference},
 };
 
@@ -197,9 +197,10 @@ pub fn revolve() -> Value {
             "angle": amount("How far it turns, such as \"90 deg\"; a full turn when left out"),
             "second_angle": amount("How far it also turns the other way from the sketch"),
             "up_to": {
-                "description": "Turn until it reaches a plane instead of by an angle: XY, XZ, YZ, a flat face {body, face} or a datum plane {datum}",
-                "anyOf": [plane()]
+                "description": "Turn until it reaches something instead of by an angle: \"next\" for the next face of the body it changes, or a plane as XY, XZ, YZ, a flat face {body, face} or a datum plane {datum}; a datum or principal plane must hold the axis, a face need not",
+                "anyOf": [{ "type": "string", "enum": ["next"] }, plane()]
             },
+            "up_to_surface": surface(),
             "symmetric": { "type": "boolean", "description": "Half the angle each way from the sketch" },
             "reversed": { "type": "boolean", "description": "Turn the other way" },
             "regions": regions(),

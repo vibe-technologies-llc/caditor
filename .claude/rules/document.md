@@ -556,8 +556,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   are skipped, and a body the tool removes entirely fails the feature naming it.
 - `RevolveExtent::UpTo { target, reversed }` turns until its half-plane first lies in the plane of
   a flat face or plane holding the axis (boxed `PlaneReference`, resolved, counted and healed like
-  an extrusion's end; `Turn` in `solid.rs`, from the chosen regions' middle). A target not holding
-  the axis, or holding the profile itself, fails in words.
+  an extrusion's end; `Turn` in `solid.rs`, from the chosen regions' middle). A target holding the
+  profile itself fails in words; a flat face not holding the axis is stopped at as
+  `UpToSurface` is; a datum or principal plane not holding it fails (`NotThroughAxis`).
+- `RevolveExtent::UpToNext { reversed }` (needs a target body, `TurnNextNeedsBody`) and
+  `UpToSurface { face, reversed }` (boxed `FaceAttachment`, counted among `end_bodies` and healed
+  like an extrusion's surface end; a flat face holding the axis ends on its plane as `UpTo`) turn
+  `SEARCHED_TURN` (a full turn less `SEARCH_GAP`, 1°) and cut the tool back where it first meets the
+  body (kernel `stop_turning_at_body`, `TurnStop` and `Stopping::trim_turning`). A chosen face met
+  after other faces of its body fails naming them (`StopBeforeFace`); an addition starting inside
+  the body, a removal first entering it, part of the profile turning past it, a profile straddling
+  it and a body wholly inside the turn fail as `TurnUnstopped` (`Unstopped`), worded for a
+  revolution.
 - `RevolveAxis` is a line of its own sketch (it cannot then be deleted; `AxisNotALine`) or an
   `AxisReference` to a model axis in the sketch plane.
 - A revolve's `side` (`AxisSide`; none turns the whole profile) keeps only the part of the chosen

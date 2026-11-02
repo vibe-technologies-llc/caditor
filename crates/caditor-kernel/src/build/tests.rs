@@ -1570,6 +1570,72 @@ fn a_sweep_passing_beside_a_curved_body_or_starting_half_inside_it_does_not_stop
     assert_eq!(half_inside, Err(StopError::Straddles));
 }
 
+const NEARLY_A_TURN: f64 = TAU - 0.02;
+
+fn plate(width: (f64, f64)) -> Solid {
+    let floor = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
+    extrude(
+        &floor,
+        &regions(&rectangle(1, (-1.0, width.0), (10.0, width.1))),
+        one_side(1.0),
+        1,
+    )
+    .unwrap()
+}
+
+fn under_the_plate(radius: f64) -> f64 {
+    let height: f64 = 3.0;
+    height / 2.0 * (radius * radius - height * height).sqrt()
+        + radius * radius / 2.0 * (height / radius).asin()
+}
+
+#[test]
+fn a_revolution_stops_where_it_first_meets_a_body_it_turns_into() {
+    let plate = plate((-1.0, 3.0));
+    let ring = regions(&rectangle(2, (5.0, 0.0), (7.0, 2.0)));
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    let tool = revolve(
+        &Plane::XY,
+        &ring,
+        axis,
+        AngularExtent::one_side(-NEARLY_A_TURN).unwrap(),
+        2,
+    )
+    .unwrap();
+
+    let stopped =
+        stop_turning_at_body(&tool, &plate, &Plane::XY, &ring, axis, -NEARLY_A_TURN).unwrap();
+
+    assert!(stopped.entering);
+    stopped.solid.validate().unwrap();
+    assert_eq!(stopped.solid.shells().count(), 1);
+    let expected = 2.0 * (under_the_plate(7.0) - under_the_plate(5.0));
+    let found = fine_mesh(&stopped.solid).mass_properties().volume;
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+}
+
+#[test]
+fn a_revolution_passing_beside_a_body_does_not_stop() {
+    let plate = plate((0.5, 1.5));
+    let ring = regions(&rectangle(2, (5.0, 0.0), (7.0, 2.0)));
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    let tool = revolve(
+        &Plane::XY,
+        &ring,
+        axis,
+        AngularExtent::one_side(NEARLY_A_TURN).unwrap(),
+        2,
+    )
+    .unwrap();
+
+    let beside = stop_turning_at_body(&tool, &plate, &Plane::XY, &ring, axis, NEARLY_A_TURN);
+
+    assert_eq!(beside, Err(StopError::PassesBeside));
+}
+
 #[test]
 fn an_extrusion_along_a_slanted_direction_keeps_its_volume_and_shifts_its_end() {
     let square = regions(&rectangle(1, (0.0, 0.0), (10.0, 10.0)));

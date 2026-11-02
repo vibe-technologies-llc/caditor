@@ -623,8 +623,14 @@ impl FeatureKind {
                 if let RevolveAxis::Model(axis) = &mut revolve.axis {
                     rename_axis(axis, rename);
                 }
-                if let RevolveExtent::UpTo { target, .. } = &mut revolve.extent {
-                    rename_plane(target, rename);
+                match &mut revolve.extent {
+                    RevolveExtent::UpTo { target, .. } => rename_plane(target, rename),
+                    RevolveExtent::UpToSurface { face, .. } => face.body = rename(face.body),
+                    RevolveExtent::Full
+                    | RevolveExtent::OneSide { .. }
+                    | RevolveExtent::Symmetric { .. }
+                    | RevolveExtent::TwoSides { .. }
+                    | RevolveExtent::UpToNext { .. } => {}
                 }
                 rename_start(revolve.start.as_mut(), rename);
             }

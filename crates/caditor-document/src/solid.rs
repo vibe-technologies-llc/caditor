@@ -1,22 +1,23 @@
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
-    f64::consts::PI,
+    f64::consts::{PI, TAU},
     panic::{self, AssertUnwindSafe},
     sync::{Arc, OnceLock},
 };
 
 use caditor_expression::{Dimension, Expression, ParameterId};
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Ray, Vector2, Vector3};
 use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
     FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound,
     LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
     MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region,
-    RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError,
-    TessellationError, VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered,
-    extrude_tapered_along, heights, heights_along, mass_properties_tessellating, next_face,
-    next_face_along, resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
+    RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, Stopped,
+    SweepError, TessellationError, VertexId, VertexName, WallError, WallSide, boolean,
+    extrude_tapered, extrude_tapered_along, heights, heights_along, mass_properties_tessellating,
+    next_face, next_face_along, resolve_regions, revolve, stop_at_body, stop_turning_at_body,
+    vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -37,7 +38,7 @@ use crate::{
         MissingInput, SketchResult,
     },
     shell::ShellRecipe,
-    solid_cause::{CurveProblem, Gap, SolidCause, TargetFor},
+    solid_cause::{CurveProblem, Gap, SolidCause, TargetFor, Unstopped},
     sweep::{SWEEP_SHAPE, Sweep, SweepPath, swept},
     tolerance,
     trouble::{self, Adjust, boolean_trouble},
@@ -276,6 +277,13 @@ pub enum RevolveExtent {
         target: Box<PlaneReference>,
         reversed: bool,
     },
+    UpToNext {
+        reversed: bool,
+    },
+    UpToSurface {
+        face: Box<FaceAttachment>,
+        reversed: bool,
+    },
 }
 
 impl RevolveExtent {
@@ -286,9 +294,67 @@ impl RevolveExtent {
         }
     }
 
+    pub fn up_to_surface(face: FaceAttachment, reversed: bool) -> Self {
+        Self::UpToSurface {
+            face: Box::new(face),
+            reversed,
+        }
+    }
+
     pub fn target(&self) -> Option<&PlaneReference> {
         match self {
             Self::UpTo { target, .. } => Some(target),
+            Self::Full
+            | Self::OneSide { .. }
+            | Self::Symmetric { .. }
+            | Self::TwoSides { .. }
+            | Self::UpToNext { .. }
+            | Self::UpToSurface { .. } => None,
+        }
+    }
+
+    pub fn surface(&self) -> Option<&FaceAttachment> {
+        match self {
+            Self::UpToSurface { face, .. } => Some(face),
+            Self::Full
+            | Self::OneSide { .. }
+            | Self::Symmetric { .. }
+            | Self::TwoSides { .. }
+            | Self::UpTo { .. }
+            | Self::UpToNext { .. } => None,
+        }
+    }
+
+    pub fn turns_up_to(&self) -> bool {
+        matches!(
+            self,
+            Self::UpTo { .. } | Self::UpToNext { .. } | Self::UpToSurface { .. }
+        )
+    }
+
+    pub fn reversed_up_to(&self) -> bool {
+        matches!(
+            self,
+            Self::UpTo { reversed: true, .. }
+                | Self::UpToNext { reversed: true }
+                | Self::UpToSurface { reversed: true, .. }
+        )
+    }
+
+    #[must_use]
+    pub fn flipped_up_to(&self) -> Option<Self> {
+        match self {
+            Self::UpTo { target, reversed } => Some(Self::UpTo {
+                target: target.clone(),
+                reversed: !reversed,
+            }),
+            Self::UpToNext { reversed } => Some(Self::UpToNext {
+                reversed: !reversed,
+            }),
+            Self::UpToSurface { face, reversed } => Some(Self::UpToSurface {
+                face: face.clone(),
+                reversed: !reversed,
+            }),
             Self::Full | Self::OneSide { .. } | Self::Symmetric { .. } | Self::TwoSides { .. } => {
                 None
             }
@@ -297,7 +363,9 @@ impl RevolveExtent {
 
     fn expressions(&self) -> Vec<&Expression> {
         match self {
-            Self::Full | Self::UpTo { .. } => Vec::new(),
+            Self::Full | Self::UpTo { .. } | Self::UpToNext { .. } | Self::UpToSurface { .. } => {
+                Vec::new()
+            }
             Self::OneSide { angle, .. } | Self::Symmetric { angle } => vec![angle],
             Self::TwoSides { forward, backward } => vec![forward, backward],
         }
@@ -534,7 +602,8 @@ impl SolidFeature {
     fn surfaces(&self) -> Vec<&FaceAttachment> {
         match self {
             Self::Extrude(extrude) => extrude.extent.surfaces(),
-            Self::Revolve(_) | Self::Sweep(_) => Vec::new(),
+            Self::Revolve(revolve) => revolve.extent.surface().into_iter().collect(),
+            Self::Sweep(_) => Vec::new(),
         }
     }
 
@@ -1224,6 +1293,9 @@ pub(crate) fn evaluate(
         None => plane,
     };
     let mut stopped = None;
+    let mut turned_stop = None;
+    let kept;
+    let mut stopped_regions: &[Region] = &regions;
     let mut reached = Vec::new();
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
@@ -1266,7 +1338,6 @@ pub(crate) fn evaluate(
                     model_axis(&context, feature, inputs, &plane, reference)?
                 }
             };
-            let kept;
             let turned: &[Region] = match (definition.side, &definition.wall) {
                 (Some(_), Some(_)) => {
                     return Err(context.error(SolidCause::WallWithSide));
@@ -1277,19 +1348,16 @@ pub(crate) fn evaluate(
                 }
                 (None, _) => &regions,
             };
-            let extent = match &definition.extent {
-                RevolveExtent::UpTo { target, reversed } => {
-                    let turn = Turn {
-                        context: &context,
-                        inputs,
-                        plane: &started,
-                        axis,
-                        regions: turned,
-                    };
-                    turn.up_to(target, *reversed)?
-                }
-                other => angular_extent(&context, other, inputs.parameters)?,
+            let turn = Turn {
+                context: &context,
+                inputs,
+                plane: &started,
+                axis,
+                regions: turned,
             };
+            let (extent, stop) = turn.extent(&definition.extent, definition.operation)?;
+            turned_stop = stop;
+            stopped_regions = turned;
             revolve(&started, turned, axis, extent, raw)
         }
         SolidFeature::Sweep(definition) => {
@@ -1297,18 +1365,17 @@ pub(crate) fn evaluate(
         }
     }
     .map_err(|error| sweep_failure(&context, solid.shape(), &error))?;
-    let tool = match stopped {
-        Some(stop) => {
-            let stopping = Stopping {
-                context: &context,
-                inputs,
-                operation: solid.operation(),
-                plane: &started,
-                regions: &regions,
-            };
-            stopping.trim(tool, stop)?
-        }
-        None => tool,
+    let stopping = Stopping {
+        context: &context,
+        inputs,
+        operation: solid.operation(),
+        plane: &started,
+        regions: stopped_regions,
+    };
+    let tool = match (stopped, turned_stop) {
+        (Some(stop), _) => stopping.trim(tool, stop)?,
+        (None, Some(stop)) => stopping.trim_turning(tool, stop)?,
+        (None, None) => tool,
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
@@ -2280,8 +2347,6 @@ impl Stopping<'_> {
             .inputs
             .body(stop.body)
             .ok_or_else(|| self.inputs.missing_body(stop.body))?;
-        let body_name = feature_name(self.inputs, stop.body);
-        let sketch = self.context.sketch_name.clone();
         let stopped = stop_at_body(
             &tool,
             body,
@@ -2289,47 +2354,137 @@ impl Stopping<'_> {
             self.regions,
             stop.reversed,
             stop.far,
-        )
-        .map_err(|error| match error {
+        );
+        let stopped = stopped.map_err(|error| self.swept_failure(&tool, body, stop.body, error))?;
+        self.finish(body, stop.body, stop.face, stopped)
+    }
+
+    fn trim_turning(&self, tool: Solid, stop: TurnStop) -> Result<Solid, Failure> {
+        let body = self
+            .inputs
+            .body(stop.body)
+            .ok_or_else(|| self.inputs.missing_body(stop.body))?;
+        let stopped =
+            stop_turning_at_body(&tool, body, self.plane, self.regions, stop.axis, stop.turn);
+        let stopped =
+            stopped.map_err(|error| self.turned_failure(&tool, body, stop.body, error))?;
+        let unstopped = |why| {
+            self.error(SolidCause::TurnUnstopped {
+                sketch: self.context.sketch_name.clone(),
+                body: feature_name(self.inputs, stop.body),
+                why,
+            })
+        };
+        match (self.operation, stopped.entering) {
+            (BodyOperation::Add(target), false) if target == stop.body => {
+                return Err(unstopped(Unstopped::AddsInside));
+            }
+            (BodyOperation::Remove(target), true) if target == stop.body => {
+                return Err(unstopped(Unstopped::RemovesEntering));
+            }
+            _ => {}
+        }
+        let body_name = feature_name(self.inputs, stop.body);
+        match stop.face {
+            Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid),
+            None => Ok(stopped.solid),
+        }
+    }
+
+    fn turned_failure(
+        &self,
+        tool: &Solid,
+        body: &Solid,
+        body_id: FeatureId,
+        error: StopError,
+    ) -> Failure {
+        let unstopped = |why| {
+            self.error(SolidCause::TurnUnstopped {
+                sketch: self.context.sketch_name.clone(),
+                body: feature_name(self.inputs, body_id),
+                why,
+            })
+        };
+        match error {
+            StopError::Cancelled(_) => Failure::Cancelled,
+            StopError::NoRegions => self.context.no_regions(),
+            StopError::Straddles => unstopped(Unstopped::Straddles),
+            StopError::Enclosed => unstopped(Unstopped::Enclosed),
+            StopError::PassesBeside => unstopped(Unstopped::PassesBeside),
+            StopError::Nothing | StopError::Tessellation(_) => {
+                log::warn!(
+                    "{} could not stop turning at the body it meets: {error}",
+                    self.context.feature.name
+                );
+                unstopped(Unstopped::Unbuilt)
+            }
+            StopError::Boolean(error) => boolean_failure(
+                self.context,
+                self.inputs,
+                [tool, body],
+                body_id,
+                self.operation,
+                &error,
+            ),
+        }
+    }
+
+    fn swept_failure(
+        &self,
+        tool: &Solid,
+        body: &Solid,
+        body_id: FeatureId,
+        error: StopError,
+    ) -> Failure {
+        let body_name = feature_name(self.inputs, body_id);
+        let sketch = self.context.sketch_name.clone();
+        match error {
             StopError::Cancelled(_) => Failure::Cancelled,
             StopError::NoRegions => self.context.no_regions(),
             StopError::Straddles => self.error(SolidCause::StopStraddles {
-                sketch: sketch.clone(),
-                body: body_name.clone(),
+                sketch,
+                body: body_name,
             }),
-            StopError::Enclosed => self.error(SolidCause::StopEnclosed {
-                body: body_name.clone(),
-            }),
+            StopError::Enclosed => self.error(SolidCause::StopEnclosed { body: body_name }),
             StopError::PassesBeside => self.error(SolidCause::ReachPartly {
-                sketch: sketch.clone(),
-                body: body_name.clone(),
+                sketch,
+                body: body_name,
             }),
             StopError::Nothing | StopError::Tessellation(_) => {
                 log::warn!(
                     "{} could not stop at the next faces: {error}",
                     self.context.feature.name
                 );
-                self.error(SolidCause::StopUnbuilt {
-                    body: body_name.clone(),
-                })
+                self.error(SolidCause::StopUnbuilt { body: body_name })
             }
             StopError::Boolean(error) => boolean_failure(
                 self.context,
                 self.inputs,
-                [&tool, body],
-                stop.body,
+                [tool, body],
+                body_id,
                 self.operation,
                 &error,
             ),
-        })?;
+        }
+    }
+
+    fn finish(
+        &self,
+        body: &Solid,
+        body_id: FeatureId,
+        face: Option<FaceName>,
+        stopped: Stopped,
+    ) -> Result<Solid, Failure> {
+        let body_name = feature_name(self.inputs, body_id);
+        let sketch = self.context.sketch_name.clone();
         match (self.operation, stopped.entering) {
-            (BodyOperation::Add(target), false) if target == stop.body => {
+            (BodyOperation::Add(target), false) if target == body_id => {
                 return Err(self.error(SolidCause::AddInside {
                     sketch,
                     body: body_name,
                 }));
             }
-            (BodyOperation::Remove(target), true) if target == stop.body => {
+            (BodyOperation::Remove(target), true) if target == body_id => {
                 return Err(self.error(SolidCause::RemoveEntering {
                     sketch,
                     body: body_name,
@@ -2337,7 +2492,7 @@ impl Stopping<'_> {
             }
             _ => {}
         }
-        match stop.face {
+        match face {
             Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid),
             None => Ok(stopped.solid),
         }
@@ -2381,6 +2536,8 @@ impl Stopping<'_> {
 }
 
 const HOLDS_PROFILE: f64 = 1e-9;
+const SEARCHED_TURN: f64 = TAU - SEARCH_GAP;
+const SEARCH_GAP: f64 = PI / 180.0;
 
 struct Turn<'a> {
     context: &'a Context<'a>,
@@ -2390,27 +2547,132 @@ struct Turn<'a> {
     regions: &'a [Region],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TurnStop {
+    body: FeatureId,
+    face: Option<FaceName>,
+    axis: Axis2,
+    turn: f64,
+}
+
 impl Turn<'_> {
     fn error(&self, cause: SolidCause) -> Failure {
         self.context.error(cause)
     }
 
-    fn up_to(&self, target: &PlaneReference, reversed: bool) -> Result<AngularExtent, Failure> {
+    fn extent(
+        &self,
+        extent: &RevolveExtent,
+        operation: BodyOperation,
+    ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
+        match extent {
+            RevolveExtent::UpTo { target, reversed } => self.up_to(target, *reversed),
+            RevolveExtent::UpToNext { reversed } => {
+                let body = operation
+                    .target()
+                    .ok_or_else(|| self.error(SolidCause::TurnNextNeedsBody))?;
+                self.stopping(body, None, *reversed)
+            }
+            RevolveExtent::UpToSurface { face, reversed } => self.up_to_surface(face, *reversed),
+            other @ (RevolveExtent::Full
+            | RevolveExtent::OneSide { .. }
+            | RevolveExtent::Symmetric { .. }
+            | RevolveExtent::TwoSides { .. }) => Ok((
+                angular_extent(self.context, other, self.inputs.parameters)?,
+                None,
+            )),
+        }
+    }
+
+    fn up_to(
+        &self,
+        target: &PlaneReference,
+        reversed: bool,
+    ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         let found = resolve_target(self.context, self.inputs, target, TargetFor::RevolutionEnd)?;
         let name = capitalized(&describe_plane(self.inputs.document, target));
+        if self.holds_axis(&found) {
+            return Ok((self.onto_plane(&found, &name, reversed)?, None));
+        }
+        let PlaneReference::Face(attachment) = target else {
+            return Err(self.error(SolidCause::NotThroughAxis { name }));
+        };
+        self.up_to_surface(attachment, reversed)
+    }
+
+    fn up_to_surface(
+        &self,
+        face: &FaceAttachment,
+        reversed: bool,
+    ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
+        let solid = self
+            .inputs
+            .body(face.body)
+            .ok_or_else(|| self.inputs.missing_body(face.body))?;
+        let found = face.face.resolve(solid).map_err(|error| {
+            self.error(SolidCause::TurnSurfaceFace {
+                body: feature_name(self.inputs, face.body),
+                split: matches!(error, ReferenceError::Ambiguous(_)),
+            })
+        })?;
+        if let Some(plane) = face_plane(solid, found)
+            && self.holds_axis(&plane)
+        {
+            let name = capitalized(&describe_origin(self.inputs.document, face.face.origin()));
+            return Ok((self.onto_plane(&plane, &name, reversed)?, None));
+        }
+        let name = solid.face(found).map(|found| found.name());
+        self.stopping(face.body, name, reversed)
+    }
+
+    fn stopping(
+        &self,
+        body: FeatureId,
+        face: Option<FaceName>,
+        reversed: bool,
+    ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
+        let turn = if reversed {
+            -SEARCHED_TURN
+        } else {
+            SEARCHED_TURN
+        };
+        let extent = AngularExtent::one_side(turn)
+            .map_err(|error| sweep_failure(self.context, "revolution", &error))?;
+        Ok((
+            extent,
+            Some(TurnStop {
+                body,
+                face,
+                axis: self.axis,
+                turn,
+            }),
+        ))
+    }
+
+    fn axis_in_world(&self) -> (Point3, Vector3) {
         let origin = self.plane.to_world(self.axis.origin());
         let direction = self
             .plane
             .to_world(self.axis.origin() + self.axis.direction())
             - origin;
-        let through_axis =
-            Ray::new(origin, direction).is_some_and(|axis| tolerance::along_plane(axis, &found));
-        if !through_axis {
-            return Err(self.error(SolidCause::NotThroughAxis { name }));
-        }
+        (origin, direction)
+    }
+
+    fn holds_axis(&self, plane: &Plane) -> bool {
+        let (origin, direction) = self.axis_in_world();
+        Ray::new(origin, direction).is_some_and(|axis| tolerance::along_plane(axis, plane))
+    }
+
+    fn onto_plane(
+        &self,
+        found: &Plane,
+        name: &str,
+        reversed: bool,
+    ) -> Result<AngularExtent, Failure> {
+        let (origin, direction) = self.axis_in_world();
         let unturnable = || {
             self.error(SolidCause::WouldNotTurn {
-                name: name.clone(),
+                name: name.to_owned(),
                 sketch: self.context.sketch_name.clone(),
             })
         };
@@ -2448,7 +2710,10 @@ fn angular_extent(
             .map(f64::to_radians)
     };
     let built = match extent {
-        RevolveExtent::Full | RevolveExtent::UpTo { .. } => Ok(AngularExtent::full()),
+        RevolveExtent::Full
+        | RevolveExtent::UpTo { .. }
+        | RevolveExtent::UpToNext { .. }
+        | RevolveExtent::UpToSurface { .. } => Ok(AngularExtent::full()),
         RevolveExtent::OneSide {
             angle: value,
             reversed,

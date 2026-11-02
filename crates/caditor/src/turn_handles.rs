@@ -293,7 +293,10 @@ fn grips(model: &Model, feature: FeatureId, extent: &RevolveExtent) -> [Option<G
             grip(TurnEnd::Forward, forward, 1.0, 1.0),
             grip(TurnEnd::Backward, backward, -1.0, 1.0),
         ],
-        RevolveExtent::Full | RevolveExtent::UpTo { .. } => [None, None],
+        RevolveExtent::Full
+        | RevolveExtent::UpTo { .. }
+        | RevolveExtent::UpToNext { .. }
+        | RevolveExtent::UpToSurface { .. } => [None, None],
     }
 }
 
@@ -609,7 +612,9 @@ pub fn field_rule(model: &Model, feature: FeatureId, end: TurnEnd) -> Rule {
         RevolveExtent::Full
         | RevolveExtent::OneSide { .. }
         | RevolveExtent::Symmetric { .. }
-        | RevolveExtent::UpTo { .. } => None,
+        | RevolveExtent::UpTo { .. }
+        | RevolveExtent::UpToNext { .. }
+        | RevolveExtent::UpToSurface { .. } => None,
     });
     match other {
         Some(other) => Rule::TurnBeside(degrees(model, feature, other).unwrap_or(0.0)),

@@ -713,7 +713,7 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
         } else {
             RevolveAxis::Model(scene.axis(input)?)
         };
-        let extent = match input.int_in_range(0u8..=4)? {
+        let extent = match input.int_in_range(0u8..=6)? {
             0 => RevolveExtent::Full,
             1 => RevolveExtent::OneSide {
                 angle: scene.turn(input)?,
@@ -725,6 +725,13 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
             3 => RevolveExtent::TwoSides {
                 forward: scene.turn(input)?,
                 backward: scene.turn(input)?,
+            },
+            4 => RevolveExtent::UpToNext {
+                reversed: input.arbitrary()?,
+            },
+            5 => RevolveExtent::UpToSurface {
+                face: Box::new(scene.face_attachment(input)?),
+                reversed: input.arbitrary()?,
             },
             _ => RevolveExtent::UpTo {
                 target: Box::new(scene.plane(input)?),

@@ -200,7 +200,10 @@ fn extrude_values(extrude: &Extrude) -> Vec<Found> {
 fn revolve_values(parameters: &ParameterValues, revolve: &Revolve) -> Vec<Found> {
     let angle = |rule| (Dimension::ANGLE, rule);
     match &revolve.extent {
-        RevolveExtent::Full | RevolveExtent::UpTo { .. } => Vec::new(),
+        RevolveExtent::Full
+        | RevolveExtent::UpTo { .. }
+        | RevolveExtent::UpToNext { .. }
+        | RevolveExtent::UpToSurface { .. } => Vec::new(),
         RevolveExtent::OneSide { angle: turned, .. } => vec![found(
             ValueSlot::RevolveAngle,
             "Angle",

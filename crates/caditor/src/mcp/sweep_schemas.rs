@@ -48,7 +48,7 @@ pub(super) fn wall_side() -> Value {
     )
 }
 
-fn surface() -> Value {
+pub(super) fn surface() -> Value {
     json!({
         "type": "object",
         "description": "A curved or flat face {body, face} that stops it, found as it stands before the new feature",

@@ -615,6 +615,51 @@ fn a_revolve_turns_up_to_a_plane() {
     client.finish();
 }
 
+#[test]
+fn a_revolve_turns_up_to_the_next_face_or_a_face_off_its_axis() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let wall = box_of(&mut client, [2.0, 50.0, 40.0], [-1.0, 0.0], "Wall");
+    let side = face_where(&mut client, &wall, [1.0, 0.0, 0.0]);
+    let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "rectangle", "corner": [10, 5], "opposite": [20, 25] }]
+        }),
+    );
+    let ring = PI * 300.0 * 20.0;
+
+    added(
+        &mut client,
+        "add_revolve",
+        json!({
+            "sketch": sketch,
+            "up_to_surface": { "body": wall, "face": side },
+            "operation": "new_body"
+        }),
+    );
+    let to_the_side = total_volume(&mut client) - 4000.0;
+    added(
+        &mut client,
+        "add_revolve",
+        json!({ "sketch": sketch, "up_to": "next", "body": wall, "reversed": true }),
+    );
+    let both = client.tool_error(
+        "add_revolve",
+        json!({ "sketch": sketch, "up_to": "next", "angle": "90 deg" }),
+    );
+
+    assert!(
+        to_the_side > 0.2 * ring && to_the_side < 0.25 * ring,
+        "{to_the_side}"
+    );
+    assert!(total_volume(&mut client) > 4000.0 + to_the_side + 0.5 * ring);
+    assert!(both.contains("not both"), "{both}");
+    client.finish();
+}
+
 fn hole_sketch(client: &mut Client, items: Value) -> Value {
     let datum = added(
         client,

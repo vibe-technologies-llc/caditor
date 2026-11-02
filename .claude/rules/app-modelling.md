@@ -491,9 +491,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   facing or side, a split's kept side, a rib's side or way) as one "Reverse <feature>" change. An extrusion or revolve
   running both ways and a full turn are refused saying which Extent to choose, an angle or point mate
   saying it has no side (`MATE_HAS_NO_SIDE`); other kinds `NOTHING_TO_REVERSE`.
-- A revolve can also take two angles (refusing a pair turning more than a full turn), or turn Up to
-  face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an extrusion's end, else
-  choosing in the view (`Slot::RevolveTarget`). Its Profile switch (Whole, One side) keeps one side of
+- A revolve can also take two angles (refusing a pair turning more than a full turn), turn Up to
+  next (`solid_panel::TURN_UP_TO_NEXT`, offered disabled with `UpToNextNeedsABody` for a new body),
+  or turn Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane (`UpTo`), else a
+  selected curved face (`UpToSurface`, `selected_surface` as an extrusion's end), else choosing in
+  the view (`Slot::RevolveTarget`); a curved face shows as a reference row with its picker. Up to
+  next and Up to face keep their Reverse direction row (`reverse_turn_row`). Its Profile switch (Whole, One side) keeps one side of
   the axis, starting from the side holding more of the chosen regions' area
   (`solid_panel::larger_side`), with Keep the other side of the axis to swap.
 - A removal's panel lists under Body the other bodies it Also cuts, each with a stop button, and an Add

@@ -30,7 +30,7 @@ pub use self::{
 pub(crate) use self::{
     pcurve::fit as fit_pcurve,
     polygons::PolygonIndex,
-    validate::{continues, inside_polygon, signed_area},
+    validate::{ShellSpan, continues, inside_polygon, signed_area},
 };
 use crate::{
     curve::Curve,
