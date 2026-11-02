@@ -92,7 +92,7 @@ paths:
   `ImageTextures::decoded_for`; one that cannot be decoded is left out with a logged warning), and
   the version preview, whose `preview` thread decodes the version's own pictures the same way and
   hands them to `snapshot::take_unless`. The hovered `Pickable`s (with the faces and edges chosen modifying rows made and the geometry
-  chosen rows refer to) and
+  chosen rows refer to, the rest of it drawn on a ghost of the body before the feature, `app-look.md`) and
   chosen rows (with the bodies of rows that made no face, `viewport::LitRows`) in `Highlight` are
   sorted and deduplicated, since items look themselves up by binary search.
 - Each shown body is a `BodyPart` the cache keeps (`scene::Parts`): mesh instances, silhouette,

@@ -54,7 +54,7 @@ const MARKER_BYTES: usize = 28;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
 const FILL_VERTEX_BYTES: usize = 16;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
-const VIEW_UNIFORM_SIZE: u64 = 880;
+const VIEW_UNIFORM_SIZE: u64 = 1024;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
@@ -1139,6 +1139,7 @@ pub struct ViewportRenderer {
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
     cross_view_uniform: Uniform,
+    slope_view_uniform: Uniform,
     grid_uniform: Uniform,
     quad_indices: QuadIndices,
     batches: Vec<GpuBatch>,
@@ -1224,6 +1225,7 @@ impl ViewportRenderer {
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
             cross_view_uniform: Uniform::new(device, &view_layout, "cross view", VIEW_UNIFORM_SIZE),
+            slope_view_uniform: Uniform::new(device, &view_layout, "slope view", VIEW_UNIFORM_SIZE),
             occlusion_view_uniform: Uniform::new(
                 device,
                 &view_layout,
@@ -1563,6 +1565,12 @@ impl ViewportRenderer {
                 "cross view",
                 VIEW_UNIFORM_SIZE,
             ),
+            slope_view_uniform: Uniform::new(
+                device,
+                &self.view_layout,
+                "slope view",
+                VIEW_UNIFORM_SIZE,
+            ),
             grid_uniform: Uniform::new(device, &self.grid_layout, "grid", GRID_UNIFORM_SIZE),
             quad_indices: self.quad_indices.clone(),
             batches: Vec::new(),
@@ -1713,6 +1721,20 @@ impl ViewportRenderer {
                 (transform, Strokes::Finished),
             );
             self.cross_view_uniform.write(queue, &self.staging);
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                plan.pixels_per_point,
+                (
+                    self.shading,
+                    plan.reflection,
+                    &plan.section[..],
+                    &plan.light.sloping(),
+                    &plan.occluded,
+                ),
+                (transform, Strokes::Finished),
+            );
+            self.slope_view_uniform.write(queue, &self.staging);
         }
         if plan.occluded.occludes() {
             let margined = image::margined_tile_transform(tile, plan.size, MOST_PIXELS);
@@ -1806,6 +1828,12 @@ impl ViewportRenderer {
             return;
         };
         pass.set_bind_group(0, &self.cross_view_uniform.bind_group, &[]);
+        self.meshes.draw_all(&mut pass, &self.pipelines.depths);
+        drop(pass);
+        let Some(mut pass) = self.light_pass.begin_slope_pass(encoder) else {
+            return;
+        };
+        pass.set_bind_group(0, &self.slope_view_uniform.bind_group, &[]);
         self.meshes.draw_all(&mut pass, &self.pipelines.depths);
     }
 
@@ -2107,6 +2135,20 @@ impl ViewportRenderer {
                 (WHOLE_VIEW, Strokes::Finished),
             );
             self.cross_view_uniform.write(queue, &self.staging);
+            view_uniform(
+                &mut self.staging,
+                &anchored,
+                pixels_per_point,
+                (
+                    self.shading,
+                    scene.reflection,
+                    &scene.section,
+                    &self.light.sloping(),
+                    &self.occluded,
+                ),
+                (WHOLE_VIEW, Strokes::Finished),
+            );
+            self.slope_view_uniform.write(queue, &self.staging);
         }
         let prepared = viewport.pick_at.map(|cursor| {
             (
@@ -2175,7 +2217,7 @@ impl ViewportRenderer {
         };
         let casters: Vec<[Point3; 8]> = self.meshes.placed_corners().collect();
         let ground = Ground::under(&casters);
-        let (frame, cross) = match ready {
+        let (frame, cross, slope) = match ready {
             LightPassReady::Ready => {
                 let shadows = ground
                     .map(|ground| ground.shadows_of(toward_light, &casters))
@@ -2187,16 +2229,21 @@ impl ViewportRenderer {
                     SHADOW_MAP_SIDE,
                 );
                 let cross = LightFrame::crossing(toward_light, view.eye(), casters.iter().copied());
-                (frame, cross)
+                let slope = LightFrame::sloping(toward_light, view.eye(), casters.iter().copied());
+                (frame, cross, slope)
             }
-            LightPassReady::Refused | LightPassReady::NewlyRefused => (None, None),
+            LightPassReady::Refused | LightPassReady::NewlyRefused => (None, None, None),
         };
         let environment = scene.backdrop.as_ref().map_or([0.0; 4], |backdrop| {
             self.light_pass
                 .environment_uniform(backdrop.turn, backdrop.stops)
         });
-        self.light = LightUniform::of((lighting, view), toward_light, (frame, cross, ground))
-            .with_environment(environment);
+        self.light = LightUniform::of(
+            (lighting, view),
+            toward_light,
+            (frame, (cross, slope), ground),
+        )
+        .with_environment(environment);
         matches!(ready, LightPassReady::NewlyRefused)
     }
 

@@ -7,7 +7,7 @@ use caditor_document::{
 };
 use caditor_file::{ClipboardError, PastedGeometry};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
-use caditor_kernel::EdgeName;
+use caditor_kernel::{EdgeName, EdgeReference, FaceReference, Solid};
 use caditor_render::{
     Backdrop, Camera, Lighting, MAX_SECTION_PLANES, PickHit, PickResult, PlaneProjection,
     ProjectionMode, Reflection, Scene, SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect,
@@ -23,7 +23,7 @@ use crate::{
     analysis::{Analyses, FaceAnalysis},
     annotations::{self, Annotations, LabelMoving, Surface},
     blend_tools,
-    bodies::{self, BodyMeshes, OpenDraft},
+    bodies::{self, BodyMeshes, Ghost, OpenDraft},
     body_picks::{self, BodyPick, Staged},
     body_selection,
     body_snap::BodySnaps,
@@ -458,6 +458,7 @@ pub struct ViewportState {
     previewed: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
     lit_rows: Option<(LitRowsBasis, LitRows)>,
+    ghosted: Vec<FeatureId>,
     hovered_row: Option<FeatureId>,
     tree_dismissed: bool,
     home_applied: bool,
@@ -595,6 +596,7 @@ fn row_body(feature: &Feature) -> Option<FeatureId> {
 struct LitRows {
     rows: Vec<FeatureId>,
     made: Vec<Pickable>,
+    ghosts: Vec<Ghost>,
 }
 
 impl LitRows {
@@ -626,6 +628,13 @@ impl LitRows {
 
     fn add_referred(&mut self, document: &Document, evaluation: &Evaluation, feature: &Feature) {
         let referred = referred_geometry(&feature.kind);
+        let before = bodies::input(evaluation, feature.id());
+        let mut ghost = before.map(|before| Ghost {
+            feature: feature.id(),
+            body: before.body,
+            faces: Vec::new(),
+            edges: Vec::new(),
+        });
         self.rows.extend(
             document
                 .dependencies_of(&feature.kind)
@@ -640,42 +649,35 @@ impl LitRows {
             let Some(shown) = bodies::shown(evaluation, body) else {
                 continue;
             };
-            let Ok(found) = face.resolve(&shown.solid) else {
-                continue;
-            };
-            if shown
-                .solid
-                .face(found)
-                .is_none_or(|drawn| drawn.name() != face.name())
-            {
+            let drawn = drawn_face_keys(&shown.solid, &face);
+            if drawn.is_empty() {
+                if let Some((ghost, before)) = ghost.as_mut().zip(before)
+                    && ghost.body == body
+                {
+                    ghost.faces.extend(drawn_face_keys(&before.solid, &face));
+                }
                 continue;
             }
-            self.made.extend(
-                bodies::face_keys(&shown.solid)
-                    .into_iter()
-                    .filter(|(id, _)| *id == found)
-                    .map(|(_, face)| Pickable::Face { body, face }),
-            );
+            self.made
+                .extend(drawn.into_iter().map(|face| Pickable::Face { body, face }));
         }
         for (body, edge) in referred.edges {
             let Some(shown) = bodies::shown(evaluation, body) else {
                 continue;
             };
-            let Ok(found) = edge.resolve(&shown.solid) else {
-                continue;
-            };
-            if bodies::is_seam(&shown.solid, found) {
-                continue;
-            }
-            if let Some(drawn) = shown
-                .solid
-                .edge(found)
-                .filter(|drawn| drawn.name() == edge.name())
-            {
-                self.made.push(Pickable::Edge {
-                    body,
-                    edge: drawn.name(),
-                });
+            match found_edge(&shown.solid, &edge) {
+                Some(drawn) => self
+                    .made
+                    .extend(drawn.map(|edge| Pickable::Edge { body, edge })),
+                None => {
+                    if let Some((ghost, before)) = ghost.as_mut().zip(before)
+                        && ghost.body == body
+                    {
+                        ghost
+                            .edges
+                            .extend(found_edge(&before.solid, &edge).into_iter().flatten());
+                    }
+                }
             }
         }
         for (body, vertex) in referred.vertices {
@@ -699,7 +701,34 @@ impl LitRows {
         );
         self.made
             .extend(referred.planes.into_iter().map(Pickable::Plane));
+        self.ghosts
+            .extend(ghost.filter(|ghost| !ghost.faces.is_empty() || !ghost.edges.is_empty()));
     }
+}
+
+fn drawn_face_keys(solid: &Solid, face: &FaceReference) -> Vec<bodies::FaceKey> {
+    let Ok(found) = face.resolve(solid) else {
+        return Vec::new();
+    };
+    if solid
+        .face(found)
+        .is_none_or(|drawn| drawn.name() != face.name())
+    {
+        return Vec::new();
+    }
+    bodies::face_keys(solid)
+        .into_iter()
+        .filter(|(id, _)| *id == found)
+        .map(|(_, key)| key)
+        .collect()
+}
+
+fn found_edge(solid: &Solid, edge: &EdgeReference) -> Option<Option<EdgeName>> {
+    let found = edge.resolve(solid).ok()?;
+    let drawn = solid
+        .edge(found)
+        .filter(|drawn| drawn.name() == edge.name())?;
+    Some((!bodies::is_seam(solid, found)).then(|| drawn.name()))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -856,6 +885,7 @@ impl ViewportState {
             previewed: Vec::new(),
             chosen_rows: Vec::new(),
             lit_rows: None,
+            ghosted: Vec::new(),
             hovered_row: None,
             tree_dismissed: false,
             home_applied: false,
@@ -1282,6 +1312,15 @@ impl ViewportState {
         rows
     }
 
+    pub fn ghosted(&mut self, model: &Model, editing: &SketchEditing) -> Vec<FeatureId> {
+        let context = editing.context();
+        let mut rows = self.rows_to_highlight(context);
+        rows.extend(mirrored_bodies(model, context));
+        let lit = self.lit_rows(model, rows);
+        self.ghosted = lit.ghosts.iter().map(|ghost| ghost.feature).collect();
+        self.ghosted.clone()
+    }
+
     fn lit_rows(&mut self, model: &Model, rows: Vec<FeatureId>) -> LitRows {
         let basis = LitRowsBasis {
             rows,
@@ -1313,6 +1352,7 @@ impl ViewportState {
         self.selection.clear();
         self.chosen_rows.clear();
         self.lit_rows = None;
+        self.ghosted.clear();
         self.hovered_row = None;
         self.previewed.clear();
         self.hovered = None;
@@ -1663,6 +1703,7 @@ impl ViewportState {
             evaluation,
             &display.meshing,
             context.solid,
+            &self.ghosted,
             OpenDraft {
                 evaluation: model.draft_evaluation(),
                 result: drafted.as_ref().map(|(body, result)| (*body, result)),
@@ -1801,6 +1842,7 @@ impl ViewportState {
                 selection: &self.selection,
                 hovered: &hovered,
                 chosen_rows: &lit.rows,
+                ghosts: &lit.ghosts,
             },
             view: view.as_ref(),
         });
@@ -1997,6 +2039,7 @@ impl ViewportState {
                 selection: &unselected,
                 hovered: &[],
                 chosen_rows: &[],
+                ghosts: &[],
             },
             context,
             (

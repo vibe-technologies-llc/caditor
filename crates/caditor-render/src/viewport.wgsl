@@ -25,6 +25,9 @@ struct View {
     cross_matrix: mat4x4<f32>,
     relative_from_cross: mat4x4<f32>,
     cross_frame: vec4<f32>,
+    slope_matrix: mat4x4<f32>,
+    relative_from_slope: mat4x4<f32>,
+    slope_frame: vec4<f32>,
     occlusion: vec4<f32>,
     occlusion_frame: vec4<f32>,
     camera_right: vec4<f32>,
@@ -78,6 +81,7 @@ struct MeshPlacement {
 @group(2) @binding(9) var peeled_twice: texture_2d<u32>;
 @group(2) @binding(10) var previous_layer: texture_2d<u32>;
 @group(2) @binding(11) var crossed_depth: texture_2d<u32>;
+@group(2) @binding(12) var sloped_depth: texture_2d<u32>;
 @group(3) @binding(0) var occlusion_map: texture_2d<f32>;
 @group(3) @binding(1) var occlusion_surfaces: texture_2d<u32>;
 @group(1) @binding(8) var surface_texels: texture_2d<u32>;
@@ -1312,6 +1316,9 @@ struct BounceRay {
     crossed_start: vec3<f32>,
     crossed_lift: f32,
     crossed_span: f32,
+    sloped_start: vec3<f32>,
+    sloped_lift: f32,
+    sloped_span: f32,
 }
 
 struct BounceSource {
@@ -1365,8 +1372,28 @@ fn bounce_blocked_in_light(ray: BounceRay, source: vec3<f32>, source_normal: vec
     return false;
 }
 
-fn bounce_blocked_in_cross(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
-    let to = light_point_by(view.cross_matrix, source + source_normal * ray.crossed_lift);
+fn side_depth(sloped: bool, texel: vec2<i32>) -> u32 {
+    if sloped {
+        return textureLoad(sloped_depth, texel, 0).r;
+    }
+    return textureLoad(crossed_depth, texel, 0).r;
+}
+
+fn bounce_blocked_in_side(sloped: bool, ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
+    if sloped && view.slope_frame.x <= 0.0 {
+        return false;
+    }
+    var matrix = view.cross_matrix;
+    var start = ray.crossed_start;
+    var lift = ray.crossed_lift;
+    var span = ray.crossed_span;
+    if sloped {
+        matrix = view.slope_matrix;
+        start = ray.sloped_start;
+        lift = ray.sloped_lift;
+        span = ray.sloped_span;
+    }
+    let to = light_point_by(matrix, source + source_normal * lift);
     let size = vec2<f32>(textureDimensions(crossed_depth));
     let last = vec2<i32>(size) - vec2<i32>(1);
     let pieces = f32(BOUNCE_BLOCK_STEPS + 1);
@@ -1374,16 +1401,16 @@ fn bounce_blocked_in_cross(ray: BounceRay, source: vec3<f32>, source_normal: vec
     var before = 0.0;
     var known = false;
     for (var step = 0; step <= BOUNCE_BLOCK_STEPS + 1; step++) {
-        let along = mix(ray.crossed_start, to, f32(step) / pieces);
+        let along = mix(start, to, f32(step) / pieces);
         var behind = 0.0;
         var found = false;
         if all(along.xy >= vec2<f32>(0.0)) && all(along.xy < vec2<f32>(1.0)) {
-            let stored = textureLoad(crossed_depth, clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last), 0).r;
-            behind = (along.z - bitcast<f32>(stored)) * ray.crossed_span;
+            let stored = side_depth(sloped, clamp(vec2<i32>(along.xy * size), vec2<i32>(0), last));
+            behind = (along.z - bitcast<f32>(stored)) * span;
             found = stored != 0u;
         }
-        let straddles = (before < -ray.crossed_lift && behind > ray.crossed_lift)
-            || (before > ray.crossed_lift && behind < -ray.crossed_lift);
+        let straddles = (before < -lift && behind > lift)
+            || (before > lift && behind < -lift);
         if known && found && straddles && max(abs(before), abs(behind)) <= nearby {
             return true;
         }
@@ -1395,7 +1422,8 @@ fn bounce_blocked_in_cross(ray: BounceRay, source: vec3<f32>, source_normal: vec
 
 fn bounce_blocked(ray: BounceRay, source: vec3<f32>, source_normal: vec3<f32>, reach: f32) -> bool {
     return bounce_blocked_in_light(ray, source, source_normal, reach)
-        || bounce_blocked_in_cross(ray, source, source_normal, reach);
+        || bounce_blocked_in_side(false, ray, source, source_normal, reach)
+        || bounce_blocked_in_side(true, ray, source, source_normal, reach);
 }
 
 fn floor_source(at: vec2<f32>) -> BounceSource {
@@ -1443,6 +1471,7 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
     let centre = light_point(relative).xy;
     let lift = view.exposure_shadow.w;
     let crossed_lift = view.cross_frame.x;
+    let sloped_lift = view.slope_frame.x;
     let ray = BounceRay(
         light_point(relative + normal * lift),
         lift,
@@ -1450,6 +1479,9 @@ fn bounced(relative: vec3<f32>, normal: vec3<f32>, pixel: vec2<f32>) -> vec3<f32
         light_point_by(view.cross_matrix, relative + normal * crossed_lift),
         crossed_lift,
         length(view.relative_from_cross[2].xyz),
+        light_point_by(view.slope_matrix, relative + normal * sloped_lift),
+        sloped_lift,
+        length(view.relative_from_slope[2].xyz),
     );
     let size = vec2<f32>(textureDimensions(lit_albedo));
     let last = vec2<i32>(size) - vec2<i32>(1);

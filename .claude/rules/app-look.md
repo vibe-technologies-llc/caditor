@@ -734,12 +734,24 @@ paths:
 - Each such row also lights what its feature refers to (`LitRows::add_referred`): the faces and
   edges `caditor_document::referred_geometry` gathers through the healing visitor, each only where
   it resolves on the body's shown result to geometry of the same name (a face or edge the feature
-  or a later one consumed is not drawn, so it stays dark rather than lighting a neighbour), the
+  or a later one consumed is not drawn, so it never lights a neighbour; the ghost below shows it), the
   principal planes it names (a lit plane shows even while the planes step aside), the corners it
   names (a vertex of the body's shown result, lit only when exactly one carries the name, as the
   reference itself resolves), the planes of coordinate systems it names (`Pickable::FramePlane`,
   only while the system is placed), and the sketches and datums among `Document::dependencies_of`
   as chosen rows. Bodies it uses are not lit whole.
+- What it refers to that the body's shown result no longer draws (a face or edge a fillet, shell
+  or other feature consumed, by name) is lit on a ghost of the body before the feature
+  (`LitRows::ghosts`, one `bodies::Ghost` per row: its body and the `FaceKey`s and `EdgeName`s
+  that resolve by name in `bodies::input`, the state the feature saw). `ViewportState::ghosted`
+  names the rows to the model before the frame's scene (`Model::mesh_before` asks the worker for
+  those meshes beside an open feature's, `BodyMeshes::show_ghosts` reads them) and the ghosts are
+  part of the scene's highlight key (`Highlight::ghosts`). `Builder::lit_ghost` draws the
+  before mesh in `translucent_meshes`: faces in the body's colour at `GHOST_ALPHA`, lit faces in
+  `faces.hovered` at `PREVIEW_ALPHA`, every edge dashed in `body_edge`, lit edges solid in
+  `lines.hovered` a `HIGHLIGHT_EXTRA_WIDTH` heavier, so the lit parts differ in fill strength and
+  stroke form as well as colour and hold the palette's tested pairs. Nothing is picked on it,
+  none of it animates, and a hidden body or a row with nothing consumed draws none.
 - Every row of the Features tree (`tree_row::show`, so feature, folder, Bodies and principal rows
   alike) keeps `tree_row::LINK_GUTTER` inside its left margin, within the row so the panel's width
   never grows for it. The hovered feature row, else the primary chosen one (so keyboard focus, which

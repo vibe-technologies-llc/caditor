@@ -216,9 +216,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   assemblies.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
-  surfaces the sun sees, and its visibility test still lets bounced light through a wall edge-on to
-  both the sun and the cross light (one whose normal points up the sun's slope) and one behind more
-  surfaces than `BOUNCE_LAYERS` sun layers and the cross map's one layer hold.
+  surfaces the sun sees, and its visibility test still lets bounced light through a wall behind
+  more surfaces than `BOUNCE_LAYERS` sun layers and the cross and slope maps' one layer each hold.
 - [low · medium] A user cannot read an OpenEXR picture as the rendered view's surroundings
   (`image`'s `exr` feature is pure Rust but brings `pulp` and `paste`, which `cargo deny`
   refuses), nor give a material texture, bump or clear-coat maps.
@@ -244,10 +243,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the user's approval of each client, a status pill naming the connected client with a Disconnect,
   its changes landing in the user's undo history interleaved with their own, and its tool calls
   queued like `queued.rs` actions while the model recomputes, never blocking the UI thread.
-- [low · medium] Hovering or choosing a feature row lights the geometry it refers to only where
-  that is still drawn: faces and edges the feature or a later one consumed (a fillet's rounded
-  edges, a shell's opened faces) are not shown, which needs the body before the feature drawn
-  as a ghost.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

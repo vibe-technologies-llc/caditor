@@ -513,3 +513,67 @@ fn body_rows_far_out_of_view_are_not_laid_out_until_scrolled_to() {
     assert!(laid_out(&harness, "Block 40"));
     assert!(!laid_out(&harness, "Block 0"));
 }
+
+#[test]
+fn a_fillet_row_draws_the_body_before_it_as_a_ghost_lighting_the_edge_it_rounded() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+    let ghosts = |harness: &mut Harness| harness.built().scene.translucent_meshes.len();
+    let lines = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .batches
+            .iter()
+            .flat_map(|batch| batch.all_lines())
+            .filter(|line| line.pick.is_none())
+            .collect::<Vec<_>>()
+    };
+    let none = ghosts(&mut harness);
+
+    harness.workspace.panels.choose_only(fillet);
+    harness.settle();
+    harness.frame();
+    harness.frame();
+    let shown = ghosts(&mut harness);
+    let drawn = lines(&mut harness);
+    let dashed = drawn
+        .iter()
+        .filter(|line| matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
+        .count();
+    let lit = drawn
+        .iter()
+        .filter(|line| matches!(line.stroke, caditor_render::Stroke::Solid))
+        .filter(|line| line.color == crate::scene_palette::STANDARD.lines.hovered)
+        .count();
+
+    assert_eq!(none, 0);
+    assert_eq!(shown, 1);
+    assert!(dashed > 0, "the ghost's other edges are dashed");
+    assert!(
+        lit > 0,
+        "the rounded edge is drawn solid in the hover colour"
+    );
+
+    harness.workspace.panels.choose_only(plate);
+    harness.settle();
+    harness.frame();
+    harness.frame();
+    assert_eq!(ghosts(&mut harness), 0);
+}

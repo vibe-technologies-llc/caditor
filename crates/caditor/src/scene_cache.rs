@@ -6,6 +6,7 @@ use caditor_render::{Backdrop, Batch, Color, Lighting, SectionPlane, View};
 use caditor_sketch::Faceting;
 
 use crate::{
+    bodies::Ghost,
     comb::CombDrawing,
     display_style::DisplayStyle,
     drawing::Preview,
@@ -110,6 +111,7 @@ struct Highlighted {
     selection: u64,
     hovered: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
+    ghosts: Vec<Ghost>,
 }
 
 impl Highlighted {
@@ -117,6 +119,7 @@ impl Highlighted {
         self.selection == highlight.selection.generation()
             && self.hovered == highlight.hovered
             && self.chosen_rows == highlight.chosen_rows
+            && self.ghosts == highlight.ghosts
     }
 }
 
@@ -212,6 +215,7 @@ impl SceneCache {
             selection: inputs.highlight.selection.generation(),
             hovered: inputs.highlight.hovered.to_vec(),
             chosen_rows: inputs.highlight.chosen_rows.to_vec(),
+            ghosts: inputs.highlight.ghosts.to_vec(),
         });
     }
 

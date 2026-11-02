@@ -2672,7 +2672,11 @@ impl Session {
             self.title = title;
         }
 
-        model.mesh_before(self.workspace.editing.context().solid);
+        let ghosted = self
+            .workspace
+            .viewport
+            .ghosted(model, &self.workspace.editing);
+        model.mesh_before(self.workspace.editing.context().solid, &ghosted);
         model.request_regions(self.workspace.editing.feature());
         self.export_image(model, files);
         let workspace = &mut self.workspace;

@@ -17,7 +17,7 @@ use tempfile::TempDir;
 
 use super::{
     CAMERA_SETTLE, Harness, Painted, Wheel, add_block, add_peg, combine_nearly_touching_blocks,
-    extruded_plate, run_from_palette,
+    extruded_plate, run_from_palette, top_edge_along_x,
 };
 use crate::{
     app::Workspace,
@@ -411,6 +411,11 @@ fn screenshots() {
         drop(bodies);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut filleted = Harness::styled(look, dir.path(), false);
+        ghost_scene(&mut filleted, &gpu, &out, look);
+        drop(filleted);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut sketching = Harness::styled(look, dir.path(), false);
         inference_scenes(&mut sketching, &gpu, &out, look);
         drop(sketching);
@@ -677,6 +682,33 @@ fn screenshots() {
         dialog_scenes(&gpu, &out, look);
         file_scenes(&gpu, &out, look);
     }
+}
+
+fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let (plate, _) = extruded_plate(harness);
+    let rounded = top_edge_along_x(harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: rounded,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let Some(fillet) = harness.workspace.editing.solid() else {
+        return;
+    };
+    harness.type_into_field(egui::Id::unique(("blend-size", fillet)), "6 mm");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    shoot(harness, gpu, out, "ghost-off", look);
+    harness.workspace.panels.choose_only(fillet);
+    harness.settle();
+    harness.frame();
+    harness.frame();
+    shoot(harness, gpu, out, "ghost", look);
 }
 
 fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {

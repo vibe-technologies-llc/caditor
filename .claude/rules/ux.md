@@ -51,6 +51,10 @@ finished. Each rule avoids a failure mode FreeCAD is known for.
 - High contrast reaches the 3D view (`scene_palette.rs`): lines and points hold 3:1 against the
   canvas and dimmed bodies; bodies, edges and highlighted faces hold 3:1 on a body of any colour (a
   body too dark is drawn lightened, `ScenePalette::body`).
+- The ghost of a body before a feature (`app-look.md`) draws its edges dashed and the ones lit
+  solid and heavier, with the lit faces filled more strongly, so a consumed face or edge is never
+  told by colour alone; it uses only the palette's hovered colours and the body edge colour, which
+  the contrast checks already hold, and nothing in it animates.
 - No state is told by colour alone (`app-sketching.md`): selected geometry widens twice as much as
   hovered (`selection_widening`), a failed or outdated body's edges are dashed
   (`troubled_edges_dashed`), canvas labels sit on an opaque backdrop holding every label colour to
