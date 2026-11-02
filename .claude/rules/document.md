@@ -696,7 +696,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
 ### Helix (`helix.rs`)
 
-- `Helix { kind, axis, reversed, diameter, length, taper, turning, start, start_point, ends }` is a curve feature: the axis,
+- `Helix { kind, axis, reversed, diameter, length, taper, turning, start, start_point, ends, final_pitch }` is a curve feature: the axis,
   sizing (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved,
   counted, healed ("axis it winds around"), pasted, inlined and anchored for model scale the same
   way (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x
@@ -726,16 +726,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   diameter not larger than the inner fails, `CoilCause::OuterWithinInner`, and turns out of range
   are `OuterPitchTurns`); `taper` is kept but unused. The start angle, start point, hand and
   `reversed` act as a helix's. `HelixResult::spiral` holds the spec (`None` for a helix).
-- `ends` (`Option<ClosedEnds>`: `turns`, a plain number, and `pitch`, a length) closes a helix's
-  ends as a compression spring's (kernel `HelixEnds`, `END_CHANGE_TURNS`): the end turns wind at
-  the end pitch and the pitch changes evenly to the helix's own over the next half turn at both
-  ends. The helix's `length` then sizes the whole spring with its ends (`helix::helix_span`,
-  `span_with_ends`, shared with the app's arrows and its Sized by switch): turns and pitch give the
-  pitch between the ends, a height and turns solve that pitch (`HelixEnds::pitch_for`), a height
-  and pitch the turns (`turns_for`). Fewer turns than the ends take is `CoilCause::EndsTooLong`
+- `ends` (`Option<ClosedEnds>`: `turns`, a plain number, `pitch`, a length, and `change`, a plain
+  number of turns, `END_CHANGE_TURNS` (half a turn) by default) closes a helix's ends as a
+  compression spring's (kernel `HelixEnds`): the end turns wind at the end pitch and the pitch
+  changes evenly to the helix's own over the next `change` turns at both ends. `final_pitch`
+  (`Option<Expression>`, a length) makes the helix progressive: its pitch changes evenly from
+  `length`'s pitch at the start of the body to the final pitch at its far end (kernel
+  `HelixSpec::final_pitch`), between the closed ends' changes when it has them. The helix's `length`
+  then sizes the whole spring with its ends and by its mean pitch (`helix::helix_span`,
+  `span_with_pitch` over a kernel `HelixPitch`, shared with the app's arrows and its Sized by
+  switch): turns and pitch give the height, a height and turns solve the start pitch
+  (`HelixPitch::pitch_for`, keeping the final pitch), a height and pitch the turns (`turns_for`).
+  A progressive pitch left no positive start pitch by its height is `FinalPitchFillsHeight`, closed
+  ends with no turns left between them for it `ProgressionNeedsTurns`, a change of a sliver
+  `EndChangeRange`. Fewer turns than the ends take is `CoilCause::EndsTooLong`
   (also the kernel's refusal of a remainder under `LEAST_COIL_TURNS`), a height the ends fill on
   their own `EndsFillHeight`, end turns of a sliver `EndTurnsRange`. Its expressions are among the
-  helix's, the pitch among `lengths_mut`. A flat spiral keeps but ignores it (the app drops it on
+  helix's, the pitches among `lengths_mut`. A flat spiral keeps but ignores them (the app drops them on
   switching to one).
 - A pipe along a flat spiral refuses turns its section would touch before building
   (`pipe::clear_turns`, `SweepCause::SpiralTurnsTouch` naming the pipe, the spiral, the pitch and

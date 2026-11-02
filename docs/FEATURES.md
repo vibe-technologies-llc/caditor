@@ -49,10 +49,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
   middle profile.
 - [medium · hard] Few helix pitch laws: Helix gives a sweep or pipe a helix (tapered or not) of
-  one pitch or with a compression spring's closed ends (end turns at an end pitch, changing to the
-  pitch over a fixed half turn), or a flat spiral of one pitch, but takes no other law (a
-  progressive spring's pitch growing along it, a table of pitches by turn, a change over a chosen
-  number of turns) and a flat spiral none. A sweep along a changing pitch keeps the section's lean
+  one pitch, a pitch changing evenly along it (a progressive spring's) or with a compression
+  spring's closed ends (end turns at an end pitch, changing to the pitch over chosen turns), or a
+  flat spiral of one pitch, but takes no other law (a table of pitches by turn) and a flat spiral
+  none. A sweep along a changing pitch keeps the section's lean
   to the axis it starts with, so a round wire is a hair out of round where the pitch differs from
   the end's. Turns cannot touch (a closed coil, a profile as tall as the pitch swept along a helix
   or as wide as it along a flat spiral, or a pipe as thick as a flat spiral's pitch, needs a pitch

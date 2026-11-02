@@ -270,7 +270,15 @@ Extrusions and revolves:
   `turns` and `pitch`, the closed ends' texts (unreadable 1 and 2.5 mm, reported), written only
   when `ends` is set; an older reader reports the helix as from a newer version rather than
   winding it at one pitch; a wrapped kind that is not a helix loads without it, reported. The
-  corpus holds it in `helix-ends.caditor`.
+  corpus holds it in `helix-ends.caditor`. `helix_end_change`: a wrapper around a `helix_ends`
+  record (`feature`) with `turns`, the turns the ends' pitch changes over (unreadable 0.5,
+  reported), written only when `change` is not half a turn, so files of half-turn ends are
+  unchanged; an older reader reports the helix as from a newer version rather than winding it
+  with a half-turn change; wrapped around a helix with no closed ends it loads without it,
+  reported. `helix_progressive`: a wrapper around any helix record (`feature`, outermost inside
+  any `flat_spiral`) with `pitch`, the final pitch's text (unreadable 5 mm, reported), written
+  only when `final_pitch` is set; an older reader reports the helix as from a newer version
+  rather than winding it at one pitch. The corpus holds both in `helix-laws.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

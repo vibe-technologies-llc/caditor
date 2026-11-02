@@ -10,14 +10,14 @@ use caditor_document::{
     ReachedSide, Resolution, Rib, RibSide, Shell, ShellSide, SizeRule, SketchRegion, SolidFeature,
     SolidStart, Wall, capitalized, circle_sizes, coil_size_name, displayed_axis, displayed_plane,
     face_plane, flat_normal, hole_centres, hole_thread, pipe_size_name, pipe_stand, rib_stand,
-    span_with_ends,
+    span_with_pitch,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    BendMiddles, CoilPlacement, EdgeId, FaceId, HelixEnds, HelixSpec, MAX_TAPER_DEGREES,
-    PipeCorner, PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface, WallSide,
-    measured_face, wrapped_stand,
+    BendMiddles, CoilPlacement, EdgeId, FaceId, HelixEnds, HelixPitch, HelixSpec,
+    MAX_TAPER_DEGREES, PipeCorner, PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface,
+    WallSide, measured_face, wrapped_stand,
 };
 use caditor_sketch::Entity;
 
@@ -1962,23 +1962,34 @@ impl Builder<'_> {
         };
         let ends = match &helix.ends {
             None => None,
-            Some(ends) => match (self.count(&ends.turns), self.length(&ends.pitch)) {
-                (Some(turns), Some(pitch)) => Some(HelixEnds { turns, pitch }),
+            Some(ends) => match (
+                self.count(&ends.turns),
+                self.length(&ends.pitch),
+                self.count(&ends.change),
+            ) {
+                (Some(turns), Some(pitch), Some(change)) => Some(HelixEnds {
+                    turns,
+                    pitch,
+                    change,
+                }),
                 _ => return Vec::new(),
             },
         };
-        let (pitch, turns) = match ends {
-            None => (pitch, turns),
-            Some(ends) => {
-                let even = CoilSpan {
-                    height: pitch * turns,
-                    pitch,
-                    turns,
-                };
-                let closed = span_with_ends(helix.length.sizing(), even, ends);
-                (closed.pitch, closed.turns)
-            }
+        let final_pitch = match &helix.final_pitch {
+            None => None,
+            Some(last) => match self.length(last) {
+                Some(last) => Some(last),
+                None => return Vec::new(),
+            },
         };
+        let plan = HelixPitch { ends, final_pitch };
+        let even = CoilSpan {
+            height: pitch * turns,
+            pitch,
+            turns,
+        };
+        let shaped = span_with_pitch(helix.length.sizing(), even, plan);
+        let (pitch, turns) = (shaped.pitch, shaped.turns);
         let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
             .and_then(|axis| helix.frame(axis))
         else {
@@ -1993,6 +2004,7 @@ impl Builder<'_> {
             hand: helix.turning.hand(),
             start_angle: start.to_radians(),
             ends,
+            final_pitch,
         };
         let Some(started) = spec.start_frame() else {
             return Vec::new();

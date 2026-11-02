@@ -127,9 +127,12 @@ pub fn helix() -> Value {
             "start_angle": amount("Where the helix starts round its axis, an angle counter-clockwise from its frame's X direction; 0 deg by default. Giving it clears start_point"),
             "start_point": point(),
             "clockwise": flag("Wind clockwise instead of counter-clockwise"),
-            "closed_ends": flag("Close the ends as a compression spring's are: end_turns turns at each end wind at end_pitch, the pitch changing evenly to the main pitch over the next half turn. Given end_turns or end_pitch closes them too; false opens them again"),
+            "closed_ends": flag("Close the ends as a compression spring's are: end_turns turns at each end wind at end_pitch, the pitch changing evenly to the main pitch over end_change turns (half a turn by default). Given end_turns, end_pitch or end_change closes them too; false opens them again"),
             "end_turns": amount("How many turns each closed end makes at end_pitch, 0 or at least 0.05; 1 by default"),
             "end_pitch": amount("The pitch of the closed ends, a hair more than the wire's size so the turns do not touch; 2.5 mm by default"),
+            "end_change": amount("How many turns the pitch takes to change between a closed end's and the main pitch, 0.05 or more; 0.5 by default. Given, it closes the ends too"),
+            "progressive": flag("Change the pitch evenly along the helix from its pitch at the start to final_pitch at the end, as a progressive spring's; false winds at one pitch again"),
+            "final_pitch": amount("The pitch at the far end of a progressive helix, where the closed ends' changes begin if it has them. Giving it makes the helix progressive"),
             "name": name()
         }),
         &[],

@@ -21,6 +21,13 @@ impl Stop {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct ClosedEndLaw {
+    pub pitch: f64,
+    pub turns: f64,
+    pub change: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct PitchLaw {
     stops: [Stop; STOPS],
 }
@@ -32,14 +39,33 @@ impl PitchLaw {
         }
     }
 
-    pub(super) fn closed_ends(body: f64, end: f64, end_turns: f64, turns: f64) -> Self {
+    pub(super) fn progressive(first: f64, last: f64, turns: f64) -> Self {
         let stop = |turns: f64, pitch: f64| Stop { turns, pitch };
+        Self {
+            stops: [
+                stop(0.0, first),
+                stop(turns, last),
+                stop(turns, last),
+                stop(turns, last),
+                stop(turns, last),
+                stop(turns, last),
+            ],
+        }
+    }
+
+    pub(super) fn closed_ends((first, last): (f64, f64), ends: ClosedEndLaw, turns: f64) -> Self {
+        let stop = |turns: f64, pitch: f64| Stop { turns, pitch };
+        let ClosedEndLaw {
+            pitch: end,
+            turns: end_turns,
+            change,
+        } = ends;
         Self {
             stops: [
                 stop(0.0, end),
                 stop(end_turns, end),
-                stop(end_turns + END_CHANGE_TURNS, body),
-                stop(turns - end_turns - END_CHANGE_TURNS, body),
+                stop(end_turns + change, first),
+                stop(turns - end_turns - change, last),
                 stop(turns - end_turns, end),
                 stop(turns, end),
             ],

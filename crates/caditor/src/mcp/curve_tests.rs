@@ -136,6 +136,65 @@ fn a_helix_closes_its_ends_for_a_spring_and_opens_them_again() {
 }
 
 #[test]
+fn a_helix_changes_its_pitch_along_it_and_over_the_turns_its_ends_take() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+
+    let helix = added(
+        &mut client,
+        "add_helix",
+        json!({ "axis": "Z", "diameter": 20, "turns": 6, "pitch": 2, "final_pitch": 6 }),
+    );
+    let progressive = saved_helix(&mut client, &folder);
+
+    assert_eq!(progressive.final_pitch, Some(Expression::number(6.0)));
+
+    added(
+        &mut client,
+        "add_pipe",
+        json!({ "path": { "helix": helix }, "size": 2 }),
+    );
+    let steps = 6000;
+    let travel: f64 = (0..steps)
+        .map(|step| {
+            let along = (f64::from(step) + 0.5) / f64::from(steps);
+            (PI * 20.0).hypot(2.0 + 4.0 * along) * 6.0 / f64::from(steps)
+        })
+        .sum();
+
+    assert!(near(total_volume(&mut client), PI * travel));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "end_change": 1.5, "end_turns": 1 }),
+    );
+    let changed = saved_helix(&mut client, &folder);
+
+    assert_eq!(
+        changed.ends.as_ref().map(|ends| &ends.change),
+        Some(&Expression::number(1.5))
+    );
+    assert!(changed.final_pitch.is_some());
+
+    let sized = client.tool_error(
+        "edit_feature",
+        json!({ "feature": helix, "progressive": false, "final_pitch": 5 }),
+    );
+
+    assert!(sized.contains("no final_pitch"), "{sized}");
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "progressive": false }),
+    );
+
+    assert_eq!(saved_helix(&mut client, &folder).final_pitch, None);
+    client.finish();
+}
+
+#[test]
 fn a_flat_spiral_is_wound_by_its_outer_diameter_and_carries_a_pipe() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
