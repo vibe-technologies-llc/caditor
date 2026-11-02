@@ -1,7 +1,7 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{Constraint, Entity, EntityId, EntityState, Sketch, Solved};
+use crate::{Constraint, Entity, EntityId, EntityState, Sketch, Solved, SplineKind};
 
 fn no_parameters(_: ParameterId) -> Result<Quantity, EvalError> {
     Ok(Quantity::plain(0.0))
@@ -159,4 +159,75 @@ fn a_horizontal_distance_along_the_dimensioned_side_is_determined() {
     };
 
     assert!(determines(&sketch, &across));
+}
+
+fn pinned_spline() -> (Sketch, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 6.0),
+            Point2::new(25.0, -3.0),
+            Point2::new(32.0, 8.0),
+        ],
+        SplineKind::Control { closed: false },
+    );
+    let Some(Entity::Spline { points, .. }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    for point in points {
+        let at = sketch.point(point).unwrap();
+        sketch
+            .add_constraint(Constraint::Fix { point, at })
+            .unwrap();
+    }
+    (sketch, spline)
+}
+
+#[test]
+fn a_distance_from_a_pinned_spline_to_a_pinned_point_is_determined_though_it_brings_a_parameter() {
+    let (mut sketch, spline) = pinned_spline();
+    let away = sketch.add_point(Point2::new(15.0, 12.0));
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: away,
+            at: Point2::new(15.0, 12.0),
+        })
+        .unwrap();
+    let measuring = Constraint::Distance {
+        from: away,
+        to: spline,
+        value: mm(1.0),
+    };
+    let wanted = solved(&sketch).geometry.measured(&measuring).unwrap();
+
+    assert!(determines(
+        &sketch,
+        &Constraint::Distance {
+            from: away,
+            to: spline,
+            value: mm(wanted),
+        }
+    ));
+}
+
+#[test]
+fn a_distance_from_a_pinned_spline_to_a_free_point_is_not_determined() {
+    let (mut sketch, spline) = pinned_spline();
+    let away = sketch.add_point(Point2::new(15.0, 12.0));
+    let measuring = Constraint::Distance {
+        from: away,
+        to: spline,
+        value: mm(1.0),
+    };
+    let wanted = solved(&sketch).geometry.measured(&measuring).unwrap();
+
+    assert!(!determines(
+        &sketch,
+        &Constraint::Distance {
+            from: away,
+            to: spline,
+            value: mm(wanted),
+        }
+    ));
 }

@@ -437,8 +437,12 @@ impl Solver<'_> {
 
     pub fn irreducible(&self, component: &Component, values: &[f64]) -> Vec<usize> {
         let part = self.part(component);
-        let clear = clear_residual(&part);
-        let (linearized, step) = self.bounded_step(&part, values);
+        self.irreducible_beyond(&part, values, clear_residual(&part))
+    }
+
+    fn irreducible_beyond(&self, part: &Part<'_>, values: &[f64], clear: f64) -> Vec<usize> {
+        let component = part.component;
+        let (linearized, step) = self.bounded_step(part, values);
         let Some(step) = step else {
             return Vec::new();
         };
@@ -508,9 +512,19 @@ impl Solver<'_> {
                 let clear = clear_residual(part);
                 self.residuals(part, values)
                     .any(|residual| residual.abs() > clear)
+                    || self.is_a_small_conflict(part, values)
             }
             Ending::Converged | Ending::Unfinished => false,
         }
+    }
+
+    fn is_a_small_conflict(&self, part: &Part<'_>, values: &[f64]) -> bool {
+        let landed = self.system.context_at(part.component, values).scale;
+        let tolerance = CONVERGENCE_TOLERANCE * landed.min(part.context.scale);
+        let beyond_tolerance = self
+            .residuals(part, values)
+            .any(|residual| residual.abs() > tolerance);
+        beyond_tolerance && !self.irreducible_beyond(part, values, tolerance).is_empty()
     }
 
     fn restore(&self, component: &Component, start: &[f64], values: &mut [f64]) {
@@ -1000,7 +1014,43 @@ impl Solver<'_> {
         for row in &rest {
             triangular.insert(row, RANK_TOLERANCE);
         }
-        Ok(own.iter().any(|row| triangular.insert(row, RANK_TOLERANCE)))
+        let added = own
+            .iter()
+            .filter(|row| triangular.insert(row, RANK_TOLERANCE))
+            .count();
+        Ok(added > self.own_variables_rank(component, constraint, &own))
+    }
+
+    fn own_variables_rank(
+        &self,
+        component: &Component,
+        constraint: ConstraintId,
+        own: &[sparse::Row],
+    ) -> usize {
+        let columns: BTreeSet<usize> = [&self.system.parameters, &self.system.targets]
+            .into_iter()
+            .filter_map(|brought| brought.get(&constraint))
+            .flatten()
+            .filter_map(|variable| component.variables.binary_search(variable).ok())
+            .collect();
+        if columns.is_empty() {
+            return 0;
+        }
+        let restricted: Vec<sparse::Row> = own
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .filter(|(column, _)| columns.contains(column))
+                    .copied()
+                    .collect()
+            })
+            .collect();
+        let mut triangular =
+            sparse::Triangular::ordered_for(component.variables.len(), restricted.iter());
+        restricted
+            .iter()
+            .filter(|row| triangular.insert(row, RANK_TOLERANCE))
+            .count()
     }
 
     fn analyze_sparse(
