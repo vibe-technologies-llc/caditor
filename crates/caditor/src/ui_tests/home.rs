@@ -31,7 +31,7 @@ use crate::{
     cloud_dialog, cloud_parts,
     commands::Command,
     export::ExportCommand,
-    files::FileCommand,
+    files::{FileCommand, cloud_send},
     home, icons,
     model::Action,
     preferences::{
@@ -1668,6 +1668,18 @@ fn open_parts_to_send(harness: &mut Harness) {
     });
 }
 
+pub(super) fn send_here_under_a_name(harness: &mut Harness) {
+    harness.click(cloud_dialog::SEND_HERE);
+    confirm_the_send_name(harness);
+}
+
+fn confirm_the_send_name(harness: &mut Harness) {
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND_ONLY)
+    });
+    harness.click(cloud_send::NAME_SEND_ONLY);
+}
+
 pub(super) fn outgoing_files(dir: &Path) -> Vec<String> {
     let root = dir.join("state").join("cloud").join("outgoing");
     fs::read_dir(root)
@@ -1686,7 +1698,7 @@ fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
     extruded_plate(&mut harness);
     open_parts_to_send(&mut harness);
 
-    harness.click(cloud_dialog::SEND_HERE);
+    send_here_under_a_name(&mut harness);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
     harness.wait_until("the sending ends", |harness| {
         harness
@@ -1708,7 +1720,7 @@ fn the_manager_sends_the_model_as_step_into_a_folder_then_as_a_new_version() {
     harness.wait_until("the folder is listed again", |harness| {
         harness.shows(cloud_dialog::SEND_HERE)
     });
-    harness.click(cloud_dialog::SEND_HERE);
+    send_here_under_a_name(&mut harness);
     harness.wait_until("the model is sent again", |_| {
         provider.received().len() == 2
     });
@@ -1754,7 +1766,7 @@ fn the_manager_sends_the_model_into_an_onshape_workspace() {
         harness.shows(cloud_dialog::SEND_HERE)
     });
 
-    harness.click(cloud_dialog::SEND_HERE);
+    send_here_under_a_name(&mut harness);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
     harness.wait_until("the sending ends", |harness| {
         harness
@@ -1810,6 +1822,7 @@ fn the_manager_sends_the_model_to_onshape_as_a_part_studio_once_the_translation_
     open_onshape_workspace(&mut harness);
 
     harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    confirm_the_send_name(&mut harness);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
     harness.wait_until("the notice says a Part Studio was made", |harness| {
         harness
@@ -1847,6 +1860,7 @@ fn a_translation_in_progress_is_shown_and_cancel_stops_waiting() {
     open_onshape_workspace(&mut harness);
 
     harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    confirm_the_send_name(&mut harness);
     harness.wait_until("the translation is shown", |harness| {
         harness.shows_containing("is turning")
     });
@@ -1879,12 +1893,14 @@ fn a_translation_that_fails_says_why_and_try_again_sends_as_a_part_studio_again(
     open_onshape_workspace(&mut harness);
 
     harness.click(cloud_dialog::SEND_AS_PART_STUDIO);
+    confirm_the_send_name(&mut harness);
     harness.wait_until("the failure is shown", |harness| {
         harness.shows_containing("could not turn the file into a Part Studio")
     });
 
     provider.recover(Step::Placement);
     harness.click(cloud_parts::TRY_AGAIN);
+    confirm_the_send_name(&mut harness);
     harness.wait_until("the second send is made", |_| {
         provider.received().len() == 2
     });
@@ -1932,7 +1948,7 @@ fn a_failed_send_says_why_and_try_again_sends_once_it_works() {
     extruded_plate(&mut harness);
     open_parts_to_send(&mut harness);
 
-    harness.click(cloud_dialog::SEND_HERE);
+    send_here_under_a_name(&mut harness);
     harness.wait_until("the failure is shown", |harness| {
         harness.shows_containing("does not let caditor add files to this folder")
     });
@@ -1943,6 +1959,7 @@ fn a_failed_send_says_why_and_try_again_sends_once_it_works() {
 
     provider.recover(Step::Send);
     harness.click(cloud_parts::TRY_AGAIN);
+    confirm_the_send_name(&mut harness);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
     harness.wait_until("the failure is gone", |harness| {
         !harness.shows(cloud_parts::TRY_AGAIN)

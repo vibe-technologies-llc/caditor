@@ -18,7 +18,8 @@ use tempfile::TempDir;
 use super::{
     Harness, extruded_plate,
     home::{
-        browser, open_home, outgoing_files, sendable_provider, sign_in, top_folder, with_opener,
+        browser, open_home, outgoing_files, send_here_under_a_name, sendable_provider, sign_in,
+        top_folder, with_opener,
     },
     offer, run_from_palette,
 };
@@ -109,6 +110,15 @@ fn choose_the_folder_without_naming(harness: &mut Harness) {
         harness.shows(cloud_dialog::SEND_AND_OPEN)
     });
     harness.click(cloud_dialog::SEND_AND_OPEN);
+}
+
+fn open_the_folder_to_send_here(harness: &mut Harness) {
+    run_from_palette(harness, "Cloud projects");
+    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
+    harness.click("Parts");
+    harness.wait_until("the folder is listed", |harness| {
+        harness.shows(cloud_dialog::SEND_HERE)
+    });
 }
 
 fn name_the_file(harness: &mut Harness, name: &str) {
@@ -248,7 +258,7 @@ fn a_plain_send_never_opens_anything() {
         harness.shows(cloud_dialog::SEND_HERE)
     });
 
-    harness.click(cloud_dialog::SEND_HERE);
+    send_here_under_a_name(&mut harness);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
     wait_for_the_send_to_end(&mut harness);
 
@@ -589,25 +599,74 @@ fn a_saved_model_is_sent_under_its_own_name_without_asking() {
 }
 
 #[test]
-fn a_plain_send_of_an_untitled_model_does_not_ask_for_a_name() {
+fn a_plain_send_of_an_untitled_model_asks_for_a_name_first_and_sends_under_it() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, opened) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    open_the_folder_to_send_here(&mut harness);
+
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND_ONLY)
+    });
+
+    assert!(harness.shows("Name the file to send"));
+    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert_eq!(typed_name(&harness), Some("Untitled"));
+    assert!(harness.files.is_blocking());
+    assert!(provider.received().is_empty());
+    assert!(outgoing_files(dir.path()).is_empty());
+
+    type_the_name(&mut harness, "Bracket.STEP");
+    harness.click(cloud_send::NAME_SEND_ONLY);
+    harness.wait_until("the model is sent", |_| provider.received().len() == 1);
+    wait_for_the_send_to_end(&mut harness);
+
+    let sent = provider.received().remove(0);
+    assert_eq!(sent.name, "Bracket.step");
+    assert!(!harness.shows(cloud_send::NAME_SEND_ONLY));
+    assert!(opened.lock().is_empty());
+}
+
+#[test]
+fn cancelling_the_name_of_a_plain_send_sends_nothing_and_exports_nothing() {
     let dir = TempDir::new().unwrap();
     let provider = sendable_provider(Some(top_folder()), Vec::new());
     let (mut harness, _) = signed_in(dir.path(), &provider, opens);
     extruded_plate(&mut harness);
-    run_from_palette(&mut harness, "Cloud projects");
-    harness.wait_until("the projects are listed", |harness| harness.shows("Parts"));
-    harness.click("Parts");
-    harness.wait_until("the folder is listed", |harness| {
-        harness.shows(cloud_dialog::SEND_HERE)
+    open_the_folder_to_send_here(&mut harness);
+    harness.click(cloud_dialog::SEND_HERE);
+    harness.wait_until("the name is asked", |harness| {
+        harness.shows(cloud_send::NAME_SEND_ONLY)
     });
+
+    harness.click(cloud_send::NAME_CANCEL);
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.shows(cloud_send::NAME_SEND_ONLY));
+    assert!(!harness.files.is_blocking());
+    assert!(provider.received().is_empty());
+    assert!(outgoing_files(dir.path()).is_empty());
+}
+
+#[test]
+fn a_plain_send_of_a_saved_model_is_sent_under_its_own_name_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let provider = sendable_provider(Some(top_folder()), Vec::new());
+    let (mut harness, _) = signed_in(dir.path(), &provider, opens);
+    extruded_plate(&mut harness);
+    save_as(&mut harness, dir.path().join("plate.caditor"));
+    open_the_folder_to_send_here(&mut harness);
 
     harness.click(cloud_dialog::SEND_HERE);
     harness.wait_until("the model is sent", |_| provider.received().len() == 1);
 
-    assert!(!harness.shows(cloud_send::NAME_SEND));
+    assert!(!harness.shows(cloud_send::NAME_SEND_ONLY));
     assert_eq!(
         provider.received().first().map(|sent| sent.name.as_str()),
-        Some("Untitled.step")
+        Some("plate.step")
     );
 }
 

@@ -248,18 +248,19 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   reaches `Files::perform`. `app::show` hands it the command's own verdict (`Cloud::can_open_in_fusion`
   then `Files::cloud_send_availability`): no button with cloud off, the button disabled with the
   reason (or the dialog's own blocker) otherwise.
-- A send that opens (`Destination::opening`) of a model with no file asks for the name first, as
-  nothing else names it: `Files::send_to_cloud` checks `cloud_send_availability` and then holds a
-  `CloudNaming` (`files/cloud_send.rs`; blocking like the other file dialogs) shown as the titled
-  dialog "Name the file for Fusion 360" with one File name field, prefilled with the name the
-  last such send of this model used (`CloudSending::named`, keyed by the model's session) or
-  Untitled, and Send and open rightmost. `CloudNameCommand::{Edit, Send, Cancel}` drive it; Enter
+- A send of a model with no file asks for the name first, as nothing else names it, whether it
+  opens (`Destination::opening`) or not and for either service and either `SendAs`:
+  `Files::send_to_cloud` checks `cloud_send_availability` and then holds a `CloudNaming`
+  (`files/cloud_send.rs`; blocking like the other file dialogs) shown as the titled dialog "Name
+  the file for Fusion 360" for a send that opens and "Name the file to send" for a plain one, with
+  one File name field, prefilled with the name the last such send of this model used
+  (`CloudSending::named`, keyed by the model's session) or Untitled, and Send and open (plain:
+  Send) rightmost. `CloudNameCommand::{Edit, Send, Cancel}` drive it; Enter
   sends. The name is trimmed, a trailing `.step` in any case is dropped and `.step` appended
   (`NameRefusal::Empty`, `UnsafeCharacter` refuse in a callout and disable Send). It travels as
   `Stage::Preparing`'s and `Event::CloudSendPrepared`'s `name` into `cloud_send_prepared`, which
   uses it for the file in place of `export::named_for`; a model that was replaced meanwhile sends
-  nothing and says so. A saved model, and a plain Send the model here, keep the model's own name
-  and never ask.
+  nothing and says so. A saved model keeps its own name and never asks.
 - Opening is the web page only, on every platform: after `Delivered` carries a `web_link`, the
   courier runs the injectable `Opener` (`browser::open`, https only, no shell) in a job, never on
   the UI thread, so the upload is never undone by a failure to open. The success notice says the

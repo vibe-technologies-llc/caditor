@@ -54,8 +54,11 @@ out forgets the choice.
 {command:file.cloud_send} (File › Cloud, and the command palette once you are signed in) opens the
 Cloud projects window to choose where the model goes. Open one of your projects, open the folder it
 belongs in and press **Send the model here**. caditor exports the bodies chosen in the Export dialog
-as a STEP file named after the model, without asking for a file, and uploads it to that folder; it
-never changes any other file in the project. The progress and a Cancel button show at the head of
+as a STEP file named after the model, without asking for a file on your disk, and uploads it to that
+folder; it never changes any other file in the project. A model that has not been saved has no name,
+so caditor first asks what the file should be called, in the same window as for Upload to Fusion 360
+and open online below (**Send** where that one says **Send and open**); a saved model is sent under
+its own name without asking. The progress and a Cancel button show at the head of
 the Fusion 360 section, and a notice says when the file is in.
 
 If the folder already holds a file of that name, the upload becomes its **new version**, so
@@ -96,7 +99,7 @@ The Export dialog has the same trip as **Upload to Fusion 360**, beside Open in 
 missing when cloud features are off and greyed out, with the reason, until the command could run.
 
 A model that has not been saved has no name, so before sending, caditor asks what the file should
-be called. The window starts from the name you gave the last time (or Untitled); press Enter or
+be called, as it does for Send the model here. The window starts from the name you gave the last time (or Untitled); press Enter or
 **Send and open** to go on, or Cancel to send nothing. Type the name without `.step`, as it is
 added. A saved model is sent under its own name without asking.
 

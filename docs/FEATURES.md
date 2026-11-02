@@ -242,8 +242,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   - Onshape behind the same command: `Provider::send` for Onshape fills `Sent`'s item, version and
     web link (its document and element ids; the documented document URL is its open target), the
     remembered destination is a workspace, and `Service` words the command for it.
-  - Send the model here still sends an `Untitled` model as `Untitled.step` without asking for a
-    name; only Upload to Fusion 360 and open online asks.
   - Confirm against a live Fusion that Data Management returns `links.webView` on an
     `items:autodesk.core:File` item and version (the reading in `fusion.rs` is tested only against
     the documented shape), whether opening an uploaded STEP item creates a design by import, and

@@ -26,6 +26,7 @@ pub const OPEN_IN_FUSION_HINT: &str = "Export the bodies chosen for export as ST
 
 pub const NAME_LABEL: &str = "File name";
 pub const NAME_SEND: &str = "Send and open";
+pub const NAME_SEND_ONLY: &str = "Send";
 pub const NAME_CANCEL: &str = "Cancel";
 const NAME_DIALOG_ID: &str = "cloud-send-name";
 const UNSAFE_NAME_CHARACTERS: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
@@ -80,6 +81,22 @@ impl CloudNaming {
         &self.text
     }
 
+    pub fn title(&self) -> String {
+        if self.destination.opening() {
+            format!("Name the file for {}", self.destination.service)
+        } else {
+            "Name the file to send".to_owned()
+        }
+    }
+
+    pub fn send_label(&self) -> &'static str {
+        if self.destination.opening() {
+            NAME_SEND
+        } else {
+            NAME_SEND_ONLY
+        }
+    }
+
     fn file_name(&self) -> Result<String, NameRefusal> {
         let typed = self.text.trim();
         let stem = typed
@@ -111,7 +128,7 @@ pub fn name_field_id() -> Id {
 
 pub fn name_dialog(ctx: &egui::Context, naming: &CloudNaming) -> Option<CloudNameCommand> {
     let service = naming.destination.service;
-    let title = format!("Name the file for {service}");
+    let title = naming.title();
     let refusal = naming.file_name().err();
     let response = widgets::dialog(ctx, NAME_DIALOG_ID, &title, DialogWidth::Medium, |ui| {
         let explanation = format!(
@@ -150,7 +167,10 @@ pub fn name_dialog(ctx: &egui::Context, naming: &CloudNaming) -> Option<CloudNam
             }
         });
         widgets::footer(ui, |ui| {
-            let send = ui.add_enabled(refusal.is_none(), widgets::primary_button(ui, NAME_SEND));
+            let send = ui.add_enabled(
+                refusal.is_none(),
+                widgets::primary_button(ui, naming.send_label()),
+            );
             if send.clicked() {
                 command = Some(CloudNameCommand::Send);
             }
@@ -244,7 +264,7 @@ impl Files {
     }
 
     pub(super) fn send_to_cloud(&mut self, destination: Destination, model: &mut Model) {
-        if destination.opening() && model.path().is_none() {
+        if model.path().is_none() {
             match self.cloud_send_availability(model) {
                 Ok(()) => self.cloud_sending.naming = Some(self.naming_for(destination, model)),
                 Err(refusal) => model.set_notice(Notice::warning(format!("{refusal}."))),
