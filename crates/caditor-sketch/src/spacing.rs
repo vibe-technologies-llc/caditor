@@ -90,12 +90,14 @@ impl FitLayout {
     }
 
     pub fn settled_against(&self, other: &Self, tolerance: f64) -> bool {
-        self.knots.len() == other.knots.len()
-            && self
-                .knots
-                .iter()
-                .zip(&other.knots)
-                .all(|(own, theirs)| (own - theirs).abs() <= tolerance)
+        let within = |own: &[f64], theirs: &[f64]| {
+            own.len() == theirs.len()
+                && own
+                    .iter()
+                    .zip(theirs)
+                    .all(|(own, theirs)| (own - theirs).abs() <= tolerance)
+        };
+        within(&self.knots, &other.knots) && within(&self.parameters, &other.parameters)
     }
 }
 

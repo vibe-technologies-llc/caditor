@@ -192,21 +192,45 @@ fn solve_from_drawn(
 ) -> Result<Vec<Failure>, Cancelled> {
     let mut unsolved = Vec::new();
     for failure in failed {
-        let variables = &failure.component.variables;
-        if !variables.iter().any(|variable| stiff.contains(variable)) {
-            unsolved.push(failure);
-            continue;
-        }
-        for variable in variables {
-            if let (Some(slot), Some(before)) = (values.get_mut(*variable), drawn.get(*variable)) {
-                *slot = *before;
-            }
-        }
-        if solver.descend(&failure.component, values)? != Descent::Solved {
+        let held = failure
+            .component
+            .variables
+            .iter()
+            .any(|variable| stiff.contains(variable));
+        if !held || !solves_from(solver, &failure.component, drawn, values)? {
             unsolved.push(failure);
         }
     }
     Ok(unsolved)
+}
+
+fn solve_again_from(
+    solver: &Solver<'_>,
+    failed: Vec<Failure>,
+    from: &[f64],
+    values: &mut [f64],
+) -> Result<Vec<Failure>, Cancelled> {
+    let mut unsolved = Vec::new();
+    for failure in failed {
+        if !solves_from(solver, &failure.component, from, values)? {
+            unsolved.push(failure);
+        }
+    }
+    Ok(unsolved)
+}
+
+fn solves_from(
+    solver: &Solver<'_>,
+    component: &Component,
+    from: &[f64],
+    values: &mut [f64],
+) -> Result<bool, Cancelled> {
+    for variable in &component.variables {
+        if let (Some(slot), Some(before)) = (values.get_mut(*variable), from.get(*variable)) {
+            *slot = *before;
+        }
+    }
+    Ok(solver.descend(component, values)? == Descent::Solved)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -449,6 +473,7 @@ impl Sketch {
                     stiff.insert(variable);
                 }
             }
+            let dragged = stiff.clone();
             if round > 0 {
                 stiff.extend(spaced_fit_variables(&current, &system));
             }
@@ -474,9 +499,18 @@ impl Sketch {
                 ..frozen
             };
             if !held {
-                values = start;
+                values = start.clone();
                 let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
                 let failed = solve_from_drawn(&solver, failed, &stiff, &drawn, &mut values)?;
+                let failed = if round > 0 {
+                    let loose = Solver {
+                        stiff: &dragged,
+                        ..solver
+                    };
+                    solve_again_from(&loose, failed, &start, &mut values)?
+                } else {
+                    failed
+                };
                 if !failed.is_empty() {
                     for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
                         found.apply(&mut values);

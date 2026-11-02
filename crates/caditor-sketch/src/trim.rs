@@ -498,6 +498,18 @@ impl Sketch {
         cutter.spline_cut_positions(&own, tolerance)
     }
 
+    pub(crate) fn spline_touching(
+        &self,
+        spline: EntityId,
+        closest_on_other: impl Fn(Point2) -> Point2,
+    ) -> Option<Point2> {
+        let Some(Shape::Spline(own)) = self.shape_of(spline) else {
+            return None;
+        };
+        let tolerance = TOLERANCE * SplineCourse::reach_of(&own).max(1.0);
+        intersect::spline_touching(&own, closest_on_other, tolerance)
+    }
+
     fn ellipse_crossings(
         &self,
         curve: EntityId,
