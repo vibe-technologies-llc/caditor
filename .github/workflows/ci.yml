@@ -381,9 +381,61 @@ jobs:
         shell: pwsh
         run: packaging/windows/check-install.ps1 (Get-Item target/dist/caditor-*-snapshot-windows-x86_64.msi)
 
+  fuzz-build:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 45
+    steps:
+      - name: Install build tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git zstd
+
+      - name: Check out (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Load the pinned versions
+        run: cat .github/versions.env >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: ./.github/actions/install-rust
+        with:
+          toolchain: ${{ env.FUZZ_TOOLCHAIN }}
+
+      - name: Install cargo-fuzz
+        run: |
+          name="cargo-fuzz-$CARGO_FUZZ_VERSION-x86_64-unknown-linux-musl"
+          curl --proto '=https' --tlsv1.2 -sSfLO \
+            "https://github.com/rust-fuzz/cargo-fuzz/releases/download/$CARGO_FUZZ_VERSION/$name.tar.gz"
+          echo "$CARGO_FUZZ_SHA256  $name.tar.gz" | sha256sum -c -
+          tar -xzf "$name.tar.gz" -C "$HOME/.cargo/bin" cargo-fuzz
+          rm "$name.tar.gz"
+
+      - name: Check that the fuzz lock file is current
+        working-directory: fuzz
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
+      - name: Restore the fuzz build (actions/cache v6.1.0)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            fuzz/target
+          key: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-${{ hashFiles('fuzz/Cargo.lock') }}
+          restore-keys: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-
+
+      - name: Build every fuzz target
+        working-directory: fuzz
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu
+
   fuzz:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
+    needs: fuzz-build
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -449,8 +501,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             fuzz/target
-          key: fuzz-${{ env.FUZZ_TOOLCHAIN }}-${{ matrix.target }}-${{ hashFiles('fuzz/Cargo.lock') }}
-          restore-keys: fuzz-${{ env.FUZZ_TOOLCHAIN }}-${{ matrix.target }}-
+          key: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-${{ hashFiles('fuzz/Cargo.lock') }}
+          restore-keys: fuzz-build-${{ env.FUZZ_TOOLCHAIN }}-
 
       - name: Restore the corpus (actions/cache v6.1.0)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9

@@ -22,6 +22,10 @@ paths:
   `packaging/build-packages.sh` and checked (every file of the archive, `THIRD-PARTY-NOTICES.txt`
   included, must be in each), the `.deb` installed and removed with `apt-get` by
   `packaging/check-packages.sh --install`, and a minute of fuzzing per target.
+- `fuzz-build` builds every fuzz target once (`cargo fuzz build`) and saves `fuzz/target` and the
+  cargo registry under `fuzz-build-<toolchain>-<lock hash>`, a key without the target name; each
+  `fuzz` matrix job `needs` it and restores that key, so the targets share one build and a
+  cold cache costs one build, not one per target against the 20-minute limit.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on, with its own `XDG_RUNTIME_DIR=/run/user/1001` (Mesa's
   Vulkan stack probes for Wayland and libwayland prints an error each time when unset). It fails if
