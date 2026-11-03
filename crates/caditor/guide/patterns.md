@@ -14,6 +14,12 @@ from one that clears the body.
 - Select a face, edge or vertex of the body, or choose it in the tree, to repeat the whole body.
 - Choose extrusions, revolves, holes, embossed outlines or primitives in the tree to repeat only
   those features on their body, such as a row of holes or a raised mark.
+- An extrusion ending up to the next face, up to a face or through all, and a hole not blind, is
+  worked out again where each copy lands: a boss up to the next face stands on whatever face is
+  under each copy, so copies across a stepped body end at different heights, and a hole through
+  all goes through what is under each copy. A copy whose end finds nothing there, such as one past
+  the edge of the body, makes the pattern fail naming that copy; leave it out or change the
+  spacing. Other features are repeated as they are.
 - Choose fillets and chamfers with them to round or bevel each copy the same way: a filleted boss
   repeated with its fillet gives every copy its fillet, a raised count too. The blend follows the
   edges of the features repeated with it (edges of the body around them, such as where a boss

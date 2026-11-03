@@ -37,6 +37,9 @@ With extrusions, revolves, holes, embossed outlines or primitives chosen in the 
 on the same body instead, always adding to it, such as a hole on one side copied to the other. Fillets, chamfers and
 a shell chosen with them round, bevel or hollow the mirrored copy the same way, as in a
 [pattern](patterns).
+An extrusion ending up to the next face, up to a face or through all, and a hole not blind, is
+worked out again on the mirrored side, so a boss up to the next face stands on the face under its
+image; when nothing is found there the mirror fails saying so.
 
 ## Mirroring faces
 

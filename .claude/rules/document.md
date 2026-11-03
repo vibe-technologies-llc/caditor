@@ -1469,8 +1469,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   stands. A blend is repeated as Repeated blends below, a shell as Repeated shells. The repeated features are in `features()` and a
   change to their tools recomputes it (`same_shapes` compares cuts and joins). A repeated feature
   with a missing result, that changes another body, or that neither adds nor removes fails the
-  pattern naming it. A copy that misses the body changes nothing. The cut copies are the pattern's
+  pattern naming it. A rigid copy that misses the body changes nothing. The cut copies are the pattern's
   `cuts`; their faces are `FaceOrigin::Copy` of the pattern.
+- Landing copies (`landing.rs`, shared with the mirror): a repeated feature whose end depends on
+  the body (`Lander::of`: an extrusion with any end not a distance, up to next, face or surface or
+  through all; a hole not blind and not a modelled tapped one) is not placed rigidly but built
+  again at each copy, one after another on the body as it stands (earlier copies included):
+  `solid::land` and `hole::land` run the feature's own evaluation (`extruded`, `Context::bore`)
+  with the sketch plane mapped by the copy's placement (`Landing::plane`; a reflection flips the
+  plane so the profile keeps its 2D coordinates, and flips the extent with it,
+  `ExtrudeExtent::mirrored`, a hole's `reversed`), a direction mapped the same way, and the
+  pattern's body read as the standing one (`Landing::body`, in `Ends` and `Stopping`). The
+  pattern sees only its own inputs, so such a feature's result keeps the inputs it was evaluated
+  from (`SolidResult::landing`, a `LandingInputs` of its view's `Arc`s, compared by pointer in
+  `same_shapes` and counted in the history's measure) and the copies are evaluated against them:
+  up-to targets, a start plane and other bodies resolve as the original's (world planes stay where
+  they are, so a copy meets the same face or plane where it lands). Each copy's tool is named as a rigid
+  copy's (kernel `pattern_copies` at `Similarity::IDENTITY`) before it is combined, so names and
+  `FaceOrigin::Copy` are the same either way. A copy whose end fails fails the pattern or mirror as
+  `RepeatCause::CopyEnd`, naming the feature and the copy with the feature's own reason, the fix
+  on the pattern. Every other repeated feature keeps the rigid placement.
 - Repeated blends (`repeat_blend.rs`, shared with the mirror): a blend's result keeps a
   `BlendRecipe` (`SolidResult::blending`): its `BlendShape` and, per edge it blended, the
   `EdgeReference` and the faces (names and origins) around each end, captured on the body before

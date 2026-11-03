@@ -32,7 +32,9 @@ use crate::{
     describe::describe_origin,
     document::{Feature, FeatureId},
     failure::{Cause, Expected, Upstream},
-    gear_curves, lettering,
+    gear_curves,
+    landing::{Landed, Lander, Landing, LandingInputs},
+    lettering,
     recompute::{
         CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
         MissingInput, SketchResult,
@@ -230,6 +232,22 @@ impl ExtrudeExtent {
             Self::OneSide { end, .. } => vec![end],
             Self::Symmetric { .. } => Vec::new(),
             Self::TwoSides { forward, backward } => vec![forward, backward],
+        }
+    }
+
+    pub(crate) fn mirrored(&self) -> Self {
+        match self {
+            Self::OneSide { end, reversed } => Self::OneSide {
+                end: end.clone(),
+                reversed: !reversed,
+            },
+            Self::Symmetric { distance } => Self::Symmetric {
+                distance: distance.clone(),
+            },
+            Self::TwoSides { forward, backward } => Self::TwoSides {
+                forward: backward.clone(),
+                backward: forward.clone(),
+            },
         }
     }
 
@@ -804,6 +822,7 @@ pub struct SolidResult {
     joins: Vec<Arc<FeatureResult>>,
     blended: Option<Arc<BlendRecipe>>,
     shelled: Option<Arc<ShellRecipe>>,
+    landing: Option<Arc<LandingInputs>>,
     mesh: OnceLock<Option<DisplayMesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
@@ -883,6 +902,7 @@ impl SolidResult {
             joins: Vec::new(),
             blended: None,
             shelled: None,
+            landing: None,
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
@@ -947,6 +967,18 @@ impl SolidResult {
         self.shelled.as_deref()
     }
 
+    #[must_use]
+    pub(crate) fn landing_on(mut self, feature: &Feature, inputs: &Inputs<'_>) -> Self {
+        if Lander::of(&feature.kind).is_some() {
+            self.landing = Some(Arc::new(LandingInputs::of(inputs)));
+        }
+        self
+    }
+
+    pub(crate) fn landing(&self) -> Option<&LandingInputs> {
+        self.landing.as_deref()
+    }
+
     pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
         self.others = others
             .into_iter()
@@ -967,6 +999,7 @@ impl SolidResult {
             && same_parts(&self.joins, &other.joins)
             && self.blended == other.blended
             && self.shelled == other.shelled
+            && self.landing == other.landing
     }
 
     pub fn names(&self) -> &NameIndex {
@@ -1264,25 +1297,11 @@ pub(crate) fn evaluate(
     inputs: &Inputs<'_>,
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
-    let sketch_id = solid.sketch();
-    let sketch_name = inputs.document.body_label(sketch_id).unwrap_or_default();
-    let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
-    else {
-        return Err(Failure::from(
-            FeatureError::new(Upstream::NoShape { name: sketch_name })
-                .fixing(FixTarget::Feature(sketch_id)),
-        ));
-    };
-    let context = Context {
-        feature,
-        sketch_name,
-        sketch_id,
-        sketch: &sketch.geometry,
-    };
-    let regions = match solid.wall() {
-        Some(wall) => walled_regions(&context, &sketch.geometry, wall, inputs.parameters)?,
-        None => chosen_regions(&context, sketch, solid.regions())?,
-    };
+    let Profiled {
+        context,
+        sketch,
+        regions,
+    } = profiled(feature, solid, inputs)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -1299,37 +1318,10 @@ pub(crate) fn evaluate(
     let mut reached = Vec::new();
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
-            let plane = started;
-            let along = match definition.direction.as_deref() {
-                Some(reference) => Some(extrusion_direction(
-                    &context, feature, inputs, &plane, reference,
-                )?),
-                None => None,
-            };
-            let ends = Ends {
-                context: &context,
-                inputs,
-                operation: definition.operation,
-                other_bodies: &definition.other_bodies,
-                plane,
-                regions: &regions,
-                stop: Cell::new(None),
-                reached: RefCell::new(Vec::new()),
-                along,
-            };
-            let (extent, stop) = ends.extent(&definition.extent)?;
-            stopped = stop;
-            reached = ends.reached.take();
-            let taper = match definition.taper.as_deref() {
-                Some(angle) => taper_angle(&context, angle, inputs.parameters)?,
-                None => 0.0,
-            };
-            match along {
-                Some(direction) => {
-                    extrude_tapered_along(&plane, &regions, extent, taper, direction, raw)
-                }
-                None => extrude_tapered(&plane, &regions, extent, taper, raw),
-            }
+            let built = extruded(&context, inputs, definition, started, &regions, None)?;
+            stopped = built.stop;
+            reached = built.reached;
+            Ok(built.tool)
         }
         SolidFeature::Revolve(definition) => {
             let axis = match &definition.axis {
@@ -1371,6 +1363,7 @@ pub(crate) fn evaluate(
         operation: solid.operation(),
         plane: &started,
         regions: stopped_regions,
+        landing: None,
     };
     let tool = match (stopped, turned_stop) {
         (Some(stop), _) => stopping.trim(tool, stop)?,
@@ -1432,8 +1425,166 @@ pub(crate) fn evaluate(
             .reaching(reached)
             .with_others(others)
             .cutting(cut)
-            .joining(joined),
+            .joining(joined)
+            .landing_on(feature, inputs),
     ))
+}
+
+struct Profiled<'a> {
+    context: Context<'a>,
+    sketch: &'a SketchResult,
+    regions: Vec<Region>,
+}
+
+fn profiled<'a>(
+    feature: &'a Feature,
+    solid: &SolidFeature,
+    inputs: &Inputs<'a>,
+) -> Result<Profiled<'a>, Failure> {
+    let sketch_id = solid.sketch();
+    let sketch_name = inputs.document.body_label(sketch_id).unwrap_or_default();
+    let Some(FeatureResult::Sketch(sketch)) = inputs.features.get(&sketch_id).map(AsRef::as_ref)
+    else {
+        return Err(Failure::from(
+            FeatureError::new(Upstream::NoShape { name: sketch_name })
+                .fixing(FixTarget::Feature(sketch_id)),
+        ));
+    };
+    let context = Context {
+        feature,
+        sketch_name,
+        sketch_id,
+        sketch: &sketch.geometry,
+    };
+    let regions = match solid.wall() {
+        Some(wall) => walled_regions(&context, &sketch.geometry, wall, inputs.parameters)?,
+        None => chosen_regions(&context, sketch, solid.regions())?,
+    };
+    Ok(Profiled {
+        context,
+        sketch,
+        regions,
+    })
+}
+
+struct Extruded {
+    tool: Solid,
+    stop: Option<StopAt>,
+    reached: Vec<ReachedEnd>,
+}
+
+fn extruded(
+    context: &Context<'_>,
+    inputs: &Inputs<'_>,
+    definition: &Extrude,
+    started: Plane,
+    regions: &[Region],
+    landing: Option<&Landing<'_>>,
+) -> Result<Extruded, Failure> {
+    let raw = context.feature.id().raw();
+    let along = match definition.direction.as_deref() {
+        Some(reference) => Some(extrusion_direction(
+            context,
+            context.feature,
+            inputs,
+            &started,
+            reference,
+        )?),
+        None => None,
+    };
+    let (plane, along, extent) = match landing {
+        Some(landing) => (
+            landing.plane(&started),
+            along.map(|direction| landing.direction(direction)),
+            if landing.mirrored() {
+                definition.extent.mirrored()
+            } else {
+                definition.extent.clone()
+            },
+        ),
+        None => (started, along, definition.extent.clone()),
+    };
+    let ends = Ends {
+        context,
+        inputs,
+        operation: definition.operation,
+        other_bodies: &definition.other_bodies,
+        plane,
+        regions,
+        stop: Cell::new(None),
+        reached: RefCell::new(Vec::new()),
+        along,
+        landing,
+    };
+    let (extent, stop) = ends.extent(&extent)?;
+    let reached = ends.reached.take();
+    let taper = match definition.taper.as_deref() {
+        Some(angle) => taper_angle(context, angle, inputs.parameters)?,
+        None => 0.0,
+    };
+    let tool = match along {
+        Some(direction) => extrude_tapered_along(&plane, regions, extent, taper, direction, raw),
+        None => extrude_tapered(&plane, regions, extent, taper, raw),
+    }
+    .map_err(|error| sweep_failure(context, "extrusion", &error))?;
+    Ok(Extruded {
+        tool,
+        stop,
+        reached,
+    })
+}
+
+pub(crate) fn land(
+    feature: &Feature,
+    solid: &SolidFeature,
+    definition: &Extrude,
+    inputs: &Inputs<'_>,
+    landing: &Landing<'_>,
+) -> Result<Landed, Failure> {
+    let Profiled {
+        context, regions, ..
+    } = profiled(feature, solid, inputs)?;
+    let plane = context.sketch.plane();
+    let started = match solid.start() {
+        Some(start) => start_plane(&context, inputs, solid.shape(), plane, start)?,
+        None => plane,
+    };
+    let built = extruded(
+        &context,
+        inputs,
+        definition,
+        started,
+        &regions,
+        Some(landing),
+    )?;
+    let landed_plane = landing.plane(&started);
+    let tool = match built.stop {
+        Some(stop) => Stopping {
+            context: &context,
+            inputs,
+            operation: definition.operation,
+            plane: &landed_plane,
+            regions: &regions,
+            landing: Some(landing),
+        }
+        .trim(built.tool, stop)?,
+        None => built.tool,
+    };
+    let tool = landing.named(&tool)?;
+    let body = boolean(landing.standing, &tool, landing.operation).map_err(|error| {
+        boolean_failure(
+            &context,
+            inputs,
+            [landing.standing, &tool],
+            landing.body,
+            definition.operation,
+            &error,
+        )
+    })?;
+    Ok(Landed {
+        body,
+        tools: vec![tool],
+    })
 }
 
 fn cut_others(
@@ -1966,6 +2117,7 @@ struct Ends<'a> {
     stop: Cell<Option<StopAt>>,
     reached: RefCell<Vec<ReachedEnd>>,
     along: Option<Vector3>,
+    landing: Option<&'a Landing<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2126,6 +2278,9 @@ impl Ends<'_> {
     }
 
     fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
+        if let Some(standing) = self.landing.and_then(|landing| landing.body(body)) {
+            return Ok(standing);
+        }
         self.inputs
             .body(body)
             .ok_or_else(|| self.inputs.missing_body(body))
@@ -2335,6 +2490,7 @@ struct Stopping<'a> {
     operation: BodyOperation,
     plane: &'a Plane,
     regions: &'a [Region],
+    landing: Option<&'a Landing<'a>>,
 }
 
 impl Stopping<'_> {
@@ -2343,10 +2499,14 @@ impl Stopping<'_> {
     }
 
     fn trim(&self, tool: Solid, stop: StopAt) -> Result<Solid, Failure> {
-        let body = self
-            .inputs
-            .body(stop.body)
-            .ok_or_else(|| self.inputs.missing_body(stop.body))?;
+        let standing = self.landing.and_then(|landing| landing.body(stop.body));
+        let body = match standing {
+            Some(standing) => standing,
+            None => self
+                .inputs
+                .body(stop.body)
+                .ok_or_else(|| self.inputs.missing_body(stop.body))?,
+        };
         let stopped = stop_at_body(
             &tool,
             body,

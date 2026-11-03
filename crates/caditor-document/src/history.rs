@@ -5,6 +5,7 @@ use caditor_kernel::{DisplayMesh, SharedBuffer};
 
 use crate::{
     document::FeatureId,
+    landing::LandingInputs,
     recompute::{CacheEntry, FeatureResult},
 };
 
@@ -271,6 +272,7 @@ fn result_buffers(result: &Arc<FeatureResult>, found: &mut dyn FnMut(SharedBuffe
             .chain(solid.cuts())
             .chain(solid.joins())
             .chain(solid.shelled().map(|recipe| &recipe.before))
+            .chain(solid.landing().into_iter().flat_map(LandingInputs::results))
         {
             result_buffers(part, found);
         }

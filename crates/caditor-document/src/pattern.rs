@@ -16,6 +16,7 @@ use crate::{
     describe::describe_edge,
     document::{Feature, FeatureId, FeatureKind},
     failure::Cause,
+    landing::{Copies, Lander, LandingInputs},
     origins,
     pattern_path::{
         EdgePathError, PathError, PatternPath, Station, curve_path, edge_segments, edge_walk,
@@ -941,6 +942,21 @@ pub(crate) struct Seed<'a> {
     pub name: String,
     pub operation: BooleanOperation,
     pub tools: Vec<&'a Solid>,
+    pub lands: Option<(&'a Feature, Lander<'a>, &'a LandingInputs)>,
+}
+
+impl Seed<'_> {
+    pub(crate) fn landing(&self, body: FeatureId) -> Option<Copies<'_>> {
+        let (feature, lander, seen) = self.lands?;
+        Some(Copies {
+            feature,
+            lander,
+            seen,
+            name: &self.name,
+            body,
+            operation: self.operation,
+        })
+    }
 }
 
 pub(crate) enum Repeated<'a> {
@@ -1057,10 +1073,15 @@ pub(crate) fn seed<'a>(
         .filter_map(|part| part.solid())
         .map(|part| &part.solid)
         .collect();
+    let lands = inputs.document.feature(seed).and_then(|found| {
+        let lander = Lander::of(&found.kind)?;
+        Some((found, lander, result.landing()?))
+    });
     Ok(Repeated::Tools(Seed {
         name,
         operation,
         tools,
+        lands,
     }))
 }
 
@@ -1101,6 +1122,15 @@ impl Context<'_> {
                 }
                 Repeated::Shell(_) => continue,
             };
+            if let Some(landing) = seed.landing(definition.body) {
+                let landed = landing.land(inputs, body, copies, &base, cancel)?;
+                body = landed.body;
+                if seed.operation == BooleanOperation::Difference {
+                    cuts.extend(landed.tools);
+                }
+                names.copying_tools_of(feature);
+                continue;
+            }
             let subject = Context {
                 resolver: Resolver {
                     feature: self.resolver.feature,

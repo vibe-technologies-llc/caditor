@@ -62,9 +62,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   A feature pattern or mirror repeats a shell only when nothing else changes the body between the
   shell and it (`repeat_shell.rs` hollows again from the body before the shell, so later features
   would be lost), refusing otherwise.
-  Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
-  extrusion up to next stops where the original did, not on the face it meets), and one pattern
-  cannot chain a shift, a turn and a mirror.
+  Only extrusion and hole ends are found again where each copy lands (`landing.rs`); every other
+  repeated feature is its tool placed again (a revolve up to a plane, a sweep, pipe or loft, a
+  modelled tapped hole), and one pattern cannot chain a shift, a turn and a mirror.
 - [medium · hard] Draft rebuilds only planes and cylinders or cones coaxial with the pull: a round
   face about another axis (a fillet along a top edge, `DraftCause::OffPull`), a sphere, torus,
   spline, extruded or revolved face (`DraftCause::NotDraftable`) is refused, since each needs its
