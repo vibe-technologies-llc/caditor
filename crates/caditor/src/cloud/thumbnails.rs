@@ -226,6 +226,7 @@ mod tests {
             project: ProjectId::new("p"),
             name: "Frame".to_owned(),
             modified: Timestamp::from_second(modified).ok(),
+            has_parts: false,
         }
     }
 

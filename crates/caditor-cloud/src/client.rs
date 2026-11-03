@@ -4,8 +4,8 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Placement, Project,
-        Sent, Translation, Upload, Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Part, Placement,
+        Project, Sent, Translation, Upload, Version, Workspace, WorkspaceId,
     },
     error::Error,
     provider::{Callback, Provider, SignIn},
@@ -98,6 +98,21 @@ impl Client {
 
     pub fn versions(&self, design: &Design) -> Result<Vec<Version>, Error> {
         self.authorised(|session| self.provider.versions(&*self.transport, session, design))
+    }
+
+    pub fn parts(&self, design: &Design) -> Result<Vec<Part>, Error> {
+        self.authorised(|session| self.provider.parts(&*self.transport, session, design))
+    }
+
+    pub fn start_part_conversion(
+        &self,
+        design: &Design,
+        part: &Part,
+    ) -> Result<Translation, Error> {
+        self.authorised(|session| {
+            self.provider
+                .start_part_conversion(&*self.transport, session, design, part)
+        })
     }
 
     pub fn start_conversion(
@@ -361,6 +376,7 @@ mod tests {
             project: crate::catalogue::ProjectId::new("p"),
             name: "Frame".to_owned(),
             modified: None,
+            has_parts: false,
         };
         let provider = Arc::new(
             FakeProvider::new()

@@ -193,6 +193,7 @@ fn crowded_provider() -> Arc<FakeProvider> {
             project: ProjectId::new("p1"),
             name: format!("Design {number:02}"),
             modified: None,
+            has_parts: false,
         })
         .collect();
     let provider = (1..=14).fold(

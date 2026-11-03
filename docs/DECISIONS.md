@@ -49,7 +49,9 @@ decision recorded in `docs/` before work starts.
   a Part Studio whose id the polled translation lists in `resultElementIds`), and that a blob's
   `microversionId` in an elements listing matches the `microversionId` of an entry of
   `/documents/d/{did}/w/{wid}/documenthistory`, whose `date` the manager shows for it (Onshape's
-  published element record has no date of its own).
+  published element record has no date of its own). It should also confirm that `/parts/d/{did}/…/e/{eid}`
+  lists a Part Studio's parts with `partId` and `name`, and that a translation request with
+  `partIds` set to one part id (a string) exports only that part.
 - [medium · easy] Upload to Fusion 360 and open online (`.claude/rules/cloud.md`) remembers its folder per
   hub in `<state>/cloud/fusion-destination.json` and offers Send and open only in the folder the
   manager is showing. Decide whether the remembered destination belongs in the model file instead

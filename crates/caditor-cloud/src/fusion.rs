@@ -962,6 +962,7 @@ impl Resource {
                 project: project.clone(),
                 name: self.title(),
                 modified: self.modified(),
+                has_parts: false,
             })),
             "items" => {
                 let name = self.title();

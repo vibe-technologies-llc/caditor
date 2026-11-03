@@ -7,9 +7,9 @@ use serde_json::json;
 use self::scope::{DesignPlace, ElementKind, Place, Scope, UploadPlace};
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Placement,
-        Project, ProjectId, SendOutcome, Sent, Translation, Upload, UploadFormat,
-        Version as DesignVersion, Workspace, WorkspaceId, WorkspaceKind,
+        Account, Conversion, Design, Download, Folder, FolderEntry, FolderRef, Outgoing, Part,
+        PartId, Placement, Project, ProjectId, SendOutcome, Sent, Translation, Upload,
+        UploadFormat, Version as DesignVersion, Workspace, WorkspaceId, WorkspaceKind,
     },
     encoding::{form, percent_encode},
     error::{Error, Subject},
@@ -118,6 +118,38 @@ impl Onshape {
         };
         folder.newest_first();
         Ok(folder)
+    }
+
+    fn translate(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+        place: &DesignPlace,
+        part: Option<&Part>,
+    ) -> Result<Translation, Error> {
+        let url = format!(
+            "{API}/{}/d/{}/{}/e/{}/translations",
+            place.kind.path(),
+            percent_encode(design.project.as_str()),
+            place.place.path(),
+            percent_encode(&place.element)
+        );
+        let mut job = json!({ "formatName": STEP_FORMAT, "storeInDocument": false });
+        if let (Some(part), Some(fields)) = (part, job.as_object_mut()) {
+            fields.insert("partIds".to_owned(), json!(part.id.as_str()));
+        }
+        let request =
+            Request::post(url, Body::Json(job.to_string())).with_bearer(&session.access_token);
+        let response = checked(SERVICE, net.send(&request)?, Subject::Translation)?;
+        let started: TranslationState = rest::read(SERVICE, &response, Subject::Translation)?;
+        let id = started.id.ok_or(Error::Unreadable {
+            service: SERVICE,
+            subject: Subject::Translation,
+        })?;
+        Ok(Translation {
+            source: format!("{}/{id}", design.project.as_str()),
+        })
     }
 
     fn existing_blob(
@@ -473,6 +505,43 @@ impl Provider for Onshape {
         Ok(Vec::new())
     }
 
+    fn parts(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+    ) -> Result<Vec<Part>, Error> {
+        let place = DesignPlace::parse(&design.id).ok_or(Error::NotFound {
+            subject: Subject::Design,
+        })?;
+        if place.kind != ElementKind::PartStudio {
+            return Ok(Vec::new());
+        }
+        let url = format!(
+            "{API}/parts/d/{}/{}/e/{}",
+            percent_encode(design.project.as_str()),
+            place.place.path(),
+            percent_encode(&place.element)
+        );
+        let listed: Vec<PartInfo> = self.get(net, session, url, Subject::Parts)?;
+        Ok(listed.into_iter().filter_map(PartInfo::part).collect())
+    }
+
+    fn start_part_conversion(
+        &self,
+        net: &dyn Transport,
+        session: &Session,
+        design: &Design,
+        part: &Part,
+    ) -> Result<Translation, Error> {
+        let place = DesignPlace::parse(&design.id)
+            .filter(|place| place.kind == ElementKind::PartStudio)
+            .ok_or(Error::NotFound {
+                subject: Subject::Design,
+            })?;
+        self.translate(net, session, design, &place, Some(part))
+    }
+
     fn start_conversion(
         &self,
         net: &dyn Transport,
@@ -483,25 +552,7 @@ impl Provider for Onshape {
         let place = DesignPlace::parse(&design.id).ok_or(Error::NotFound {
             subject: Subject::Design,
         })?;
-        let url = format!(
-            "{API}/{}/d/{}/{}/e/{}/translations",
-            place.kind.path(),
-            percent_encode(design.project.as_str()),
-            place.place.path(),
-            percent_encode(&place.element)
-        );
-        let job = json!({ "formatName": STEP_FORMAT, "storeInDocument": false });
-        let request =
-            Request::post(url, Body::Json(job.to_string())).with_bearer(&session.access_token);
-        let response = checked(SERVICE, net.send(&request)?, Subject::Translation)?;
-        let started: TranslationState = rest::read(SERVICE, &response, Subject::Translation)?;
-        let id = started.id.ok_or(Error::Unreadable {
-            service: SERVICE,
-            subject: Subject::Translation,
-        })?;
-        Ok(Translation {
-            source: format!("{}/{id}", design.project.as_str()),
-        })
+        self.translate(net, session, design, &place, None)
     }
 
     fn poll_conversion(
@@ -790,6 +841,7 @@ impl Element {
             project: document.clone(),
             name: label(self.name.as_deref(), "Untitled"),
             modified: None,
+            has_parts: kind == ElementKind::PartStudio,
         })
     }
 
@@ -818,6 +870,23 @@ impl Element {
                 .as_ref()
                 .and_then(|microversion| dates.get(microversion))
                 .copied(),
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct PartInfo {
+    #[serde(rename = "partId")]
+    part_id: Option<String>,
+    name: Option<String>,
+}
+
+impl PartInfo {
+    fn part(self) -> Option<Part> {
+        let id = self.part_id.filter(|id| !id.is_empty())?;
+        Some(Part {
+            name: label(self.name.as_deref(), "Untitled part"),
+            id: PartId::new(id),
         })
     }
 }

@@ -127,7 +127,10 @@ caditor downloads it, and it comes in as an [imported body](imported-bodies) lik
 The **View** list in the Cloud projects window chooses which documents are listed: yours, the ones
 you opened recently, the ones shared with you, those of your companies and teams, and public ones.
 In that window a document's other branches and its versions appear as folders beside the tiles of
-its main workspace, so you can import a Part Studio as it was at a version. caditor asks Onshape
+its main workspace, so you can import a Part Studio as it was at a version. **Parts** beside a
+Part Studio in that window lists the parts it holds, each with its own Import, so one part can
+come in without the rest of the Part Studio; it is kept as a file named for the Part Studio and
+the part. caditor asks Onshape
 to export only what you click and never changes your documents; signing out only forgets the
 sign-in on this computer, and you end the permission itself in your Onshape account. Files you
 have uploaded to a document (STEP, mesh and drawing files) are listed beside its Part Studios, and

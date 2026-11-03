@@ -124,7 +124,8 @@ fn folder_bytes(folder: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use caditor_cloud::{
-        Design, DesignId, ProjectId, Upload, UploadFormat, UploadId, Version, VersionId,
+        Design, DesignId, Part, PartId, ProjectId, Upload, UploadFormat, UploadId, Version,
+        VersionId,
     };
     use tempfile::TempDir;
 
@@ -136,6 +137,7 @@ mod tests {
             project: ProjectId::new("p"),
             name: name.to_owned(),
             modified: None,
+            has_parts: false,
         })
     }
 
@@ -194,6 +196,7 @@ mod tests {
                     project: ProjectId::new("p"),
                     name: "Frame".to_owned(),
                     modified: None,
+                    has_parts: false,
                 },
                 Version {
                     id: VersionId::new(format!("v{number}")),
@@ -208,6 +211,40 @@ mod tests {
         assert_ne!(
             frame(&version(3)).parent(),
             frame(&design("urn:i:1", "Frame")).parent()
+        );
+    }
+
+    #[test]
+    fn a_chosen_part_is_kept_apart_from_its_design_and_from_other_parts() {
+        let dir = Path::new("downloads");
+        let studio = Design {
+            id: DesignId::new("partstudios/w/ws/e1"),
+            project: ProjectId::new("p"),
+            name: "Frame".to_owned(),
+            modified: None,
+            has_parts: true,
+        };
+        let part = |id: &str, name: &str| {
+            path_for(
+                dir,
+                &ImportItem::Part(
+                    studio.clone(),
+                    Part {
+                        id: PartId::new(id),
+                        name: name.to_owned(),
+                    },
+                ),
+            )
+        };
+
+        assert_eq!(
+            part("JHD", "Plate").file_name().unwrap(),
+            "Frame - Plate.step"
+        );
+        assert_ne!(part("JHD", "Plate").parent(), part("JKD", "Plate").parent());
+        assert_ne!(
+            part("JHD", "Plate").parent(),
+            path_for(dir, &ImportItem::Design(studio.clone())).parent()
         );
     }
 

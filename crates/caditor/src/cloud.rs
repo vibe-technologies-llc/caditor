@@ -380,6 +380,16 @@ impl Cloud {
             CloudCommand::ImportVersion(service, design, version) => {
                 self.start_import(service, ImportItem::Version(design, version), &mut actions)
             }
+            CloudCommand::ImportPart(service, design, part) => {
+                self.start_import(service, ImportItem::Part(design, part), &mut actions)
+            }
+            CloudCommand::LoadParts(service, design) => self.load_parts(service, design),
+            CloudCommand::ReloadParts(service, design) => {
+                if let Some(linked) = self.linked_mut(service) {
+                    linked.parts.remove(&design.id);
+                }
+                self.load_parts(service, design);
+            }
             CloudCommand::LoadVersions(service, design) => self.load_versions(service, design),
             CloudCommand::ReloadVersions(service, design) => {
                 if let Some(linked) = self.linked_mut(service) {
@@ -657,6 +667,7 @@ impl Cloud {
         linked.folders.clear();
         linked.thumbnails.clear();
         linked.versions.clear();
+        linked.parts.clear();
         linked.projects = Load::Idle;
         linked.workspaces = Load::Idle;
         linked.account = Load::Idle;
@@ -674,6 +685,7 @@ impl Cloud {
         linked.folders.clear();
         linked.thumbnails.clear();
         linked.versions.clear();
+        linked.parts.clear();
         linked.projects = Load::Idle;
         self.load_projects(service, workspace.clone());
         self.remember_workspace(service, workspace);
@@ -887,6 +899,28 @@ impl Cloud {
                 service,
                 generation,
                 loaded: Loaded::Versions(id.clone(), result.map_err(Arc::new)),
+            },
+        );
+    }
+
+    fn load_parts(&mut self, service: Service, design: Design) {
+        let generation = self.generation(service);
+        let Some(linked) = self.linked_mut(service) else {
+            return;
+        };
+        if !matches!(linked.parts(&design.id), Load::Idle) {
+            return;
+        }
+        linked.parts.insert(design.id.clone(), Load::Loading);
+        let client = Arc::clone(&linked.client);
+        let id = design.id.clone();
+        self.courier.spawn(
+            service,
+            move || client.parts(&design).map_err(Failure::from),
+            move |result| Event::Loaded {
+                service,
+                generation,
+                loaded: Loaded::Parts(id.clone(), result.map_err(Arc::new)),
             },
         );
     }
@@ -1218,7 +1252,8 @@ impl Cloud {
             | Loaded::Root(_, Err(failure))
             | Loaded::Folder(_, Err(failure))
             | Loaded::Thumbnail(_, Err(failure))
-            | Loaded::Versions(_, Err(failure)) => Some(Arc::clone(failure)),
+            | Loaded::Versions(_, Err(failure))
+            | Loaded::Parts(_, Err(failure)) => Some(Arc::clone(failure)),
             _ => None,
         };
         if failed
@@ -1277,6 +1312,9 @@ impl Cloud {
             }
             Loaded::Versions(design, result) => {
                 linked.versions.insert(design, settle(result));
+            }
+            Loaded::Parts(design, result) => {
+                linked.parts.insert(design, settle(result));
             }
         }
         if let Some(workspace) = choose {

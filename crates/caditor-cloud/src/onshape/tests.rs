@@ -54,6 +54,7 @@ fn design(id: &str) -> Design {
         project: ProjectId::new("doc1"),
         name: "Studio".to_owned(),
         modified: None,
+        has_parts: true,
     }
 }
 
@@ -654,6 +655,192 @@ fn an_assembly_converts_through_its_own_endpoint() {
         .unwrap();
 
     assert_eq!(translation.source, "doc1/tr2");
+}
+
+fn part(id: &str) -> Part {
+    Part {
+        id: PartId::new(id),
+        name: "Plate".to_owned(),
+    }
+}
+
+#[test]
+fn a_part_studio_lists_its_parts_from_the_documented_endpoint() {
+    let url = format!("{API}/parts/d/doc1/w/ws9/e/e1");
+    let net = ScriptedTransport::new().route(
+        Method::Get,
+        &url,
+        200,
+        r#"[
+            {"partId":"JHD","name":"Plate","bodyType":"solid","partType":"solid","isHidden":false},
+            {"partId":"JKD","name":"  ","bodyType":"solid","isHidden":true},
+            {"name":"No id"},
+            {"partId":"","name":"Empty id"}
+        ]"#,
+    );
+
+    let parts = onshape()
+        .parts(&net, &session(), &design("partstudios/w/ws9/e1"))
+        .unwrap();
+
+    assert_eq!(
+        parts,
+        vec![
+            Part {
+                id: PartId::new("JHD"),
+                name: "Plate".to_owned(),
+            },
+            Part {
+                id: PartId::new("JKD"),
+                name: "Untitled part".to_owned(),
+            },
+        ]
+    );
+    let request = net.requests().into_iter().next().unwrap();
+    assert_eq!(request.bearer.as_deref(), Some("access-1"));
+    assert_eq!(request.url, url);
+}
+
+#[test]
+fn a_version_lists_its_parts_from_the_version_path() {
+    let url = format!("{API}/parts/d/doc1/v/v3/e/e1");
+    let net = ScriptedTransport::new().route(Method::Get, &url, 200, "[]");
+
+    let parts = onshape()
+        .parts(&net, &session(), &design("partstudios/v/v3/e1"))
+        .unwrap();
+
+    assert!(parts.is_empty());
+    assert_eq!(net.requests().len(), 1);
+}
+
+#[test]
+fn an_assembly_has_no_parts_and_asks_nothing() {
+    let net = ScriptedTransport::new();
+
+    let parts = onshape()
+        .parts(&net, &session(), &design("assemblies/w/ws9/e3"))
+        .unwrap();
+
+    assert!(parts.is_empty());
+    assert!(net.requests().is_empty());
+}
+
+#[test]
+fn a_failing_part_list_is_worded_and_a_bad_id_is_not_found() {
+    let url = format!("{API}/parts/d/doc1/w/ws9/e/e1");
+    let net = ScriptedTransport::new().route(Method::Get, &url, 403, "");
+
+    assert!(matches!(
+        onshape().parts(&net, &session(), &design("partstudios/w/ws9/e1")),
+        Err(Error::Forbidden { .. })
+    ));
+    assert!(matches!(
+        onshape().parts(&net, &session(), &design("partstudios/w")),
+        Err(Error::NotFound {
+            subject: Subject::Design
+        })
+    ));
+
+    let unreadable = ScriptedTransport::new().route(Method::Get, &url, 200, r#"{"parts":[]}"#);
+    assert!(matches!(
+        onshape().parts(&unreadable, &session(), &design("partstudios/w/ws9/e1")),
+        Err(Error::Unreadable {
+            subject: Subject::Parts,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_part_converts_through_the_part_studio_translation_with_its_part_id() {
+    let url = format!("{API}/partstudios/d/doc1/w/ws9/e/e1/translations");
+    let net = ScriptedTransport::new().route(
+        Method::Post,
+        &url,
+        200,
+        r#"{"id":"tr3","requestState":"ACTIVE"}"#,
+    );
+
+    let translation = onshape()
+        .start_part_conversion(
+            &net,
+            &session(),
+            &design("partstudios/w/ws9/e1"),
+            &part("JHD"),
+        )
+        .unwrap();
+
+    assert_eq!(translation.source, "doc1/tr3");
+    let request = net.requests().into_iter().next().unwrap();
+    assert_eq!(request.bearer.as_deref(), Some("access-1"));
+    let Body::Json(body) = request.body else {
+        panic!("expected a JSON body");
+    };
+    let sent: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(sent["formatName"], "STEP");
+    assert_eq!(sent["storeInDocument"], false);
+    assert_eq!(sent["partIds"], "JHD");
+}
+
+#[test]
+fn a_whole_part_studio_conversion_names_no_parts() {
+    let url = format!("{API}/partstudios/d/doc1/w/ws9/e/e1/translations");
+    let net = ScriptedTransport::new().route(Method::Post, &url, 200, r#"{"id":"tr1"}"#);
+
+    onshape()
+        .start_conversion(&net, &session(), &design("partstudios/w/ws9/e1"), None)
+        .unwrap();
+
+    let Body::Json(body) = net.requests().into_iter().next().unwrap().body else {
+        panic!("expected a JSON body");
+    };
+    let sent: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(sent.get("partIds").is_none());
+}
+
+#[test]
+fn an_assembly_has_no_part_conversion() {
+    let net = ScriptedTransport::new();
+
+    assert!(matches!(
+        onshape().start_part_conversion(
+            &net,
+            &session(),
+            &design("assemblies/w/ws9/e3"),
+            &part("JHD")
+        ),
+        Err(Error::NotFound {
+            subject: Subject::Design
+        })
+    ));
+    assert!(net.requests().is_empty());
+}
+
+#[test]
+fn only_part_studios_are_marked_as_having_parts() {
+    let net = ScriptedTransport::new().route(
+        Method::Get,
+        &format!("{API}/documents/d/doc1/w/ws3/elements"),
+        200,
+        r#"[
+            {"id":"e1","name":"Frame","elementType":"PARTSTUDIO"},
+            {"id":"e7","name":"Rig","elementType":"ASSEMBLY"}
+        ]"#,
+    );
+    let reference = FolderRef {
+        project: ProjectId::new("doc1"),
+        folder: FolderId::new("w/ws3"),
+    };
+
+    let folder = onshape().folder(&net, &session(), &reference).unwrap();
+
+    let marked: Vec<_> = folder
+        .designs
+        .iter()
+        .map(|design| (design.name.as_str(), design.has_parts))
+        .collect();
+    assert_eq!(marked, vec![("Frame", true), ("Rig", false)]);
 }
 
 #[test]

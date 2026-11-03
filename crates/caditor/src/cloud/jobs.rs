@@ -13,9 +13,9 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Conversion, Design, DesignId, Error, Folder, FolderRef, Listener, Outgoing,
+    Account, Client, Conversion, DesignId, Error, Folder, FolderRef, Listener, Outgoing, Part,
     Placement, Project, ProjectId, Provider, SendAs, SendOutcome, Sent, Service, Session,
-    Transport, Version, Workspace, WorkspaceId,
+    Translation, Transport, Version, Workspace, WorkspaceId,
 };
 use parking_lot::Mutex;
 
@@ -50,6 +50,7 @@ pub enum Loaded {
     Folder(FolderRef, Result<Folder, Arc<Failure>>),
     Thumbnail(DesignId, Result<Option<Arc<Thumbnail>>, Arc<Failure>>),
     Versions(DesignId, Result<Vec<Version>, Arc<Failure>>),
+    Parts(DesignId, Result<Vec<Part>, Arc<Failure>>),
 }
 
 pub enum Event {
@@ -277,12 +278,21 @@ impl ImportJob {
         let target = downloads::path_for(&self.dir, &self.item);
         let temporary = downloads::temporary_for(&target);
         let outcome = match &self.item {
-            ImportItem::Design(design) => {
-                self.convert_and_download(design, None, &temporary, &target)
-            }
-            ImportItem::Version(design, version) => {
-                self.convert_and_download(design, Some(version), &temporary, &target)
-            }
+            ImportItem::Design(design) => self.convert_and_download(
+                || self.client.start_conversion(design, None),
+                &temporary,
+                &target,
+            ),
+            ImportItem::Version(design, version) => self.convert_and_download(
+                || self.client.start_conversion(design, Some(version)),
+                &temporary,
+                &target,
+            ),
+            ImportItem::Part(design, part) => self.convert_and_download(
+                || self.client.start_part_conversion(design, part),
+                &temporary,
+                &target,
+            ),
             ImportItem::Upload(upload) => self.write(&temporary, &target, |writer, progress| {
                 self.client.fetch_upload(upload, writer, progress)
             }),
@@ -299,13 +309,12 @@ impl ImportJob {
 
     fn convert_and_download(
         &self,
-        design: &Design,
-        version: Option<&Version>,
+        start: impl FnOnce() -> Result<Translation, Error>,
         temporary: &Path,
         target: &Path,
     ) -> Result<(), Failure> {
         let service = self.service;
-        let translation = self.client.start_conversion(design, version)?;
+        let translation = start()?;
         let deadline = Instant::now() + CONVERSION_PATIENCE;
         let download = loop {
             self.check_stopped()?;

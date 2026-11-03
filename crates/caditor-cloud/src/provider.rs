@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Placement, Project,
-        Sent, Translation, Upload, Version, Workspace, WorkspaceId,
+        Account, Conversion, Design, Download, Folder, FolderRef, Outgoing, Part, Placement,
+        Project, Sent, Translation, Upload, Version, Workspace, WorkspaceId,
     },
     error::Error,
     pkce::Verifier,
@@ -79,6 +79,27 @@ pub trait Provider: Send + Sync {
         session: &Session,
         design: &Design,
     ) -> Result<Vec<Version>, Error>;
+
+    fn parts(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _design: &Design,
+    ) -> Result<Vec<Part>, Error> {
+        Ok(Vec::new())
+    }
+
+    fn start_part_conversion(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        _design: &Design,
+        _part: &Part,
+    ) -> Result<Translation, Error> {
+        Err(Error::NotOffered {
+            service: self.service(),
+        })
+    }
 
     fn start_conversion(
         &self,

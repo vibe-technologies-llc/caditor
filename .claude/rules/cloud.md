@@ -36,7 +36,8 @@ a `Transport`; the app never speaks a service's protocol itself.
 - Vocabulary (`catalogue.rs`): `Account`, `Workspace` (a Fusion hub; `WorkspaceKind`), `Project`,
   `FolderRef`, `Folder` (sub-folders, `Design`s a service converts, and `Upload`s it stores as they
   are, each with an `UploadFormat` told from its file name: STEP, STL, OBJ, 3MF, DXF, SVG),
-  `Version` (a design's saved version, `number` and time), `Translation` and `Download`, whose
+  `Version` (a design's saved version, `number` and time), `Part` (`PartId` and name, one body of a
+  design a service can convert alone; a `Design` says `has_parts`), `Translation` and `Download`, whose
   strings only their provider reads. A `Folder` also names its `place`, the `FolderRef` a file can be
   put in (a Fusion folder's own; none for a project top that lists several folders, and for an
   Onshape version, which cannot change; an Onshape workspace is its own place). `Outgoing` (folder, file name, bytes) is what is sent and `Sent` (the name, a
@@ -47,7 +48,8 @@ a `Transport`; the app never speaks a service's protocol itself.
 - `Provider` (`provider.rs`): `start_sign_in`/`finish_sign_in` (OAuth 2 with PKCE, `Redirect`,
   `Callback`, `SignIn`), `refresh`, `revoke`, `account`, `workspaces`, `projects`, `root`,
   `folder`, `versions` (a design's saved versions, newest first; none for a service whose versions
-  are folders), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
+  are folders), `parts` (a design's parts; empty by default) with `start_part_conversion` (one
+  part converted to STEP; `NotOffered` by default), the conversion trio `start_conversion` (the tip, or a chosen `Version`),
   `poll_conversion`, `fetch`, `fetch_upload` (an `Upload` streamed as it is stored, with no
   conversion), `send` (an `Outgoing` into a folder, with progress and stop),
   `send_part_studio`/`poll_part_studio` (a service that can import the file as its own model
@@ -164,8 +166,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   `FolderId` is `w/<id>` or `v/<id>` (`Place`), and `folder` lists that place's elements
   (`.../{w|v}/{id}/elements`), no deeper. A failing branch or version list leaves them out of the
   root, never the designs. A `DesignId` is `<partstudios|assemblies>/<w|v>/<id>/<element>`,
-  since the translation endpoint needs all of them. Drawings and Part Studio parts are
-  not offered; a blob element whose name ends in a known `UploadFormat` extension is an `Upload`
+  since the translation endpoint needs all of them. A Part Studio's `Design` has `has_parts`, an
+  assembly's does not. Drawings are not offered; a blob element whose name ends in a known `UploadFormat` extension is an `Upload`
   (`w|v/<id>/<element>`, `UploadPlace`), listed beside the designs. An element carries no date, so
   a workspace's blobs are dated from `/documents/d/{did}/w/{wid}/documenthistory` (read only when
   the workspace holds a blob of a known format): the entry whose `microversionId` is the element's
@@ -177,6 +179,13 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   document is never changed), `Translation::source` being `<document>/<translation>`, polled until
   `requestState` is `DONE` with a `resultExternalDataIds` entry, then
   `/documents/d/{did}/externaldata/{id}` streamed.
+- Parts: `parts` of a Part Studio design reads `/parts/d/{did}/{w|v}/{id}/e/{eid}` (the same place
+  as the design, so a branch's or a version's parts too) and keeps every entry with a non-empty
+  `partId`, named by `name` else "Untitled part"; an assembly's list is empty and asks nothing.
+  `start_part_conversion` is the same `translations` request on the Part Studio with `partIds` set
+  to the one part id as a string (an assembly is `NotFound`), polled and streamed as a whole
+  design is. That `partIds` takes a single id string, and that `/parts` lists these fields, is
+  unverified against a live server (`docs/DECISIONS.md`).
 - The client ID reaches a build as `CADITOR_ONSHAPE_CLIENT_ID` or `DEFAULT_ONSHAPE_CLIENT_ID`, or a
   user types it in Preferences (`cloud.onshape.client_id`, which wins), as for Autodesk.
 - Uploaded files: `fetch_upload` streams `/blobelements/d/{did}/{w|v}/{id}/e/{element}` with the
@@ -286,13 +295,13 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   forget; every keyring call, forgetting included, runs on a courier thread, never on the UI
   thread (`Cloud::leave` spawns even when nothing is linked).
 - An import is one job (`ImportJob`) of an `ImportItem`: a `Design` (the tip), a `Version` of a
-  design, or an `Upload`. A design or version is converted, polled every two seconds for ten
+  design, a `Part` of one, or an `Upload`. A design, version or part is converted, polled every two seconds for ten
   minutes at most, and streamed; an upload is streamed straight (`Client::fetch_upload`, progress
   `Stage::Downloading` only). Either goes to `<state>/cloud/downloads/<id hash>/<name>.<ext>`
   through a hidden `.part` file, fsync, rename, then the newest `KEPT_DESIGNS` are kept (`.step`
-  for a design, `Name vN.step` for a version, the upload's own name with its format's extension).
-  The hash covers project, item id and, for a version, the version id, so a version never replaces
-  the tip's file. One runs at a time; Cancel stops it between and inside steps. The finished file
+  for a design, `Name vN.step` for a version, `Design - Part.step` for a part, the upload's own
+  name with its format's extension). The hash covers project, item id and, for a version, the
+  version id, for a part, the part id, so a version or a part never replaces the tip's file. One runs at a time; Cancel stops it between and inside steps. The finished file
   reaches the model as `FileCommand::Drop`, so every import rule in `app-files.md` applies (the
   extension picks STEP, mesh or drawing import; report, placement, one change per body, Reload
   import from its file); a refused drop leaves the file where it is. A file is named after its
@@ -319,7 +328,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   which runs `CloudCommand::Send`. `Cloud::can_send_anywhere` (cloud on, a signed-in service) gates the `CloudSend` command.
 - A design's versions (`Linked::versions`, `Load<Vec<Version>>` per `DesignId`) load only when the
   user opens them in the manager (`LoadVersions`; `ReloadVersions` after a failure) and are
-  dropped by Refresh and by choosing another hub.
+  dropped by Refresh and by choosing another hub. A Part Studio's parts (`Linked::parts`,
+  `LoadParts`, `ReloadParts`) load and drop the same way.
 - A design's picture (`cloud/thumbnails.rs`) is decoration, loaded lazily: Home asks
   (`LoadThumbnail`) for each design tile it draws inside the visible area, one courier job per
   design, at most `AT_ONCE` running (the rest ask again on the next frame), the answer a
@@ -367,7 +377,8 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   accounts (state pill, Sign in, Cancel, Sign out, Refresh, the last failure), then per signed-in
   service a hub combo (only where `Service::has_workspaces`), a project list beside a folder
   browser with breadcrumbs, an Import per design, a Versions toggle per design where
-  `Service::has_design_versions` (rows of version number, time and Import, the newest marked) and
+  `Service::has_design_versions` (rows of version number, time and Import, the newest marked), a
+  Parts toggle per design with `has_parts` (rows of part name and Import) and
   the uploaded files after the designs with an icon for their kind (`cloud_parts::upload_icon`:
   a cube for STEP, a polygon for meshes, a vector drawing for DXF and SVG) and an Import
   (`CloudDialog` keeps one browser per service, with the designs whose versions are open), in

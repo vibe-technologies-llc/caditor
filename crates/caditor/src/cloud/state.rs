@@ -5,8 +5,8 @@ use std::{
 };
 
 use caditor_cloud::{
-    Account, Client, Design, DesignId, Folder, FolderRef, Project, ProjectId, SendAs, Service,
-    Upload, Version, Workspace, WorkspaceId, WorkspaceKind,
+    Account, Client, Design, DesignId, Folder, FolderRef, Part, Project, ProjectId, SendAs,
+    Service, Upload, Version, Workspace, WorkspaceId, WorkspaceKind,
 };
 
 use super::{downloads::Usage, failure::Failure, thumbnails::Thumbnail};
@@ -43,6 +43,7 @@ pub const DESIGN_EXTENSION: &str = "step";
 
 pub static IDLE_FOLDER: Load<Folder> = Load::Idle;
 pub static IDLE_VERSIONS: Load<Vec<Version>> = Load::Idle;
+pub static IDLE_PARTS: Load<Vec<Part>> = Load::Idle;
 
 #[derive(Debug, Clone)]
 pub enum Stage {
@@ -56,6 +57,7 @@ pub enum Stage {
 pub enum ImportItem {
     Design(Design),
     Version(Design, Version),
+    Part(Design, Part),
     Upload(Upload),
 }
 
@@ -66,6 +68,7 @@ impl ImportItem {
             Self::Version(design, version) => {
                 format!("{} (version {})", design.name, version.number)
             }
+            Self::Part(design, part) => format!("{} in {}", part.name, design.name),
             Self::Upload(upload) => upload.name.clone(),
         }
     }
@@ -74,20 +77,23 @@ impl ImportItem {
         match self {
             Self::Design(design) => design.name.clone(),
             Self::Version(design, version) => format!("{} v{}", design.name, version.number),
+            Self::Part(design, part) => format!("{} - {}", design.name, part.name),
             Self::Upload(upload) => upload.stem().to_owned(),
         }
     }
 
     pub fn extension(&self) -> &'static str {
         match self {
-            Self::Design(_) | Self::Version(..) => DESIGN_EXTENSION,
+            Self::Design(_) | Self::Version(..) | Self::Part(..) => DESIGN_EXTENSION,
             Self::Upload(upload) => upload.format.extension(),
         }
     }
 
     pub fn project(&self) -> &ProjectId {
         match self {
-            Self::Design(design) | Self::Version(design, _) => &design.project,
+            Self::Design(design) | Self::Version(design, _) | Self::Part(design, _) => {
+                &design.project
+            }
             Self::Upload(upload) => &upload.project,
         }
     }
@@ -97,6 +103,9 @@ impl ImportItem {
             Self::Design(design) => design.id.as_str().to_owned(),
             Self::Version(design, version) => {
                 format!("{}\0{}", design.id.as_str(), version.id.as_str())
+            }
+            Self::Part(design, part) => {
+                format!("{}\0part\0{}", design.id.as_str(), part.id.as_str())
             }
             Self::Upload(upload) => upload.id.as_str().to_owned(),
         }
@@ -111,6 +120,9 @@ impl ImportItem {
             Self::Design(design) => CloudCommand::Import(service, design.clone()),
             Self::Version(design, version) => {
                 CloudCommand::ImportVersion(service, design.clone(), version.clone())
+            }
+            Self::Part(design, part) => {
+                CloudCommand::ImportPart(service, design.clone(), part.clone())
             }
             Self::Upload(upload) => CloudCommand::ImportUpload(service, upload.clone()),
         }
@@ -223,6 +235,7 @@ pub struct Linked {
     pub(super) folders: BTreeMap<FolderRef, Load<Folder>>,
     pub(super) thumbnails: BTreeMap<DesignId, Load<Option<Arc<Thumbnail>>>>,
     pub(super) versions: BTreeMap<DesignId, Load<Vec<Version>>>,
+    pub(super) parts: BTreeMap<DesignId, Load<Vec<Part>>>,
     pub(super) destinations: Vec<Remembered>,
     pub import: Option<Import>,
     pub sending: Option<Send>,
@@ -241,6 +254,7 @@ impl Linked {
             folders: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
             versions: BTreeMap::new(),
+            parts: BTreeMap::new(),
             destinations: Vec::new(),
             import: None,
             sending: None,
@@ -265,6 +279,10 @@ impl Linked {
 
     pub fn versions(&self, design: &DesignId) -> &Load<Vec<Version>> {
         self.versions.get(design).unwrap_or(&IDLE_VERSIONS)
+    }
+
+    pub fn parts(&self, design: &DesignId) -> &Load<Vec<Part>> {
+        self.parts.get(design).unwrap_or(&IDLE_PARTS)
     }
 
     pub fn picture(&self, design: &DesignId) -> Option<&Arc<Thumbnail>> {
@@ -340,6 +358,9 @@ pub enum CloudCommand {
     Import(Service, Design),
     ImportUpload(Service, Upload),
     ImportVersion(Service, Design, Version),
+    ImportPart(Service, Design, Part),
+    LoadParts(Service, Design),
+    ReloadParts(Service, Design),
     LoadVersions(Service, Design),
     ReloadVersions(Service, Design),
     CancelImport(Service),

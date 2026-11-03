@@ -214,8 +214,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
-  Drawings, blobs and Part Studio parts are not offered either, only whole Part Studios and
-  assemblies.
+  Drawings are not offered either, only Part Studios (whole or by part) and assemblies.
 - [low · medium] The rendered view's bounced light (`render.md`, the light pass) gathers from a
   reflective shadow map, so it reaches only `BOUNCE_REACH` of the light frame and comes only from
   surfaces the sun sees, and its visibility test still lets bounced light through a wall behind
