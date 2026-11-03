@@ -725,7 +725,7 @@ fn a_pattern_of_features_repeats_their_holes_and_bosses_on_the_body() {
         seeded.plate,
         60.0 * 10.0 * 4.0 - 3.0 * hole + 3.0 * 4.0 * 6.0 * 2.0,
     );
-    assert_eq!(evaluation.cuts(seeded.pattern).len(), 1);
+    assert_eq!(evaluation.cuts(seeded.pattern).len(), 2);
     let solid = evaluation.body(seeded.plate).unwrap();
     let copied: BTreeSet<[u32; 2]> = solid
         .faces()

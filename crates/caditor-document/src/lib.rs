@@ -30,6 +30,7 @@ mod hole;
 mod hole_standard;
 mod import;
 mod inlining;
+mod landing;
 mod lettering;
 mod loft;
 mod lookahead;
@@ -307,6 +308,8 @@ mod helix_tests;
 mod history_tests;
 #[cfg(test)]
 mod hole_tests;
+#[cfg(test)]
+mod landing_tests;
 #[cfg(test)]
 mod loft_tests;
 #[cfg(test)]

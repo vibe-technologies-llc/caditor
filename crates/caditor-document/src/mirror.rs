@@ -340,6 +340,15 @@ impl<'a> Context<'a> {
                 }
                 Repeated::Shell(_) => continue,
             };
+            if let Some(landing) = seed.landing(definition.body) {
+                let landed = landing.land(inputs, body, &copies, &base, cancel)?;
+                body = landed.body;
+                if seed.operation == BooleanOperation::Difference {
+                    cuts.extend(landed.tools);
+                }
+                names.copying_tools_of(feature);
+                continue;
+            }
             for tool in &seed.tools {
                 if cancel.is_cancelled() {
                     return Err(Failure::Cancelled);

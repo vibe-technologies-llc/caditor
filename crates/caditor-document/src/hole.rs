@@ -16,6 +16,7 @@ use crate::{
     document::{Feature, FeatureId, list_names},
     failure::{Cause, Expected, Upstream},
     hole_standard::HoleStandard,
+    landing::{Landed, Landing},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{ReachedEnd, ReachedSide, SolidResult},
     thread::{self, Bore, ThreadCause, ThreadForm, cut_thread, hole_thread},
@@ -1188,6 +1189,157 @@ fn leaves_a_face_of(cut: &Solid, drill: &Solid) -> bool {
     })
 }
 
+struct Drilling<'a> {
+    definition: &'a Hole,
+    sketch: &'a Sketch,
+    values: &'a Values,
+    centres: &'a [(EntityId, Point2)],
+    frame: Plane,
+    reversed: bool,
+    original: &'a Solid,
+    landing: Option<&'a Landing<'a>>,
+}
+
+struct Bored {
+    body: Solid,
+    tools: Vec<Solid>,
+    reached: Vec<ReachedEnd>,
+}
+
+impl Context<'_> {
+    fn bore(&self, bore: &Drilling<'_>, cancel: &CancelToken) -> Result<Bored, Failure> {
+        let Drilling {
+            definition,
+            sketch,
+            values,
+            centres,
+            frame,
+            reversed,
+            original,
+            landing,
+        } = *bore;
+        let context = self;
+        let feature = self.feature;
+        let inputs = self.inputs;
+        let body_name = context.name(definition.body);
+        let mut tools = Vec::new();
+        let mut reached = Vec::new();
+        let mut body = original.clone();
+        let reach_kind = context.reach(&definition.depth)?;
+        let up = frame.normal() * if reversed { -1.0 } else { 1.0 };
+        let circles = match definition.sizing {
+            HoleSizing::Circles | HoleSizing::CirclesAndHeads => circle_sizes(sketch),
+            HoleSizing::Typed => BTreeMap::new(),
+        };
+        for &(point, position) in centres {
+            let own = match circles.get(&point) {
+                Some(size) => Some(context.values(
+                    definition,
+                    Some(&Sized {
+                        diameter: size.diameter,
+                        circle: sketch.entity_label(size.circle),
+                        heads: definition.sizing == HoleSizing::CirclesAndHeads,
+                    }),
+                )?),
+                None => None,
+            };
+            let values = own.as_ref().unwrap_or(values);
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            let centre = frame.to_world(position);
+            let at = sketch.entity_label(point);
+            let drilled = Drilled {
+                frame: &frame,
+                centre,
+                down: -up,
+                at: &at,
+            };
+            let depth = match (&reach_kind, values.depth) {
+                (Reach::Blind, Some(depth)) => depth,
+                (Reach::Blind | Reach::ThroughAll, _) => {
+                    reach(&body, centre, -up).ok_or_else(|| {
+                        context.error(HoleCause::NothingBeyond {
+                            body: body_name.clone(),
+                            at: at.clone(),
+                        })
+                    })?
+                }
+                (Reach::UpToNext { offset }, _) => {
+                    let (depth, plane) =
+                        context.up_to_next(original, &body_name, values, *offset, &drilled)?;
+                    context.head_fits(definition, values, depth, &at)?;
+                    reached.push(ReachedEnd {
+                        side: ReachedSide::Only,
+                        plane,
+                    });
+                    depth
+                }
+                (
+                    Reach::UpToFace {
+                        plane,
+                        name,
+                        offset,
+                    },
+                    _,
+                ) => {
+                    let depth = context.depth_to(plane, name, *offset, &drilled)?;
+                    context.head_fits(definition, values, depth, &at)?;
+                    depth
+                }
+            };
+            let base = point.raw().wrapping_mul(PARTS);
+            for drill in drills(context, values, &frame, centre, up, depth, base)? {
+                let drill = match landing {
+                    Some(landing) => landing.named(&drill)?,
+                    None => drill,
+                };
+                let cut =
+                    boolean(&body, &drill, BooleanOperation::Difference).map_err(|error| {
+                        use caditor_kernel::BooleanError;
+                        match error {
+                            BooleanError::Cancelled(_) => Failure::Cancelled,
+                            BooleanError::Empty => context.error(HoleCause::RemovesAll {
+                                at: sketch.entity_label(point),
+                                body: body_name.clone(),
+                            }),
+                            other => {
+                                log::warn!("{} could not drill: {other}", feature.name);
+                                let trouble = boolean_trouble(
+                                    inputs.document,
+                                    [&body, &drill],
+                                    &other,
+                                    Adjust::MoveThePointOrChangeTheSizes,
+                                );
+                                let place = trouble.place;
+                                context
+                                    .error(HoleCause::NotCut {
+                                        at: sketch.entity_label(point),
+                                        body: body_name.clone(),
+                                        trouble,
+                                    })
+                                    .placed(place)
+                            }
+                        }
+                    })?;
+                if !leaves_a_face_of(&cut, &drill) {
+                    return Err(context.error(HoleCause::Unreached {
+                        at: sketch.entity_label(point),
+                        body: body_name.clone(),
+                    }));
+                }
+                body = cut;
+                tools.push(drill);
+            }
+        }
+        Ok(Bored {
+            body,
+            tools,
+            reached,
+        })
+    }
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     definition: &Hole,
@@ -1224,116 +1376,26 @@ pub(crate) fn evaluate(
             definition.sketch,
         ));
     }
-    let body_name = context.name(definition.body);
-    let mut tools = Vec::new();
-    let mut reached = Vec::new();
     let original = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?;
-    let mut body = original.clone();
-    let reach_kind = context.reach(&definition.depth)?;
-    let frame = sketch.geometry.plane();
-    let up = frame.normal() * if definition.reversed { -1.0 } else { 1.0 };
-    let circles = match definition.sizing {
-        HoleSizing::Circles | HoleSizing::CirclesAndHeads => circle_sizes(&sketch.geometry),
-        HoleSizing::Typed => BTreeMap::new(),
-    };
-    for (point, position) in centres {
-        let own = match circles.get(&point) {
-            Some(size) => Some(context.values(
-                definition,
-                Some(&Sized {
-                    diameter: size.diameter,
-                    circle: sketch.geometry.entity_label(size.circle),
-                    heads: definition.sizing == HoleSizing::CirclesAndHeads,
-                }),
-            )?),
-            None => None,
-        };
-        let values = own.as_ref().unwrap_or(&values);
-        if cancel.is_cancelled() {
-            return Err(Failure::Cancelled);
-        }
-        let centre = frame.to_world(position);
-        let at = sketch.geometry.entity_label(point);
-        let drilled = Drilled {
-            frame: &frame,
-            centre,
-            down: -up,
-            at: &at,
-        };
-        let depth = match (&reach_kind, values.depth) {
-            (Reach::Blind, Some(depth)) => depth,
-            (Reach::Blind | Reach::ThroughAll, _) => {
-                reach(&body, centre, -up).ok_or_else(|| {
-                    context.error(HoleCause::NothingBeyond {
-                        body: body_name.clone(),
-                        at: at.clone(),
-                    })
-                })?
-            }
-            (Reach::UpToNext { offset }, _) => {
-                let (depth, plane) =
-                    context.up_to_next(original, &body_name, values, *offset, &drilled)?;
-                context.head_fits(definition, values, depth, &at)?;
-                reached.push(ReachedEnd {
-                    side: ReachedSide::Only,
-                    plane,
-                });
-                depth
-            }
-            (
-                Reach::UpToFace {
-                    plane,
-                    name,
-                    offset,
-                },
-                _,
-            ) => {
-                let depth = context.depth_to(plane, name, *offset, &drilled)?;
-                context.head_fits(definition, values, depth, &at)?;
-                depth
-            }
-        };
-        let base = point.raw().wrapping_mul(PARTS);
-        for drill in drills(&context, values, &frame, centre, up, depth, base)? {
-            let cut = boolean(&body, &drill, BooleanOperation::Difference).map_err(|error| {
-                use caditor_kernel::BooleanError;
-                match error {
-                    BooleanError::Cancelled(_) => Failure::Cancelled,
-                    BooleanError::Empty => context.error(HoleCause::RemovesAll {
-                        at: sketch.geometry.entity_label(point),
-                        body: body_name.clone(),
-                    }),
-                    other => {
-                        log::warn!("{} could not drill: {other}", feature.name);
-                        let trouble = boolean_trouble(
-                            inputs.document,
-                            [&body, &drill],
-                            &other,
-                            Adjust::MoveThePointOrChangeTheSizes,
-                        );
-                        let place = trouble.place;
-                        context
-                            .error(HoleCause::NotCut {
-                                at: sketch.geometry.entity_label(point),
-                                body: body_name.clone(),
-                                trouble,
-                            })
-                            .placed(place)
-                    }
-                }
-            })?;
-            if !leaves_a_face_of(&cut, &drill) {
-                return Err(context.error(HoleCause::Unreached {
-                    at: sketch.geometry.entity_label(point),
-                    body: body_name.clone(),
-                }));
-            }
-            body = cut;
-            tools.push(drill);
-        }
-    }
+    let Bored {
+        mut body,
+        mut tools,
+        reached,
+    } = context.bore(
+        &Drilling {
+            definition,
+            sketch: &sketch.geometry,
+            values: &values,
+            centres: &centres,
+            frame: sketch.geometry.plane(),
+            reversed: definition.reversed,
+            original,
+            landing: None,
+        },
+        cancel,
+    )?;
     if definition.is_modelled_thread()
         && let Some(designation) = hole_thread(definition)
     {
@@ -1344,7 +1406,8 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Solid(
         SolidResult::new(definition.body, body)
             .reaching(reached)
-            .cutting(tools),
+            .cutting(tools)
+            .landing_on(feature, inputs),
     ))
 }
 
@@ -1689,4 +1752,43 @@ impl From<HoleCause> for Cause {
     fn from(cause: HoleCause) -> Self {
         Self::Hole(cause)
     }
+}
+
+pub(crate) fn land(
+    feature: &Feature,
+    definition: &Hole,
+    inputs: &Inputs<'_>,
+    landing: &Landing<'_>,
+    cancel: &CancelToken,
+) -> Result<Landed, Failure> {
+    let context = Context { feature, inputs };
+    let values = context.values(definition, None)?;
+    let Some(FeatureResult::Sketch(sketch)) =
+        inputs.features.get(&definition.sketch).map(AsRef::as_ref)
+    else {
+        return Err(Failure::from(
+            FeatureError::new(Upstream::NoShape {
+                name: context.name(definition.sketch),
+            })
+            .fixing(FixTarget::Feature(definition.sketch)),
+        ));
+    };
+    let centres = centres(&sketch.geometry);
+    let bored = context.bore(
+        &Drilling {
+            definition,
+            sketch: &sketch.geometry,
+            values: &values,
+            centres: &centres,
+            frame: landing.plane(&sketch.geometry.plane()),
+            reversed: definition.reversed != landing.mirrored(),
+            original: landing.standing,
+            landing: Some(landing),
+        },
+        cancel,
+    )?;
+    Ok(Landed {
+        body: bored.body,
+        tools: bored.tools,
+    })
 }

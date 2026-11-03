@@ -339,6 +339,13 @@ pub(crate) enum RepeatCause {
         shell: String,
         why: ShellWhy,
     },
+    CopyEnd {
+        repeater: Repeater,
+        name: String,
+        copy: String,
+        cause: Box<Cause>,
+    },
+    CopyUnnamed,
 }
 
 impl RepeatCause {
@@ -456,6 +463,17 @@ impl RepeatCause {
                 };
                 format!("{shell} could not hollow {copies}: {why}.")
             }
+            Self::CopyEnd {
+                repeater,
+                name,
+                copy,
+                cause,
+            } => format!(
+                "{name} could not be {} on {copy}, where its end is found again on the body. {}",
+                repeater.repeated(),
+                cause.reason()
+            ),
+            Self::CopyUnnamed => "The copy's faces could not be named.".to_owned(),
         }
     }
 
@@ -530,6 +548,26 @@ impl RepeatCause {
                 repeater.copies(),
                 Self::leave_out(*repeater, shell)
             ),
+            Self::CopyEnd {
+                repeater,
+                name,
+                copy,
+                ..
+            } => match repeater {
+                Repeater::Pattern => format!(
+                    "{} {copy} meets the body as the original does, leave {copy} out, {}.",
+                    repeater.clear(),
+                    Self::leave_out(*repeater, name)
+                ),
+                Repeater::Mirror => format!(
+                    "{} {copy} meets the body as the original does, {}.",
+                    repeater.clear(),
+                    Self::leave_out(*repeater, name)
+                ),
+            },
+            Self::CopyUnnamed => {
+                "Change the spacing or the plane slightly and try again.".to_owned()
+            }
         }
     }
 
