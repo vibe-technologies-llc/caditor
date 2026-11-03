@@ -220,6 +220,33 @@ fn a_line_left_just_over_the_collapse_length_is_refused_the_first_time() {
     replay_case(246355, |_, input| solves_again(input));
 }
 
+#[test]
+fn a_point_level_with_the_crossing_of_circles_solved_onto_one_another_stays_put() {
+    for seed in [12821, 48899, 53753] {
+        replay_case(seed, |_, input| stays_put(input));
+    }
+}
+
+#[test]
+fn a_point_on_a_direction_through_the_crossing_of_circles_solved_onto_one_another_stays_put() {
+    replay_case(62097, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_point_on_a_direction_through_the_crossing_of_collinear_lines_stays_put() {
+    replay_case(49857, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_centre_taking_the_middle_of_an_arc_closed_on_itself_stays_put() {
+    replay_case(35380, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_spline_square_to_a_distance_at_its_end_keeps_that_end_when_solved_again() {
+    replay_case(42213, |_, input| stays_put(input));
+}
+
 fn holds_every_spline_distance(input: &mut Unstructured) {
     let Ok(drawn) = sketch(input, Plane::XY) else {
         return;

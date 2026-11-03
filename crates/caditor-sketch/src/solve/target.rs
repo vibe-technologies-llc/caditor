@@ -341,7 +341,7 @@ impl System {
                     fallback: self.initial_direction(start, end),
                 };
                 vec![
-                    Form::OnBisector { point, chord },
+                    Form::OnBisector { point, chord, arc },
                     Form::ArcBulge { point, chord, arc },
                 ]
             }

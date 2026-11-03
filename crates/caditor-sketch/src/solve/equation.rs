@@ -594,6 +594,44 @@ impl Direction {
     }
 }
 
+struct ArcChord {
+    direction: Direction,
+    closed: bool,
+}
+
+impl ArcChord {
+    fn of(chord: &LineHandle, center: PointHandle, values: &[f64], context: &Context) -> Self {
+        let direction = chord.direction(values, context);
+        if !direction.degenerate {
+            return Self {
+                direction,
+                closed: false,
+            };
+        }
+        let radial = chord.start.at(values) - center.at(values);
+        Self {
+            direction: Direction::of(-radial.perp(), chord.fallback, context),
+            closed: true,
+        }
+    }
+
+    fn push(
+        &self,
+        chord: &LineHandle,
+        center: PointHandle,
+        gradient: &mut Gradient,
+        partial: Vector2,
+    ) {
+        let back = self.direction.back_from_unit(partial);
+        if self.closed {
+            chord.start.push(gradient, back.perp());
+            center.push(gradient, -back.perp());
+        } else {
+            chord.push_vector(gradient, back);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Contact {
     External,
@@ -670,6 +708,7 @@ pub(crate) enum Form {
     OnBisector {
         point: PointHandle,
         chord: LineHandle,
+        arc: CircleHandle,
     },
     ArcBulge {
         point: PointHandle,
@@ -1396,25 +1435,25 @@ impl Form {
                 gradient.push((parameter, across.dot(at.tangent) + turning.dot(at.bend)));
                 radial.unit.dot(tangent.unit) * scale
             }
-            Self::OnBisector { point, chord } => {
-                let direction = chord.direction(values, context);
+            Self::OnBisector { point, chord, arc } => {
+                let turn = ArcChord::of(&chord, arc.center, values, context);
                 let middle = chord.start.at(values).midpoint(chord.end.at(values));
                 let offset = point.at(values) - middle;
-                point.push(gradient, direction.unit);
-                chord.start.push(gradient, -direction.unit * 0.5);
-                chord.end.push(gradient, -direction.unit * 0.5);
-                chord.push_vector(gradient, direction.back_from_unit(offset));
-                direction.unit.dot(offset)
+                point.push(gradient, turn.direction.unit);
+                chord.start.push(gradient, -turn.direction.unit * 0.5);
+                chord.end.push(gradient, -turn.direction.unit * 0.5);
+                turn.push(&chord, arc.center, gradient, offset);
+                turn.direction.unit.dot(offset)
             }
             Self::ArcBulge { point, chord, arc } => {
-                let direction = chord.direction(values, context);
+                let turn = ArcChord::of(&chord, arc.center, values, context);
                 let offset = point.at(values) - arc.center.at(values);
-                let outward = direction.unit.perp();
+                let outward = turn.direction.unit.perp();
                 point.push(gradient, outward);
                 arc.center.push(gradient, -outward);
-                chord.push_vector(gradient, direction.back_from_unit(-offset.perp()));
+                turn.push(&chord, arc.center, gradient, -offset.perp());
                 arc.push_radius(values, context, gradient, 1.0);
-                direction.unit.perp_dot(offset) + arc.radius(values)
+                turn.direction.unit.perp_dot(offset) + arc.radius(values)
             }
             Self::SameX(a, b) => {
                 a.push(gradient, Vector2::X);
@@ -2166,7 +2205,18 @@ mod tests {
             },
             Form::OnBisector {
                 point: point(12),
-                chord: line(0, 4),
+                chord: line(2, 4),
+                arc: arc(6, 2),
+            },
+            Form::OnBisector {
+                point: point(12),
+                chord: line(2, 2),
+                arc: arc(6, 2),
+            },
+            Form::ArcBulge {
+                point: point(12),
+                chord: line(2, 2),
+                arc: arc(6, 2),
             },
             Form::ArcBulge {
                 point: point(12),

@@ -161,7 +161,9 @@ paths:
   bound), so a point slides across the seam. An ellipse's is its angle over the whole ellipse, as a
   point on an arc lies on its whole circle.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
-  refined by Newton so geometry that already holds does not move; among starts equally near (within
+  refined by Newton so geometry that already holds does not move (a clamped end counts as
+  stationary when the Newton step there is within `SETTLED_AT_END`, so a spline square to a
+  distance at its end keeps that end over the other end tied with it); among starts equally near (within
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the
   second derivative, never a fixed fallback. A step pushing a parameter already at an end of its
   range further out is retaken with it held.
@@ -265,7 +267,11 @@ paths:
   or its normal, the line's turn reaching its ends through `Direction::back_from_unit`. `Centroid`
   is `Form::Through` along x and y over its members at equal weights (`centroid_terms`): a point
   itself, a line as half of each end, an arc as a hidden point held at its middle by
-  `middle_forms`; a tracked `PointTarget::Centroid` sums the same terms. Hidden points are per
+  `middle_forms`; a tracked `PointTarget::Centroid` sums the same terms. An arc's middle is
+  `Form::OnBisector` and `Form::ArcBulge` across its chord; when the chord has no length (ends
+  coincident) both take the radius to the start turned a right angle instead (`ArcChord`), so the
+  middle of an arc closed on itself is held on its circle opposite its start, as `middle_of` puts
+  it, not wherever the drawn chord pointed. Hidden points are per
   constraint (`System::targets`, one per arc member or one for a crossing or arc middle,
   `hidden_target_starts`), each two variables and two equations. Their rows belong to their
   constraint, so degrees of freedom, redundancy and conflict diagnosis need nothing of their own.

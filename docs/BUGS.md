@@ -119,11 +119,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   reports a conflict (257788, `a_solved_sketch_solves_again_from_its_own_result`). The knots near
   the repeated point sit `SHORTEST_GAP_SHARE` apart, where the curve swings with the smallest move
   of its fit points; `a_solved_sketch_does_not_move_when_solved_again` skips these splines.
-- [medium · hard] Beyond the 3,000 cases CI runs, sketches with no spline can move when solved
-  again from their own result, by up to 25 mm (seeds 12821, 35380, 42213, 48899, 49857, 53753,
-  55335 and 62097 of `a_solved_sketch_does_not_move_when_solved_again`): 12821 holds a point level
-  with the crossing of two concentric circles, 49857 a point on a direction through the crossing
-  of an axis and a line; neither yet traced.
 
 ## STEP import
 

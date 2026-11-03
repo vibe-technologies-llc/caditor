@@ -26,6 +26,7 @@ use crate::{
 const SAMPLES_PER_SPAN: usize = 16;
 const REFINEMENTS: usize = 32;
 const TIE: f64 = 1e-9;
+const SETTLED_AT_END: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -1065,7 +1066,8 @@ fn refine(
         let moved = (next - parameter).abs();
         parameter = next;
         if moved <= f64::EPSILON {
-            return (parameter, parameter > 0.0 && parameter < 1.0);
+            let inside = parameter > 0.0 && parameter < 1.0;
+            return (parameter, inside || step.abs() <= SETTLED_AT_END);
         }
     }
     (parameter, false)

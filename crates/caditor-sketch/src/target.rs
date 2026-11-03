@@ -11,6 +11,7 @@ use crate::{
 
 const CROSSING_TOLERANCE: f64 = 1e-9;
 const TIED_CHOICE: f64 = 1e-9;
+const CLOSED_ARC_GAP: f64 = 1e-12;
 const FEWEST_CORNERS: usize = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -175,7 +176,13 @@ impl Sketch {
         held: Point2,
         across: Vector2,
     ) -> Option<Point2> {
-        let places = self.target_places(target);
+        let places = match target {
+            PointTarget::Crossing(first, second) => match shared_carrier(self, *first, *second) {
+                Some(carrier) => level_places(carrier, held, across),
+                None => crossing_places(self, *first, *second),
+            },
+            _ => self.target_places(target),
+        };
         let miss = |place: &Point2| across.dot(held - *place).abs();
         let least = places.iter().map(miss).fold(f64::INFINITY, f64::min);
         let slack = TIED_CHOICE * (1.0 + least + held.abs().max_element());
@@ -191,7 +198,13 @@ impl Sketch {
                 let (start, end) = self.line_endpoints(curve)?;
                 Some(start.midpoint(end))
             }
-            Entity::Arc { .. } => {
+            &Entity::Arc { center, start, end } => {
+                let (center, start, end) =
+                    (self.point(center)?, self.point(start)?, self.point(end)?);
+                let reach = center.abs().max_element().max(start.abs().max_element());
+                if start.distance(end) <= CLOSED_ARC_GAP * reach.max(1.0) {
+                    return Some(center * 2.0 - start);
+                }
                 let arc = self.arc(curve)?;
                 Some(arc.point_at(arc.start_angle + arc.sweep / 2.0))
             }
@@ -375,13 +388,7 @@ fn carrier_of(sketch: &Sketch, curve: EntityId) -> Option<Carrier> {
 }
 
 fn crossing_places(sketch: &Sketch, first: EntityId, second: EntityId) -> Vec<Point2> {
-    let scale = [first, second]
-        .into_iter()
-        .filter_map(|curve| sketch.entity(curve))
-        .flat_map(Entity::points)
-        .filter_map(|point| sketch.point(point))
-        .fold(1.0_f64, |most, point| most.max(point.abs().max_element()));
-    let tolerance = CROSSING_TOLERANCE * scale;
+    let tolerance = CROSSING_TOLERANCE * crossing_scale(sketch, first, second);
     let crossed = match (carrier_of(sketch, first), carrier_of(sketch, second)) {
         (Some(carrier), Some(Carrier::Line { through, direction }))
         | (Some(Carrier::Line { through, direction }), Some(carrier)) => {
@@ -398,6 +405,64 @@ fn crossing_places(sketch: &Sketch, first: EntityId, second: EntityId) -> Vec<Po
         touching_places(sketch, first, second)
     } else {
         crossed
+    }
+}
+
+fn crossing_scale(sketch: &Sketch, first: EntityId, second: EntityId) -> f64 {
+    [first, second]
+        .into_iter()
+        .filter_map(|curve| sketch.entity(curve))
+        .flat_map(Entity::points)
+        .filter_map(|point| sketch.point(point))
+        .fold(1.0_f64, |most, point| most.max(point.abs().max_element()))
+}
+
+fn shared_carrier(sketch: &Sketch, first: EntityId, second: EntityId) -> Option<Carrier> {
+    let tolerance = CROSSING_TOLERANCE * crossing_scale(sketch, first, second);
+    let (own, other) = (carrier_of(sketch, first)?, carrier_of(sketch, second)?);
+    let shared = match (own, other) {
+        (
+            Carrier::Line { through, direction },
+            Carrier::Line {
+                through: other_through,
+                direction: other_direction,
+            },
+        ) => {
+            direction.perp_dot(other_direction).abs() <= CROSSING_TOLERANCE
+                && direction.perp_dot(other_through - through).abs() <= tolerance
+        }
+        (
+            Carrier::Circle { center, radius },
+            Carrier::Circle {
+                center: other_center,
+                radius: other_radius,
+            },
+        ) => {
+            center.distance(other_center) <= tolerance && (radius - other_radius).abs() <= tolerance
+        }
+        _ => false,
+    };
+    shared.then_some(own)
+}
+
+fn level_places(carrier: Carrier, held: Point2, across: Vector2) -> Vec<Point2> {
+    let Some(across) = across.try_normalize() else {
+        return vec![carrier.closest(held)];
+    };
+    let level = line_crossings(carrier, held, across.perp(), 0.0);
+    if !level.is_empty() {
+        return level;
+    }
+    match carrier {
+        Carrier::Line { .. } => vec![carrier.closest(held)],
+        Carrier::Circle { center, radius } => {
+            let toward = if across.dot(held - center) < 0.0 {
+                -1.0
+            } else {
+                1.0
+            };
+            vec![center + across * (radius * toward)]
+        }
     }
 }
 
