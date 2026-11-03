@@ -509,7 +509,7 @@ impl Tool {
                 "Revolves every closed region of a sketch (or the regions chosen by a point inside each, or a thin wall along its curves) about an axis: a line of the sketch, its horizontal or vertical axis, or a model axis. A full turn unless an angle is given, or up to a plane. With no operation it decides like the app: it adds to the body it reaches or makes a new body. One undo step."
             }
             Self::AddFillet => {
-                "Rounds edges of a body: edge keys from list_edges, every edge around faces from list_faces, or every edge of the body. One undo step; a radius too large for the edges fails the feature with the reason."
+                "Rounds edges of a body: edge keys from list_edges, every edge around faces from list_faces, or every edge of the body. Sized by a radius, or by a chord_length (the straight distance between the fillet's two tangent lines, for faces that meet at one angle along the edges). One undo step; a size too large for the edges fails the feature with the reason."
             }
             Self::AddChamfer => {
                 "Bevels edges of a body, chosen as add_fillet chooses them, by one distance, two distances or a distance and an angle. One undo step."

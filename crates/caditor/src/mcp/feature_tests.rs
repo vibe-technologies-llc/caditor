@@ -189,6 +189,43 @@ fn fillets_and_chamfers_take_edges_faces_or_the_whole_body() {
 }
 
 #[test]
+fn a_fillet_takes_a_chord_length_instead_of_a_radius_and_edits_between_them() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let whole = 40.0 * 30.0 * 20.0;
+    let vertical = vertical_edges(&mut client, &block);
+
+    let fillet = added(
+        &mut client,
+        "add_fillet",
+        json!({ "body": block, "edges": vertical, "chord_length": "4 mm" }),
+    );
+    let radius = 4.0 / 2.0_f64.sqrt();
+    let rounded = whole - 4.0 * (4.0 - PI) * radius * radius / 4.0 * 20.0;
+    assert!(close(total_volume(&mut client), rounded));
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": fillet, "radius": "2 mm" }),
+    );
+    assert!(close(
+        total_volume(&mut client),
+        whole - 4.0 * (4.0 - PI) * 20.0
+    ));
+
+    let both = client.tool_error(
+        "add_fillet",
+        json!({ "body": block, "all_edges": true, "radius": 1, "chord_length": 1 }),
+    );
+    assert!(both.contains("a radius or a chord_length"), "{both}");
+    let neither = client.tool_error("add_fillet", json!({ "body": block, "all_edges": true }));
+    assert!(neither.contains("radius or chord_length"), "{neither}");
+    client.finish();
+}
+
+#[test]
 fn a_shell_hollows_a_body_and_an_offset_face_moves_one() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

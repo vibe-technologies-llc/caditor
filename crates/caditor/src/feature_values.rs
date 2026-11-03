@@ -372,7 +372,7 @@ fn values_of(parameters: &ParameterValues, kind: &FeatureKind) -> Vec<Found> {
 
 fn blend_values(blend: &Blend) -> Vec<Found> {
     let caption = match (blend.kind, blend.chamfer_form()) {
-        (BlendKind::Fillet, _) => "Radius",
+        (BlendKind::Fillet, _) => blend.sizing.title(),
         (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",
         (BlendKind::Chamfer, ChamferForm::Equal | ChamferForm::DistanceAngle { .. }) => "Distance",
     };
@@ -718,7 +718,7 @@ pub fn change(
 
 #[cfg(test)]
 mod tests {
-    use caditor_document::{Blend, Shell};
+    use caditor_document::{Blend, FilletSizing, Shell};
     use caditor_expression::Unit;
 
     use super::*;
@@ -738,6 +738,7 @@ mod tests {
             size: millimetres(2.0),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         });
         let shell = FeatureKind::Shell(Shell {
             body,

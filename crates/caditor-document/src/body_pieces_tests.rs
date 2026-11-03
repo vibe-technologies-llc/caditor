@@ -119,6 +119,7 @@ fn fillet_on(model: &mut Model, body: FeatureId, at: Point3) -> FeatureId {
             size: Expression::parse_stored("0.5 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

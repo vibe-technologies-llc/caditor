@@ -157,6 +157,7 @@ fn a_chamfer_chosen_with_its_hole_is_repeated_on_every_copy_but_alone_repeats_th
             size: caditor_expression::Expression::parse_stored("1 mm").unwrap(),
             form: caditor_document::ChamferForm::Equal,
             flipped: false,
+            sizing: caditor_document::FilletSizing::Radius,
         }),
     );
     harness.perform(Action::Apply(transaction.finish()));

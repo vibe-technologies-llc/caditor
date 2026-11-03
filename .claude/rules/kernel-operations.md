@@ -501,6 +501,14 @@ paths:
   normals opposite within `TANGENT_FACE_ANGLE`, `meets_back_to_back`: where two bores touch, whose
   sign was rounding noise) has none. The document's convex and concave edge rules use it
   (`document.md`).
+- A fillet sized by chord length is resolved to a radius before the blend (`chord.rs`,
+  `chord_fillet_radius`): over the chosen edges and their tangent chain it samples the angle between
+  the faces' outward normals at nine places along each edge, `chord / (2 sin(turn / 2))` being the
+  radius (chord of the arc between the tangent lines). An edge whose angle moves by more than
+  `SAME_TURN` along it is `ChordError::VaryingTurn`, two edges at different angles
+  `DifferingTurns` (there is no variable radius), an edge whose faces are all smooth is skipped
+  (every one: `Smooth`), back to back faces `BackToBack`. The blend itself only ever sees
+  `BlendShape::Fillet { radius }`.
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a pair
   that cannot be united stays apart; a pair whose boxes lie more than `APART_TOOLS` apart is joined

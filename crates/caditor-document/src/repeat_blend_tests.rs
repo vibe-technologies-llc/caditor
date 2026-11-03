@@ -87,6 +87,7 @@ fn blend(
         size: Expression::measure(size, Unit::Millimetre),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     })
 }
 

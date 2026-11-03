@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId};
 use caditor_kernel::{
-    BlendError, BlendShape, EdgeConvexity, EdgeId, EdgeNaming, EdgeReference, FaceId, FaceName,
-    FaceOrigin, FaceReference, Solid, VertexId, blend, edge_convexity, faces_around_vertices,
-    meets_back_to_back,
+    BlendError, BlendShape, ChordError, EdgeConvexity, EdgeId, EdgeNaming, EdgeReference, FaceId,
+    FaceName, FaceOrigin, FaceReference, Solid, VertexId, blend, chord_fillet_radius,
+    edge_convexity, faces_around_vertices, meets_back_to_back,
 };
 
 use crate::{
@@ -45,6 +45,29 @@ impl BlendKind {
         match self {
             Self::Fillet => "radius",
             Self::Chamfer => "distance",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FilletSizing {
+    #[default]
+    Radius,
+    ChordLength,
+}
+
+impl FilletSizing {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Radius => "Radius",
+            Self::ChordLength => "Chord length",
+        }
+    }
+
+    pub fn size_name(self) -> &'static str {
+        match self {
+            Self::Radius => "radius",
+            Self::ChordLength => "chord length",
         }
     }
 }
@@ -267,9 +290,17 @@ pub struct Blend {
     pub size: Expression,
     pub form: ChamferForm,
     pub flipped: bool,
+    pub sizing: FilletSizing,
 }
 
 impl Blend {
+    pub fn size_name(&self) -> &'static str {
+        match (self.kind, self.sizing) {
+            (BlendKind::Fillet, sizing) => sizing.size_name(),
+            (BlendKind::Chamfer, _) => BlendKind::Chamfer.size_name(),
+        }
+    }
+
     pub fn chamfer_form(&self) -> &ChamferForm {
         match self.kind {
             BlendKind::Fillet => &ChamferForm::Equal,
@@ -417,6 +448,12 @@ impl Blend {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Requested {
+    Shape(BlendShape),
+    Chord(f64),
+}
+
 struct Context<'a> {
     feature: &'a Feature,
     definition: &'a Blend,
@@ -478,36 +515,81 @@ impl Context<'_> {
         }
     }
 
-    fn shape(&self) -> Result<BlendShape, Failure> {
+    fn requested(&self) -> Result<Requested, Failure> {
         let definition = self.definition;
-        let size = self.value(
-            &definition.size,
-            Dimension::LENGTH,
-            definition.kind.size_name(),
-        )?;
+        let size = self.value(&definition.size, Dimension::LENGTH, definition.size_name())?;
         let flipped = definition.flipped;
         Ok(match (definition.kind, definition.chamfer_form()) {
-            (BlendKind::Fillet, _) => BlendShape::Fillet { radius: size },
-            (BlendKind::Chamfer, ChamferForm::Equal) => BlendShape::Chamfer { distance: size },
+            (BlendKind::Fillet, _) => match definition.sizing {
+                FilletSizing::Radius => Requested::Shape(BlendShape::Fillet { radius: size }),
+                FilletSizing::ChordLength => Requested::Chord(size),
+            },
+            (BlendKind::Chamfer, ChamferForm::Equal) => {
+                Requested::Shape(BlendShape::Chamfer { distance: size })
+            }
             (BlendKind::Chamfer, ChamferForm::TwoDistances { second }) => {
-                BlendShape::TwoDistanceChamfer {
+                Requested::Shape(BlendShape::TwoDistanceChamfer {
                     first: size,
                     second: self.value(second, Dimension::LENGTH, "second distance")?,
                     flipped,
-                }
+                })
             }
             (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
                 let degrees = self.value(angle, Dimension::ANGLE, "angle")?;
                 if degrees >= 180.0 {
                     return Err(self.error(BlendCause::AngleTooWide));
                 }
-                BlendShape::AngledChamfer {
+                Requested::Shape(BlendShape::AngledChamfer {
                     distance: size,
                     angle: degrees.to_radians(),
                     flipped,
-                }
+                })
             }
         })
+    }
+
+    fn shape(
+        &self,
+        requested: Requested,
+        solid: &Solid,
+        edges: &[EdgeId],
+    ) -> Result<BlendShape, Failure> {
+        match requested {
+            Requested::Shape(shape) => Ok(shape),
+            Requested::Chord(chord) => chord_fillet_radius(solid, edges, chord)
+                .map(|radius| BlendShape::Fillet { radius })
+                .map_err(|error| self.chord_failure(solid, &error)),
+        }
+    }
+
+    fn chord_failure(&self, solid: &Solid, error: &ChordError) -> Failure {
+        let describe = |edge| describe_edge(self.inputs.document, solid, edge);
+        match error {
+            ChordError::NoEdges => Failure::Waiting(MissingInput::Edges {
+                body: self.definition.body,
+            }),
+            ChordError::MissingEdge(_) => self.error(BlendCause::EdgeGone {
+                body: self.body_name.clone(),
+            }),
+            ChordError::Unsupported(edge) => self.error(BlendCause::Unsupported {
+                kind: BlendKind::Fillet,
+                edge: describe(*edge),
+            }),
+            ChordError::Smooth(edge) => self.error(BlendCause::Smooth {
+                edge: describe(*edge),
+            }),
+            ChordError::BackToBack(edge) => self.error(BlendCause::BackToBack {
+                kind: BlendKind::Fillet,
+                edge: describe(*edge),
+            }),
+            ChordError::VaryingTurn(edge) => self.error(BlendCause::ChordVaries {
+                edge: describe(*edge),
+            }),
+            ChordError::DifferingTurns { first, second } => self.error(BlendCause::ChordDiffers {
+                first: describe(*first),
+                second: describe(*second),
+            }),
+        }
     }
 
     fn failure(&self, solid: &Solid, error: &BlendError) -> Failure {
@@ -518,7 +600,9 @@ impl Context<'_> {
         );
         match error {
             BlendError::Cancelled(_) => Failure::Cancelled,
-            BlendError::InvalidSize => self.error(BlendCause::SizeTooSmall { kind }),
+            BlendError::InvalidSize => self.error(BlendCause::SizeTooSmall {
+                size: self.definition.size_name(),
+            }),
             BlendError::InvalidAngle => self.error(BlendCause::AngleOutOfRange),
             BlendError::AngleMisses(_) => self.error(BlendCause::AngleMisses { edge }),
             BlendError::NoEdges => Failure::Waiting(MissingInput::Edges {
@@ -528,11 +612,23 @@ impl Context<'_> {
                 body: self.body_name.clone(),
             }),
             BlendError::Unsupported(_) => self.error(BlendCause::Unsupported { kind, edge }),
-            BlendError::Intricate(_) => self.error(BlendCause::Intricate { kind, edge }),
+            BlendError::Intricate(_) => self.error(BlendCause::Intricate {
+                kind,
+                size: self.definition.size_name(),
+                edge,
+            }),
             BlendError::Smooth(_) => self.error(BlendCause::Smooth { edge }),
-            BlendError::TooLarge(_) => self.error(BlendCause::TooLarge { kind, edge }),
+            BlendError::TooLarge(_) => self.error(BlendCause::TooLarge {
+                kind,
+                size: self.definition.size_name(),
+                edge,
+            }),
             BlendError::BackToBack(_) => self.error(BlendCause::BackToBack { kind, edge }),
-            BlendError::WrapsAround(_) => self.error(BlendCause::WrapsAround { kind, edge }),
+            BlendError::WrapsAround(_) => self.error(BlendCause::WrapsAround {
+                kind,
+                size: self.definition.size_name(),
+                edge,
+            }),
             BlendError::UnsupportedEnd { vertex, .. } => {
                 match vertex.and_then(|vertex| self.earlier_blend_at(solid, vertex)) {
                     Some(earlier) => self.error(BlendCause::CornerBlended {
@@ -560,6 +656,7 @@ impl Context<'_> {
                 log::warn!("{} could not be built: {error}", self.feature.name);
                 self.error(BlendCause::Unbuilt {
                     kind,
+                    size: self.definition.size_name(),
                     edge: error.edge().map(|_| edge),
                     body: self.body_name.clone(),
                 })
@@ -575,7 +672,7 @@ pub(crate) enum BlendCause {
     },
     AngleTooWide,
     SizeTooSmall {
-        kind: BlendKind,
+        size: &'static str,
     },
     AngleOutOfRange,
     AngleMisses {
@@ -590,6 +687,7 @@ pub(crate) enum BlendCause {
     },
     Intricate {
         kind: BlendKind,
+        size: &'static str,
         edge: String,
     },
     Smooth {
@@ -597,6 +695,7 @@ pub(crate) enum BlendCause {
     },
     TooLarge {
         kind: BlendKind,
+        size: &'static str,
         edge: String,
     },
     BackToBack {
@@ -605,6 +704,7 @@ pub(crate) enum BlendCause {
     },
     WrapsAround {
         kind: BlendKind,
+        size: &'static str,
         edge: String,
     },
     CornerBlended {
@@ -627,11 +727,19 @@ pub(crate) enum BlendCause {
     },
     Unbuilt {
         kind: BlendKind,
+        size: &'static str,
         edge: Option<String>,
         body: String,
     },
     PartlyFollowed {
         count: usize,
+    },
+    ChordVaries {
+        edge: String,
+    },
+    ChordDiffers {
+        first: String,
+        second: String,
     },
 }
 
@@ -640,8 +748,8 @@ impl BlendCause {
         match self {
             Self::NotPositive { what } => format!("The {what} must be more than zero."),
             Self::AngleTooWide => "The angle must be less than 180 degrees.".to_owned(),
-            Self::SizeTooSmall { kind } => {
-                format!("The {} must be more than 0.000001 mm.", kind.size_name())
+            Self::SizeTooSmall { size } => {
+                format!("The {size} must be more than 0.000001 mm.")
             }
             Self::AngleOutOfRange => "The angle must be between 0 and 180 degrees.".to_owned(),
             Self::AngleMisses { edge } => {
@@ -655,23 +763,22 @@ impl BlendCause {
                  side, or the edge turns from an outer corner to an inner one.",
                 kind.noun()
             ),
-            Self::Intricate { kind, edge } => format!(
+            Self::Intricate { kind, edge, .. } => format!(
                 "The faces next to {edge} curve too sharply for the {} to follow.",
                 kind.noun()
             ),
             Self::Smooth { edge } => {
                 format!("The faces meet smoothly at {edge}, so there is no corner to blend.")
             }
-            Self::TooLarge { kind, edge } => format!(
-                "The {} is too large for the faces next to {edge}.",
-                kind.size_name()
-            ),
+            Self::TooLarge { size, edge, .. } => {
+                format!("The {size} is too large for the faces next to {edge}.")
+            }
             Self::BackToBack { kind, edge } => format!(
                 "The faces at {edge} meet back to back, as two holes that touch do, so no {} of \
                  any size fits there.",
                 kind.noun()
             ),
-            Self::WrapsAround { kind, edge } => format!(
+            Self::WrapsAround { kind, edge, .. } => format!(
                 "The {} of {edge} would run into itself: the edge is almost a full circle and \
                  its ends need room beyond it.",
                 kind.noun()
@@ -709,6 +816,7 @@ impl BlendCause {
                 kind,
                 edge: None,
                 body,
+                ..
             } => format!(
                 "The {} could not be built on the body of {body}.",
                 kind.noun()
@@ -722,6 +830,14 @@ impl BlendCause {
                 "{count} chosen edges were split into pieces by a sketch edit, and only some of \
                  the pieces can still be traced back to them."
             ),
+            Self::ChordVaries { edge } => format!(
+                "A fillet sized by chord length needs the faces to meet at one angle along the \
+                 edge, and at {edge} the angle between them changes."
+            ),
+            Self::ChordDiffers { first, second } => format!(
+                "A fillet sized by chord length needs one angle between the faces on every edge, \
+                 and {first} and {second} meet at different angles."
+            ),
         }
     }
 
@@ -731,7 +847,7 @@ impl BlendCause {
             Self::AngleTooWide | Self::AngleOutOfRange => {
                 "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned()
             }
-            Self::SizeTooSmall { kind } => format!("Enter a larger {}.", kind.size_name()),
+            Self::SizeTooSmall { size } => format!("Enter a larger {size}."),
             Self::AngleMisses { .. } => {
                 "Enter a smaller angle, flip the chamfer to measure from the other face, or \
                  leave this edge out."
@@ -745,17 +861,13 @@ impl BlendCause {
                  edge out."
                     .to_owned()
             }
-            Self::Intricate { kind, .. } | Self::TooLarge { kind, .. } => {
-                format!(
-                    "Enter a smaller {}, or leave this edge out.",
-                    kind.size_name()
-                )
+            Self::Intricate { size, .. } | Self::TooLarge { size, .. } => {
+                format!("Enter a smaller {size}, or leave this edge out.")
             }
             Self::Smooth { .. } | Self::BackToBack { .. } => "Leave this edge out.".to_owned(),
-            Self::WrapsAround { kind, .. } => format!(
-                "Also choose the edges that continue from it, enter a smaller {}, or leave it \
-                 out.",
-                kind.size_name()
+            Self::WrapsAround { size, .. } => format!(
+                "Also choose the edges that continue from it, enter a smaller {size}, or leave \
+                 it out."
             ),
             Self::CornerBlended {
                 earlier, feature, ..
@@ -770,21 +882,23 @@ impl BlendCause {
                 "Blend the inner and the outer edges in separate features.".to_owned()
             }
             Self::Unbuilt {
-                kind,
+                size,
                 edge: Some(_),
                 ..
-            } => format!(
-                "Change the {} slightly, or leave this edge out.",
-                kind.size_name()
-            ),
+            } => format!("Change the {size} slightly, or leave this edge out."),
             Self::Unbuilt {
-                kind, edge: None, ..
-            } => format!(
-                "Change the {} slightly, or choose fewer edges.",
-                kind.size_name()
-            ),
+                size, edge: None, ..
+            } => format!("Change the {size} slightly, or choose fewer edges."),
             Self::PartlyFollowed { .. } => {
                 "Choose the pieces of the edge again, or undo the sketch edit that split it."
+                    .to_owned()
+            }
+            Self::ChordVaries { .. } => {
+                "Size the fillet by radius instead, or leave this edge out.".to_owned()
+            }
+            Self::ChordDiffers { .. } => {
+                "Fillet the edges that meet at each angle in a feature of their own, or size the \
+                 fillet by radius."
                     .to_owned()
             }
         }
@@ -813,7 +927,7 @@ pub(crate) fn evaluate(
         inputs,
         body_name,
     };
-    let shape = context.shape()?;
+    let requested = context.requested()?;
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
@@ -840,6 +954,7 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+    let shape = context.shape(requested, solid, &edges)?;
     let result = blend(solid, &edges, shape, feature.id().raw())
         .map_err(|error| context.failure(solid, &error))?;
     let recipe = BlendRecipe::of(feature.id(), shape, solid, &edges);

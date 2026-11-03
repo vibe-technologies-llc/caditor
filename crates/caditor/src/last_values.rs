@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use caditor_document::{
-    BlendKind, ChamferForm, Document, Edit, ExtrudeEnd, ExtrudeExtent, FeatureKind, HoleDepth,
-    LinearSpacing, ParameterValues, PatternKind, Pieces, RevolveExtent, SolidFeature, Transaction,
+    BlendKind, ChamferForm, Document, Edit, ExtrudeEnd, ExtrudeExtent, FeatureKind, FilletSizing,
+    HoleDepth, LinearSpacing, ParameterValues, PatternKind, Pieces, RevolveExtent, SolidFeature,
+    Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_file::Settings;
@@ -276,6 +277,7 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
     };
     if let Some(blend) = kind.blend() {
         match blend.kind {
+            BlendKind::Fillet if blend.sizing == FilletSizing::ChordLength => {}
             BlendKind::Fillet => value(Remembered::FilletSize, &blend.size),
             BlendKind::Chamfer => value(Remembered::ChamferSize, &blend.size),
         }

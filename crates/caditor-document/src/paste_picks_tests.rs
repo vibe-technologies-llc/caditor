@@ -47,6 +47,7 @@ fn blend(kind: BlendKind, body: FeatureId, edges: Vec<EdgeReference>) -> Feature
         size: Expression::measure(1.0, Unit::Millimetre),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     })
 }
 

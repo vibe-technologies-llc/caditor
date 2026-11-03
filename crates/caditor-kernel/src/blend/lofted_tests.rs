@@ -19,7 +19,7 @@ fn chamfer(distance: f64) -> BlendShape {
     BlendShape::Chamfer { distance }
 }
 
-fn cylinder() -> Solid {
+pub(super) fn cylinder() -> Solid {
     swept(
         Plane::XY,
         &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],

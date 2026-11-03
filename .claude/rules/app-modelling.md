@@ -716,6 +716,13 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   Measure from the other face (`flipped`). The palette has the same on the open feature or the tree's
   current one (`blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer
   and the flip on an equal one.
+- A fillet's Sized by row (Radius, Chord; `FilletSizing`, `blend_tools::SIZINGS`) names the size
+  field Radius or Chord length, keeping the number and its expression, which takes units and
+  parameters like the radius. The palette has "Size the fillet by its radius" and "... by its chord
+  length" on the open feature or the tree's current one (`blend_tools::sizing_change`), refused in
+  words on anything but a fillet. The viewport arrow of a chord-sized fillet maps the chord through
+  the same bisector position (`1/cos(a/2) - 1` of the radius, the radius being the chord over
+  `2 cos(a/2)`), and `last_values` keeps only a radius as the starting fillet size.
 - A shell's panel runs Open faces, Thickness, Own thickness, Walls, Body. Walls is a `segmented`
   Inside, Outside or Both sides (`shell_tools::side_change`, "Set the walls of <shell> to <side>").
   Own thickness lists each face given a thickness of its own as a value row captioned with the face

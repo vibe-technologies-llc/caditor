@@ -3,10 +3,10 @@ use std::{collections::BTreeSet, fmt};
 use caditor_document::{
     AxisTurn, Blend, BlendKind, BodyOperation, ChamferForm, CircularPattern, Combine,
     CombineOperation, Document, EdgeGroup, EdgeRule, Edit, Evaluation, FaceAttachment,
-    FaceThickness, FeatureId, FeatureKind, LinearDirection, LinearSpacing, Mirror, MirrorOutcome,
-    Move, OffsetFace, Pattern, PatternKind, PatternOutcome, PlaneReference, Primitive,
-    PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Shell,
-    ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
+    FaceThickness, FeatureId, FeatureKind, FilletSizing, LinearDirection, LinearSpacing, Mirror,
+    MirrorOutcome, Move, OffsetFace, Pattern, PatternKind, PatternOutcome, PlaneReference,
+    Primitive, PrimitiveAnchor, PrimitiveKind, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+    Shell, ShellSide, SketchRegion, SolidFeature, TurnCentre, repeatable_on,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -127,6 +127,7 @@ pub struct Filleting {
     pub concave_edges: Option<bool>,
     pub edges_made_by: Option<Vec<Named>>,
     pub radius: Option<Amount>,
+    pub chord_length: Option<Amount>,
     pub name: Option<String>,
 }
 
@@ -426,6 +427,8 @@ pub enum FeatureError {
     AllEdgesAndMore,
     #[error("a chamfer takes a second_distance or an angle, not both")]
     TwoChamferForms,
+    #[error("a fillet takes a radius or a chord_length, not both")]
+    RadiusAndChord,
     #[error("give the faces to move, as keys from list_faces")]
     NoFacesToOffset,
     #[error("{kind} takes {sizes}, not {size}")]
@@ -993,6 +996,7 @@ impl EdgeChoice<'_> {
 
 struct BlendSize {
     field: &'static str,
+    sizing: Option<FilletSizing>,
     size: Option<Expression>,
     form: Option<ChamferForm>,
     flipped: Option<bool>,
@@ -1082,6 +1086,13 @@ fn blend(
             .flipped
             .or_else(|| base.map(|base| base.flipped))
             .unwrap_or(false),
+        sizing: match kind {
+            BlendKind::Fillet => size
+                .sizing
+                .or_else(|| base.map(|base| base.sizing))
+                .unwrap_or_default(),
+            BlendKind::Chamfer => FilletSizing::Radius,
+        },
     };
     let label = body_label(session.document(), body);
     Ok(Built::new(FeatureKind::Blend(blend), kind.title(), name).telling("body", json!(label)))
@@ -1093,9 +1104,19 @@ pub fn fillet_built(
     asked: Filleting,
     base: Option<&Blend>,
 ) -> Result<Built, ToolError> {
+    if asked.radius.is_some() && asked.chord_length.is_some() {
+        return Err(FeatureError::RadiusAndChord.into());
+    }
     let radius = parsed(session, asked.radius.as_ref(), |session, radius| {
         length(session, "radius", radius)
     })?;
+    let chord = parsed(session, asked.chord_length.as_ref(), |session, chord| {
+        length(session, "chord_length", chord)
+    })?;
+    let (sizing, size) = match chord {
+        Some(chord) => (Some(FilletSizing::ChordLength), Some(chord)),
+        None => (radius.as_ref().map(|_| FilletSizing::Radius), radius),
+    };
     blend(
         session,
         work,
@@ -1113,8 +1134,9 @@ pub fn fillet_built(
                 },
             },
             BlendSize {
-                field: "radius",
-                size: radius,
+                field: "radius or chord_length",
+                sizing,
+                size,
                 form: None,
                 flipped: None,
             },
@@ -1169,6 +1191,7 @@ pub fn chamfer_built(
             },
             BlendSize {
                 field: "distance",
+                sizing: None,
                 size: distance,
                 form,
                 flipped: asked.flipped,

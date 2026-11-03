@@ -2,7 +2,8 @@ use std::{borrow::Cow, collections::BTreeSet};
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, Document, EdgeGroup, EdgeRule, Edit, Evaluation, Feature,
-    FeatureId, FeatureKind, GroupResolution, Resolution, SolidResult, Transaction, origin_feature,
+    FeatureId, FeatureKind, FilletSizing, GroupResolution, Resolution, SolidResult, Transaction,
+    origin_feature,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::{
@@ -48,6 +49,8 @@ fn starting_form(kind: BlendKind, starts: &Starts) -> ChamferForm {
 }
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
+
+pub const SIZINGS: [FilletSizing; 2] = [FilletSizing::Radius, FilletSizing::ChordLength];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupSource {
@@ -98,6 +101,10 @@ pub enum BlendError {
     NoFaceOfFeature,
     #[error("The feature is not a chamfer")]
     NotAChamfer { feature: FeatureId },
+    #[error("The feature is not a fillet")]
+    NotAFillet { feature: FeatureId },
+    #[error("{name} is already sized by {sizing}")]
+    AlreadySized { name: String, sizing: &'static str },
     #[error("{name} is already {form}")]
     AlreadyForm { name: String, form: String },
     #[error(
@@ -268,6 +275,7 @@ pub fn create(
             size: starts.length(size_slot(kind), DEFAULT_SIZE),
             form: starting_form(kind, starts),
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     Ok((transaction.finish(), feature))
@@ -425,6 +433,41 @@ pub fn form_change(
         choice.applied_to(document, feature.id(), blend),
     )
     .ok_or(BlendError::NotAChamfer {
+        feature: feature.id(),
+    })
+}
+
+fn fillet_of(feature: &Feature) -> Result<&Blend, BlendError> {
+    feature
+        .kind
+        .blend()
+        .filter(|blend| blend.kind == BlendKind::Fillet)
+        .ok_or(BlendError::NotAFillet {
+            feature: feature.id(),
+        })
+}
+
+pub fn sizing_change(
+    document: &Document,
+    feature: &Feature,
+    sizing: FilletSizing,
+) -> Result<Transaction, BlendError> {
+    let blend = fillet_of(feature)?;
+    if blend.sizing == sizing {
+        return Err(BlendError::AlreadySized {
+            name: feature.name.clone(),
+            sizing: sizing.size_name(),
+        });
+    }
+    edit(
+        document,
+        feature.id(),
+        Blend {
+            sizing,
+            ..blend.clone()
+        },
+    )
+    .ok_or(BlendError::NotAFillet {
         feature: feature.id(),
     })
 }

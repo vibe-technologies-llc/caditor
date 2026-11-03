@@ -40,7 +40,13 @@ and the panel lists the edge as split into pieces. An edge chosen after the cut 
 piece. When a piece no longer lies along the old edge, the fillet stops and says the edge was
 split, so you can choose the pieces again rather than lose one without notice.
 
-- Fillet takes a **Radius**, Chamfer a **Distance**. An arrow at the middle of the first edge,
+- Fillet takes a **Radius** or, with **Sized by** set to **Chord**, a **Chord length**: the straight
+  distance between the two lines where the fillet meets the faces. Both accept units and
+  expressions naming parameters. A chord needs the faces to meet at one angle all along the chosen
+  edges, and every chosen edge to meet at the same angle (all the edges of a box, a cylinder's
+  rim): where the angle changes along an edge, or differs between edges, the fillet says so and
+  suggests a radius, or a fillet for each angle. {command:model.fillet_by_radius} and
+  {command:model.fillet_by_chord} do the same from the palette. Chamfer takes a **Distance**. An arrow at the middle of the first edge,
   standing on the rounded or cut face, drags it, on convex and concave edges alike; type a value
   with the pointer on the arrow to set it exactly. A chamfer of **Two** distances has an arrow on
   each face where its distance ends, and one of **Angle** an arrow for the distance on the face
@@ -51,7 +57,7 @@ split, so you can choose the pieces again rather than lose one without notice.
   **Measure from the other face** swaps which face takes the first distance. The same choices are
   {command:model.chamfer_equal}, {command:model.chamfer_two_distances},
   {command:model.chamfer_distance_angle} and {command:model.flip_chamfer}.
-- A new fillet or chamfer starts from the radius, distances and form last used on one, kept
+- A new fillet or chamfer starts from the radius (never a chord length), distances and form last used on one, kept
   between sessions; a value naming a parameter the model lacks falls back to the usual 1 mm.
 - Typing a value previews it before you press Enter; when it cannot be made, the reason shows under
   the field and the body before it stays shown.

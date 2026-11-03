@@ -395,6 +395,7 @@ fn a_curved_face_is_refused_by_name() {
             size: text("1 mm"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

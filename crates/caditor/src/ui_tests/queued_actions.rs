@@ -1,4 +1,4 @@
-use caditor_document::{Blend, BlendKind, ChamferForm, FeatureId, FeatureKind};
+use caditor_document::{Blend, BlendKind, ChamferForm, FeatureId, FeatureKind, FilletSizing};
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
@@ -105,6 +105,7 @@ fn a_hole_on_a_face_of_a_body_still_recomputing_waits_for_it_instead_of_refusing
             size: harness.document().parse("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     harness.perform(crate::model::Action::Apply(transaction.finish()));

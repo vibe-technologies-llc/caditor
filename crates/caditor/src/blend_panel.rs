@@ -1,13 +1,13 @@
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Document, EdgeRule, Feature, FeatureId, GroupResolution,
-    Resolution, SolidResult, Transaction,
+    Blend, BlendKind, ChamferForm, Document, EdgeRule, Feature, FeatureId, FilletSizing,
+    GroupResolution, Resolution, SolidResult, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{EdgeId, FaceId};
 use egui::{Id, Ui};
 
 use crate::{
-    blend_tools::{self, BlendError, FORMS, FormChoice, KINDS},
+    blend_tools::{self, BlendError, FORMS, FormChoice, KINDS, SIZINGS},
     bodies,
     editing::EditingCommand,
     feature_fields::{self, Choice, ListChoosing, Quantity, Rule, Segment},
@@ -88,9 +88,41 @@ fn form_row(
     ));
 }
 
+fn sizing_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    let segments = SIZINGS
+        .into_iter()
+        .map(|sizing| Segment {
+            label: sizing.title(),
+            hover: describe_sizing(sizing),
+            change: (sizing != blend.sizing).then(|| {
+                change(
+                    model,
+                    feature.id(),
+                    Blend {
+                        sizing,
+                        ..blend.clone()
+                    },
+                )
+            }),
+        })
+        .collect();
+    actions.extend(feature_fields::segmented_row(
+        ui,
+        "Sized by",
+        &feature.name,
+        segments,
+    ));
+}
+
 pub fn size_caption(blend: &Blend) -> &'static str {
     match (blend.kind, blend.chamfer_form()) {
-        (BlendKind::Fillet, _) => "Radius",
+        (BlendKind::Fillet, _) => blend.sizing.title(),
         (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",
         (BlendKind::Chamfer, ChamferForm::Equal | ChamferForm::DistanceAngle { .. }) => "Distance",
     }
@@ -442,8 +474,9 @@ pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut
     let id = feature.id();
     widgets::properties(ui, ("blend-properties", id), |ui| {
         kind_row(ui, model, feature, blend, actions);
-        if blend.kind == BlendKind::Chamfer {
-            form_row(ui, model, feature, blend, actions);
+        match blend.kind {
+            BlendKind::Fillet => sizing_row(ui, model, feature, blend, actions),
+            BlendKind::Chamfer => form_row(ui, model, feature, blend, actions),
         }
         edges_row(ui, row, cache, actions);
         size_row(ui, model, id, blend, actions);
@@ -451,6 +484,15 @@ pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut
         flip_row(ui, model, feature, blend, actions);
         feature_fields::feature_row(ui, model.document(), "Body", blend.body);
     });
+}
+
+pub fn describe_sizing(sizing: FilletSizing) -> &'static str {
+    match sizing {
+        FilletSizing::Radius => "Size the fillet by the radius of its arc",
+        FilletSizing::ChordLength => {
+            "Size the fillet by the straight distance between the two lines where it meets the faces"
+        }
+    }
 }
 
 pub fn describe_kind(kind: BlendKind) -> &'static str {

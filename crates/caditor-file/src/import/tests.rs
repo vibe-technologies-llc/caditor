@@ -1156,7 +1156,7 @@ mod step {
 
     use caditor_document::{
         Blend, BlendKind, CancelToken, ChamferForm, DeleteFace, Document, FeatureKind,
-        ModelEvaluator, Recompute, Rgb,
+        FilletSizing, ModelEvaluator, Recompute, Rgb,
     };
     use caditor_expression::Expression;
     use caditor_geometry::{Plane, Point2, Point3};
@@ -1468,6 +1468,7 @@ mod step {
                 size: Expression::parse_stored("1 mm").unwrap(),
                 form: ChamferForm::Equal,
                 flipped: false,
+                sizing: FilletSizing::Radius,
             }),
         );
         document.apply(transaction.finish()).unwrap();

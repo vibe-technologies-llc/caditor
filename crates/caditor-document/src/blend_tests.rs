@@ -110,6 +110,7 @@ fn model() -> Model {
             size: Expression::Parameter(radius),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -477,6 +478,7 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         size: Expression::parse_stored("1 mm").unwrap(),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     };
     let pieces = blend.resolve(&document, solid).unwrap();
     let back_top_reference = edge_at(solid, Point3::new(2.0, 8.0, 4.0));
@@ -604,6 +606,7 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
             size: Expression::parse_stored("5 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -669,6 +672,7 @@ fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
             size: mm("1"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -750,6 +754,7 @@ fn filleted_boss() -> Boss {
             size: mm("0.5"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1093,6 +1098,7 @@ fn front_top_fillet(document: &mut Document, base: FeatureId, at: f64) -> Featur
             size: mm("0.5"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1238,6 +1244,7 @@ fn a_notch_trimmed_into_a_filleted_arc_keeps_both_arc_pieces_rounded() {
             size: mm("0.5"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1335,6 +1342,7 @@ fn grouped_fillet(group: impl Fn(&Solid) -> EdgeGroup) -> Grouped {
             size: mm("0.5"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1487,6 +1495,7 @@ fn ruled_edges(pocketed: &mut Pocketed, rule: EdgeRule) -> Vec<Point3> {
         size: mm("0.2"),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     };
     let mut middles: Vec<Point3> = blend
         .resolve(&pocketed.document, solid)
@@ -1619,6 +1628,7 @@ fn a_feature_rule_makes_the_blend_depend_on_that_feature() {
             size: mm("0.2"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     pocketed.document.apply(transaction.finish()).unwrap();
@@ -1712,6 +1722,7 @@ fn blended(document: &Document, body: FeatureId, edge: EdgeReference, kind: Blen
             size: mm("0.2"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     blended.apply(transaction.finish()).unwrap();
@@ -1817,6 +1828,7 @@ fn fillet_edges_of(
             size: mm(size),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1893,6 +1905,7 @@ fn fillet_of(body: FeatureId, edges: Vec<EdgeReference>, size: &str) -> FeatureK
         size: mm(size),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     })
 }
 
@@ -2024,6 +2037,7 @@ fn blended_beside_touching_bores(
         size: mm("0.3"),
         form: ChamferForm::Equal,
         flipped: false,
+        sizing: FilletSizing::Radius,
     };
     let mut transaction = document.transaction("Round");
     let fillet = transaction.add_feature("Fillet 1", FeatureKind::Blend(blend));
@@ -2072,4 +2086,151 @@ fn the_edge_where_two_bores_touch_is_refused_as_meeting_back_to_back() {
     let reason = failure(&evaluation, fillet).reason();
     assert!(reason.contains("meet back to back"), "{reason}");
     assert!(reason.contains("no fillet of any size"), "{reason}");
+}
+
+fn sized_by_chord(model: &mut Model, text: &str) -> Evaluation {
+    let FeatureKind::Blend(mut definition) =
+        model.document.feature(model.fillet).unwrap().kind.clone()
+    else {
+        panic!("the fillet should be a blend");
+    };
+    definition.sizing = FilletSizing::ChordLength;
+    definition.size = model.document.parse(text).unwrap();
+    model
+        .document
+        .apply(Transaction::single(
+            "Size by chord",
+            Edit::SetFeatureKind {
+                id: model.fillet,
+                kind: FeatureKind::Blend(definition),
+            },
+        ))
+        .unwrap();
+    evaluate(&model.document, &mut model.engine)
+}
+
+#[test]
+fn a_fillet_sized_by_chord_rounds_with_the_radius_that_chord_gives() {
+    let mut model = model();
+
+    let evaluation = sized_by_chord(&mut model, "2 mm");
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let radius = 2.0_f64.sqrt();
+    let found = volume(&evaluation, model.base);
+    assert!(
+        (found - rounded_volume(4.0, radius)).abs() < 0.05,
+        "volume {found}"
+    );
+}
+
+#[test]
+fn a_chord_sized_fillet_follows_the_parameter_its_chord_names() {
+    let mut model = model();
+    sized_by_chord(&mut model, "r * 2");
+
+    let id = model.radius;
+    set(&mut model, id, "2 mm");
+    let evaluation = evaluate(&model.document, &mut model.engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let found = volume(&evaluation, model.base);
+    assert!(
+        (found - rounded_volume(4.0, 4.0 / 2.0_f64.sqrt())).abs() < 0.05,
+        "volume {found}"
+    );
+}
+
+#[test]
+fn a_chord_that_is_not_positive_is_named_as_a_chord_length() {
+    let mut model = model();
+
+    let evaluation = sized_by_chord(&mut model, "0 mm");
+
+    let error = failure(&evaluation, model.fillet);
+    assert_eq!(error.reason(), "The chord length must be more than zero.");
+    assert_eq!(error.remedy(), "Enter a chord length above zero.");
+}
+
+#[test]
+fn a_chord_too_long_for_the_faces_says_the_chord_length_is_too_large() {
+    let mut model = model();
+
+    let evaluation = sized_by_chord(&mut model, "30 mm");
+
+    let error = failure(&evaluation, model.fillet);
+    assert!(
+        error.reason().starts_with("The chord length is too large"),
+        "{}",
+        error.reason()
+    );
+    assert!(
+        error.remedy().starts_with("Enter a smaller chord length"),
+        "{}",
+        error.remedy()
+    );
+}
+
+#[test]
+fn a_chord_fillet_across_edges_at_different_angles_asks_for_one_feature_per_angle() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut triangle = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 10.0),
+    ];
+    for index in 0..3 {
+        triangle.add_line(corners[index], corners[(index + 1) % 3]);
+    }
+    let outline = transaction.add_feature("Outline", FeatureKind::from(triangle));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("4 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap();
+    let edges = vec![
+        edge_at(solid, Point3::new(0.0, 0.0, 2.0)),
+        edge_at(solid, Point3::new(10.0, 0.0, 2.0)),
+    ];
+    let mut transaction = document.transaction("Fillet");
+    let fillet = transaction.add_feature(
+        "Fillet 1",
+        FeatureKind::Blend(Blend {
+            kind: BlendKind::Fillet,
+            body: base,
+            groups: Vec::new(),
+            edges,
+            size: transaction.parse("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
+            sizing: FilletSizing::ChordLength,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let error = failure(&evaluate(&document, &mut engine), fillet);
+
+    assert!(
+        error
+            .reason()
+            .starts_with("A fillet sized by chord length needs one angle between the faces"),
+        "{}",
+        error.reason()
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(fillet)));
 }

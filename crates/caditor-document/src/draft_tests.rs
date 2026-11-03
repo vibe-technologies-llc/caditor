@@ -379,6 +379,7 @@ fn filleted(middle: Point3) -> Model {
             size: text("1 mm"),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

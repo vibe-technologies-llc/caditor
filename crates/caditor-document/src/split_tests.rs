@@ -615,6 +615,7 @@ fn fillet_on_the_split_off_part(model: &mut Model) -> FeatureId {
             size: Expression::parse_stored("1 mm").unwrap(),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     model.document.apply(transaction.finish()).unwrap();

@@ -2,6 +2,9 @@
 mod blended_corner_tests;
 mod chain;
 mod chamfer_corner;
+mod chord;
+#[cfg(test)]
+mod chord_tests;
 mod corner;
 mod feet;
 mod general;
@@ -35,7 +38,11 @@ use self::{
         BLEND_CURVE, Blend, FIRST_SIDE, Miss, SECOND_SIDE, Section, SectionCurve, SectionSide, Side,
     },
 };
-pub use self::{loft::LoftError, rounding::RoundingError};
+pub use self::{
+    chord::{ChordError, chord_fillet_radius},
+    loft::LoftError,
+    rounding::RoundingError,
+};
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},

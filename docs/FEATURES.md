@@ -31,9 +31,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   no line along its faces nor a circle about their axis, and the tangent chain holding it) refused
   where it ends at a rounded corner; a lofted chain's feet are not checked against other blends'
   feet; no variable radius; a round corner only for three convex straight edges meeting at three
-  planes (other corners mitre). Missing as shapes
-  of their own: a full-round fillet across a narrow face between two others, a fillet sized by
-  chord length, setback corners where three
+  planes (other corners mitre); a fillet sized by chord length takes the faces meeting at one angle
+  along its edges and one angle across them (no variable radius). Missing as shapes
+  of their own: a full-round fillet across a narrow face between two others, setback corners where three
   fillets meet, a tangency weight, and a curvature-continuous (G2) fillet.
 - [medium · hard] Shell: no spline, extrusion or revolution faces, as walls or openings (the kernel
   has no fitted offset surface); a curved face (cylinder, cone, sphere, torus) opens only on the

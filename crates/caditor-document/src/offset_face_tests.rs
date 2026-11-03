@@ -333,6 +333,7 @@ fn a_fillet_on_one_rim_of_a_groove_holds_after_another_face_moves() {
             size: Expression::Measure(0.5, Unit::Millimetre),
             form: ChamferForm::Equal,
             flipped: false,
+            sizing: FilletSizing::Radius,
         }),
     );
     document.apply(transaction.finish()).unwrap();

@@ -252,10 +252,14 @@ fn edge_choice(size: &str, size_description: &str) -> serde_json::Map<String, Va
 }
 
 pub fn fillet() -> Value {
-    object(
-        Value::Object(edge_choice("radius", "Such as \"2 mm\"")),
-        &["body", "radius"],
-    )
+    let mut properties = edge_choice("radius", "Such as \"2 mm\"");
+    properties.insert(
+        "chord_length".to_owned(),
+        amount(
+            "The straight distance between the fillet's two tangent lines, instead of a radius: the faces must meet at one angle along the edges",
+        ),
+    );
+    object(Value::Object(properties), &["body"])
 }
 
 pub fn chamfer() -> Value {

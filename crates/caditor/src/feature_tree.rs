@@ -6,9 +6,9 @@ use std::{
 
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, EdgeRule, Edit, EditError, Feature, FeatureError,
-    FeatureId, FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, MissingInput,
-    PatternKind, PrimitiveKind, RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction,
-    TreeRow,
+    FeatureId, FeatureKind, FeatureState, FeatureStatus, FilletSizing, FixTarget, Healing,
+    MissingInput, PatternKind, PrimitiveKind, RollbackBar, SketchFeature, SolidFeature,
+    SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -2915,7 +2915,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 23] = [
+    let changes: [(Command, FeatureChange<'_>); 25] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2971,6 +2971,14 @@ fn feature_commands(
         }),
         (Command::ChamferDistanceAngle, &|feature| {
             blend_tools::form_change(document, feature, FormChoice::DistanceAngle)
+                .map_err(TreeError::Blend)
+        }),
+        (Command::FilletByRadius, &|feature| {
+            blend_tools::sizing_change(document, feature, FilletSizing::Radius)
+                .map_err(TreeError::Blend)
+        }),
+        (Command::FilletByChord, &|feature| {
+            blend_tools::sizing_change(document, feature, FilletSizing::ChordLength)
                 .map_err(TreeError::Blend)
         }),
         (Command::FlipChamfer, &|feature| {

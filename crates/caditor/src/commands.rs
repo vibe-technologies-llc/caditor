@@ -315,6 +315,8 @@ pub enum Command {
     ChamferEqual,
     ChamferTwoDistances,
     ChamferDistanceAngle,
+    FilletByRadius,
+    FilletByChord,
     FlipChamfer,
     AddConvexEdges,
     AddConcaveEdges,
@@ -1004,6 +1006,8 @@ plain_commands! {
     ChamferEqual,
     ChamferTwoDistances,
     ChamferDistanceAngle,
+    FilletByRadius,
+    FilletByChord,
     FlipChamfer,
     AddConvexEdges,
     AddConcaveEdges,
@@ -1369,6 +1373,8 @@ impl Command {
             Self::ChamferEqual => "model.chamfer_equal",
             Self::ChamferTwoDistances => "model.chamfer_two_distances",
             Self::ChamferDistanceAngle => "model.chamfer_distance_angle",
+            Self::FilletByRadius => "model.fillet_by_radius",
+            Self::FilletByChord => "model.fillet_by_chord",
             Self::FlipChamfer => "model.flip_chamfer",
             Self::AddConvexEdges => "model.add_convex_edges",
             Self::AddConcaveEdges => "model.add_concave_edges",
@@ -1690,6 +1696,8 @@ impl Command {
             Self::ChamferEqual => "Chamfer by one distance on both faces",
             Self::ChamferTwoDistances => "Chamfer by two distances",
             Self::ChamferDistanceAngle => "Chamfer by a distance and an angle",
+            Self::FilletByRadius => "Size the fillet by its radius",
+            Self::FilletByChord => "Size the fillet by its chord length",
             Self::FlipChamfer => "Flip the chamfer's faces",
             Self::AddConvexEdges => "Add every convex edge to the fillet or chamfer",
             Self::AddConcaveEdges => "Add every concave edge to the fillet or chamfer",
@@ -2190,6 +2198,8 @@ impl Command {
             | Self::ChamferEqual
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
+            | Self::FilletByRadius
+            | Self::FilletByChord
             | Self::FlipChamfer
             | Self::AddConvexEdges
             | Self::AddConcaveEdges
@@ -2549,6 +2559,8 @@ impl Command {
             | Self::ChamferEqual
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
+            | Self::FilletByRadius
+            | Self::FilletByChord
             | Self::FlipChamfer
             | Self::AddConvexEdges
             | Self::AddConcaveEdges
