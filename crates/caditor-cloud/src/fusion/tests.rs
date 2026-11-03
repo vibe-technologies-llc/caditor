@@ -55,6 +55,7 @@ fn design(id: &str) -> Design {
         project: ProjectId::new("a.proj"),
         name: "Frame".to_owned(),
         modified: None,
+        has_parts: false,
     }
 }
 

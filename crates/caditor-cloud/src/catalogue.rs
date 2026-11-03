@@ -23,6 +23,7 @@ identifier!(FolderId);
 identifier!(DesignId);
 identifier!(UploadId);
 identifier!(VersionId);
+identifier!(PartId);
 identifier!(ItemId);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,13 @@ pub struct Design {
     pub project: ProjectId,
     pub name: String,
     pub modified: Option<Timestamp>,
+    pub has_parts: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Part {
+    pub id: PartId,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

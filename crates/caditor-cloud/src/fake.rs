@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 
 use crate::{
     catalogue::{
-        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, ItemId, Outgoing,
+        Account, Conversion, Design, DesignId, Download, Folder, FolderRef, ItemId, Outgoing, Part,
         Placement, Project, ProjectId, SendAs, SendOutcome, Sent, Translation, Upload, UploadId,
         Version, VersionId, Workspace, WorkspaceId,
     },
@@ -187,6 +187,7 @@ pub enum Step {
     Fetch,
     Thumbnail,
     Versions,
+    Parts,
     Send,
     Placement,
 }
@@ -212,6 +213,7 @@ pub struct FakeProvider {
     thumbnails: BTreeMap<DesignId, Vec<u8>>,
     stored: BTreeMap<UploadId, Vec<u8>>,
     versions: BTreeMap<DesignId, Vec<Version>>,
+    parts: BTreeMap<DesignId, Vec<Part>>,
     received: Mutex<Vec<Received>>,
     working_polls: usize,
     web_links: bool,
@@ -241,6 +243,7 @@ impl FakeProvider {
             thumbnails: BTreeMap::new(),
             stored: BTreeMap::new(),
             versions: BTreeMap::new(),
+            parts: BTreeMap::new(),
             received: Mutex::new(Vec::new()),
             working_polls: 0,
             web_links: true,
@@ -295,6 +298,11 @@ impl FakeProvider {
 
     pub fn versions(mut self, design: DesignId, versions: Vec<Version>) -> Self {
         self.versions.insert(design, versions);
+        self
+    }
+
+    pub fn parts(mut self, design: DesignId, parts: Vec<Part>) -> Self {
+        self.parts.insert(design, parts);
         self
     }
 
@@ -486,6 +494,33 @@ impl Provider for FakeProvider {
     ) -> Result<Vec<Version>, Error> {
         self.enter(Step::Versions, format!("versions {}", design.id.as_str()))?;
         Ok(self.versions.get(&design.id).cloned().unwrap_or_default())
+    }
+
+    fn parts(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        design: &Design,
+    ) -> Result<Vec<Part>, Error> {
+        self.enter(Step::Parts, format!("parts {}", design.id.as_str()))?;
+        Ok(self.parts.get(&design.id).cloned().unwrap_or_default())
+    }
+
+    fn start_part_conversion(
+        &self,
+        _net: &dyn Transport,
+        _session: &Session,
+        design: &Design,
+        part: &Part,
+    ) -> Result<Translation, Error> {
+        self.enter(
+            Step::Conversion,
+            format!("convert {} part {}", design.id.as_str(), part.id.as_str()),
+        )?;
+        self.polled.store(0, Ordering::Relaxed);
+        Ok(Translation {
+            source: design.id.as_str().to_owned(),
+        })
     }
 
     fn start_conversion(

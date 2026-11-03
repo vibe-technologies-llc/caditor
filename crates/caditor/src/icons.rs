@@ -92,6 +92,7 @@ pub const ROLLED_BACK: &str = phosphor::CLOCK_COUNTER_CLOCKWISE;
 pub const PRINCIPAL_GROUP: &str = PLANE;
 pub const BODIES: &str = phosphor::CUBE;
 pub const DESIGN_VERSIONS: &str = phosphor::CLOCK_COUNTER_CLOCKWISE;
+pub const DESIGN_PARTS: &str = phosphor::PUZZLE_PIECE;
 pub const UPLOADED_MESH: &str = phosphor::POLYGON;
 pub const UPLOADED_DRAWING: &str = phosphor::VECTOR_TWO;
 pub const BODY_APPEARANCE: &str = phosphor::PAINT_BUCKET;

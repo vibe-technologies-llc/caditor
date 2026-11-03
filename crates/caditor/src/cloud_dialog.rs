@@ -25,6 +25,7 @@ pub const CANCEL_SIGN_IN: &str = "Cancel signing in";
 pub const REFRESH: &str = "Refresh";
 pub const IMPORT: &str = "Import";
 pub const VERSIONS: &str = "Versions";
+pub const PARTS: &str = "Parts";
 pub const NEWEST_VERSION: &str = "newest";
 pub const CLEAR_DOWNLOADS: &str = "Clear downloaded designs";
 pub const TURN_OFF: &str = "Turn off cloud features";
@@ -54,7 +55,13 @@ struct Crumb {
 struct Browser {
     project: Option<ProjectId>,
     trail: Vec<Crumb>,
-    versions_shown: BTreeSet<DesignId>,
+    expanded: Expanded,
+}
+
+#[derive(Debug, Default)]
+struct Expanded {
+    versions: BTreeSet<DesignId>,
+    parts: BTreeSet<DesignId>,
 }
 
 impl Browser {
@@ -579,7 +586,7 @@ fn contents(
                             service,
                             linked,
                             design,
-                            &mut state.versions_shown,
+                            &mut state.expanded,
                             outcomes,
                         );
                     }
@@ -773,7 +780,7 @@ fn design_row(
     service: Service,
     linked: &Linked,
     design: &Design,
-    versions_shown: &mut BTreeSet<DesignId>,
+    expanded: &mut Expanded,
     outcomes: &mut Vec<Outcome>,
 ) {
     let tokens = appearance::tokens(ui);
@@ -806,7 +813,7 @@ fn design_row(
                 )));
             }
             if service.has_design_versions() {
-                let shown = versions_shown.contains(&design.id);
+                let shown = expanded.versions.contains(&design.id);
                 let toggle = widgets::small_button(ui, icons::DESIGN_VERSIONS, VERSIONS);
                 let toggle = ui.add(toggle).on_hover_text(format!(
                     "Choose which saved version of “{}” to import",
@@ -814,10 +821,28 @@ fn design_row(
                 ));
                 if toggle.clicked() {
                     if shown {
-                        versions_shown.remove(&design.id);
+                        expanded.versions.remove(&design.id);
                     } else {
-                        versions_shown.insert(design.id.clone());
+                        expanded.versions.insert(design.id.clone());
                         outcomes.push(Outcome::Cloud(CloudCommand::LoadVersions(
+                            service,
+                            design.clone(),
+                        )));
+                    }
+                }
+            }
+            if design.has_parts {
+                let shown = expanded.parts.contains(&design.id);
+                let toggle = widgets::small_button(ui, icons::DESIGN_PARTS, PARTS);
+                let toggle = ui
+                    .add(toggle)
+                    .on_hover_text(format!("Choose which part of “{}” to import", design.name));
+                if toggle.clicked() {
+                    if shown {
+                        expanded.parts.remove(&design.id);
+                    } else {
+                        expanded.parts.insert(design.id.clone());
+                        outcomes.push(Outcome::Cloud(CloudCommand::LoadParts(
                             service,
                             design.clone(),
                         )));
@@ -826,10 +851,72 @@ fn design_row(
             }
         },
     );
-    if versions_shown.contains(&design.id) {
+    if expanded.versions.contains(&design.id) {
         ui.indent(("versions", design.id.as_str()), |ui| {
             version_rows(ui, view, service, linked, design, outcomes);
         });
+    }
+    if expanded.parts.contains(&design.id) {
+        ui.indent(("parts", design.id.as_str()), |ui| {
+            part_rows(ui, service, linked, design, outcomes);
+        });
+    }
+}
+
+fn part_rows(
+    ui: &mut Ui,
+    service: Service,
+    linked: &Linked,
+    design: &Design,
+    outcomes: &mut Vec<Outcome>,
+) {
+    match linked.parts(&design.id) {
+        Load::Idle | Load::Loading => {
+            widgets::progress("Loading parts…").show(ui);
+        }
+        Load::Failed(failure) => {
+            if cloud_parts::failure_callout(ui, Tone::Warning, "Could not list the parts.", failure)
+            {
+                outcomes.push(Outcome::Cloud(CloudCommand::ReloadParts(
+                    service,
+                    design.clone(),
+                )));
+            }
+        }
+        Load::Ready(parts) if parts.is_empty() => {
+            ui.label(widgets::muted("This design has no parts.", ui));
+        }
+        Load::Ready(parts) => {
+            for part in parts {
+                Sides::new().shrink_left().show(
+                    ui,
+                    |ui| {
+                        ui.add(Label::new(&part.name).truncate());
+                    },
+                    |ui| {
+                        let button =
+                            widgets::small_button(ui, icons::command(Command::Import), IMPORT);
+                        let response = ui
+                            .add_enabled(!linked.is_importing(), button)
+                            .on_hover_text(format!(
+                                "Have {service} convert the part “{}” of “{}” to STEP and add it \
+                                 to the model",
+                                part.name, design.name
+                            ))
+                            .on_disabled_hover_text(
+                                "Another design is being imported; wait for it or cancel it first",
+                            );
+                        if response.clicked() {
+                            outcomes.push(Outcome::Cloud(CloudCommand::ImportPart(
+                                service,
+                                design.clone(),
+                                part.clone(),
+                            )));
+                        }
+                    },
+                );
+            }
+        }
     }
 }
 

@@ -8,8 +8,9 @@ use std::{
 };
 
 use caditor_cloud::{
-    Design, DesignId, Error, Folder, FolderId, FolderRef, Project, ProjectId, SendAs, Service,
-    Upload, UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId, WorkspaceKind,
+    Design, DesignId, Error, Folder, FolderId, FolderRef, Part, PartId, Project, ProjectId, SendAs,
+    Service, Upload, UploadFormat, UploadId, Version, VersionId, Workspace, WorkspaceId,
+    WorkspaceKind,
     fake::{FakeProvider, ScriptedTransport, Step},
 };
 use caditor_document::Document;
@@ -71,6 +72,7 @@ fn design(id: &str, name: &str, project: &str, days_ago: i64) -> Design {
         project: ProjectId::new(project),
         name: name.to_owned(),
         modified: Timestamp::from_second(at).ok(),
+        has_parts: false,
     }
 }
 
@@ -1310,6 +1312,107 @@ fn listing_versions_that_fails_says_so_and_try_again_lists_them() {
     harness.wait_until("the versions are listed", |harness| {
         harness.shows("Version 2")
     });
+}
+
+fn parts_provider(step: &[u8]) -> FakeProvider {
+    let hub = WorkspaceId::new("hub");
+    let frame = Design {
+        has_parts: true,
+        ..design("d1", "Frame", "p1", 3)
+    };
+    FakeProvider::new()
+        .account("Ada Lovelace")
+        .workspace(Workspace {
+            id: hub.clone(),
+            name: "Studio".to_owned(),
+            kind: WorkspaceKind::Team,
+        })
+        .project(
+            Project {
+                id: ProjectId::new("p1"),
+                workspace: hub,
+                name: "Bikes".to_owned(),
+            },
+            Folder {
+                designs: vec![frame, design("d2", "Rig", "p1", 40)],
+                ..Folder::default()
+            },
+        )
+        .parts(
+            DesignId::new("d1"),
+            vec![
+                Part {
+                    id: PartId::new("JHD"),
+                    name: "Plate".to_owned(),
+                },
+                Part {
+                    id: PartId::new("JKD"),
+                    name: "Bracket".to_owned(),
+                },
+            ],
+        )
+        .step_file(step)
+}
+
+fn open_designs_in_manager(harness: &mut Harness) {
+    run_from_palette(harness, "Cloud projects");
+    harness.frame();
+    harness.frame();
+    harness.click(cloud_dialog::SIGN_IN);
+    harness.wait_until("the projects are listed", |harness| harness.shows("Bikes"));
+    harness.click("Bikes");
+    harness.wait_until("the designs are listed", |harness| harness.shows("Frame"));
+}
+
+#[test]
+fn only_a_design_with_parts_offers_them_and_a_chosen_part_is_converted_and_imported() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(parts_provider(&plate_step()));
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_designs_in_manager(&mut harness);
+
+    assert!(!harness.shows("Bracket"));
+
+    harness.click(cloud_dialog::PARTS);
+    harness.wait_until("the parts are listed", |harness| {
+        harness.shows("Plate") && harness.shows("Bracket")
+    });
+
+    let before = harness.document().features().len();
+    harness.click_beside(cloud_dialog::IMPORT, "Bracket");
+    harness.wait_until("the part is imported", |harness| {
+        harness.document().features().len() > before
+    });
+    harness.settle();
+
+    assert_eq!(
+        downloaded_files(dir.path()),
+        vec!["Frame - Bracket.step".to_owned()]
+    );
+    assert!(provider.calls().contains(&"convert d1 part JKD".to_owned()));
+    harness.click(cloud_dialog::PARTS);
+    assert!(!harness.shows("Bracket"));
+}
+
+#[test]
+fn listing_parts_that_fails_says_so_and_try_again_lists_them() {
+    let dir = TempDir::new().unwrap();
+    let provider = Arc::new(
+        parts_provider(b"").failing(Step::Parts, || Error::NotFound {
+            subject: caditor_cloud::Subject::Parts,
+        }),
+    );
+    let mut harness = with_cloud(dir.path(), &provider);
+    open_designs_in_manager(&mut harness);
+
+    harness.click(cloud_dialog::PARTS);
+    harness.wait_until("the failure is shown", |harness| {
+        harness.shows_containing("Could not list the parts.")
+    });
+
+    provider.recover(Step::Parts);
+    harness.click(cloud_parts::TRY_AGAIN);
+    harness.wait_until("the parts are listed", |harness| harness.shows("Bracket"));
 }
 
 #[test]
