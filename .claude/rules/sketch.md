@@ -322,7 +322,11 @@ paths:
   takes a line as its whole line and an arc as its whole circle, as the solver's forms do, with a
   spline or ellipse too; two curves that only touch (a spline's tip resting on the other within
   tolerance, `intersect::spline_touching`) give their closest approach, so a solved touch is found
-  again.
+  again. Two lines on one line or two circles on one circle (`shared_carrier`, as a solve leaves
+  concentric circles a point is held level with the crossing of) cross everywhere along it, so
+  `target_position` takes the place on it the constraint misses least (`level_places`), the
+  solve's own result. The middle of an arc whose ends meet within rounding is opposite its start,
+  as for a full turn.
   `describe_target` names it in words ("the crossing of Line 1 and Circle 2"), so `describe`
   reads "Horizontal Point 5 and the midpoint of Line 1", "Perpendicular bisector of Line 1 at
   Point 5", "Centre of Point 1, Point 2 and Point 3 at Point 7". `restating` compares targets with
