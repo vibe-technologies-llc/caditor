@@ -1595,6 +1595,94 @@ fn a_spline_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() 
 }
 
 #[test]
+fn a_spline_is_chamfered_by_a_distance_along_it_and_an_angle_from_its_end() {
+    for spline_first in [true, false] {
+        for kind in [SplineKind::OPEN, SplineKind::fit(false)] {
+            let (mut sketch, line, spline) = line_on_spline(spline_first, kind);
+            let corner = sketch.corner_between(spline, line).unwrap();
+            let size = ChamferSize::DistanceAndAngle {
+                distance: dimensioned(3.0),
+                angle: degrees(3.0),
+            };
+
+            let cut = sketch.chamfer(&corner, &size).unwrap();
+            let angle = sketch
+                .constraints()
+                .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+                .map(|(_, constraint)| constraint.clone())
+                .unwrap();
+            let drawn = sketch.line_endpoints(cut).unwrap();
+            let solved = solve(&sketch);
+
+            assert!(matches!(
+                angle,
+                Constraint::Angle { from, to, .. }
+                    if (from == spline && to == cut) || (from == cut && to == spline)
+            ));
+            assert!(
+                sketch
+                    .measured(&angle)
+                    .is_some_and(|found| (found - 3.0).abs() < 1e-6),
+                "{:?}",
+                sketch.measured(&angle)
+            );
+            assert_clean(&solved);
+            assert!(
+                solved
+                    .geometry
+                    .measured(&angle)
+                    .is_some_and(|found| (found - 3.0).abs() < 1e-6)
+            );
+            let (start, end) = solved.geometry.line_endpoints(cut).unwrap();
+            assert_near(start, drawn.0);
+            assert_near(end, drawn.1);
+        }
+    }
+}
+
+#[test]
+fn the_angle_of_a_spline_chamfer_follows_a_changed_value() {
+    let (mut sketch, line, spline) = line_on_spline(true, SplineKind::OPEN);
+    let corner = sketch.corner_between(spline, line).unwrap();
+    let size = ChamferSize::DistanceAndAngle {
+        distance: dimensioned(3.0),
+        angle: degrees(3.0),
+    };
+    let cut = sketch.chamfer(&corner, &size).unwrap();
+    let (id, angle) = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    let Constraint::Angle {
+        from, to, reversed, ..
+    } = angle
+    else {
+        panic!("expected an angle");
+    };
+
+    sketch
+        .set_dimension(id, Expression::Measure(2.0, Unit::Degree))
+        .unwrap();
+    let solved = solve(&sketch);
+
+    assert_clean(&solved);
+    let moved = Constraint::Angle {
+        from,
+        to,
+        reversed,
+        value: Expression::Measure(2.0, Unit::Degree),
+    };
+    assert!(
+        solved
+            .geometry
+            .measured(&moved)
+            .is_some_and(|found| (found - 2.0).abs() < 1e-5)
+    );
+    assert!(solved.geometry.line_endpoints(cut).is_some());
+}
+
+#[test]
 fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
     let first = sketch.add_spline(&bowed());

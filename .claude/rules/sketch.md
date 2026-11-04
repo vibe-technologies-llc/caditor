@@ -268,7 +268,10 @@ paths:
   elliptical arc sharing an end (directly, by `Coincident`, or the arc's end on the line; else
   `NotJoined`), the arc's direction being its tangent leaving the joint (`Sketch::angle_direction`,
   `angle_vertex`); trim, extend, fillet and split drop such an angle on an arc they reshape
-  (`keeps_sweep`).
+  (`keeps_sweep`). A line and a spline sharing one of its ends (`joined_ends`) take it too, the
+  spline's direction its tangent leaving that end (`Sketch::spline_leaving`); a spline trimmed or
+  split drops it where the joint is removed and keeps it where the joint stays, as a `Tangent`
+  (`spline_fates`).
 - `HorizontalDistance` and `VerticalDistance` take two points, a point or circle and a line, or two
   circles or arcs (never two lines: `NotApplicable`). A circle or arc counts as its centre, a line
   as where it crosses the axis-parallel through the other item (`Sketch::axis_offset_ends` gives
@@ -383,7 +386,7 @@ relative to the extent.
     near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
   - On a trimmed spline `Equal` and `Rho` are dropped; a `Coincident` point or `Distance` (where it
     measures on the spline) stays on the piece it lies on, moves to the far piece or is dropped
-    with a removed stretch; `Tangent` and `Curvature` joined at a removed end are dropped, joined
+    with a removed stretch; `Tangent`, `Curvature` and `Angle` joined at a removed end are dropped, joined
     at the far end move to the far piece. The far piece of a split gets no constraint to the near
     one (no constraint holds two splines on one curve).
   - Extend carries a spline's end along its own continuation (`reach_along_spline`): the last
@@ -569,8 +572,9 @@ relative to the extent.
     shared end. No constraint holds a point on a spline's continuation, so the sharp is held only
     on the non-spline curves (`carried_curves`); a fillet whose sharp nothing else uses removes it,
     keeping the sketch's freedom unchanged, and a chamfer keeps it for its `Distance` dimensions.
-    A chamfer at a spline's end cuts by chord distance like an ellipse's; its angle form is
-    `AngleNotHeld` since no `Angle` takes a spline.
+    A chamfer at a spline's end cuts by chord distance like an ellipse's; its angle form holds
+    an `Angle` between the cut and the spline's tangent leaving the new end (the cut spline keeps
+    the original's tangent there), as for an arc.
 - Joining non-meeting curves first (`fillet/crossing.rs`): `join_at_crossing` takes a `Pick` on
   each (curve and a point on it), the corner at the crossing of their carriers nearest the picks
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with

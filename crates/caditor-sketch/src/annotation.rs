@@ -44,14 +44,16 @@ impl LineSpan {
     }
 
     fn along(sketch: &Sketch, id: EntityId, other: EntityId) -> Option<Self> {
-        let Some(arc) = sketch.arc(id) else {
-            return Self::of(sketch, id);
+        let length = match (sketch.arc(id), sketch.spline(id)) {
+            (Some(arc), _) => arc.radius * arc.sweep.min(1.0),
+            (None, Some(spline)) => spline.length(),
+            (None, None) => return Self::of(sketch, id),
         };
         let direction = sketch.angle_direction(id, other)?.try_normalize()?;
         Some(Self {
             origin: sketch.angle_vertex(id, other)?,
             direction,
-            length: Some(arc.radius * arc.sweep.min(1.0)),
+            length: Some(length),
         })
     }
 

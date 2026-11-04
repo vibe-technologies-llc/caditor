@@ -16,7 +16,7 @@ use crate::{
     },
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{
-        arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, not_joined, spline_gap,
+        arc_joint, curve_pair_gap, ellipse_gap, joined_at_end, joined_ends, not_joined, spline_gap,
         straight_spline,
     },
     target::{PointTarget, listed},
@@ -842,6 +842,7 @@ impl Sketch {
                 let tangent = shape.tangent_at(shape.parameter_of(self.point(joint.end)?));
                 return Some(if joint.at_start { tangent } else { -tangent });
             }
+            Some(Entity::Spline { .. }) => return self.spline_leaving(entity, other),
             _ => return self.line_direction(entity),
         };
         let joint = arc_joint(self, entity, other)?;
@@ -849,10 +850,28 @@ impl Sketch {
         Some(Vector2::from_angle(joint.turn()).rotate(radius))
     }
 
+    fn spline_leaving(&self, spline: EntityId, line: EntityId) -> Option<Vector2> {
+        let (joint, _) = joined_ends(self, spline, line)?;
+        let (first, _) = self.entity(spline)?.spline_ends()?;
+        let at_start = joint == first;
+        let [tangent, _] = self
+            .spline(spline)?
+            .derivatives(if at_start { 0.0 } else { 1.0 });
+        Some(if at_start { tangent } else { -tangent })
+    }
+
     pub fn angle_vertex(&self, entity: EntityId, other: EntityId) -> Option<Point2> {
         [(entity, other), (other, entity)]
             .into_iter()
-            .find_map(|(arc, line)| self.point(arc_joint(self, arc, line)?.end))
+            .find_map(|(curve, line)| {
+                let joint = match self.role(curve)? {
+                    Role::Spline if self.role(line) == Some(Role::Line) => {
+                        joined_ends(self, curve, line)?.0
+                    }
+                    _ => arc_joint(self, curve, line)?.end,
+                };
+                self.point(joint)
+            })
     }
 
     pub fn spline_gap(&self, spline: EntityId, other: EntityId) -> Option<(Point2, Point2)> {
@@ -1513,6 +1532,20 @@ impl Sketch {
                 let (arc, line) = if self.is_arc(a) { (a, b) } else { (b, a) };
                 self.expect(line, &[Role::Line], "a line")?;
                 if arc_joint(self, arc, line).is_none() {
+                    return Err(not_joined(self, constraint, a, b));
+                }
+                self.check_not_only_reference(&entities, unmoving)
+            }
+            Constraint::Angle { from: a, to: b, .. }
+                if self.role(a) == Some(Role::Spline) || self.role(b) == Some(Role::Spline) =>
+            {
+                let (spline, line) = if self.role(a) == Some(Role::Spline) {
+                    (a, b)
+                } else {
+                    (b, a)
+                };
+                self.expect(line, &[Role::Line], "a line")?;
+                if joined_ends(self, spline, line).is_none() {
                     return Err(not_joined(self, constraint, a, b));
                 }
                 self.check_not_only_reference(&entities, unmoving)

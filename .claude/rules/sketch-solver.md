@@ -215,7 +215,10 @@ paths:
   the Gauss-Legendre sum of the speed, five nodes per knot span (`length_nodes`), as
   `BSpline::length` sums it.
 - An angle to an arc is `Form::Angle` on the radius from the centre to the joint, turned a right
-  angle (counter-clockwise at the arc's start, clockwise at its end) through the target value.
+  angle (counter-clockwise at the arc's start, clockwise at its end) through the target value. An
+  angle to a spline sharing an end with a line is `Form::Angle` on the spline's first leg from that
+  end (`System::leg`, the tangent direction of a clamped spline, fit splines' hidden control points
+  included), with no turn.
 
 ## Ellipses (`solve/ellipse.rs`)
 

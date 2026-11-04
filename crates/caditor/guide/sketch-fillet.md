@@ -43,8 +43,8 @@ Sketch fillet's in the Modify group of the sketch ribbon. Type:
 - `5` for the same distance along both curves,
 - `5, 3` for a distance along each, in order,
 - `5 < 45` for a distance along the first curve and the angle of the cut, measured from the
-  first curve's tangent where the cut meets it, an arc's or an elliptical arc's included. A cut at an angle
-to a spline is refused, since no angle dimension can be held against one.
+  first curve's tangent where the cut meets it, an arc's, an elliptical arc's or a spline's
+  included.
 
 The values are kept as typed, parameters included. These work on sketch corners; to round the edges
 of a body use [Fillet and Chamfer](fillet-and-chamfer).

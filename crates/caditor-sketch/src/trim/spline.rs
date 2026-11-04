@@ -999,7 +999,9 @@ impl Sketch {
                 Constraint::Distance { from, to, .. } => self
                     .measured_on_spline(curve, &spline, other(from, to))
                     .map_or(Fate::Kept, fate_at),
-                Constraint::Tangent(a, b) | Constraint::Curvature(a, b) => {
+                Constraint::Tangent(a, b)
+                | Constraint::Curvature(a, b)
+                | Constraint::Angle { from: a, to: b, .. } => {
                     let other = other(a, b);
                     match ends {
                         Some((start, end)) => {

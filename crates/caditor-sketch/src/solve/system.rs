@@ -1189,6 +1189,12 @@ impl System {
                 let ray = AngleRay::Normal(point, self.ellipse(sketch, entity)?, fallback);
                 return Ok((ray, joint.turn()));
             }
+            Some(Entity::Spline { .. }) => {
+                let end = joints
+                    .spline_end_on(sketch, entity, other)
+                    .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
+                return Ok((AngleRay::Line(self.leg(sketch, entity, end)?), 0.0));
+            }
             _ => return Ok((AngleRay::Line(self.line(sketch, entity)?), 0.0)),
         };
         let joint = joints
