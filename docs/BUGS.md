@@ -106,12 +106,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] A conflict through a chain of more than about 1,050 lines with its far end fixed
-  out of reach is reported as not solving: the diagnosis's two descents outgrow `DIAGNOSIS_WORK`.
-  At 1,000 lines the support's descent from the drawing takes about 225,000 units and the closest
-  witness's about 219,000 (trimming 12,000), some 85% of it in the two perturbed retries (23 to 32
-  steps each against 2 to 16 for the unperturbed attempt), which untangle a start scattered by a
-  fraction of the whole chain's extent before Newton steps settle it.
 - [medium · hard] A sketch with a closed centripetal spline through one point twice can move when
   solved again from its own result, by up to 0.6 mm, or be refused: the spacing rounds do not
   settle within `SPACING_ROUNDS` (seeds 269470 and 306204, a distance to or a tangent with such a

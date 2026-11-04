@@ -51,7 +51,7 @@ use crate::{
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
-        diagnosis::{DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
+        diagnosis::{DIAGNOSIS_STEPS, DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
         equation::value,
         memo::Recall,
         numeric::{
@@ -512,7 +512,12 @@ impl Sketch {
                     failed
                 };
                 if !failed.is_empty() {
-                    for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
+                    for found in diagnose_failure(
+                        &current,
+                        &solver,
+                        &failed,
+                        (DIAGNOSIS_WORK, DIAGNOSIS_STEPS),
+                    )? {
                         found.apply(&mut values);
                     }
                     let collapsed = parts.at(&system, &values).iter().any(|component| {

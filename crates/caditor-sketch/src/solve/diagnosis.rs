@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub(super) const DIAGNOSIS_WORK: usize = 500_000;
+pub(super) const DIAGNOSIS_STEPS: usize = 400;
 const SOLVES_PER_STEP: usize = 32;
 const MID_RANGE: f64 = 0.5;
 const DIAGNOSED_PARTS: usize = 8;
@@ -41,7 +42,7 @@ pub(super) fn diagnose_failure(
     sketch: &Sketch,
     solver: &Solver<'_>,
     failed: &[Failure],
-    work: usize,
+    (work, steps): (usize, usize),
 ) -> Result<Vec<Found>, SketchError> {
     let collapsed = failed.iter().find_map(|failure| {
         solver
@@ -66,7 +67,7 @@ pub(super) fn diagnose_failure(
     let mut found = Vec::new();
     for (index, (failure, suspects)) in parts.iter().enumerate() {
         let diagnosed = if index < DIAGNOSED_PARTS {
-            diagnose_part(sketch, solver, failure, suspects, work)?
+            diagnose_part(sketch, solver, failure, suspects, (work, steps))?
         } else {
             Diagnosed::Report(unsolvable(sketch, solver, failure, suspects))
         };
@@ -104,13 +105,18 @@ pub(super) fn trimmed(
     })
 }
 
+pub(super) fn work_for(equations: usize, (work, steps): (usize, usize)) -> usize {
+    work.max(equations.saturating_mul(steps))
+}
+
 fn diagnose_part(
     sketch: &Sketch,
     solver: &Solver<'_>,
     failure: &Failure,
     suspects: &[ConstraintId],
-    work: usize,
+    (work, steps): (usize, usize),
 ) -> Result<Diagnosed, SketchError> {
+    let work = work_for(failure.component.equations.len(), (work, steps));
     let mut diagnosis = Diagnosis::new(solver, failure, work);
     let support = diagnosis.irreducible_where_it_settled(failure);
     let found = match diagnosis.minimal_conflict(suspects, support) {

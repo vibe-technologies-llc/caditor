@@ -314,7 +314,10 @@ paths:
   descent from the drawing; when it holds, or there is none, QuickXplain-style divide and conquer
   over the part's constraints holding the newest one looks for one. Other probes solve the
   sub-parts from the closest known state; all remember each outcome by its equations and share
-  one budget, `DIAGNOSIS_WORK`.
+  one budget, `DIAGNOSIS_WORK` or, for a part of thousands of equations, `DIAGNOSIS_STEPS` steps of
+  the part (`work_for`): a descent from the drawing takes about 70 steps however long the chain,
+  and a budget of steps times equations that is fixed would grant a long one fewer than two
+  descents need.
 - A probe's failure only steers the search. The set found is trimmed, oldest first, of every
   constraint without which it still fails; each kept constraint comes with a witness, a solution of
   the set without it. A descent is conclusive when its unperturbed attempt ends at a least-squares
@@ -352,7 +355,8 @@ paths:
   46,000 units for all three attempts, against 192,000 by line search alone. A 300-line chain is
   diagnosed in about 103,000 units (the support's descent from the drawing 46,000, trimming 3,600,
   the closest witness's descent 53,000), a 1,000-line chain in about 456,000, so both are named
-  within the budget (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
+  within the budget, as are chains of 1,100, 1,500 and 2,000 lines in 4, 8 and 12 seconds of a release
+  build (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest
