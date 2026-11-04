@@ -2784,6 +2784,527 @@ fn a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it() {
     assert_volume(&bent.solid, 1000.0);
 }
 
+fn polyhedron(
+    corners: &[[f64; 3]],
+    loops: &[&[usize]],
+    curved: impl Fn(usize, &mut Entities) -> Option<usize>,
+    curve_of: impl Fn((usize, usize), &mut Entities) -> Option<usize>,
+) -> (String, u64) {
+    use caditor_geometry::Point3;
+
+    let corner = |index: usize| {
+        let [x, y, z] = corners[index];
+        Point3::new(x, y, z)
+    };
+
+    let mut entities = Entities::default();
+
+    let vertices: Vec<usize> = (0..corners.len())
+        .map(|index| {
+            let at = entities.point(corner(index));
+            entities.add(format!("VERTEX_POINT('',#{at})"))
+        })
+        .collect();
+    let mut edges = std::collections::BTreeMap::new();
+    let mut faces = Vec::new();
+    for (face, loop_corners) in loops.iter().enumerate() {
+        let mut uses = Vec::new();
+        for (index, from) in loop_corners.iter().enumerate() {
+            let to = loop_corners[(index + 1) % loop_corners.len()];
+            let key = (*from.min(&to), *from.max(&to));
+            let edge = match edges.get(&key) {
+                Some(edge) => *edge,
+                None => {
+                    let curve = curve_of(key, &mut entities).unwrap_or_else(|| {
+                        let (start, end) = (corner(key.0), corner(key.1));
+                        let origin = entities.point(start);
+                        let along = entities.direction((end - start).normalize());
+                        let vector = entities.add(format!("VECTOR('',#{along},1.)"));
+                        entities.add(format!("LINE('',#{origin},#{vector})"))
+                    });
+                    let edge = entities.add(format!(
+                        "EDGE_CURVE('',#{},#{},#{curve},.T.)",
+                        vertices[key.0], vertices[key.1]
+                    ));
+                    edges.insert(key, edge);
+                    edge
+                }
+            };
+            let forward = if *from < to { ".T." } else { ".F." };
+            uses.push(format!(
+                "#{}",
+                entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
+            ));
+        }
+        let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
+        let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
+        let surface = curved(face, &mut entities).unwrap_or_else(|| {
+            let points: Vec<Point3> = loop_corners.iter().map(|index| corner(*index)).collect();
+            let origin = entities.point(points[0]);
+            let axis = entities.direction(
+                (points[1] - points[0])
+                    .cross(points[2] - points[1])
+                    .normalize(),
+            );
+            let reference = entities.direction((points[1] - points[0]).normalize());
+            let placement = entities.add(format!(
+                "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+            ));
+            entities.add(format!("PLANE('',#{placement})"))
+        });
+        faces.push(format!(
+            "#{}",
+            entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
+        ));
+    }
+    let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
+    let brep = entities.add(format!("MANIFOLD_SOLID_BREP('solid',#{shell})")) as u64;
+    let text = with_precision(
+        &entities.text(),
+        "ADVANCED_BREP_SHAPE_REPRESENTATION",
+        brep,
+        "1.E-2",
+    );
+    (text, brep)
+}
+
+fn bezier_patch(entities: &mut Entities, net: &[Vec<[f64; 3]>]) -> usize {
+    let rows: Vec<String> = net
+        .iter()
+        .map(|row| {
+            let points: Vec<String> = row
+                .iter()
+                .map(|[x, y, z]| {
+                    format!(
+                        "#{}",
+                        entities.point(caditor_geometry::Point3::new(*x, *y, *z))
+                    )
+                })
+                .collect();
+            format!("({})", points.join(","))
+        })
+        .collect();
+    let (u_order, v_order) = (net.len(), net[0].len());
+    entities.add(format!(
+        "B_SPLINE_SURFACE_WITH_KNOTS('',{},{},({}),.UNSPECIFIED.,.F.,.F.,.F.,({u_order},{u_order}),\
+         ({v_order},{v_order}),(0.,1.),(0.,1.),.UNSPECIFIED.)",
+        u_order - 1,
+        v_order - 1,
+        rows.join(",")
+    ))
+}
+
+const SPLIT_TOP_LOOPS: [&[usize]; 7] = [
+    &[0, 3, 2, 1],
+    &[0, 1, 6, 5, 4],
+    &[1, 2, 7, 6],
+    &[2, 3, 9, 8, 7],
+    &[3, 0, 4, 9],
+    &[4, 5, 8, 9],
+    &[5, 6, 7, 8],
+];
+
+fn split_top_corners(lean: f64) -> [[f64; 3]; 10] {
+    [
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [10.0, 10.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [5.0 + lean, 0.0, 10.0],
+        [10.0, 0.0, 10.0],
+        [10.0, 10.0, 10.0],
+        [5.0 - lean, 10.0, 10.0],
+        [0.0, 10.0, 10.0],
+    ]
+}
+
+fn has_spline_faces(solid: &caditor_kernel::Solid) -> bool {
+    solid
+        .faces()
+        .any(|(_, face)| matches!(face.surface(), caditor_kernel::Surface::BSpline(_)))
+}
+
+#[test]
+fn a_spline_tangent_to_its_neighbour_micrometres_off_is_bent_onto_it() {
+    let gap = 4e-6;
+    let (text, brep) = polyhedron(
+        &split_top_corners(0.0),
+        &SPLIT_TOP_LOOPS,
+        |face, entities| match face {
+            5 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![[0.0, 0.0, 10.0], [0.0, 5.0, 10.0], [0.0, 10.0, 10.0]],
+                    vec![[5.0, 0.0, 10.0], [5.0, 5.0, 10.0], [5.0, 10.0, 10.0]],
+                ],
+            )),
+            6 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![
+                        [5.0, 0.0, 10.0],
+                        [5.0, 5.0, 10.0 + 2.0 * gap],
+                        [5.0, 10.0, 10.0],
+                    ],
+                    vec![[10.0, 0.0, 10.0], [10.0, 5.0, 10.0], [10.0, 10.0, 10.0]],
+                ],
+            )),
+            _ => None,
+        },
+        |_, _| None,
+    );
+
+    let exact = built_with(&text, brep, super::topology::Healing::Exact);
+    let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
+    let model = read_step(&text).unwrap();
+
+    assert!(exact.is_err());
+    let bending = bent.bent.unwrap();
+    assert!(bending.faces >= 1);
+    assert!(
+        bending.farthest >= 0.9 * gap && bending.farthest <= 1.1 * gap,
+        "{bending:?}"
+    );
+    assert_volume(&bent.solid, 1000.0);
+    assert!(
+        has_spline_faces(&model.solids[0].solid),
+        "{:?}",
+        model.notes
+    );
+    assert_volume(&model.solids[0].solid, 1000.0);
+}
+
+#[test]
+fn an_edge_along_a_spline_line_with_its_neighbours_feet_just_past_it_within_the_precision_bounds_it()
+ {
+    let gap = 4e-6;
+    let lean = 1e-4;
+    let (text, brep) = polyhedron(
+        &split_top_corners(lean),
+        &SPLIT_TOP_LOOPS,
+        |face, entities| match face {
+            5 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![[0.0, 0.0, 10.0], [0.0, 5.0, 10.0], [0.0, 10.0, 10.0]],
+                    vec![[6.0, 0.0, 10.0], [6.0, 5.0, 10.0], [6.0, 10.0, 10.0]],
+                ],
+            )),
+            6 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![
+                        [4.0, 0.0, 10.0],
+                        [4.0, 5.0, 10.0 + 2.0 * gap],
+                        [4.0, 10.0, 10.0],
+                    ],
+                    vec![[10.0, 0.0, 10.0], [10.0, 5.0, 10.0], [10.0, 10.0, 10.0]],
+                ],
+            )),
+            _ => None,
+        },
+        |_, _| None,
+    );
+
+    let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
+
+    assert!(bent.bent.unwrap().faces >= 1);
+    assert_volume(&bent.solid, 1000.0);
+}
+
+#[test]
+fn a_spline_notched_into_an_l_shaped_face_is_bent_onto_it_and_the_l_keeps_its_shape() {
+    const CORNERS: [[f64; 3]; 11] = [
+        [0.0, 0.0, 0.0],
+        [10.0, 0.0, 0.0],
+        [10.0, 10.0, 0.0],
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 10.0],
+        [10.0, 0.0, 10.0],
+        [10.0, 5.0, 10.0],
+        [10.0, 10.0, 10.0],
+        [5.0, 10.0, 10.0],
+        [0.0, 10.0, 10.0],
+        [5.0, 5.0, 10.0],
+    ];
+    const LOOPS: [&[usize]; 7] = [
+        &[0, 3, 2, 1],
+        &[0, 1, 5, 4],
+        &[1, 2, 7, 6, 5],
+        &[2, 3, 9, 8, 7],
+        &[3, 0, 4, 9],
+        &[4, 5, 6, 10, 8, 9],
+        &[10, 6, 7, 8],
+    ];
+    let lift = 8e-6;
+    let (text, brep) = polyhedron(
+        &CORNERS,
+        &LOOPS,
+        |face, entities| match face {
+            5 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![[0.0, 0.0, 10.0], [0.0, 10.0, 10.0]],
+                    vec![[10.0, 0.0, 10.0], [10.0, 10.0, 10.0]],
+                ],
+            )),
+            6 => Some(bezier_patch(
+                entities,
+                &[
+                    vec![[5.0, 5.0, 10.0], [5.0, 7.5, 10.0 + lift], [5.0, 10.0, 10.0]],
+                    vec![[7.5, 5.0, 10.0 + lift], [7.5, 7.5, 10.0], [7.5, 10.0, 10.0]],
+                    vec![[10.0, 5.0, 10.0], [10.0, 7.5, 10.0], [10.0, 10.0, 10.0]],
+                ],
+            )),
+            _ => None,
+        },
+        |_, _| None,
+    );
+
+    let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
+
+    assert!(bent.bent.unwrap().faces >= 1);
+    assert_volume(&bent.solid, 1000.0);
+}
+
+#[test]
+fn a_side_of_a_spline_closed_around_is_bent_onto_the_plane_it_meets() {
+    use caditor_geometry::Point3;
+
+    let radius = 5.0;
+    let bow = 0.003;
+    let height = 10.0;
+    let lean = radius * std::f64::consts::FRAC_1_SQRT_2;
+    let corners = [
+        [0.0, 0.0, 0.0],
+        [lean, lean, 0.0],
+        [-lean, lean, 0.0],
+        [0.0, 0.0, height],
+        [lean, lean, height],
+        [-lean, lean, height],
+    ];
+    let loops: [&[usize]; 5] = [
+        &[0, 2, 1],
+        &[3, 4, 5],
+        &[0, 1, 4, 3],
+        &[0, 3, 5, 2],
+        &[1, 2, 5, 4],
+    ];
+    let (text, brep) = polyhedron(
+        &corners,
+        &loops,
+        |face, entities| {
+            (face == 4).then(|| {
+                let ring: [(f64, f64, f64); 9] = [
+                    (1.0, 0.0, 1.0),
+                    (1.0, 1.0, std::f64::consts::FRAC_1_SQRT_2),
+                    (0.0, 1.0, 1.0),
+                    (-1.0, 1.0, std::f64::consts::FRAC_1_SQRT_2),
+                    (-1.0, 0.0, 1.0),
+                    (-1.0, -1.0, std::f64::consts::FRAC_1_SQRT_2),
+                    (0.0, -1.0, 1.0),
+                    (1.0, -1.0, std::f64::consts::FRAC_1_SQRT_2),
+                    (1.0, 0.0, 1.0),
+                ];
+                let columns: Vec<String> = ring
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (x, y, _))| {
+                        let top = if index == 2 {
+                            height - 2.0 * bow
+                        } else {
+                            height
+                        };
+                        let low = entities.point(Point3::new(x * radius, y * radius, 0.0));
+                        let high = entities.point(Point3::new(x * radius, y * radius, top));
+                        format!("(#{low},#{high})")
+                    })
+                    .collect();
+                let weights: Vec<String> = ring
+                    .iter()
+                    .map(|(_, _, weight)| format!("({weight:?},{weight:?})"))
+                    .collect();
+                entities.add(format!(
+                    "(BOUNDED_SURFACE() B_SPLINE_SURFACE(2,1,({}),.UNSPECIFIED.,.F.,.F.,.F.) \
+                     B_SPLINE_SURFACE_WITH_KNOTS((3,2,2,2,3),(2,2),(0.,0.25,0.5,0.75,1.),(0.,1.),\
+                     .UNSPECIFIED.) GEOMETRIC_REPRESENTATION_ITEM() \
+                     RATIONAL_B_SPLINE_SURFACE(({})) REPRESENTATION_ITEM('') SURFACE())",
+                    columns.join(","),
+                    weights.join(",")
+                ))
+            })
+        },
+        |key, entities| {
+            let z = match key {
+                (1, 2) => 0.0,
+                (4, 5) => height,
+                _ => return None,
+            };
+            let centre = entities.point(Point3::new(0.0, 0.0, z));
+            let axis = entities.direction(caditor_geometry::Vector3::Z);
+            let reference = entities.direction(caditor_geometry::Vector3::X);
+            let placement = entities.add(format!(
+                "AXIS2_PLACEMENT_3D('',#{centre},#{axis},#{reference})"
+            ));
+            Some(entities.add(format!("CIRCLE('',#{placement},{radius:?})")))
+        },
+    );
+
+    let bent = built_with(&text, brep, super::topology::Healing::Bent).unwrap();
+
+    assert_eq!(bent.bent.map(|bending| bending.faces), Some(1));
+    assert!(has_spline_faces(&bent.solid));
+    assert_volume(
+        &bent.solid,
+        std::f64::consts::FRAC_PI_4 * radius * radius * height,
+    );
+}
+
+#[test]
+fn vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_import_exact() {
+    use caditor_geometry::{Point3, Vector3};
+
+    let height = 10.0;
+    let written_at = 0.0015;
+    let root = 0.003;
+    let normal_at = written_at + 0.001;
+    let inset = 1.0 - root * root / 2.0;
+    let on_plane = |side: f64, y: f64| {
+        let (sin, cos) = (side * normal_at).sin_cos();
+        let (x0, y0) = (inset * cos, inset * sin);
+        [x0 + (y0 - y) * sin / cos, y]
+    };
+    let [far_x, far_y] = on_plane(-1.0, -5.0);
+    let (arc_sin, arc_cos) = written_at.sin_cos();
+    let outline = [
+        [far_x, far_y],
+        [arc_cos, -arc_sin],
+        [arc_cos, arc_sin],
+        [far_x, -far_y],
+        [-5.0, 5.0],
+        [-5.0, -5.0],
+    ];
+    let corners: Vec<[f64; 3]> = [0.0, height]
+        .into_iter()
+        .flat_map(|z| outline.iter().map(move |[x, y]| [*x, *y, z]))
+        .collect();
+    let walls: Vec<Vec<usize>> = (0..6)
+        .map(|index| {
+            let next = (index + 1) % 6;
+            vec![index, next, next + 6, index + 6]
+        })
+        .collect();
+    let mut loops: Vec<&[usize]> = vec![&[5, 4, 3, 2, 1, 0], &[10, 11, 6, 7, 8, 9]];
+    loops.extend(walls.iter().map(Vec::as_slice));
+    let area = outline
+        .iter()
+        .zip(outline.iter().cycle().skip(1))
+        .map(|(a, b)| a[0] * b[1] - a[1] * b[0])
+        .sum::<f64>()
+        / 2.0;
+    let frame = |entities: &mut Entities, origin: Point3, axis: Vector3, reference: Vector3| {
+        let origin = entities.point(origin);
+        let axis = entities.direction(axis);
+        let reference = entities.direction(reference);
+        entities.add(format!(
+            "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+        ))
+    };
+    let (text, brep) = polyhedron(
+        &corners,
+        &loops,
+        |face, entities| {
+            let flat = |entities: &mut Entities, side: f64| {
+                let (sin, cos) = (side * normal_at).sin_cos();
+                let normal = Vector3::new(cos, sin, 0.0);
+                let placement = frame(
+                    entities,
+                    Point3::new(inset * cos, inset * sin, 0.0),
+                    normal,
+                    Vector3::Z,
+                );
+                entities.add(format!("PLANE('',#{placement})"))
+            };
+            match face {
+                2 => Some(flat(entities, -1.0)),
+                3 => {
+                    let placement = frame(entities, Point3::ZERO, Vector3::Z, Vector3::X);
+                    Some(entities.add(format!("CYLINDRICAL_SURFACE('',#{placement},1.0)")))
+                }
+                4 => Some(flat(entities, 1.0)),
+                _ => None,
+            }
+        },
+        |key, entities| {
+            let z = match key {
+                (1, 2) => 0.0,
+                (7, 8) => height,
+                _ => return None,
+            };
+            let placement = frame(entities, Point3::new(0.0, 0.0, z), Vector3::Z, Vector3::X);
+            Some(entities.add(format!("CIRCLE('',#{placement},1.0)")))
+        },
+    );
+
+    let exact = built_with(&text, brep, super::topology::Healing::Exact).unwrap();
+
+    assert!(
+        exact
+            .solid
+            .faces()
+            .any(|(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(_)))
+    );
+    assert_volume(&exact.solid, area * height);
+}
+
+fn without_declared_precision(text: &str) -> String {
+    let declaration = text.find("GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT(").unwrap();
+    let end = declaration + text[declaration..].find("))").unwrap() + 2;
+    format!("{}{}", &text[..declaration], text[end..].trim_start())
+}
+
+#[test]
+fn a_cylinder_seam_with_a_vertex_micrometres_off_imports_exact_when_no_precision_is_declared() {
+    let solid = fixtures::plate_with_hole();
+    let text = without_declared_precision(&written("Plate", &solid));
+    let circle_edge = text
+        .lines()
+        .filter(|line| line.contains("=EDGE_CURVE("))
+        .find(|line| {
+            let id = line.split_once('=').unwrap().0;
+            let curve = arguments(&text, id)[3];
+            text.lines()
+                .any(|line| line.starts_with(&format!("{curve}=CIRCLE(")))
+        })
+        .unwrap();
+    let vertex = arguments(&text, circle_edge.split_once('=').unwrap().0)[1].to_owned();
+    let point = arguments(&text, &vertex)[1].to_owned();
+
+    let brep: u64 = text
+        .lines()
+        .find(|line| line.contains("=MANIFOLD_SOLID_BREP("))
+        .and_then(|line| line.split_once('='))
+        .and_then(|(id, _)| id.trim_start_matches('#').parse().ok())
+        .unwrap();
+
+    let off = with_point_moved(&text, &point, [3e-6, 3e-6, 0.0]);
+    let model = read_step(&off).unwrap();
+    let healed = built_with(&off, brep, super::topology::Healing::Exact).unwrap();
+
+    assert_eq!(model.solids.len(), 1);
+    assert!(healed.healed >= 1);
+    assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
+    assert!(
+        model.solids[0]
+            .solid
+            .faces()
+            .any(|(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(_))),
+        "{:?}",
+        model.notes
+    );
+}
+
 #[test]
 fn every_file_of_a_corpus_is_read_and_reported() {
     let Some(directory) = std::env::var_os("STEP_CORPUS") else {

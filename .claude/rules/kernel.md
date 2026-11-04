@@ -89,7 +89,8 @@ paths:
   fitted by banded least squares to sampled `BendTarget`s, pins and held corners fixed and the
   displacement smoothed; spans missing a strict target are halved up to `MAX_REFINEMENTS` rounds and
   `MAX_SIDE_CONTROL_POINTS`. Only the side row moves, so the surface changes only across its first
-  span from the side. A linear side is raised to cubic first; a seam, pole or closed side is
+  span from the side. A linear side is raised to cubic first. A side closed around holds its ends
+  as one point, pinned to whichever end a pin names, so the surface stays closed. A seam or pole is
   `BendError::Unbendable`.
 - Lengths are compared through `is_longer_than` (chord, then seed polyline, then the integral) and
   capped with `length_up_to`; building, validation, imprinting and profile arrangement never
@@ -106,7 +107,9 @@ paths:
   `IntersectionError::Unrefined` with the farthest point, its distance and the `RefineStop`.
   Segments within twice `LINEAR_RESOLUTION` are kept. `IntersectionCurve::through` rebuilds one from
   rough points (an imported edge off its faces) and is the only path that follows surfaces that
-  merely touch (a tangent fillet edge).
+  merely touch (a tangent fillet edge). `through_to_its_ends` also ends exactly on its first and last
+  rough points when both surfaces hold them within `PIN_REACH`: on surfaces crossing nearly
+  tangentially, a vertex on both can lie far across from their true crossing.
 - A spline surface whose first and last rows or columns meet is periodic there (C0 suffices). A row
   collapsed to a point is a pole; a column cannot be, so importers transpose and flip the face.
   Singularities are always `Pole`s (sphere poles, cone apex, a revolution profile ending on its
