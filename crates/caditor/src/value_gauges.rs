@@ -16,8 +16,8 @@ use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     BendMiddles, CoilPlacement, EdgeId, FaceId, HelixEnds, HelixPitch, HelixSpec,
-    MAX_TAPER_DEGREES, PipeCorner, PipeShape, Region, STEEPEST_DRAFT, Solid, SpiralSpec, Surface,
-    WallSide, measured_face, wrapped_stand,
+    MAX_TAPER_DEGREES, PipeCorner, PipeShape, PitchStop, Region, STEEPEST_DRAFT, Solid, SpiralSpec,
+    Surface, WallSide, measured_face, wrapped_stand,
 };
 use caditor_sketch::Entity;
 
@@ -1987,13 +1987,25 @@ impl Builder<'_> {
                 None => return Vec::new(),
             },
         };
-        let plan = HelixPitch { ends, final_pitch };
+        let mut table = Vec::new();
+        for row in &helix.pitch_table {
+            let (Some(turns), Some(pitch)) = (self.count(&row.turns), self.length(&row.pitch))
+            else {
+                return Vec::new();
+            };
+            table.push(PitchStop { turns, pitch });
+        }
+        let plan = HelixPitch {
+            ends,
+            final_pitch,
+            table,
+        };
         let even = CoilSpan {
             height: pitch * turns,
             pitch,
             turns,
         };
-        let shaped = span_with_pitch(helix.length.sizing(), even, plan);
+        let shaped = span_with_pitch(helix.length.sizing(), even, plan.clone());
         let (pitch, turns) = (shaped.pitch, shaped.turns);
         let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
             .and_then(|axis| helix.frame(axis))
@@ -2010,6 +2022,7 @@ impl Builder<'_> {
             start_angle: start.to_radians(),
             ends,
             final_pitch,
+            table: plan.table,
         };
         let Some(started) = spec.start_frame() else {
             return Vec::new();

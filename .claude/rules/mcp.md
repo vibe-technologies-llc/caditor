@@ -125,7 +125,9 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   slot with `slot_length` and `slot_angle` (either implies it), a `bottom` drill point with
   `point_angle` (implied by it), `sizing` by circles, head sizes, a `standard` metric size and `fit` through `hole_tools::with_standard` (a diameter clears
   the standard), and a tapped standard's `thread_form`, `thread_hand` and `thread_depth`.
-- `sweeps.rs` adds sweeps (with a `twist` angle and an end `scale`), pipes (path as `{sketch, curves}` checked by
+- `sweeps.rs` adds sweeps (with a `twist` angle and an end `scale`, and a `shape_table` of `{fraction,
+  twist, scale}` rows, at most `MAX_SHAPE_ROWS`, `SweepToolError::ShapeTableLong`, an empty one
+  removing the table), pipes (path as `{sketch, curves}` checked by
   `sweep_tools::is_path_curve`, `{body, edges}` or `{helix}`, a `SweepPath`), lofts through whole
   sketches or `{sketch, inside}` single regions (hidden as the tool hides them; an `end` point
   as `places::point` takes it, `"off"` clearing it, refused with `closed`; `closed`, and a `start_weight` or `end_weight` above 0
@@ -164,7 +166,11 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   with any (`OpenEndsSized`) or on a flat spiral (`FlatEnds`); `final_pitch` makes the pitch
   progressive, `progressive: false` winds at one pitch again, refused with a `final_pitch`
   (`EvenPitchSized`), `progressive: true` with none to keep (`ProgressiveUnsized`) or on a flat
-  spiral (`FlatProgressive`); an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
+  spiral (`FlatProgressive`); `pitch_table` (rows of `turns` and `pitch`, at most
+  `MAX_PITCH_ROWS`, `PitchTableLong`) winds to a table of pitches by turn and clears the closed
+  ends and final pitch, refused with `closed_ends: true`, the end sizes, `progressive: true` or a
+  `final_pitch` (`PitchTableAlone`) or on a flat spiral (`FlatPitchTable`), while those given
+  without it clear a table and an empty one clears it; an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
   `is_curve_path`, or `edges` `{body, edges}` with keys from `list_edges` instead, never both;
   an edit keeps the path it is not given; spread or `spacing`, following or keeping the turn) and point patterns
   (`PointsPattern` from a base point, the sketch needing lone points).

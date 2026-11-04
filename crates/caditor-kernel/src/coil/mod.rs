@@ -15,7 +15,7 @@ use thiserror::Error;
 use self::pitch::PitchLaw;
 pub use self::{
     helix::{HelixEnds, HelixError, HelixPitch, HelixSpec, HelixTurn, helix},
-    pitch::END_CHANGE_TURNS,
+    pitch::{END_CHANGE_TURNS, PitchStop},
     spiral::{SPIRAL_TOLERANCE, SpiralError, SpiralSpec, spiral},
 };
 use crate::{
@@ -243,7 +243,7 @@ impl SectionPiece {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Winding {
     frame: Plane,
     hand: Handedness,

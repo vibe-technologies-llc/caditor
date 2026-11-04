@@ -527,3 +527,81 @@ fn drawings_are_imported_with_a_unit_a_scale_recentred_and_without_layers() {
     );
     client.finish();
 }
+
+#[test]
+fn a_helix_follows_a_table_of_pitches_that_stands_alone() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+
+    let helix = added(
+        &mut client,
+        "add_helix",
+        json!({
+            "axis": "Z",
+            "diameter": 20,
+            "turns": 6,
+            "pitch": 2,
+            "pitch_table": [{ "turns": 2, "pitch": 2 }, { "turns": 4, "pitch": 6 }]
+        }),
+    );
+    let tabled = saved_helix(&mut client, &folder);
+
+    assert_eq!(tabled.pitch_table.len(), 2);
+    assert_eq!(tabled.pitch_table[1].turns, Expression::number(4.0));
+
+    added(
+        &mut client,
+        "add_pipe",
+        json!({ "path": { "helix": helix }, "size": 2 }),
+    );
+    let pitch_at = |turn: f64| match turn {
+        turn if turn < 2.0 => 2.0,
+        turn if turn < 4.0 => 2.0 + 2.0 * (turn - 2.0),
+        _ => 6.0,
+    };
+    let steps = 6000;
+    let travel: f64 = (0..steps)
+        .map(|step| {
+            let turn = 6.0 * (f64::from(step) + 0.5) / f64::from(steps);
+            (PI * 20.0).hypot(pitch_at(turn)) * 6.0 / f64::from(steps)
+        })
+        .sum();
+
+    assert!(near(total_volume(&mut client), PI * travel));
+
+    let crowded = client.tool_error(
+        "edit_feature",
+        json!({ "feature": helix, "final_pitch": 5, "pitch_table": [{ "turns": 3, "pitch": 3 }] }),
+    );
+
+    assert!(crowded.contains("stands alone"), "{crowded}");
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "progressive": true, "final_pitch": 5 }),
+    );
+    let progressive = saved_helix(&mut client, &folder);
+
+    assert!(progressive.pitch_table.is_empty());
+    assert!(progressive.final_pitch.is_some());
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "pitch_table": [{ "turns": 3, "pitch": 3 }] }),
+    );
+    let again = saved_helix(&mut client, &folder);
+
+    assert_eq!(again.pitch_table.len(), 1);
+    assert_eq!(again.final_pitch, None);
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": helix, "pitch_table": [] }),
+    );
+
+    assert!(saved_helix(&mut client, &folder).pitch_table.is_empty());
+    client.finish();
+}

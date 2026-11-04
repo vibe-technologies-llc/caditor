@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::f64::consts::{PI, TAU};
 
 use caditor_geometry::{Plane, Point3, Vector3};
 
@@ -223,6 +223,7 @@ fn helix_spec(turns: f64, taper: f64) -> HelixSpec {
         start_angle: 0.0,
         ends: None,
         final_pitch: None,
+        table: Vec::new(),
     }
 }
 
@@ -281,7 +282,7 @@ fn a_start_angle_turns_where_the_helix_starts_about_its_axis_whichever_way_it_tu
     };
     let left = HelixSpec {
         hand: Handedness::Left,
-        ..right
+        ..right.clone()
     };
 
     let first = |spec: &HelixSpec| {
@@ -389,6 +390,7 @@ fn closed_ends_find_the_body_pitch_or_turns_from_a_height() {
     let plan = HelixPitch {
         ends: Some(ends),
         final_pitch: None,
+        table: Vec::new(),
     };
 
     assert!((plan.height(4.0, 5.0) - 15.5).abs() < 1e-12);
@@ -431,6 +433,7 @@ fn progressive_helix(turns: f64, first: f64, last: f64) -> HelixSpec {
     HelixSpec {
         pitch: first,
         final_pitch: Some(last),
+        table: Vec::new(),
         ..helix_spec(turns, 0.0)
     }
 }
@@ -513,6 +516,7 @@ fn a_progressive_helix_is_sized_from_a_height_by_its_mean_pitch() {
     let plan = HelixPitch {
         ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
         final_pitch: Some(6.0),
+        table: Vec::new(),
     };
     let height = plan.height(4.0, 8.0);
 
@@ -549,5 +553,106 @@ fn a_progression_with_no_turns_to_change_over_or_a_change_of_a_sliver_is_refused
     assert_eq!(
         helix(&progressive_helix(4.0, 3.0, 0.0)),
         Err(HelixError::NoPitch)
+    );
+}
+
+fn tabled_helix(turns: f64, first: f64, rows: &[(f64, f64)]) -> HelixSpec {
+    HelixSpec {
+        pitch: first,
+        table: rows
+            .iter()
+            .map(|&(turns, pitch)| PitchStop { turns, pitch })
+            .collect(),
+        ..helix_spec(turns, 0.0)
+    }
+}
+
+#[test]
+fn a_helix_follows_a_table_of_pitches_by_turn_and_keeps_the_last_one() {
+    let spec = tabled_helix(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+
+    assert_follows_the_law(&spec);
+    assert!((spec.height() - 24.0).abs() < 1e-12, "{}", spec.height());
+    assert!(
+        spec.point_at(TAU * 2.0)
+            .is_some_and(|point| (point.z - 4.0).abs() < 1e-12)
+    );
+    assert!(
+        spec.point_at(TAU * 4.0)
+            .is_some_and(|point| (point.z - 12.0).abs() < 1e-12)
+    );
+}
+
+#[test]
+fn a_table_of_one_row_at_the_end_is_the_progressive_helix() {
+    let tabled = tabled_helix(6.0, 2.0, &[(6.0, 6.0)]);
+    let progressive = progressive_helix(6.0, 2.0, 6.0);
+
+    assert_eq!(helix(&tabled), helix(&progressive));
+}
+
+#[test]
+fn a_table_sizes_the_helix_from_a_height_by_its_rows() {
+    let rows = [
+        PitchStop {
+            turns: 2.0,
+            pitch: 2.0,
+        },
+        PitchStop {
+            turns: 4.0,
+            pitch: 6.0,
+        },
+    ];
+    let plan = HelixPitch {
+        table: rows.to_vec(),
+        ..HelixPitch::default()
+    };
+    let height = plan.height(2.0, 6.0);
+
+    assert!((height - 24.0).abs() < 1e-12, "{height}");
+    assert!((plan.pitch_for(height, 6.0) - 2.0).abs() < 1e-12);
+    assert!((plan.turns_for(height, 2.0) - 6.0).abs() < 1e-9);
+    assert!((plan.turns_for(10.0, 2.0) - (1.0 + 7.0_f64.sqrt())).abs() < 1e-9);
+    assert!((plan.turns_for(4.0, 2.0) - 2.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_table_out_of_order_past_the_helix_or_with_other_laws_is_refused() {
+    assert_eq!(
+        helix(&tabled_helix(6.0, 2.0, &[(3.0, 2.0), (3.0, 4.0)])),
+        Err(HelixError::TableOrder { turns: 3.0 })
+    );
+    assert_eq!(
+        helix(&tabled_helix(6.0, 2.0, &[(0.0, 2.0)])),
+        Err(HelixError::TableOrder { turns: 0.0 })
+    );
+    assert_eq!(
+        helix(&tabled_helix(6.0, 2.0, &[(7.0, 2.0)])),
+        Err(HelixError::TableBeyond {
+            turns: 7.0,
+            helix: 6.0
+        })
+    );
+    assert_eq!(
+        helix(&tabled_helix(6.0, 2.0, &[(3.0, 0.0)])),
+        Err(HelixError::NoPitch)
+    );
+    assert_eq!(
+        helix(&HelixSpec {
+            final_pitch: Some(4.0),
+            ..tabled_helix(6.0, 2.0, &[(3.0, 3.0)])
+        }),
+        Err(HelixError::TableWithOther {
+            other: "a final pitch"
+        })
+    );
+    assert_eq!(
+        helix(&HelixSpec {
+            ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
+            ..tabled_helix(6.0, 2.0, &[(3.0, 3.0)])
+        }),
+        Err(HelixError::TableWithOther {
+            other: "closed ends"
+        })
     );
 }

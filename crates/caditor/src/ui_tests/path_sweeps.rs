@@ -308,4 +308,19 @@ fn typing_a_twist_and_an_end_scale_shapes_the_sweep_in_one_undoable_change_each(
         value(harness, &sweep_of(harness, sweep).scale)
     });
     assert!(near(&harness, sweep, prism * 7.0 / 12.0));
+
+    harness.click(solid_panel::ADD_SHAPE_ROW);
+    harness.settle();
+    let law = sweep_of(&harness, sweep).shape_law;
+
+    assert_eq!(law.len(), 1);
+    assert_eq!(value(&harness, &law[0].fraction), 0.5);
+    assert_eq!(value(&harness, &law[0].scale), 0.75);
+    assert!(harness.shows("Row 1 at fraction"));
+    assert!(near(&harness, sweep, prism * 7.0 / 12.0));
+
+    harness.click(solid_panel::REMOVE_SHAPE_ROW);
+    harness.settle();
+
+    assert!(sweep_of(&harness, sweep).shape_law.is_empty());
 }

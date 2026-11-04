@@ -1,7 +1,11 @@
 use caditor_expression::format_decimals;
 use caditor_kernel::PipeShape;
 
-use crate::{failure::Cause, pipe::wall_limit_words, sweep::capital};
+use crate::{
+    failure::Cause,
+    pipe::wall_limit_words,
+    sweep::{MAX_SHAPE_ROWS, capital},
+};
 
 const TWIST_DECIMALS: usize = 3;
 
@@ -114,6 +118,14 @@ pub(crate) enum SweepCause {
     },
     UnusableShape {
         name: String,
+    },
+    ShapeLawOrder {
+        name: String,
+        fraction: f64,
+    },
+    ShapeLawLong {
+        name: String,
+        rows: usize,
     },
     WallTooThick {
         name: String,
@@ -277,6 +289,15 @@ impl SweepCause {
             Self::UnusableShape { name } => {
                 format!("The twist or end scale of {name} is out of range.")
             }
+            Self::ShapeLawOrder { name, fraction } => format!(
+                "A row of the twist and scale table of {name} lies at {} of the path, which is not \
+                 after the row before it and before the end.",
+                format_decimals(*fraction, TWIST_DECIMALS)
+            ),
+            Self::ShapeLawLong { name, rows } => format!(
+                "The twist and scale table of {name} has {rows} rows, more than the \
+                 {MAX_SHAPE_ROWS} a sweep takes."
+            ),
             Self::WallTooThick { name, shape } => format!(
                 "The wall of {name} is too thick: it must be thinner than {}.",
                 wall_limit_words(*shape)
@@ -414,6 +435,13 @@ impl SweepCause {
                 "Set the end scale to 1, or choose an open path.".to_owned()
             }
             Self::UnusableShape { .. } => "Enter an end scale nearer 1.".to_owned(),
+            Self::ShapeLawOrder { .. } => {
+                "Enter fractions above 0 and below 1, each larger than the one before it."
+                    .to_owned()
+            }
+            Self::ShapeLawLong { .. } => {
+                format!("Remove rows from the table, leaving {MAX_SHAPE_ROWS} or fewer.")
+            }
             Self::WallTooThick { .. } => "Make the wall thinner or the pipe larger.".to_owned(),
             Self::SpiralTurnsTouch { name, spiral, .. } => {
                 format!("Make the pitch of {spiral} larger, or {name} smaller.")

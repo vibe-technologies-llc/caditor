@@ -50,9 +50,9 @@ pub use crate::{
         AngularExtent, Axis2, BendMiddle, BendMiddles, ChainedLeg, ChainedPath, Heights,
         LinearBound, LinearExtent, LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES,
         MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, NextFace, PathSegment, PathSweepError, PipeCorner,
-        PipeError, PipeSection, PipeShape, PipeStand, ReachError, StopError, Stopped, SweepError,
-        SweepOrientation, SweepShape, WindingAxis, WrapBand, WrapError, chained_path, extrude,
-        extrude_along, extrude_flared, extrude_tapered, extrude_tapered_along, heights,
+        PipeError, PipeSection, PipeShape, PipeStand, ReachError, ShapeStop, StopError, Stopped,
+        SweepError, SweepOrientation, SweepShape, WindingAxis, WrapBand, WrapError, chained_path,
+        extrude, extrude_along, extrude_flared, extrude_tapered, extrude_tapered_along, heights,
         heights_along, loft, loft_through, next_face, next_face_along, pipe, pipe_stand, revolve,
         stop_at_body, stop_turning_at_body, sweep, sweep_shaped, wrap_chain, wrap_regions,
         wrap_regions_within, wrapped_stand,
@@ -60,8 +60,8 @@ pub use crate::{
     coil::{
         COIL_PARTS, CoilError, CoilFace, CoilParts, CoilPlacement, CoilShape, CoilSpec,
         END_CHANGE_TURNS, HelixEnds, HelixError, HelixPitch, HelixSpec, HelixTurn,
-        LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, SPIRAL_TOLERANCE, SpiralError,
-        SpiralSpec, coil, helix, spiral,
+        LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, PitchStop, SPIRAL_TOLERANCE,
+        SpiralError, SpiralSpec, coil, helix, spiral,
     },
     coordinates::Coordinates,
     curve::{

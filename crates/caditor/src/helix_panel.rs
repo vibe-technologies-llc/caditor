@@ -1,6 +1,6 @@
 use caditor_document::{
-    ClosedEnds, CoilSizing, CoilTurning, Feature, FeatureId, Helix, HelixKind, Transaction,
-    capitalized, describe_axis, describe_point,
+    ClosedEnds, CoilSizing, CoilTurning, Feature, FeatureId, Helix, HelixKind, MAX_PITCH_ROWS,
+    Transaction, capitalized, describe_axis, describe_point,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -9,6 +9,7 @@ use crate::{
     coil_panel::{self, AXIS, DIAMETER, SIZED_BY, TAPER, TURNING},
     feature_fields::{self, AxisRow, Picker, Quantity, Rule, Segment, Shown},
     helix_tools::{self, HelixError},
+    icons,
     model::{Action, Model},
     reference_picking::Slot,
     selection::Selection,
@@ -32,8 +33,13 @@ pub const END_PITCH: &str = "End pitch";
 pub const END_CHANGE: &str = "End change";
 pub const PITCH_LAW: &str = "Pitch";
 pub const FINAL_PITCH: &str = "Final pitch";
+pub const ADD_PITCH_ROW: &str = "Add a row";
+pub const REMOVE_PITCH_ROW: &str = "Remove the last row";
 const EVEN_PITCH: &str = "Even";
 const PROGRESSIVE_PITCH: &str = "Progressive";
+const TABLE_PITCH: &str = "Table";
+const TABLE_PITCH_HOVER: &str = "Follow a table of pitches by turn: the pitch changes evenly from \
+                                 one row to the next and stays at the last row's";
 const EVEN_PITCH_HOVER: &str = "Wind at the same pitch from end to end";
 const PROGRESSIVE_PITCH_HOVER: &str = "Change the pitch evenly from the pitch at the start to the \
                                        final pitch at the end, as a progressive spring's";
@@ -253,26 +259,36 @@ impl Panel<'_> {
     }
 
     fn pitch_law_rows(&mut self, ui: &mut Ui) {
-        let progressive = self.helix.final_pitch.is_some();
-        let segments = [
-            (false, EVEN_PITCH, EVEN_PITCH_HOVER),
-            (true, PROGRESSIVE_PITCH, PROGRESSIVE_PITCH_HOVER),
-        ]
-        .into_iter()
-        .map(|(progressing, label, hover)| Segment {
-            label,
-            hover,
-            change: (progressing != progressive).then(|| {
-                self.change(helix_tools::with_progression(
-                    self.model,
-                    self.helix,
-                    progressing,
-                ))
-            }),
-        })
-        .collect();
+        let tabled = !self.helix.pitch_table.is_empty();
+        let progressive = self.helix.final_pitch.is_some() && !tabled;
+        let model = self.model;
+        let helix = self.helix;
+        let laws = [
+            (!tabled && !progressive, EVEN_PITCH, EVEN_PITCH_HOVER),
+            (progressive, PROGRESSIVE_PITCH, PROGRESSIVE_PITCH_HOVER),
+            (tabled, TABLE_PITCH, TABLE_PITCH_HOVER),
+        ];
+        let segments = laws
+            .into_iter()
+            .enumerate()
+            .map(|(law, (current, label, hover))| Segment {
+                label,
+                hover,
+                change: (!current).then(|| {
+                    self.change(match law {
+                        0 => helix_tools::with_progression(model, helix, false),
+                        1 => helix_tools::with_progression(model, helix, true),
+                        _ => helix_tools::with_pitch_table(model, helix, true),
+                    })
+                }),
+            })
+            .collect();
         let chosen = feature_fields::segmented_row(ui, PITCH_LAW, &self.feature.name, segments);
         self.actions.extend(chosen);
+        if tabled {
+            self.pitch_table_rows(ui);
+            return;
+        }
         let Some(last) = &self.helix.final_pitch else {
             return;
         };
@@ -282,6 +298,73 @@ impl Panel<'_> {
             final_pitch: Some(pitch),
             ..helix.clone()
         });
+    }
+
+    fn pitch_table_rows(&mut self, ui: &mut Ui) {
+        let helix = self.helix.clone();
+        for (index, row) in helix.pitch_table.iter().enumerate() {
+            let fields = [
+                (true, format!("Row {} at turn", index + 1), &row.turns),
+                (false, format!("Row {} pitch", index + 1), &row.pitch),
+            ];
+            for (turns, caption, shown) in fields {
+                let (dimension, rule) = if turns {
+                    (Dimension::NONE, Rule::AboveZero)
+                } else {
+                    (Dimension::LENGTH, Rule::AboveZero)
+                };
+                let key = if turns { "row-turns" } else { "row-pitch" };
+                let quantity = Quantity {
+                    feature: self.id(),
+                    id: Id::unique(("helix-table", index, key, self.id())),
+                    expression: shown,
+                    dimension,
+                    rule,
+                };
+                let drafting = feature_fields::expression_row_drafting(
+                    ui,
+                    self.model,
+                    &caption,
+                    quantity,
+                    |value| {
+                        helix_tools::change(
+                            self.model,
+                            self.id(),
+                            helix_tools::with_pitch_row(&helix, index, turns, value),
+                        )
+                    },
+                );
+                self.actions.extend(drafting.into_actions(self.id()));
+            }
+        }
+        ui.label("");
+        let mut change = None;
+        ui.horizontal_wrapped(|ui| {
+            let add = widgets::small_button(ui, icons::ADD, ADD_PITCH_ROW);
+            if ui
+                .add_enabled(helix_tools::can_add_pitch_row(&helix), add)
+                .on_disabled_hover_text(format!("A helix has at most {MAX_PITCH_ROWS} rows"))
+                .clicked()
+            {
+                change = Some(self.change(helix_tools::with_pitch_row_added(self.model, &helix)));
+            }
+            let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_PITCH_ROW);
+            let fewer = (helix.pitch_table.len() > 1)
+                .then(|| helix_tools::with_last_pitch_row_removed(&helix));
+            if ui
+                .add_enabled(fewer.is_some(), remove)
+                .on_disabled_hover_text("A table keeps at least one row")
+                .clicked()
+                && let Some(fewer) = fewer
+            {
+                change = Some(self.change(fewer));
+            }
+        });
+        ui.end_row();
+        if let Some(change) = change {
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
+        }
     }
 
     fn ends_rows(&mut self, ui: &mut Ui) {
@@ -307,28 +390,28 @@ impl Panel<'_> {
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-turns", &ends.turns, Dimension::NONE, Rule::ZeroOrMore);
         self.value_row(ui, END_TURNS, field, move |turns| Helix {
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 turns,
-                ..kept.clone()
-            }),
+                ..(*kept).clone()
+            })),
             ..helix.clone()
         });
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-pitch", &ends.pitch, Dimension::LENGTH, Rule::AboveZero);
         self.value_row(ui, END_PITCH, field, move |pitch| Helix {
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 pitch,
-                ..kept.clone()
-            }),
+                ..(*kept).clone()
+            })),
             ..helix.clone()
         });
         let (helix, kept) = (current.clone(), ends.clone());
         let field = ("end-change", &ends.change, Dimension::NONE, Rule::AboveZero);
         self.value_row(ui, END_CHANGE, field, move |change| Helix {
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 change,
-                ..kept.clone()
-            }),
+                ..(*kept).clone()
+            })),
             ..helix.clone()
         });
     }

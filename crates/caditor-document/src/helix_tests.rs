@@ -492,3 +492,85 @@ fn a_helix_depends_on_the_sketch_holding_its_start_point() {
         vec![model.helix]
     );
 }
+
+fn tabled(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
+    Helix {
+        pitch_table: rows
+            .iter()
+            .map(|&(turns, pitch)| PitchRow::new(Expression::number(turns), mm(pitch)))
+            .collect(),
+        ..helix_of(turns, pitch)
+    }
+}
+
+#[test]
+fn a_helix_follows_a_table_of_pitches_by_turn_and_ends_where_the_table_says() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let helix = transaction.add_feature(
+        "Helix 1",
+        FeatureKind::Helix(tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)])),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+    let result = evaluation.feature(helix).unwrap().result.clone().unwrap();
+    let end = result.helix().unwrap().end().unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(end.distance(Point3::new(10.0, 0.0, 24.0)) < 1e-9, "{end}");
+}
+
+#[test]
+fn a_table_sizes_the_helix_by_its_height_and_by_its_turns() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let mut by_height = tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+    by_height.length = CoilLength::HeightAndTurns {
+        height: mm(24.0),
+        turns: Expression::number(6.0),
+    };
+    let mut by_pitch = tabled(6.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+    by_pitch.length = CoilLength::HeightAndPitch {
+        height: mm(24.0),
+        pitch: mm(2.0),
+    };
+    let first = transaction.add_feature("By height", FeatureKind::Helix(by_height));
+    let second = transaction.add_feature("By pitch", FeatureKind::Helix(by_pitch));
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    for feature in [first, second] {
+        let result = evaluation.feature(feature).unwrap().result.clone().unwrap();
+        let end = result.helix().unwrap().end().unwrap();
+        assert!(end.distance(Point3::new(10.0, 0.0, 24.0)) < 1e-6, "{end}");
+    }
+}
+
+#[test]
+fn a_table_row_past_the_turns_or_beside_closed_ends_fails_the_helix_alone() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let beyond = transaction.add_feature(
+        "Beyond",
+        FeatureKind::Helix(tabled(4.0, 2.0, &[(5.0, 3.0)])),
+    );
+    let closed = transaction.add_feature(
+        "Closed",
+        FeatureKind::Helix(Helix {
+            ends: Some(Box::default()),
+            ..tabled(8.0, 2.0, &[(5.0, 3.0)])
+        }),
+    );
+    let fine = transaction.add_feature("Fine", FeatureKind::Helix(helix_of(2.0, 3.0)));
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+
+    assert_eq!(evaluation.failed_count(), 2);
+    assert!(failure(&evaluation, beyond).reason().contains("table"));
+    assert!(failure(&evaluation, closed).reason().contains("table"));
+    assert!(evaluation.feature(fine).unwrap().result.is_some());
+}

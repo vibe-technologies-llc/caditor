@@ -68,7 +68,7 @@ fn shaped(
         plane,
         &regions(curves),
         path,
-        (orientation, SweepShape { twist, scale }),
+        (orientation, SweepShape::evenly(twist, scale)),
         FEATURE,
     )
 }
@@ -337,5 +337,112 @@ fn a_shaped_sweep_cannot_mitre_a_corner_and_refuses_unusable_shapes() {
         unusable
             .iter()
             .all(|error| *error == Some(PathSweepError::UnusableShape))
+    );
+}
+
+fn lawful(
+    curves: &[ProfileCurve],
+    path: &[PathSegment],
+    shape: SweepShape,
+) -> Result<Solid, PathSweepError> {
+    sweep_shaped(
+        &upright(),
+        &regions(curves),
+        path,
+        (SweepOrientation::Square, shape),
+        FEATURE,
+    )
+}
+
+fn at_half(twist: f64, scale: f64) -> Vec<ShapeStop> {
+    vec![ShapeStop {
+        fraction: 0.5,
+        twist,
+        scale,
+    }]
+}
+
+#[test]
+fn a_scale_law_bulges_the_section_through_its_rows_and_rows_on_a_line_change_nothing() {
+    let profile = rectangle(1, (-1.0, -1.0), (1.0, 1.0));
+    let path = [line(10, Point3::ZERO, Point3::new(0.0, 10.0, 0.0))];
+    let swell = SweepShape {
+        law: at_half(0.0, 2.0),
+        ..SweepShape::NONE
+    };
+
+    let along_the_line = SweepShape {
+        law: at_half(0.0, 1.5),
+        ..SweepShape::evenly(0.0, 2.0)
+    };
+
+    let solid = lawful(&profile, &path, swell).unwrap();
+    let straight = lawful(&profile, &path, along_the_line).unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    assert_close("bulged", volume(&solid), 1720.0 / 15.0, 1e-3);
+    assert_close("frustum", volume(&straight), 280.0 / 3.0, 1e-4);
+}
+
+#[test]
+fn a_twist_law_turns_and_returns_where_the_rows_say() {
+    let profile = rectangle(1, (0.0, -0.5), (2.0, 0.5));
+    let path = [line(10, Point3::ZERO, Point3::new(0.0, 10.0, 0.0))];
+    let there_and_back = SweepShape {
+        law: at_half(FRAC_PI_2, 1.0),
+        ..SweepShape::NONE
+    };
+
+    let solid = lawful(&profile, &path, there_and_back).unwrap();
+    let end = corner_heights(&solid, 10.0);
+
+    assert_eq!(solid.validate(), Ok(()));
+    assert_close("volume", volume(&solid), 20.0, 1e-3);
+    assert!(
+        end.iter()
+            .all(|point| point.x > -1e-9 && point.x < 2.0 + 1e-9 && point.z.abs() <= 0.5 + 1e-9),
+        "{end:?}"
+    );
+}
+
+#[test]
+fn a_shape_law_out_of_order_or_outside_the_path_is_refused() {
+    let profile = rectangle(1, (-1.0, -1.0), (1.0, 1.0));
+    let path = [line(10, Point3::ZERO, Point3::new(0.0, 10.0, 0.0))];
+    let row = |fraction: f64| ShapeStop {
+        fraction,
+        twist: 0.0,
+        scale: 1.0,
+    };
+    let refused = |law: Vec<ShapeStop>| {
+        lawful(
+            &profile,
+            &path,
+            SweepShape {
+                law,
+                ..SweepShape::NONE
+            },
+        )
+        .err()
+    };
+
+    assert_eq!(
+        refused(vec![row(0.5), row(0.5)]),
+        Some(PathSweepError::ShapeLawOrder { fraction: 0.5 })
+    );
+    assert_eq!(
+        refused(vec![row(0.0)]),
+        Some(PathSweepError::ShapeLawOrder { fraction: 0.0 })
+    );
+    assert_eq!(
+        refused(vec![row(1.0)]),
+        Some(PathSweepError::ShapeLawOrder { fraction: 1.0 })
+    );
+    assert_eq!(
+        refused(vec![ShapeStop {
+            scale: 0.0,
+            ..row(0.5)
+        }]),
+        Some(PathSweepError::UnusableShape)
     );
 }

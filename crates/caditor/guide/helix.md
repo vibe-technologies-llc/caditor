@@ -38,9 +38,10 @@ drawn on the YZ plane is carried along it instead.
   in, within 80° either way.
 - **Pitch**: **Even** winds at one pitch from end to end; **Progressive** changes the pitch
   evenly from the pitch above, at the start, to the **Final pitch** at the far end, as a
-  progressive spring's. The turns, pitch and height above then size the helix by its mean pitch:
-  typing a height and turns, the start pitch is solved for, and typing a height and the pitch, the
-  turns. Not offered for a flat spiral.
+  progressive spring's; **Table** follows a table of pitches by turn (see below). The turns, pitch
+  and height above then size the helix by its mean pitch (by its table, for a table): typing a
+  height and turns, the start pitch is solved for, and typing a height and the pitch, the turns.
+  Not offered for a flat spiral.
 - **Ends**: **Open** winds as the pitch above says from end to end; **Closed** closes the ends as
   a compression spring's are. **End turns** at each end wind at the **End pitch**, and the pitch
   then changes evenly to the helix's own over the next **End change** turns (half a turn at
@@ -101,6 +102,23 @@ For a progressive spring, whose coils close up as it is compressed, choose **Pro
 its start to the final one. With closed ends it changes between the two closed ends' changes, over
 the turns between them. A pipe or sweep along it keeps the section's lean to the axis that it
 starts with, so a round wire is a hair out of round where the pitch differs from the start's.
+
+## A table of pitches
+
+For a pitch that no even change describes (a spring closing up in steps, a coil that opens and
+tightens again), choose **Table** under **Pitch**. The pitch above is the pitch at the start, and
+each row says the turn the helix has reached its pitch at: **Row 1 at turn** 2 with **Row 1 pitch**
+3 mm means the pitch changes evenly from the start pitch to 3 mm over the first two turns. Between
+rows the pitch changes evenly; after the last row it stays at the last row's pitch. Two rows at
+first, the second at the helix's last turn. **Add a row** under the rows adds one halfway between
+the last row and the helix's end, at the last row's pitch; **Remove the last row** removes it (one row stays). Turns
+must grow from row to row, the first after the start and the last within the turns the helix
+makes, and a helix takes at most 24 rows; a row out of place fails the helix saying which.
+
+A table stands alone: it replaces a progressive pitch's final pitch and the closed ends, and
+choosing **Progressive** or **Closed** ends clears it. A turn that is not whole puts a row inside
+a turn. As with a progressive pitch, a sweep along it keeps the section's lean to the axis it
+starts with.
 
 ## Sweeping along it
 

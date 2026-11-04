@@ -532,8 +532,11 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   `selected_change`; Choose in the view; the cross clears it), Orientation (`SQUARE_TO_PATH`,
   `PARALLEL`, a segmented choice that becomes a list when narrow), Twist (`solid_panel::TWIST`, any
   angle, keyed `("solid-field", "twist", feature)`), End scale (`END_SCALE`, a plain number above
-  zero, keyed `"scale"`; both captioned for parameter owners by `solid_panel::captioned`) and
-  Body. While choosing the
+  zero, keyed `"scale"`; both captioned for parameter owners by `solid_panel::captioned`), a
+  "Row n at fraction", "Row n twist" and "Row n scale" per row of the twist and scale table
+  (`shape_law_rows`, keyed `law-<n>-<field>`, with add (`ADD_SHAPE_ROW`, halfway between the last
+  row and the end at the even law's twist and scale there, so adding changes nothing) and
+  remove-last (`REMOVE_SHAPE_ROW`) buttons, up to `MAX_SHAPE_ROWS`) and Body. While choosing the
   path each click toggles a curve or edge (`toggled_path`: the same sketch or body toggles, another
   starts a new path; a click on a helix makes it the path) and choosing goes on until Escape (`reference_picking::click` keeps every
   `Slot::keeps_choosing` slot). With no path it waits (`MissingInput::Path`). Edges are captured in the body as the sweep sees it
@@ -633,9 +636,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   fields (a flat spiral's height field captioned `OUTER_DIAMETER`, its sizings "Outer diameter and
   turns" and "and pitch", resized by `helix_tools::spiral_span` through
   `coil_tools::resized_length` since its turns are the outer minus the inner radius over the
-  pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper, Pitch (`PITCH_LAW`, Even or Progressive,
+  pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper, Pitch (`PITCH_LAW`, Even, Progressive or Table,
   `helix_tools::with_progression` starting the final pitch at twice the evaluated pitch, and while
-  progressive Final pitch, `Rule::AboveZero`) and Ends (`ENDS`, Open or Closed,
+  progressive Final pitch, `Rule::AboveZero`; `with_pitch_table` starting two rows, the pitch at
+  half the turns and twice it at all of them, clearing the ends and final pitch, and while
+  tabled a "Row n at turn" and "Row n pitch" field per row, `Rule::AboveZero`, with add
+  (`ADD_PITCH_ROW`, halfway between the last row and the end at the last pitch, up to
+  `MAX_PITCH_ROWS`) and remove-last (`REMOVE_PITCH_ROW`, keeping one) buttons; `with_progression`
+  and `with_closed_ends(true)` clear the table) and Ends (`ENDS`, Open or Closed,
   `helix_tools::with_closed_ends` setting `ClosedEnds::default`, and while closed End turns,
   `Rule::ZeroOrMore`, End pitch and End change, `Rule::AboveZero`; Pitch and Ends are left out for
   a flat spiral, and dropped by `with_kind` switching to one; `sized_by` resizes through

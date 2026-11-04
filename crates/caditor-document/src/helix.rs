@@ -4,7 +4,7 @@ use caditor_expression::{Dimension, Expression, ParameterId, Unit};
 use caditor_geometry::{Plane, Point3, Ray};
 use caditor_kernel::{
     END_CHANGE_TURNS, HelixEnds, HelixError, HelixPitch, HelixSpec, HelixTurn, LEAST_COIL_TURNS,
-    LINEAR_RESOLUTION, MAX_COIL_TURNS, SpiralError, SpiralSpec, helix, spiral,
+    LINEAR_RESOLUTION, MAX_COIL_TURNS, PitchStop, SpiralError, SpiralSpec, helix, spiral,
 };
 
 use crate::{
@@ -22,6 +22,7 @@ pub const HELIX_SHAPE: &str = "helix";
 pub const SPIRAL_SHAPE: &str = "flat spiral";
 pub const DEFAULT_END_TURNS: f64 = 1.0;
 pub const DEFAULT_END_PITCH: f64 = 2.5;
+pub const MAX_PITCH_ROWS: usize = 24;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClosedEnds {
@@ -43,6 +44,18 @@ impl Default for ClosedEnds {
             pitch: Expression::measure(DEFAULT_END_PITCH, Unit::Millimetre),
             change: Expression::number(END_CHANGE_TURNS),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PitchRow {
+    pub turns: Expression,
+    pub pitch: Expression,
+}
+
+impl PitchRow {
+    pub fn new(turns: Expression, pitch: Expression) -> Self {
+        Self { turns, pitch }
     }
 }
 
@@ -82,8 +95,9 @@ pub struct Helix {
     pub turning: CoilTurning,
     pub start: Expression,
     pub start_point: Option<PointReference>,
-    pub ends: Option<ClosedEnds>,
+    pub ends: Option<Box<ClosedEnds>>,
     pub final_pitch: Option<Expression>,
+    pub pitch_table: Vec<PitchRow>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +136,7 @@ impl Helix {
             start_point: None,
             ends: None,
             final_pitch: None,
+            pitch_table: Vec::new(),
         }
     }
 
@@ -143,6 +158,9 @@ impl Helix {
             expressions.extend([&ends.turns, &ends.pitch, &ends.change]);
         }
         expressions.extend(&self.final_pitch);
+        for row in &self.pitch_table {
+            expressions.extend([&row.turns, &row.pitch]);
+        }
         expressions
     }
 
@@ -153,6 +171,9 @@ impl Helix {
             expressions.extend([&mut ends.turns, &mut ends.pitch, &mut ends.change]);
         }
         expressions.extend(&mut self.final_pitch);
+        for row in &mut self.pitch_table {
+            expressions.extend([&mut row.turns, &mut row.pitch]);
+        }
         expressions
     }
 
@@ -163,6 +184,7 @@ impl Helix {
             lengths.push(&mut ends.pitch);
         }
         lengths.extend(&mut self.final_pitch);
+        lengths.extend(self.pitch_table.iter_mut().map(|row| &mut row.pitch));
         lengths
     }
 
@@ -172,6 +194,10 @@ impl Helix {
 
     pub fn is_progressive(&self) -> bool {
         !self.is_flat() && self.final_pitch.is_some()
+    }
+
+    pub fn has_pitch_table(&self) -> bool {
+        !self.is_flat() && !self.pitch_table.is_empty()
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -253,6 +279,18 @@ fn failure(context: &Context<'_>, feature: &Feature, error: &HelixError) -> Fail
                 turns: *turns,
             })
         }
+        HelixError::TableWithOther { other } => {
+            context.error(CoilCause::PitchTableAlone { name, other })
+        }
+        HelixError::TableOrder { turns } => context.error(CoilCause::PitchTableOrder {
+            name,
+            turns: *turns,
+        }),
+        HelixError::TableBeyond { turns, helix } => context.error(CoilCause::PitchTableBeyond {
+            name,
+            turns: *turns,
+            helix: *helix,
+        }),
         HelixError::EndsTooLong { taken, turns } => context.error(CoilCause::EndsTooLong {
             name,
             taken: *taken,
@@ -318,15 +356,36 @@ fn closed_ends(context: &Context<'_>, definition: &Helix) -> Result<Option<Helix
     }))
 }
 
-fn pitch_plan(context: &Context<'_>, definition: &Helix) -> Result<HelixPitch, Failure> {
+fn pitch_plan(
+    context: &Context<'_>,
+    feature: &Feature,
+    definition: &Helix,
+) -> Result<HelixPitch, Failure> {
     let final_pitch = definition
         .final_pitch
         .as_ref()
         .map(|pitch| context.size(pitch, "final pitch"))
         .transpose()?;
+    if definition.pitch_table.len() > MAX_PITCH_ROWS {
+        return Err(context.error(CoilCause::PitchTableLong {
+            name: feature.name.clone(),
+            rows: definition.pitch_table.len(),
+        }));
+    }
+    let table = definition
+        .pitch_table
+        .iter()
+        .map(|row| {
+            Ok(PitchStop {
+                turns: context.value_as(&row.turns, "table turn", Dimension::NONE)?,
+                pitch: context.size(&row.pitch, "table pitch")?,
+            })
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
     Ok(HelixPitch {
         ends: closed_ends(context, definition)?,
         final_pitch,
+        table,
     })
 }
 
@@ -340,16 +399,24 @@ fn helix_span(
         return coil::span(context, length);
     }
     let name = || feature.name.clone();
-    let fills = |height: f64| match plan.ends {
-        Some(_) => CoilCause::EndsFillHeight {
-            name: name(),
-            height,
-        },
-        None => CoilCause::FinalPitchFillsHeight {
-            name: name(),
-            height,
-            final_pitch: plan.final_pitch.unwrap_or_default(),
-        },
+    let fills = |height: f64| {
+        if !plan.table.is_empty() {
+            return CoilCause::PitchTableFillsHeight {
+                name: name(),
+                height,
+            };
+        }
+        match plan.ends {
+            Some(_) => CoilCause::EndsFillHeight {
+                name: name(),
+                height,
+            },
+            None => CoilCause::FinalPitchFillsHeight {
+                name: name(),
+                height,
+                final_pitch: plan.final_pitch.unwrap_or_default(),
+            },
+        }
     };
     match length {
         CoilLength::TurnsAndPitch { .. } => {
@@ -468,8 +535,8 @@ pub(crate) fn evaluate(
     }
     let context = Context::new(feature, inputs, HELIX_SHAPE);
     let diameter = context.size(&definition.diameter, "diameter")?;
-    let plan = pitch_plan(&context, definition)?;
-    let span = helix_span(&context, feature, &definition.length, plan)?;
+    let plan = pitch_plan(&context, feature, definition)?;
+    let span = helix_span(&context, feature, &definition.length, plan.clone())?;
     let taper = coil::taper(&context, &definition.taper)?;
     let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
@@ -486,6 +553,7 @@ pub(crate) fn evaluate(
         start_angle: start,
         ends: plan.ends,
         final_pitch: plan.final_pitch,
+        table: plan.table,
     };
     let turns = helix(&spec).map_err(|error| failure(&context, feature, &error))?;
     Ok(FeatureResult::Helix(HelixResult {

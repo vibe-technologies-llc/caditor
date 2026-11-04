@@ -757,3 +757,58 @@ fn split_faces_carry_their_curves_along_an_axis_or_wrapped() {
     assert!(no_sketch.contains("curves of a sketch"), "{no_sketch}");
     client.finish();
 }
+
+#[test]
+fn a_sweep_swells_through_a_table_of_twists_and_scales() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let (profile, _) = sketch_on(
+        &mut client,
+        json!({ "plane": "YZ" }),
+        json!([{ "kind": "circle", "center": [0, 40], "radius": 5 }]),
+    );
+    let (path, drawn) = sketch_on(
+        &mut client,
+        json!({ "plane": "XZ" }),
+        json!([{ "kind": "line", "from": [0, 40], "to": [50, 40] }]),
+    );
+    let sweep = client.tool(
+        "add_sweep",
+        json!({
+            "sketch": profile,
+            "path": { "sketch": path, "curves": [drawn[0]["id"]] },
+            "operation": "new_body",
+            "shape_table": [{ "fraction": 0.5, "twist": "30 deg", "scale": 2 }]
+        }),
+    );
+    let rod = PI * 25.0 * 50.0;
+
+    assert_eq!(sweep["failing"], json!([]), "{sweep}");
+    assert!(near(total_volume(&mut client), rod * 43.0 / 15.0));
+
+    let backwards = client.tool(
+        "edit_feature",
+        json!({
+            "feature": sweep["feature"]["id"],
+            "shape_table": [
+                { "fraction": 0.6, "twist": 0, "scale": 1 },
+                { "fraction": 0.4, "twist": 0, "scale": 1 }
+            ]
+        }),
+    );
+    assert!(
+        backwards["failing"]
+            .to_string()
+            .contains("after the row before"),
+        "{backwards}"
+    );
+
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": sweep["feature"]["id"], "shape_table": [] }),
+    );
+
+    assert!(near(total_volume(&mut client), rod));
+    client.finish();
+}

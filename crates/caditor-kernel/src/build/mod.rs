@@ -32,8 +32,8 @@ pub use self::{
     revolve::revolve,
     sweep::{
         BendMiddle, BendMiddles, ChainedLeg, ChainedPath, PathSegment, PathSweepError, PipeCorner,
-        PipeError, PipeSection, PipeShape, PipeStand, SweepOrientation, SweepShape, WindingAxis,
-        chained_path, pipe, pipe_stand, sweep, sweep_shaped,
+        PipeError, PipeSection, PipeShape, PipeStand, ShapeStop, SweepOrientation, SweepShape,
+        WindingAxis, chained_path, pipe, pipe_stand, sweep, sweep_shaped,
     },
     taper::{
         MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered,

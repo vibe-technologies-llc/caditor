@@ -420,3 +420,40 @@ fn turning_a_helix_into_a_flat_spiral_keeps_its_turns_and_pitch_in_one_undoable_
     let kind = |harness: &Harness| f64::from(u8::from(helix_of(harness, helix).is_flat()));
     undone_and_redone(&mut harness, "the shape", kind);
 }
+
+#[test]
+fn a_table_of_pitches_is_chosen_edited_grown_and_shrunk_in_the_panel_in_undoable_changes() {
+    let mut harness = Harness::new();
+    let helix = open_vertical_helix(&mut harness);
+
+    choose(&mut harness, "Even", "Table");
+    let tabled = helix_of(&harness, helix);
+
+    assert_eq!(tabled.pitch_table.len(), 2);
+    assert_eq!(tabled.final_pitch, None);
+    assert!(harness.shows("Row 2 pitch"));
+    assert!(harness.model.evaluation().failed_count() == 0);
+
+    harness.type_into_field(Id::unique(("helix-table", 1, "row-pitch", helix)), "12 mm");
+    harness.settle();
+
+    assert_eq!(
+        length_value(&harness, &helix_of(&harness, helix).pitch_table[1].pitch),
+        12.0
+    );
+
+    harness.click(helix_panel::ADD_PITCH_ROW);
+    harness.settle();
+
+    assert_eq!(helix_of(&harness, helix).pitch_table.len(), 3);
+
+    harness.click(helix_panel::REMOVE_PITCH_ROW);
+    harness.settle();
+
+    assert_eq!(helix_of(&harness, helix).pitch_table.len(), 2);
+
+    choose(&mut harness, "Table", "Even");
+
+    assert!(helix_of(&harness, helix).pitch_table.is_empty());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}

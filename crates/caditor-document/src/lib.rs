@@ -145,7 +145,7 @@ pub use crate::{
     healing::{Healing, ReferredGeometry, referred_geometry},
     helix::{
         ClosedEnds, DEFAULT_END_PITCH, DEFAULT_END_TURNS, HELIX_SHAPE, Helix, HelixKind,
-        HelixResult, SPIRAL_SHAPE, span_with_pitch,
+        HelixResult, MAX_PITCH_ROWS, PitchRow, SPIRAL_SHAPE, span_with_pitch,
     },
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
@@ -244,7 +244,7 @@ pub use crate::{
     split_edges::{TracedEdge, trace_edge},
     split_face::{SplitCarry, SplitFace, on_one_unrolled_surface},
     step_text::{StepText, StepTextError},
-    sweep::{SWEEP_SHAPE, Sweep, SweepPath, unscaled, untwisted},
+    sweep::{MAX_SHAPE_ROWS, SWEEP_SHAPE, ShapeRow, Sweep, SweepPath, unscaled, untwisted},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadForm, ThreadLength, ThreadPlacement,
         ThreadResult, hole_thread, placed_threads,

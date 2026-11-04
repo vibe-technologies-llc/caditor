@@ -5317,6 +5317,36 @@ fn sweeps_are_saved_and_loaded_as_a_record_of_their_own() {
 }
 
 #[test]
+fn a_twist_and_scale_law_wraps_the_sweep_record_and_round_trips() {
+    use caditor_document::ShapeRow;
+    let (mut document, along_curves, _) = sweep_model();
+    let mut transaction = document.transaction("Law");
+    let mut kind = document.feature(along_curves).unwrap().kind.clone();
+    if let FeatureKind::Solid(caditor_document::SolidFeature::Sweep(shaped)) = &mut kind {
+        shaped.shape_law = vec![ShapeRow::new(
+            Expression::parse_stored("0.5").unwrap(),
+            Expression::parse_stored("30 deg").unwrap(),
+            Expression::parse_stored("2").unwrap(),
+        )];
+    }
+    transaction.edit(Edit::SetFeatureKind {
+        id: along_curves,
+        kind,
+    });
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("sweep_shape_law", "sweep_shape_lew"));
+
+    assert_eq!(text.matches("\"sweep_shape_law\"").count(), 1, "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(along_curves).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn a_twisted_or_scaled_sweep_wraps_its_record_so_an_older_reader_leaves_it_out() {
     let (mut document, along_curves, along_edges) = sweep_model();
     let mut transaction = document.transaction("Spin");
@@ -11742,7 +11772,7 @@ fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_rou
                 turns: parse("9"),
                 pitch: parse("3 mm"),
             },
-            ends,
+            ends: ends.map(Box::new),
             final_pitch: final_pitch.map(parse),
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         })
@@ -11769,6 +11799,39 @@ fn a_progressive_helix_and_the_change_of_its_closed_ends_wrap_its_record_and_rou
         assert!(loaded.document.feature(feature).is_some());
     }
     assert!(older.document.feature(changed).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
+fn a_table_of_pitches_wraps_the_helix_record_and_round_trips() {
+    use caditor_document::{AxisReference, CoilLength, Helix, PitchRow, PrincipalAxis};
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Table");
+    let tabled = transaction.add_feature(
+        "Tabled",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("9"),
+                pitch: parse("3 mm"),
+            },
+            pitch_table: vec![
+                PitchRow::new(parse("2"), parse("3 mm")),
+                PitchRow::new(parse("5"), parse("7 mm")),
+            ],
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("helix_pitch_table", "helix_pitch_tablet"));
+
+    assert_eq!(text.matches("\"helix_pitch_table\"").count(), 1, "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(tabled).is_none());
     assert!(!older.issues.is_empty());
 }
 

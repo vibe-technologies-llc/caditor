@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{
-    EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, Solid,
-    SpiralSpec, SweepOrientation, SweepShape, sweep_shaped,
+    EdgeNaming, EdgeReference, PathSegment, PathSweepError, ReferenceError, Region, ShapeStop,
+    Solid, SpiralSpec, SweepOrientation, SweepShape, sweep_shaped,
 };
 use caditor_sketch::EntityId;
 
@@ -119,6 +119,25 @@ impl SweepPath {
     }
 }
 
+pub const MAX_SHAPE_ROWS: usize = 16;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeRow {
+    pub fraction: Expression,
+    pub twist: Expression,
+    pub scale: Expression,
+}
+
+impl ShapeRow {
+    pub fn new(fraction: Expression, twist: Expression, scale: Expression) -> Self {
+        Self {
+            fraction,
+            twist,
+            scale,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sweep {
     pub sketch: FeatureId,
@@ -127,6 +146,7 @@ pub struct Sweep {
     pub orientation: SweepOrientation,
     pub twist: Expression,
     pub scale: Expression,
+    pub shape_law: Vec<ShapeRow>,
     pub operation: BodyOperation,
     pub other_bodies: Vec<FeatureId>,
 }
@@ -140,21 +160,32 @@ impl Sweep {
             orientation: SweepOrientation::Square,
             twist: untwisted(),
             scale: unscaled(),
+            shape_law: Vec::new(),
             operation: BodyOperation::NewBody,
             other_bodies: Vec::new(),
         }
     }
 
     pub fn expressions(&self) -> Vec<&Expression> {
-        vec![&self.twist, &self.scale]
+        let mut expressions = vec![&self.twist, &self.scale];
+        for row in &self.shape_law {
+            expressions.extend([&row.fraction, &row.twist, &row.scale]);
+        }
+        expressions
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        vec![&mut self.twist, &mut self.scale]
+        let mut expressions = vec![&mut self.twist, &mut self.scale];
+        for row in &mut self.shape_law {
+            expressions.extend([&mut row.fraction, &mut row.twist, &mut row.scale]);
+        }
+        expressions
     }
 
     pub fn is_shaped(&self) -> bool {
-        !is_literally(&self.twist, 0.0) || !is_literally(&self.scale, 1.0)
+        !is_literally(&self.twist, 0.0)
+            || !is_literally(&self.scale, 1.0)
+            || !self.shape_law.is_empty()
     }
 }
 
@@ -376,9 +407,42 @@ fn shape_of(
             scale,
         }));
     }
+    if definition.shape_law.len() > MAX_SHAPE_ROWS {
+        return Err(context.error(SweepCause::ShapeLawLong {
+            name: context.feature.name.clone(),
+            rows: definition.shape_law.len(),
+        }));
+    }
+    let mut law = Vec::with_capacity(definition.shape_law.len());
+    for row in &definition.shape_law {
+        let fraction = context.value(
+            &row.fraction,
+            Dimension::NONE,
+            "table fraction",
+            inputs.parameters,
+        )?;
+        let twist = context.value(
+            &row.twist,
+            Dimension::ANGLE,
+            "table twist",
+            inputs.parameters,
+        )?;
+        let scale = context.value(
+            &row.scale,
+            Dimension::NONE,
+            "table scale",
+            inputs.parameters,
+        )?;
+        law.push(ShapeStop {
+            fraction,
+            twist: twist.to_radians(),
+            scale,
+        });
+    }
     Ok(SweepShape {
         twist: twist.to_radians(),
         scale,
+        law,
     })
 }
 
@@ -389,6 +453,7 @@ pub(crate) fn swept(
     definition: &Sweep,
 ) -> Result<Solid, Failure> {
     let shape = shape_of(context, inputs, definition)?;
+    let twist = shape.twist;
     let path = path_of(context.feature, inputs, &definition.path)?;
     sweep_shaped(
         plane,
@@ -397,7 +462,7 @@ pub(crate) fn swept(
         (definition.orientation, shape),
         context.feature.id().raw(),
     )
-    .map_err(|error| failure(context, &path, &error, shape))
+    .map_err(|error| failure(context, &path, &error, twist))
 }
 
 pub(crate) fn path_failure(feature: &Feature, path: &Path, error: &PathSweepError) -> Failure {
@@ -466,6 +531,7 @@ fn path_cause(
         | PathSweepError::ClosedPathMissesProfile
         | PathSweepError::ClosedPathScales
         | PathSweepError::UnusableShape
+        | PathSweepError::ShapeLawOrder { .. }
         | PathSweepError::ShapedCorner { .. } => {
             log::warn!("{name} could not follow its path: {error}");
             failed(SweepCause::Unbuilt { name }, own)
@@ -473,12 +539,7 @@ fn path_cause(
     }
 }
 
-fn failure(
-    context: &Context<'_>,
-    path: &Path,
-    error: &PathSweepError,
-    shape: SweepShape,
-) -> Failure {
+fn failure(context: &Context<'_>, path: &Path, error: &PathSweepError, twist: f64) -> Failure {
     let name = context.feature.name.clone();
     let owner = path.owner.clone();
     let at = |segments: &[usize]| Segments {
@@ -531,11 +592,15 @@ fn failure(
         } => context.error(SweepCause::ClosedTwistsBy {
             name,
             turned: turned.to_degrees(),
-            needed: (shape.twist - turned).to_degrees(),
+            needed: (twist - turned).to_degrees(),
         }),
         PathSweepError::ClosedPathTwists { turned: None } => in_path(SweepCause::ClosedTilted),
         PathSweepError::ClosedPathScales => context.error(SweepCause::ClosedScales { name }),
         PathSweepError::UnusableShape => context.error(SweepCause::UnusableShape { name }),
+        PathSweepError::ShapeLawOrder { fraction } => context.error(SweepCause::ShapeLawOrder {
+            name,
+            fraction: *fraction,
+        }),
         PathSweepError::ShapedCorner { segments } => in_path(SweepCause::Corner {
             at: at(segments),
             name,
