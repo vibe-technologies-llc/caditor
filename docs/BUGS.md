@@ -10,13 +10,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724, 767, 1135, 1214, 1225, 1272, 1344 and 1402) gave are pinned by tests
-  and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before the last marching
-  change and not again. Of seeds 1115 to 1420, three still fail, each also on the build before that
-  change: 1115 (a torus and a sphere 1.6e-4 off its centre, draw 653) and 1383 (the same pair the
-  other way round, 7.5e-5 off, draw 592) are `Unfollowable` where the sphere runs along the torus's
-  inner equator, and 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890) is
-  `Invalid`, a face's boundary crossing itself. Seeds beyond 1420 are unsurveyed.
+  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1214, 1225, 1272, 1344, 1383 and 1402) gave are
+  pinned by tests and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before
+  the last marching change and not again. Of seeds 1115 to 1420, one still fails, as it did on the
+  build before that change: 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890)
+  is `Invalid`, a face's boundary crossing itself in its domain. Seeds 1115 to 1420 were not
+  surveyed again after these fixes, and seeds beyond 1420 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
@@ -38,6 +37,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
   (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
   changed none of these.
+- [low · medium] The exact mass of a body holding a thin lens of a sphere is off by up to about 8e-3
+  in 474: `face_area` gives up (`None`) on the sphere's lens of area 0.39 that a sphere 1.6e-4 off
+  centre in a torus's inner equator leaves
+  (`a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines`, which checks the mesh's volume
+  for that reason), so `mass_properties_tessellating` meshes that face at the default tolerance and
+  the difference and intersection read 473.7492 and -0.0027 where a fine mesh and the union give
+  473.7410 and 2.8e-5. The areas of the torus's two pieces add up exactly.
 - [medium · medium] A hole up to the next face with an offset fails where the cut back drill's
   moved copy touches the body tangentially (`move_end`): a hole stopped by a round channel whose top
   is level with the plate's top fails the move. `hole_tests.rs`'s `channelled` keeps that top below

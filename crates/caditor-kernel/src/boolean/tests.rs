@@ -2824,6 +2824,63 @@ fn a_block_edge_just_past_a_resolution_from_a_holed_block_edge_combines() {
 }
 
 #[test]
+fn a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let ball = sphere(4.0);
+    let (ring_volume, ball_volume) = (2.0 * PI * PI * 6.0 * 4.0, 256.0 * PI / 3.0);
+    let in_ring = moved(
+        rotated(
+            ball.clone(),
+            Vector3::new(0.8774398952325138, 0.37287953149887976, 0.5513799997478457),
+            0.46862833127541864,
+        ),
+        (
+            7.199162678728688e-5,
+            0.00013742161105208652,
+            -4.581857377546674e-5,
+        ),
+    );
+    let round_ball = moved(
+        rotated(
+            ring.clone(),
+            Vector3::new(
+                -0.40405666279114416,
+                -0.2537813235518609,
+                0.0961677245412631,
+            ),
+            4.692553640727873,
+        ),
+        (
+            6.817599587967787e-5,
+            5.732492023165746e-6,
+            2.9605737496157282e-5,
+        ),
+    );
+
+    for (name, first, second, first_volume) in [
+        ("sphere in a torus", &ring, &in_ring, ring_volume),
+        ("torus round a sphere", &ball, &round_ball, ball_volume),
+    ] {
+        let union = run(first, second, BooleanOperation::Union);
+        check(name, &union, ring_volume + ball_volume);
+        let difference = run(first, second, BooleanOperation::Difference);
+        check(name, &difference, first_volume);
+        let common = run(first, second, BooleanOperation::Intersection);
+        assert_eq!(common.validate(), Ok(()), "{name}");
+        assert_watertight(
+            name,
+            &common.tessellate(&common.default_tolerance()).unwrap(),
+        );
+        let shared = common
+            .tessellate(&SamplingTolerance::new(2e-3, 0.02).unwrap())
+            .unwrap()
+            .mass_properties()
+            .volume;
+        assert!((1e-6..1e-3).contains(&shared), "{name}: {shared}");
+    }
+}
+
+#[test]
 fn a_fragment_is_not_sampled_where_its_chords_sag_past_its_arc() {
     let block = cuboid(Vector3::new(4.0, 3.0, 2.0));
     let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
