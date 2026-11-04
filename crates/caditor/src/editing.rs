@@ -175,11 +175,11 @@ impl Tool {
             }
             Self::Fillet => {
                 "Round the corner where two lines, arcs, elliptical arcs or splines meet, or where two \
-                 lines, arcs, circles or elliptical arcs cross or would meet, with an arc tangent to both"
+                 lines, arcs, circles, elliptical arcs or splines cross or would meet, with an arc tangent to both"
             }
             Self::Chamfer => {
                 "Cut the corner where two lines, arcs, elliptical arcs or splines meet, or where two \
-                 lines, arcs, circles or elliptical arcs cross or would meet, with a line at the distances you set"
+                 lines, arcs, circles, elliptical arcs or splines cross or would meet, with a line at the distances you set"
             }
             Self::Project => {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \

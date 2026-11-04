@@ -128,8 +128,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] A fit-point spline whose kept stretch holds a fit point carrying a constraint, a tangent
   handle or another curve is still refitted through its points by a trim, split or break (the
   constraints on a point go with it when the control spline replaces it), so its shape near the cut
-  shifts slightly; a sketch fillet or chamfer cannot join two splines that would meet only when
-  extended, and a chamfer at a spline's end cannot be given by an angle.
+  shifts slightly.
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the

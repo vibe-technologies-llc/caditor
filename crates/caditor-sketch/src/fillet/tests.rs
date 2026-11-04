@@ -1595,6 +1595,94 @@ fn a_spline_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() 
 }
 
 #[test]
+fn a_spline_is_chamfered_by_a_distance_along_it_and_an_angle_from_its_end() {
+    for spline_first in [true, false] {
+        for kind in [SplineKind::OPEN, SplineKind::fit(false)] {
+            let (mut sketch, line, spline) = line_on_spline(spline_first, kind);
+            let corner = sketch.corner_between(spline, line).unwrap();
+            let size = ChamferSize::DistanceAndAngle {
+                distance: dimensioned(3.0),
+                angle: degrees(3.0),
+            };
+
+            let cut = sketch.chamfer(&corner, &size).unwrap();
+            let angle = sketch
+                .constraints()
+                .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+                .map(|(_, constraint)| constraint.clone())
+                .unwrap();
+            let drawn = sketch.line_endpoints(cut).unwrap();
+            let solved = solve(&sketch);
+
+            assert!(matches!(
+                angle,
+                Constraint::Angle { from, to, .. }
+                    if (from == spline && to == cut) || (from == cut && to == spline)
+            ));
+            assert!(
+                sketch
+                    .measured(&angle)
+                    .is_some_and(|found| (found - 3.0).abs() < 1e-6),
+                "{:?}",
+                sketch.measured(&angle)
+            );
+            assert_clean(&solved);
+            assert!(
+                solved
+                    .geometry
+                    .measured(&angle)
+                    .is_some_and(|found| (found - 3.0).abs() < 1e-6)
+            );
+            let (start, end) = solved.geometry.line_endpoints(cut).unwrap();
+            assert_near(start, drawn.0);
+            assert_near(end, drawn.1);
+        }
+    }
+}
+
+#[test]
+fn the_angle_of_a_spline_chamfer_follows_a_changed_value() {
+    let (mut sketch, line, spline) = line_on_spline(true, SplineKind::OPEN);
+    let corner = sketch.corner_between(spline, line).unwrap();
+    let size = ChamferSize::DistanceAndAngle {
+        distance: dimensioned(3.0),
+        angle: degrees(3.0),
+    };
+    let cut = sketch.chamfer(&corner, &size).unwrap();
+    let (id, angle) = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    let Constraint::Angle {
+        from, to, reversed, ..
+    } = angle
+    else {
+        panic!("expected an angle");
+    };
+
+    sketch
+        .set_dimension(id, Expression::Measure(2.0, Unit::Degree))
+        .unwrap();
+    let solved = solve(&sketch);
+
+    assert_clean(&solved);
+    let moved = Constraint::Angle {
+        from,
+        to,
+        reversed,
+        value: Expression::Measure(2.0, Unit::Degree),
+    };
+    assert!(
+        solved
+            .geometry
+            .measured(&moved)
+            .is_some_and(|found| (found - 2.0).abs() < 1e-5)
+    );
+    assert!(solved.geometry.line_endpoints(cut).is_some());
+}
+
+#[test]
 fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
     let mut sketch = Sketch::new(Plane::XY);
     let first = sketch.add_spline(&bowed());
@@ -1641,4 +1729,166 @@ fn the_sharp_of_a_spline_corner_stays_only_while_something_holds_it() {
     assert!(!has(&held, &Constraint::Coincident(corner.point, spline)));
     assert!(free.point(loose.point).is_none());
     assert_clean(&solve(&held));
+}
+
+fn gentle() -> [Point2; 4] {
+    [
+        Point2::new(0.0, 0.0),
+        Point2::new(4.0, 0.0),
+        Point2::new(8.0, 1.0),
+        Point2::new(12.0, 3.0),
+    ]
+}
+
+fn upright_at(sketch: &mut Sketch, x: f64) -> EntityId {
+    sketch.add_line(Point2::new(x, -40.0), Point2::new(x, 40.0))
+}
+
+fn assert_on_old_curve(whole: &crate::curve::BSpline, sketch: &Sketch, spline: EntityId, to: f64) {
+    let kept = sketch.spline(spline).unwrap();
+    for index in 0..=32 {
+        let point = kept.point_at(index as f64 / 32.0 * to);
+        let off = crate::intersect::closest_spline_parameter(whole, point);
+        assert!(whole.point_at(off).distance(point) < 1e-6);
+    }
+}
+
+#[test]
+fn a_spline_stopping_short_of_a_line_is_carried_on_along_its_curve_to_it() {
+    for (kind, exact) in [(SplineKind::OPEN, true), (SplineKind::fit(false), false)] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline_of(&gentle(), kind);
+        let line = upright_at(&mut sketch, 20.0);
+        let whole = sketch.spline(spline).unwrap();
+        let dof_before = freedom(&sketch);
+
+        let corner = sketch
+            .join_at_crossing([pick(spline, 4.0, 0.5), pick(line, 20.0, 30.0)])
+            .unwrap();
+
+        let carried = sketch.spline(spline).unwrap();
+        assert_near(corner.position, carried.point_at(1.0));
+        assert!((corner.position.x - 20.0).abs() < 1e-6);
+        assert_near(carried.point_at(0.0), Point2::ZERO);
+        let (start, end) = sketch.line_endpoints(line).unwrap();
+        assert_near(start, corner.position);
+        assert_near(end, Point2::new(20.0, 40.0));
+        let passes: Vec<Point2> = if exact {
+            (0..=32)
+                .map(|index| whole.point_at(index as f64 / 32.0))
+                .collect()
+        } else {
+            gentle().to_vec()
+        };
+        for point in passes {
+            let off = crate::intersect::closest_spline_parameter(&carried, point);
+            assert!(carried.point_at(off).distance(point) < 1e-6);
+        }
+        let solved = solve(&sketch);
+        assert_clean(&solved);
+        assert!(
+            solved
+                .geometry
+                .spline(spline)
+                .unwrap()
+                .point_at(1.0)
+                .distance(corner.position)
+                < 1e-6
+        );
+        let old_end_kept_as_fit_point = if exact { 0 } else { 2 };
+        assert_eq!(
+            solved.solution.degrees_of_freedom(),
+            dof_before - 2 + old_end_kept_as_fit_point
+        );
+    }
+}
+
+#[test]
+fn a_spline_crossing_a_line_is_cut_at_the_crossing_keeping_the_side_picked() {
+    for (near, kept_start) in [(2.0, true), (11.0, false)] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline(&gentle());
+        let line = upright_at(&mut sketch, 8.0);
+        let whole = sketch.spline(spline).unwrap();
+
+        let corner = sketch
+            .join_at_crossing([pick(spline, near, 1.0), pick(line, 8.0, 30.0)])
+            .unwrap();
+
+        let cut = sketch.spline(spline).unwrap();
+        assert!((corner.position.x - 8.0).abs() < 1e-6);
+        let (kept, dropped) = if kept_start {
+            (cut.point_at(0.0), cut.point_at(1.0))
+        } else {
+            (cut.point_at(1.0), cut.point_at(0.0))
+        };
+        assert_near(
+            kept,
+            if kept_start {
+                Point2::ZERO
+            } else {
+                Point2::new(12.0, 3.0)
+            },
+        );
+        assert_near(dropped, corner.position);
+        assert_on_old_curve(&whole, &sketch, spline, 1.0);
+        assert_clean(&solve(&sketch));
+    }
+}
+
+#[test]
+fn two_splines_that_would_meet_only_when_extended_are_joined_and_rounded() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_spline(&gentle());
+    let mirrored: Vec<Point2> = gentle()
+        .iter()
+        .map(|point| Point2::new(30.0 - point.x, point.y))
+        .collect();
+    let second = sketch.add_spline(&mirrored);
+
+    let corner = sketch
+        .join_at_crossing([pick(first, 3.0, 0.2), pick(second, 27.0, 0.2)])
+        .unwrap();
+
+    assert!((corner.position.x - 15.0).abs() < 1e-6);
+    for spline in [first, second] {
+        let ends = sketch.entity(spline).and_then(Entity::spline_ends).unwrap();
+        assert!(ends.0 == corner.point || ends.1 == corner.point);
+        assert!(sketch.spline(spline).unwrap().length() > 12.0);
+    }
+    assert_clean(&solve(&sketch));
+
+    let rounding = sketch.fillet(&corner, 2.0, mm(2.0)).unwrap();
+
+    let fillet = sketch.arc(rounding).unwrap();
+    for spline in [first, second] {
+        assert!((gap_to_spline(&sketch, spline, fillet.center) - 2.0).abs() < 1e-6);
+        assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
+    }
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn a_spline_joined_to_a_whole_circle_or_a_closed_spline_is_refused_in_words() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let open = sketch.add_spline(&gentle());
+    let circle = sketch.add_circle(Point2::new(30.0, 10.0), 4.0);
+    let closed = sketch.add_spline_of(
+        &[
+            Point2::new(40.0, 0.0),
+            Point2::new(46.0, 0.0),
+            Point2::new(46.0, 6.0),
+            Point2::new(40.0, 6.0),
+        ],
+        SplineKind::Control { closed: true },
+    );
+
+    let with_circle = sketch.join_at_crossing([pick(open, 3.0, 0.2), pick(circle, 30.0, 14.0)]);
+    let with_closed = sketch.join_at_crossing([pick(open, 3.0, 0.2), pick(closed, 43.0, 0.0)]);
+
+    assert!(matches!(
+        with_circle,
+        Err(FilletError::CircleToSpline { .. })
+    ));
+    assert!(matches!(with_closed, Err(FilletError::NotLineOrArc { .. })));
 }

@@ -25,10 +25,10 @@ use crate::{
     units::Units,
 };
 
-pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles or elliptical arcs to round where they cross or would meet";
+pub const CORNER_PROMPT: &str = "Click the corner to round, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles, elliptical arcs or splines to round where they cross or would meet";
 pub const SECOND_CURVE_PROMPT: &str = "Click the second line, arc, circle or elliptical arc: the corner is where the two cross or would meet nearest the clicks, each trimmed or extended to it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
-pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles or elliptical arcs to cut where they cross or would meet";
+pub const CHAMFER_CORNER_PROMPT: &str = "Click the corner to cut, where two lines, arcs, elliptical arcs or splines meet, or drag from it; or click two lines, arcs, circles, elliptical arcs or splines to cut where they cross or would meet";
 pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
 pub const TRANSACTION: &str = "Fillet corner";
 pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
@@ -873,6 +873,7 @@ fn curve_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
                         | Entity::Arc { .. }
                         | Entity::Circle { .. }
                         | Entity::EllipticalArc { .. }
+                        | Entity::Spline { .. }
                 )
             )
         })

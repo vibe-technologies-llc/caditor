@@ -1,4 +1,4 @@
-use caditor_expression::{EvalError, Expression, ParameterId, Quantity};
+use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
@@ -359,6 +359,42 @@ fn a_spline_joined_at_its_trimmed_end_loses_the_tangent_there_and_keeps_the_othe
 
     assert!(sketch.constraint(kept).is_some());
     assert!(sketch.constraint(lost).is_none());
+}
+
+#[test]
+fn an_angle_to_a_spline_joined_at_its_trimmed_end_goes_and_the_one_at_the_other_end_stays() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&wavy());
+    let (start, end) = ends(&sketch, spline);
+    let before = sketch.add_line(at(-10.0, -20.0), at(0.0, 0.0));
+    let after = sketch.add_line(at(40.0, 0.0), at(50.0, 20.0));
+    let (before_end, after_start) = match (sketch.entity(before), sketch.entity(after)) {
+        (Some(Entity::Line { end, .. }), Some(Entity::Line { start, .. })) => (*end, *start),
+        _ => panic!("expected lines"),
+    };
+    sketch
+        .add_constraint(Constraint::Coincident(before_end, start))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Coincident(after_start, end))
+        .unwrap();
+    let angle = |line: EntityId, degrees: f64| Constraint::Angle {
+        from: spline,
+        to: line,
+        reversed: false,
+        value: Expression::Measure(degrees, Unit::Degree),
+    };
+    let before_value = sketch.measured(&angle(before, 0.0)).unwrap();
+    let after_value = sketch.measured(&angle(after, 0.0)).unwrap();
+    let kept = sketch.add_constraint(angle(before, before_value)).unwrap();
+    let lost = sketch.add_constraint(angle(after, after_value)).unwrap();
+    upright(&mut sketch, 30.0);
+
+    assert_eq!(sketch.trim(spline, at(38.0, 0.0)), Ok(Trimmed::Shortened));
+
+    assert!(sketch.constraint(kept).is_some());
+    assert!(sketch.constraint(lost).is_none());
+    assert_solves_in_place(&sketch);
 }
 
 #[test]

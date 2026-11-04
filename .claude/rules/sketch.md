@@ -268,7 +268,10 @@ paths:
   elliptical arc sharing an end (directly, by `Coincident`, or the arc's end on the line; else
   `NotJoined`), the arc's direction being its tangent leaving the joint (`Sketch::angle_direction`,
   `angle_vertex`); trim, extend, fillet and split drop such an angle on an arc they reshape
-  (`keeps_sweep`).
+  (`keeps_sweep`). A line and a spline sharing one of its ends (`joined_ends`) take it too, the
+  spline's direction its tangent leaving that end (`Sketch::spline_leaving`); a spline trimmed or
+  split drops it where the joint is removed and keeps it where the joint stays, as a `Tangent`
+  (`spline_fates`).
 - `HorizontalDistance` and `VerticalDistance` take two points, a point or circle and a line, or two
   circles or arcs (never two lines: `NotApplicable`). A circle or arc counts as its centre, a line
   as where it crosses the axis-parallel through the other item (`Sketch::axis_offset_ends` gives
@@ -383,7 +386,7 @@ relative to the extent.
     near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
   - On a trimmed spline `Equal` and `Rho` are dropped; a `Coincident` point or `Distance` (where it
     measures on the spline) stays on the piece it lies on, moves to the far piece or is dropped
-    with a removed stretch; `Tangent` and `Curvature` joined at a removed end are dropped, joined
+    with a removed stretch; `Tangent`, `Curvature` and `Angle` joined at a removed end are dropped, joined
     at the far end move to the far piece. The far piece of a split gets no constraint to the near
     one (no constraint holds two splines on one curve).
   - Extend carries a spline's end along its own continuation (`reach_along_spline`): the last
@@ -569,8 +572,9 @@ relative to the extent.
     shared end. No constraint holds a point on a spline's continuation, so the sharp is held only
     on the non-spline curves (`carried_curves`); a fillet whose sharp nothing else uses removes it,
     keeping the sketch's freedom unchanged, and a chamfer keeps it for its `Distance` dimensions.
-    A chamfer at a spline's end cuts by chord distance like an ellipse's; its angle form is
-    `AngleNotHeld` since no `Angle` takes a spline.
+    A chamfer at a spline's end cuts by chord distance like an ellipse's; its angle form holds
+    an `Angle` between the cut and the spline's tangent leaving the new end (the cut spline keeps
+    the original's tangent there), as for an arc.
 - Joining non-meeting curves first (`fillet/crossing.rs`): `join_at_crossing` takes a `Pick` on
   each (curve and a point on it), the corner at the crossing of their carriers nearest the picks
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with
@@ -584,7 +588,20 @@ relative to the extent.
   circle becomes the arc from the corner to the next crossing round it on the picked side (up to
   four against an ellipse; a pick past both neighbours takes the angularly nearer side), that end
   held on the other curve by `Coincident`, so a later join on the same circle extends it round.
-  Curves already meeting are left alone. `crossing_picks` gives picks for two selected curves: the
+  Curves already meeting are left alone. A spline joins too (`fillet/crossing/spliced.rs`, any
+  other curve but a whole circle, `CircleToSpline`; a closed spline is refused as not a curve it
+  can fillet): its carrier is the drawn curve with its two continuations (`SplineCarrier`,
+  `trim/spline/carrier.rs`: the end polynomial pieces run on past each end by the lengths
+  `reach_along_spline` would search, until the continuation turns back or leaves the bound), the
+  crossing is found with that carrier against the other's whole carrier (a spline's own continuation
+  against it for two splines) and the corner is the one nearest the picks. A corner inside the
+  spline cuts it there keeping the picked side (`cut_spline_end`, as a fillet does), one past an end
+  carries that end along its continuation to it (`extend_spline_to`: `SplineSource::extended`
+  with the shared point as the new end, the old end removed with its constraints as extend does,
+  `Held` when it is joined or fixed), and one at an end leaves it. The shared point is held on the
+  other curve (a line, arc or elliptical arc stretched to it as above) and lies on the spline's
+  drawn or extended curve, which no constraint holds beyond the old end, so the spline's freedom is
+  its control points' as ever. `crossing_picks` gives picks for two selected curves: the
   crossing nearest both drawn curves, a line's, arc's or elliptical arc's longer part, a circle's
   side making the blunter corner (two circles: each its side away from the other's centre).
 - Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`), a
