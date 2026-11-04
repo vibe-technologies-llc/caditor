@@ -998,7 +998,12 @@ fn start_on(
                 after.map(|sample| sample.1),
             )
         })
-        .flat_map(|(_, (parameter, _))| [(*parameter, false), refine(curve, *parameter, &slope)])
+        .flat_map(|(_, (parameter, _))| {
+            let refined = refine(curve, *parameter, &slope);
+            [(*parameter, false)]
+                .into_iter()
+                .chain(refined.1.then_some(refined))
+        })
         .map(|(parameter, stationary)| {
             let [tangent, _] = curve.derivatives(parameter);
             Candidate {

@@ -599,6 +599,46 @@ fn a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_resul
     }
 }
 
+fn ulps_off(value: f64, ulps: i64) -> f64 {
+    f64::from_bits(value.to_bits().wrapping_add_signed(ulps))
+}
+
+#[test]
+fn a_spline_ending_in_a_cusp_solves_again_whatever_its_inputs_round_to() {
+    let base = [
+        Point2::new(9.5001, 10.499999),
+        Point2::new(9.5, 10.5),
+        Point2::new(9.4999, 10.500001),
+        Point2::new(14.0, 3.0),
+    ];
+    for (first_y, value) in [(3, 0), (0, -1)] {
+        let mut points = base;
+        if let Some(first) = points.first_mut() {
+            first.y = ulps_off(first.y, first_y);
+        }
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline_of(&points, SplineKind::OPEN);
+        let ends = points_of(&sketch, spline);
+        for pair in ends.windows(2).take(2) {
+            if let [one, other] = *pair {
+                sketch
+                    .add_constraint(Constraint::Coincident(one, other))
+                    .unwrap();
+            }
+        }
+        let line = sketch.add_line(Point2::new(-4.0, -6.0), Point2::new(-4.0, 6.0));
+        sketch
+            .add_constraint(Constraint::Distance {
+                from: line,
+                to: spline,
+                value: millimetres(ulps_off(5.49998, value)),
+            })
+            .unwrap();
+
+        solves_again_in_place(&sketch);
+    }
+}
+
 #[test]
 fn a_distance_from_a_closed_fit_spline_to_a_line_it_crosses_is_held_though_a_nearer_bulge_alternates()
  {

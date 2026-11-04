@@ -40,6 +40,7 @@ impl Sketch {
             cancelled: &never,
             stiff: &held,
             stiffness: STIFF,
+            retrying: true,
         };
         let measuring: Vec<&Component> = parts
             .drawn()

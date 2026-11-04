@@ -57,7 +57,9 @@ paths:
 ## Dragging
 
 - `solve_dragging` takes `Drag`s (a point or a circle's radius with its target). It starts from the
-  targets and first holds them there (`FROZEN`); when that cannot work they are only `STIFF` times
+  targets and first holds them there (`FROZEN`, one attempt without the perturbed retries
+  (`Solver::retrying`): a pointer past what the geometry reaches fails every retry too, a third
+  of a chain's frame); when that cannot work they are only `STIFF` times
   as willing to leave their targets as free geometry is to move. Geometry already satisfying its
   constraints does not move; under-constrained geometry moves as little as possible.
 - A part whose `STIFF` solve fails (a pointer past what the geometry reaches) solves from where it
@@ -91,8 +93,8 @@ paths:
 - A frame's reaching stops once it has spent `REACH_WORK` units (`ReachWork`, counting what
   `tally` counts, refused factorisations and orderings included); the pose it stops at holds and
   the next frame goes on from it. A 500-line zig-zag chain dragged past its reach lands on the ray
-  toward the pointer at full extension in about 31 million units for the whole frame (5 million
-  reaching), a 2,000-line one in about 505 million (92 million reaching, the rest the `FROZEN` and
+  toward the pointer at full extension in about 21 million units for the whole frame (5 million
+  reaching), a 2,000-line one in about 371 million (92 million reaching, the rest the `FROZEN` and
   `STIFF` solves; an ignored test in `reach_tests.rs`, run nightly).
 - `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the same solve
   without rank and degrees-of-freedom analysis, returning a memo whose parts are marked not
@@ -161,7 +163,10 @@ paths:
   bound), so a point slides across the seam. An ellipse's is its angle over the whole ellipse, as a
   point on an arc lies on its whole circle.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
-  refined by Newton so geometry that already holds does not move (a clamped end counts as
+  refined by Newton so geometry that already holds does not move (only a refinement that settles
+  is a candidate of its own: one still creeping after `REFINEMENTS`, as at a cusp where the first
+  and second derivative vanish, is the sample it started from, never a parameter chosen by the
+  rounding of the distances; a clamped end counts as
   stationary when the Newton step there is within `SETTLED_AT_END`, so a spline square to a
   distance at its end keeps that end over the other end tied with it); among starts equally near (within
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the
@@ -311,7 +316,10 @@ paths:
   descent from the drawing; when it holds, or there is none, QuickXplain-style divide and conquer
   over the part's constraints holding the newest one looks for one. Other probes solve the
   sub-parts from the closest known state; all remember each outcome by its equations and share
-  one budget, `DIAGNOSIS_WORK`.
+  one budget, `DIAGNOSIS_WORK` or, for a part of thousands of equations, `DIAGNOSIS_STEPS` steps of
+  the part (`work_for`): a descent from the drawing takes about 70 steps however long the chain,
+  and a budget of steps times equations that is fixed would grant a long one fewer than two
+  descents need.
 - A probe's failure only steers the search. The set found is trimmed, oldest first, of every
   constraint without which it still fails; each kept constraint comes with a witness, a solution of
   the set without it. A descent is conclusive when its unperturbed attempt ends at a least-squares
@@ -349,7 +357,8 @@ paths:
   46,000 units for all three attempts, against 192,000 by line search alone. A 300-line chain is
   diagnosed in about 103,000 units (the support's descent from the drawing 46,000, trimming 3,600,
   the closest witness's descent 53,000), a 1,000-line chain in about 456,000, so both are named
-  within the budget (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
+  within the budget, as are chains of 1,100, 1,500 and 2,000 lines in 4, 8 and 12 seconds of a release
+  build (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest

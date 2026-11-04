@@ -235,6 +235,7 @@ pub(crate) struct Solver<'a> {
     pub cancelled: &'a dyn Fn() -> bool,
     pub stiff: &'a BTreeSet<usize>,
     pub stiffness: f64,
+    pub retrying: bool,
 }
 
 struct Stride {
@@ -476,7 +477,8 @@ impl Solver<'_> {
         let mut lowest_end = start.clone();
         let mut pressed = false;
         let mut unperturbed_contradicts = None;
-        let attempts = std::iter::once(0.0).chain(PERTURBATIONS);
+        let retries: &[f64] = if self.retrying { &PERTURBATIONS } else { &[] };
+        let attempts = std::iter::once(0.0).chain(retries.iter().copied());
         for magnitude in attempts {
             self.restore(component, &start, values);
             self.perturb(part, magnitude, values);

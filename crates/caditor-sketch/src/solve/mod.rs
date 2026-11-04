@@ -51,7 +51,7 @@ use crate::{
     id::{ConstraintId, EntityId},
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
-        diagnosis::{DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
+        diagnosis::{DIAGNOSIS_STEPS, DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
         equation::value,
         memo::Recall,
         numeric::{
@@ -488,6 +488,7 @@ impl Sketch {
                 cancelled,
                 stiff: &stiff,
                 stiffness: FROZEN,
+                retrying: targets.is_empty(),
             };
             let mut values = start.clone();
             let held = !stiff.is_empty()
@@ -496,6 +497,7 @@ impl Sketch {
                     .is_empty();
             let solver = Solver {
                 stiffness: STIFF,
+                retrying: true,
                 ..frozen
             };
             if !held {
@@ -512,7 +514,12 @@ impl Sketch {
                     failed
                 };
                 if !failed.is_empty() {
-                    for found in diagnose_failure(&current, &solver, &failed, DIAGNOSIS_WORK)? {
+                    for found in diagnose_failure(
+                        &current,
+                        &solver,
+                        &failed,
+                        (DIAGNOSIS_WORK, DIAGNOSIS_STEPS),
+                    )? {
                         found.apply(&mut values);
                     }
                     let collapsed = parts.at(&system, &values).iter().any(|component| {

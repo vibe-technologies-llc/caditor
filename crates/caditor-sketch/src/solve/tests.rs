@@ -1602,6 +1602,7 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
             cancelled: &|| false,
             stiff: &stiff,
             stiffness: STIFF,
+            retrying: true,
         };
         let every: Vec<usize> = (0..system.equations.len()).collect();
         for component in components(&system, &every, &system.values) {
@@ -1679,15 +1680,21 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
     let failed = solver.solve(&every, &mut values).unwrap();
 
     let enough_once_stalled_attempts_stop = 10_000;
-    let starved = diagnose_failure(&sketch, &solver, &failed, 100).unwrap_err();
-    let funded =
-        diagnose_failure(&sketch, &solver, &failed, enough_once_stalled_attempts_stop).unwrap_err();
+    let starved = diagnose_failure(&sketch, &solver, &failed, (100, 0)).unwrap_err();
+    let funded = diagnose_failure(
+        &sketch,
+        &solver,
+        &failed,
+        (enough_once_stalled_attempts_stop, 0),
+    )
+    .unwrap_err();
 
     assert!(enough_once_stalled_attempts_stop < DIAGNOSIS_WORK);
     assert_eq!(components(&system, &every, &system.values).len(), 1);
@@ -2001,6 +2008,7 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
             cancelled: &|| false,
             stiff: &stiff,
             stiffness: STIFF,
+            retrying: true,
         };
         let every: Vec<usize> = (0..system.equations.len()).collect();
         for component in components(&system, &every, &system.values) {

@@ -6,7 +6,9 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError, Solved,
     solve::{
-        diagnosis::{DIAGNOSIS_WORK, Trimmed, diagnose_failure, trimmed},
+        diagnosis::{
+            DIAGNOSIS_STEPS, DIAGNOSIS_WORK, Trimmed, diagnose_failure, trimmed, work_for,
+        },
         numeric::{Descent, Failure, STIFF, Solver, components},
         system::System,
         witness::Factored,
@@ -347,6 +349,7 @@ fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> 
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
@@ -354,7 +357,7 @@ fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> 
     then(&solver, &failed)
 }
 
-fn diagnosed(chain: &Chain, work: usize) -> SketchError {
+fn diagnosed(chain: &Chain, work: (usize, usize)) -> SketchError {
     with_failure(chain, |solver, failed| {
         diagnose_failure(&chain.sketch, solver, failed, work).unwrap_err()
     })
@@ -364,8 +367,8 @@ fn diagnosed(chain: &Chain, work: usize) -> SketchError {
 fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_the_budget() {
     let chain = out_of_reach(40);
 
-    let tenth = diagnosed(&chain, DIAGNOSIS_WORK / 10);
-    let hundredth = diagnosed(&chain, DIAGNOSIS_WORK / 100);
+    let tenth = diagnosed(&chain, (DIAGNOSIS_WORK / 10, 0));
+    let hundredth = diagnosed(&chain, (DIAGNOSIS_WORK / 100, 0));
 
     assert_eq!(chain.sketch.entities().len(), 3 * 40);
     assert_eq!(chain.spanning().len(), 2 * 40);
@@ -419,7 +422,7 @@ fn one_factorisation_steps_to_a_solution_without_each_constraint_the_conflict_ne
 fn a_conflict_through_a_chain_of_three_hundred_lines_is_named_within_the_budget() {
     let chain = out_of_reach(300);
 
-    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+    let named = diagnosed(&chain, (DIAGNOSIS_WORK, 0));
 
     assert_eq!(chain.spanning().len(), 2 * 300);
     assert!(
@@ -458,6 +461,7 @@ fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
         cancelled: &counting,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
 
     let descent = solver.descend(part, &mut values).unwrap();
@@ -483,7 +487,7 @@ fn a_conflict_through_three_hundred_lines_settles_from_its_drawing_in_a_few_step
 fn a_conflict_through_a_chain_of_six_hundred_lines_is_named_within_the_budget() {
     let chain = out_of_reach(600);
 
-    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+    let named = diagnosed(&chain, (DIAGNOSIS_WORK, 0));
 
     assert!(
         named
@@ -499,7 +503,7 @@ fn a_conflict_through_a_chain_of_six_hundred_lines_is_named_within_the_budget() 
 fn a_conflict_through_a_chain_of_a_thousand_lines_is_named_within_the_budget() {
     let chain = out_of_reach(1_000);
 
-    let named = diagnosed(&chain, DIAGNOSIS_WORK);
+    let named = diagnosed(&chain, (DIAGNOSIS_WORK, 0));
 
     assert!(
         named
@@ -508,6 +512,32 @@ fn a_conflict_through_a_chain_of_a_thousand_lines_is_named_within_the_budget() {
             },
         "{named:?}"
     );
+}
+
+#[test]
+#[ignore = "diagnoses a conflict through two thousand lines, best run in release"]
+fn a_conflict_through_a_chain_of_two_thousand_lines_is_named_within_the_budget() {
+    let chain = out_of_reach(2_000);
+
+    let named = diagnosed(&chain, (DIAGNOSIS_WORK, DIAGNOSIS_STEPS));
+
+    assert!(
+        named
+            == SketchError::Conflict {
+                constraints: chain.spanning()
+            },
+        "{named:?}"
+    );
+}
+
+#[test]
+fn a_part_of_thousands_of_equations_is_allowed_hundreds_of_steps_and_a_small_one_the_whole_budget()
+{
+    let standard = (DIAGNOSIS_WORK, DIAGNOSIS_STEPS);
+
+    assert_eq!(work_for(40, standard), DIAGNOSIS_WORK);
+    assert_eq!(work_for(3_300, standard), DIAGNOSIS_STEPS * 3_300);
+    assert_eq!(work_for(usize::MAX, standard), usize::MAX);
 }
 
 fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
@@ -527,6 +557,7 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let mut values = system.values.clone();
     let failed = solver.solve(&active, &mut values).unwrap();
