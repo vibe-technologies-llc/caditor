@@ -141,7 +141,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `angle`, a `neutral` plane as `places::plane` takes it, else `draft_tools::default_neutral_on`,
   the pull pointed at the faces unless `flipped` is given, `tangent`, `beyond` an angle or `"off"`
   and `own_angles` of `{face, angle}` replacing the list), replace face (`add_replace_face`:
-  `faces` and a `target` plane as `places::plane` takes it; an edit keeps what it is not given),
+  `faces` and a `target` as `places::plane_or_round_face` takes it, a round face where
+  `places::plane` refuses it; an edit keeps what it is not given),
   split (along a plane,
   `{sketch}` or `{tool}` body) and scale, each with the app tool's defaults.
 - `datums.rs` places datums one way each, the way chosen by which arguments are given (two ways at

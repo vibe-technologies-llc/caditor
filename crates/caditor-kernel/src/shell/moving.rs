@@ -115,6 +115,18 @@ fn travel(solid: &Solid, faces: &[FaceId], motion: &Motion) -> f64 {
 }
 
 fn carried(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> {
+    let offsets = carrying(solid, groups)?;
+    let inner = inner_solid(&offsets, Naming::Kept)?;
+    if let Some(face) = inner.dropped.iter().next() {
+        return Err(MoveError::Vanishes(*face));
+    }
+    uncrossed(inner.solid)
+}
+
+pub(super) fn carrying<'a>(
+    solid: &'a Solid,
+    groups: Vec<Carried<'_>>,
+) -> Result<Offsets<'a>, MoveError> {
     if groups.iter().all(|group| group.faces.is_empty()) {
         return Err(MoveError::NothingToMove);
     }
@@ -128,14 +140,17 @@ fn carried(solid: &Solid, groups: Vec<Carried<'_>>) -> Result<Solid, MoveError> 
     if !reach.is_finite() || reach <= LINEAR_RESOLUTION {
         return Err(MoveError::Unmoved);
     }
-    let offsets = Offsets::carrying(solid, groups, reach.max(OFFSET_TOLERANCE));
-    let inner = inner_solid(&offsets, Naming::Kept)?;
-    if let Some(face) = inner.dropped.iter().next() {
-        return Err(MoveError::Vanishes(*face));
-    }
-    if let CrossingCheck::Crossing(crossing) = inner.solid.find_crossing()? {
+    Ok(Offsets::carrying(
+        solid,
+        groups,
+        reach.max(OFFSET_TOLERANCE),
+    ))
+}
+
+pub(super) fn uncrossed(solid: Solid) -> Result<Solid, MoveError> {
+    if let CrossingCheck::Crossing(crossing) = solid.find_crossing()? {
         let [first, second] = crossing.faces;
         return Err(MoveError::Crosses { first, second });
     }
-    Ok(inner.solid)
+    Ok(solid)
 }

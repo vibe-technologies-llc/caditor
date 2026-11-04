@@ -199,7 +199,7 @@ impl MissingInput {
                 format!("Choose the faces of the body of {} to replace.", name(body))
             }
             Self::TargetPlane { body } => format!(
-                "Choose the plane or flat face to replace the faces of the body of {} with.",
+                "Choose the plane or face to replace the faces of the body of {} with.",
                 name(body)
             ),
             Self::FacesToDelete { body } => {

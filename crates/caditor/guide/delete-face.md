@@ -7,9 +7,14 @@ the faces, then choose Delete face. It has no ribbon button; use the Model menu 
 {command:palette}.
 
 - A fillet or chamfer goes when its faces are chosen: the faces on either side grow back to the sharp
-  edge. Choose the whole chain of a rounded rim at once, corner patches included; one face of a
-  chain alone cannot be closed. {command:select.feature_faces} picks every face a fillet made, and
-  {command:select.similar} every round of the same radius, an imported body's too.
+  edge. A fillet face that cannot go alone takes the rest of its chain with it, every face beside it
+  of the same blend or, on an imported body, of the same radius, corner patches included.
+  {command:select.feature_faces} picks every face a fillet made, and {command:select.similar} every
+  round of the same radius, an imported body's too.
+- The riser of a step goes when it is chosen alone: the two tops beside it face the same way and
+  never meet, so the smaller top moves onto the plane of the larger, the lower one rising when they
+  are the same size, and the two become one face under the larger's name. Choose every riser between
+  the two levels at once; a notch's two sides go together.
 - A hole or pocket goes when every face inside it is chosen, the walls and the floor of a blind one:
   the face it was cut into closes over it. {command:select.hole} picks a whole hole.
 - A boss goes when its side and top are chosen: the face it stood on closes under it.

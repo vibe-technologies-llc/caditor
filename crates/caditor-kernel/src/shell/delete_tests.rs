@@ -293,7 +293,7 @@ fn a_whole_rim_of_fillets_or_chamfers_goes_at_once() {
 }
 
 #[test]
-fn one_fillet_of_a_tangent_chain_is_refused() {
+fn one_fillet_of_a_chain_takes_the_whole_chain_with_it() {
     let block = cuboid(Vector3::splat(10.0));
     let rounded = blend(
         &block,
@@ -305,9 +305,114 @@ fn one_fillet_of_a_tangent_chain_is_refused() {
     let top = face_facing(&rounded, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
     let first = slanted_or_round(&rounded, top)[0];
 
+    let sharp = without(&rounded, &[first]);
+
+    check("sharp", &sharp, 1000.0);
+    assert_eq!(sharp.faces().count(), 6);
+}
+
+#[test]
+fn one_chamfer_of_a_rim_goes_alone_as_its_neighbours_run_on_past_it() {
+    let block = cuboid(Vector3::splat(10.0));
+    let chamfered = blend(
+        &block,
+        &top_rim(&block),
+        BlendShape::Chamfer { distance: 2.0 },
+        5,
+    )
+    .unwrap();
+    let top = face_facing(&chamfered, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
+    let first = slanted_or_round(&chamfered, top)[0];
+
+    let opened = without(&chamfered, &[first]);
+
+    assert_eq!(opened.faces().count(), chamfered.faces().count() - 1);
+}
+
+#[test]
+fn a_cylinder_that_is_no_blend_stays_refused() {
+    let plate = holed_block(20.0, 6.0, 3.0);
+    let top = face_facing(&plate, Vector3::Z, Point3::new(1.0, 1.0, 6.0));
+
     assert_eq!(
-        delete_faces(&rounded, &[first]),
-        Err(DeleteError::CannotClose(first))
+        delete_faces(&plate, &[top]),
+        Err(DeleteError::CannotClose(top))
+    );
+}
+
+fn stepped() -> Solid {
+    swept(
+        &polygon(&[
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 5.0),
+            (10.0, 5.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        10.0,
+    )
+}
+
+#[test]
+fn a_step_s_riser_goes_with_the_smaller_face_levelled_onto_the_larger() {
+    let step = stepped();
+    let riser = face_facing(&step, Vector3::X, Point3::new(10.0, 7.0, 5.0));
+    let lower = face_facing(&step, Vector3::Y, Point3::new(20.0, 5.0, 5.0));
+    let lower_name = step.face(lower).unwrap().name();
+
+    let level = without(&step, &[riser]);
+
+    check("level", &level, 30.0 * 5.0 * 10.0);
+    assert_eq!(level.faces().count(), 6);
+    assert_eq!(level.edges().count(), 12);
+    assert!(level.faces().any(|(_, face)| face.name() == lower_name));
+}
+
+#[test]
+fn a_riser_of_equal_tops_raises_the_lower_one() {
+    let step = swept(
+        &polygon(&[
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 5.0),
+            (10.0, 5.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        10.0,
+    );
+    let riser = face_facing(&step, Vector3::X, Point3::new(10.0, 7.0, 5.0));
+
+    check("level", &without(&step, &[riser]), 20.0 * 10.0 * 10.0);
+}
+
+#[test]
+fn one_riser_of_a_notch_is_refused_naming_another_that_would_go() {
+    let body = swept(
+        &polygon(&[
+            (0.0, 0.0),
+            (30.0, 0.0),
+            (30.0, 10.0),
+            (20.0, 10.0),
+            (20.0, 5.0),
+            (10.0, 5.0),
+            (10.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        10.0,
+    );
+    let left = face_facing(&body, Vector3::X, Point3::new(10.0, 7.0, 5.0));
+    let right = face_facing(&body, Vector3::NEG_X, Point3::new(20.0, 7.0, 5.0));
+
+    assert_eq!(
+        delete_faces(&body, &[left]),
+        Err(DeleteError::Vanishes(right))
+    );
+    check(
+        "filled",
+        &without(&body, &[left, right]),
+        30.0 * 10.0 * 10.0,
     );
 }
 

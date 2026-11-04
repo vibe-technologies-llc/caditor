@@ -1,8 +1,13 @@
+use std::f64::consts::PI;
+
 use caditor_document::{FeatureId, PlaneReference, ReplaceFace};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_kernel::Surface;
+use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
-use super::{Harness, extruded_plate, run_from_palette, volume_about};
-use crate::{replace_face_panel, selection::Pickable};
+use super::{Harness, delete_face::holed_plate, extruded_plate, run_from_palette, volume_about};
+use crate::{bodies, replace_face_panel, selection::Pickable};
 
 const SIDE: f64 = 40.0;
 const HEIGHT: f64 = 10.0;
@@ -89,6 +94,64 @@ fn a_top_chosen_alone_waits_for_its_target() {
 
     assert_eq!(replace_of(&harness, replace).target, None);
     assert!(harness.shows("Waiting for a target"));
-    assert!(harness.shows_containing("Choose the plane or flat face to replace the faces"));
+    assert!(harness.shows_containing("Choose the plane or face to replace the faces"));
     assert!(volume_about(&harness, plate, SIDE * SIDE * HEIGHT));
+}
+
+#[test]
+fn a_bore_takes_the_radius_of_another_body_s_cylinder_on_its_axis() {
+    let mut harness = Harness::new();
+    let (plate, bore, _) = holed_plate(&mut harness);
+    let above = Plane::from_frame(Point3::new(0.0, 0.0, 50.0), Vector3::Z, Vector3::X).unwrap();
+    let mut sketch = Sketch::new(above);
+    sketch.add_circle(Point2::new(20.0, 20.0), 8.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let wall = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            let Pickable::Face { body, face } = *pickable else {
+                return false;
+            };
+            let Some(result) = harness
+                .model
+                .evaluation()
+                .body_result(body)
+                .and_then(|result| result.solid())
+            else {
+                return false;
+            };
+            body != plate
+                && bodies::find_face(result, face)
+                    .and_then(|found| result.solid.face(found))
+                    .is_some_and(|found| matches!(found.surface(), Surface::Cylinder(_)))
+        })
+        .expect("the other body's cylinder is pickable");
+
+    harness.select([bore, wall]);
+    run_from_palette(&mut harness, "Replace face");
+    harness.settle();
+    let replace = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the replacement is open");
+
+    assert!(matches!(
+        replace_of(&harness, replace).target,
+        Some(PlaneReference::Face(_))
+    ));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(volume_about(
+        &harness,
+        plate,
+        (SIDE * SIDE - PI * 64.0) * HEIGHT
+    ));
 }

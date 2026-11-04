@@ -17,6 +17,7 @@ use crate::{
     queued::{self, Pending},
     selection::{Pickable, Selection},
     shell_tools::FaceSource,
+    sketch_placement::{self, FaceChoice},
 };
 
 pub const TITLE: &str = "Replace face";
@@ -25,7 +26,7 @@ pub const TITLE: &str = "Replace face";
 pub enum ReplaceToolError {
     #[error("The feature no longer exists")]
     Gone { feature: FeatureId },
-    #[error("Select a plane or flat face made before this feature")]
+    #[error("Select a plane or face made before this feature")]
     NoPlane,
     #[error("The faces are already replaced with the selected plane or face")]
     AlreadyPlane,
@@ -69,6 +70,34 @@ impl Reason for ReplaceSourceError {
 pub struct ReplaceSource {
     pub faces: FaceSource,
     pub target: Option<PlaneReference>,
+}
+
+fn target_reference(model: &Model, pickable: Pickable, index: usize) -> Option<PlaneReference> {
+    datum_tools::plane_reference(model, pickable, index).or_else(|| {
+        let choice = FaceChoice::of(pickable)?;
+        let attachment = sketch_placement::surface_at(model, choice, index).ok()?;
+        Some(PlaneReference::Face(attachment))
+    })
+}
+
+fn chosen_target(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<PlaneReference>, OneChoiceError> {
+    if let Some(flat) = datum_tools::chosen_plane(model, selection, index)? {
+        return Ok(Some(flat.plane));
+    }
+    let round: Vec<PlaneReference> = selection
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+        .filter_map(|face| target_reference(model, face, index))
+        .collect();
+    match round.as_slice() {
+        [] => Ok(None),
+        [only] => Ok(Some(only.clone())),
+        [_, _, ..] => Err(OneChoiceError::SeveralPlanes),
+    }
 }
 
 fn is_plane_pick(pickable: Pickable) -> bool {
@@ -138,7 +167,7 @@ pub fn selected_faces(
         [] => None,
         [only] => {
             let index = model.document().bar_index();
-            let found = datum_tools::plane_reference(model, *only, index);
+            let found = target_reference(model, *only, index);
             if found.is_none() {
                 left_out.push(*only);
             }
@@ -256,10 +285,9 @@ pub fn plane_change(
         .document()
         .feature_index(feature)
         .ok_or(ReplaceToolError::Gone { feature })?;
-    let plane = datum_tools::chosen_plane(model, selection, index)
+    let plane = chosen_target(model, selection, index)
         .map_err(ReplaceToolError::ChosenPlane)?
-        .ok_or(ReplaceToolError::NoPlane)?
-        .plane;
+        .ok_or(ReplaceToolError::NoPlane)?;
     if replace.target.as_ref() == Some(&plane) {
         return Err(ReplaceToolError::AlreadyPlane);
     }

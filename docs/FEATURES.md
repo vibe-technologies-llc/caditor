@@ -7,18 +7,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · hard] Replace face puts flat faces onto a plane only (a principal, datum or coordinate
-  system plane or another flat face): a curved face, or a curved target (a sketch's extrusion,
-  another body's cylinder or cone, which needs the shell's offsets to change a radius as well as
-  carry a face rigidly), is refused, as are two faces meeting along an edge that would both land on
-  the target and a neighbour squeezed to nothing between the face and the target (levelling a step
-  with its riser standing), which both need the faces either side merged into one. Move face carries the chosen faces rigidly: a fillet or chamfer along a
-  moved face's edge must be chosen with it (it is not re-blended to the new angle), a moved face that
-  was tangent to one that stays is refused.
-  Delete face closes a gap only from the faces around it: not a face whose sides lie beyond parallel
-  faces (a step's riser), one face of a tangent chain whose ends meet other blends (the chain must go
-  whole), a face with several loops that are not whole loops of the faces around it (a hole breaking
-  out through a side), nor a gap that only faces further away could close.
+- [high · hard] Replace face moves a round face onto a round target only about its own axis (or, for
+  a cylinder, a parallel one of its radius): a cylinder onto a coaxial cone, whose angle needs
+  `Taper`'s hinge to move too, a target off its axis at another radius, a flat face onto a curved
+  target (a sketch's extrusion, a spline) are refused, as are round faces that would merge. Move face
+  carries the chosen faces rigidly: a fillet or chamfer along a moved face's edge must be chosen with
+  it (it is not re-blended to the new angle), a moved face that was tangent to one that stays is
+  refused. Delete face closes a gap only from the faces around it: not a face with several loops
+  that are not whole loops of the faces around it (a hole breaking out through a side), a riser
+  chosen with fillets along its foot, nor a gap that only faces further away could close.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.

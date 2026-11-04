@@ -245,9 +245,10 @@ impl Collapses {
                     let inside = residuals
                         .iter()
                         .all(|residual| *residual <= OFFSET_TOLERANCE)
-                        && residuals
-                            .iter()
-                            .any(|residual| *residual < -OFFSET_TOLERANCE);
+                        && (offsets.squeezing
+                            || residuals
+                                .iter()
+                                .any(|residual| *residual < -OFFSET_TOLERANCE));
                     let through_opening = residuals
                         .iter()
                         .any(|residual| residual - offsets.distance(*face) > OFFSET_TOLERANCE);

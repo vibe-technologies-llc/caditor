@@ -496,6 +496,89 @@ fn a_top_is_replaced_by_the_plane_of_another_body_s_top() {
     client.finish();
 }
 
+#[test]
+fn a_step_is_levelled_by_replacing_or_deleting_and_a_wall_takes_a_coaxial_radius() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let step = box_of(&mut client, [20.0, 10.0, 5.0], [0.0, 0.0], "Step");
+    added(
+        &mut client,
+        "add_primitive",
+        json!({
+            "kind": "box", "length": 8, "width": 10, "height": "9 mm", "plane": "XY",
+            "at": [0, 0], "anchor": "corner", "operation": "add", "body": step
+        }),
+    );
+    let tops: Vec<Value> = faces_of(&mut client, &step)
+        .into_iter()
+        .filter(|face| face["normal"] == json!([0.0, 0.0, 1.0]))
+        .collect();
+    assert_eq!(tops.len(), 2);
+    let (small, large) = if number(&tops[0]["area"]) < number(&tops[1]["area"]) {
+        (&tops[0], &tops[1])
+    } else {
+        (&tops[1], &tops[0])
+    };
+    let riser = faces_of(&mut client, &step)
+        .into_iter()
+        .find(|face| face["normal"] == json!([1.0, 0.0, 0.0]) && close(number(&face["area"]), 40.0))
+        .unwrap();
+    let replaced = added(
+        &mut client,
+        "add_replace_face",
+        json!({
+            "body": step,
+            "faces": [small["face"]],
+            "target": { "body": step, "face": large["face"] }
+        }),
+    );
+    assert_eq!(faces_of(&mut client, &step).len(), 6);
+    assert!(close(total_volume(&mut client), 20.0 * 10.0 * 5.0));
+    client.tool("delete_features", json!({ "features": [replaced] }));
+
+    added(
+        &mut client,
+        "add_delete_face",
+        json!({ "body": step, "faces": [riser["face"]] }),
+    );
+    assert_eq!(faces_of(&mut client, &step).len(), 6);
+    assert!(close(total_volume(&mut client), 20.0 * 10.0 * 5.0));
+
+    let cylinder_of = |client: &mut Client, diameter: f64, name: &str| {
+        added(
+            client,
+            "add_primitive",
+            json!({
+                "kind": "cylinder", "diameter": diameter, "height": 10, "plane": "XY",
+                "at": [100, 0], "anchor": "base_centre", "operation": "new_body", "name": name
+            }),
+        )
+    };
+    let inner = cylinder_of(&mut client, 10.0, "Inner");
+    let outer = cylinder_of(&mut client, 14.0, "Outer");
+    let wall = |client: &mut Client, body: &Value| {
+        faces_of(client, body)
+            .into_iter()
+            .find(|face| face["surface"] == "cylinder")
+            .unwrap()["face"]
+            .clone()
+    };
+    let (inner_wall, outer_wall) = (wall(&mut client, &inner), wall(&mut client, &outer));
+    let before = total_volume(&mut client);
+    added(
+        &mut client,
+        "add_replace_face",
+        json!({
+            "body": inner,
+            "faces": [inner_wall],
+            "target": { "body": outer, "face": outer_wall }
+        }),
+    );
+    let grown = PI * (49.0 - 25.0) * 10.0;
+    assert!(close(total_volume(&mut client), before + grown));
+    client.finish();
+}
+
 fn rim_sketch(client: &mut Client, body: &Value) -> ([f64; 3], [f64; 3], [f64; 3], Value) {
     let faces = faces_of(client, body);
     let rim = faces
