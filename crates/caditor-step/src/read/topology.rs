@@ -66,6 +66,7 @@ pub(crate) struct Topology<'g, 'a> {
     loosest: f64,
     snapping: Snapping,
     conformed: Conformed,
+    kept_in_order: BTreeMap<u64, Point3>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -268,6 +269,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             loosest: 0.0,
             snapping: Snapping::default(),
             conformed: Conformed::default(),
+            kept_in_order: BTreeMap::new(),
         }
     }
 
@@ -308,6 +310,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         if self.healing == Healing::Bent {
             self.conform(id)?;
         }
+        self.keep_vertex_order();
         for shell in &shells {
             self.build_shell(shell)?;
         }
@@ -460,6 +463,89 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
         self.conformed = conformed;
         Ok(())
+    }
+
+    fn keep_vertex_order(&mut self) {
+        let Some(precision) = self.geometry.units.precision else {
+            return;
+        };
+        if matches!(self.healing, Healing::Faceted | Healing::Bent) {
+            return;
+        }
+        let edges: Vec<(Curve, [u64; 2])> = self
+            .edge_faces
+            .keys()
+            .filter_map(|edge| self.written_edge(*edge))
+            .filter(|(_, ends)| ends[0] != ends[1])
+            .collect();
+        let mut settled: BTreeMap<u64, (Point3, Point3)> = BTreeMap::new();
+        let mut flips = Vec::new();
+        for (curve, ends) in &edges {
+            let [start, end] = ends.map(|vertex| {
+                *settled.entry(vertex).or_insert_with(|| {
+                    let written = self.written_vertex(vertex).unwrap_or_default();
+                    let surfaces = self.surfaces_of(self.vertex_faces.get(&vertex));
+                    (written, settle_on(written, &surfaces, f64::INFINITY).0)
+                })
+            });
+            if order_flips(curve, [start.0, end.0], [start.1, end.1]) {
+                flips.push((curve, *ends, [start, end]));
+            }
+        }
+        let mut kept = BTreeMap::new();
+        for (curve, ends, [start, end]) in flips {
+            let placed = |vertex: u64, (written, settled): (Point3, Point3), other: Point3| {
+                let surfaces = self.surfaces_of(self.vertex_faces.get(&vertex));
+                let away = (written - other).try_normalize()?;
+                let seed = settled + away * (2.0 * settled.distance(written));
+                let (point, _) = settle_on(seed, &surfaces, f64::INFINITY);
+                (point.distance(written) <= precision && worst_gap(point, &surfaces) <= CLEAN)
+                    .then_some(point)
+            };
+            let [first, second] = ends;
+            let moved = placed(first, start, end.0).zip(placed(second, end, start.0));
+            let written = [start.0, end.0];
+            let order_kept = moved.filter(|(from, to)| !order_flips(curve, written, [*from, *to]));
+            let (from, to) = order_kept.unwrap_or_else(|| {
+                let held = |vertex: u64, written: Point3| {
+                    let surfaces = self.surfaces_of(self.vertex_faces.get(&vertex));
+                    let reach = worst_gap(written, &surfaces).min(precision);
+                    settle_on(written, &surfaces, reach).0
+                };
+                (held(first, start.0), held(second, end.0))
+            });
+            kept.insert(first, from);
+            kept.insert(second, to);
+        }
+        self.kept_in_order = kept;
+    }
+
+    fn written_vertex(&self, vertex: u64) -> Option<Point3> {
+        let fields = self
+            .geometry
+            .graph
+            .entity(vertex)
+            .ok()?
+            .record("VERTEX_POINT")
+            .ok()?;
+        self.geometry.point(fields.reference(1).ok()?).ok()
+    }
+
+    fn written_edge(&self, edge: u64) -> Option<(Curve, [u64; 2])> {
+        let fields = self
+            .geometry
+            .graph
+            .entity(edge)
+            .ok()?
+            .record("EDGE_CURVE")
+            .ok()?;
+        let (first, second) = (fields.reference(1).ok()?, fields.reference(2).ok()?);
+        let ends = if fields.logical(4).ok()? {
+            [first, second]
+        } else {
+            [second, first]
+        };
+        Some((self.geometry.curve(fields.reference(3).ok()?).ok()?, ends))
     }
 
     fn loose_body(&self, allowance: f64) -> Read<LooseBody<'_>> {
@@ -949,7 +1035,12 @@ impl<'g, 'a> Topology<'g, 'a> {
         let fields = self.geometry.graph.entity(id)?.record("VERTEX_POINT")?;
         let point = self.geometry.point(fields.reference(1)?)?;
         let surfaces = self.surfaces_of(self.vertex_faces.get(&id));
-        let point = match self.conformed.vertices.get(&id) {
+        let point = match self
+            .conformed
+            .vertices
+            .get(&id)
+            .or_else(|| self.kept_in_order.get(&id))
+        {
             Some(placed) => *placed,
             None => {
                 let reach = match self.healing {
@@ -1125,16 +1216,17 @@ impl<'g, 'a> Topology<'g, 'a> {
             };
             return healed_seam(only, &samples, [from, to], start == end).map(|seam| (seam, gap));
         };
-        let mut points: Vec<Point3> = interval
+        let (moved_start, moved_end) = (
+            from - curve.point(interval.start()),
+            to - curve.point(interval.end()),
+        );
+        let points: Vec<Point3> = interval
             .split(HEAL_SAMPLES)
-            .map(|parameter| curve.point(parameter))
+            .map(|parameter| {
+                let along = (parameter - interval.start()) / interval.length();
+                curve.point(parameter) + moved_start.lerp(moved_end, along)
+            })
             .collect();
-        if let Some(point) = points.first_mut() {
-            *point = from;
-        }
-        if let Some(point) = points.last_mut() {
-            *point = to;
-        }
         let rebuilt =
             IntersectionCurve::through([first.clone(), second.clone()], &points, start == end)?;
         let domain = rebuilt.domain();
@@ -1290,6 +1382,23 @@ fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Opt
         }
         None if closed => domain.bounded(),
         None => Interval::new(low, high),
+    }
+}
+
+fn order_flips(curve: &Curve, written: [Point3; 2], settled: [Point3; 2]) -> bool {
+    if written[0].distance(settled[0]) <= CLEAN && written[1].distance(settled[1]) <= CLEAN {
+        return false;
+    }
+    let Some(before) = parameter_range(curve, written[0], written[1], false) else {
+        return false;
+    };
+    match (
+        parameter_range(curve, settled[0], settled[1], false),
+        curve.period(),
+    ) {
+        (None, _) => true,
+        (Some(after), Some(period)) => (after.length() - before.length()).abs() > 0.5 * period,
+        (Some(_), None) => false,
     }
 }
 

@@ -284,9 +284,9 @@ fn a_missing_target_and_a_seam_are_refused() {
         None,
     )
     .unwrap();
-    let target = |along: f64| Some(tube.point(along, 0.0));
+    let target = |along: f64| Some(tube.point(0.0, along));
     let bend = SideBend {
-        side: SurfaceSide::VStart,
+        side: SurfaceSide::UStart,
         targets: vec![BendTarget {
             range: Interval::UNIT,
             point: &target,
@@ -297,6 +297,57 @@ fn a_missing_target_and_a_seam_are_refused() {
         held: [false; 2],
     };
     assert_eq!(tube.bent_side(&bend, TOLERANCE), Err(BendError::Unbendable));
+}
+
+#[test]
+fn a_side_closed_around_stays_closed_while_it_moves() {
+    let (columns, rows) = (9, 4);
+    let points: Vec<Point3> = (0..rows)
+        .flat_map(|row| {
+            (0..columns).map(move |column| {
+                let angle = std::f64::consts::TAU * column as f64 / (columns - 1) as f64;
+                Point3::new(5.0 * angle.cos(), 5.0 * angle.sin(), row as f64)
+            })
+        })
+        .collect();
+    let tube = BSplineSurface::new(
+        3,
+        3,
+        knots(columns, 3),
+        knots(rows, 3),
+        columns,
+        points,
+        None,
+    )
+    .unwrap();
+    let lift = 1e-3;
+    let start = tube.point(0.0, 0.0);
+    let target = |along: f64| {
+        let bump = 4.0 * along * (1.0 - along);
+        Some(tube.point(along, 0.0) + Vector3::Z * (lift * bump))
+    };
+    let range = Interval::UNIT;
+    let bend = SideBend {
+        side: SurfaceSide::VStart,
+        targets: vec![BendTarget {
+            range,
+            point: &target,
+            strict: true,
+        }],
+        pins: vec![(0.0, start)],
+        knots: Vec::new(),
+        held: [false; 2],
+    };
+
+    let bent = tube.bent_side(&bend, TOLERANCE).unwrap().surface;
+
+    assert!(bent.u_period().is_some());
+    assert!(bent.point(0.0, 0.0).distance(bent.point(1.0, 0.0)) <= 1e-12);
+    assert!(
+        bent.point(0.5, 0.0)
+            .distance(tube.point(0.5, 0.0) + Vector3::Z * lift)
+            <= TOLERANCE
+    );
 }
 
 #[test]

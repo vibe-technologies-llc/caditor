@@ -61,7 +61,7 @@ pub struct BentSide {
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum BendError {
-    #[error("the side of the surface is a seam, a pole or a closed curve, so it cannot be bent")]
+    #[error("the side of the surface is a seam or a pole, so it cannot be bent")]
     Unbendable,
     #[error("the bent side has no target at parameter {0}")]
     NoTarget(f64),
@@ -98,19 +98,17 @@ impl BSplineSurface {
         } else {
             (SurfaceSide::VEnd, oriented.rows().saturating_sub(1))
         };
-        if oriented.u_period().is_some()
-            || oriented.v_period().is_some()
-            || oriented.degenerate_row(row)
-        {
+        if oriented.v_period().is_some() || oriented.degenerate_row(row) {
             return Err(BendError::Unbendable);
         }
+        let closed = oriented.u_period().is_some();
         let oriented = oriented
             .cubic_along_u()
             .ok_or(BendError::Geometry(GeometryError::Knots))?;
         let original = oriented
             .side(row_side)
             .ok_or(BendError::Geometry(GeometryError::Knots))?;
-        let (curve, residual) = Fit::new(&original, bend)?.run(bend, tolerance)?;
+        let (curve, residual) = Fit::new(&original, bend, closed)?.run(bend, tolerance)?;
         let inserted = added_knots(oriented.u_knots(), curve.knots());
         let bent = oriented
             .with_knots(&inserted, &[])
@@ -134,7 +132,11 @@ struct Fit {
 }
 
 impl Fit {
-    fn new(original: &BSpline<Point3>, bend: &SideBend<'_>) -> Result<Self, BendError> {
+    fn new(
+        original: &BSpline<Point3>,
+        bend: &SideBend<'_>,
+        closed: bool,
+    ) -> Result<Self, BendError> {
         let domain = original.domain();
         let degree = original.degree();
         let mut wanted: BTreeMap<u64, usize> = BTreeMap::new();
@@ -170,13 +172,18 @@ impl Fit {
         let first = original.control_points().first().copied();
         let last = original.control_points().last().copied();
         let held = [
-            bend.held[0].then_some(first).flatten(),
-            bend.held[1].then_some(last).flatten(),
+            (closed || bend.held[0]).then_some(first).flatten(),
+            (closed || bend.held[1]).then_some(last).flatten(),
         ];
+        let pins = if closed {
+            closing_pins(&bend.pins, domain)
+        } else {
+            bend.pins.clone()
+        };
         Ok(Self {
             current: reference.clone(),
             reference,
-            pins: bend.pins.clone(),
+            pins,
             held,
             cache: BTreeMap::new(),
         })
@@ -312,6 +319,24 @@ impl Fit {
         }
         Ok((failing, worst))
     }
+}
+
+fn closing_pins(pins: &[(f64, Point3)], domain: Interval) -> Vec<(f64, Point3)> {
+    let at_ends = pins
+        .iter()
+        .find(|(parameter, _)| *parameter <= domain.start() || *parameter >= domain.end())
+        .map(|(_, point)| *point);
+    let inner = pins
+        .iter()
+        .filter(|(parameter, _)| domain.start() < *parameter && *parameter < domain.end())
+        .copied();
+    inner
+        .chain(
+            at_ends
+                .into_iter()
+                .flat_map(|point| [(domain.start(), point), (domain.end(), point)]),
+        )
+        .collect()
 }
 
 fn snapped(knots: &[f64], knot: f64) -> f64 {

@@ -97,10 +97,6 @@ pub enum Fault {
     GiveWayRing,
     #[error("lies {off} mm from faces that cannot be bent to meet it")]
     VertexOffBentFaces { off: f64 },
-    #[error("would have to move farther than the file's precision")]
-    MovesBeyondPrecision,
-    #[error("has an edge along a line of its surface that does not bound it")]
-    EdgeAlongUnboundingLine,
     #[error("would have to bend farther than the file's precision to meet its neighbours")]
     BendsBeyondPrecision,
     #[error("has a side that cannot be followed")]

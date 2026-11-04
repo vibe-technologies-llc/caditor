@@ -182,6 +182,15 @@ paths:
   `IntersectionCurve::through`. The exact and bent builds follow a vertex however far its faces'
   common point lies (`settle_on` with an unbounded reach): a Fusion thread's run-out corner, where
   the flank grazes the bore, lies 0.035 mm from where it is written and the body is exact there.
+  Tracing starts from the file's curve carried along with its vertices' moves, so a vertex that
+  moved along a shallow crossing keeps its edge on that crossing.
+- Settling keeps the order of an edge's two vertices when the file declares a precision
+  (`Topology::keep_vertex_order`, not in the faceted or bent builds, which place vertices their own
+  way). Where nearly tangent faces make each of two close vertices slide past the other, so that the
+  edge runs backwards or almost a full turn, both settle again from beyond where they went, away
+  from each other, onto the other common point of their faces, when that lies within the precision
+  of where they are written and leaves them in order; else they move no farther than their worst gap
+  (`vertices_sliding_past_each_other_along_a_near_tangency_keep_their_order_and_import_exact`).
 - A body the exact build refuses is built again in `Healing::Extended` before any looser mode: each
   spline face's surface is continued past its domain by a tenth of its boundary span
   (`BSplineSurface::extended`), except across a seam, a pole or sides within the file's precision of
@@ -237,7 +246,9 @@ paths:
   more than `MOST_FACES_AT_A_CORNER` faces are not paired there, so a crafted file stays linear.
 - An edge of one face only (a seam) left off its moved face is rebuilt as that face's parameter
   line through its vertices (`seam_through`: a line on a cylinder or cone, a meridian on a sphere,
-  a tube or ring circle on a torus), accepted when both ends lie on it within the resolution.
+  a tube or ring circle on a torus), accepted when both ends lie on it within the resolution; the
+  exact build does the same whether or not the file declares a precision
+  (`a_cylinder_seam_with_a_vertex_micrometres_off_imports_exact_when_no_precision_is_declared`).
 - The note gives the faces moved (flat, curved, or just faces when both) and the largest move
   (`a_flat_face_just_off_the_cylinder_it_is_tangent_to_is_moved_onto_it_and_imports_exact`,
   `halves_of_a_split_face_apart_within_the_precision_are_moved_onto_one_plane_and_import_exact`,
@@ -251,7 +262,15 @@ paths:
   when the file declares a precision. Each edge between two faces is studied from samples of its file
   curve: one whose faces' normals stay within `TANGENT_ANGLE` (measured off poles) and that runs
   along an iso-line of a spline face (within the precision; one at the domain bound is a side) is
-  bent, with one face its master and a spline it runs along its slave. An edge meeting a rigid face
+  bent, with one face its master and a spline it runs along its slave. An iso-line away from the
+  domain bounds its face only when the samples of the face's other edges, those lying farther off
+  it than the precision, all fall on one side (`bound_of`), so the noise of a file never decides
+  it. A line the face runs on both sides of (an L-shaped face past its reflex corner, a thread flank
+  running out) is no side: the edge is bent on the neighbour instead, this face its master, or
+  traced when the neighbour is rigid or has no side there either
+  (`an_edge_along_a_spline_line_with_its_neighbours_feet_just_past_it_within_the_precision_bounds_it`,
+  `a_spline_notched_into_an_l_shaped_face_is_bent_onto_it_and_the_l_keeps_its_shape`,
+  `a_spline_tangent_to_its_neighbour_micrometres_off_is_bent_onto_it`). An edge meeting a rigid face
   across is bent too when it runs along a side of a spline, the rigid face its master: a side ending
   within the precision short of the plane it meets leaves nothing to trace
   (`a_spline_side_bowing_short_of_the_plane_it_meets_across_is_bent_onto_it`). Every other edge is
@@ -262,15 +281,20 @@ paths:
 - The gap between tangent CATIA fillets is not noise: along their edges it is zero at one face's
   knots and bulges between them. So a slave side is fitted to the master itself (its line through a
   closest-point map, its surface, or the rigid face), the master's knot lines crossed by that map
-  become knots of the slave, and spans are halved until within `BEND_TOLERANCE`
-  (`BSplineSurface::bent_side`).
-- A vertex settles onto its rigid faces and the splines it lies on no line of, which must then hold
-  it within a quarter of the resolution; every other spline at it is pinned to it.
+  become knots of the slave, and spans are halved until within `BEND_TOLERANCE`, a tenth of the
+  resolution (`BSplineSurface::bent_side`). A foot beyond the master's domain is held at its edge,
+  and a slave moved too far by that is refused like any other bend past the precision. A side of a
+  spline closed around stays closed, its ends one point; an edge ending at that seam takes the end
+  its middle lies towards (`a_side_of_a_spline_closed_around_is_bent_onto_the_plane_it_meets`).
+- A vertex settles, no farther than the precision, onto its rigid faces and the splines it lies on
+  no line of, which must then hold it within `VERTEX_HELD` (three quarters of the resolution, since
+  four planes written a few tenths of the resolution from a common corner have none); every other
+  spline at it is pinned to it.
 - Faces are bent in master order: a spline is restricted to its fitted lines, so each becomes a side,
   then each side is refitted (strict targets on the master along its slave edges, its own curve
   elsewhere with vertex moves blended in, pins at vertices). The edge is the slave's side curve
-  between its vertices. A vertex or side moving farther than the precision refuses the mode; the note
-  gives the faces bent and the largest bend.
+  between its vertices. A side moving farther than the precision refuses the mode; the note gives
+  the faces bent and the largest bend.
 
 ## Unreadable faces
 

@@ -13,7 +13,8 @@ use crate::read::{
 };
 
 const CLEAN: f64 = 0.25 * LINEAR_RESOLUTION;
-const BEND_TOLERANCE: f64 = 2.5e-8;
+const BEND_TOLERANCE: f64 = 0.1 * LINEAR_RESOLUTION;
+const VERTEX_HELD: f64 = 0.75 * LINEAR_RESOLUTION;
 const STUDY_SAMPLES: usize = 32;
 const TANGENT_ANGLE: f64 = 1e-2;
 const TABLE_PER_SPAN: usize = 8;
@@ -23,7 +24,6 @@ const NEWTON_SETTLED: f64 = 1e-14;
 const NEWTON_CLOSE: f64 = 1e-10;
 const LINE_SIDE: f64 = 1e-6;
 const PIN_SNAP: f64 = 1e-3;
-const DOMAIN_SLACK: f64 = 1e-12;
 const SIDES: [SurfaceSide; 4] = [
     SurfaceSide::VStart,
     SurfaceSide::VEnd,
@@ -96,6 +96,7 @@ enum Role {
 struct FaceLine {
     line: Line,
     edges: Vec<usize>,
+    bound: Bound,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,8 +112,8 @@ struct Placed {
 }
 
 pub(crate) fn conform(body: &LooseBody<'_>) -> Read<Conformed> {
-    let studies: Vec<Option<Study>> = body.edges.iter().map(|edge| study(body, edge)).collect();
-    let lines = face_lines(body, &studies);
+    let mut studies: Vec<Option<Study>> = body.edges.iter().map(|edge| study(body, edge)).collect();
+    let lines = face_lines(body, &mut studies);
     let order = ordered(body, &studies)?;
     let rank: BTreeMap<u64, usize> = order
         .iter()
@@ -282,8 +283,8 @@ fn line_of(surface: &Surface, feet: &[Point2], allowance: f64) -> Option<Line> {
     best.map(|(_, line)| line)
 }
 
-fn face_lines(body: &LooseBody<'_>, studies: &[Option<Study>]) -> BTreeMap<u64, Vec<FaceLine>> {
-    let mut lines: BTreeMap<u64, Vec<FaceLine>> = BTreeMap::new();
+fn face_lines(body: &LooseBody<'_>, studies: &mut [Option<Study>]) -> BTreeMap<u64, Vec<FaceLine>> {
+    let mut lines: BTreeMap<u64, Vec<(Line, Vec<usize>)>> = BTreeMap::new();
     for (index, study) in studies.iter().enumerate() {
         let Some(study) = study else {
             continue;
@@ -301,23 +302,86 @@ fn face_lines(body: &LooseBody<'_>, studies: &[Option<Study>]) -> BTreeMap<u64, 
             };
             let middle = feet.get(feet.len() / 2).map_or(0.0, |uv| line.along(*uv));
             let known = lines.entry(*face).or_default();
-            let same = known.iter_mut().find(|known| {
-                known.line.fixed_u == line.fixed_u
+            let same = known.iter_mut().find(|(known, _)| {
+                known.fixed_u == line.fixed_u
                     && surface
-                        .point_at(known.line.at(middle))
+                        .point_at(known.at(middle))
                         .distance(surface.point_at(line.at(middle)))
                         <= body.allowance
             });
             match same {
-                Some(known) => known.edges.push(index),
-                None => known.push(FaceLine {
-                    line: *line,
-                    edges: vec![index],
-                }),
+                Some((_, edges)) => edges.push(index),
+                None => known.push((*line, vec![index])),
             }
         }
     }
-    lines
+    let mut bounding: BTreeMap<u64, Vec<FaceLine>> = BTreeMap::new();
+    let mut inner: Vec<(u64, usize)> = Vec::new();
+    for (face, found) in lines {
+        for (line, edges) in found {
+            match bound_of(body, studies, face, line, &edges) {
+                Some(bound) => {
+                    bounding
+                        .entry(face)
+                        .or_default()
+                        .push(FaceLine { line, edges, bound })
+                }
+                None => inner.extend(edges.into_iter().map(|index| (face, index))),
+            }
+        }
+    }
+    for (face, index) in inner {
+        let study = studies.get_mut(index).and_then(Option::as_mut);
+        if let Some(study) = study
+            && let Some(slot) = slot_of(study, face)
+            && let Some(line) = study.lines.get_mut(slot)
+        {
+            *line = None;
+        }
+    }
+    bounding
+}
+
+fn bound_of(
+    body: &LooseBody<'_>,
+    studies: &[Option<Study>],
+    face: u64,
+    line: Line,
+    edges: &[usize],
+) -> Option<Bound> {
+    let surface = body.faces.get(&face)?;
+    let spline = spline_of(Some(surface))?;
+    if let Some(bound) = domain_bound(spline, line) {
+        return Some(bound);
+    }
+    let (mut above, mut below) = (false, false);
+    for (index, study) in studies.iter().enumerate() {
+        let Some(study) = study else {
+            continue;
+        };
+        if edges.contains(&index) {
+            continue;
+        }
+        let Some(feet) = slot_of(study, face).and_then(|slot| study.feet.get(slot)) else {
+            continue;
+        };
+        for uv in feet {
+            let on_line = line.at(line.along(*uv));
+            if surface.point_at(*uv).distance(surface.point_at(on_line)) <= body.allowance {
+                continue;
+            }
+            if line.across(*uv) > line.value {
+                above = true;
+            } else {
+                below = true;
+            }
+        }
+    }
+    match (above, below) {
+        (true, false) => Some(Bound::Lower),
+        (false, true) => Some(Bound::Upper),
+        _ => None,
+    }
 }
 
 fn slot_of(study: &Study, face: u64) -> Option<usize> {
@@ -482,16 +546,13 @@ fn placed_vertices(
             .filter(|face| spline_of(body.faces.get(face)).is_none() || !on_lines(**face, *vertex))
             .filter_map(|face| body.faces.get(face).cloned())
             .collect();
-        let (point, _) = settle_on(*start, &rigid, f64::INFINITY);
+        let (point, _) = settle_on(*start, &rigid, body.allowance);
         let off = rigid
             .iter()
             .map(|surface| surface.distance(point))
             .fold(0.0, f64::max);
-        if off > CLEAN {
+        if off > VERTEX_HELD {
             return Err(Problem::new(*vertex, Fault::VertexOffBentFaces { off }));
-        }
-        if point.distance(*start) > body.allowance {
-            return Err(Problem::new(*vertex, Fault::MovesBeyondPrecision));
         }
         placed.insert(*vertex, point);
     }
@@ -550,9 +611,14 @@ impl Strict {
                 shift,
             } => {
                 let start = nearest(table, along)?;
-                let raw = closest_on_line(spline, *line, position, start)?;
+                let raw = closest_on_line(spline, *line, position, start).unwrap_or_else(|| {
+                    line.along(
+                        Surface::from(spline.clone()).project(position, Some(line.at(start))),
+                    )
+                });
                 let moved = raw + shift[0] + (shift[1] - shift[0]) * blend;
-                inside(spline, line.at(moved)).map(|uv| spline.extended_evaluate(uv.x, uv.y).point)
+                let uv = onto_domain(spline, line.at(moved));
+                Some(spline.extended_evaluate(uv.x, uv.y).point)
             }
             Map::Patch {
                 spline,
@@ -560,9 +626,11 @@ impl Strict {
                 shift,
             } => {
                 let start = nearest(table, along)?;
-                let raw = closest_on_patch(spline, position, start)?;
-                inside(spline, raw + shift[0].lerp(shift[1], blend))
-                    .map(|uv| spline.extended_evaluate(uv.x, uv.y).point)
+                let raw = closest_on_patch(spline, position, start).unwrap_or_else(|| {
+                    Surface::from(spline.clone()).project(position, Some(start))
+                });
+                let uv = onto_domain(spline, raw + shift[0].lerp(shift[1], blend));
+                Some(spline.extended_evaluate(uv.x, uv.y).point)
             }
         }
     }
@@ -683,16 +751,8 @@ fn crossed(values: &[(f64, f64)], knots: &[f64]) -> Vec<f64> {
     found
 }
 
-fn inside(spline: &BSplineSurface, uv: Point2) -> Option<Point2> {
-    let fits = |value: f64, domain: Interval| {
-        let slack = DOMAIN_SLACK * (1.0 + domain.length());
-        (domain.start() - slack <= value && value <= domain.end() + slack)
-            .then(|| domain.clamp(value))
-    };
-    Some(Point2::new(
-        fits(uv.x, spline.u_domain())?,
-        fits(uv.y, spline.v_domain())?,
-    ))
+fn onto_domain(spline: &BSplineSurface, uv: Point2) -> Point2 {
+    Point2::new(spline.u_domain().clamp(uv.x), spline.v_domain().clamp(uv.y))
 }
 
 fn closest_on_line(spline: &BSplineSurface, line: Line, point: Point3, start: f64) -> Option<f64> {
@@ -707,11 +767,12 @@ fn closest_on_line(spline: &BSplineSurface, line: Line, point: Point3, start: f6
             (at.du, at.duu)
         };
         let offset = at.point - point;
-        let curvature = first.dot(first) + offset.dot(second);
-        if curvature.is_nan() || curvature <= 0.0 {
+        let speed = first.dot(first);
+        let curvature = speed + offset.dot(second);
+        if speed.is_nan() || speed <= 0.0 {
             return None;
         }
-        let step = offset.dot(first) / curvature;
+        let step = offset.dot(first) / if curvature > 0.0 { curvature } else { speed };
         along -= step;
         last_step = step.abs();
         if last_step <= NEWTON_SETTLED * (1.0 + along.abs()) {
@@ -728,12 +789,18 @@ fn closest_on_patch(spline: &BSplineSurface, point: Point3, start: Point2) -> Op
         let at = spline.extended_evaluate(uv.x, uv.y);
         let offset = at.point - point;
         let gradient = Vector2::new(at.du.dot(offset), at.dv.dot(offset));
-        let uu = at.du.dot(at.du) + at.duu.dot(offset);
-        let uv_term = at.du.dot(at.dv) + at.duv.dot(offset);
-        let vv = at.dv.dot(at.dv) + at.dvv.dot(offset);
-        let determinant = uu * vv - uv_term * uv_term;
+        let mut uu = at.du.dot(at.du) + at.duu.dot(offset);
+        let mut uv_term = at.du.dot(at.dv) + at.duv.dot(offset);
+        let mut vv = at.dv.dot(at.dv) + at.dvv.dot(offset);
+        let mut determinant = uu * vv - uv_term * uv_term;
         if !(determinant > 0.0 && uu > 0.0) {
-            return None;
+            uu = at.du.dot(at.du);
+            uv_term = at.du.dot(at.dv);
+            vv = at.dv.dot(at.dv);
+            determinant = uu * vv - uv_term * uv_term;
+            if !(determinant > 0.0 && uu > 0.0) {
+                return None;
+            }
         }
         let step = Vector2::new(
             (vv * gradient.x - uv_term * gradient.y) / determinant,
@@ -806,14 +873,7 @@ impl Bender<'_, '_> {
         if fits.is_empty() {
             return Ok(());
         }
-        let mut bounds = Vec::with_capacity(fits.len());
-        for index in &fits {
-            let Some(line) = lines.get(*index) else {
-                continue;
-            };
-            bounds.push((*index, self.bound_of(face, &spline, line)?));
-        }
-        let (restricted, sides) = restricted(face, &spline, lines, &bounds)?;
+        let (restricted, sides) = restricted(face, &spline, lines, &fits)?;
         let mut current = restricted;
         let mut corners = [false; 4];
         for side in SIDES {
@@ -831,43 +891,6 @@ impl Bender<'_, '_> {
         Ok(())
     }
 
-    fn bound_of(&self, face: u64, spline: &BSplineSurface, line: &FaceLine) -> Read<Bound> {
-        if let Some(bound) = domain_bound(spline, line.line) {
-            return Ok(bound);
-        }
-        let domain = if line.line.fixed_u {
-            spline.u_domain()
-        } else {
-            spline.v_domain()
-        };
-        let tolerance = LINE_SIDE * domain.length();
-        let (mut above, mut below) = (0usize, 0usize);
-        for (index, study) in self.studies.iter().enumerate() {
-            let Some(study) = study else {
-                continue;
-            };
-            if line.edges.contains(&index) {
-                continue;
-            }
-            let Some(feet) = slot_of(study, face).and_then(|slot| study.feet.get(slot)) else {
-                continue;
-            };
-            for uv in feet {
-                let across = line.line.across(*uv);
-                if across > line.line.value + tolerance {
-                    above += 1;
-                } else if across < line.line.value - tolerance {
-                    below += 1;
-                }
-            }
-        }
-        match (above > 0, below > 0) {
-            (true, false) => Ok(Bound::Lower),
-            (false, true) => Ok(Bound::Upper),
-            _ => Err(Problem::new(face, Fault::EdgeAlongUnboundingLine)),
-        }
-    }
-
     fn bend_side(
         &mut self,
         face: u64,
@@ -883,15 +906,26 @@ impl Bender<'_, '_> {
             .ok_or_else(|| Problem::new(face, Fault::SideUnfollowable))?;
         let domain = curve.domain();
         let stations = self.stations(&curve, lines, line, side, sides);
+        let closed = if side.along_u() {
+            surface.u_period().is_some()
+        } else {
+            surface.v_period().is_some()
+        };
         let mut ranges: Vec<(Interval, usize)> = Vec::new();
         for index in &line.edges {
-            let Some([start, end]) = self.edge_vertices(*index) else {
+            let Some(edge) = self.body.edges.get(*index) else {
                 continue;
             };
+            let [start, end] = edge.ends;
             let (Some(a), Some(b)) = (stations.get(&start), stations.get(&end)) else {
                 continue;
             };
-            let range = Interval::new(a.min(*b), a.max(*b))
+            let [a, b] = if closed {
+                around_closed_side(&shape_of(&curve), edge, [*a, *b])
+            } else {
+                [*a, *b]
+            };
+            let range = Interval::new(a.min(b), a.max(b))
                 .ok_or_else(|| Problem::new(face, Fault::EdgeOfNoLengthAlongSide))?;
             ranges.push((range, *index));
             if self.is_slave(face, *index) {
@@ -900,7 +934,7 @@ impl Bender<'_, '_> {
                     Placed {
                         slave: face,
                         side,
-                        stations: [*a, *b],
+                        stations: [a, b],
                     },
                 );
             }
@@ -915,6 +949,11 @@ impl Bender<'_, '_> {
         let pins: Vec<(f64, Point3)> = stations
             .iter()
             .filter_map(|(vertex, along)| self.vertices.get(vertex).map(|point| (*along, *point)))
+            .flat_map(|(along, point)| {
+                let other = (closed && (along == domain.start() || along == domain.end()))
+                    .then_some(domain.start() + domain.end() - along);
+                std::iter::once((along, point)).chain(other.map(|other| (other, point)))
+            })
             .collect();
         let shift_at = |along: f64| -> Vector3 {
             pins.iter()
@@ -1221,6 +1260,30 @@ fn strict_samples(strict: &Strict) -> Vec<f64> {
     }
 }
 
+fn shape_of(curve: &BSpline<Point3>) -> Curve {
+    Curve::BSpline(curve.clone())
+}
+
+fn around_closed_side(side: &Curve, edge: &LooseEdge, [a, b]: [f64; 2]) -> [f64; 2] {
+    let Some(domain) = side.domain().bounded() else {
+        return [a, b];
+    };
+    let middle = side.closest_parameter(edge.curve.point(edge.interval.middle()), domain);
+    let at_seam = |along: f64| along == domain.start() || along == domain.end();
+    let seam_towards = |other: f64| {
+        if middle > other {
+            domain.end()
+        } else {
+            domain.start()
+        }
+    };
+    match (at_seam(a), at_seam(b)) {
+        (true, false) => [seam_towards(b), b],
+        (false, true) => [a, seam_towards(a)],
+        _ => [a, b],
+    }
+}
+
 fn snapped(curve: &BSpline<Point3>, along: f64) -> f64 {
     let breaks = curve.breakpoints();
     let after = breaks.partition_point(|knot| *knot <= along);
@@ -1270,14 +1333,15 @@ fn restricted(
     face: u64,
     spline: &BSplineSurface,
     lines: &[FaceLine],
-    bounds: &[(usize, Bound)],
+    fits: &[usize],
 ) -> Read<(BSplineSurface, Vec<Fitting>)> {
     let (mut u, mut v) = (spline.u_domain(), spline.v_domain());
-    let mut sides: Vec<Fitting> = Vec::with_capacity(bounds.len());
-    for (index, bound) in bounds {
+    let mut sides: Vec<Fitting> = Vec::with_capacity(fits.len());
+    for index in fits {
         let Some(line) = lines.get(*index) else {
             continue;
         };
+        let bound = &line.bound;
         let domain = if line.line.fixed_u { &mut u } else { &mut v };
         let tolerance = LINE_SIDE * domain.length();
         let value = line.line.value;

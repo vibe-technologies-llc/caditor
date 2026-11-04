@@ -89,7 +89,8 @@ paths:
   fitted by banded least squares to sampled `BendTarget`s, pins and held corners fixed and the
   displacement smoothed; spans missing a strict target are halved up to `MAX_REFINEMENTS` rounds and
   `MAX_SIDE_CONTROL_POINTS`. Only the side row moves, so the surface changes only across its first
-  span from the side. A linear side is raised to cubic first; a seam, pole or closed side is
+  span from the side. A linear side is raised to cubic first. A side closed around holds its ends
+  as one point, pinned to whichever end a pin names, so the surface stays closed. A seam or pole is
   `BendError::Unbendable`.
 - Lengths are compared through `is_longer_than` (chord, then seed polyline, then the integral) and
   capped with `length_up_to`; building, validation, imprinting and profile arrangement never
