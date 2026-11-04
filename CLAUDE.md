@@ -38,7 +38,7 @@ inside the workspace.
 | `caditor-geometry` | f64 math vocabulary: `glam` aliases, `Plane`, `Ray`, `Aabb`, rigid transforms. | none |
 | `caditor-expression` | `Quantity` (mm and degrees with a `Dimension`) and expressions over parameters. | none |
 | `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver; the unit-free dimension layout the canvas and drawing export share. | expression, geometry |
-| `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
+| `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns, hidden lines. | geometry |
 | `caditor-lettering` | Letter outlines in the bundled Inter: font reading, kerning, merging a glyph's overlapping contours, one-line layout; shared by SVG import and sketch text. | geometry, kernel |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | expression, kernel, geometry |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the three crates with `unsafe`. | none |
@@ -96,7 +96,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `rust-style.md`, `dependencies.md`, `ci.md` | Formatting, imports, collections, `unsafe`; dependency declaration; CI, cargo-deny, fuzzing. |
 | `expression.md`, `zstd.md`, `windows.md`, `wayland.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI; the Wayland boundary and files dropped on Wayland. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
-| `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (the geometry crate, tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
+| `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md`, `kernel-hidden-lines.md` | Kernel base (the geometry crate, tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns; vector hidden lines, silhouettes and a body's outer outline. |
 | `lettering.md` | The letter outlines crate: Inter's faces, kerning, overlap merging, line layout in cap heights. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |

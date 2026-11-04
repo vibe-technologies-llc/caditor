@@ -144,7 +144,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
-- [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
+- [low · hard] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
   be brought in, so a sketch following a body's outline is drawn by hand.
@@ -190,12 +190,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Technical drawings
 
-- [medium · hard] Vector hidden-line removal: the hidden-lines-removed display style hides edges
-  by the depth buffer, which gives pixels, not curves. A drawing view needs each edge of a body
-  split where faces cover it, as 2D curves in the view's plane with their visible and hidden
-  pieces (silhouettes of curved faces included), computed off the UI thread and cancellable.
-- [medium · hard · blocked by: vector hidden-line removal (above)] No 2D drawings
-  at all: no sheet with a title block, no projected front, top, side and isometric views of the
+- [medium · hard] No 2D drawings
+  at all (the views' visible and hidden curves are ready: kernel `hidden_lines`): no sheet with a title block, no projected front, top, side and isometric views of the
   bodies, no section or detail views, no dimensions or notes taken from the model, and no PDF, SVG
   or DXF output of a sheet, though parts made for a workshop need one. Views update with the model
   and their dimensions refer to edges by name, so they survive edits as features do.

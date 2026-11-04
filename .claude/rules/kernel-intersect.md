@@ -229,6 +229,10 @@ paths:
   `point_in_face` of a one-face classifier (`SolidClassifier::of_face`); a line through a hole is
   split into runs, each end bisected to the boundary. It polls the interrupt once a line
   (`IsoparametricError::Cancelled`).
+- `ray_view(origin, direction, own)` asks whether anything covers a ray, for hidden lines
+  (`kernel-hidden-lines.md`): any hit or overlap on or inside a face past `RAY_TOUCH`, stopping at the
+  first; graze and edge hits count, since what stands only coincident behind a line is hidden, and a
+  ray failing on a face is `Undecided` only when nothing else covers it.
 - `first_crossing(origin, direction, beyond)` casts one ray the same way: the nearest clean
   crossing past `beyond` (face, distance, whether the ray enters), `Nothing`, or `Undecided` when a
   graze, tangent, overlap or edge comes no later. Hits up to `beyond` are ignored, so a ray may

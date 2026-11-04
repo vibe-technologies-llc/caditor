@@ -13,6 +13,7 @@ mod error;
 mod faceted;
 #[cfg(test)]
 mod fixtures;
+mod hidden_lines;
 mod hole_faces;
 mod interrupt;
 mod intersect;
@@ -74,6 +75,10 @@ pub use crate::{
     faceted::{
         FaceMesh, FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES,
         MeshRepairs, TriangleMesh, faceted_solids,
+    },
+    hidden_lines::{
+        HiddenLineError, HiddenLineView, HiddenLines, OutlinePiece, ViewEdgeKind, ViewPiece,
+        ViewSource, Visibility, hidden_lines, outer_outline,
     },
     hole_faces::hole_faces,
     interrupt::{

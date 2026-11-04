@@ -28,6 +28,7 @@ pub use self::{
     validate::ValidationError,
 };
 pub(crate) use self::{
+    classify::RayView,
     pcurve::fit as fit_pcurve,
     polygons::PolygonIndex,
     validate::{ShellSpan, continues, inside_polygon, signed_area},
