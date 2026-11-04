@@ -23,7 +23,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   turns up to a datum or principal plane only when it holds the axis; and an end offset on curved
   or several faces moves the cut back end along the extrusion or hole, or about the revolve's
   axis (not along the face's normal, so a slanted face keeps no slant), and a tapered extrusion
-  refuses it.
+  refuses it. The drag arrow for such an offset stands only where the face reached is flat.
 - [medium · hard] Blends: ends at steps and T-junctions refused, and a lofted chain (an edge that is
   no line along its faces nor a circle about their axis, and the tangent chain holding it) refused
   where it ends at a rounded corner; a lofted chain's feet are not checked against other blends'

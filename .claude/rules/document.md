@@ -595,7 +595,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   direction, while up-to planes, offsets and through all work by height. Up to next casts its rays
   along the direction (kernel `next_face_along`), and a curved or several next faces, or a chosen
   curved face, stop the tool swept along it by `stop_at_body` as square to the sketch, with the
-  same refusals (two sides or an offset need one flat face). A taper along a direction goes to
+  same refusals. A taper along a direction goes to
   kernel `extrude_tapered_along`, measured from the direction (the profile steps in by the taper's
   tangent per unit along it). The axis's body, datum, frame and sketch count as used
   (`SolidFeature::model_axis`), healing keeps it.

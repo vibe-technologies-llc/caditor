@@ -39,6 +39,10 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
   (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
   changed none of these.
+- [medium · medium] A hole up to the next face with an offset fails where the cut back drill's
+  moved copy touches the body tangentially (`move_end`): a hole stopped by a round channel whose top
+  is level with the plate's top fails the move. `hole_tests.rs`'s `channelled` keeps that top below
+  the plate's, so no test pins it yet; the exact error was not recorded.
 - [medium · hard] Near-tangent booleans can turn on the last bit of the C library's `sin`, `cos`
   and `atan2`, which glibc and the Windows UCRT round differently: a plug 2e-6 off its bore's axis
   at 247.5 degrees and 1e-6 narrower fails as `Open` on glibc (the bore's rim at the start face is
