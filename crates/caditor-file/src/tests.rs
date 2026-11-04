@@ -2060,6 +2060,33 @@ fn a_spline_with_knots_of_its_own_round_trips_and_older_readers_report_it() {
 }
 
 #[test]
+fn a_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 4.0),
+        Point2::new(20.0, -2.0),
+        Point2::new(30.0, 5.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(50.0, 6.0),
+    ]);
+    sketch.set_spline_degree(spline, 5).unwrap();
+    transaction.add_feature("Curves", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("\"spline_degree\"", "\"spline_degreex\""));
+
+    assert!(text.contains("\"degree\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.issues.join(" ").contains("(spline_degreex)"));
+}
+
+#[test]
 fn sketch_texts_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Texts");

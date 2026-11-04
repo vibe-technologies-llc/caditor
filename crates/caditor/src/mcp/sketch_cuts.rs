@@ -1,4 +1,4 @@
-use caditor_sketch::{Entity, EntityId, FitSpacing, SplineKind};
+use caditor_sketch::{DegreeError, Entity, EntityId, FitSpacing, SplineKind};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -10,7 +10,8 @@ use crate::{
         writing,
     },
     sketch_tools::{
-        BREAK_TITLE, ConstructionChange, HANDLE_TITLE, INSERT_TITLE, RESPACE_TITLE, SPLIT_TITLE,
+        BREAK_TITLE, ConstructionChange, DEGREE_TITLE, HANDLE_TITLE, INSERT_TITLE, RESPACE_TITLE,
+        SPLIT_TITLE,
     },
 };
 
@@ -51,6 +52,14 @@ pub struct Handling {
     pub sketch: Named,
     pub curve: EntityName,
     pub point: EntityName,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SplineDegreeing {
+    pub sketch: Named,
+    pub splines: Vec<EntityName>,
+    pub degree: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -163,6 +172,44 @@ pub(super) fn insert_control_points(
     planned
         .details
         .insert("refined".to_owned(), writing::ids(&splines));
+    Ok(planned)
+}
+
+pub(super) fn spline_degree(
+    target: &Target<'_>,
+    asked: &SplineDegreeing,
+) -> Result<Planned, ToolError> {
+    let splines = target.entities(&asked.splines)?;
+    if splines.is_empty() {
+        return Err(SketchEditError::DegreeTargets {
+            sketch: target.name.to_owned(),
+        }
+        .into());
+    }
+    let unchanged = |result: Result<(), DegreeError>| match result {
+        Err(DegreeError::Unchanged { .. }) => Ok(false),
+        Err(error) => Err(ToolError::from(SketchEditError::Degree(error))),
+        Ok(()) => Ok(true),
+    };
+    let working = target.working();
+    let mut changing = Vec::new();
+    for spline in &splines {
+        if unchanged(working.check_spline_degree(*spline, asked.degree))? {
+            changing.push(*spline);
+        }
+    }
+    let transaction = target.reshaped(DEGREE_TITLE.to_owned(), |sketch| {
+        for spline in &changing {
+            sketch
+                .set_spline_degree(*spline, asked.degree)
+                .map_err(|error| ToolError::from(SketchEditError::Degree(error)))?;
+        }
+        Ok(())
+    })?;
+    let mut planned = Planned::of(transaction);
+    planned
+        .details
+        .insert("regraded".to_owned(), writing::ids(&splines));
     Ok(planned)
 }
 

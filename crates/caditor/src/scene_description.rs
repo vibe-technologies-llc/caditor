@@ -438,6 +438,10 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                             "{}{ends}",
                             count(points.len(), "control point", "control points")
                         ),
+                        SplineKind::Graded { degree, .. } => format!(
+                            "{}, degree {degree}{ends}",
+                            count(points.len(), "control point", "control points")
+                        ),
                     }
                 }
             };

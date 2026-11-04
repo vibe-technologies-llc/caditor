@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 74] = [
+const KEPT: [(&str, &str); 75] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -312,6 +312,10 @@ const KEPT: [(&str, &str); 74] = [
     (
         "model-1/sliced.caditor",
         "4d56af94bbefdc7ca4d04154800c5ee3b009a13b6083696abbaf7c5c728ead87",
+    ),
+    (
+        "model-1/spline-degrees.caditor",
+        "b7e61e191414a21312b60cb70a952afef24362092b48fd93d3374b52f97a0231",
     ),
     (
         "model-1/spline-handles.caditor",
@@ -893,6 +897,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&closed_spline_knots(), "Closed spline knots"),
         ),
         (
+            model("spline-degrees"),
+            saved(&spline_degrees(), "Spline degrees"),
+        ),
+        (
             model("spline-handles"),
             saved(&spline_handles(), "Spline handles"),
         ),
@@ -1137,6 +1145,31 @@ fn spline_knots() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Spline knots");
     transaction.add_feature("Refined spline", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn spline_degrees() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let wave = [
+        Point2::new(100.0, 100.0),
+        Point2::new(110.0, 115.0),
+        Point2::new(120.0, 90.0),
+        Point2::new(130.0, 112.0),
+        Point2::new(140.0, 86.0),
+        Point2::new(150.0, 108.0),
+        Point2::new(160.0, 100.0),
+    ];
+    let even = drawn.add_spline(&wave);
+    drawn.set_spline_degree(even, 5).unwrap();
+    let uneven = drawn.add_spline(&wave);
+    drawn.set_spline_degree(uneven, 4).unwrap();
+    drawn
+        .insert_control_point(uneven, Some(Point2::new(125.0, 100.0)))
+        .unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Spline degrees");
+    transaction.add_feature("Chosen degrees", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

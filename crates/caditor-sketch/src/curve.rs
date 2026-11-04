@@ -377,6 +377,19 @@ impl BSpline {
         })
     }
 
+    pub fn graded(control_points: Vec<Point2>, degree: usize, spans: &[f64]) -> Option<Self> {
+        if control_points.len() != spans.len() + degree {
+            return None;
+        }
+        let knots = graded_knots(degree, spans)?;
+        Some(Self {
+            control_points,
+            degree,
+            knots,
+            weights: None,
+        })
+    }
+
     pub fn looped(control_points: &[Point2], spans: &[f64]) -> Option<Self> {
         if control_points.len() != spans.len() {
             return None;
@@ -803,8 +816,19 @@ pub(crate) fn span_knots(spans: &[f64]) -> Option<(usize, Vec<f64>)> {
     if !SplineKind::spans_are_valid(spans) {
         return None;
     }
+    Some((MAX_SPLINE_DEGREE, graded_knots(MAX_SPLINE_DEGREE, spans)?))
+}
+
+pub(crate) fn graded_knots(degree: usize, spans: &[f64]) -> Option<Vec<f64>> {
+    if !SplineKind::degree_is_valid(degree)
+        || spans.is_empty()
+        || !spans
+            .iter()
+            .all(|span| SplineKind::end_span_is_valid(*span))
+    {
+        return None;
+    }
     let total: f64 = spans.iter().sum();
-    let degree = MAX_SPLINE_DEGREE;
     let inner = spans
         .iter()
         .take(spans.len().saturating_sub(1))
@@ -812,11 +836,12 @@ pub(crate) fn span_knots(spans: &[f64]) -> Option<(usize, Vec<f64>)> {
             *reached += span;
             Some(*reached / total)
         });
-    let knots = std::iter::repeat_n(0.0, degree + 1)
-        .chain(inner)
-        .chain(std::iter::repeat_n(1.0, degree + 1))
-        .collect();
-    Some((degree, knots))
+    Some(
+        std::iter::repeat_n(0.0, degree + 1)
+            .chain(inner)
+            .chain(std::iter::repeat_n(1.0, degree + 1))
+            .collect(),
+    )
 }
 
 pub(crate) fn looped_knots(spans: &[f64]) -> Option<Vec<f64>> {

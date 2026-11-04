@@ -165,6 +165,11 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Sketch::check_point_insertion`, `CannotInsert`) and inserts keeping the shape
   (`Sketch::insert_control_point`, `sketch.md`); else `NOTHING_TO_INSERT`. A held neighbour
   point fails the transaction as a warning notice (`Insert`).
+  Raise and Lower spline degree (`Command::RaiseSplineDegree`, `LowerSplineDegree`,
+  `sketch_tools::DegreeChange` with a `DegreeStep`, beside it in the Modify menu and the palette)
+  take the selected splines that `Sketch::check_spline_degree` accepts one degree higher or lower
+  and set each (`Sketch::set_spline_degree`, `sketch.md`) in one transaction; else
+  `NOTHING_TO_RAISE` or `NOTHING_TO_LOWER`, or the sketch's refusal (`Degree`) as a warning notice.
   Add a tangent handle (`Command::AddTangentHandle`, `sketch_tools::HandleChange`, beside it in
   the Modify menu, the context menu and the palette) takes one selected fit point of one fit
   spline, open or closed, (the spline selected with it when several hold the point) without a handle there, else

@@ -1447,3 +1447,30 @@ fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
 
     assert!((volume(&evaluation, body) - segment).abs() < 0.05 * segment);
 }
+
+#[test]
+fn a_spline_of_a_chosen_degree_closed_by_its_chord_extrudes_into_a_body() {
+    for degree in [2, 5, 7] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline(&[
+            Point2::new(0.0, 0.0),
+            Point2::new(5.0, 12.0),
+            Point2::new(12.0, -4.0),
+            Point2::new(18.0, 14.0),
+            Point2::new(26.0, -2.0),
+            Point2::new(32.0, 10.0),
+            Point2::new(38.0, 4.0),
+            Point2::new(44.0, 12.0),
+        ]);
+        sketch.set_spline_degree(spline, degree).unwrap();
+        sketch.add_line(Point2::new(0.0, 0.0), Point2::new(44.0, 12.0));
+        let (document, body) = single_body(
+            extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
+            sketch,
+        );
+
+        let evaluation = evaluate(&document, &mut Recompute::default());
+
+        assert!(volume(&evaluation, body) > 100.0, "degree {degree}");
+    }
+}

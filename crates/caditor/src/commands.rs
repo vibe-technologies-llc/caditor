@@ -109,6 +109,8 @@ pub enum Command {
     BreakCurves,
     RespaceFitSplines,
     InsertSplinePoint,
+    RaiseSplineDegree,
+    LowerSplineDegree,
     AddTangentHandle,
     UnlinkProjection,
     RotateGeometry,
@@ -933,6 +935,8 @@ plain_commands! {
     BreakCurves,
     RespaceFitSplines,
     InsertSplinePoint,
+    RaiseSplineDegree,
+    LowerSplineDegree,
     AddTangentHandle,
     UnlinkProjection,
     RotateGeometry,
@@ -1106,6 +1110,8 @@ impl Command {
             Self::UnlinkProjection => "sketch.unlink_projection",
             Self::RespaceFitSplines => "sketch.respace_fit_splines",
             Self::InsertSplinePoint => "sketch.insert_spline_point",
+            Self::RaiseSplineDegree => "sketch.raise_spline_degree",
+            Self::LowerSplineDegree => "sketch.lower_spline_degree",
             Self::AddTangentHandle => "sketch.add_tangent_handle",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
@@ -1468,6 +1474,12 @@ impl Command {
             Self::RespaceFitSplines => "Respace the selected fit-point splines by their points",
             Self::InsertSplinePoint => {
                 "Add a control point to the selected spline, keeping its shape exactly"
+            }
+            Self::RaiseSplineDegree => {
+                "Raise the degree of the selected control-point splines by one, keeping their points"
+            }
+            Self::LowerSplineDegree => {
+                "Lower the degree of the selected control-point splines by one, keeping their points"
             }
             Self::AddTangentHandle => {
                 "Add a tangent handle to the selected fit point, setting the spline's direction and pull there"
@@ -2236,6 +2248,8 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::RaiseSplineDegree
+            | Self::LowerSplineDegree
             | Self::AddTangentHandle
             | Self::RotateGeometry
             | Self::ScaleGeometry
@@ -2281,6 +2295,8 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::RaiseSplineDegree
+            | Self::LowerSplineDegree
             | Self::AddTangentHandle
             | Self::RotateGeometry
             | Self::ScaleGeometry
@@ -2461,6 +2477,8 @@ impl Command {
             | Self::UnlinkProjection
             | Self::RespaceFitSplines
             | Self::InsertSplinePoint
+            | Self::RaiseSplineDegree
+            | Self::LowerSplineDegree
             | Self::AddTangentHandle
             | Self::ProjectSketch
             | Self::RotateGeometry

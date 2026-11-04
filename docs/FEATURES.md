@@ -121,8 +121,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
 - [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
-  point has no curvature handle; the degree cannot be chosen; a point cannot be removed while
-  keeping the shape (only approximately possible); and a point cannot be inserted into a conic
+  point has no curvature handle; the degree is chosen only after drawing and only for open
+  control-point splines (a closed spline stays cubic, and the spline tool draws cubic ones); a
+  point cannot be removed while keeping the shape (only approximately possible); and a point cannot be inserted into a conic
   keeping the shape (its two halves would be rational arcs with weights of their own, which no
   spline kind but the conic holds).
 - [low · hard] A fit-point spline whose kept stretch holds a fit point carrying a constraint, a tangent

@@ -32,8 +32,8 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
         self, ActivityChange, BreakChange, ConstraintOfferError, ConstraintTool,
-        ConstructionChange, HandleChange, RespaceChange, SketchChangeError, SplinePointChange,
-        SplitChange, UnlinkChange,
+        ConstructionChange, DegreeChange, DegreeStep, HandleChange, RespaceChange,
+        SketchChangeError, SplinePointChange, SplitChange, UnlinkChange,
     },
     toggles::ToggleStates,
     units::Units,
@@ -230,6 +230,8 @@ const MODIFY_MENU: &[&[Command]] = &[
         Command::BreakCurves,
         Command::RespaceFitSplines,
         Command::InsertSplinePoint,
+        Command::RaiseSplineDegree,
+        Command::LowerSplineDegree,
         Command::AddTangentHandle,
         Command::UnlinkProjection,
     ],
@@ -489,6 +491,8 @@ pub fn show(
     };
     let respacing = RespaceChange::of(&shown, &selected);
     let inserting = SplinePointChange::of(&shown, &selected);
+    let raising = DegreeChange::of(&shown, &selected, DegreeStep::Raise);
+    let lowering = DegreeChange::of(&shown, &selected, DegreeStep::Lower);
     let handling = HandleChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
@@ -538,6 +542,14 @@ pub fn show(
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
         inserting: inserting
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        raising: raising
+            .as_ref()
+            .map(|_| ())
+            .map_err(|reason| Unavailable::from(reason.clone())),
+        lowering: lowering
             .as_ref()
             .map(|_| ())
             .map_err(|reason| Unavailable::from(reason.clone())),
@@ -695,6 +707,22 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
         });
     }
+    if request.raising
+        && let Ok(change) = &raising
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
+        });
+    }
+    if request.lowering
+        && let Ok(change) = &lowering
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::warning(reason.to_string())),
+        });
+    }
     if request.handling
         && let Ok(change) = &handling
     {
@@ -764,6 +792,8 @@ struct Request {
     unlinking: bool,
     respacing: bool,
     inserting: bool,
+    raising: bool,
+    lowering: bool,
     handling: bool,
     delete: bool,
     finish: bool,
@@ -826,6 +856,8 @@ struct Bar<'a, 'b> {
     unlinking: Result<(), Unavailable>,
     respacing: Result<(), Unavailable>,
     inserting: Result<(), Unavailable>,
+    raising: Result<(), Unavailable>,
+    lowering: Result<(), Unavailable>,
     handling: Result<(), Unavailable>,
     deletable: Result<(), Unavailable>,
     moving: Result<(), Unavailable>,
@@ -1430,6 +1462,18 @@ impl Bar<'_, '_> {
             .invoke(Command::InsertSplinePoint, &self.inserting)
         {
             self.request.inserting = true;
+        }
+        if self
+            .commands
+            .invoke(Command::RaiseSplineDegree, &self.raising)
+        {
+            self.request.raising = true;
+        }
+        if self
+            .commands
+            .invoke(Command::LowerSplineDegree, &self.lowering)
+        {
+            self.request.lowering = true;
         }
         if self
             .commands

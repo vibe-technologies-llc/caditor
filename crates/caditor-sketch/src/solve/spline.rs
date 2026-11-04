@@ -6,7 +6,7 @@ use crate::{
     constraint::Constraint,
     curve::{
         BSpline, CONIC_DEGREE, CONIC_KNOTS, MAX_SPLINE_DEGREE, clamped_knots, conic_weight,
-        looped_knots, periodic_knots, piece_knots, span_knots,
+        graded_knots, looped_knots, periodic_knots, piece_knots, span_knots,
     },
     entity::{Entity, FitSpacing, Role, SplineKind},
     handle::{HandledLayout, Row},
@@ -405,6 +405,7 @@ impl System {
                     spans,
                     closed: false,
                 } => knotted_handle(handles, spans),
+                SplineKind::Graded { degree, spans } => graded_handle(handles, *degree, spans),
                 SplineKind::Knotted {
                     spans,
                     closed: true,
@@ -636,6 +637,19 @@ fn piece_handle(points: Vec<PointHandle>, lead: f64, trail: f64) -> SplineHandle
 
 fn knotted_handle(points: Vec<PointHandle>, spans: &[f64]) -> SplineHandle {
     let Some((degree, knots)) = span_knots(spans) else {
+        return clamped_handle(points);
+    };
+    SplineHandle {
+        points,
+        degree,
+        knots,
+        weights: None,
+        periodic: false,
+    }
+}
+
+fn graded_handle(points: Vec<PointHandle>, degree: usize, spans: &[f64]) -> SplineHandle {
+    let Some(knots) = graded_knots(degree, spans) else {
         return clamped_handle(points);
     };
     SplineHandle {

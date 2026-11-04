@@ -1061,6 +1061,8 @@ impl Menus<'_> {
                             Command::BreakCurves,
                             Command::RespaceFitSplines,
                             Command::InsertSplinePoint,
+                            Command::RaiseSplineDegree,
+                            Command::LowerSplineDegree,
                             Command::AddTangentHandle,
                             Command::UnlinkProjection,
                         ],

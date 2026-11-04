@@ -6,8 +6,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    BreakError, Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, InsertError,
-    Reference, Relations, Sketch, SketchError, SketchSolution, SplineKind, SplitError,
+    BreakError, Constraint, ConstraintId, DegreeError, Entity, EntityId, EntityState, FitSpacing,
+    InsertError, Reference, Relations, Sketch, SketchError, SketchSolution, SplineKind, SplitError,
 };
 use thiserror::Error;
 
@@ -2241,6 +2241,12 @@ pub const BREAK_TITLE: &str = "Break curves";
 pub const NOTHING_TO_INSERT: &str = "Select a spline drawn from control points, with a point near \
                                      where it should get its new control point if you like";
 pub const INSERT_TITLE: &str = "Add control point";
+pub const DEGREE_TITLE: &str = "Change spline degree";
+pub const RAISE_TITLE: &str = "Raise spline degree";
+pub const LOWER_TITLE: &str = "Lower spline degree";
+pub const NOTHING_TO_RAISE: &str = "Select splines drawn from control points whose points allow a \
+                                    higher degree, up to 25";
+pub const NOTHING_TO_LOWER: &str = "Select splines drawn from control points of a degree above one";
 pub const HANDLE_TITLE: &str = "Add tangent handle";
 pub const NOTHING_TO_HANDLE: &str =
     "Select a fit point of a fit-point spline, with the spline when the point is shared";
@@ -2266,6 +2272,12 @@ pub enum SketchChangeError {
     CannotInsert(InsertError),
     #[error("{}: {source}.", INSERT_TITLE)]
     Insert { source: InsertError },
+    #[error("{}", NOTHING_TO_RAISE)]
+    NothingToRaise,
+    #[error("{}", NOTHING_TO_LOWER)]
+    NothingToLower,
+    #[error("{}: {source}.", DEGREE_TITLE)]
+    Degree { source: DegreeError },
     #[error("{}", NOTHING_TO_HANDLE)]
     NothingToHandle,
     #[error("{}", sentence(&.0.to_string()))]
@@ -2426,6 +2438,70 @@ impl SplinePointChange {
                 sketch
                     .insert_control_point(*spline, near)
                     .map_err(|source| SketchChangeError::Insert { source })?;
+            }
+            Ok(())
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DegreeStep {
+    Raise,
+    Lower,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DegreeChange {
+    pub step: DegreeStep,
+    pub splines: Vec<(EntityId, usize)>,
+}
+
+impl DegreeChange {
+    pub fn of(
+        sketch: &Sketch,
+        selected: &[EntityId],
+        step: DegreeStep,
+    ) -> Result<Self, SketchChangeError> {
+        let splines: Vec<(EntityId, usize)> = selected
+            .iter()
+            .copied()
+            .filter(|id| !id.is_reference() && !sketch.is_projected(*id))
+            .filter_map(|id| {
+                let degree = sketch.spline_degree(id)?;
+                let target = match step {
+                    DegreeStep::Raise => degree + 1,
+                    DegreeStep::Lower => degree.checked_sub(1)?,
+                };
+                sketch
+                    .check_spline_degree(id, target)
+                    .ok()
+                    .map(|()| (id, target))
+            })
+            .collect();
+        if splines.is_empty() {
+            Err(match step {
+                DegreeStep::Raise => SketchChangeError::NothingToRaise,
+                DegreeStep::Lower => SketchChangeError::NothingToLower,
+            })
+        } else {
+            Ok(Self { step, splines })
+        }
+    }
+
+    pub fn transaction(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+    ) -> Result<Transaction, SketchChangeError> {
+        let title = match self.step {
+            DegreeStep::Raise => RAISE_TITLE,
+            DegreeStep::Lower => LOWER_TITLE,
+        };
+        trimming::reshape(model, feature, title.to_owned(), |sketch| {
+            for (spline, degree) in &self.splines {
+                sketch
+                    .set_spline_degree(*spline, *degree)
+                    .map_err(|source| SketchChangeError::Degree { source })?;
             }
             Ok(())
         })
@@ -2654,5 +2730,48 @@ impl BreakChange {
                 .map(|_| ())
                 .map_err(|source| SketchChangeError::Break { source })
         })
+    }
+}
+
+#[cfg(test)]
+mod degree_tests {
+    use caditor_geometry::{Plane, Point2};
+
+    use super::*;
+
+    fn wave() -> Vec<Point2> {
+        (0..6)
+            .map(|index| Point2::new(index as f64 * 10.0, if index % 2 == 0 { 0.0 } else { 8.0 }))
+            .collect()
+    }
+
+    #[test]
+    fn raising_and_lowering_offer_the_splines_that_can_take_one_degree_more_or_less() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let control = sketch.add_spline(&wave());
+        let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
+        let short = sketch.add_spline(&wave()[..4]);
+
+        let raising = DegreeChange::of(&sketch, &[control, fit, short], DegreeStep::Raise);
+        let lowering = DegreeChange::of(&sketch, &[control, fit, short], DegreeStep::Lower);
+
+        assert_eq!(raising.unwrap().splines, vec![(control, 4)]);
+        assert_eq!(lowering.unwrap().splines, vec![(control, 2), (short, 2)]);
+    }
+
+    #[test]
+    fn nothing_selected_that_can_change_degree_says_so() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
+        let line = sketch.add_line(Point2::ZERO, Point2::new(5.0, 0.0));
+
+        assert_eq!(
+            DegreeChange::of(&sketch, &[fit, line], DegreeStep::Raise),
+            Err(SketchChangeError::NothingToRaise)
+        );
+        assert_eq!(
+            DegreeChange::of(&sketch, &[], DegreeStep::Lower),
+            Err(SketchChangeError::NothingToLower)
+        );
     }
 }

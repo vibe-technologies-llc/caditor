@@ -96,6 +96,17 @@ paths:
     `Copy` because of it, so `Entity::spline_kind` returns a clone. Trim and extend read the result
     as a `Piece` when its inner spans are all equal (always with up to six points), else as a
     `Knotted` of the spans of the part's knots (`Part::kind`).
+  - Graded (`SplineKind::Graded { degree, spans }`, named "Spline", saved as `spline_degree`) is an
+    open control spline of a chosen degree, `MIN_DEGREE` to `MAX_DEGREE` (25, the kernel's
+    `MAX_SPLINE_DEGREE`, held equal by a check in `caditor-checks`; `InvalidDegree`), with one span
+    between knots per control point beyond its degree (`GradedSpanCount`), each finite and above
+    zero (`InvalidGradedSpans`); `curve::graded_knots` builds the clamped knots that `BSpline::graded`
+    and the solver share. It holds only what the cubic kinds cannot: `SplineKind::graded(degree,
+    points)` gives `OPEN` for the degree a plain control spline of that many points already has
+    (`min(3, points - 1)`), so a curve has one form, and uniform spans otherwise. Trim, extend,
+    split, break and point insertion carry the degree through the same blossoming and Boehm
+    insertion (`Part::kind` reads a part of another degree as `Graded`, or `OPEN` when it is
+    the plain one). A degree-one spline is a polyline and refuses `Curvature`.
   - A conic has exactly three points (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO`
     (`InvalidRho`): a rational quadratic with middle weight `rho / (1 - rho)`, passing the point
     rho of the way from the chord's middle to the apex (below 0.5 ellipse, 0.5 parabola, above
@@ -615,6 +626,13 @@ relative to the extent.
   change. Refused with `FitSpline`, `Conic` (its halves would be rational arcs needing weights no
   kind but the conic holds), `Projected`, `NotASpline`. It works on a clone, so a refusal changes
   nothing.
+- Degree (`degree.rs`): `set_spline_degree(spline, degree)` gives an open control spline (plain,
+  piece, knotted or graded) a degree up to one less than its points, keeping the points and
+  resetting the knots to even spans, so the curve changes shape and the solver holds every
+  constraint on it as before (`Curvature` goes when the degree becomes one). `DegreeError` refuses
+  a fit spline (it has no degree to choose), a conic, a closed spline, a projected one, a degree
+  out of range or past what the points carry, and a degree it already has. `spline_degree` gives
+  a spline's degree (`SplineKind::degree_of`).
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point on it between its ends
   (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve dropped.
   A line's pieces are `Collinear` or each keeps horizontal or vertical; a point that was the line's

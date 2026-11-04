@@ -1,6 +1,6 @@
 use caditor_geometry::Point2;
 
-use crate::id::EntityId;
+use crate::{curve::CONIC_DEGREE, id::EntityId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entity {
@@ -206,6 +206,9 @@ pub(crate) enum Role {
 pub const MIN_RHO: f64 = 0.01;
 pub const MAX_RHO: f64 = 0.99;
 pub const MIN_PIECE_POINTS: usize = 5;
+pub const MIN_DEGREE: usize = 1;
+pub const MAX_DEGREE: usize = 25;
+const CUBIC_DEGREE: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FitSpacing {
@@ -220,6 +223,7 @@ pub enum SplineKind {
     Conic { rho: f64 },
     Piece { lead: f64, trail: f64 },
     Knotted { spans: Vec<f64>, closed: bool },
+    Graded { degree: usize, spans: Vec<f64> },
 }
 
 impl SplineKind {
@@ -237,7 +241,7 @@ impl SplineKind {
             Self::Control { closed } | Self::Fit { closed, .. } | Self::Knotted { closed, .. } => {
                 *closed
             }
-            Self::Conic { .. } | Self::Piece { .. } => false,
+            Self::Conic { .. } | Self::Piece { .. } | Self::Graded { .. } => false,
         }
     }
 
@@ -248,7 +252,10 @@ impl SplineKind {
                 closed: false,
                 spacing: *spacing,
             },
-            Self::Conic { .. } | Self::Piece { .. } | Self::Knotted { .. } => self.clone(),
+            Self::Conic { .. }
+            | Self::Piece { .. }
+            | Self::Knotted { .. }
+            | Self::Graded { .. } => self.clone(),
         }
     }
 
@@ -281,13 +288,47 @@ impl SplineKind {
             | Self::Knotted { closed: true, .. }
             | Self::Conic { .. } => 3,
             Self::Piece { .. } | Self::Knotted { closed: false, .. } => MIN_PIECE_POINTS,
+            Self::Graded { degree, .. } => degree + 1,
         }
+    }
+
+    pub fn degree_of(&self, points: usize) -> Option<usize> {
+        match self {
+            Self::Control { closed: false } | Self::Fit { closed: false, .. } => {
+                Some(points.saturating_sub(1).min(CUBIC_DEGREE))
+            }
+            Self::Piece { .. } | Self::Knotted { closed: false, .. } => Some(CUBIC_DEGREE),
+            Self::Conic { .. } => Some(CONIC_DEGREE),
+            Self::Graded { degree, .. } => Some(*degree),
+            Self::Control { closed: true }
+            | Self::Fit { closed: true, .. }
+            | Self::Knotted { closed: true, .. } => None,
+        }
+    }
+
+    pub fn graded(degree: usize, points: usize) -> Option<Self> {
+        let spans = points.checked_sub(degree).filter(|spans| *spans >= 1)?;
+        if !Self::degree_is_valid(degree) {
+            return None;
+        }
+        if degree == points.saturating_sub(1).min(CUBIC_DEGREE) {
+            return Some(Self::OPEN);
+        }
+        Some(Self::Graded {
+            degree,
+            spans: vec![1.0 / spans as f64; spans],
+        })
+    }
+
+    pub fn degree_is_valid(degree: usize) -> bool {
+        (MIN_DEGREE..=MAX_DEGREE).contains(&degree)
     }
 
     pub fn name(&self) -> &'static str {
         match self {
             Self::Control { closed: false }
             | Self::Piece { .. }
+            | Self::Graded { .. }
             | Self::Knotted { closed: false, .. } => "Spline",
             Self::Control { closed: true } | Self::Knotted { closed: true, .. } => "Closed spline",
             Self::Fit { closed: false, .. } => "Fit-point spline",

@@ -336,6 +336,30 @@ impl Part {
         ))
     }
 
+    fn graded_kind(&self) -> Option<SplineKind> {
+        let count = self.points.len();
+        let spans: Vec<f64> = (self.degree..count)
+            .map(|index| Some(self.knots.get(index + 1)? - self.knots.get(index)?))
+            .collect::<Option<_>>()?;
+        let total: f64 = spans.iter().sum();
+        let spans: Vec<f64> = spans.iter().map(|span| span / total).collect();
+        let uniform = spans
+            .iter()
+            .all(|span| (span * spans.len() as f64 - 1.0).abs() <= UNIFORM_SLACK);
+        let canonical = SplineKind::graded(self.degree, count)?;
+        if uniform {
+            return Some(canonical);
+        }
+        (SplineKind::degree_is_valid(self.degree)
+            && spans
+                .iter()
+                .all(|span| SplineKind::end_span_is_valid(*span)))
+        .then_some(SplineKind::Graded {
+            degree: self.degree,
+            spans,
+        })
+    }
+
     fn kind(&self, width: Option<f64>, rational: bool) -> Option<SplineKind> {
         let count = self.points.len();
         if rational {
@@ -350,7 +374,10 @@ impl Part {
         if count == self.degree + 1 && self.degree == MAX_SPLINE_DEGREE.min(count - 1) {
             return Some(SplineKind::OPEN);
         }
-        if self.degree != MAX_SPLINE_DEGREE || count < MIN_PIECE_POINTS {
+        if self.degree != MAX_SPLINE_DEGREE {
+            return self.graded_kind();
+        }
+        if count < MIN_PIECE_POINTS {
             return None;
         }
         let spans: Vec<f64> = (self.degree..count)
@@ -488,6 +515,7 @@ impl Sketch {
                 )
             }
             SplineKind::Knotted { closed: false, .. }
+            | SplineKind::Graded { .. }
             | SplineKind::Conic { .. }
             | SplineKind::Fit { .. } => (Knotted::of(&self.spline(curve)?), None),
         };

@@ -65,6 +65,19 @@ middle point moving towards one end and the new point appearing towards the othe
 Splines through fit points and conics cannot take a point without changing shape, and the command
 says which. Taking a control point away while keeping the shape is not possible exactly.
 
+## Choosing the degree
+
+A spline drawn from control points is cubic by default: each stretch of the curve is shaped by
+four neighbouring points. {command:sketch.raise_spline_degree} and
+{command:sketch.lower_spline_degree} (Modify menu and palette) change the degree of the selected
+splines by one, keeping their control points: a higher degree lets each point shape a longer
+stretch and smooths the curve more, a degree of one gives straight segments between the points.
+The curve changes shape, since the points stay where they are, and constraints on it hold as they
+did. A spline needs at least one more point than its degree, up to degree 25; splines through fit
+points, conics and closed splines have no degree to choose and the command says so. An
+assistant over [MCP](mcp) draws a spline of any degree or sets one with `spline_degree`. Trimming,
+extending, splitting and adding control points keep the degree.
+
 A spline drawn by control points shows its control polygon dashed while its sketch is edited;
 {command:view.toggle_control_polygons} hides or shows it. A spline through fit points shows none,
 since the fit points are its handles.

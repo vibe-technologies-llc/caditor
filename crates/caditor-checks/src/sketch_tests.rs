@@ -6,7 +6,7 @@ use caditor_sketch::{Constraint, Entity, FitSpacing, Sketch, SplineKind};
 
 use crate::{
     seeded::{for_each_case, replay_case},
-    sketch::{no_parameters, sketch},
+    sketch::{no_parameters, regraded, sketch},
 };
 
 const POLL_LIMIT: u64 = 5_000_000;
@@ -173,6 +173,25 @@ fn a_solved_sketch_does_not_move_when_solved_again() {
     for_each_case("staying put", SOLVING_CASES, |_, input| stays_put(input));
 }
 
+fn graded_stays_put(input: &mut Unstructured) {
+    let Ok(drawn) = sketch(input, Plane::XY) else {
+        return;
+    };
+    let Ok(graded) = regraded(input, &drawn) else {
+        return;
+    };
+    if !has_a_closed_spaced_spline_through_one_point_twice(&graded) {
+        solved_stays_put(&graded);
+    }
+}
+
+#[test]
+fn a_solved_sketch_of_splines_of_chosen_degrees_does_not_move_when_solved_again() {
+    for_each_case("staying put with degrees", SOLVING_CASES, |_, input| {
+        graded_stays_put(input)
+    });
+}
+
 #[test]
 fn a_point_level_with_a_crossing_at_a_splines_end_keeps_it_when_solved_again() {
     replay_case(22192, |_, input| stays_put(input));
@@ -279,4 +298,12 @@ fn holds_every_spline_distance(input: &mut Unstructured) {
 fn a_distance_from_a_spline_to_a_line_it_crosses_is_never_solved_short_of_its_value() {
     replay_case(22573, |_, input| holds_every_spline_distance(input));
     replay_case(22573, |_, input| stays_put(input));
+}
+
+#[test]
+fn a_sketch_spline_degree_is_never_one_the_kernel_cannot_hold() {
+    assert_eq!(
+        caditor_sketch::MAX_DEGREE,
+        caditor_kernel::MAX_SPLINE_DEGREE
+    );
 }
