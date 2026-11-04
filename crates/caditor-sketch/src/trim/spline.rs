@@ -14,6 +14,7 @@ use crate::{
 
 const KNOT_SNAP: f64 = 1e-9;
 const SAME_POINT: f64 = 1e-9;
+const HELD_SLACK: f64 = 1e-6;
 const UNIFORM_SLACK: f64 = 1e-9;
 const CLOSED_TURNS: usize = 2;
 const END_SAMPLES: usize = 256;
@@ -502,13 +503,17 @@ impl Sketch {
     pub(crate) fn spline_reshape(&self, curve: EntityId, from: f64, to: f64) -> Option<Reshape> {
         let source = self.spline_source(curve)?;
         if let SplineKind::Fit { closed, spacing } = source.kind {
+            let kept = Stretch { from, to };
+            if let Some(exact) = self.exact_fit_piece(curve, &source, closed, kept) {
+                return Some(exact);
+            }
             let kind = SplineKind::Fit {
                 closed: false,
                 spacing,
             };
             return Some(Reshape {
                 kind,
-                slots: self.fit_slots(curve, &source.points, closed, Stretch { from, to })?,
+                slots: self.fit_slots(curve, &source.points, closed, kept)?,
             });
         }
         let part = source.knotted.between(from, to)?;
@@ -517,6 +522,71 @@ impl Sketch {
             kind,
             slots: source.slots(&part)?,
         })
+    }
+
+    fn exact_fit_piece(
+        &self,
+        curve: EntityId,
+        source: &SplineSource,
+        closed: bool,
+        kept: Stretch,
+    ) -> Option<Reshape> {
+        if closed && (kept.from < 0.0 || kept.to > 1.0) {
+            return None;
+        }
+        if self.fit_piece_is_held(curve, &source.points, closed, kept)? {
+            return None;
+        }
+        let part = source.knotted.between(kept.from, kept.to)?;
+        let kind = part.kind(None, false)?;
+        let slots = part
+            .points
+            .iter()
+            .map(|point| Part::position(*point).map(Slot::At))
+            .collect::<Option<Vec<_>>>()?;
+        let mut reshape = Reshape { kind, slots };
+        if !closed && kept.from <= 0.0 {
+            reshape.set_end(false, Slot::Kept(*source.points.first()?));
+        }
+        if !closed && kept.to >= 1.0 {
+            reshape.set_end(true, Slot::Kept(*source.points.last()?));
+        }
+        Some(reshape)
+    }
+
+    fn fit_piece_is_held(
+        &self,
+        curve: EntityId,
+        points: &[EntityId],
+        closed: bool,
+        kept: Stretch,
+    ) -> Option<bool> {
+        let layout = self.fit_layout(curve)?;
+        let handled: Vec<EntityId> = self
+            .constraints_using(curve)
+            .into_iter()
+            .filter_map(|id| match self.constraint(id) {
+                Some(Constraint::SplineHandle { line, .. }) => self.handle_anchor(curve, *line),
+                _ => None,
+            })
+            .collect();
+        let last = points.len().checked_sub(1)?;
+        Some(
+            points
+                .iter()
+                .zip(&layout.parameters)
+                .enumerate()
+                .filter(|(_, (_, parameter))| {
+                    **parameter >= kept.from - HELD_SLACK && **parameter <= kept.to + HELD_SLACK
+                })
+                .any(|(index, (point, _))| {
+                    let is_end = !closed && (index == 0 || index == last);
+                    handled.contains(point)
+                        || (!is_end
+                            && (self.entities_using(*point) != [curve]
+                                || !self.constraints_using(*point).is_empty()))
+                }),
+        )
     }
 
     fn fit_slots(
@@ -712,6 +782,50 @@ impl Sketch {
         self.move_constraints(fates.moved, curve, piece)?;
         self.drop_unused(&points)?;
         Ok(piece)
+    }
+
+    pub(crate) fn cut_spline_end(
+        &mut self,
+        curve: EntityId,
+        corner_end: EntityId,
+        moved: EntityId,
+    ) -> Result<(), SketchError> {
+        let Some(Entity::Spline { points, .. }) = self.entity(curve).cloned() else {
+            return Err(SketchError::NoSuchEntity(curve));
+        };
+        let (first, _) = self
+            .entity(curve)
+            .and_then(Entity::spline_ends)
+            .ok_or(SketchError::NoSuchEntity(curve))?;
+        let keeps_start = first != corner_end;
+        let at = self.point(moved).ok_or(SketchError::NoSuchEntity(moved))?;
+        let spline = self.spline(curve).ok_or(SketchError::NoSuchEntity(curve))?;
+        let parameter = closest_spline_parameter(&spline, at);
+        let kept = if keeps_start {
+            Stretch {
+                from: 0.0,
+                to: parameter,
+            }
+        } else {
+            Stretch {
+                from: parameter,
+                to: 1.0,
+            }
+        };
+        let mut shape = self
+            .spline_reshape(curve, kept.from, kept.to)
+            .ok_or_else(|| SketchError::NoExactPiece {
+                entity: curve,
+                label: self.entity_label(curve),
+            })?;
+        let fates = self.spline_fates(curve, kept, None);
+        shape.set_end(keeps_start, Slot::Kept(moved));
+        self.place_spline(curve, shape, &fates.leaving())?;
+        let left: Vec<EntityId> = points
+            .into_iter()
+            .filter(|point| *point != corner_end)
+            .collect();
+        self.drop_unused(&left)
     }
 
     fn shorten_spline(

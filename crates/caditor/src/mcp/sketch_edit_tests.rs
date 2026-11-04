@@ -563,6 +563,43 @@ fn filleting_and_chamfering_round_and_cut_corners() {
 }
 
 #[test]
+fn a_fit_spline_meeting_a_line_is_rounded_exactly_into_a_control_spline() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+    let drawn = draw(
+        &mut client,
+        &sketch,
+        json!([
+            { "kind": "spline", "form": "fit", "points": [[10, 0], [14, 6], [18, 6], [24, 0]] },
+            { "kind": "line", "from": [10, 0], "to": [0, -8] }
+        ]),
+    );
+    let corner = drawn[0]["points"][0].clone();
+    client.tool(
+        "add_sketch_constraints",
+        json!({
+            "sketch": sketch,
+            "constraints": [{ "kind": "coincident", "a": corner, "b": drawn[1]["start"] }]
+        }),
+    );
+
+    let rounded = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "fillet", "corners": [corner], "radius": "1.5 mm" }),
+    );
+    let after = described(&mut client, &sketch);
+    client.tool("undo", json!({}));
+    let undone = described(&mut client, &sketch);
+    client.finish();
+
+    assert_eq!(rounded["change"], "Fillet corner");
+    assert_eq!(entity(&after, &drawn[0]["id"])["form"], "control");
+    assert_eq!(entity(&undone, &drawn[0]["id"])["form"], "fit");
+}
+
+#[test]
 fn moving_rotating_and_scaling_solve_like_a_drag_and_keep_constraints() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);

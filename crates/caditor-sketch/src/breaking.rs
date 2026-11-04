@@ -1,6 +1,6 @@
 use crate::{
     constraint::Constraint,
-    entity::{Entity, SplineKind},
+    entity::Entity,
     id::EntityId,
     sketch::{Sketch, SketchError},
     split::SplitError,
@@ -17,16 +17,8 @@ pub enum BreakError {
     NoSuchCurve(EntityId),
     #[error("{label} is not a curve, so it cannot be broken")]
     NotACurve { entity: EntityId, label: String },
-    #[error(
-        "{label} cannot be broken; only lines, arcs, elliptical arcs and splines drawn from \
-         control points can"
-    )]
+    #[error("{label} cannot be broken; only lines, arcs, elliptical arcs and open splines can")]
     NotBreakable { entity: EntityId, label: String },
-    #[error(
-        "{label} passes through its points, so it cannot be broken without changing its shape; \
-         trim it, or draw it from control points instead"
-    )]
-    FitSpline { entity: EntityId, label: String },
     #[error("{label} is closed, so it has no ends to break between; trim it open first")]
     ClosedSpline { entity: EntityId, label: String },
     #[error("{label} has no length to break")]
@@ -50,7 +42,6 @@ impl BreakError {
             Self::NoSuchCurve(_)
                 | Self::NotACurve { .. }
                 | Self::NotBreakable { .. }
-                | Self::FitSpline { .. }
                 | Self::ClosedSpline { .. }
                 | Self::NoLength { .. }
                 | Self::Reference { .. }
@@ -118,12 +109,6 @@ impl Sketch {
             Some(Entity::Spline { kind, .. }) => Some(kind.clone()),
             _ => None,
         };
-        if spline.as_ref().is_some_and(SplineKind::passes_its_points) {
-            return Err(BreakError::FitSpline {
-                entity: curve,
-                label: label(),
-            });
-        }
         let cuts = match self.open_cuts(curve) {
             Ok(Some(cuts)) => cuts,
             Ok(None) if spline.is_some() => {

@@ -5,7 +5,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     ChamferSize, Constraint, ConstraintId, Dimensioned, Entity, EntityId, FilletError, Pick,
-    Sketch, Solved,
+    Sketch, Solved, SplineKind,
 };
 
 const EXACT: f64 = 1e-7;
@@ -307,12 +307,12 @@ fn a_radius_too_large_for_either_side_is_refused_in_words() {
 }
 
 #[test]
-fn only_a_corner_of_two_lines_or_arcs_can_be_filleted() {
+fn only_a_corner_of_two_open_curves_can_be_filleted() {
     let mut sketch = Sketch::new(Plane::XY);
     let first = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
     let straight = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
     let lone = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(10.0, 30.0));
-    let spline = sketch.add_spline(&[Point2::new(10.0, 30.0), Point2::new(20.0, 40.0)]);
+    let ring = sketch.add_circle(Point2::new(10.0, 30.0), 5.0);
     let stem = sketch.add_line(Point2::new(0.0, 50.0), Point2::new(10.0, 50.0));
     let branch = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(10.0, 60.0));
     let fork = sketch.add_line(Point2::new(10.0, 50.0), Point2::new(20.0, 40.0));
@@ -337,10 +337,10 @@ fn only_a_corner_of_two_lines_or_arcs_can_be_filleted() {
         )
     );
     assert_eq!(
-        sketch.corner_between(lone, spline),
+        sketch.corner_between(lone, ring),
         Err(FilletError::NotLineOrArc {
-            entity: spline,
-            label: label(spline),
+            entity: ring,
+            label: label(ring),
         })
     );
     assert_eq!(
@@ -1501,4 +1501,144 @@ fn a_midpoint_on_a_rounded_line_is_freed_when_the_round_takes_its_part_of_the_li
         .unwrap();
 
     assert!(sketch.constraints_using(middle).is_empty());
+}
+
+const SPLINE_ROUNDING: f64 = 1.5;
+
+fn bowed() -> [Point2; 4] {
+    [
+        Point2::new(10.0, 0.0),
+        Point2::new(14.0, 6.0),
+        Point2::new(18.0, 6.0),
+        Point2::new(24.0, 0.0),
+    ]
+}
+
+fn line_on_spline(spline_first: bool, kind: SplineKind) -> (Sketch, EntityId, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let points = if spline_first {
+        bowed().to_vec()
+    } else {
+        bowed().into_iter().rev().collect()
+    };
+    let spline = sketch.add_spline_of(&points, kind);
+    let (first, last) = sketch.entity(spline).and_then(Entity::spline_ends).unwrap();
+    let joint = if spline_first { first } else { last };
+    let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(0.0, -8.0));
+    let (line_start, _) = ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(line_start, joint))
+        .unwrap();
+    (sketch, line, spline)
+}
+
+fn gap_to_spline(sketch: &Sketch, spline: EntityId, point: Point2) -> f64 {
+    let curve = sketch.spline(spline).unwrap();
+    curve
+        .point_at(crate::intersect::closest_spline_parameter(&curve, point))
+        .distance(point)
+}
+
+#[test]
+fn a_line_meeting_a_spline_is_rounded_by_an_arc_tangent_to_both() {
+    for spline_first in [true, false] {
+        for kind in [SplineKind::OPEN, SplineKind::fit(false)] {
+            let (mut sketch, line, spline) = line_on_spline(spline_first, kind);
+            let whole = sketch.spline(spline).unwrap();
+            let dof_before = freedom(&sketch);
+            let corner = sketch.corner_between(spline, line).unwrap();
+
+            let rounding = sketch
+                .fillet(&corner, SPLINE_ROUNDING, mm(SPLINE_ROUNDING))
+                .unwrap();
+
+            let fillet = sketch.arc(rounding).unwrap();
+            let (start, end) = sketch.line_endpoints(line).unwrap();
+            let line_gap = (fillet.center - start)
+                .perp_dot((end - start).normalize())
+                .abs();
+            let trimmed = sketch.spline(spline).unwrap();
+            assert!((fillet.radius - SPLINE_ROUNDING).abs() < EXACT);
+            assert!((line_gap - SPLINE_ROUNDING).abs() < EXACT, "{line_gap}");
+            assert!((gap_to_spline(&sketch, spline, fillet.center) - SPLINE_ROUNDING).abs() < 1e-6);
+            assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
+            assert!(has(&sketch, &Constraint::Tangent(line, rounding)));
+            for index in 0..=32 {
+                let point = trimmed.point_at(index as f64 / 32.0);
+                let off = crate::intersect::closest_spline_parameter(&whole, point);
+                assert!(whole.point_at(off).distance(point) < 1e-6);
+            }
+            let solved = solve(&sketch);
+            assert_clean(&solved);
+            let moved = solved.geometry.arc(rounding).unwrap();
+            assert!(moved.center.distance(fillet.center) < 1e-6);
+            assert_eq!(solved.solution.degrees_of_freedom(), dof_before);
+        }
+    }
+}
+
+#[test]
+fn a_spline_too_short_for_the_radius_is_refused_and_one_is_chamfered_along_it() {
+    let (mut sketch, line, spline) = line_on_spline(true, SplineKind::OPEN);
+    let corner = sketch.corner_between(line, spline).unwrap();
+
+    let refused = sketch.rounding(&corner, 400.0);
+    assert!(
+        matches!(refused, Err(FilletError::TooLarge { .. })),
+        "{refused:?}"
+    );
+
+    sketch.chamfer(&corner, &equal(2.0)).unwrap();
+    let curve = sketch.spline(spline).unwrap();
+    assert!((curve.point_at(0.0).distance(Point2::new(10.0, 0.0)) - 2.0).abs() < 1e-6);
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn a_corner_of_two_splines_is_rounded_tangent_to_both() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_spline(&bowed());
+    let mirrored: Vec<Point2> = bowed()
+        .iter()
+        .map(|point| Point2::new(point.x, -point.y))
+        .collect();
+    let second = sketch.add_spline(&mirrored);
+    let (corner, _) = sketch.entity(first).and_then(Entity::spline_ends).unwrap();
+    let (other, _) = sketch.entity(second).and_then(Entity::spline_ends).unwrap();
+    sketch
+        .add_constraint(Constraint::Coincident(corner, other))
+        .unwrap();
+    let found = sketch.corner_between(first, second).unwrap();
+
+    let rounding = sketch.fillet(&found, 1.0, mm(1.0)).unwrap();
+
+    let fillet = sketch.arc(rounding).unwrap();
+    for spline in [first, second] {
+        assert!((gap_to_spline(&sketch, spline, fillet.center) - 1.0).abs() < 1e-6);
+        assert!(has(&sketch, &Constraint::Tangent(spline, rounding)));
+    }
+    assert_clean(&solve(&sketch));
+}
+
+#[test]
+fn the_sharp_of_a_spline_corner_stays_only_while_something_holds_it() {
+    let (mut free, line, spline) = line_on_spline(true, SplineKind::OPEN);
+    let (mut held, _, _) = line_on_spline(true, SplineKind::OPEN);
+    let corner = held.corner_between(spline, line).unwrap();
+    let at = held.point(corner.point).unwrap();
+    let fix = Constraint::Fix {
+        point: corner.point,
+        at,
+    };
+    held.add_constraint(fix.clone()).unwrap();
+    let loose = free.corner_between(spline, line).unwrap();
+
+    held.fillet(&corner, 1.0, mm(1.0)).unwrap();
+    free.fillet(&loose, 1.0, mm(1.0)).unwrap();
+
+    assert!(has(&held, &fix));
+    assert!(has(&held, &Constraint::Coincident(corner.point, line)));
+    assert!(!has(&held, &Constraint::Coincident(corner.point, spline)));
+    assert!(free.point(loose.point).is_none());
+    assert_clean(&solve(&held));
 }

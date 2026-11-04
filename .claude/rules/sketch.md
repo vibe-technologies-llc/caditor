@@ -361,9 +361,15 @@ relative to the extent.
     are whole, else a `Piece` (a `Knotted` when its inner spans are uneven); a closed
     one is unrolled over two turns (`Knotted::periodic`) and opens into one; a conic stays a conic
     (normalised middle weight gives the new rho; its `Rho` dimension is dropped). A fit-point
-    spline cannot hold an exact piece, so its piece is a fit spline of the same spacing through the
-    cut and the fit points inside the stretch (a point within the tolerance of a cut gives way to
-    it), its shape near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
+    spline's piece is cut out of its drawn curve the same way (`exact_fit_piece`: handles included,
+    since the drawn curve reads them) and becomes a control spline, its first or last fit point
+    kept as the end it still is and every fit point inside the stretch replaced by control points
+    (a closed spline's stretch must lie within one turn). That holds unless a fit point inside the
+    stretch carries a constraint or is used by another curve, or a tangent handle's anchor lies in
+    it (`fit_piece_is_held`: the constraints on a point go when the point does, and a handle needs
+    a fit spline): then the piece is a fit spline of the same spacing through the cut and the fit
+    points inside the stretch (a point within the tolerance of a cut gives way to it), its shape
+    near the cut shifting slightly. `NoPiece` refuses a stretch with no such spline.
   - On a trimmed spline `Equal` and `Rho` are dropped; a `Coincident` point or `Distance` (where it
     measures on the spline) stays on the piece it lies on, moves to the far piece or is dropped
     with a removed stretch; `Tangent` and `Curvature` joined at a removed end are dropped, joined
@@ -532,8 +538,8 @@ relative to the extent.
   A spline of any kind (fit or control point) is read as its curve. Such a curve chosen with a
   chain it touches is `NotInChain`; beside chains it does not touch it is offset with them.
   `Sketch::curve_crossings` gives where a spline or ellipse crosses another curve.
-- Fillet (`fillet.rs`): a `Corner` is where exactly two lines, arcs or elliptical arcs end, kept by
-  one of its points. `rounding` refuses a radius whose touching point would not lie on a curve
+- Fillet (`fillet.rs`): a `Corner` is where exactly two lines, arcs, elliptical arcs or open
+  splines end, kept by one of its points. `rounding` refuses a radius whose touching point would not lie on a curve
   short of its far end (`TooLarge`). Between lines and arcs the centre is where their offset
   carriers cross; with an elliptical arc the centre rolls along the ellipse at the radius on the
   inside (`rolled_center`: first root from the corner along the arc of the other side's signed
@@ -541,6 +547,19 @@ relative to the extent.
   line's, the circle's or the closest point's on its whole ellipse). `fillet` adds the arc
   `Tangent` to both with a `Radius` dimension and keeps the corner point as a sharp held on both
   carriers by `Coincident`, so dimensions, fixes and symmetry on the corner still hold.
+  - A spline (`Leg::Spline`, any kind but closed) rolls the centre like an ellipse, its parameter
+    from the corner end (`fillet/spline.rs`): the centre is the point offset from the curve by the
+    radius on the corner's side, the first root along it of the other side's signed distance minus
+    the radius. The touching point is the closest point of the open curve to the centre; it must
+    lie short of the far end and at the radius from the centre (`holds_radius`, else `TooLarge`: a
+    bend tighter than the radius). The spline is cut there exactly (`cut_spline_end`: the
+    blossoming and fates of a trim, the corner's end point kept for `merge_point`, the touching
+    point the new end), so it becomes a control spline, and the arc is `Tangent` to it at the
+    shared end. No constraint holds a point on a spline's continuation, so the sharp is held only
+    on the non-spline curves (`carried_curves`); a fillet whose sharp nothing else uses removes it,
+    keeping the sketch's freedom unchanged, and a chamfer keeps it for its `Distance` dimensions.
+    A chamfer at a spline's end cuts by chord distance like an ellipse's; its angle form is
+    `AngleNotHeld` since no `Angle` takes a spline.
 - Joining non-meeting curves first (`fillet/crossing.rs`): `join_at_crossing` takes a `Pick` on
   each (curve and a point on it), the corner at the crossing of their carriers nearest the picks
   (`NeverMeet`, `SameCurve`), and replaces the end on the far side of the corner from the pick with
@@ -605,11 +624,11 @@ relative to the extent.
   is cut at the parameter of the drawn `BSpline` closest to the point, both pieces exact by the
   blossoming trim uses (`spline_halves`): the point is the last control point of the near piece
   and the first of the far one, the constraints fall as in a trim of the stretch (`spline_fates`),
-  and the pieces get no constraint to each other. Control splines, pieces and conics split; a
-  fit-point spline (`FitSpline`: no fit spline holds a piece exactly) and a closed one
-  (`ClosedSpline`: one point only opens it) are refused in words, as are circles, whole ellipses
-  and projected curves.
-- Break (`breaking.rs`): `break_curve` splits a line, arc, elliptical arc or open control spline at
+  and the pieces get no constraint to each other. Control splines, pieces, conics and fit-point
+  splines split (a fit spline's pieces are control splines, or refitted fit splines where a fit
+  point is held, as in a trim); a closed one (`ClosedSpline`: one point only opens it) is refused
+  in words, as are circles, whole ellipses and projected curves.
+- Break (`breaking.rs`): `break_curve` splits a line, arc, elliptical arc or open spline at
   every crossing with the other curves and the two axes, found as trim finds cuts (`open_cuts`).
   Each cut goes through `split_at` from the curve's start toward its end, the next cut lying on the
   piece just made, so `Collinear` constraints chain without repeating. The cut point is the end
@@ -618,7 +637,7 @@ relative to the extent.
   curve's constraints as a split does and are fully determined by the crossings, so the degrees of
   freedom of lines and arcs do not change (a spline's pieces add control points).
   `break_curves` breaks each of several curves in turn on a working copy, skipping those that
-  cannot break (circles, whole ellipses, fit-point and closed splines, reference or projected
+  cannot break (circles, whole ellipses, closed splines, reference or projected
   curves, curves crossing nothing); `BreakError` names the curve for a single refusal, else
   `NothingToBreak` or `NothingSelected`.
 

@@ -231,7 +231,7 @@ fn a_closed_spline_cut_twice_opens_into_the_rest_of_its_loop() {
 }
 
 #[test]
-fn a_fit_spline_keeps_its_points_and_passes_through_the_cut() {
+fn a_fit_spline_is_trimmed_exactly_into_a_control_spline() {
     let mut sketch = Sketch::new(Plane::XY);
     let through = [
         at(0.0, 0.0),
@@ -242,6 +242,43 @@ fn a_fit_spline_keeps_its_points_and_passes_through_the_cut() {
     ];
     let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
     let kept = points_of(&sketch, fit);
+    let post = upright(&mut sketch, 25.0);
+    let whole = sketch.spline(fit).unwrap();
+
+    assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
+
+    let points = points_of(&sketch, fit);
+    let trimmed = sketch.spline(fit).unwrap();
+    assert_eq!(points[0], kept[0]);
+    assert!(!kind_of(&sketch, fit).passes_its_points());
+    assert_lies_on(&trimmed, &whole);
+    assert!((trimmed.point_at(1.0).x - at(25.0, 0.0).x).abs() < 1e-7);
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(points[points.len() - 1], post)
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_fit_spline_with_a_held_point_is_trimmed_through_its_points() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let through = [
+        at(0.0, 0.0),
+        at(10.0, 8.0),
+        at(20.0, -4.0),
+        at(30.0, 6.0),
+        at(40.0, 0.0),
+    ];
+    let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
+    let kept = points_of(&sketch, fit);
+    let held = sketch.point(kept[1]).unwrap();
+    sketch
+        .add_constraint(Constraint::Fix {
+            point: kept[1],
+            at: held,
+        })
+        .unwrap();
     let post = upright(&mut sketch, 25.0);
 
     assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
@@ -259,6 +296,37 @@ fn a_fit_spline_keeps_its_points_and_passes_through_the_cut() {
     let cut = points[3];
     assert!((sketch.point(cut).unwrap().x - at(25.0, 0.0).x).abs() < 1e-7);
     assert!(has(&sketch, &Constraint::Coincident(cut, post)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_fit_spline_shaped_by_a_handle_in_the_part_cut_away_is_trimmed_exactly() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let through = [
+        at(0.0, 0.0),
+        at(10.0, 8.0),
+        at(20.0, -4.0),
+        at(30.0, 6.0),
+        at(40.0, 0.0),
+    ];
+    let fit = sketch.add_spline_of(&through, SplineKind::fit(false));
+    let points = points_of(&sketch, fit);
+    let (handle, _) = sketch.add_spline_handle(fit, points[4]).unwrap();
+    let post = upright(&mut sketch, 25.0);
+    let whole = sketch.spline(fit).unwrap();
+
+    assert_eq!(sketch.trim(fit, at(39.0, 0.0)), Ok(Trimmed::Shortened));
+
+    assert!(!kind_of(&sketch, fit).passes_its_points());
+    assert_lies_on(&sketch.spline(fit).unwrap(), &whole);
+    assert!(!has(
+        &sketch,
+        &Constraint::SplineHandle {
+            spline: fit,
+            line: handle
+        }
+    ));
+    assert!(sketch.entity(post).is_some());
     assert_solves_in_place(&sketch);
 }
 

@@ -147,7 +147,7 @@ pub fn modify_sketch() -> Value {
                 "minItems": 1,
                 "maxItems": MOST_ITEMS,
                 "items": {
-                    "description": "A point where two lines, arcs or elliptical arcs meet, or a pair [curve, curve] meeting at their ends",
+                    "description": "A point where two lines, arcs, elliptical arcs or splines meet, or a pair [curve, curve] meeting at their ends",
                     "oneOf": [entity(), { "type": "array", "items": entity(), "minItems": 2, "maxItems": 2 }]
                 },
                 "description": "fillet, chamfer: the corners to round or cut"

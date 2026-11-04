@@ -495,7 +495,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   transaction.
 - Sketch fillet is named so to keep it apart from the model's Fillet. It first takes its corners:
   started with a selection, every selected point that is a corner (`Sketch::corner_at`) and every
-  corner where two selected lines, arcs or elliptical arcs meet (`Sketch::fillet_corners`),
+  corner where two selected lines, arcs, elliptical arcs or open splines meet (`Sketch::fillet_corners`),
   duplicates dropped (`filleting::gathered`), the words saying how many were left out with the first
   one's reason; two selected curves meeting at no corner make one where they cross or would meet
   (`filleting::Aim::Crossing`, `Sketch::crossing_picks`); else the curve end under the pointer. A

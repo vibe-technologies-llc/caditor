@@ -18,8 +18,10 @@ line is no longer as long as the other.
 A trimmed ellipse becomes an elliptical arc, and the two pieces of an elliptical arc trimmed in
 the middle keep one ellipse. A trimmed spline keeps exactly the shape it had: what is left is a
 spline of its own with control points to drag, and a closed spline cut twice opens. A conic stays a
-conic, with the rho of the piece that is left. A spline through fit points keeps the fit points on
-the piece left and passes through the cut, so its shape near the cut can shift slightly. Extending
+conic, with the rho of the piece that is left. A spline through fit points is also kept exactly,
+and what is left of it is a spline drawn from control points. When a fit point on the piece left
+carries a constraint, a tangent handle or another curve, the piece keeps those fit points and
+passes through the cut instead, so its shape near the cut can shift slightly. Extending
 a spline only goes as far as it keeps heading the way its end points: an end that would curl back
 before meeting anything is not extended. Whole ellipses, circles and closed splines cannot be
 extended, having no ends, and neither can projected geometry; the tool says why when you aim at
