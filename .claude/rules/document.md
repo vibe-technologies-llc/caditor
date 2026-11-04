@@ -1028,9 +1028,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   each up-to with an optional signed `offset`. Each hole's depth is where its axis meets the plane
   (offset along the plane's normal), so a slanted face gives each hole its own depth and a flat
   bottom. Up to next asks kernel `next_face` along the hole's outline (circle or slot) in the body
-  before the feature and fails in words when the hole first enters the body, meets several faces,
-  a curved one, or passes beside it; the plane it found, per hole in drilling order, is recorded
-  in the result's `reached` as an extrusion's is. An up-to hole's counterbore, countersink or steps must stay
+  before the feature and fails in words when the hole first enters the body or passes beside it;
+  the plane it found, per hole in drilling order, is recorded in the result's `reached` as an
+  extrusion's is. Where the first faces are curved or several and there is no offset, each drill
+  is made through all (`reach`) and cut back where it leaves the body (kernel `stop_at_body` in
+  `Context::stopped`, nothing recorded in `reached`; a counterbore or steps are cut back with it,
+  `head_fits` does not apply); with an offset they fail in words (`NextCurved`, `NextSeveral`),
+  and a hole starting partly inside the body, around a void, or not buildable fails alone
+  (`NextStraddles`, `NextEnclosed`, `NextUnbuilt`). An up-to hole's counterbore, countersink or steps must stay
   shallower than each depth, and it ends flat whatever its bottom says.
 - `HoleStyle`: plain, counterbore (diameter, depth), countersink (diameter, angle) or stepped
   (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and own depth; each

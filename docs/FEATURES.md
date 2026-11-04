@@ -22,8 +22,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] An end up to the next face or a curved face follows curved or several faces
   only on one side and without an offset (two sides or an offset need one flat face). An end
   cannot end on a whole body (where the profile last leaves it); a revolve turns up to a datum or
-  principal plane only when it holds the axis, and its up-to ends take no offset; and a hole stops
-  at the next face only where that face is flat.
+  principal plane only when it holds the axis, and its up-to ends take no offset; and a hole stopping
+  at a curved or several next faces takes no offset.
 - [medium · hard] Blends: ends at steps and T-junctions refused, and a lofted chain (an edge that is
   no line along its faces nor a circle about their axis, and the tangent chain holding it) refused
   where it ends at a rounded corner; a lofted chain's feet are not checked against other blends'
