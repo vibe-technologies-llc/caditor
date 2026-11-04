@@ -106,14 +106,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] A sketch with a closed centripetal spline through one point twice can move when
-  solved again from its own result, by up to 0.6 mm, or be refused: the spacing rounds do not
-  settle within `SPACING_ROUNDS` (seeds 269470 and 306204, a distance to or a tangent with such a
-  spline), the result is left a few micrometres off its own layout (173746), or the second solve
-  reports a conflict (257788, `a_solved_sketch_solves_again_from_its_own_result`). The knots near
-  the repeated point sit `SHORTEST_GAP_SHARE` apart, where the curve swings with the smallest move
-  of its fit points; `a_solved_sketch_does_not_move_when_solved_again` skips these splines.
-
+- [medium · hard] A sketch with a closed centripetal spline through one point twice moves when
+  solved again from its own result (seeds 269470, 306204 and 173746 of
+  `a_solved_sketch_does_not_move_when_solved_again`, by 0.34, 0.14 and 0.004 mm; seed 257788 of
+  `a_solved_sketch_solves_again_from_its_own_result` now solves again). In seed 269470 (a distance
+  from an axis to a spline through four fit points, one repeated, and nothing else) no spacing
+  round's solve with the fit points frozen holds, so all eight rounds and then the
+  `PARAMETER_ROUNDS` re-measurements run (16 in the first solve, 6 in the second): the loop through
+  the repeated point has two bulges near the dimension and each round holds one while the other
+  comes nearer, as in the alternating projection `sketch-solver.md` describes, and the solve
+  ends on whichever bulge the last round held, sliding the whole sketch up to 0.3 mm along the
+  directions the dimension leaves free. `a_solved_sketch_does_not_move_when_solved_again` skips
+  these splines.
 - [medium · hard] An open fit spline through three coincident points and a fourth, held a distance
   from a line (`a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_result`),
   moves by 0.05 mm when solved again from its own result for about one rounding in ten of an
