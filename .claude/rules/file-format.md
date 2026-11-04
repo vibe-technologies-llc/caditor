@@ -232,6 +232,11 @@ Extrusions and revolves:
   when either is not its literal default (`Sweep::is_shaped`); an older reader reports the sweep
   as from a newer version rather than sweeping it straight; a wrapped kind that is not a sweep
   loads without it, reported. The corpus holds it in `sweep-shapes.caditor`.
+  `sweep_shape_law`: a wrapper around a sweep record (`feature`, outermost, outside `sweep_shape`)
+  with `rows`, each `fraction`, `twist` and `scale` texts (unreadable 0.5, 0 deg and 1,
+  reported), written only when `shape_law` is not empty; an older reader reports the sweep as from
+  a newer version rather than sweeping it evenly; a wrapped kind that is not a sweep loads without
+  it, reported. The corpus holds it in `sweep-laws.caditor`.
 - `pipe`: `path` as a sweep's (unreadable loads as unchosen), `shape` (`round`, `square`,
   `triangle`), `size` (unreadable 10 mm), `wall` only when hollow (unreadable 1 mm), `bend`
   (unreadable 0 mm) and `operation`. The corpus holds it in `pipes.caditor`.
@@ -282,6 +287,12 @@ Extrusions and revolves:
   any `flat_spiral`) with `pitch`, the final pitch's text (unreadable 5 mm, reported), written
   only when `final_pitch` is set; an older reader reports the helix as from a newer version
   rather than winding it at one pitch. The corpus holds both in `helix-laws.caditor`.
+  `helix_pitch_table`: a wrapper around any helix record (`feature`, outermost inside any
+  `flat_spiral`, outside `helix_progressive`) with `rows`, each `turns` and `pitch` texts
+  (unreadable 1 and 5 mm, reported), written only when `pitch_table` is not empty; an older reader
+  reports the helix as from a newer version rather than winding it at one pitch; wrapped around a
+  kind that is not a helix it loads without it, reported. The corpus holds it in
+  `helix-table.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

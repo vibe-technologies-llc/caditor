@@ -169,6 +169,14 @@ paths:
   validating (`CrossesItself`; inconclusive passes) when the path has several legs or its leg bends
   freely (`bends_freely_along`: not a line or a meridian arc, whatever the shape). Guide rails and
   round corners are roadmap entries.
+- `SweepShape::law` (`ShapeStop { fraction, twist, scale }`, empty by default so a sweep without
+  one is exactly the even sweep below) is a table of waypoints: knots at the start (no twist,
+  scale 1), each row and the end (`twist`, `scale`), the twist and scale smooth through them as
+  monotone cubic Hermite splines (`smooth_slopes`, Fritsch-Carlson, linear for two knots or knots
+  on a line): a corner of the law would not fit the stations' interpolating spline within
+  `FIT_TOLERANCE` before `MAX_STATIONS`, failing `TooIntricate`. Rows must lie strictly between 0
+  and 1 and increase (`ShapeLawOrder`); a closed path still refuses an end scale, and a row's scale
+  is held to `Similarity::scaling`'s range (`UnusableShape`).
 - `sweep_shaped(plane, regions, path, (SweepOrientation, SweepShape), feature)` twists and scales
   the profile along the way (`sweep` is it with `SweepShape::NONE`). `SweepShape { twist, scale }`
   (radians in all, end scale; a non-finite twist or a scale outside `Similarity::scaling`'s range
@@ -1133,7 +1141,12 @@ paths:
   final pitch not above the resolution `NoPitch`, end turns neither zero nor at least
   `LEAST_COIL_TURNS` `EndTurns`, a change under `LEAST_COIL_TURNS` `EndChange`, ends taking more
   turns than the helix makes or leaving fewer than `LEAST_COIL_TURNS` between them `EndsTooLong`,
-  and ends taking every turn of a helix whose final pitch differs `ProgressionWithoutBody`. A sweep along it keeps the screw motion's
+  and ends taking every turn of a helix whose final pitch differs `ProgressionWithoutBody`. `HelixSpec::table` (`PitchStop { turns, pitch }`) is a table of pitches
+  by turn instead: stops at the start's `pitch` and then each row, linear between them and constant
+  after the last (`PitchLaw::tabled`), refused with ends or a final pitch (`TableWithOther`), rows
+  not strictly increasing from above zero (`TableOrder`) or past the turns (`TableBeyond`);
+  `HelixPitch::table` sizes it (height the law's rise, the start pitch solved from the rise's
+  linearity in it, turns by inverting the rise stretch by stretch, `PitchLaw::turns_for`). A sweep along it keeps the screw motion's
   placement, so its section keeps the lean to the axis it starts with where the pitch changes.
 - `spiral(SpiralSpec)` (`coil/spiral.rs`) winds a flat (Archimedean) spiral in the frame's plane:
   radius from the inner `radius` growing by `pitch` a turn, `hand`, `start_angle` and pieces as a

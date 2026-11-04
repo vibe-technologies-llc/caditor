@@ -7,7 +7,7 @@ use super::{
     AXIS_CLEARANCE, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, STRAIGHT_TAPER,
     Winding,
     faces::{Motion, pieces_through},
-    pitch::{ClosedEndLaw, END_CHANGE_TURNS, PitchLaw},
+    pitch::{ClosedEndLaw, END_CHANGE_TURNS, PitchLaw, PitchStop},
 };
 use crate::{
     build::PathSegment,
@@ -53,15 +53,20 @@ impl HelixEnds {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct HelixPitch {
     pub ends: Option<HelixEnds>,
     pub final_pitch: Option<f64>,
+    pub table: Vec<PitchStop>,
 }
 
 impl HelixPitch {
     pub fn turns_taken(&self) -> f64 {
         self.ends.map_or(0.0, |ends| ends.turns_taken())
+    }
+
+    fn tabled_rise(&self, pitch: f64, turns: f64) -> f64 {
+        PitchLaw::tabled(pitch, &self.table).rise(TAU * turns)
     }
 
     fn at_end_pitch(&self) -> (f64, f64) {
@@ -74,23 +79,33 @@ impl HelixPitch {
     }
 
     pub fn height(&self, pitch: f64, turns: f64) -> f64 {
+        if !self.table.is_empty() {
+            return self.tabled_rise(pitch, turns);
+        }
         let (at_end, end_pitch) = self.at_end_pitch();
         at_end * end_pitch + (turns - at_end) * self.mean(pitch)
     }
 
     pub fn pitch_for(&self, height: f64, turns: f64) -> f64 {
+        if !self.table.is_empty() {
+            let without = self.tabled_rise(0.0, turns);
+            return (height - without) / (self.tabled_rise(1.0, turns) - without);
+        }
         let (at_end, end_pitch) = self.at_end_pitch();
         let mean = (height - at_end * end_pitch) / (turns - at_end);
         self.final_pitch.map_or(mean, |last| 2.0 * mean - last)
     }
 
     pub fn turns_for(&self, height: f64, pitch: f64) -> f64 {
+        if !self.table.is_empty() {
+            return PitchLaw::tabled(pitch, &self.table).turns_for(height);
+        }
         let (at_end, end_pitch) = self.at_end_pitch();
         (height - at_end * end_pitch) / self.mean(pitch) + at_end
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HelixSpec {
     pub frame: Plane,
     pub radius: f64,
@@ -101,6 +116,7 @@ pub struct HelixSpec {
     pub start_angle: f64,
     pub ends: Option<HelixEnds>,
     pub final_pitch: Option<f64>,
+    pub table: Vec<PitchStop>,
 }
 
 impl HelixSpec {
@@ -129,11 +145,15 @@ impl HelixSpec {
         HelixPitch {
             ends: self.ends,
             final_pitch: self.final_pitch,
+            table: self.table.clone(),
         }
     }
 
     fn law(&self) -> PitchLaw {
         let body = (self.pitch, self.last_pitch());
+        if !self.table.is_empty() {
+            return PitchLaw::tabled(self.pitch, &self.table);
+        }
         match (self.ends, self.final_pitch) {
             (Some(ends), _) => PitchLaw::closed_ends(body, ends.law(), self.turns),
             (None, Some(last)) => PitchLaw::progressive(self.pitch, last, self.turns),
@@ -208,6 +228,12 @@ pub enum HelixError {
          pitch to change over from {from} to {to}"
     )]
     ProgressionWithoutBody { from: f64, to: f64, turns: f64 },
+    #[error("a table of pitches stands alone: the helix has {other} as well")]
+    TableWithOther { other: &'static str },
+    #[error("a row of the pitch table lies at turn {turns}, which must follow the row before it")]
+    TableOrder { turns: f64 },
+    #[error("a row of the pitch table lies at turn {turns}, past the helix's {helix} turns")]
+    TableBeyond { turns: f64, helix: f64 },
     #[error("the helix reaches farther than {MAX_SIZE} mm")]
     TooLarge,
     #[error("the helix's geometry cannot be built: {0}")]
@@ -268,6 +294,7 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     if let Some(ends) = spec.ends {
         checked_ends(&ends, spec)?;
     }
+    checked_table(spec)?;
     let reach = spec.radius.max(spec.end_radius())
         + spec.height()
         + spec.frame.origin().abs().max_element();
@@ -282,6 +309,42 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     } else {
         spec.taper
     })
+}
+
+fn checked_table(spec: &HelixSpec) -> Result<(), HelixError> {
+    if spec.table.is_empty() {
+        return Ok(());
+    }
+    if spec.ends.is_some() {
+        return Err(HelixError::TableWithOther {
+            other: "closed ends",
+        });
+    }
+    if spec.final_pitch.is_some() {
+        return Err(HelixError::TableWithOther {
+            other: "a final pitch",
+        });
+    }
+    let mut before = 0.0;
+    for stop in &spec.table {
+        if !stop.turns.is_finite() || !stop.pitch.is_finite() {
+            return Err(HelixError::NonFinite);
+        }
+        if stop.pitch <= LINEAR_RESOLUTION {
+            return Err(HelixError::NoPitch);
+        }
+        if stop.turns <= before + ROUNDING_SLACK {
+            return Err(HelixError::TableOrder { turns: stop.turns });
+        }
+        if stop.turns > spec.turns + ROUNDING_SLACK {
+            return Err(HelixError::TableBeyond {
+                turns: stop.turns,
+                helix: spec.turns,
+            });
+        }
+        before = stop.turns;
+    }
+    Ok(())
 }
 
 fn checked_ends(ends: &HelixEnds, spec: &HelixSpec) -> Result<(), HelixError> {
@@ -319,7 +382,7 @@ pub fn helix(spec: &HelixSpec) -> Result<Vec<HelixTurn>, HelixError> {
         winding: Winding {
             frame,
             hand: spec.hand,
-            law,
+            law: law.clone(),
             spread: taper.tan(),
         },
         centre: Point2::ZERO,

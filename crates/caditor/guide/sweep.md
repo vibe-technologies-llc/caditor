@@ -36,6 +36,14 @@ starts where the path crosses the profile's plane and closes on itself.
   evenly along it: 0.5 ends at half the size, 2 at twice, 1 keeps it. Along a straight line a
   square profile scaled this way makes a frustum. Like Twist, it scales about where the path meets
   the profile's plane.
+- **Rows** (**Add a row**, under End scale) replace the even change with a table: each row says the
+  twist and scale the profile has reached at a **fraction** of the path (0.5 is halfway; above 0,
+  below 1, each after the row before). The twist and scale pass smoothly through the rows, from no
+  twist and a scale of 1 at the start to the Twist and End scale at the end, so a bulge, a waist or
+  a twist that turns and returns is a row or two. **Add a row** adds one halfway between the last row
+  and the end at the values the even change gives there, so adding one changes nothing until you
+  edit it; **Remove the last row** removes it. A sweep takes at most 16 rows. A row out of order fails
+  the sweep saying so.
 - Both take numbers, units and expressions referring to [parameters](parameters).
 - **New body**, **Add**, **Remove from body** or **Intersect with body**, and for a new body
   **Separate pieces** (one body, or a body each), as for an extrusion.
@@ -53,7 +61,7 @@ starts where the path crosses the profile's plane and closes on itself.
   fails, so a closed path is swept square to it.
 - A closed path out of one plane may bring the profile back turned. Such a sweep fails saying by
   how much and naming the Twist that brings it back (that angle, or it plus or minus whole turns);
-  typed to three decimal places it closes exactly. A closed path cannot change the profile's size,
+  typed to three decimal places it closes exactly. A closed path cannot change the profile's size
   so End scale must be 1 along one.
 - A twisted or scaled sweep cannot mitre a sharp corner between two lines; round the corner with a
   fillet in the path's sketch.

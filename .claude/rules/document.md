@@ -595,8 +595,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Sweep (`sweep.rs`)
 
-- `SolidFeature::Sweep` (`Sweep { sketch, regions, path, orientation, twist, scale, operation,
-  other_bodies }`)
+- `SolidFeature::Sweep` (`Sweep { sketch, regions, path, orientation, twist, scale, shape_law,
+  operation, other_bodies }`)
   carries the chosen regions along a `SweepPath`: `Curves { sketch, curves }` of another sketch
   (lifted to its solved plane through `profile_curve`, each keyed by its entity id), `Edges { body,
   edges }` (`EdgeReference`s resolved with `EdgeNaming` in the body as it stands at the sweep, each
@@ -609,7 +609,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plain number above zero (`unscaled()`, 1, by default; zero or less fails in words, a value of the
   wrong kind asks for a plain number such as 0.5). Both are its expressions (`Sweep::expressions`,
   counted, inlined and pasted with the rest), never scaled with the model; `Sweep::is_shaped` tells
-  either from its literal default. It has no start, taper or wall.
+  either from its literal default. `shape_law` (`Vec<ShapeRow>`, each a `fraction` plain number
+  above 0 and below 1, a `twist` angle and a `scale` number, at most `MAX_SHAPE_ROWS`) is a table
+  of twist and scale reached at fractions of the path, the kernel `SweepShape::law`, among the
+  expressions; rows out of order are `SweepCause::ShapeLawOrder`, too many `ShapeLawLong`. It has
+  no start, taper or wall.
 - The path's sketch is in `reference_sketches` and `features()`, its body in `bodies_used`, its
   helix in `features()` (`SweepPath::features`), its edges' origins among `origin_features`, and
   healing visits its edges. A curve of the path cannot be removed (`EntityInUse`, as a revolve's
@@ -706,7 +710,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   square's "inside", "outside", "top" and "underside" (`coil::part_name`).
 ### Helix (`helix.rs`)
 
-- `Helix { kind, axis, reversed, diameter, length, taper, turning, start, start_point, ends, final_pitch }` is a curve feature: the axis,
+- `Helix { kind, axis, reversed, diameter, length, taper, turning, start, start_point, ends, final_pitch, pitch_table }` is a curve feature: the axis,
   sizing (`CoilLength`, `coil::span`), taper (`coil::taper`) and turning are a coil's, resolved,
   counted, healed ("axis it winds around"), pasted, inlined and anchored for model scale the same
   way (`Helix::lengths_mut` scales the diameter and lengths), with the frame from `Helix::frame` (x
@@ -754,6 +758,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   their own `EndsFillHeight`, end turns of a sliver `EndTurnsRange`. Its expressions are among the
   helix's, the pitches among `lengths_mut`. A flat spiral keeps but ignores them (the app drops them on
   switching to one).
+- `pitch_table` (`Vec<PitchRow>`, each a `turns` plain number and a `pitch` length; empty for none,
+  at most `MAX_PITCH_ROWS`, `CoilCause::PitchTableLong`) is a table of pitches by turn: the pitch is
+  `length`'s at the start and changes evenly to each row's at its turn, then stays at the last
+  row's (kernel `HelixSpec::table`, `PitchStop`; `HelixPitch::table` sizes it as the law's integral,
+  `turns_for` inverting it piecewise). It stands alone: with closed ends or a final pitch the
+  kernel refuses it (`PitchTableAlone`, the app's panel and tools clearing the other law when one is
+  chosen), and rows out of order or past the helix's turns are `PitchTableOrder` and
+  `PitchTableBeyond`; a table the height leaves no pitch above zero for is `PitchTableFillsHeight`.
+  A flat spiral keeps but ignores it; the rows' expressions are among the helix's and their pitches
+  among `lengths_mut`.
 - A pipe along a flat spiral refuses turns its section would touch before building
   (`pipe::clear_turns`, `SweepCause::SpiralTurnsTouch` naming the pipe, the spiral, the pitch and
   `SpiralSpec::least_pitch_for` its size); a sweep's profile too wide for the pitch fails as

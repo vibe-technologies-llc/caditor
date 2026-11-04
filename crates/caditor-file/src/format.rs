@@ -21,15 +21,16 @@ use caditor_document::{
     MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
     MetricSize, Mirror, MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
     OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
-    PatternKind, PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
-    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    PrincipalShowing, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar, SavedView,
-    SavedViews, Scale, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
-    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, Wall, folder_label, group_name, material_name, unscaled, untwisted, view_name,
+    PatternKind, PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PitchRow,
+    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget,
+    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, PrincipalShowing, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar,
+    SavedView, SavedViews, Scale, ShapeRow, Shell, ShellSide, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
+    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
+    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
+    untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -340,8 +341,10 @@ pub(crate) enum FeatureKindRecord {
     ChordFillet(Box<ChordFilletRecord>),
     HelixEndChange(Box<HelixEndChangeRecord>),
     HelixProgressive(Box<HelixProgressiveRecord>),
+    HelixPitchTable(Box<HelixPitchTableRecord>),
     ShapedRib(Box<ShapedRibRecord>),
     SweepShape(Box<SweepShapeRecord>),
+    SweepShapeLaw(Box<SweepShapeLawRecord>),
     LoftEnds(Box<LoftEndsRecord>),
     MoveFace(Box<MoveFaceRecord>),
     Draft(Box<DraftRecord>),
@@ -420,6 +423,18 @@ pub(crate) struct HelixProgressiveRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HelixPitchTableRecord {
+    pub feature: FeatureKindRecord,
+    pub rows: Vec<PitchRowRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PitchRowRecord {
+    pub turns: String,
+    pub pitch: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct LoftEndsRecord {
     pub feature: FeatureKindRecord,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -433,6 +448,19 @@ pub(crate) struct LoftEndsRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SweepShapeRecord {
     pub feature: FeatureKindRecord,
+    pub twist: String,
+    pub scale: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SweepShapeLawRecord {
+    pub feature: FeatureKindRecord,
+    pub rows: Vec<ShapeRowRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ShapeRowRecord {
+    pub fraction: String,
     pub twist: String,
     pub scale: String,
 }
@@ -3459,6 +3487,26 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::Solid(SolidFeature::Sweep(sweep)) = kind
+        && !sweep.shape_law.is_empty()
+    {
+        let even = Sweep {
+            shape_law: Vec::new(),
+            ..sweep.clone()
+        };
+        return FeatureKindRecord::SweepShapeLaw(Box::new(SweepShapeLawRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Sweep(even))),
+            rows: sweep
+                .shape_law
+                .iter()
+                .map(|row| ShapeRowRecord {
+                    fraction: row.fraction.to_stored_text(),
+                    twist: row.twist.to_stored_text(),
+                    scale: row.scale.to_stored_text(),
+                })
+                .collect(),
+        }));
+    }
+    if let FeatureKind::Solid(SolidFeature::Sweep(sweep)) = kind
         && sweep.is_shaped()
     {
         let plain = Sweep {
@@ -4307,6 +4355,23 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             feature: helix_record(&helical),
         }));
     }
+    if !helix.pitch_table.is_empty() {
+        let even = Helix {
+            pitch_table: Vec::new(),
+            ..helix.clone()
+        };
+        return FeatureKindRecord::HelixPitchTable(Box::new(HelixPitchTableRecord {
+            feature: helix_record(&even),
+            rows: helix
+                .pitch_table
+                .iter()
+                .map(|row| PitchRowRecord {
+                    turns: text(&row.turns),
+                    pitch: text(&row.pitch),
+                })
+                .collect(),
+        }));
+    }
     if let Some(last) = &helix.final_pitch {
         let even = Helix {
             final_pitch: None,
@@ -4323,10 +4388,10 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
         .filter(|ends| !ends.changes_by_default())
     {
         let quick = Helix {
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 change: ClosedEnds::default().change,
-                ..ends.clone()
-            }),
+                ..(**ends).clone()
+            })),
             ..helix.clone()
         };
         return FeatureKindRecord::HelixEndChange(Box::new(HelixEndChangeRecord {
@@ -4432,6 +4497,7 @@ fn restore_helix(record: &HelixRecord, feature: &str, issues: &mut Vec<String>) 
         start_point: None,
         ends: None,
         final_pitch: None,
+        pitch_table: Vec::new(),
     }
 }
 
@@ -4660,6 +4726,7 @@ fn restore_sweep(record: &SweepRecord, feature: &str, issues: &mut Vec<String>) 
         },
         twist: untwisted(),
         scale: unscaled(),
+        shape_law: Vec::new(),
         operation: restore_operation(record.operation),
         other_bodies: Vec::new(),
     }
@@ -7158,11 +7225,11 @@ fn restore_kind(
             let mut kind = restore_kind(&ends.feature, name, texts, issues);
             match &mut kind {
                 FeatureKind::Helix(helix) => {
-                    helix.ends = Some(ClosedEnds {
+                    helix.ends = Some(Box::new(ClosedEnds {
                         turns: restore_value(&ends.turns, "end turns", "1", name, issues),
                         pitch: restore_value(&ends.pitch, "end pitch", "2.5 mm", name, issues),
                         change: ClosedEnds::default().change,
-                    });
+                    }));
                 }
                 _ => issues.push(format!(
                     "“{name}” was to have closed ends, but it is not a helix, so that was left \
@@ -7210,6 +7277,26 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::HelixPitchTable(table) => {
+            let mut kind = restore_kind(&table.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.pitch_table = table
+                        .rows
+                        .iter()
+                        .map(|row| PitchRow {
+                            turns: restore_value(&row.turns, "table turn", "1", name, issues),
+                            pitch: restore_value(&row.pitch, "table pitch", "5 mm", name, issues),
+                        })
+                        .collect();
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to follow a table of pitches, but it is not a helix, so that \
+                     was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::FlatSpiral(flat) => {
             let mut kind = restore_kind(&flat.feature, name, texts, issues);
             match &mut kind {
@@ -7252,6 +7339,33 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to twist or scale along its path, but it is not a sweep, so \
                      that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::SweepShapeLaw(law) => {
+            let mut kind = restore_kind(&law.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Sweep(sweep)) => {
+                    sweep.shape_law = law
+                        .rows
+                        .iter()
+                        .map(|row| ShapeRow {
+                            fraction: restore_value(
+                                &row.fraction,
+                                "table fraction",
+                                "0.5",
+                                name,
+                                issues,
+                            ),
+                            twist: restore_value(&row.twist, "table twist", "0 deg", name, issues),
+                            scale: restore_value(&row.scale, "table scale", "1", name, issues),
+                        })
+                        .collect();
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to follow a table of twists and scales along its path, but it \
+                     is not a sweep, so that was left out."
                 )),
             }
             kind

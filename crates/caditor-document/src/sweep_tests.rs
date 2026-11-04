@@ -540,3 +540,58 @@ fn an_end_scale_of_zero_or_a_twist_given_as_a_length_fails_in_words() {
         lengthened.remedy()
     );
 }
+
+fn lawful(rows: &[(&str, &str, &str)]) -> Shaped {
+    let mut model = shaped(straight_path(), "0 deg", "1");
+    let mut transaction = model.document.transaction("Law");
+    let kind = model.document.feature(model.sweep).unwrap().kind.clone();
+    let FeatureKind::Solid(SolidFeature::Sweep(sweep)) = kind else {
+        panic!("a sweep");
+    };
+    transaction.edit(Edit::SetFeatureKind {
+        id: model.sweep,
+        kind: FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            shape_law: rows
+                .iter()
+                .map(|(fraction, twist, scale)| {
+                    ShapeRow::new(stored(fraction), stored(twist), stored(scale))
+                })
+                .collect(),
+            ..sweep
+        })),
+    });
+    model.document.apply(transaction.finish()).unwrap();
+    model
+}
+
+#[test]
+fn a_twist_and_scale_law_swells_a_sweep_through_its_rows() {
+    let model = lawful(&[("0.5", "45 deg", "2")]);
+
+    let evaluation = evaluate(&model.document);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(
+        (volume(&evaluation, model.sweep) - 1720.0 / 15.0).abs() < 0.2,
+        "{}",
+        volume(&evaluation, model.sweep)
+    );
+}
+
+#[test]
+fn rows_out_of_order_or_too_many_fail_the_sweep_in_words() {
+    let backwards = lawful(&[("0.6", "0 deg", "1"), ("0.4", "0 deg", "1")]);
+    let at_end = lawful(&[("1", "0 deg", "1")]);
+    let many: Vec<(&str, &str, &str)> = vec![("0.5", "0 deg", "1"); MAX_SHAPE_ROWS + 1];
+    let long = lawful(&many);
+
+    for (model, wanted) in [
+        (&backwards, "after the row before"),
+        (&at_end, "after the row before"),
+        (&long, "rows, more than"),
+    ] {
+        let reason = failure(&evaluate(&model.document), model.sweep).reason();
+
+        assert!(reason.contains(wanted), "{reason}");
+    }
+}

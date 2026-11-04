@@ -213,7 +213,7 @@ fn section_of(layout: &Layout, index: usize) -> Result<&SectionPiece, CoilError>
 
 pub(super) fn build(layout: &Layout, feature: u64) -> Result<Solid, CoilError> {
     let motion = Motion {
-        winding: layout.winding,
+        winding: layout.winding.clone(),
         centre: layout.centre,
     };
     let pieces = pieces(layout.turns);

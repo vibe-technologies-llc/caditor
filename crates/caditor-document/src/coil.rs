@@ -11,6 +11,7 @@ use crate::{
     datum::AxisReference,
     document::{Feature, FeatureId},
     failure::Cause,
+    helix::MAX_PITCH_ROWS,
     primitive::{Context, combined},
     recompute::{CancelToken, Failure, FeatureResult, Inputs},
     solid::BodyOperation,
@@ -491,6 +492,27 @@ pub(crate) enum CoilCause {
         height: f64,
         final_pitch: f64,
     },
+    PitchTableAlone {
+        name: String,
+        other: &'static str,
+    },
+    PitchTableOrder {
+        name: String,
+        turns: f64,
+    },
+    PitchTableBeyond {
+        name: String,
+        turns: f64,
+        helix: f64,
+    },
+    PitchTableFillsHeight {
+        name: String,
+        height: f64,
+    },
+    PitchTableLong {
+        name: String,
+        rows: usize,
+    },
 }
 
 impl CoilCause {
@@ -575,6 +597,25 @@ impl CoilCause {
                 "A height of {height} mm with a final pitch of {final_pitch} mm leaves {name} no \
                  pitch above zero to start at."
             ),
+            Self::PitchTableAlone { name, other } => format!(
+                "{name} follows a table of pitches, which it cannot do with {other} as well."
+            ),
+            Self::PitchTableOrder { name, turns } => format!(
+                "The row of the pitch table of {name} at turn {turns:.2} does not lie after the \
+                 row before it, or the start."
+            ),
+            Self::PitchTableBeyond { name, turns, helix } => format!(
+                "The pitch table of {name} has a row at turn {turns:.2}, but it makes only \
+                 {helix:.2} turns."
+            ),
+            Self::PitchTableLong { name, rows } => format!(
+                "The pitch table of {name} has {rows} rows, more than the {MAX_PITCH_ROWS} a \
+                 helix takes."
+            ),
+            Self::PitchTableFillsHeight { name, height } => format!(
+                "A height of {height} mm with the rows of its pitch table leaves {name} no pitch \
+                 above zero to start at."
+            ),
         }
     }
 
@@ -643,6 +684,23 @@ impl CoilCause {
             }
             Self::FinalPitchFillsHeight { .. } => {
                 "Make the height larger or the final pitch smaller.".to_owned()
+            }
+            Self::PitchTableAlone { .. } => {
+                "Leave out the closed ends or the final pitch, or clear the table.".to_owned()
+            }
+            Self::PitchTableOrder { .. } => {
+                "Put the rows in order of turn, each after the one before, the first after the \
+                 start."
+                    .to_owned()
+            }
+            Self::PitchTableBeyond { .. } => {
+                "Move the row inside the turns the helix makes, or make more turns.".to_owned()
+            }
+            Self::PitchTableLong { .. } => {
+                format!("Remove rows from the table, leaving {MAX_PITCH_ROWS} or fewer.")
+            }
+            Self::PitchTableFillsHeight { .. } => {
+                "Make the height larger or the pitches in the table smaller.".to_owned()
             }
         }
     }

@@ -1,11 +1,11 @@
 use caditor_document::{
-    AxisReference, ClosedEnds, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH,
-    DEFAULT_TURNS, Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix,
-    HelixKind, HelixResult, PointReference, Transaction, span_with_pitch,
+    AxisReference, CoilLength, CoilSizing, CoilSpan, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, Helix, HelixKind,
+    HelixResult, MAX_PITCH_ROWS, PitchRow, PointReference, Transaction, span_with_pitch,
 };
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point3;
-use caditor_kernel::{HelixEnds, HelixPitch};
+use caditor_kernel::{HelixEnds, HelixPitch, PitchStop};
 
 use crate::{
     coil_tools::{self, CoilStart, DEFAULT_AXIS, DEFAULT_DIAMETER},
@@ -169,7 +169,12 @@ pub fn reversed(helix: &Helix) -> Helix {
 
 pub fn with_closed_ends(helix: &Helix, closed: bool) -> Helix {
     Helix {
-        ends: closed.then(ClosedEnds::default),
+        ends: closed.then(Box::default),
+        pitch_table: if closed {
+            Vec::new()
+        } else {
+            helix.pitch_table.clone()
+        },
         ..helix.clone()
     }
 }
@@ -182,6 +187,84 @@ pub fn with_progression(model: &Model, helix: &Helix, progressive: bool) -> Heli
     });
     Helix {
         final_pitch,
+        pitch_table: Vec::new(),
+        ..helix.clone()
+    }
+}
+
+pub fn with_pitch_table(model: &Model, helix: &Helix, tabled: bool) -> Helix {
+    let pitch_table = if tabled {
+        let (start, turns) = coil_tools::evaluated_span(model, &helix.length)
+            .map_or((DEFAULT_PITCH, DEFAULT_TURNS), |span| {
+                (span.pitch, span.turns)
+            });
+        vec![
+            PitchRow::new(
+                Expression::number((0.5 * turns * 100.0).round() / 100.0),
+                Expression::measure(start, Unit::Millimetre),
+            ),
+            PitchRow::new(
+                Expression::number((turns * 100.0).round() / 100.0),
+                Expression::measure(2.0 * start, Unit::Millimetre),
+            ),
+        ]
+    } else {
+        Vec::new()
+    };
+    Helix {
+        ends: if tabled { None } else { helix.ends.clone() },
+        final_pitch: None,
+        pitch_table,
+        ..helix.clone()
+    }
+}
+
+pub fn can_add_pitch_row(helix: &Helix) -> bool {
+    helix.pitch_table.len() < MAX_PITCH_ROWS
+}
+
+pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
+    let turns =
+        coil_tools::evaluated_span(model, &helix.length).map_or(DEFAULT_TURNS, |span| span.turns);
+    let last = helix.pitch_table.last();
+    let after = last
+        .and_then(|row| number(model, &row.turns))
+        .unwrap_or(0.0);
+    let row = PitchRow::new(
+        Expression::number((0.5 * (after + turns.max(after)) * 100.0).round() / 100.0),
+        last.map_or_else(
+            || Expression::measure(DEFAULT_PITCH, Unit::Millimetre),
+            |row| row.pitch.clone(),
+        ),
+    );
+    let mut pitch_table = helix.pitch_table.clone();
+    pitch_table.push(row);
+    Helix {
+        pitch_table,
+        ..helix.clone()
+    }
+}
+
+pub fn with_last_pitch_row_removed(helix: &Helix) -> Helix {
+    let mut pitch_table = helix.pitch_table.clone();
+    pitch_table.pop();
+    Helix {
+        pitch_table,
+        ..helix.clone()
+    }
+}
+
+pub fn with_pitch_row(helix: &Helix, index: usize, turns: bool, value: Expression) -> Helix {
+    let mut pitch_table = helix.pitch_table.clone();
+    if let Some(row) = pitch_table.get_mut(index) {
+        if turns {
+            row.turns = value;
+        } else {
+            row.pitch = value;
+        }
+    }
+    Helix {
+        pitch_table,
         ..helix.clone()
     }
 }
@@ -219,17 +302,19 @@ fn value(model: &Model, expression: Option<&Expression>, dimension: Dimension) -
         .filter(|value| value.is_finite() && *value > 0.0)
 }
 
+fn number(model: &Model, expression: &Expression) -> Option<f64> {
+    let parameters = &model.evaluation().parameters;
+    expression
+        .evaluate_as(Dimension::NONE, &|id| parameters.value(id))
+        .ok()
+        .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
 pub fn evaluated_plan(model: &Model, helix: &Helix) -> Option<HelixPitch> {
     if helix.is_flat() {
         return Some(HelixPitch::default());
     }
-    let parameters = &model.evaluation().parameters;
-    let number = |expression: &Expression| {
-        expression
-            .evaluate_as(Dimension::NONE, &|id| parameters.value(id))
-            .ok()
-            .filter(|value| value.is_finite() && *value >= 0.0)
-    };
+    let number = |expression: &Expression| number(model, expression);
     let ends = match &helix.ends {
         None => None,
         Some(ends) => Some(HelixEnds {
@@ -242,7 +327,21 @@ pub fn evaluated_plan(model: &Model, helix: &Helix) -> Option<HelixPitch> {
         None => None,
         Some(pitch) => Some(value(model, Some(pitch), Dimension::LENGTH)?),
     };
-    Some(HelixPitch { ends, final_pitch })
+    let table = helix
+        .pitch_table
+        .iter()
+        .map(|row| {
+            Some(PitchStop {
+                turns: number(&row.turns)?,
+                pitch: value(model, Some(&row.pitch), Dimension::LENGTH)?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(HelixPitch {
+        ends,
+        final_pitch,
+        table,
+    })
 }
 
 fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {

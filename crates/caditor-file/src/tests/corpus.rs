@@ -15,12 +15,12 @@ use caditor_document::{
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
     MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties, Move, MoveFace, OffsetFace,
     Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PatternOutcome, PieceKey,
-    PieceLooks, Pieces, Pipe, PlaneRotation, PlaneThrough, PointBy, PointReference, PointsPattern,
-    PrincipalAxis, PrincipalGeometry, PrincipalShowing, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
-    ShellSide, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace,
-    Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall,
-    point_instance,
+    PieceLooks, Pieces, Pipe, PitchRow, PlaneRotation, PlaneThrough, PointBy, PointReference,
+    PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing, ProjectionSource,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
+    RibSide, Scale, ShapeRow, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split,
+    SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm,
+    ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 75] = [
+const KEPT: [(&str, &str); 77] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -202,6 +202,10 @@ const KEPT: [(&str, &str); 75] = [
         "dbafced7b7f2936d0eee9b58afe16a80ba1e9e7097126d8541328040232c08ac",
     ),
     (
+        "model-1/helix-table.caditor",
+        "a6638dc0de7adf447bcf014813c2552b20d30cb7aaa25eb2569f9d944df01866",
+    ),
+    (
         "model-1/holes.caditor",
         "2cf9f186f10bbb89e64b84564f0152e30129f9ba6b6dadf846310dcc401d8e27",
     ),
@@ -336,6 +340,10 @@ const KEPT: [(&str, &str); 75] = [
     (
         "model-1/starts.caditor",
         "638005d3194997ab315150f533e17db8422551613a547f3e41a3c40e73770f26",
+    ),
+    (
+        "model-1/sweep-laws.caditor",
+        "90040411fb0aa03f99b42e4ef72755756b0e36c2612fc16ed57e590d3ec29d97",
     ),
     (
         "model-1/sweep-shapes.caditor",
@@ -924,6 +932,7 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("sweep-shapes"),
             saved(&sweep_shapes(), "Sweep shapes"),
         ),
+        (model("sweep-laws"), saved(&sweep_laws(), "Sweep laws")),
         (model("pipes"), saved(&pipes(), "Pipes")),
         (model("ribs"), saved(&ribs(), "Ribs")),
         (model("shaped-ribs"), saved(&shaped_ribs(), "Shaped ribs")),
@@ -948,6 +957,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("helix-laws"),
             saved(&helix_laws(), "Helix pitch laws"),
+        ),
+        (
+            model("helix-table"),
+            saved(&helix_table(), "Helix pitch table"),
         ),
         (
             model("revolve-stops"),
@@ -2155,6 +2168,36 @@ fn sweep_shapes() -> Document {
     document
 }
 
+fn sweep_laws() -> Document {
+    let (mut document, _, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Sweep laws");
+    let mut path = Sketch::new(Plane::YZ);
+    let line = path.add_line(Point2::ZERO, Point2::new(0.0, 20.0));
+    let path = transaction.add_feature("Path", FeatureKind::from(path));
+    transaction.add_feature(
+        "Bulged",
+        FeatureKind::Solid(SolidFeature::Sweep(Sweep {
+            twist: parse("90 deg"),
+            scale: parse("0.5"),
+            shape_law: vec![
+                ShapeRow::new(parse("0.3"), parse("10 deg"), parse("1.5")),
+                ShapeRow::new(parse("0.7"), parse("80 deg"), parse("1.5")),
+            ],
+            ..Sweep::new(
+                sketch,
+                SweepPath::Curves {
+                    sketch: path,
+                    curves: vec![line],
+                },
+            )
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
 fn point_targets() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Point targets");
@@ -2449,11 +2492,11 @@ fn helix_ends() -> Document {
                 height: parse("40 mm"),
                 turns: parse("8"),
             },
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 turns: parse("1"),
                 pitch: parse("2.2 mm"),
                 change: parse("0.5"),
-            }),
+            })),
             start: parse("30 deg"),
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
         }),
@@ -2492,11 +2535,11 @@ fn helix_laws() -> Document {
                 height: parse("60 mm"),
                 turns: parse("10"),
             },
-            ends: Some(ClosedEnds {
+            ends: Some(Box::new(ClosedEnds {
                 turns: parse("1"),
                 pitch: parse("2.2 mm"),
                 change: parse("1.5"),
-            }),
+            })),
             final_pitch: Some(parse("8 mm")),
             ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("16 mm"))
         }),
@@ -2511,6 +2554,37 @@ fn helix_laws() -> Document {
             )),
         );
     }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn helix_table() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Helix pitch table");
+    let tabled = transaction.add_feature(
+        "Tabled path",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("8"),
+                pitch: parse("3 mm"),
+            },
+            pitch_table: vec![
+                PitchRow::new(parse("2"), parse("3 mm")),
+                PitchRow::new(parse("5"), parse("7 mm")),
+                PitchRow::new(parse("6"), parse("4 mm")),
+            ],
+            ..Helix::new(AxisReference::Principal(PrincipalAxis::Z), parse("20 mm"))
+        }),
+    );
+    transaction.add_feature(
+        "Tabled",
+        FeatureKind::Pipe(Pipe::new(
+            SweepPath::Helix { helix: tabled },
+            parse("2 mm"),
+            parse("0 mm"),
+        )),
+    );
     document.apply(transaction.finish()).unwrap();
     document
 }

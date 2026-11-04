@@ -120,23 +120,74 @@ pub enum SweepOrientation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapeStop {
+    pub fraction: f64,
+    pub twist: f64,
+    pub scale: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SweepShape {
     pub twist: f64,
     pub scale: f64,
+    pub law: Vec<ShapeStop>,
 }
 
 impl SweepShape {
     pub const NONE: Self = Self {
         twist: 0.0,
         scale: 1.0,
+        law: Vec::new(),
     };
 
+    pub fn evenly(twist: f64, scale: f64) -> Self {
+        Self {
+            twist,
+            scale,
+            law: Vec::new(),
+        }
+    }
+
     pub fn is_none(&self) -> bool {
-        self.twist == 0.0 && self.scale == 1.0
+        self.twist == 0.0 && self.scale == 1.0 && self.law.is_empty()
     }
 
     fn usable(&self) -> bool {
-        self.twist.is_finite() && Similarity::scaling(Point3::ZERO, self.scale).is_some()
+        self.twist.is_finite()
+            && Similarity::scaling(Point3::ZERO, self.scale).is_some()
+            && self.law.iter().all(|stop| {
+                stop.twist.is_finite() && Similarity::scaling(Point3::ZERO, stop.scale).is_some()
+            })
+    }
+
+    fn ordered(&self) -> Result<(), PathSweepError> {
+        let mut before = 0.0;
+        for stop in &self.law {
+            if !(stop.fraction > before && stop.fraction < 1.0) {
+                return Err(PathSweepError::ShapeLawOrder {
+                    fraction: stop.fraction,
+                });
+            }
+            before = stop.fraction;
+        }
+        Ok(())
+    }
+
+    fn knots(&self) -> Vec<ShapeStop> {
+        let start = ShapeStop {
+            fraction: 0.0,
+            twist: 0.0,
+            scale: 1.0,
+        };
+        let end = ShapeStop {
+            fraction: 1.0,
+            twist: self.twist,
+            scale: self.scale,
+        };
+        std::iter::once(start)
+            .chain(self.law.iter().copied())
+            .chain(std::iter::once(end))
+            .collect()
     }
 }
 
@@ -178,6 +229,11 @@ pub enum PathSweepError {
     ClosedPathScales,
     #[error("the twist or end scale is out of range")]
     UnusableShape,
+    #[error(
+        "a row of the twist and scale table lies at {fraction} of the path, which must follow \
+         the row before it and lie between the start and the end"
+    )]
+    ShapeLawOrder { fraction: f64 },
     #[error(
         "the path turns a sharp corner between path curves {segments:?}, which a twisted or \
          scaled sweep cannot mitre"
@@ -237,6 +293,7 @@ impl PathSweepError {
             | Self::ClosedPathTwists { .. }
             | Self::ClosedPathScales
             | Self::UnusableShape
+            | Self::ShapeLawOrder { .. }
             | Self::CrossesItself
             | Self::Sweep(_)
             | Self::Cancelled(_) => Vec::new(),
@@ -448,28 +505,160 @@ struct Course {
     bends_freely: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Shaping {
     centre: Point3,
     axis: Vector3,
-    shape: SweepShape,
+    knots: Vec<ShapeStop>,
+    twist_slopes: Vec<f64>,
+    scale_slopes: Vec<f64>,
     total: f64,
 }
 
+fn secant(from: (f64, f64), to: (f64, f64)) -> f64 {
+    (to.1 - from.1) / (to.0 - from.0)
+}
+
+fn flat_or_between(left: f64, right: f64, widths: (f64, f64)) -> f64 {
+    if left * right <= 0.0 {
+        return 0.0;
+    }
+    let (before, after) = widths;
+    let first = 2.0 * after + before;
+    let second = after + 2.0 * before;
+    (first + second) / (first / left + second / right)
+}
+
+fn leaning(first: f64, second: f64, widths: (f64, f64)) -> f64 {
+    let (near, far) = widths;
+    let slope = ((2.0 * near + far) * first - near * second) / (near + far);
+    if slope * first <= 0.0 {
+        0.0
+    } else if first * second <= 0.0 && slope.abs() > 3.0 * first.abs() {
+        3.0 * first
+    } else {
+        slope
+    }
+}
+
+fn smooth_slopes(points: &[(f64, f64)]) -> Vec<f64> {
+    let secants: Vec<f64> = points
+        .iter()
+        .zip(points.iter().skip(1))
+        .map(|(from, to)| secant(*from, *to))
+        .collect();
+    let widths: Vec<f64> = points
+        .iter()
+        .zip(points.iter().skip(1))
+        .map(|(from, to)| to.0 - from.0)
+        .collect();
+    let at = |index: usize| {
+        (
+            secants.get(index).copied().unwrap_or(0.0),
+            widths.get(index).copied().unwrap_or(1.0),
+        )
+    };
+    (0..points.len())
+        .map(
+            |index| match (index.checked_sub(1), index + 1 < points.len()) {
+                (None, false) => 0.0,
+                (None, true) if secants.len() == 1 => at(0).0,
+                (None, true) => leaning(at(0).0, at(1).0, (at(0).1, at(1).1)),
+                (Some(last), false) if secants.len() == 1 => at(last).0,
+                (Some(last), false) => {
+                    let before = last.saturating_sub(1);
+                    leaning(at(last).0, at(before).0, (at(last).1, at(before).1))
+                }
+                (Some(last), true) => {
+                    flat_or_between(at(last).0, at(index).0, (at(last).1, at(index).1))
+                }
+            },
+        )
+        .collect()
+}
+
+fn hermite(from: f64, to: f64, slopes: (f64, f64), (along, width): (f64, f64)) -> f64 {
+    let (first, second) = slopes;
+    let squared = along * along;
+    let cubed = squared * along;
+    (2.0 * cubed - 3.0 * squared + 1.0) * from
+        + (cubed - 2.0 * squared + along) * width * first
+        + (-2.0 * cubed + 3.0 * squared) * to
+        + (cubed - squared) * width * second
+}
+
 impl Shaping {
+    fn new(centre: Point3, axis: Vector3, shape: &SweepShape, total: f64) -> Self {
+        let knots = shape.knots();
+        let twists: Vec<(f64, f64)> = knots.iter().map(|k| (k.fraction, k.twist)).collect();
+        let scales: Vec<(f64, f64)> = knots.iter().map(|k| (k.fraction, k.scale)).collect();
+        Self {
+            centre,
+            axis,
+            twist_slopes: smooth_slopes(&twists),
+            scale_slopes: smooth_slopes(&scales),
+            knots,
+            total,
+        }
+    }
+
+    fn state_at(&self, fraction: f64) -> (f64, f64) {
+        let last = self.knots.len().saturating_sub(2);
+        let index = self
+            .knots
+            .iter()
+            .skip(1)
+            .position(|knot| fraction <= knot.fraction)
+            .unwrap_or(last)
+            .min(last);
+        let (Some(from), Some(to)) = (self.knots.get(index), self.knots.get(index + 1)) else {
+            return (0.0, 1.0);
+        };
+        let width = to.fraction - from.fraction;
+        let along = ((fraction - from.fraction) / width).clamp(0.0, 1.0);
+        let slopes = |all: &[f64]| {
+            (
+                all.get(index).copied().unwrap_or(0.0),
+                all.get(index + 1).copied().unwrap_or(0.0),
+            )
+        };
+        (
+            hermite(
+                from.twist,
+                to.twist,
+                slopes(&self.twist_slopes),
+                (along, width),
+            ),
+            hermite(
+                from.scale,
+                to.scale,
+                slopes(&self.scale_slopes),
+                (along, width),
+            ),
+        )
+    }
+
     fn at(&self, travelled: f64) -> Result<Similarity, PathSweepError> {
         let fraction = (travelled / self.total).clamp(0.0, 1.0);
-        let grown = Similarity::scaling(self.centre, 1.0 + (self.shape.scale - 1.0) * fraction)
+        let (twist, scale) = self.state_at(fraction);
+        let grown = Similarity::scaling(self.centre, scale).ok_or(PathSweepError::UnusableShape)?;
+        let turned = RigidTransform::rotation_about(self.centre, self.axis, twist)
             .ok_or(PathSweepError::UnusableShape)?;
-        let turned =
-            RigidTransform::rotation_about(self.centre, self.axis, self.shape.twist * fraction)
-                .ok_or(PathSweepError::UnusableShape)?;
         Ok(grown.then(&Similarity::from(turned)))
     }
 
-    fn stations_for(&self, length: f64) -> usize {
-        let share = self.shape.twist.abs() * length / self.total;
-        (share / STATION_TURN).ceil() as usize
+    fn stations_for(&self, before: f64, length: f64) -> usize {
+        let (from, to) = (before / self.total, (before + length) / self.total);
+        let mut turned = 0.0;
+        let mut at = (from, self.state_at(from).0);
+        for knot in &self.knots {
+            if knot.fraction > from && knot.fraction < to {
+                turned += (knot.twist - at.1).abs();
+                at = (knot.fraction, knot.twist);
+            }
+        }
+        turned += (self.state_at(to).0 - at.1).abs();
+        (turned / STATION_TURN).ceil() as usize
     }
 }
 
@@ -523,6 +712,7 @@ pub fn sweep_shaped(
     if !shape.usable() {
         return Err(PathSweepError::UnusableShape);
     }
+    shape.ordered()?;
     let outline = Outline::of(plane, regions)?;
     let reach = path
         .iter()
@@ -536,7 +726,7 @@ pub fn sweep_shaped(
     let planned = Course::plan(
         (plane, regions, &outline),
         &chain,
-        (orientation, shape),
+        (orientation, &shape),
         Closing::Exact,
     );
     let course = match planned {
@@ -545,12 +735,12 @@ pub fn sweep_shaped(
         }) if turned.abs() <= CLOSING_SLACK => {
             let corrected = SweepShape {
                 twist: shape.twist - turned,
-                ..shape
+                ..shape.clone()
             };
             Course::plan(
                 (plane, regions, &outline),
                 &chain,
-                (orientation, corrected),
+                (orientation, &corrected),
                 Closing::Corrected,
             )?
         }
@@ -664,7 +854,7 @@ impl Course {
     fn plan(
         (plane, regions, outline): (&Plane, &[Region], &Outline),
         chain: &Chain,
-        (orientation, shape): (SweepOrientation, SweepShape),
+        (orientation, shape): (SweepOrientation, &SweepShape),
         closing: Closing,
     ) -> Result<Self, PathSweepError> {
         let first = chain.legs.first().ok_or(PathSweepError::NoPath)?;
@@ -684,11 +874,13 @@ impl Course {
             .iter()
             .map(|leg| leg.curve.length(leg.range))
             .sum();
-        let shaping = (!shape.is_none()).then(|| Shaping {
-            centre: plane.to_world(plane.to_local(first.start_point())),
-            axis,
-            shape,
-            total,
+        let shaping = (!shape.is_none()).then(|| {
+            Shaping::new(
+                plane.to_world(plane.to_local(first.start_point())),
+                axis,
+                shape,
+                total,
+            )
         });
         let mut placement = RigidTransform::IDENTITY;
         let mut before = 0.0;
@@ -1378,7 +1570,7 @@ fn shaped_motion(
     let initial = (spans_of(&path) * STATIONS_PER_SPAN)
         .max(LEAST_STATIONS)
         .max(turning)
-        .max(shaping.stations_for(leg.curve.length(leg.range)));
+        .max(shaping.stations_for(before, leg.curve.length(leg.range)));
     let fit = |frames: &FramesAt<'_>| {
         let shape: &ShapeAt<'_> = &shape;
         Stations::fit(

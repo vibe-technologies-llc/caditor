@@ -16,13 +16,14 @@ use caditor_document::{
     HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
     ImagePlane, ImageSize, ImageSpot, Import, LinearDirection, LinearSpacing, Loft, LoftSection,
     Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror, MirrorOutcome, Move, MoveFace,
-    Of, OffsetFace, Pattern, PatternKind, PatternOutcome, Picture, Pipe, PixelSize, PlaneRotation,
-    PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive, PrimitiveAnchor,
-    PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove, ReplaceFace,
-    Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale, Shell,
-    ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily,
-    ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall, sketch_regions,
+    Of, OffsetFace, Pattern, PatternKind, PatternOutcome, Picture, Pipe, PitchRow, PixelSize,
+    PlaneRotation, PlaneThrough, PointBy, PointMate, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalPlane, Reading, ReferenceImage, RegionChoice, Remove,
+    ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rib, RibDirection, RibEnds, RibSide, Scale,
+    ShapeRow, Shell, ShellSide, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
+    SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread,
+    ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, TurnCentre, Wall,
+    sketch_regions,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -336,11 +337,11 @@ pub fn feature_kind(
                 None
             },
             ends: if input.arbitrary()? {
-                Some(ClosedEnds {
+                Some(Box::new(ClosedEnds {
                     turns: scene.count(input)?,
                     pitch: scene.distance(input)?,
                     change: scene.count(input)?,
-                })
+                }))
             } else {
                 None
             },
@@ -349,6 +350,7 @@ pub fn feature_kind(
             } else {
                 None
             },
+            pitch_table: pitch_table(input, scene)?,
         }),
         Family::Rib => FeatureKind::Rib(Rib {
             sketch: scene.sketch(input)?,
@@ -601,6 +603,34 @@ fn wall(input: &mut Unstructured, scene: &Scene) -> Result<Option<Box<Wall>>> {
     })
 }
 
+fn shape_law(input: &mut Unstructured, scene: &Scene) -> Result<Vec<ShapeRow>> {
+    let rows = if input.arbitrary()? {
+        input.int_in_range(0u8..=3)?
+    } else {
+        0
+    };
+    (0..rows)
+        .map(|_| {
+            Ok(ShapeRow::new(
+                scene.factor(input)?,
+                scene.turn(input)?,
+                scene.factor(input)?,
+            ))
+        })
+        .collect()
+}
+
+fn pitch_table(input: &mut Unstructured, scene: &Scene) -> Result<Vec<PitchRow>> {
+    let rows = if input.arbitrary()? {
+        input.int_in_range(0u8..=3)?
+    } else {
+        0
+    };
+    (0..rows)
+        .map(|_| Ok(PitchRow::new(scene.count(input)?, scene.distance(input)?)))
+        .collect()
+}
+
 fn coil_length(input: &mut Unstructured, scene: &Scene) -> Result<CoilLength> {
     Ok(match *input.choose(&CoilSizing::ALL)? {
         CoilSizing::TurnsAndPitch => CoilLength::TurnsAndPitch {
@@ -673,6 +703,7 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
             orientation: *input.choose(&[SweepOrientation::Square, SweepOrientation::Parallel])?,
             twist: scene.turn(input)?,
             scale: scene.factor(input)?,
+            shape_law: shape_law(input, scene)?,
             operation,
             other_bodies,
         }))));

@@ -226,7 +226,20 @@ pub fn sweep() -> Value {
         "path": path(),
         "orientation": choice(&["square", "parallel"], "Keep the section square to the path (the default) or parallel to itself"),
         "twist": amount("The angle the section turns about the path by its end, counter-clockwise looking back along the path, 0 deg by default"),
-        "scale": amount("The section's size at the end of the path against its start, such as 0.5; 1 by default")
+        "scale": amount("The section's size at the end of the path against its start, such as 0.5; 1 by default"),
+        "shape_table": {
+            "type": "array",
+            "items": object(
+                json!({
+                    "fraction": amount("How far along the path, above 0 and below 1 and more than the row before it"),
+                    "twist": amount("The angle the section has turned by there, such as \"45 deg\""),
+                    "scale": amount("The section's size there against its start, above 0")
+                }),
+                &["fraction", "twist", "scale"],
+            ),
+            "maxItems": 16,
+            "description": "Twist and scale by a table instead of evenly: the section turns and scales smoothly through each row's values at its fraction of the path, from none at the start to twist and scale at the end. An empty list removes the table, leaving twist and scale even"
+        }
     })));
     object(Value::Object(properties), &["sketch", "path"])
 }

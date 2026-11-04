@@ -1,10 +1,10 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, Feature, FeatureId, Pieces, PlaneReference, RegionChoice, Revolve, RevolveAxis,
-    RevolveExtent, SolidFeature, SolidStart, Sweep, SweepPath, Transaction, Wall, along_plane,
-    capitalized, describe_axis, describe_origin, displayed_axis,
+    FaceAttachment, Feature, FeatureId, MAX_SHAPE_ROWS, Pieces, PlaneReference, RegionChoice,
+    Revolve, RevolveAxis, RevolveExtent, ShapeRow, SolidFeature, SolidStart, Sweep, SweepPath,
+    Transaction, Wall, along_plane, capitalized, describe_axis, describe_origin, displayed_axis,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_kernel::{SweepOrientation, WallSide};
 use caditor_sketch::{Entity, EntityId, Reference};
@@ -35,6 +35,8 @@ use crate::{
 };
 
 pub const DISTANCE_SALT: &str = "distance";
+pub const ADD_SHAPE_ROW: &str = "Add a row";
+pub const REMOVE_SHAPE_ROW: &str = "Remove the last row";
 
 pub fn field_id(salt: &str, feature: FeatureId) -> Id {
     Id::unique(("solid-field", salt, feature))
@@ -1728,6 +1730,109 @@ impl Panel<'_> {
                 })
             },
         );
+        self.shape_law_rows(ui, sweep);
+    }
+
+    fn shape_law_rows(&mut self, ui: &mut Ui, sweep: &Sweep) {
+        for (index, row) in sweep.shape_law.iter().enumerate() {
+            let fields = [
+                (0, format!("Row {} at fraction", index + 1), &row.fraction),
+                (1, format!("Row {} twist", index + 1), &row.twist),
+                (2, format!("Row {} scale", index + 1), &row.scale),
+            ];
+            for (which, caption, shown) in fields {
+                let dimension = if which == 1 {
+                    Dimension::ANGLE
+                } else {
+                    Dimension::NONE
+                };
+                let rule = if which == 1 {
+                    Rule::Any
+                } else {
+                    Rule::AboveZero
+                };
+                self.expression(
+                    ui,
+                    &caption,
+                    &format!("law-{index}-{which}"),
+                    shown,
+                    (dimension, rule),
+                    |value| {
+                        let mut rows = sweep.shape_law.clone();
+                        if let Some(row) = rows.get_mut(index) {
+                            match which {
+                                0 => row.fraction = value,
+                                1 => row.twist = value,
+                                _ => row.scale = value,
+                            }
+                        }
+                        SolidFeature::Sweep(Sweep {
+                            shape_law: rows,
+                            ..sweep.clone()
+                        })
+                    },
+                );
+            }
+        }
+        let mut change = None;
+        ui.label("");
+        ui.horizontal_wrapped(|ui| {
+            let add = widgets::small_button(ui, icons::ADD, ADD_SHAPE_ROW);
+            if ui
+                .add_enabled(sweep.shape_law.len() < MAX_SHAPE_ROWS, add)
+                .on_disabled_hover_text(format!("A sweep has at most {MAX_SHAPE_ROWS} rows"))
+                .clicked()
+            {
+                let mut rows = sweep.shape_law.clone();
+                rows.push(self.next_shape_row(sweep));
+                change = Some(SolidFeature::Sweep(Sweep {
+                    shape_law: rows,
+                    ..sweep.clone()
+                }));
+            }
+            let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_SHAPE_ROW);
+            let mut rows = sweep.shape_law.clone();
+            let popped = rows.pop().is_some();
+            if ui
+                .add_enabled(popped, remove)
+                .on_disabled_hover_text("There is no row to remove")
+                .clicked()
+            {
+                change = Some(SolidFeature::Sweep(Sweep {
+                    shape_law: rows,
+                    ..sweep.clone()
+                }));
+            }
+        });
+        ui.end_row();
+        if let Some(solid) = change {
+            self.apply(solid);
+        }
+    }
+
+    fn evaluated(&self, expression: &Expression) -> Option<f64> {
+        self.model
+            .parameters()
+            .evaluate_expression(expression)
+            .ok()
+            .map(|quantity| quantity.value)
+            .filter(|value| value.is_finite())
+    }
+
+    fn next_shape_row(&self, sweep: &Sweep) -> ShapeRow {
+        let after = sweep
+            .shape_law
+            .last()
+            .and_then(|row| self.evaluated(&row.fraction))
+            .unwrap_or(0.0);
+        let fraction = ((0.5 * (after + 1.0)) * 1000.0).round() / 1000.0;
+        let twist = self.evaluated(&sweep.twist).unwrap_or(0.0) * fraction;
+        let scale = 1.0 + (self.evaluated(&sweep.scale).unwrap_or(1.0) - 1.0) * fraction;
+        ShapeRow::new(
+            Expression::number(fraction),
+            Expression::measure((twist * 1000.0).round() / 1000.0, Unit::Degree),
+            Expression::number((scale * 1000.0).round() / 1000.0),
+        )
     }
 
     fn apply(&mut self, solid: SolidFeature) {

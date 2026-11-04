@@ -1,7 +1,8 @@
 use caditor_document::{
     ClosedEnds, CoilLength, CoilTurning, CopyOrientation, CurvePattern, CurvePatternPath,
     CurveSpacing, DEFAULT_PITCH, DEFAULT_TURNS, Evaluation, FeatureId, FeatureKind, FeatureResult,
-    Helix, HelixKind, Pattern, PatternKind, PointReference, PointsPattern, is_curve_path,
+    Helix, HelixKind, MAX_PITCH_ROWS, Pattern, PatternKind, PitchRow, PointReference,
+    PointsPattern, is_curve_path,
 };
 use caditor_expression::Expression;
 use caditor_sketch::Sketch;
@@ -45,7 +46,15 @@ pub struct Helixing {
     pub end_change: Option<Amount>,
     pub progressive: Option<bool>,
     pub final_pitch: Option<Amount>,
+    pub pitch_table: Option<Vec<PitchRowAsked>>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PitchRowAsked {
+    pub turns: Amount,
+    pub pitch: Amount,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -104,6 +113,15 @@ pub enum CurveToolError {
     EvenPitchSized,
     #[error("progressive: true needs a final_pitch")]
     ProgressiveUnsized,
+    #[error("a flat spiral has no table of pitches; leave out pitch_table")]
+    FlatPitchTable,
+    #[error(
+        "a pitch_table stands alone: leave out closed_ends, end_turns, end_pitch, end_change, \
+         progressive and final_pitch, or give an empty pitch_table to clear it"
+    )]
+    PitchTableAlone,
+    #[error("a pitch_table takes at most {MAX_PITCH_ROWS} rows, not {rows}")]
+    PitchTableLong { rows: usize },
 }
 
 fn solved(evaluation: &Evaluation, sketch: FeatureId) -> Option<&Sketch> {
@@ -153,6 +171,9 @@ pub fn helix_built(
     let final_pitch = parsed(session, asked.final_pitch.as_ref(), |session, pitch| {
         length(session, "final_pitch", pitch)
     })?;
+    let table = pitch_rows(session, asked.pitch_table.as_deref())?;
+    let end_turns_given = end_turns.is_some() || end_pitch.is_some() || end_change.is_some();
+    let final_pitch_given = final_pitch.is_some();
     session.evaluate(work)?;
     let unit = LengthUnit::Millimetre;
     let mut helix = match base {
@@ -211,6 +232,15 @@ pub fn helix_built(
         (end_turns, end_pitch, end_change),
     )?;
     helix.final_pitch = progression(&helix, asked.progressive, final_pitch)?;
+    let other_laws = asked.closed_ends == Some(true)
+        || asked.progressive == Some(true)
+        || end_turns_given
+        || final_pitch_given;
+    helix.pitch_table = tabled(&helix, table, other_laws)?;
+    if !helix.pitch_table.is_empty() {
+        helix.ends = None;
+        helix.final_pitch = None;
+    }
     if let Some(clockwise) = asked.clockwise {
         helix.turning = if clockwise {
             CoilTurning::Clockwise
@@ -222,11 +252,48 @@ pub fn helix_built(
     Ok(Built::new(FeatureKind::Helix(helix), title, asked.name))
 }
 
+fn pitch_rows(
+    session: &Session,
+    asked: Option<&[PitchRowAsked]>,
+) -> Result<Option<Vec<PitchRow>>, ToolError> {
+    let Some(asked) = asked else {
+        return Ok(None);
+    };
+    if asked.len() > MAX_PITCH_ROWS {
+        return Err(CurveToolError::PitchTableLong { rows: asked.len() }.into());
+    }
+    asked
+        .iter()
+        .map(|row| {
+            Ok(PitchRow::new(
+                count(session, "pitch_table turns", &row.turns)?,
+                length(session, "pitch_table pitch", &row.pitch)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, ToolError>>()
+        .map(Some)
+}
+
+fn tabled(
+    helix: &Helix,
+    asked: Option<Vec<PitchRow>>,
+    other_laws: bool,
+) -> Result<Vec<PitchRow>, CurveToolError> {
+    match asked {
+        Some(rows) if rows.is_empty() => Ok(rows),
+        Some(_) if helix.is_flat() => Err(CurveToolError::FlatPitchTable),
+        Some(_) if other_laws => Err(CurveToolError::PitchTableAlone),
+        Some(rows) => Ok(rows),
+        None if other_laws => Ok(Vec::new()),
+        None => Ok(helix.pitch_table.clone()),
+    }
+}
+
 fn closed_ends(
     helix: &Helix,
     closed: Option<bool>,
     (turns, pitch, change): (Option<Expression>, Option<Expression>, Option<Expression>),
-) -> Result<Option<ClosedEnds>, CurveToolError> {
+) -> Result<Option<Box<ClosedEnds>>, CurveToolError> {
     let sized = turns.is_some() || pitch.is_some() || change.is_some();
     if closed == Some(false) {
         return if sized {
@@ -241,12 +308,12 @@ fn closed_ends(
     if helix.is_flat() {
         return Err(CurveToolError::FlatEnds);
     }
-    let kept = helix.ends.clone().unwrap_or_default();
-    Ok(Some(ClosedEnds {
+    let kept = *helix.ends.clone().unwrap_or_default();
+    Ok(Some(Box::new(ClosedEnds {
         turns: turns.unwrap_or(kept.turns),
         pitch: pitch.unwrap_or(kept.pitch),
         change: change.unwrap_or(kept.change),
-    }))
+    })))
 }
 
 fn progression(

@@ -1,7 +1,8 @@
 use caditor_document::{
     BodyOperation, Bore, Coil, CoilLength, CoilTurning, DEFAULT_PITCH, DEFAULT_TURNS, FeatureKind,
-    Loft, LoftSection, Pipe, Rib, RibDirection, RibEnds, RibSide, SolidFeature, Sweep, SweepPath,
-    Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    Loft, LoftSection, MAX_SHAPE_ROWS, Pipe, Rib, RibDirection, RibEnds, RibSide, ShapeRow,
+    SolidFeature, Sweep, SweepPath, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength,
+    ThreadSide, ThreadSize,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::{
@@ -73,9 +74,18 @@ pub struct Sweeping {
     pub orientation: Option<OrientationName>,
     pub twist: Option<Amount>,
     pub scale: Option<Amount>,
+    pub shape_table: Option<Vec<ShapeRowAsked>>,
     pub operation: Option<OperationName>,
     pub body: Option<Named>,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShapeRowAsked {
+    pub fraction: Amount,
+    pub twist: Amount,
+    pub scale: Amount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -256,6 +266,8 @@ pub struct Threading {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SweepToolError {
+    #[error("a shape_table takes at most {MAX_SHAPE_ROWS} rows, not {rows}")]
+    ShapeTableLong { rows: usize },
     #[error("give the path's curves: entity ids of lines, arcs or curves from get_sketch")]
     NoPathCurves,
     #[error("give the path's edges: keys from list_edges")]
@@ -353,6 +365,41 @@ fn kept_path(
     }
 }
 
+fn shape_rows(
+    session: &Session,
+    asked: Option<&[ShapeRowAsked]>,
+) -> Result<Option<Vec<ShapeRow>>, ToolError> {
+    let Some(asked) = asked else {
+        return Ok(None);
+    };
+    if asked.len() > MAX_SHAPE_ROWS {
+        return Err(SweepToolError::ShapeTableLong { rows: asked.len() }.into());
+    }
+    asked
+        .iter()
+        .map(|row| {
+            Ok(ShapeRow::new(
+                amount(
+                    session,
+                    "shape_table fraction",
+                    &row.fraction,
+                    Dimension::NONE,
+                    true,
+                )?,
+                turn(session, "shape_table twist", &row.twist)?,
+                amount(
+                    session,
+                    "shape_table scale",
+                    &row.scale,
+                    Dimension::NONE,
+                    true,
+                )?,
+            ))
+        })
+        .collect::<Result<Vec<_>, ToolError>>()
+        .map(Some)
+}
+
 pub fn sweep_built(
     session: &mut Session,
     work: &Work<'_>,
@@ -365,6 +412,7 @@ pub fn sweep_built(
     let scale = parsed(session, asked.scale.as_ref(), |session, scale| {
         amount(session, "scale", scale, Dimension::NONE, true)
     })?;
+    let law = shape_rows(session, asked.shape_table.as_deref())?;
     session.evaluate(work)?;
     let values = session.parameters();
     let document = session.document();
@@ -399,6 +447,9 @@ pub fn sweep_built(
     }
     if let Some(scale) = scale {
         sweep.scale = scale;
+    }
+    if let Some(law) = law {
+        sweep.shape_law = law;
     }
     let asked_operation = operation_asked(
         session,
