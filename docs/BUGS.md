@@ -128,43 +128,36 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   bodies at 0.01 mm, bending makes one of the seven loose bodies exact. Two bend every side but
   leave one traced edge off its face at validation (3.6e-6 and 8.2e-5 mm); one fails tracing an
   end-to-end join of two fillets slanted on both (2.6e-3 rad apart); one has a side that is a pole
-  or seam; one has an iso-line edge whose neighbours' feet fall on both sides of it within the
-  file's noise (the bound test needs a tolerance from the precision rather than the domain); one
-  bends a face whose boundary then crosses itself in uv. The bent path's one STEP test bends a
-  spline side onto a plane it meets across; a fixture of a spline tangent to its neighbour a few
-  micrometres off is still missing, and that file now reads in 8.7 s against 7.6 s. Healing still
-  traces an edge only between exactly two distinct faces, so an edge used twice by one face (a
-  cylinder seam) with a vertex a few micrometres off is refused outright when the file declares no
-  precision. In the VZ330 assembly 67 bodies import as facets this way, among them six of the ten
-  M4 T-nuts (a thread flank whose iso-line edge has the face on both sides of it further along, as
-  the flank runs out), "Body6" and its copies (a side closed around a periodic spline, then the
-  same L-shaped face), "Body7" and "front handle1" (the bound test
-  above), "CPAP duct 15mm" (a side bent to 2.504e-8 mm of its targets against `BEND_TOLERANCE`'s
-  2.5e-8). Fixing these blockers of the bent path (closed sides of periodic splines, the bound
-  test's tolerance, `BEND_TOLERANCE` at 2.5e-8 mm, thread flanks running out) would cover most of
-  the 67. Two others, "Pulley (1)" (a plane 3.4e-6 mm off the cylinder it is tangent to) and
-  "Micro Switch" (two pairs of parallel planes 1e-4 mm apart meeting at one corner), are what
-  snapping (`step-read.md`, "Snapped faces") now makes exact in fixtures built after them; reading
-  the file again should confirm they import exact.
-- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,981 copies) leaves 1
-  part out, refused as "a vertex 0.00003 to 0.0004 mm away from the end of its edge", the exact
+  or seam; one bends a face whose boundary then crosses itself in uv. In the VZ330 assembly 63
+  bodies import as facets. The bent build refuses them for these reasons:
+  - 25 have a corner of faces with no common point within the resolution. "Pulley (1)", "Pulley
+    (2)", "Pulley (1) (1)", "Pulley(Mirror) (1)" and "X motor mount part A" and its mirror (3.4e-6
+    mm) join two equal tooth-root cylinders 9.6e-6 mm apart, each exactly tangent to its own fillet,
+    so snapping holds both (`round_faces`); moving one needs its fillet and the flank beyond to
+    follow, or a rigid face turned into a spline it can bend. "Part 9 (1)" to "Part 14 (1)" miss a
+    spline they lie on no line of by 2e-5 to 5e-5 mm; the Raspberry Pi connectors, "top (1)" and
+    "powerswitch bracket" miss planes and cylinders by 1e-4 to 5e-4 mm.
+  - 13 keep a traced edge that misses its vertex, tracing having failed across a near tangency:
+    "gantry bottom" and "CPAP duct 15mm" (0.006 mm), "bottom (1)" (2.5e-5 mm).
+  - 6 ("M3 Nut", the knobs) fail validation by 2e-6 to 2e-4 mm after every side bends.
+  - 7 of the "PCB (1)" and "Blades (1)" splines have a target that jumps along a side (up to 0.0035
+    mm) or a corner off the face it bends onto, as has "CPAP duct 18mm (1)" within 3.8e-7 mm.
+  - 4 ("front handle1", "front handle2", "X motor mount part B (top)" and its mirror) have a vertex
+    whose common point lies farther along the tangency than the precision.
+  - "Micro Switch" and its copy settle two vertices onto one point (an edge of no length), and
+    "Lead Screw lower bracket" has two edges overlapping along a side.
+- [medium · medium] The VZ330 assembly (an Autodesk export at 0.01 mm, 3,980 copies) leaves 2
+  parts out, refused as "a vertex 0.00003 to 0.00008 mm away from the end of its edge", the exact
   build's refusal at faces meeting tangentially further apart than the resolution, where the
-  faceted fallback then fails on its own: "front handle1" meshes a
-  sliver 1.2e-6 mm wide whose edges three triangles share (welding wider only opens more). "Lead Screw lower bracket" imports
-  only as facets: exact, it has "an edge that could not be followed across its face": a thin spline strip meets its neighbours
-  nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm edge traced 0.34 mm
-  long, whose pcurve then needs more than 65,536 samples). Refusing such traces (longer than the
-  file's curve by more than the precision) only moves the refusal on: settling two vertices
-  0.003 mm apart slides each about 0.002 mm along the tangency, their order along the 1 mm circle
-  between them flips, and that edge runs almost a full turn and misses its vertex by 0.0004 mm.
-  Settling should keep a vertex's order along the edges it ends, or move it no farther than the
-  precision, as the faceted build does. Five bodies refused before for other reasons import only
-  as facets: "Component25" (a thread whose helical edges its exact build cannot follow), "M3 Nut" (three faces meeting so nearly tangentially that their common point lies
-  0.0115 mm along, on the next vertex, so the ellipse edge between them has no length; bending
-  gets within 2e-6 mm), "Top plate MGN9H (1)" and "Top plate MGN9C (1)" (a helical thread face
-  whose boundary backtracks at a junction in uv, so it crosses itself), and "goliath heatsink fan
-  duct (1)" (the lead screw bracket's tangent strip). Reproduce by reading the file with
-  `STEP_CORPUS` in release (about 65 s).
+  faceted fallback then fails on its own: "front handle1" meshes a sliver 1.2e-6 mm wide whose
+  edges three triangles share (welding wider only opens more), and "Component25" (a thread whose
+  helical edges its exact build cannot follow) would need 20,266 flat faces. "Lead Screw lower
+  bracket" and "goliath heatsink fan duct (1)" import only as facets: exact, a thin spline strip
+  meets its neighbours nearly tangentially, and tracing its edges across them zigzags (a 0.057 mm
+  edge traced 0.34 mm long, whose pcurve then needs more than 65,536 samples). "M3 Nut" also imports
+  only as facets (three faces meeting so nearly tangentially that their common point lies 0.0115 mm
+  along, on the next vertex, so the ellipse edge between them has no length; bending gets within
+  2e-6 mm). Reproduce by reading the file with `STEP_CORPUS` in release (about 65 s).
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
