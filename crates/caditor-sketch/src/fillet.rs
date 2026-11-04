@@ -70,6 +70,8 @@ pub enum FilletError {
     SameCurve { entity: EntityId, label: String },
     #[error("{first} and {second} never meet, even extended")]
     NeverMeet { first: String, second: String },
+    #[error("{circle} is a whole circle, which cannot be joined to {spline}; make it an arc first")]
+    CircleToSpline { circle: String, spline: String },
     #[error(transparent)]
     Held(ExtendError),
     #[error(transparent)]

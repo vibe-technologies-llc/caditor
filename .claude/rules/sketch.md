@@ -588,7 +588,20 @@ relative to the extent.
   circle becomes the arc from the corner to the next crossing round it on the picked side (up to
   four against an ellipse; a pick past both neighbours takes the angularly nearer side), that end
   held on the other curve by `Coincident`, so a later join on the same circle extends it round.
-  Curves already meeting are left alone. `crossing_picks` gives picks for two selected curves: the
+  Curves already meeting are left alone. A spline joins too (`fillet/crossing/spliced.rs`, any
+  other curve but a whole circle, `CircleToSpline`; a closed spline is refused as not a curve it
+  can fillet): its carrier is the drawn curve with its two continuations (`SplineCarrier`,
+  `trim/spline/carrier.rs`: the end polynomial pieces run on past each end by the lengths
+  `reach_along_spline` would search, until the continuation turns back or leaves the bound), the
+  crossing is found with that carrier against the other's whole carrier (a spline's own continuation
+  against it for two splines) and the corner is the one nearest the picks. A corner inside the
+  spline cuts it there keeping the picked side (`cut_spline_end`, as a fillet does), one past an end
+  carries that end along its continuation to it (`extend_spline_to`: `SplineSource::extended`
+  with the shared point as the new end, the old end removed with its constraints as extend does,
+  `Held` when it is joined or fixed), and one at an end leaves it. The shared point is held on the
+  other curve (a line, arc or elliptical arc stretched to it as above) and lies on the spline's
+  drawn or extended curve, which no constraint holds beyond the old end, so the spline's freedom is
+  its control points' as ever. `crossing_picks` gives picks for two selected curves: the
   crossing nearest both drawn curves, a line's, arc's or elliptical arc's longer part, a circle's
   side making the blunter corner (two circles: each its side away from the other's centre).
 - Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`), a

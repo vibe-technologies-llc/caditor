@@ -9,7 +9,7 @@ use crate::{
     id::{ConstraintId, EntityId},
     intersect::closest_spline_parameter,
     sketch::{DetachedConstraint, Sketch, SketchError},
-    trim::{Cut, Piece, Reach, TOLERANCE, TrimError, Trimmed},
+    trim::{Cut, Piece, Reach, TOLERANCE, TrimError, Trimmed, keeps_spline_shape},
 };
 
 const KNOT_SNAP: f64 = 1e-9;
@@ -21,6 +21,10 @@ const END_SAMPLES: usize = 256;
 const MAX_DOUBLINGS: i32 = 40;
 const WINDOW_SAMPLES: usize = 64;
 const REACH_MARGIN: f64 = 2.0;
+
+mod carrier;
+
+pub(crate) use carrier::SplineCarrier;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct SplineCourse {
@@ -1229,6 +1233,43 @@ impl Sketch {
             reached = limit;
         }
         None
+    }
+
+    pub(crate) fn extend_spline_to(
+        &mut self,
+        curve: EntityId,
+        replaced: EntityId,
+        at_end: bool,
+        reached: f64,
+        shared: EntityId,
+    ) -> Result<(), SketchError> {
+        let no_piece = || SketchError::NoExactPiece {
+            entity: curve,
+            label: self.entity_label(curve),
+        };
+        let source = self.spline_source(curve).ok_or_else(no_piece)?;
+        let old = self
+            .point(replaced)
+            .ok_or(SketchError::NoSuchEntity(replaced))?;
+        let mut shape = source
+            .extended(at_end, reached, replaced, old)
+            .ok_or_else(no_piece)?;
+        shape.set_end(at_end, Slot::Kept(shared));
+        for id in self.constraints_using(replaced) {
+            self.remove_constraint(id)?;
+        }
+        let changed: Vec<ConstraintId> = self
+            .constraints_using(curve)
+            .into_iter()
+            .filter(|id| {
+                self.constraint(*id)
+                    .is_some_and(|constraint| !keeps_spline_shape(constraint))
+            })
+            .collect();
+        for id in changed {
+            self.detach_constraint(id)?;
+        }
+        self.extend_spline(curve, &shape)
     }
 
     pub(super) fn extend_spline(

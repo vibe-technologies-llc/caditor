@@ -19,12 +19,15 @@ pub struct Pick {
     pub near: Point2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+mod spliced;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CrossingPlan(Planned);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Planned {
     Existing(Corner),
+    Spliced(Box<spliced::Spliced>),
     Join {
         curves: [EntityId; 2],
         courses: [Course; 2],
@@ -350,6 +353,9 @@ impl Sketch {
         first: EntityId,
         second: EntityId,
     ) -> Result<[Pick; 2], FilletError> {
+        if self.is_spline(first) || self.is_spline(second) {
+            return self.spliced_picks(first, second);
+        }
         let courses = [self.course(first)?, self.course(second)?];
         let tolerance = tolerance_of(&courses);
         let crossings = crossings_of(&courses, tolerance);
@@ -405,14 +411,15 @@ impl Sketch {
     }
 
     pub fn join_planned(&mut self, plan: &CrossingPlan) -> Result<Corner, FilletError> {
-        let (curves, courses, changes, corner) = match plan.0 {
-            Planned::Existing(existing) => return Ok(existing),
+        let (curves, courses, changes, corner) = match &plan.0 {
+            Planned::Existing(existing) => return Ok(*existing),
+            Planned::Spliced(spliced) => return self.join_spliced(spliced),
             Planned::Join {
                 curves,
                 courses,
                 changes,
                 corner,
-            } => (curves, courses, changes, corner),
+            } => (*curves, *courses, *changes, *corner),
         };
         let mut working = self.clone();
         let shared = working
@@ -430,6 +437,9 @@ impl Sketch {
                 entity: first.curve,
                 label: self.entity_label(first.curve),
             });
+        }
+        if self.is_spline(first.curve) || self.is_spline(second.curve) {
+            return self.spliced_plan(picks);
         }
         let courses = [self.course(first.curve)?, self.course(second.curve)?];
         let tolerance = tolerance_of(&courses);
@@ -463,24 +473,7 @@ impl Sketch {
         }
         let mut changes = changes;
         for (pick, change) in picks.iter().zip(changes.iter_mut()) {
-            match *change {
-                Change::Moved { end, beyond: true } => {
-                    self.check_free_end(pick.curve, end)
-                        .map_err(FilletError::Held)?;
-                }
-                Change::Reached { nearer, other } => {
-                    let end = match self.check_free_end(pick.curve, nearer) {
-                        Ok(()) => nearer,
-                        Err(held) => {
-                            self.check_free_end(pick.curve, other)
-                                .map_err(|_| FilletError::Held(held))?;
-                            other
-                        }
-                    };
-                    *change = Change::Moved { end, beyond: true };
-                }
-                Change::Kept(_) | Change::Moved { .. } | Change::Opened { .. } => {}
-            }
+            *change = self.settled(pick.curve, *change)?;
         }
         Ok(CrossingPlan(Planned::Join {
             curves: [first.curve, second.curve],
@@ -488,6 +481,27 @@ impl Sketch {
             changes,
             corner,
         }))
+    }
+
+    fn settled(&self, curve: EntityId, change: Change) -> Result<Change, FilletError> {
+        match change {
+            Change::Moved { end, beyond: true } => {
+                self.check_free_end(curve, end).map_err(FilletError::Held)?;
+                Ok(change)
+            }
+            Change::Reached { nearer, other } => {
+                let end = match self.check_free_end(curve, nearer) {
+                    Ok(()) => nearer,
+                    Err(held) => {
+                        self.check_free_end(curve, other)
+                            .map_err(|_| FilletError::Held(held))?;
+                        other
+                    }
+                };
+                Ok(Change::Moved { end, beyond: true })
+            }
+            Change::Kept(_) | Change::Moved { .. } | Change::Opened { .. } => Ok(change),
+        }
     }
 
     fn join_curves(
@@ -515,107 +529,7 @@ impl Sketch {
         }
         let mut far_ends = Vec::new();
         for ((curve, course), change) in curves.into_iter().zip(courses).zip(changes) {
-            match (*course, *change) {
-                (_, Change::Kept(_)) => {}
-                (
-                    Course::Line {
-                        ends: [start, end], ..
-                    },
-                    Change::Moved { end: moved, .. },
-                ) => {
-                    let line = if moved == start {
-                        Entity::Line { start: shared, end }
-                    } else {
-                        Entity::Line { start, end: shared }
-                    };
-                    self.drop_length_dimensions(start, end)?;
-                    self.restructure(curve, line, &[], keeps_length)?;
-                    self.drop_if_unused(moved)?;
-                }
-                (
-                    Course::Arc {
-                        center,
-                        ends: [start, end],
-                        ..
-                    },
-                    Change::Moved { end: moved, .. },
-                ) => {
-                    let arc = if moved == start {
-                        Entity::Arc {
-                            center,
-                            start: shared,
-                            end,
-                        }
-                    } else {
-                        Entity::Arc {
-                            center,
-                            start,
-                            end: shared,
-                        }
-                    };
-                    self.drop_length_dimensions(start, end)?;
-                    self.restructure(curve, arc, &[], keeps_sweep)?;
-                    self.drop_if_unused(moved)?;
-                }
-                (
-                    Course::Ellipse {
-                        ends: [start, end], ..
-                    },
-                    Change::Moved { end: moved, .. },
-                ) => {
-                    let Some(&Entity::EllipticalArc {
-                        center,
-                        major,
-                        minor_radius,
-                        ..
-                    }) = self.entity(curve)
-                    else {
-                        return Err(SketchError::NoSuchEntity(curve));
-                    };
-                    let [kept_start, kept_end] = if moved == start {
-                        [shared, end]
-                    } else {
-                        [start, shared]
-                    };
-                    let arc = Entity::EllipticalArc {
-                        center,
-                        major,
-                        minor_radius,
-                        start: kept_start,
-                        end: kept_end,
-                    };
-                    self.drop_length_dimensions(start, end)?;
-                    self.restructure(curve, arc, &[], keeps_sweep)?;
-                    self.drop_if_unused(moved)?;
-                }
-                (
-                    Course::Circle { center, .. },
-                    Change::Opened {
-                        start_at_corner,
-                        far,
-                    },
-                ) => {
-                    let far_end = self.add_point(far);
-                    let arc = if start_at_corner {
-                        Entity::Arc {
-                            center,
-                            start: shared,
-                            end: far_end,
-                        }
-                    } else {
-                        Entity::Arc {
-                            center,
-                            start: far_end,
-                            end: shared,
-                        }
-                    };
-                    self.restructure(curve, arc, &[], |_| true)?;
-                    far_ends.push((far_end, curve));
-                }
-                (_, Change::Moved { .. } | Change::Reached { .. } | Change::Opened { .. }) => {
-                    return Err(SketchError::NoSuchEntity(curve));
-                }
-            }
+            self.reshape_plain(curve, *course, *change, shared, &mut far_ends)?;
         }
         for (far_end, curve) in far_ends {
             let other = curves
@@ -625,6 +539,118 @@ impl Sketch {
             self.add_constraint(Constraint::Coincident(far_end, other))?;
         }
         Ok(shared)
+    }
+
+    fn reshape_plain(
+        &mut self,
+        curve: EntityId,
+        course: Course,
+        change: Change,
+        shared: EntityId,
+        far_ends: &mut Vec<(EntityId, EntityId)>,
+    ) -> Result<(), SketchError> {
+        match (course, change) {
+            (_, Change::Kept(_)) => {}
+            (
+                Course::Line {
+                    ends: [start, end], ..
+                },
+                Change::Moved { end: moved, .. },
+            ) => {
+                let line = if moved == start {
+                    Entity::Line { start: shared, end }
+                } else {
+                    Entity::Line { start, end: shared }
+                };
+                self.drop_length_dimensions(start, end)?;
+                self.restructure(curve, line, &[], keeps_length)?;
+                self.drop_if_unused(moved)?;
+            }
+            (
+                Course::Arc {
+                    center,
+                    ends: [start, end],
+                    ..
+                },
+                Change::Moved { end: moved, .. },
+            ) => {
+                let arc = if moved == start {
+                    Entity::Arc {
+                        center,
+                        start: shared,
+                        end,
+                    }
+                } else {
+                    Entity::Arc {
+                        center,
+                        start,
+                        end: shared,
+                    }
+                };
+                self.drop_length_dimensions(start, end)?;
+                self.restructure(curve, arc, &[], keeps_sweep)?;
+                self.drop_if_unused(moved)?;
+            }
+            (
+                Course::Ellipse {
+                    ends: [start, end], ..
+                },
+                Change::Moved { end: moved, .. },
+            ) => {
+                let Some(&Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    ..
+                }) = self.entity(curve)
+                else {
+                    return Err(SketchError::NoSuchEntity(curve));
+                };
+                let [kept_start, kept_end] = if moved == start {
+                    [shared, end]
+                } else {
+                    [start, shared]
+                };
+                let arc = Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start: kept_start,
+                    end: kept_end,
+                };
+                self.drop_length_dimensions(start, end)?;
+                self.restructure(curve, arc, &[], keeps_sweep)?;
+                self.drop_if_unused(moved)?;
+            }
+            (
+                Course::Circle { center, .. },
+                Change::Opened {
+                    start_at_corner,
+                    far,
+                },
+            ) => {
+                let far_end = self.add_point(far);
+                let arc = if start_at_corner {
+                    Entity::Arc {
+                        center,
+                        start: shared,
+                        end: far_end,
+                    }
+                } else {
+                    Entity::Arc {
+                        center,
+                        start: far_end,
+                        end: shared,
+                    }
+                };
+                self.restructure(curve, arc, &[], |_| true)?;
+                far_ends.push((far_end, curve));
+            }
+            (_, Change::Moved { .. } | Change::Reached { .. } | Change::Opened { .. }) => {
+                return Err(SketchError::NoSuchEntity(curve));
+            }
+        }
+        Ok(())
     }
 
     fn course(&self, curve: EntityId) -> Result<Course, FilletError> {
