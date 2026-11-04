@@ -347,7 +347,7 @@ paths:
   at the pooled vertices on it. Where two branches of one face pair cross (sections meeting where
   the surfaces touch: tori whose equators touch, a torus and its copy turned a little, whose
   equators cross the meridians in the plane of the turn), the crossing inside both faces is pooled
-  too (`branch_crossings`), so both branches split there and tracing has a vertex to turn at. An edge found lying on the other solid's surface that passes from
+  too (`branch_crossings`), so both branches split there and tracing has a vertex to turn at. An edge lying on a face is split where a branch between that face and one of the edge's own faces crosses it (`overlaps_crossing_branches`, tangent meetings left out): a torus's meridian seam beside its copy shifted 1e-5 along Y stays 6e-12 from the copy, changing side at the top and bottom circles by less than any tolerance, and the circles crossing it unsplit left a loop that could not be traced (`Split`). An edge found lying on the other solid's surface that passes from
   one side of it to the other (at least `CROSSING_SIDE`, half the resolution, off at one end,
   `CROSSING_FLOOR`, a tenth, at the other, and changing side once, `shallow_crossing`) crosses it
   at a shallow angle instead: it is split where it changes side, where the faces' own intersection meets it, and is no overlap (a plug's rim

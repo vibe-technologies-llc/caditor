@@ -204,6 +204,12 @@ paths:
 - Volume checks mesh coarsely, sized by the box of edges and vertices (never the classifier-based
   `bounding_box`), retrying finer (`VALIDATION_COARSENESS`) before reporting a void outside its
   lump, an empty shell (a thin lens is empty on a coarse mesh) or lumps that overlap or coincide.
+- A shell's sign (lump or void) is its mesh's volume, except that a shell whose mesh is flat (volume
+  at most `FLAT_SHELL_VOLUME` of its area times its size) takes the exact integral over its faces
+  (`measure::faces_volume`), when that is more than `EMPTY_SHELL_VOLUME` of the same: a cap of a
+  torus 0.08 across and 3e-4 high, left standing proud of a prism, has no mesh point inside its
+  boundary at any retry, so both its faces mesh alike and the sign was rounding noise
+  (`VoidOutside`). `void_shells` and `shell_spans` read the same sign.
 - Lumps (`topology/lumps.rs`) are checked by probes exactly on each shell: the material depth of the
   other shells (outward +1, voids −1, by mesh parity) must be 0 on a lump and 1 on a void. A probe
   within `DEVIATION_ALLOWANCE` times another shell's mesh deviation is touching and decides

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, f64::consts::FRAC_PI_2};
 
-use caditor_geometry::{Point2, Point3, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector3};
 
 use super::{
     MeasureError,
@@ -96,6 +96,23 @@ pub fn face_area(solid: &Solid, face: FaceId) -> Result<Option<f64>, MeasureErro
     Ok(face_moments(solid, face, &frame)?.map(|moments| moments.area))
 }
 
+pub(crate) fn faces_volume(
+    solid: &Solid,
+    faces: &[FaceId],
+    bounds: Aabb,
+) -> Result<Option<f64>, MeasureError> {
+    let frame = Frame::around(Some(bounds));
+    let mut volume = 0.0;
+    for face in faces {
+        interrupt::check()?;
+        let Some(moments) = face_moments(solid, *face, &frame)? else {
+            return Ok(None);
+        };
+        volume += moments.volume;
+    }
+    Ok(Some(volume))
+}
+
 struct Frame {
     reference: Point3,
     scales: Values,
@@ -105,7 +122,10 @@ struct Frame {
 
 impl Frame {
     fn of(solid: &Solid) -> Self {
-        let bounds = solid.outline_box();
+        Self::around(solid.outline_box())
+    }
+
+    fn around(bounds: Option<Aabb>) -> Self {
         let reference = bounds.map_or(Point3::ZERO, |bounds| bounds.center());
         let reach = bounds
             .map_or(1.0, |bounds| 0.5 * bounds.diagonal())

@@ -369,6 +369,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
         edge_hits(input, operand, &mut pool, &mut overlaps)?;
     }
     let branches = face_branches(input, &mut pool)?;
+    overlaps_crossing_branches(input, &overlaps, &branches, &mut pool)?;
     let mut arrangement = Arrangement::default();
     let mut merged = Merged::default();
     for (operand, ids) in Operand::BOTH.into_iter().zip(&vertex_ids) {
@@ -635,6 +636,46 @@ fn face_branches(input: &Input, pool: &mut Pool) -> Result<Vec<Branch>, BooleanE
         }
     }
     Ok(branches)
+}
+
+fn overlaps_crossing_branches(
+    input: &Input,
+    overlaps: &[Overlap],
+    branches: &[Branch],
+    pool: &mut Pool,
+) -> Result<(), BooleanError> {
+    for overlap in overlaps {
+        interrupt::check()?;
+        let (operand, edge_id) = overlap.edge;
+        let solid = input.solid(operand);
+        let (Some(edge), Some(face)) = (solid.edge(edge_id), input.face(overlap.face)) else {
+            continue;
+        };
+        let own_faces = edge_face_keys(solid, operand, edge_id);
+        let meeting = branches.iter().filter(|branch| {
+            branch.faces.contains(&overlap.face)
+                && own_faces.iter().any(|own| branch.faces.contains(own))
+        });
+        for branch in meeting {
+            let found = intersect_curves(
+                edge.curve(),
+                overlap.range,
+                &branch.branch.curve,
+                branch.branch.range,
+            )
+            .map_err(|error| BooleanError::from(error).or_faces(branch.faces))?;
+            for crossing in found.points.iter().filter(|crossing| !crossing.tangent) {
+                let uv = face.surface().project(crossing.point, None);
+                let inside = input
+                    .classifier(overlap.face.operand)
+                    .point_in_face(overlap.face.face, uv);
+                if touches(inside) {
+                    pool.insert(crossing.point, None);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn branch_crossings(branches: &[IntersectionBranch]) -> Result<Vec<Point3>, IntersectionError> {

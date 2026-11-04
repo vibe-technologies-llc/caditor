@@ -8,7 +8,7 @@ use crate::{
         IntersectionError, SurfacePatch, boxes_overlap, parameter_slack,
         solve::{
             Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
-            parallel_normals, refine_contact, refine_on_plane, uv_direction,
+            nearest_turn, parallel_normals, refine_contact, refine_on_plane, uv_direction,
         },
         surface_surface::{Raw, RawCurve, RawPoint, recognize::recognize},
         wrap_into,
@@ -28,6 +28,7 @@ const MIN_LEAF: f64 = 1e3 * LINEAR_RESOLUTION;
 const TOUCH_SINE: f64 = STOP_SINE;
 const STOP_SINE: f64 = 1e-6;
 const FAR_STOP_SINE: f64 = 1e-8;
+const PASSING_GAP: f64 = STOP_SINE * STOP_SINE;
 const SEED_MERGE: f64 = 1e-7;
 const COVERED_SINE: f64 = 0.2;
 const ON_BRANCH: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -588,8 +589,8 @@ impl<'a> Tracer<'a> {
             let h = *step;
             let predicted = current.point + direction * h;
             let guess = [
-                uv_first + uv_direction(&first_derivatives, direction * h),
-                uv_second + uv_direction(&second_derivatives, direction * h),
+                uv_first + within_a_turn(first, uv_direction(&first_derivatives, direction * h)),
+                uv_second + within_a_turn(second, uv_direction(&second_derivatives, direction * h)),
             ];
             let check = |contact: Contact| {
                 let (next, _) = contact_direction(surfaces, &contact)?;
@@ -717,7 +718,7 @@ impl<'a> Tracer<'a> {
                 from_second.lerp(to_second, 0.5),
             ],
         )
-        .is_some_and(|touch| touch.gap <= TOLERANCE && touch.point.distance(middle) <= step)
+        .is_some_and(|touch| touch.gap <= PASSING_GAP && touch.point.distance(middle) <= step)
     }
 
     fn heads_along(&self, contact: &Contact, direction: Vector3) -> bool {
@@ -1088,6 +1089,13 @@ impl<'a> Tracer<'a> {
     }
 }
 
+fn within_a_turn(surface: &Surface, step: Vector2) -> Vector2 {
+    Vector2::new(
+        nearest_turn(step.x, 0.0, surface.u_period()),
+        nearest_turn(step.y, 0.0, surface.v_period()),
+    )
+}
+
 fn joined(backward: Marched, forward: Marched) -> (Vec<Contact>, bool, Vec<Point3>) {
     let mut ends = Vec::new();
     if backward.tangent_end
@@ -1235,8 +1243,60 @@ pub(crate) fn intersect(
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::{FRAC_PI_2, TAU};
+
+    use caditor_geometry::Plane;
+
     use super::*;
-    use crate::intersect::tests::{patch, plane};
+    use crate::{
+        intersect::tests::{patch, plane},
+        surface::{Cylinder, Sphere},
+    };
+
+    #[test]
+    fn a_branch_leaving_a_pole_stays_within_a_turn_of_it() {
+        let post: Surface = Cylinder::new(Plane::XY, 1.0).unwrap().into();
+        let centre = Point3::new(1.0, 0.0, 2.0);
+        let ball: Surface = Sphere::new(
+            Plane::from_frame(centre, Vector3::Z, Vector3::X).unwrap(),
+            1.5,
+        )
+        .unwrap()
+        .into();
+        let tracer = Tracer {
+            patches: [
+                patch(&post, (0.0, TAU), (0.0, 4.0)),
+                patch(&ball, (0.0, TAU), (-FRAC_PI_2, FRAC_PI_2)),
+            ],
+            max_step: 0.5,
+            curves: Vec::new(),
+            points: Vec::new(),
+            touches: Vec::new(),
+        };
+
+        let just_off_the_pole = Point2::new(0.7, -FRAC_PI_2 + 1e-14);
+        let point = ball.point_at(just_off_the_pole);
+        let seed = Contact {
+            uv: [post.project(point, None), just_off_the_pole],
+            point,
+        };
+
+        let marched = tracer.march(&seed, true).unwrap();
+        let farthest = marched
+            .contacts
+            .iter()
+            .map(|contact| contact.point.distance(seed.point))
+            .fold(0.0, f64::max);
+
+        assert!(marched.closed);
+        assert!(farthest > 2.9, "only {farthest} from the pole");
+        assert!(
+            marched
+                .contacts
+                .iter()
+                .all(|contact| contact.uv[1].x.abs() < 2.0 * TAU)
+        );
+    }
 
     #[test]
     fn a_branch_starting_a_hair_past_a_bound_ends_on_it_rather_than_failing() {
