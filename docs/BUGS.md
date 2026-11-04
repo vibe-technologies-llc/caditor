@@ -120,6 +120,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the repeated point sit `SHORTEST_GAP_SHARE` apart, where the curve swings with the smallest move
   of its fit points; `a_solved_sketch_does_not_move_when_solved_again` skips these splines.
 
+- [medium · hard] An open fit spline through three coincident points and a fourth, held a distance
+  from a line (`a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_result`),
+  moves by 0.05 mm when solved again from its own result for about one rounding in ten of an
+  input by up to three ulps (the Windows CI run fails it where Linux passes). The hidden controls
+  beside the coincident points sit 1e-6 mm apart, so the end tangent's direction is finer than a
+  coordinate of 10 mm can hold: the first attempt stalls at a residual of 2e-9 against a tolerance
+  of 1.6e-9 and a perturbed retry lands elsewhere. Weighting the tangent form by the tangent's
+  length, or the interpolation rows by 1e3, each removed the jump and left a drift of 2e-6 mm or
+  moved it to the closed spline; neither is kept.
+
 ## STEP import
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and

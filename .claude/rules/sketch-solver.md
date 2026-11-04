@@ -161,7 +161,10 @@ paths:
   bound), so a point slides across the seam. An ellipse's is its angle over the whole ellipse, as a
   point on an arc lies on its whole circle.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
-  refined by Newton so geometry that already holds does not move (a clamped end counts as
+  refined by Newton so geometry that already holds does not move (only a refinement that settles
+  is a candidate of its own: one still creeping after `REFINEMENTS`, as at a cusp where the first
+  and second derivative vanish, is the sample it started from, never a parameter chosen by the
+  rounding of the distances; a clamped end counts as
   stationary when the Newton step there is within `SETTLED_AT_END`, so a spline square to a
   distance at its end keeps that end over the other end tied with it); among starts equally near (within
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the
