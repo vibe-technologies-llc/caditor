@@ -10,8 +10,6 @@ const LIGHTEST_WEIGHT: f64 = 1.0;
 const HEAVIEST_WEIGHT: f64 = 1000.0;
 const SIZE_STEP: f64 = 1.2;
 const EX_PER_EM: f64 = 0.5;
-const SUBSCRIPT_SHIFT_EMS: f64 = -0.2;
-const SUPERSCRIPT_SHIFT_EMS: f64 = 0.4;
 const SHORTHAND: &str = "font";
 const KEYWORD_SIZES: [(&str, f64); 8] = [
     ("xx-small", 9.0),
@@ -75,7 +73,26 @@ pub(super) enum Spacing {
 pub(super) enum BaselineShift {
     Pixels(f64),
     Ems(f64),
-    OfParentSize(f64),
+    OfLineHeight(f64),
+    Subscript,
+    Superscript,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(super) struct FontShift {
+    pub subscripted: f64,
+    pub superscripted: f64,
+    pub of_line_height: f64,
+}
+
+impl FontShift {
+    fn plus(self, other: Self) -> Self {
+        Self {
+            subscripted: self.subscripted + other.subscripted,
+            superscripted: self.superscripted + other.superscripted,
+            of_line_height: self.of_line_height + other.of_line_height,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -157,6 +174,7 @@ pub(super) struct TextStyle<'a> {
     pub word_spacing: f64,
     pub preserve_space: bool,
     pub rise: f64,
+    pub font_shift: FontShift,
 }
 
 impl Default for TextStyle<'_> {
@@ -171,6 +189,7 @@ impl Default for TextStyle<'_> {
             word_spacing: 0.0,
             preserve_space: false,
             rise: 0.0,
+            font_shift: FontShift::default(),
         }
     }
 }
@@ -193,11 +212,31 @@ impl<'a> TextStyle<'a> {
             Some(Spacing::Ems(ems)) => ems * size,
             None => inherited,
         };
-        let shift = match properties.baseline_shift {
-            Some(BaselineShift::Pixels(pixels)) => pixels,
-            Some(BaselineShift::Ems(ems)) => ems * size,
-            Some(BaselineShift::OfParentSize(share)) => share * self.size,
-            None => 0.0,
+        let (shift, font_shift) = match properties.baseline_shift {
+            Some(BaselineShift::Pixels(pixels)) => (pixels, FontShift::default()),
+            Some(BaselineShift::Ems(ems)) => (ems * size, FontShift::default()),
+            Some(BaselineShift::OfLineHeight(share)) => (
+                0.0,
+                FontShift {
+                    of_line_height: share * self.size,
+                    ..FontShift::default()
+                },
+            ),
+            Some(BaselineShift::Subscript) => (
+                0.0,
+                FontShift {
+                    subscripted: self.size,
+                    ..FontShift::default()
+                },
+            ),
+            Some(BaselineShift::Superscript) => (
+                0.0,
+                FontShift {
+                    superscripted: self.size,
+                    ..FontShift::default()
+                },
+            ),
+            None => (0.0, FontShift::default()),
         };
         Self {
             size,
@@ -209,6 +248,7 @@ impl<'a> TextStyle<'a> {
             word_spacing: spaced(properties.word_spacing, self.word_spacing),
             preserve_space: properties.preserve_space.unwrap_or(self.preserve_space),
             rise: self.rise + shift,
+            font_shift: self.font_shift.plus(font_shift),
         }
     }
 }
@@ -331,12 +371,12 @@ fn baseline_shift(value: &str) -> Option<BaselineShift> {
     let value = value.trim();
     let shift = match value.to_ascii_lowercase().as_str() {
         "baseline" => BaselineShift::Pixels(0.0),
-        "sub" => BaselineShift::OfParentSize(SUBSCRIPT_SHIFT_EMS),
-        "super" => BaselineShift::OfParentSize(SUPERSCRIPT_SHIFT_EMS),
+        "sub" => BaselineShift::Subscript,
+        "super" => BaselineShift::Superscript,
         _ => relative(value, BaselineShift::Ems, BaselineShift::Pixels).or_else(|| {
             let length = Length::parse(value)?;
             Some(match length.unit {
-                Unit::Percent => BaselineShift::OfParentSize(length.value / 100.0),
+                Unit::Percent => BaselineShift::OfLineHeight(length.value / 100.0),
                 _ => BaselineShift::Pixels(length.pixels(0.0)),
             })
         })?,
@@ -344,7 +384,8 @@ fn baseline_shift(value: &str) -> Option<BaselineShift> {
     let finite = match shift {
         BaselineShift::Pixels(amount)
         | BaselineShift::Ems(amount)
-        | BaselineShift::OfParentSize(amount) => amount.is_finite(),
+        | BaselineShift::OfLineHeight(amount) => amount.is_finite(),
+        BaselineShift::Subscript | BaselineShift::Superscript => true,
     };
     finite.then_some(shift)
 }

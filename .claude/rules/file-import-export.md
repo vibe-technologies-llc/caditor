@@ -158,14 +158,35 @@ paths:
   unless the second is absolutely placed.
 - `textLength` (innermost first): `lengthAdjust` `spacing` (default) spreads the difference over the
   gaps, `spacingAndGlyphs` stretches places and glyphs (`Placed::stretch`). `baseline-shift` moves
-  a span's letters without moving the pen and adds up through nested spans (`TextStyle::rise`).
+  a span's letters without moving the pen and adds up through nested spans (`TextStyle::rise`
+  for lengths and ems). `sub` and `super` shift by the parent's size times the face's own
+  `ySubscriptYOffset` and `ySuperscriptYOffset` (OS/2, `Typeface::subscript_drop` and
+  `superscript_rise`, the default instance's values since MVAR is not read), and a percentage by
+  that share of the face's normal line height at the parent's size (`Typeface::line_height`), all
+  carried as sums of sizes in `TextStyle::font_shift` and turned into pixels per letter
+  (`font_rise`) because the cascade has no face; a face without those metrics falls back to
+  0.2 and 0.4 of the size and the size itself.
 - `textPath` (`text_path.rs`) lays letters along the referenced shape (`href`/`xlink:href`, through
   its own `transform`) or its SVG 2 `path` data, sampled into a `Track` (at most
   `MAX_TRACK_POINTS`); `side="right"` walks it backwards, `startOffset` is where the run starts. The
   run is laid out straight first, then each letter's middle is put on the track and turned to the
-  tangent; absolute `x`/`y` are ignored inside. A letter whose middle falls off either end is left
-  out and counted. Text after the `textPath` carries on straight from the last on-path letter. A
-  reference not naming a drawn shape is counted as missing and its text left out.
+  tangent (`method="align"`, the default); absolute `x`/`y` are ignored inside. A letter whose
+  middle falls off either end is left out and counted. Text after the `textPath` carries on
+  straight from the last on-path letter. A reference not naming a drawn shape is counted as
+  missing and its text left out.
+- `spacing="auto"` (`chorded_along`) places each letter's start where the previous letter's chord
+  ended: its baseline runs a chord of its advance along the track (`chord_end`, found by stepping
+  and bisecting) turned to that chord rather than to the tangent at its middle, so letters on a
+  curve touch at their baseline ends instead of fanning apart; gaps between letters (spacing,
+  kerning) stay arc lengths, and on a straight track it is `exact` (the default, arc-length
+  advances). `method="stretch"` (`stretched_along`, `warped`) keeps the straight layout and bends
+  each glyph's outline onto the track: a point at x along the run goes to the track at
+  `startOffset` plus x, and its height above the baseline along the track's normal there
+  (the track extended straight past its ends), the outline's lines and curves cut into pieces of
+  a sixth of the advance (at most `MOST_PIECES` per segment, and only where the track turns within
+  the segment's reach; a straight track leaves letters as the exact lines and splines they are)
+  with each piece's control points mapped. It ignores `rotate` and `spacing`, and keeps the
+  off-path rule by the letter's middle.
 - Text style (`text_style.rs`) cascades `font-size` (16 px unset), `font-family`, `font-weight`,
   `font-style`, `text-anchor`, `letter-spacing`, `word-spacing` and the `font` shorthand (system
   font names ignored). Every family is drawn in Inter; a first family other than Inter or a generic

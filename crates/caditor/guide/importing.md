@@ -20,8 +20,9 @@ with the holes of letters such as o, e and a left open. Its size, weight, spacin
 the place of each letter follow the drawing, but every font is drawn in Inter, the font caditor
 uses, so letters from another font differ in shape and width; the report names the fonts
 replaced. Italic text is set in Inter's italic; text set along a path follows it, each letter
-turned to the path, and a stretched text length, raised or lowered letters (superscripts and
-subscripts) come in as drawn. Letters running past the end of their path and characters Inter
+turned to the path (or, with method stretch, bent along it, and with spacing auto set so
+neighbours touch round a curve), and a stretched text length, raised or lowered letters
+(superscripts and subscripts, which take Inter's own offsets) come in as drawn. Letters running past the end of their path and characters Inter
 lacks are left out, each said in the report. Text in a DXF drawing is left out.
 
 {command:sketch.toggle_first_dimension_scales} then sizes an outline traced from a picture with one

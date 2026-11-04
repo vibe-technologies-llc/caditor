@@ -11,6 +11,7 @@ const STEPS_PER_SPAN: usize = 32;
 const STEPS_PER_TURN: f64 = 128.0;
 const LEAST_ARC_STEPS: usize = 4;
 const MAX_TRACK_POINTS: usize = 200_000;
+const STRAIGHT: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Side {
@@ -18,11 +19,27 @@ pub(super) enum Side {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Method {
+    #[default]
+    Align,
+    Stretch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Spacing {
+    #[default]
+    Exact,
+    Auto,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct Track {
     points: Vec<Point2>,
     distances: Vec<f64>,
     pub start: f64,
+    pub method: Method,
+    pub spacing: Spacing,
 }
 
 impl Track {
@@ -81,6 +98,35 @@ impl Track {
 
     pub fn length(&self) -> f64 {
         self.distances.last().copied().unwrap_or(0.0)
+    }
+
+    pub fn extended(&self, distance: f64) -> Option<(Point2, Vector2)> {
+        let length = self.length();
+        if distance < 0.0 {
+            let (point, tangent) = self.at(0.0)?;
+            Some((point + tangent * distance, tangent))
+        } else if distance > length {
+            let (point, tangent) = self.at(length)?;
+            Some((point + tangent * (distance - length), tangent))
+        } else {
+            self.at(distance)
+        }
+    }
+
+    pub fn turns_between(&self, from: f64, to: f64) -> bool {
+        let Some((_, first)) = self.extended(from) else {
+            return false;
+        };
+        let inside = self.distances.partition_point(|reached| *reached <= from)
+            ..self.distances.partition_point(|reached| *reached < to);
+        let corners = self.distances.get(inside).unwrap_or_default();
+        let ends = [from, to];
+        corners
+            .iter()
+            .copied()
+            .chain(ends)
+            .filter_map(|distance| self.extended(distance))
+            .any(|(_, tangent)| (tangent - first).length() > STRAIGHT)
     }
 
     pub fn at(&self, distance: f64) -> Option<(Point2, Vector2)> {
