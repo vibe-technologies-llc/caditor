@@ -2824,6 +2824,51 @@ fn a_block_edge_just_past_a_resolution_from_a_holed_block_edge_combines() {
 }
 
 #[test]
+fn a_fragment_is_not_sampled_where_its_chords_sag_past_its_arc() {
+    let block = cuboid(Vector3::new(4.0, 3.0, 2.0));
+    let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let ball = sphere(4.0);
+    let ball_volume = 256.0 * PI / 3.0;
+    let beside_block = moved(
+        ball.clone(),
+        (0.25966097392071186, 1.12663027583669, 0.3052616461845772),
+    );
+    let beside_frustum = moved(
+        ball,
+        (0.46722990273120635, 0.7950070451844358, -0.504384283402061),
+    );
+
+    check_every_operation("arc on a block", &block, &beside_block, (24.0, ball_volume));
+    check_every_operation(
+        "arc on a frustum",
+        &frustum,
+        &beside_frustum,
+        (140.0 * PI / 3.0, ball_volume),
+    );
+}
+
+#[test]
+fn a_frustum_cap_cutting_a_few_micrometres_off_a_void_corner_combines() {
+    let hollow = crate::fixtures::hollow_cuboid(10.0, 4.0);
+    let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let axis = Vector3::new(0.9735692794338566, -0.6178810586874486, 0.8369002365485445);
+    let offset = (
+        0.6798245837903727,
+        -0.27429081143566136,
+        -0.3024659810099717,
+    );
+
+    let placed = moved(rotated(frustum, axis, 5.486596139956586), offset);
+
+    check_every_operation(
+        "cap at a void's corner",
+        &hollow,
+        &placed,
+        (exact_volume(&hollow), 140.0 * PI / 3.0),
+    );
+}
+
+#[test]
 fn a_block_face_passing_within_a_resolution_of_a_sphere_pole_combines() {
     let ball = sphere(4.0);
     let axis = Vector3::new(

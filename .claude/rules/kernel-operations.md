@@ -373,7 +373,11 @@ paths:
   left a face that could not be divided, so a pattern of them failed as `Split` instead of keeping
   separate shells), which it then joins (a cylinder's cap meeting a block's bottom in a chord 2.9e-6 long along the block's
   edge, where the cap crosses that edge 1.4e-6 inside its rim: dropped, the bottom had no cut to
-  turn along the edge's piece between the cap and the rim, and the result was `Open`).
+  turn along the edge's piece between the cap and the rim, and the result was `Open`). A longer
+  piece no sample of which lies strictly inside a face is still kept when it runs along no one edge
+  of that face and its middle lies exactly inside (`cuts_within`): a frustum's cap taking a
+  triangle 3.6e-6 by 3.8e-6 by 2e-6 off a void's corner stays within the resolution of one leg or
+  the other all along its hypotenuse, and dropped, the result was `Open`.
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
   holds edges to) are one edge, so an intersection along an existing edge and coincident faces need
   no special case; pieces a few micrometres apart stay two edges bounding a sliver. Pieces of two
@@ -415,7 +419,10 @@ paths:
   sliver or coaxial annulus narrower than `PCURVE_TOLERANCE` is sampled inside itself. A fragment
   whose area over perimeter is `DEEP_GATE` times its coarsest tolerance skips the depth scan.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
-  interior points (`classify_fragment_point`; inside or outside wins over touching; inside and
+  interior points, those farther from its polygons than its coarsest pcurve tolerance when any are
+  (`interior_points`: scanning just inside a sphere's arc on a block's top, the polygon's chords
+  stopped short of the arc, so one sample lay on the arc's far side and the fragment read
+  `Ambiguous`) (`classify_fragment_point`; inside or outside wins over touching; inside and
   outside together, inside or outside beside a coincident sample, or coincident samples of opposite
   senses, are `Ambiguous`: a fragment only partly coincident was not split where the coincidence
   ends, and either class keeps or drops the coincident part wrongly; none occurs in the boolean

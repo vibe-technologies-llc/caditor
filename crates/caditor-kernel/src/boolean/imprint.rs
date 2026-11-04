@@ -1134,8 +1134,41 @@ fn kept_piece(
             !curve.is_longer_than(interval, UNJUDGED_PIECE)
                 || matches!(ends, [Some(start), Some(end)]
                     if cuts_beside_edge(input, branch, arrangement, merged, interval, [start, end]))
+                || branch
+                    .faces
+                    .iter()
+                    .all(|key| cuts_within(input, branch, *key, interval))
         }
     }
+}
+
+fn cuts_within(input: &Input, branch: &Branch, key: FaceKey, interval: Interval) -> bool {
+    let Some(face) = input.face(key) else {
+        return false;
+    };
+    let classifier = input.classifier(key.operand);
+    let surface = face.surface();
+    let hint = input.bounds(key).map(|bounds| bounds.uv.center());
+    let curve = &branch.branch.curve;
+    let points = INSIDE_SAMPLES.map(|fraction| curve.point(interval.at(fraction)));
+    let containment = points.map(|point| {
+        let uv = surface.project(point, hint);
+        classifier.point_in_face(key.face, uv)
+    });
+    if containment.contains(&Some(FaceContainment::Inside)) {
+        return true;
+    }
+    let along_one_edge = boundary_edges(input.solid(key.operand), key.face)
+        .into_iter()
+        .filter_map(|edge| input.solid(key.operand).edge(edge))
+        .any(|edge| {
+            points.iter().all(|point| {
+                let along = edge.curve().closest_parameter(*point, edge.interval());
+                edge.curve().point(along).distance(*point) <= TOLERANCE
+            })
+        });
+    let middle = surface.project(curve.point(interval.middle()), hint);
+    !along_one_edge && classifier.exactly_inside_face(key.face, middle) == Some(true)
 }
 
 fn branch_stops(

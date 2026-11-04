@@ -10,13 +10,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724, 767, 1135, 1272 and 1402) gave are pinned by tests and combine.
-  Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before the last marching change and
-  not again. Of seeds
-  1115 to 1420, six still fail, each also on the build before that change: 1115 and 1383 (torus and
-  sphere, `Unfollowable`), 1136 (torus and torus, `Invalid`), 1214 (hollow cuboid and frustum,
-  `Open`), 1225 (frustum and sphere, `Ambiguous`) and 1344 (cuboid and sphere, `Ambiguous`). Seeds
-  beyond 1420 are unsurveyed.
+  403, 405, 432, 486, 632, 724, 767, 1135, 1214, 1225, 1272, 1344 and 1402) gave are pinned by tests
+  and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before the last marching
+  change and not again. Of seeds 1115 to 1420, three still fail, each also on the build before that
+  change: 1115 (a torus and a sphere 1.6e-4 off its centre, draw 653) and 1383 (the same pair the
+  other way round, 7.5e-5 off, draw 592) are `Unfollowable` where the sphere runs along the torus's
+  inner equator, and 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890) is
+  `Invalid`, a face's boundary crossing itself. Seeds beyond 1420 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as

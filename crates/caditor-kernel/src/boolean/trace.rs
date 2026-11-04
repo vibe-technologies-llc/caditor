@@ -816,11 +816,49 @@ fn spans(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
 }
 
 pub(super) fn interior_points(fragment: &Fragment, surface: &Surface) -> Vec<Point2> {
-    spans(fragment, surface)
+    let spans: Vec<Point2> = spans(fragment, surface)
         .into_iter()
-        .take(INTERIOR_POINTS)
         .map(|(_, uv)| uv)
-        .collect()
+        .collect();
+    let polygons: Vec<Vec<Point2>> = fragment.loops.iter().map(TracedLoop::polygon).collect();
+    let coarsest = fragment
+        .loops
+        .iter()
+        .flat_map(|traced| &traced.coedges)
+        .map(|coedge| coedge.pcurve.tolerance())
+        .fold(0.0, f64::max);
+    let clear: Vec<Point2> = spans
+        .iter()
+        .copied()
+        .filter(|uv| depth_at(&polygons, surface, *uv) > coarsest)
+        .take(INTERIOR_POINTS)
+        .collect();
+    if clear.is_empty() {
+        spans.into_iter().take(INTERIOR_POINTS).collect()
+    } else {
+        clear
+    }
+}
+
+fn reach(polygons: &[Vec<Point2>], surface: &Surface, uv: Point2, across: bool) -> f64 {
+    let (level, along) = if across { (uv.x, uv.y) } else { (uv.y, uv.x) };
+    let crossings = scan(polygons, level, across);
+    let derivatives = surface.evaluate(uv.x, uv.y);
+    let speed = if across {
+        derivatives.dv.length()
+    } else {
+        derivatives.du.length()
+    };
+    crossings
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .find(|[a, b]| (*a..=*b).contains(&along))
+        .map_or(0.0, |[a, b]| (along - a).min(b - along) * speed)
+}
+
+fn depth_at(polygons: &[Vec<Point2>], surface: &Surface, uv: Point2) -> f64 {
+    reach(polygons, surface, uv, true).min(reach(polygons, surface, uv, false))
 }
 
 fn depths(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
@@ -830,22 +868,6 @@ fn depths(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
         .and_then(|outer| Aabb2::from_points(outer.iter().copied()))
     else {
         return Vec::new();
-    };
-    let reach = |uv: Point2, across: bool| {
-        let (level, along) = if across { (uv.x, uv.y) } else { (uv.y, uv.x) };
-        let crossings = scan(&polygons, level, across);
-        let derivatives = surface.evaluate(uv.x, uv.y);
-        let speed = if across {
-            derivatives.dv.length()
-        } else {
-            derivatives.du.length()
-        };
-        crossings
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .find(|[a, b]| (*a..=*b).contains(&along))
-            .map_or(0.0, |[a, b]| (along - a).min(b - along) * speed)
     };
     let mut candidates: Vec<(f64, Point2)> = Vec::new();
     for across in [false, true] {
@@ -863,7 +885,7 @@ fn depths(fragment: &Fragment, surface: &Surface) -> Vec<(f64, Point2)> {
                 } else {
                     Point2::new(middle, level)
                 };
-                let depth = reach(uv, across).min(reach(uv, !across));
+                let depth = depth_at(&polygons, surface, uv);
                 if depth.is_finite() && depth > 0.0 {
                     candidates.push((depth, uv));
                 }
