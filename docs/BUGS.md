@@ -47,9 +47,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   at 247.5 degrees and 1e-6 narrower fails as `Open` on glibc (the bore's rim at the start face is
   used by the plate's side and start face and the peg's start face but not the peg's side) and as
   edge contact on Windows and whenever every transcendental result is moved one ulp either way.
-  The combine test of a failing place now uses a plug 2.5e-6 off at 292.5 degrees (`Split` at the
-  plate's start face), whose outcome survived the pure-Rust `libm` and every result moved one ulp
-  up, down or at random. Taking the kernel's maths from `libm` would make Linux and Windows agree
+  The combine tests of a failing place use a plug 1.7e-6 off at 101.25 degrees and 1e-6 narrower
+  (`Open`, naming the bore's wall halfway up its seam), whose outcome survived every result moved
+  one ulp up, down or at random; the pure-Rust `libm` was not tried on it. A plug 2e-6 off at 116.25
+  or 221.25 degrees fails `Split` at the plate's start face on glibc but turns `NonManifold` or
+  `Open` one ulp away, and the plug 2.5e-6 off at 292.5 degrees these tests used before is
+  `NonManifold` now that the seam is split where the walls' section crosses it. That one reads as
+  parts meeting only along an edge though the bodies overlap, and names no place, since
+  `CombineCause::Edgewise` drops the kernel's `BooleanSite`. Each of these plugs is a hair more than
+  the resolution narrower than its bore (1.00000000003e-6), so snapping shifts it onto the axis but
+  leaves the radius, and that boolean is `Invalid` by the same hair (a vertex 1.000000001e-6 from
+  its edge's end) before the plain one fails.
+  Taking the kernel's maths from `libm` would make Linux and Windows agree
   bit for bit, and `boolean::tests` all pass with it in the kernel; `glam`'s rotations in the
   geometry crate would have to follow through its `libm` feature, or a turned solid still differs.
   With every result moved one ulp up or down,
