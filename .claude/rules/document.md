@@ -1063,8 +1063,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   is made through all (`reach`) and cut back where it leaves the body (kernel `stop_at_body` in
   `Context::stopped`, nothing recorded in `reached`; a counterbore or steps are cut back with it,
   `head_fits` does not apply); an offset moves the cut back drill's end along the hole by kernel
-  `move_end` (`NextOffset` where it reaches farther than the drill is long). A hole starting
-  partly inside the body, around a void, or not buildable fails alone (`NextStraddles`,
+  `move_end` (`NextOffset` where it reaches farther than the drill is long, which includes the
+  thinnest place of a drill stopped by a channel whose top lies just under the face it starts on; a
+  channel level with that face cannot be cut, the plate being left meeting itself along an edge). A
+  hole starting partly inside the body, around a void, or not buildable fails alone (`NextStraddles`,
   `NextEnclosed`, `NextUnbuilt`). An up-to hole's counterbore, countersink or steps must stay
   shallower than each depth, and it ends flat whatever its bottom says.
 - `HoleStyle`: plain, counterbore (diameter, depth), countersink (diameter, angle) or stepped

@@ -1700,8 +1700,12 @@ fn drilled_under_the_channel(radius: f64) -> f64 {
 }
 
 fn offset_hole_in_the_channel(offset: &str) -> (Pair, FeatureId, Evaluation) {
+    offset_hole_in_a_channel(2.5, offset)
+}
+
+fn offset_hole_in_a_channel(radius: f64, offset: &str) -> (Pair, FeatureId, Evaluation) {
     let mut pair = pair();
-    channelled(&mut pair, 2.5);
+    channelled(&mut pair, radius);
     let offset = expression(&pair.document, offset);
     let hole = up_to(
         &mut pair,
@@ -1736,6 +1740,52 @@ fn a_hole_up_to_a_curved_next_face_stops_short_of_it_or_past_it_by_its_offset() 
     assert!((removed(&plain) - removed(&short) - circle).abs() < 0.3);
     assert!((removed(&plain) - removed(&past)).abs() < 0.3);
     short.body(pair.plate).unwrap().validate().unwrap();
+}
+
+fn feature_named(pair: &Pair, name: &str) -> FeatureId {
+    pair.document
+        .features()
+        .find(|feature| feature.name == name)
+        .unwrap()
+        .id()
+}
+
+#[test]
+fn a_hole_up_to_a_channel_just_under_the_top_moves_its_end_within_the_skin_left() {
+    let (pair, hole, evaluation) = offset_hole_in_a_channel(3.9, "0.05 mm");
+    let (_, refused, too_far) = offset_hole_in_a_channel(3.9, "0.2 mm");
+    let (_, short, too_short) = offset_hole_in_a_channel(3.9, "-0.05 mm");
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(hole)
+    );
+    assert_eq!(
+        too_short.failed_count(),
+        0,
+        "{:?}",
+        too_short.feature(short)
+    );
+    assert_eq!(
+        failure(&too_far, refused).reason(),
+        "Ending the hole at Point 0 0.2 mm past the faces of Plate reaches farther than the \
+         hole is long in places."
+    );
+    evaluation.body(pair.plate).unwrap().validate().unwrap();
+}
+
+#[test]
+fn a_channel_level_with_the_top_is_refused_where_it_is_cut() {
+    let (pair, _, evaluation) = offset_hole_in_a_channel(4.0, "0.5 mm");
+
+    let channel = feature_named(&pair, "Channel");
+
+    assert_eq!(
+        failure(&evaluation, channel).reason(),
+        "The body of Plate would be left with parts that meet only along an edge."
+    );
 }
 
 #[test]
