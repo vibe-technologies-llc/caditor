@@ -80,7 +80,7 @@ fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
 
 #[test]
 fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 45_000_000;
+    const FRAME_WORK: usize = 25_000_000;
 
     let (hand, stretched, work) = drag_past_reach(500);
 
@@ -103,6 +103,7 @@ fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
 
     let every: Vec<usize> = (0..system.equations.len()).collect();
@@ -131,7 +132,7 @@ fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
 #[test]
 #[ignore = "drags a chain of thousands of points through a whole frame, best run in release"]
 fn a_chain_of_2000_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 700_000_000;
+    const FRAME_WORK: usize = 400_000_000;
 
     let (hand, stretched, work) = drag_past_reach(2_000);
 

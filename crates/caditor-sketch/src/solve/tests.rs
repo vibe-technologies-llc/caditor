@@ -1602,6 +1602,7 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
             cancelled: &|| false,
             stiff: &stiff,
             stiffness: STIFF,
+            retrying: true,
         };
         let every: Vec<usize> = (0..system.equations.len()).collect();
         for component in components(&system, &every, &system.values) {
@@ -1679,6 +1680,7 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
@@ -2006,6 +2008,7 @@ fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elim
             cancelled: &|| false,
             stiff: &stiff,
             stiffness: STIFF,
+            retrying: true,
         };
         let every: Vec<usize> = (0..system.equations.len()).collect();
         for component in components(&system, &every, &system.values) {

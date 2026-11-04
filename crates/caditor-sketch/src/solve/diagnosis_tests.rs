@@ -349,6 +349,7 @@ fn with_failure<T>(chain: &Chain, then: impl FnOnce(&Solver<'_>, &[Failure]) -> 
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let every: Vec<usize> = (0..system.equations.len()).collect();
     let mut values = system.values.clone();
@@ -460,6 +461,7 @@ fn descent_from_drawn(chain: &Chain) -> (Descent, usize) {
         cancelled: &counting,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
 
     let descent = solver.descend(part, &mut values).unwrap();
@@ -555,6 +557,7 @@ fn trimmed_spanning(chain: &Chain) -> (Trimmed, Vec<ConstraintId>) {
         cancelled: &|| false,
         stiff: &stiff,
         stiffness: STIFF,
+        retrying: true,
     };
     let mut values = system.values.clone();
     let failed = solver.solve(&active, &mut values).unwrap();

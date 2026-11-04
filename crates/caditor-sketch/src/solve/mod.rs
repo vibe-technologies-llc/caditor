@@ -488,6 +488,7 @@ impl Sketch {
                 cancelled,
                 stiff: &stiff,
                 stiffness: FROZEN,
+                retrying: targets.is_empty(),
             };
             let mut values = start.clone();
             let held = !stiff.is_empty()
@@ -496,6 +497,7 @@ impl Sketch {
                     .is_empty();
             let solver = Solver {
                 stiffness: STIFF,
+                retrying: true,
                 ..frozen
             };
             if !held {

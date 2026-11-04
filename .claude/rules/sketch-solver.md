@@ -57,7 +57,9 @@ paths:
 ## Dragging
 
 - `solve_dragging` takes `Drag`s (a point or a circle's radius with its target). It starts from the
-  targets and first holds them there (`FROZEN`); when that cannot work they are only `STIFF` times
+  targets and first holds them there (`FROZEN`, one attempt without the perturbed retries
+  (`Solver::retrying`): a pointer past what the geometry reaches fails every retry too, a third
+  of a chain's frame); when that cannot work they are only `STIFF` times
   as willing to leave their targets as free geometry is to move. Geometry already satisfying its
   constraints does not move; under-constrained geometry moves as little as possible.
 - A part whose `STIFF` solve fails (a pointer past what the geometry reaches) solves from where it
@@ -91,8 +93,8 @@ paths:
 - A frame's reaching stops once it has spent `REACH_WORK` units (`ReachWork`, counting what
   `tally` counts, refused factorisations and orderings included); the pose it stops at holds and
   the next frame goes on from it. A 500-line zig-zag chain dragged past its reach lands on the ray
-  toward the pointer at full extension in about 31 million units for the whole frame (5 million
-  reaching), a 2,000-line one in about 505 million (92 million reaching, the rest the `FROZEN` and
+  toward the pointer at full extension in about 21 million units for the whole frame (5 million
+  reaching), a 2,000-line one in about 371 million (92 million reaching, the rest the `FROZEN` and
   `STIFF` solves; an ignored test in `reach_tests.rs`, run nightly).
 - `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the same solve
   without rank and degrees-of-freedom analysis, returning a memo whose parts are marked not

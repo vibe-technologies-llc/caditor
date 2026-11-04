@@ -121,6 +121,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
   takes seconds a frame in a release build, where a chain joined only by `Coincident` takes tens of
   milliseconds. Past its reach even a chain with only its lengths dimensioned pays this: for 2,000
-  lines the `FROZEN` and `STIFF` solves spend about 410 million work units failing before reaching
-  spends 92 million (`reach_tests.rs`); the reaching step's sparse factorisations could stand in
-  for their CGLS steps.
+  lines the `FROZEN` solve (one attempt, its perturbed retries skipped) and the `STIFF` one spend about
+  280 million work units failing before reaching spends 92 million (`reach_tests.rs`); the reaching
+  step's sparse factorisations could stand in for their CGLS steps. For 500 lines the split is 6.5
+  million for `FROZEN`, 9 million for `STIFF` and 5 million reaching.
