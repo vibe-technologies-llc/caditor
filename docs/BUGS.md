@@ -13,9 +13,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1214, 1225, 1272, 1344, 1383 and 1402) gave are
   pinned by tests and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before
   the last marching change and not again. Of seeds 1115 to 1420, one still fails, as it did on the
-  build before that change: 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890)
-  is `Invalid`, a face's boundary crossing itself in its domain. Seeds 1115 to 1420 were not
-  surveyed again after these fixes, and seeds beyond 1420 are unsurveyed.
+  build before that change: 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890,
+  union and difference) is `Invalid`, a face's boundary crossing itself in its domain. Their outer
+  equators cross near (7.65, 2.33, 0) with the surfaces nearly tangent, and the section there passes
+  the first torus's equator seam twice, at u 0.2953 and 0.2968, reaching 8e-6 past it between them,
+  while imprinting pools one vertex on the seam, at u 0.2962, off the section; healing then joins the
+  seam's two pieces across that vertex, and the section's pcurve crosses the seam's. No fix was
+  tried. Seeds 1115 to 1420 were not surveyed again after the fixes for 1135 and the others; the
+  survey's own seed 2 and seed 1422 combine throughout on this build, and seeds beyond 1422 are
+  unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
