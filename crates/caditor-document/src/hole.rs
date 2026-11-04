@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity};
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanOperation, FaceId, FaceOrigin, LINEAR_RESOLUTION, LinearExtent,
-    MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid, boolean, extrude,
-    next_face, revolve,
+    AngularExtent, Axis2, BooleanOperation, EndMoveError, FaceId, FaceOrigin, LINEAR_RESOLUTION,
+    LinearExtent, MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid,
+    StopError, boolean, extrude, move_end, next_face, revolve, stop_at_body,
 };
 use caditor_sketch::{Entity, EntityId, Sketch};
 
@@ -13,7 +13,7 @@ use crate::{
     attachment::AttachmentError,
     datum::{PlaneReference, Resolver, capitalized, describe_plane},
     describe::{describe_origin, lowercase_first},
-    document::{Feature, FeatureId, list_names},
+    document::{Feature, FeatureId},
     failure::{Cause, Expected, Upstream},
     hole_standard::HoleStandard,
     landing::{Landed, Landing},
@@ -961,6 +961,17 @@ enum Reach {
     },
 }
 
+struct Stop {
+    plane: Plane,
+    footprint: Vec<Region>,
+    offset: f64,
+}
+
+enum Next {
+    Plane(f64, Plane),
+    Stops(Stop),
+}
+
 struct Drilled<'a> {
     frame: &'a Plane,
     centre: Point3,
@@ -1062,7 +1073,7 @@ impl Context<'_> {
         values: &Values,
         offset: f64,
         drilled: &Drilled<'_>,
-    ) -> Result<(f64, Plane), Failure> {
+    ) -> Result<Next, Failure> {
         let at = drilled.at;
         let unusable = || self.error(HoleCause::NextNotFound { at: at.to_owned() });
         let (along, footprint) = footprint(values, drilled.frame).ok_or_else(unusable)?;
@@ -1073,27 +1084,34 @@ impl Context<'_> {
                 body.face(face).and_then(|face| face.origin()),
             )
         };
-        let found = next_face(body, &plane, &footprint, false).map_err(|error| match error {
-            ReachError::Cancelled(_) => Failure::Cancelled,
-            ReachError::NoRegions | ReachError::Undecided | ReachError::AlongSketch => unusable(),
-            ReachError::Nothing => self.error(HoleCause::NextNothing {
-                at: at.to_owned(),
-                body: body_name.to_owned(),
-            }),
-            ReachError::Partly => self.error(HoleCause::NextPartly {
-                at: at.to_owned(),
-                body: body_name.to_owned(),
-            }),
-            ReachError::SeveralFaces(faces) => self.error(HoleCause::NextSeveral {
-                at: at.to_owned(),
-                body: body_name.to_owned(),
-                faces: faces.iter().map(|face| describe(*face)).collect(),
-            }),
-            ReachError::Curved(face) => self.error(HoleCause::NextCurved {
-                at: at.to_owned(),
-                face: describe(face),
-            }),
-        })?;
+        let found = match next_face(body, &plane, &footprint, false) {
+            Ok(found) => found,
+            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) => {
+                return Ok(Next::Stops(Stop {
+                    plane,
+                    footprint,
+                    offset,
+                }));
+            }
+            Err(error) => {
+                return Err(match error {
+                    ReachError::Cancelled(_) => Failure::Cancelled,
+                    ReachError::NoRegions
+                    | ReachError::Undecided
+                    | ReachError::AlongSketch
+                    | ReachError::Curved(_)
+                    | ReachError::SeveralFaces(_) => unusable(),
+                    ReachError::Nothing => self.error(HoleCause::NextNothing {
+                        at: at.to_owned(),
+                        body: body_name.to_owned(),
+                    }),
+                    ReachError::Partly => self.error(HoleCause::NextPartly {
+                        at: at.to_owned(),
+                        body: body_name.to_owned(),
+                    }),
+                });
+            }
+        };
         if found.entering {
             return Err(self.error(HoleCause::NextEntering {
                 at: at.to_owned(),
@@ -1101,7 +1119,91 @@ impl Context<'_> {
             }));
         }
         let depth = self.depth_to(&found.plane, &describe(found.face), offset, drilled)?;
-        Ok((depth, found.plane))
+        Ok(Next::Plane(depth, found.plane))
+    }
+
+    fn stopped(
+        &self,
+        drill: &Solid,
+        body: &Solid,
+        body_name: &str,
+        stop: &Stop,
+        far: f64,
+        at: &str,
+    ) -> Result<Solid, Failure> {
+        let stopped = stop_at_body(drill, body, &stop.plane, &stop.footprint, false, far);
+        let unbuilt = || {
+            self.error(HoleCause::NextUnbuilt {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            })
+        };
+        let stopped = stopped.map_err(|error| match error {
+            StopError::Cancelled(_) => Failure::Cancelled,
+            StopError::NoRegions => self.error(HoleCause::NextNotFound { at: at.to_owned() }),
+            StopError::Straddles => self.error(HoleCause::NextStraddles {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }),
+            StopError::Enclosed => self.error(HoleCause::NextEnclosed {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }),
+            StopError::PassesBeside => self.error(HoleCause::NextPartly {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }),
+            StopError::Nothing | StopError::Tessellation(_) => {
+                log::warn!(
+                    "{} could not stop at the next faces: {error}",
+                    self.feature.name
+                );
+                unbuilt()
+            }
+            StopError::Boolean(error) => {
+                let trouble = boolean_trouble(
+                    self.inputs.document,
+                    [drill, body],
+                    &error,
+                    Adjust::MoveThePointOrChangeTheSizes,
+                );
+                let place = trouble.place;
+                self.error(HoleCause::NotCut {
+                    at: at.to_owned(),
+                    body: body_name.to_owned(),
+                    trouble,
+                })
+                .placed(place)
+            }
+        })?;
+        if stopped.entering {
+            return Err(self.error(HoleCause::NextEntering {
+                at: at.to_owned(),
+                body: body_name.to_owned(),
+            }));
+        }
+        if stop.offset == 0.0 {
+            return Ok(stopped.solid);
+        }
+        let travel = stop.plane.normal() * stop.offset.abs();
+        let by = RigidTransform::translation(travel).ok_or_else(unbuilt)?;
+        move_end(
+            &stopped.solid,
+            (&stop.plane, &stop.footprint),
+            stop.plane.normal(),
+            &by,
+            stop.offset > 0.0,
+            self.feature.id().raw(),
+        )
+        .map_err(|error| match error {
+            EndMoveError::Cancelled(_) => Failure::Cancelled,
+            EndMoveError::Detached | EndMoveError::Placement(_) | EndMoveError::Boolean(_) => self
+                .error(HoleCause::NextOffset {
+                    at: at.to_owned(),
+                    body: body_name.to_owned(),
+                    offset: stop.offset,
+                }),
+        })
     }
 
     fn head_fits(
@@ -1255,6 +1357,7 @@ impl Context<'_> {
                 down: -up,
                 at: &at,
             };
+            let mut stop = None;
             let depth = match (&reach_kind, values.depth) {
                 (Reach::Blind, Some(depth)) => depth,
                 (Reach::Blind | Reach::ThroughAll, _) => {
@@ -1266,14 +1369,25 @@ impl Context<'_> {
                     })?
                 }
                 (Reach::UpToNext { offset }, _) => {
-                    let (depth, plane) =
-                        context.up_to_next(original, &body_name, values, *offset, &drilled)?;
-                    context.head_fits(definition, values, depth, &at)?;
-                    reached.push(ReachedEnd {
-                        side: ReachedSide::Only,
-                        plane,
-                    });
-                    depth
+                    match context.up_to_next(original, &body_name, values, *offset, &drilled)? {
+                        Next::Plane(depth, plane) => {
+                            context.head_fits(definition, values, depth, &at)?;
+                            reached.push(ReachedEnd {
+                                side: ReachedSide::Only,
+                                plane,
+                            });
+                            depth
+                        }
+                        Next::Stops(found) => {
+                            stop = Some(found);
+                            reach(original, centre, -up).ok_or_else(|| {
+                                context.error(HoleCause::NothingBeyond {
+                                    body: body_name.clone(),
+                                    at: at.clone(),
+                                })
+                            })?
+                        }
+                    }
                 }
                 (
                     Reach::UpToFace {
@@ -1290,6 +1404,12 @@ impl Context<'_> {
             };
             let base = point.raw().wrapping_mul(PARTS);
             for drill in drills(context, values, &frame, centre, up, depth, base)? {
+                let drill = match &stop {
+                    Some(stop) => {
+                        context.stopped(&drill, original, &body_name, stop, depth, &at)?
+                    }
+                    None => drill,
+                };
                 let drill = match landing {
                     Some(landing) => landing.named(&drill)?,
                     None => drill,
@@ -1495,14 +1615,22 @@ pub(crate) enum HoleCause {
         at: String,
         body: String,
     },
-    NextSeveral {
+    NextOffset {
         at: String,
         body: String,
-        faces: Vec<String>,
+        offset: f64,
     },
-    NextCurved {
+    NextStraddles {
         at: String,
-        face: String,
+        body: String,
+    },
+    NextEnclosed {
+        at: String,
+        body: String,
+    },
+    NextUnbuilt {
+        at: String,
+        body: String,
     },
     NextEntering {
         at: String,
@@ -1619,13 +1747,26 @@ impl HoleCause {
                 "Part of the hole at {at} passes beside the body of {body}, so there is no one \
                  next face to stop at."
             ),
-            Self::NextSeveral { at, body, faces } => format!(
-                "The hole at {at} meets several faces of {body} first: {}.",
-                list_names(faces)
+            Self::NextOffset { at, body, offset } if *offset > 0.0 => format!(
+                "Ending the hole at {at} {} past the faces of {body} reaches farther than the \
+                 hole is long in places.",
+                Quantity::length(*offset)
             ),
-            Self::NextCurved { at, face } => format!(
-                "The next face the hole at {at} meets, {face}, is curved, and a hole can only \
-                 end on a flat face or plane."
+            Self::NextOffset { at, body, offset } => format!(
+                "Stopping the hole at {at} {} short of the faces of {body} would end it before it \
+                 starts in places.",
+                Quantity::length(-offset)
+            ),
+            Self::NextStraddles { at, body } => format!(
+                "The hole at {at} starts partly inside the body of {body} and partly outside it, \
+                 so there is no one next face to stop at."
+            ),
+            Self::NextEnclosed { at, body } => format!(
+                "A void of {body} lies wholly inside the hole at {at}, so there is no one next \
+                 face to stop at."
+            ),
+            Self::NextUnbuilt { at, body } => format!(
+                "The hole at {at} could not be stopped at the faces it meets first in {body}."
             ),
             Self::NextEntering { at, body } => format!(
                 "The hole at {at} first meets the body of {body} where it enters it, so drilling \
@@ -1717,11 +1858,14 @@ impl HoleCause {
             Self::NextPartly { .. } => {
                 "Use Up to face to choose where it stops, or move the point.".to_owned()
             }
-            Self::NextSeveral { .. } => {
-                "Use Up to face to choose which one it stops at.".to_owned()
+            Self::NextOffset { .. } => {
+                "Enter a smaller end offset, or use Up to face or drill it blind.".to_owned()
             }
-            Self::NextCurved { .. } => {
-                "Use Up to face with a flat face or plane, or drill it blind.".to_owned()
+            Self::NextStraddles { .. } | Self::NextEnclosed { .. } => {
+                "Move the point, or use Up to face to choose where it stops.".to_owned()
+            }
+            Self::NextUnbuilt { .. } => {
+                "Use Up to face to choose where it stops, or drill it blind.".to_owned()
             }
             Self::NextEntering { .. } => {
                 "Place the sketch on or inside the body, or use Through all or Up to face."

@@ -272,8 +272,16 @@ pub(crate) enum SolidCause {
         trouble: Trouble,
     },
     ExtrusionEmpty,
-    TwoSidedStop {
+    StopOffset {
+        body: String,
+        offset: f64,
+    },
+    StopOffsetTapered {
         sketch: String,
+    },
+    TurnOffsetShort {
+        offset: f64,
+        name: String,
     },
     SurfaceFace {
         body: String,
@@ -294,9 +302,6 @@ pub(crate) enum SolidCause {
         side: Side,
     },
     NextNeedsBody,
-    NextUnoffsettable {
-        reached: Box<Cause>,
-    },
     AddInside {
         sketch: String,
         body: String,
@@ -574,9 +579,23 @@ impl SolidCause {
                 "The shape could not be combined with the body of {body}."
             )),
             Self::ExtrusionEmpty => "The extrusion has no length.".to_owned(),
-            Self::TwoSidedStop { sketch } => format!(
-                "The profile of {sketch} first meets curved or several faces, and an extrusion to \
-                 two sides can only stop at one flat face."
+            Self::StopOffset { body, offset } if *offset > 0.0 => format!(
+                "Ending {} past the faces of {body} reaches farther than the extrusion is long in \
+                 places.",
+                Quantity::length(*offset)
+            ),
+            Self::StopOffset { body, offset } => format!(
+                "Stopping {} short of the faces of {body} would end the extrusion before it starts \
+                 in places.",
+                Quantity::length(-offset)
+            ),
+            Self::TurnOffsetShort { offset, name } => format!(
+                "Stopping {} short of {name} would end the revolution before it starts.",
+                Quantity::angle((-offset).to_degrees())
+            ),
+            Self::StopOffsetTapered { sketch } => format!(
+                "The profile of {sketch} first meets curved or several faces, and an extrusion \
+                 with a taper can only end on them without an offset."
             ),
             Self::SurfaceFace { body, split: false } => format!(
                 "The face this extrusion runs up to is no longer part of the body of {body}."
@@ -605,9 +624,6 @@ impl SolidCause {
                 "Up to next stops at the body this extrusion changes, and it makes a new body \
                  instead."
                     .to_owned()
-            }
-            Self::NextUnoffsettable { reached } => {
-                format!("{} So the end cannot be offset from it.", reached.reason())
             }
             Self::AddInside { sketch, body } => format!(
                 "The profile of {sketch} starts inside the body of {body}, so extruding it up to \
@@ -820,8 +836,15 @@ impl SolidCause {
             }
             Self::Uncombined { trouble, .. } => trouble.remedy(),
             Self::ExtrusionEmpty => "Enter distances that do not cancel each other out.".to_owned(),
-            Self::TwoSidedStop { .. } => {
-                "Choose One side, or use Up to face or a distance on that side.".to_owned()
+            Self::StopOffset { .. } => {
+                "Enter a smaller end offset, or use Up to face or a distance.".to_owned()
+            }
+            Self::TurnOffsetShort { .. } => {
+                "Enter a smaller end offset, or choose a face or plane farther around.".to_owned()
+            }
+            Self::StopOffsetTapered { .. } => {
+                "Clear the end offset or the taper, or use Up to face with a flat face or plane."
+                    .to_owned()
             }
             Self::SurfaceFace { .. } => {
                 "Select a face and use it for this end, or choose another end.".to_owned()
@@ -839,9 +862,6 @@ impl SolidCause {
             }
             Self::NextNeedsBody => {
                 "Choose Add, Remove or Intersect with a body, or enter a distance.".to_owned()
-            }
-            Self::NextUnoffsettable { .. } => {
-                "Clear the end offset, or use Up to face with a flat face or plane.".to_owned()
             }
             Self::AddInside { .. } => {
                 "Choose Remove from body, or place the sketch outside the body.".to_owned()

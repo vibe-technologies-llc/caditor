@@ -123,6 +123,21 @@ pub fn shell_copies(
     )
 }
 
+pub(crate) fn placed_once(
+    solid: &Solid,
+    placement: Similarity,
+    feature: u64,
+) -> Result<Solid, PatternError> {
+    placed(
+        solid,
+        &PatternCopy {
+            index: [0, 1],
+            placement,
+        },
+        feature,
+    )
+}
+
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {
     let moved = solid.mapped(&copy.placement).map_err(|error| match error {
         TransformError::Cancelled(interrupted) => PatternError::Cancelled(interrupted),

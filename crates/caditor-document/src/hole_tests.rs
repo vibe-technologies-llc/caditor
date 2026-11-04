@@ -1597,3 +1597,160 @@ fn a_hole_beside_two_bores_that_touch_cuts_the_block() {
     let found = volume(&evaluation, block);
     assert!((bores - found - removed).abs() < 0.01 * removed, "{found}");
 }
+
+fn channelled(pair: &mut Pair, radius: f64) {
+    let across = Plane::from_frame(Point3::new(-1.0, 0.0, 0.0), Vector3::X, Vector3::Y).unwrap();
+    let mut sketch = Sketch::new(across);
+    sketch.add_circle(Point2::new(5.0, 0.0), radius);
+    let mut transaction = pair.document.transaction("Channel");
+    let outline = transaction.add_feature("Channel sketch", FeatureKind::from(sketch));
+    transaction.add_feature(
+        "Channel",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(expression(&pair.document, "30 mm"), false),
+            operation: BodyOperation::Remove(pair.plate),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+}
+
+fn drilled_to_the_channel(radius: f64) -> f64 {
+    let steps = 4_000;
+    let width = 4.0 / steps as f64;
+    (0..steps)
+        .map(|step| {
+            let across = -2.0 + (step as f64 + 0.5) * width;
+            let floor = (radius * radius - across * across).sqrt().min(4.0);
+            2.0 * (4.0 - across * across).sqrt() * (4.0 - floor) * width
+        })
+        .sum()
+}
+
+#[test]
+fn a_hole_up_to_a_curved_next_face_breaks_through_it() {
+    let mut pair = pair();
+    channelled(&mut pair, 3.0);
+    let hole = up_to(&mut pair, HoleDepth::up_to_next(), |_| HoleStyle::Plain);
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(hole)
+    );
+    let channel = PLATE - PI * 9.0 / 2.0 * 20.0;
+    let found = volume(&evaluation, pair.plate);
+    let removed = drilled_to_the_channel(3.0);
+    assert!(
+        (channel - found - removed).abs() < 2e-2 * removed,
+        "{found}"
+    );
+    evaluation.body(pair.plate).unwrap().validate().unwrap();
+    assert_eq!(evaluation.cuts(hole).len(), 1);
+}
+
+#[test]
+fn a_hole_up_to_several_next_faces_stops_where_it_leaves_the_body() {
+    let mut pair = pair();
+    channelled(&mut pair, 1.5);
+    let hole = up_to(&mut pair, HoleDepth::up_to_next(), |_| HoleStyle::Plain);
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(hole)
+    );
+    let channel = PLATE - PI * 1.5 * 1.5 / 2.0 * 20.0;
+    let found = volume(&evaluation, pair.plate);
+    let removed = removed_by(4.0) - drilled_under_the_channel(1.5);
+    assert!(
+        (channel - found - removed).abs() < 2e-2 * removed,
+        "{found}"
+    );
+    evaluation.body(pair.plate).unwrap().validate().unwrap();
+}
+
+fn drilled_under_the_channel(radius: f64) -> f64 {
+    let steps = 4_000;
+    let width = 4.0 / steps as f64;
+    (0..steps)
+        .map(|step| {
+            let across = -2.0 + (step as f64 + 0.5) * width;
+            let floor = if across.abs() < radius {
+                (radius * radius - across * across).sqrt()
+            } else {
+                0.0
+            };
+            2.0 * (4.0 - across * across).sqrt() * floor * width
+        })
+        .sum()
+}
+
+fn offset_hole_in_the_channel(offset: &str) -> (Pair, FeatureId, Evaluation) {
+    let mut pair = pair();
+    channelled(&mut pair, 2.5);
+    let offset = expression(&pair.document, offset);
+    let hole = up_to(
+        &mut pair,
+        HoleDepth::up_to_next().with_offset(Some(offset)),
+        |_| HoleStyle::Plain,
+    );
+    let evaluation = evaluate(&pair.document, &mut Recompute::default());
+    (pair, hole, evaluation)
+}
+
+#[test]
+fn a_hole_up_to_a_curved_next_face_stops_short_of_it_or_past_it_by_its_offset() {
+    let (pair, short_hole, short) = offset_hole_in_the_channel("-1 mm");
+    let (_, past_hole, past) = offset_hole_in_the_channel("1 mm");
+    let (_, plain_hole, plain) = offset_hole_in_the_channel("0 mm");
+
+    for (evaluation, hole) in [
+        (&short, short_hole),
+        (&past, past_hole),
+        (&plain, plain_hole),
+    ] {
+        assert_eq!(
+            evaluation.failed_count(),
+            0,
+            "{:?}",
+            evaluation.feature(hole)
+        );
+    }
+    let channel = PLATE - PI * 6.25 / 2.0 * 20.0;
+    let removed = |evaluation: &Evaluation| channel - volume(evaluation, pair.plate);
+    let circle = PI * 4.0;
+    assert!((removed(&plain) - removed(&short) - circle).abs() < 0.3);
+    assert!((removed(&plain) - removed(&past)).abs() < 0.3);
+    short.body(pair.plate).unwrap().validate().unwrap();
+}
+
+#[test]
+fn a_hole_whose_offset_moves_its_end_farther_than_it_is_long_is_refused_in_words() {
+    let (_, hole, evaluation) = offset_hole_in_the_channel("-9 mm");
+
+    let refused = failure(&evaluation, hole);
+
+    assert_eq!(
+        refused.reason(),
+        "Stopping the hole at Point 0 9 mm short of the faces of Plate would end it before it \
+         starts in places."
+    );
+    assert_eq!(
+        refused.remedy(),
+        "Enter a smaller end offset, or use Up to face or drill it blind."
+    );
+}

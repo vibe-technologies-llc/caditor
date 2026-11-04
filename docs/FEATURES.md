@@ -19,11 +19,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
   tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
-- [medium · hard] An end up to the next face or a curved face follows curved or several faces
-  only on one side and without an offset (two sides or an offset need one flat face). An end
-  cannot end on a whole body (where the profile last leaves it); a revolve turns up to a datum or
-  principal plane only when it holds the axis, and its up-to ends take no offset; and a hole stops
-  at the next face only where that face is flat.
+- [medium · hard] An end cannot end on a whole body (where the profile last leaves it); a revolve
+  turns up to a datum or principal plane only when it holds the axis; and an end offset on curved
+  or several faces moves the cut back end along the extrusion or hole, or about the revolve's
+  axis (not along the face's normal, so a slanted face keeps no slant), and a tapered extrusion
+  refuses it.
 - [medium · hard] Blends: ends at steps and T-junctions refused, and a lofted chain (an edge that is
   no line along its faces nor a circle about their axis, and the tangent chain holding it) refused
   where it ends at a rounded corner; a lofted chain's feet are not checked against other blends'

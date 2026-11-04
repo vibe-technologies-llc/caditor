@@ -605,7 +605,7 @@ impl FeatureKind {
                 for end in extrude.extent.ends_mut() {
                     match end {
                         ExtrudeEnd::UpToFace { target, .. } => rename_plane(target, rename),
-                        ExtrudeEnd::UpToSurface { face } => face.body = rename(face.body),
+                        ExtrudeEnd::UpToSurface { face, .. } => face.body = rename(face.body),
                         ExtrudeEnd::Distance(_)
                         | ExtrudeEnd::ThroughAll
                         | ExtrudeEnd::UpToNext { .. } => {}

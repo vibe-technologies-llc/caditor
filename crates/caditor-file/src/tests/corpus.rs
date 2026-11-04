@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 77] = [
+const KEPT: [(&str, &str); 78] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -192,6 +192,10 @@ const KEPT: [(&str, &str); 77] = [
     (
         "model-1/revolve-stops.caditor",
         "62a28bacc756b96186daa5327a0b983e7aed86b2af2ae0fafbd5926f6a11eea4",
+    ),
+    (
+        "model-1/stop-offsets.caditor",
+        "6668fcf6619cef7f46c905b2f6b025a997a48e6b890f8252dc3eea32e3985336",
     ),
     (
         "model-1/helix-points.caditor",
@@ -965,6 +969,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("revolve-stops"),
             saved(&revolve_stops(), "Revolve stops"),
+        ),
+        (
+            model("stop-offsets"),
+            saved(&stop_offsets(), "Stop offsets"),
         ),
         (model("lofts"), saved(&lofts(), "Lofts")),
         (model("loft-ends"), saved(&loft_ends(), "Loft ends")),
@@ -2461,7 +2469,7 @@ fn revolve_stops() -> Document {
         (
             "Up to next",
             Revolve {
-                extent: RevolveExtent::UpToNext { reversed: true },
+                extent: RevolveExtent::up_to_next(true),
                 ..plain_revolve(sketch, BodyOperation::Add(base))
             },
         ),
@@ -2469,6 +2477,67 @@ fn revolve_stops() -> Document {
             "Up to the face",
             Revolve {
                 extent: RevolveExtent::up_to_surface(face, false),
+                side: Some(AxisSide::Left),
+                ..plain_revolve(sketch, BodyOperation::NewBody)
+            },
+        ),
+    ];
+    for (name, revolve) in revolutions {
+        transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Revolve(revolve)));
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+pub(super) fn stop_offsets() -> Document {
+    let (mut document, base, _) = solid_model();
+    let sketch = named(&document, "Outline");
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Stop offsets");
+    let face = caditor_document::FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0x51de),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(7)],
+        ),
+    };
+    let extrusions = [(
+        "Short of the face",
+        plain_extrude(
+            sketch,
+            ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_surface(face.clone()).with_offset(Some(parse("-1 mm"))),
+                backward: ExtrudeEnd::up_to_next().with_offset(Some(parse("2 mm"))),
+            },
+            BodyOperation::Add(base),
+        ),
+    )];
+    for (name, extrude) in extrusions {
+        transaction.add_feature(name, FeatureKind::Solid(SolidFeature::Extrude(extrude)));
+    }
+    let revolutions = [
+        (
+            "Past the next face",
+            Revolve {
+                extent: RevolveExtent::up_to_next(false).with_offset(Some(parse("5 deg"))),
+                ..plain_revolve(sketch, BodyOperation::Add(base))
+            },
+        ),
+        (
+            "Short of the plane",
+            Revolve {
+                extent: RevolveExtent::up_to(PlaneReference::Principal(PrincipalPlane::Yz), true)
+                    .with_offset(Some(parse("-10 deg"))),
+                ..plain_revolve(sketch, BodyOperation::NewBody)
+            },
+        ),
+        (
+            "Past the face",
+            Revolve {
+                extent: RevolveExtent::up_to_surface(face, true).with_offset(Some(parse("1 deg"))),
                 side: Some(AxisSide::Left),
                 ..plain_revolve(sketch, BodyOperation::NewBody)
             },

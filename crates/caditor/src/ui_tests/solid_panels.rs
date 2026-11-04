@@ -261,9 +261,57 @@ fn a_revolve_turns_up_to_the_next_face_of_its_body_chosen_in_its_panel() {
     };
 
     assert_eq!(harness.solid(revolve).operation(), BodyOperation::Add(wall));
+    assert_eq!(turned, caditor_document::RevolveExtent::up_to_next(false));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_revolve_turns_short_of_the_next_face_by_the_angle_typed_in_its_panel() {
+    let mut harness = Harness::new();
+    let mut wall = Sketch::new(Plane::XY);
+    rectangle(&mut wall, Point2::new(-0.5, 0.0), Point2::new(0.5, 10.0));
+    harness.add_sketch(wall);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    open_solid(&harness);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(&mut section, Point2::new(2.0, 0.5), Point2::new(4.0, 3.0));
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    if harness.solid(revolve).operation() == BodyOperation::NewBody {
+        choose(&mut harness, "New body", "Add to body");
+    }
+    choose(
+        &mut harness,
+        "Full turn",
+        crate::solid_panel::TURN_UP_TO_NEXT,
+    );
+
+    let offered = harness.shows(crate::solid_panel::END_OFFSET);
+    harness.type_into_field(
+        Id::unique(("solid-field", "turn-offset", revolve)),
+        "-10 deg",
+    );
+    harness.settle();
+    let turned = match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => revolve.extent.clone(),
+        SolidFeature::Extrude(_) | SolidFeature::Sweep(_) => panic!("expected a revolve"),
+    };
+
+    assert!(offered);
     assert_eq!(
         turned,
-        caditor_document::RevolveExtent::UpToNext { reversed: false }
+        caditor_document::RevolveExtent::up_to_next(false).with_offset(Some(
+            caditor_expression::Expression::Negate(Box::new(
+                caditor_expression::Expression::Measure(10.0, caditor_expression::Unit::Degree)
+            ))
+        ))
     );
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

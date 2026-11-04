@@ -3161,6 +3161,31 @@ fn a_hand_made_file_storing_users_above_what_they_use_loads_in_use_order_and_und
 }
 
 #[test]
+fn end_offsets_of_curved_face_ends_and_revolve_stops_round_trip_and_older_readers_report_them() {
+    let document = corpus::stop_offsets();
+
+    let written = encode(&document).unwrap();
+    let loaded = decode_text(&written);
+    let older = decode_text(&written.replace("\"revolve_offset\"", "\"revolve_offsex\""));
+    let ends = decode_text(&written.replace("\"surface_ends\"", "\"surface_endz\""));
+
+    assert!(written.contains("\"revolve_offset\""), "{written}");
+    assert!(written.contains("\"offset_ends\""), "{written}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        older.issues.join(" ").contains("(revolve_offsex)"),
+        "{:?}",
+        older.issues
+    );
+    assert!(
+        ends.issues.join(" ").contains("“Short of the face”"),
+        "{:?}",
+        ends.issues
+    );
+}
+
+#[test]
 fn solid_features_are_saved_and_loaded() {
     let (document, _, _) = solid_model();
     let text = encode(&document).unwrap();

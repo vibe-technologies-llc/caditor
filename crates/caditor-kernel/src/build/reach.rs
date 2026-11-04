@@ -3,7 +3,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
         extrude::{Level, span},
     },
     interrupt::{self, Interrupted},
+    pattern::{PatternError, placed_once},
     profile::Region,
     surface::Surface,
     tessellation::TessellationError,
@@ -466,4 +467,64 @@ fn kept_from_start(
         return Err(StopError::Nothing);
     }
     piece.keeping_shells(&kept).ok_or(StopError::Nothing)
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum EndMoveError {
+    #[error("the end moves farther than the tool is long")]
+    Detached,
+    #[error(transparent)]
+    Placement(#[from] PatternError),
+    #[error(transparent)]
+    Boolean(#[from] BooleanError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
+}
+
+pub fn move_end(
+    tool: &Solid,
+    start: (&Plane, &[Region]),
+    onward: Vector3,
+    shift: &RigidTransform,
+    grow: bool,
+    feature: u64,
+) -> Result<Solid, EndMoveError> {
+    let (plane, regions) = start;
+    let onward = onward.normalize_or_zero();
+    let origins: Vec<Point3> = {
+        let origins = ray_origins(regions);
+        let stride = origins.len().div_ceil(MAX_START_PROBES).max(1);
+        origins
+            .into_iter()
+            .step_by(stride)
+            .map(|origin| plane.to_world(origin))
+            .collect()
+    };
+    let (copy, operation) = if grow {
+        (*shift, BooleanOperation::Union)
+    } else {
+        (shift.inverse(), BooleanOperation::Intersection)
+    };
+    let moved = placed_once(tool, copy.into(), feature)?;
+    let combined = match boolean(tool, &moved, operation) {
+        Ok(combined) => combined,
+        Err(BooleanError::Empty) => return Err(EndMoveError::Detached),
+        Err(error) => return Err(error.into()),
+    };
+    let classifier = combined.classifier();
+    for origin in origins {
+        interrupt::check()?;
+        let probe = if grow {
+            shift.apply_point(origin) - shift.apply_vector(onward) * RAY_START
+        } else {
+            origin + onward * RAY_START
+        };
+        if classifier.classify(probe) != PointClass::Inside {
+            return Err(EndMoveError::Detached);
+        }
+    }
+    if combined.shells().count() != 1 {
+        return Err(EndMoveError::Detached);
+    }
+    Ok(combined)
 }

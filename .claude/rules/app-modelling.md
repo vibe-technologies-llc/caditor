@@ -414,9 +414,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
     box diagonal of the bodies it cuts, as seen at the extrusion, gets an info callout
     (`solid_panel::FAR_PAST_THE_BODY`) whose Cut through all (`CUT_THROUGH_ALL`) switches that end to
     Through all in one change.
-  - An end Up to next or Up to face has an offset field (`solid_panel::END_OFFSET`, key
-    `<side>-offset`; any sign, negative stopping short, zero clearing), kept when the end switches
-    between the two or takes another face.
+  - An end Up to next, Up to face or up to a curved face has an offset field
+    (`solid_panel::END_OFFSET`, key `<side>-offset`; any sign, negative stopping short, zero
+    clearing), kept when the end switches between the two or takes another face. Its on-screen arrow
+    stands only where the face reached is flat.
 - Direction row (`solid_panel::SQUARE`, `ALONG`): Along takes the one selected edge, axis, round face or
   sketch line (`datum_tools::only_axis`), else chooses one in the view (`Slot::ExtrudeDirection`), with
   a button back to square; an extrusion along a direction has no reach arrows and offers every end
@@ -496,7 +497,9 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   or turn Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane (`UpTo`), else a
   selected curved face (`UpToSurface`, `selected_surface` as an extrusion's end), else choosing in
   the view (`Slot::RevolveTarget`); a curved face shows as a reference row with its picker. Up to
-  next and Up to face keep their Reverse direction row (`reverse_turn_row`). Its Profile switch (Whole, One side) keeps one side of
+  next and Up to face keep their Reverse direction row (`reverse_turn_row`) and take an angle offset
+  field (`solid_panel::END_OFFSET`, key `turn-offset`, `turn_offset_row`; any sign, zero clearing),
+  kept when the end switches between the kinds or takes another face. Its Profile switch (Whole, One side) keeps one side of
   the axis, starting from the side holding more of the chosen regions' area
   (`solid_panel::larger_side`), with Keep the other side of the axis to swap.
 - A removal's panel lists under Body the other bodies it Also cuts, each with a stop button, and an Add

@@ -732,7 +732,7 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
                 };
                 match end {
                     ExtrudeEnd::UpToFace { target, .. } => visit_plane(target, what, visitor),
-                    ExtrudeEnd::UpToSurface { face } => {
+                    ExtrudeEnd::UpToSurface { face, .. } => {
                         visitor.face(face.body, &mut face.face, what);
                     }
                     ExtrudeEnd::Distance(_)

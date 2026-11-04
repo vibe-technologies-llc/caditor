@@ -221,7 +221,13 @@ Extrusions and revolves:
   a face left out. May be wrapped by `shaped_sweep`.
 - `surface_ends`: an end up to a curved face; `forward` and `backward` (as `offset_ends`), each the
   face's attachment record only when that end runs up to one; unreadable face loads as 10 mm. The
-  inner record may be an `offset_ends`.
+  inner record may be an `offset_ends`. An offset on such an end is the outer `offset_ends` around
+  the `surface_ends` (written only then; an older reader reports the offset as left out, since
+  for it a surface end takes none).
+- `revolve_offset`: a wrapper around `revolve_up_to`, `revolve_up_to_next` or
+  `revolve_up_to_surface` with `offset`, an angle's stored text (unreadable 0 deg); a wrapped kind
+  that turns up to nothing loses it, reported. The corpus holds both wrappers in
+  `stop-offsets.caditor`.
 - `sweep`: `sketch`, `regions` and `region_references` as an extrusion's, `path` (`unchosen`,
   `curves` with the path's `sketch` and its `curves` ids, or `edges` with `body` and edge records),
   `orientation` (`square`, `parallel`) and `operation`; other bodies cut wrap it in `cut_several`.
