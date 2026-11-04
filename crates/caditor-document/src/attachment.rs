@@ -159,6 +159,10 @@ impl SketchFeature {
         sketch.heap_size()
             + attachment.as_ref().map_or(0, SketchAttachment::heap_size)
             + projections.len() * (size_of::<EntityId>() + size_of::<ProjectionSource>())
+            + projections
+                .values()
+                .map(ProjectionSource::heap_size)
+                .sum::<usize>()
     }
 
     pub fn projected_bodies(&self) -> impl Iterator<Item = FeatureId> + '_ {

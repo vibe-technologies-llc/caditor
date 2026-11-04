@@ -541,6 +541,7 @@ impl Rescaler {
                 | ProjectionSource::Vertex { .. }
                 | ProjectionSource::SketchEntity { .. }
                 | ProjectionSource::Section { .. }
+                | ProjectionSource::BodyOutline { .. }
                 | ProjectionSource::DatumPoint { .. } => continue,
             };
             edits.push(Edit::SetSketchProjection {
@@ -1327,6 +1328,7 @@ fn projected_geometry(source: &ProjectionSource) -> Option<PrincipalGeometry> {
         | ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
         | ProjectionSource::DatumAxis { .. }
+        | ProjectionSource::BodyOutline { .. }
         | ProjectionSource::DatumPoint { .. } => None,
     }
 }

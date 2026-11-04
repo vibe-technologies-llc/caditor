@@ -505,3 +505,51 @@ fn an_unlinked_projection_stays_where_it_is_while_the_rest_follow_the_face() {
 
     assert!(harness.sketch(sketch).is_projected(bottom));
 }
+
+#[test]
+fn the_palette_projects_the_outline_of_the_highlighted_body_as_one_undoable_step() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.settle();
+    let projected = |harness: &Harness| harness.sketch(sketch).projected().count();
+
+    for _ in 0..80 {
+        if matches!(
+            harness.workspace.viewport.keyboard_highlight(),
+            Some(Pickable::Face { body, .. } | Pickable::Edge { body, .. } | Pickable::Vertex { body, .. })
+                if body == extrude
+        ) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.settle();
+
+    let shown = harness.shown(sketch);
+    let lines = harness
+        .sketch(sketch)
+        .projected()
+        .filter(|id| matches!(shown.entity(*id), Some(Entity::Line { .. })))
+        .count();
+    assert_eq!(lines, 4, "the plate seen square is a rectangle");
+    assert!(
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Project the outline of"))
+    );
+
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.settle();
+
+    assert!(harness.shows_containing("is already projected into this sketch"));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(projected(&harness), 0);
+}

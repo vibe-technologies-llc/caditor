@@ -63,6 +63,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
 
+- [low · medium] `hidden_lines` and `outer_outline` run on one thread: each stretch casts its rays
+  in turn (`visibility::verdict`), which a large body could fan out as `find_crossing` fans out its
+  pairs. Project's first outline therefore runs on the UI thread under a 3 s budget and a body
+  taking longer is refused in words (`projecting::OUTLINE_BUDGET`); no timings on a large body yet.
+
 ## STEP import
 
 - [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406

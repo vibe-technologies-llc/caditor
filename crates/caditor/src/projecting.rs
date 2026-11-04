@@ -1,12 +1,17 @@
-use std::{borrow::Cow, collections::BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::BTreeSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use caditor_document::{
     Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, Outline, ProjectionSource,
-    SectionError, SketchFeature, SolidResult, Transaction, axis_outline, datum_outline,
-    edge_outline, point_outline, section_curves, sketch_outline, vertex_outline,
+    SectionError, SketchFeature, SolidResult, Transaction, axis_outline, body_outline,
+    datum_outline, edge_outline, point_outline, section_curves, sketch_outline, vertex_outline,
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
-use caditor_kernel::{EdgeId, EdgeReference, FaceId};
+use caditor_kernel::{EdgeId, EdgeReference, FaceId, HiddenLineError, interruptible};
 use caditor_sketch::{Entity, EntityId};
 
 use crate::{
@@ -117,6 +122,17 @@ pub enum ProjectionError {
         "Only faces and bodies, and datum and principal planes, can be intersected with the sketch"
     )]
     NotIntersectable,
+    #[error("The outline of {name} is already projected into this sketch")]
+    OutlineProjected { name: String },
+    #[error("{name} has no outline seen from this sketch")]
+    NoOutline { name: String },
+    #[error(
+        "The outline of {name} could not be worked out from this sketch's direction; project its \
+         edges instead"
+    )]
+    OutlineUnclear { name: String },
+    #[error("{name} is too intricate to work out its outline at once; project its edges instead")]
+    OutlineTooLong { name: String },
 }
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
@@ -134,11 +150,29 @@ impl Reason for NoSketchToProject {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "Highlight a face, edge or corner of a body with the Project tool, or choose one body in the \
+     feature tree"
+)]
+pub struct NoBodyToProject;
+
+impl Reason for NoBodyToProject {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 pub const ALREADY_INTERSECTED: &str = "That cut is already drawn in this sketch";
 pub const NO_FACE_HIGHLIGHTED: &str =
     "Choose the Intersect tool and highlight a face of a body first";
 const DEFAULT_DATUM_REACH: f64 = 50.0;
 const DATUM_REACH_MARGIN: f64 = 1.1;
+const OUTLINE_BUDGET: Duration = if cfg!(test) {
+    Duration::from_secs(60)
+} else {
+    Duration::from_secs(3)
+};
 
 pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> bool {
     match (active.tool.intersects(), pickable) {
@@ -310,6 +344,87 @@ pub fn project_sketch(
             owner.name,
             skipped.verb(),
             skipped.pronoun_verb()
+        )
+    });
+    Ok(Projection {
+        transaction: transaction.finish(),
+        left_out,
+    })
+}
+
+pub fn body_to_project(
+    model: &Model,
+    highlighted: Option<Pickable>,
+    chosen_rows: &[FeatureId],
+) -> Result<FeatureId, NoBodyToProject> {
+    let from_view = highlighted.and_then(|pickable| match pickable {
+        Pickable::Face { body, .. }
+        | Pickable::Edge { body, .. }
+        | Pickable::Vertex { body, .. } => Some(body),
+        _ => None,
+    });
+    if let Some(body) = from_view {
+        return Ok(body);
+    }
+    match chosen_rows {
+        [row] => model
+            .document()
+            .feature(*row)
+            .and_then(Feature::body)
+            .ok_or(NoBodyToProject),
+        _ => Err(NoBodyToProject),
+    }
+}
+
+pub fn outline_projections(
+    result: &SolidResult,
+    body: FeatureId,
+    plane: &Plane,
+    name: &str,
+) -> Result<Vec<Projected>, ProjectionError> {
+    let deadline = Instant::now() + OUTLINE_BUDGET;
+    let interrupt = Arc::new(move || Instant::now() >= deadline);
+    interruptible(interrupt, || body_outline(&result.solid, body, plane)).map_err(|error| {
+        let name = name.to_owned();
+        match error {
+            HiddenLineError::Cancelled(_) => ProjectionError::OutlineTooLong { name },
+            error => {
+                log::warn!("the outline of {name} could not be worked out: {error}");
+                ProjectionError::OutlineUnclear { name }
+            }
+        }
+    })
+}
+
+pub fn project_outline(
+    model: &dyn Surroundings,
+    sketch: FeatureId,
+    body: FeatureId,
+) -> Result<Projection, ProjectionError> {
+    let document = model.document();
+    let (definition, plane) = sketch_plane(model, sketch)?;
+    let result = seen_or_refuse(model, sketch, body)?;
+    let name = feature_name(document, body);
+    let pieces = outline_projections(result, body, &plane, &name)?;
+    if pieces.is_empty() {
+        return Err(ProjectionError::NoOutline { name });
+    }
+    let total = pieces.len();
+    let fresh: Vec<&(ProjectionSource, Outline)> = pieces
+        .iter()
+        .filter(|(source, _)| !already_projected(definition, source))
+        .collect();
+    if fresh.is_empty() {
+        return Err(ProjectionError::OutlineProjected { name });
+    }
+    let mut transaction = document.transaction(format!("Project the outline of {name}"));
+    for (source, outline) in &fresh {
+        transaction.add_projection(sketch, source.clone(), outline);
+    }
+    let left_out = (fresh.len() < total).then(|| {
+        format!(
+            "{} of the {total} curves of that outline were already projected, so they were left out",
+            total - fresh.len()
         )
     });
     Ok(Projection {

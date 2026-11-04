@@ -359,3 +359,27 @@ fn geometry_is_copied_within_a_sketch_and_into_another() {
     assert!(reference.contains("cannot be copied"), "{reference}");
     assert!(stranger.contains("No such sketch"), "{stranger}");
 }
+
+#[test]
+fn projecting_a_bodys_outline_gives_four_lines() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let block = box_of(&mut client, [40.0, 30.0, 20.0], [0.0, 0.0], "Block");
+    let sketch = new_sketch(&mut client);
+
+    modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "project", "body": block, "outline": true }),
+    );
+    let shown = described(&mut client, &sketch);
+
+    assert_eq!(
+        projected(&shown)
+            .iter()
+            .filter(|entity| entity["kind"] == "line")
+            .count(),
+        4,
+        "{shown}"
+    );
+}

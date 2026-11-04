@@ -204,6 +204,7 @@ pub fn command(command: Command) -> &'static str {
         Command::PasteGeometry => phosphor::CLIPBOARD,
         Command::IntersectBody => phosphor::INTERSECTION,
         Command::ProjectSketch => phosphor::STACK,
+        Command::ProjectOutline => phosphor::SELECTION,
         Command::SketchTool(tool) => self::tool(tool),
         Command::ShapeMode(mode) => shape_mode(mode),
         Command::Constraint(tool) => constraint(tool),

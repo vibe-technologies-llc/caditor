@@ -6,7 +6,9 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3, Ray, Vector2};
 use caditor_kernel::{
-    BooleanError, Curve, Edge, EdgeId, EdgeReference, Solid, VertexId, VertexName, vertex_names,
+    BooleanError, Curve, Curve2, Edge, EdgeId, EdgeReference, FaceReference, HiddenLineError,
+    HiddenLineView, MeshQuality, OutlinePiece, ReferenceError, Solid, VertexId, VertexName,
+    ViewSource, outer_outline, vertex_names,
 };
 use caditor_sketch::{
     ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, FitSpacing, Sketch, SplineKind,
@@ -28,6 +30,40 @@ use crate::{
 };
 
 pub const PROJECTED_SPLINE_POINTS: usize = 33;
+const FULL_TURN_SLACK: f64 = 1e-9;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutlineOrigin {
+    Edge(EdgeReference),
+    Silhouette(FaceReference),
+}
+
+impl OutlineOrigin {
+    fn same_as(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Edge(edge), Self::Edge(other)) => edge.name() == other.name(),
+            (Self::Silhouette(face), Self::Silhouette(other)) => face.name() == other.name(),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutlinePart {
+    pub origin: OutlineOrigin,
+    pub occurrence: u32,
+    pub of: u32,
+}
+
+impl OutlinePart {
+    fn heap_size(&self) -> usize {
+        size_of::<Self>()
+            + match &self.origin {
+                OutlineOrigin::Edge(_) => 0,
+                OutlineOrigin::Silhouette(face) => face.heap_size(),
+            }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProjectionSource {
@@ -67,14 +103,26 @@ pub enum ProjectionSource {
         datum: FeatureId,
     },
     Origin,
+    BodyOutline {
+        body: FeatureId,
+        part: Box<OutlinePart>,
+    },
 }
 
 impl ProjectionSource {
+    pub(crate) fn heap_size(&self) -> usize {
+        match self {
+            Self::BodyOutline { part, .. } => part.heap_size(),
+            _ => 0,
+        }
+    }
+
     pub fn body(&self) -> Option<FeatureId> {
         match self {
-            Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
-                Some(*body)
-            }
+            Self::Edge { body, .. }
+            | Self::Vertex { body, .. }
+            | Self::Section { body, .. }
+            | Self::BodyOutline { body, .. } => Some(*body),
             Self::SketchEntity { .. }
             | Self::DatumPlane { .. }
             | Self::PrincipalPlane { .. }
@@ -131,13 +179,18 @@ impl ProjectionSource {
             | Self::SketchEntity { .. }
             | Self::Section { .. }
             | Self::DatumPoint { .. }
-            | Self::Origin => None,
+            | Self::Origin
+            | Self::BodyOutline { .. } => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Edge { edge, .. } | Self::Section { edge, .. } => origins::of_edge(edge),
+            Self::BodyOutline { part, .. } => match &part.origin {
+                OutlineOrigin::Edge(edge) => origins::of_edge(edge),
+                OutlineOrigin::Silhouette(face) => origins::of_face(face),
+            },
             Self::Vertex { .. }
             | Self::SketchEntity { .. }
             | Self::DatumPlane { .. }
@@ -151,9 +204,10 @@ impl ProjectionSource {
 
     pub fn feature(&self) -> Option<FeatureId> {
         match self {
-            Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
-                Some(*body)
-            }
+            Self::Edge { body, .. }
+            | Self::Vertex { body, .. }
+            | Self::Section { body, .. }
+            | Self::BodyOutline { body, .. } => Some(*body),
             Self::SketchEntity { sketch, .. } => Some(*sketch),
             Self::DatumPlane { datum, .. }
             | Self::DatumAxis { datum, .. }
@@ -187,6 +241,17 @@ impl ProjectionSource {
             }
             (Self::PrincipalAxis { axis, .. }, Self::PrincipalAxis { axis: other, .. }) => {
                 axis == other
+            }
+            (
+                Self::BodyOutline { body, part },
+                Self::BodyOutline {
+                    body: other_body,
+                    part: other,
+                },
+            ) => {
+                body == other_body
+                    && part.occurrence == other.occurrence
+                    && part.origin.same_as(&other.origin)
             }
             _ => self == other,
         }
@@ -402,10 +467,159 @@ pub enum ProjectionError {
     Uncuttable,
     Parallel,
     Cancelled,
+    OutlineUnclear,
+    OutlineChanged,
 }
 
 type Sections = BTreeMap<FeatureId, Result<Solid, ProjectionError>>;
 type Splits<'a> = BTreeMap<FeatureId, SplitEdges<'a>>;
+type BodyOutlines = BTreeMap<FeatureId, Result<Vec<OutlinePiece>, ProjectionError>>;
+
+#[derive(Default)]
+struct Sources<'a> {
+    sections: Sections,
+    splits: Splits<'a>,
+    outlines: BodyOutlines,
+}
+
+fn outline_pieces(solid: &Solid, plane: &Plane) -> Result<Vec<OutlinePiece>, HiddenLineError> {
+    outer_outline(
+        solid,
+        &HiddenLineView::square_to(*plane),
+        &solid.tolerance_for(&MeshQuality::SMOOTH),
+    )
+}
+
+fn piece_samples(piece: &OutlinePiece, count: usize) -> Vec<Point2> {
+    let last = count.saturating_sub(1).max(1) as f64;
+    (0..count)
+        .map(|index| piece.curve.point(piece.range.at(index as f64 / last)))
+        .collect()
+}
+
+fn piece_outline(piece: &OutlinePiece, wanted: Option<Shape>) -> Option<Outline> {
+    let (start, end) = (
+        piece.curve.point(piece.range.start()),
+        piece.curve.point(piece.range.end()),
+    );
+    let whole = piece.range.length() >= TAU - FULL_TURN_SLACK;
+    let natural = match &piece.curve {
+        Curve2::Line(_) => Outline::Line { start, end },
+        Curve2::Circle(circle) if whole => Outline::Circle {
+            center: circle.center(),
+            radius: circle.radius(),
+        },
+        Curve2::Circle(circle) => {
+            let (start, end) = if circle.is_counter_clockwise() {
+                (start, end)
+            } else {
+                (end, start)
+            };
+            Outline::Arc {
+                center: circle.center(),
+                start,
+                end,
+            }
+        }
+        Curve2::Ellipse(ellipse) => {
+            let major = ellipse.center() + ellipse.x_axis() * ellipse.major_radius();
+            if whole {
+                Outline::Ellipse {
+                    center: ellipse.center(),
+                    major,
+                    minor_radius: ellipse.minor_radius(),
+                }
+            } else {
+                let (start, end) = if ellipse.is_counter_clockwise() {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+                Outline::EllipticalArc {
+                    center: ellipse.center(),
+                    major,
+                    minor_radius: ellipse.minor_radius(),
+                    start,
+                    end,
+                }
+            }
+        }
+        _ => Outline::through(&piece_samples(piece, PROJECTED_SPLINE_POINTS))?,
+    };
+    natural.fitted(wanted, |count| piece_samples(piece, count))
+}
+
+pub fn body_outline(
+    solid: &Solid,
+    body: FeatureId,
+    plane: &Plane,
+) -> Result<Vec<(ProjectionSource, Outline)>, HiddenLineError> {
+    let pieces = outline_pieces(solid, plane)?;
+    Ok(pieces
+        .iter()
+        .filter_map(|piece| {
+            let origin = match piece.source {
+                ViewSource::Edge { edge, .. } => {
+                    OutlineOrigin::Edge(EdgeReference::capture(solid, edge)?)
+                }
+                ViewSource::Silhouette { face, .. } => {
+                    OutlineOrigin::Silhouette(FaceReference::capture(solid, face)?)
+                }
+            };
+            let part = OutlinePart {
+                origin,
+                occurrence: u32::try_from(piece.occurrence).ok()?,
+                of: u32::try_from(piece.of).ok()?,
+            };
+            Some((
+                ProjectionSource::BodyOutline {
+                    body,
+                    part: Box::new(part),
+                },
+                piece_outline(piece, None)?,
+            ))
+        })
+        .collect())
+}
+
+fn resolved_piece<'p>(
+    solid: &Solid,
+    pieces: &'p [OutlinePiece],
+    part: &OutlinePart,
+) -> Result<&'p OutlinePiece, ProjectionError> {
+    let of_source: Vec<&OutlinePiece> = match &part.origin {
+        OutlineOrigin::Edge(reference) => {
+            let id = reference.resolve(solid).map_err(lost_reference)?;
+            pieces
+                .iter()
+                .filter(|piece| matches!(piece.source, ViewSource::Edge { edge, .. } if edge == id))
+                .collect()
+        }
+        OutlineOrigin::Silhouette(reference) => {
+            let id = reference.resolve(solid).map_err(lost_reference)?;
+            pieces
+                .iter()
+                .filter(
+                    |piece| matches!(piece.source, ViewSource::Silhouette { face, .. } if face == id),
+                )
+                .collect()
+        }
+    };
+    if of_source.len() != part.of as usize {
+        return Err(ProjectionError::OutlineChanged);
+    }
+    of_source
+        .into_iter()
+        .find(|piece| piece.occurrence == part.occurrence as usize)
+        .ok_or(ProjectionError::OutlineChanged)
+}
+
+fn lost_reference<T>(error: ReferenceError<T>) -> ProjectionError {
+    match error {
+        ReferenceError::Ambiguous(_) => ProjectionError::Ambiguous,
+        ReferenceError::Missing => ProjectionError::Missing,
+    }
+}
 
 pub fn edge_outline(solid: &Solid, edge: EdgeId, plane: &Plane) -> Option<Outline> {
     let found = solid.edge(edge)?;
@@ -771,26 +985,17 @@ pub(crate) fn refreshed<'a>(
         return Ok(Cow::Borrowed(&definition.sketch));
     }
     let mut sketch = definition.sketch.clone();
-    let mut sections = Sections::new();
-    let mut splits = Splits::new();
+    let mut sources = Sources::default();
     for (entity, source) in &definition.projections {
         let Some(existing) = sketch.entity(*entity) else {
             continue;
         };
         let wanted = Shape::of(existing);
-        let outline = outline_of(
-            source,
-            plane,
-            wanted,
-            feature.id(),
-            inputs,
-            &mut sections,
-            &mut splits,
-        )
-        .map_err(|error| match error {
-            ProjectionError::Cancelled => Failure::Cancelled,
-            error => projection_failure(feature, &sketch, *entity, source, error, inputs),
-        })?;
+        let outline = outline_of(source, plane, wanted, feature.id(), inputs, &mut sources)
+            .map_err(|error| match error {
+                ProjectionError::Cancelled => Failure::Cancelled,
+                error => projection_failure(feature, &sketch, *entity, source, error, inputs),
+            })?;
         place(&mut sketch, *entity, &outline).map_err(|()| {
             projection_failure(
                 feature,
@@ -858,21 +1063,38 @@ fn outline_of<'a>(
     wanted: Shape,
     sketch: FeatureId,
     inputs: &Inputs<'a>,
-    sections: &mut Sections,
-    splits: &mut Splits<'a>,
+    sources: &mut Sources<'a>,
 ) -> Result<Outline, ProjectionError> {
     match source {
+        ProjectionSource::BodyOutline { body, part } => {
+            let solid = inputs
+                .body(*body)
+                .ok_or(ProjectionError::SourceUnavailable)?;
+            let pieces = sources.outlines.entry(*body).or_insert_with(|| {
+                outline_pieces(solid, plane).map_err(|error| match error {
+                    HiddenLineError::Cancelled(_) => ProjectionError::Cancelled,
+                    error => {
+                        log::warn!("the outline of a body could not be worked out: {error}");
+                        ProjectionError::OutlineUnclear
+                    }
+                })
+            });
+            let pieces = pieces.as_ref().map_err(|error| *error)?;
+            let piece = resolved_piece(solid, pieces, part)?;
+            piece_outline(piece, Some(wanted)).ok_or(ProjectionError::ChangedShape)
+        }
         ProjectionSource::Edge { body, edge } => {
             let solid = inputs
                 .body(*body)
                 .ok_or(ProjectionError::SourceUnavailable)?;
-            let split = splits
+            let split = sources
+                .splits
                 .entry(*body)
                 .or_insert_with(|| SplitEdges::new(inputs.document, solid));
             edge_in(split.run(edge), plane, wanted)
         }
         ProjectionSource::Section { body, edge } => {
-            let section = section_of(*body, plane, sketch, inputs, sections)?;
+            let section = section_of(*body, plane, sketch, inputs, &mut sources.sections)?;
             match edge_in(section_run(section, edge), plane, wanted) {
                 Err(ProjectionError::Missing) => Err(ProjectionError::NotCut),
                 outcome => outcome,
@@ -1107,6 +1329,7 @@ fn projection_failure(
         ProjectionSource::Vertex { .. } => format!("a corner of {source_name}"),
         ProjectionSource::SketchEntity { .. } => format!("geometry of {source_name}"),
         ProjectionSource::Section { .. } => format!("the cut through {source_name}"),
+        ProjectionSource::BodyOutline { .. } => format!("the outline of {source_name}"),
         ProjectionSource::DatumPlane { .. } | ProjectionSource::PrincipalPlane { .. } => {
             format!("the cut along {source_name}")
         }
@@ -1132,6 +1355,8 @@ fn projection_failure(
         | ProjectionError::PartlyTraced
         | ProjectionError::NotCut
         | ProjectionError::Uncuttable
+        | ProjectionError::OutlineUnclear
+        | ProjectionError::OutlineChanged
         | ProjectionError::Cancelled => Some(FixTarget::Feature(feature.id())),
     };
     let error = FeatureError::new(ProjectionCause {
@@ -1203,6 +1428,14 @@ impl ProjectionCause {
             ProjectionError::Cancelled => {
                 format!("{label} is {verb} {what}, which was cancelled.")
             }
+            ProjectionError::OutlineUnclear => format!(
+                "{label} is {verb} {what}, which could not be worked out from this sketch's \
+                 direction."
+            ),
+            ProjectionError::OutlineChanged => format!(
+                "{label} is {verb} {what}, which is now made of a different number of curves, \
+                 so it is unclear which one to follow."
+            ),
         }
     }
 

@@ -1086,7 +1086,14 @@ impl Menus<'_> {
                         ],
                     );
                     ui.separator();
-                    self.items(ui, [Command::ProjectSketch, Command::IntersectBody]);
+                    self.items(
+                        ui,
+                        [
+                            Command::ProjectSketch,
+                            Command::ProjectOutline,
+                            Command::IntersectBody,
+                        ],
+                    );
                 },
             );
             submenu(

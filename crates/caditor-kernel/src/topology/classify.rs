@@ -15,6 +15,7 @@ use crate::{
     interval::Interval,
     sense::Sense,
     surface::Surface,
+    tally,
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE},
     topology::{CoedgeId, EdgeId, FaceId, LoopId, PolygonIndex, Solid, VertexId},
 };
@@ -30,6 +31,9 @@ const RAY_REACH_MARGIN: f64 = 1.0;
 const WINDOW_MARGIN: f64 = 16.0 * TOLERANCE;
 const MAX_PERIOD_SHIFTS: usize = 1 << 12;
 const POLE_PROBES: usize = 5;
+const OWN_FACE_REACH: f64 = 100.0 * TOLERANCE;
+const RAY_TOUCH: f64 = 8.0 * TOLERANCE;
+const OVERLAP_PROBES: usize = 17;
 const RAY_DIRECTIONS: [[f64; 3]; 12] = [
     [0.573_462, 0.612_378, 0.544_223],
     [-0.408_248, 0.707_817, 0.576_479],
@@ -68,6 +72,13 @@ pub enum RayCrossing {
         entering: bool,
     },
     Nothing,
+    Undecided,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RayView {
+    Covered,
+    Clear,
     Undecided,
 }
 
@@ -701,6 +712,87 @@ impl<'a> SolidClassifier<'a> {
             },
             None if first_doubt.is_finite() => RayCrossing::Undecided,
             None => RayCrossing::Nothing,
+        }
+    }
+
+    pub(crate) fn bounds(&self) -> Option<Aabb> {
+        self.bounds
+    }
+
+    pub(crate) fn faces_overlapping(&self, bounds: &Aabb) -> Vec<(FaceId, Aabb2)> {
+        self.tree
+            .overlapping(bounds, TOLERANCE)
+            .into_iter()
+            .filter_map(|position| self.faces.get(position))
+            .map(|data| (data.id, data.uv_box))
+            .collect()
+    }
+
+    pub(crate) fn ray_view(&self, origin: Point3, direction: Vector3, own: &[FaceId]) -> RayView {
+        let Some(bounds) = self.bounds else {
+            return RayView::Clear;
+        };
+        let Ok(line) = Line::new(origin, direction) else {
+            return RayView::Undecided;
+        };
+        let direction = line.direction();
+        let reach = bounds
+            .corners()
+            .iter()
+            .map(|corner| corner.distance(origin))
+            .fold(0.0, f64::max)
+            + RAY_REACH_MARGIN;
+        let curve = Curve::Line(line);
+        let mut doubtful = false;
+        for data in self.faces_along(origin, direction, reach) {
+            let (Some(window), Some(face)) = (
+                crate::intersect::line_window(origin, direction, &data.bounds),
+                self.solid.face(data.id),
+            ) else {
+                continue;
+            };
+            let low = (window.start() - WINDOW_MARGIN).max(0.0);
+            let high = (window.end() + WINDOW_MARGIN).min(reach);
+            let Some(range) = Interval::new(low, high) else {
+                continue;
+            };
+            tally::add(1);
+            let surface = face.surface();
+            let found = match intersect_curve_surface(&curve, range, surface, Some(data.uv_box)) {
+                Ok(found) => found,
+                Err(IntersectionError::Cancelled(_)) => return RayView::Undecided,
+                Err(_) => {
+                    doubtful = true;
+                    continue;
+                }
+            };
+            let is_own = own.contains(&data.id);
+            let skips_point_hits = is_own && matches!(surface, Surface::Plane(_));
+            let beyond = if is_own { OWN_FACE_REACH } else { RAY_TOUCH };
+            let on_face = |uv: Point2| {
+                self.point_in_face(data.id, uv)
+                    .is_some_and(|class| class != FaceContainment::Outside)
+            };
+            let hit_counts = |hit: &crate::intersect::CurveSurfacePoint| {
+                !skips_point_hits && hit.parameter > beyond && on_face(hit.uv)
+            };
+            let overlap_counts = |overlap: &crate::intersect::CurveSurfaceOverlap| {
+                (0..OVERLAP_PROBES).any(|index| {
+                    let fraction = (index as f64 + 0.5) / OVERLAP_PROBES as f64;
+                    let parameter = overlap.range.at(fraction);
+                    let hint = overlap.start_uv.lerp(overlap.end_uv, fraction);
+                    parameter > RAY_TOUCH
+                        && on_face(surface.project(origin + direction * parameter, Some(hint)))
+                })
+            };
+            if found.points.iter().any(hit_counts) || found.overlaps.iter().any(overlap_counts) {
+                return RayView::Covered;
+            }
+        }
+        if doubtful {
+            RayView::Undecided
+        } else {
+            RayView::Clear
         }
     }
 

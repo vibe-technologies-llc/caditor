@@ -3999,6 +3999,27 @@ impl ViewportState {
             )));
             return;
         }
+        let outlined = editing
+            .active()
+            .ok_or(projecting::NoBodyToProject)
+            .and_then(|active| {
+                projecting::body_to_project(
+                    model,
+                    self.keyboard_highlight.or(self.hovered),
+                    &self.chosen_rows,
+                )
+                .map(|body| (active, body))
+            });
+        if commands.invoke(Command::ProjectOutline, &outlined)
+            && let Ok((active, body)) = outlined
+        {
+            actions.extend(projected(projecting::project_outline(
+                model,
+                active.feature,
+                body,
+            )));
+            return;
+        }
         let activation = self
             .keyboard_highlight
             .ok_or("Highlight an item first, with Highlight the next item in the view");

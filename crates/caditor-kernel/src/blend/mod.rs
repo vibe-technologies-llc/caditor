@@ -1724,7 +1724,7 @@ fn bounding_edges(solid: &Solid, face: FaceId) -> BTreeSet<EdgeId> {
         .collect()
 }
 
-fn meets_smoothly(solid: &Solid, edge: EdgeId) -> bool {
+pub(crate) fn meets_smoothly(solid: &Solid, edge: EdgeId) -> bool {
     let faces = edge_faces(solid, edge);
     let ([(first, _), (second, _)], Some(definition)) = (faces.as_slice(), solid.edge(edge)) else {
         return false;

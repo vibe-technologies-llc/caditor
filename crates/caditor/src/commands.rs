@@ -128,6 +128,7 @@ pub enum Command {
     PasteGeometry,
     IntersectBody,
     ProjectSketch,
+    ProjectOutline,
     SketchTool(Tool),
     ShapeMode(ShapeMode),
     Constraint(ConstraintTool),
@@ -420,6 +421,7 @@ impl Command {
                 | Self::MoveGeometry
                 | Self::IntersectBody
                 | Self::ProjectSketch
+                | Self::ProjectOutline
                 | Self::SketchTool(_)
                 | Self::Constraint(_)
         )
@@ -954,6 +956,7 @@ plain_commands! {
     PasteGeometry,
     IntersectBody,
     ProjectSketch,
+    ProjectOutline,
     DeleteSelection,
     ClearRecent,
     RecoverUnsaved,
@@ -1128,6 +1131,7 @@ impl Command {
             Self::PasteGeometry => "sketch.paste",
             Self::IntersectBody => "sketch.intersect_body",
             Self::ProjectSketch => "sketch.project_sketch",
+            Self::ProjectOutline => "sketch.project_outline",
             Self::SketchTool(tool) => match tool {
                 Tool::Select => "sketch.select",
                 Tool::Point => "sketch.point",
@@ -1499,6 +1503,7 @@ impl Command {
             Self::PasteGeometry => "Paste sketch geometry",
             Self::IntersectBody => "Intersect the whole body of the highlighted face",
             Self::ProjectSketch => "Project every curve of another sketch",
+            Self::ProjectOutline => "Project the outline of a body",
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
             Self::SketchTool(Tool::Extend) => "Extend a line, arc, elliptical arc or spline",
@@ -2270,6 +2275,7 @@ impl Command {
             | Self::PasteGeometry
             | Self::IntersectBody
             | Self::ProjectSketch
+            | Self::ProjectOutline
             | Self::Section(SectionCommand::SliceSketch)
             | Self::SketchTool(_)
             | Self::ShapeMode(_) => Category::Sketch,
@@ -2317,6 +2323,7 @@ impl Command {
             | Self::PasteGeometry
             | Self::IntersectBody
             | Self::ProjectSketch
+            | Self::ProjectOutline
             | Self::Section(SectionCommand::SliceSketch)
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
@@ -2481,6 +2488,7 @@ impl Command {
             | Self::LowerSplineDegree
             | Self::AddTangentHandle
             | Self::ProjectSketch
+            | Self::ProjectOutline
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions

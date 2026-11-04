@@ -1667,6 +1667,22 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   same and returns every entity added, so a caller can check constraints against a shadow sketch. A
   sketch's evaluation records every body standing at it (`Evaluation::body_result_seen_by`;
   `body_state_seen_by` for the result's `Arc`, which a cache keys on), so the app projects from it.
+- A body's outline (`ProjectionSource::BodyOutline { body, part }`, `body_outline`, kernel
+  `outer_outline`, `kernel-hidden-lines.md`) is one curve of the outer outline of a body seen square
+  to the sketch plane. Its `OutlinePart` holds what the curve came from (`OutlineOrigin`: an
+  `EdgeReference`, or the `FaceReference` of the face whose silhouette it is, so healing, pasting
+  and `origin_features` treat it as any picked edge or face), its `occurrence` among the curves of
+  that one source along the sketch's x then y, and `of`, how many there were. `refreshed` works out
+  the outline once per body per recompute at `MeshQuality::SMOOTH`, resolves the source and
+  takes that occurrence. A line, a circle or arc seen square and an ellipse or elliptical arc are
+  those entities (ends swapped when the view reads them clockwise), a traced or sampled curve a
+  spline through `PROJECTED_SPLINE_POINTS`. The rule for every projection holds: the entity keeps
+  the kind and point count it was made with. A source gone is `Missing`, split ambiguously
+  `Ambiguous`, another number of curves from the source `OutlineChanged`, another kind
+  `ChangedShape`, an outline the kernel cannot close `OutlineUnclear`, each failing the sketch
+  alone naming "the outline of <body>", with the fix to delete the curve and project again. A curve
+  of an outline that has moved to another edge or face fails rather than following silently,
+  since nothing says it is the same curve. It is not a pick a hole can place by (`places_holes`).
 - Intersect sources (`section.rs`): a `Section` is an edge of the body cut by the sketch plane, the
   body intersected with the half-space above the plane (`split::half_space_solid`, extruded under
   the sketch's own id). Edges between the cut face (a cap whose origin is the sketch) and a body

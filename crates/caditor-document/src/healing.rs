@@ -18,7 +18,7 @@ use crate::{
     measurement::{MeasuredItem, Measurement, Reading},
     movement::TurnCentre,
     pattern::{CurvePatternPath, PatternKind},
-    projection::ProjectionSource,
+    projection::{OutlineOrigin, ProjectionSource},
     recompute::Inputs,
     reference_image::ImagePlane,
     solid::{
@@ -581,6 +581,16 @@ pub(crate) fn visit_projections(kind: &mut FeatureKind, visitor: &mut impl Refer
             ProjectionSource::Vertex { body, vertex } => {
                 visitor.vertex(*body, vertex, "a corner it projects");
             }
+            ProjectionSource::BodyOutline { body, part } => match &mut part.origin {
+                OutlineOrigin::Edge(edge) => {
+                    visitor.edges(*body, std::slice::from_mut(edge), &|_| {
+                        "an edge of the outline it projects".to_owned()
+                    });
+                }
+                OutlineOrigin::Silhouette(face) => {
+                    visitor.face(*body, face, "a face of the outline it projects");
+                }
+            },
             ProjectionSource::Section { .. }
             | ProjectionSource::SketchEntity { .. }
             | ProjectionSource::DatumPlane { .. }

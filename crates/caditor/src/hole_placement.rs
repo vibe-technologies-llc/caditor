@@ -206,7 +206,8 @@ impl Held {
             | ProjectionSource::Origin
             | ProjectionSource::Section { .. }
             | ProjectionSource::DatumPlane { .. }
-            | ProjectionSource::PrincipalPlane { .. } => "sketch curve",
+            | ProjectionSource::PrincipalPlane { .. }
+            | ProjectionSource::BodyOutline { .. } => "sketch curve",
         }
     }
 
@@ -416,7 +417,8 @@ fn places_holes(source: &ProjectionSource) -> bool {
         | ProjectionSource::Origin => true,
         ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
-        | ProjectionSource::PrincipalPlane { .. } => false,
+        | ProjectionSource::PrincipalPlane { .. }
+        | ProjectionSource::BodyOutline { .. } => false,
     }
 }
 
@@ -469,7 +471,8 @@ pub fn source_words(model: &Model, sketch: FeatureId, source: &ProjectionSource)
         ProjectionSource::Origin => Some("The origin".to_owned()),
         ProjectionSource::Section { .. }
         | ProjectionSource::DatumPlane { .. }
-        | ProjectionSource::PrincipalPlane { .. } => None,
+        | ProjectionSource::PrincipalPlane { .. }
+        | ProjectionSource::BodyOutline { .. } => None,
     };
     words.unwrap_or_else(|| match source {
         ProjectionSource::Edge { .. } => LOST_EDGE.to_owned(),

@@ -238,6 +238,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `projecting::edge_projection` and `face_projections` of a body's edges and faces in its state
   seen by the sketch (`body_result_seen_by`), and `projecting::projections_of` for a body corner
   (`corners`, found among the seen body's vertices by position and told apart by `vertex_keys`),
+  `projecting::outline_projections` for its outer `outline`,
   curves of another sketch above it (`source_sketch` with `source_curves`, else
   `projecting::sketch_candidates` for the whole sketch), principal `axes`, datum axes and points
   (`datums`) and the `origin`, into one transaction leaving out what the sketch already projects.
