@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Point2, Point3, Vector2, Vector3};
 use thiserror::Error;
 
 use crate::{
     interrupt::{self, Interrupted},
+    measure::faces_volume,
     sense::Sense,
     surface::Surface,
     tessellation::{FaceTriangles, MassProperties, TessellationError},
@@ -22,6 +23,8 @@ const POLE_MATCH: f64 = 1e-9;
 const SEAM_PROBES: [f64; 3] = [0.25, 0.5, 0.75];
 const SEAM_SEPARATION: f64 = 4.0 * PCURVE_TOLERANCE;
 const VALIDATION_COARSENESS: [f64; 4] = [20.0, 1.0, 0.1, 0.01];
+const FLAT_SHELL_VOLUME: f64 = 1e-9;
+const EMPTY_SHELL_VOLUME: f64 = 1e-12;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ValidationError {
@@ -748,7 +751,7 @@ impl Solid {
                 let most = points()
                     .filter_map(&most_of)
                     .fold(f64::NEG_INFINITY, f64::max);
-                let void = MassProperties::of(&shell_mesh.triangles).volume < 0.0;
+                let void = shell_volume(self, shell, &shell_mesh) < 0.0;
                 (shell, ShellSpan { void, least, most })
             })
             .collect())
@@ -760,10 +763,26 @@ impl Solid {
         let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
         Ok(by_shell
             .into_iter()
-            .filter(|(_, shell_mesh)| MassProperties::of(&shell_mesh.triangles).volume < 0.0)
+            .filter(|(shell, shell_mesh)| shell_volume(self, *shell, shell_mesh) < 0.0)
             .map(|(shell, _)| shell)
             .collect())
     }
+}
+
+fn shell_volume(solid: &Solid, shell: ShellId, mesh: &ShellMesh) -> f64 {
+    let properties = MassProperties::of(&mesh.triangles);
+    let bounds = Aabb::from_points(mesh.triangles.iter().flatten().copied());
+    let scale = properties.area * bounds.map_or(0.0, |bounds| bounds.diagonal());
+    if properties.volume.abs() > FLAT_SHELL_VOLUME * scale {
+        return properties.volume;
+    }
+    let exact = solid
+        .shell(shell)
+        .zip(bounds)
+        .and_then(|(shell, bounds)| faces_volume(solid, shell.faces(), bounds).ok().flatten());
+    exact
+        .filter(|exact| exact.abs() > EMPTY_SHELL_VOLUME * scale)
+        .unwrap_or(properties.volume)
 }
 
 fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
@@ -771,7 +790,7 @@ fn volumes_at(solid: &Solid, tolerance: &SamplingTolerance) -> Checked<()> {
     let mut lumps = Vec::new();
     for (id, _) in solid.shells() {
         let shell_mesh = by_shell.get(&id).ok_or(ValidationError::EmptyVolume(id))?;
-        let volume = MassProperties::of(&shell_mesh.triangles).volume;
+        let volume = shell_volume(solid, id, shell_mesh);
         if !volume.is_finite() || volume == 0.0 {
             return Err(ValidationError::EmptyVolume(id));
         }

@@ -105,7 +105,7 @@ fn clamp_state(surfaces: [&Surface; 2], state: [f64; 4]) -> [f64; 4] {
     ]
 }
 
-fn nearest_turn(value: f64, reference: f64, period: Option<f64>) -> f64 {
+pub(crate) fn nearest_turn(value: f64, reference: f64, period: Option<f64>) -> f64 {
     match period {
         Some(period) if period > 0.0 && value.is_finite() && reference.is_finite() => {
             value - ((value - reference) / period).round() * period

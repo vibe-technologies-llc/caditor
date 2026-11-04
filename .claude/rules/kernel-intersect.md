@@ -76,6 +76,10 @@ paths:
   torus through its axis, and cylinders against cylinders. `coaxial.rs` takes every coaxial pair of
   rotational surfaces by intersecting meridians in (r, z) as 2D curves: each point is a circle,
   tangent points tangent circles, points on the axis isolated points.
+- A plane along a cylinder's axis to within the resolution across the window meets it in lines on
+  the wall, placed where the plane stands at the window's middle so they keep within half the
+  resolution of it: measured at the axis's origin, a block turned 2.8e-7 radians across a bore
+  had its line 1e-6 off its face at the far end, the line was dropped and the result `Open`.
 - A plane cutting a cylinder so shallowly that its ellipse cannot be made (a major radius past
   `MAX_SIZE`) is marched, never taken as missing it.
 - A plane cuts a cone in the exact ellipse (or circle) only when `|n·axis| > sin α`; crossing the
@@ -145,6 +149,11 @@ paths:
     `end_on_boundary` drops contacts that slipped past the boundary within the inside test's slack,
     so a branch never ends with a backward hook whose node tangents point against the curve (which
     turns the boolean's trace the wrong way at that vertex).
+  - A step's predicted uv moves by less than a period (`within_a_turn`, the same point on the
+    surface): heading sideways just off a sphere's pole, 1e-14 from it, the tiny speed in u made u
+    about 3e12, where a double cannot hold a change smaller than 5e-4, so the solves stalled a short
+    way out and the branch failed `Unfollowable`; whether a seed lands that near a pole turns on the
+    last bit of `cos`.
   - A step whose solve on the plane ahead fails while its predicted uv lies outside the patches
     first tries ending exactly on the boundary it crosses (`boundary_within`: the bound solved as
     a parameter constraint, ahead of the current point, not a pole, turning at most `MAX_TURN`
@@ -174,7 +183,12 @@ paths:
     which the other surface lies along both normals, within the resolution and the step of the
     chord's middle), as a branch passing through a tangent point does (Viviani's curve). Two tori
     turned across each other near where their equators meet have arms passing within a step of
-    each other there, and a step from one arm onto the other ahead passed every chord check. A
+    each other there, and a step from one arm onto the other ahead passed every chord check. Only
+    surfaces meeting there within `PASSING_GAP` (the square of `STOP_SINE`) pass through: farther
+    apart the normals never turn parallel on the curve, whose sine stays above `STOP_SINE` round the
+    neck, so the march halves its step and follows the arm round. Two frustums whose walls turn
+    parallel 3.1e-7 apart were stepped straight across, each arm hopping to the other, and the
+    Hermite segment over the neck had no point on both surfaces across its middle (`Unrefined`). A
     step landing outside the patches whose exit lies behind the current point is retried at half
     length, so a branch dipping into a patch for less than a step is followed.
   - A branch whose `IntersectionCurve` cannot be refined fails the intersection as `Unrefined`

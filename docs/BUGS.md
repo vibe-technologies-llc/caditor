@@ -10,14 +10,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432 and 486) gave are pinned by tests and combine. Seeds 20 to 700 all combine but
-  632: a frustum (4, 2, 5) and its copy turned about (0.0731, -0.3603, -0.8102) by 5.2258 and moved
-  by (0.0303, 0.0442, -0.0480) fail every operation as `Unrefined` (`Unsolved`) near
-  (-1.9899, 2.8863, 1.2357), where the walls cross at sines of 2.7e-4 to 4e-4: the traced nodes
-  there alternate in heading (neighbours 3e-6 apart with opposite tangents), as if the march
-  stepped between two arms passing within a step of each other, and the Hermite segment over that
-  stretch has no point on both surfaces across its middle. It fails the same without the march
-  going on past far stalls. Seeds beyond 700 are unsurveyed.
+  403, 405, 432, 486, 632, 724 and 767) gave are pinned by tests and combine. Seeds 20 to 1114 all
+  combine, those from 61 to 985 surveyed before the last marching change and not again. Of seeds
+  1115 to 1420, nine still fail, each also on the build before that change: 1115 and 1383 (torus and
+  sphere, `Unfollowable`), 1135 (holed block and cuboid, `Invalid`), 1136 (torus and torus,
+  `Invalid`), 1214 (hollow cuboid and frustum, `Open`), 1225 and 1344 (frustum or cuboid and sphere,
+  `Ambiguous`), 1272 (sphere and cuboid, `Invalid`) and 1402 (cuboid and cuboid, `Invalid`). Seeds
+  beyond 1420 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
@@ -30,12 +29,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   seven (the second, third and seventh axes) combined into such wrong volumes before branches
   stalling far from a touch marched on to `FAR_STOP_SINE`, and now fail `Split` beside the
   u seam on the inner equator, at (4, 0, ±1e-6).
-  A torus and its copy shifted 1e-5 along X combine exactly
-  (`a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly`); along Y they are
-  `Split` in every operation at (-8, 5e-6, 0), where the section in the plane y = 5e-6 crosses
-  both outer equator seams, which lie within the resolution of each other for about 0.8 either
-  side, the section also running 5e-6 from both tori's meridian seams at x = 8. Along Z, and
-  along all three axes at once, they combine. Lowering `STOP_SINE` itself to 1e-7 or 1e-8 fails
+  A torus and its copy shifted 1e-5 along X or Y combine
+  (`a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly`, `_along_y_combine`),
+  as they do along Z and along all three axes at once, and along Y by 3e-5 and 1e-3; by 2e-5 along Y
+  they are `Split` in every operation at (-0.083, 5.9994, 2), on the top circle. Shifts of 1e-4 and
+  3e-6 along Y did not finish all three operations within a minute, so are unjudged.
+  Lowering `STOP_SINE` itself to 1e-7 or 1e-8 fails
   the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
   (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
   changed none of these.
@@ -47,9 +46,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   The combine test of a failing place now uses a plug 2.5e-6 off at 292.5 degrees (`Split` at the
   plate's start face), whose outcome survived the pure-Rust `libm` and every result moved one ulp
   up, down or at random. Taking the kernel's maths from `libm` would make Linux and Windows agree
-  bit for bit, but with it `boolean::tests::a_marched_boolean_cancelled_anywhere_stops_with_cancelled`
-  fails: the union of a radius-1 cylinder and a radius-1.5 sphere centred on its wall is
-  `Unfollowable` once `cos` rounds one ulp differently, a marching fragility to fix first.
+  bit for bit, and `boolean::tests` all pass with it in the kernel; `glam`'s rotations in the
+  geometry crate would have to follow through its `libm` feature, or a turned solid still differs.
+  With every result moved one ulp up or down,
+  `a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine` fails `Open`, so
+  such tori still turn on the last bit.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps

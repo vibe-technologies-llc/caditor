@@ -152,8 +152,9 @@ fn plane_cylinder(plane: &PlaneSurface, cylinder: &Cylinder, window: &Aabb) -> O
     let cosine = normal.dot(axis);
     let mut raw = Raw::default();
     if cosine.abs() * window.diagonal() <= TOLERANCE {
-        let height = frame.signed_distance(origin);
-        let foot = origin - normal * height;
+        let level = origin + axis * axis.dot(window.center() - origin);
+        let height = frame.signed_distance(level);
+        let foot = level - normal * height;
         let across = normal.cross(axis).normalize_or_zero();
         if (height.abs() - radius).abs() <= TOLERANCE {
             raw.curves.extend(line(foot, axis, window, true));

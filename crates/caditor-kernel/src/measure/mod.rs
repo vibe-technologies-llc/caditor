@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Vector3};
 use thiserror::Error;
 
+pub(crate) use self::mass::faces_volume;
 pub use self::{
     distance::distance,
     extent::extent,

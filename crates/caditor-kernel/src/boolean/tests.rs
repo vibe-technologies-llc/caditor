@@ -2712,6 +2712,105 @@ fn a_ray_leaving_a_spline_wall_far_from_the_foot_it_starts_at_is_seen() {
 }
 
 #[test]
+fn frustums_whose_walls_turn_parallel_a_third_of_the_resolution_apart_combine() {
+    let first = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let axis = Vector3::new(
+        0.07305684623443653,
+        -0.3603475854528122,
+        -0.8101665399483755,
+    );
+    let offset = (0.030311745330227666, 0.0442198006906, -0.04801002780375197);
+
+    let second = moved(rotated(first.clone(), axis, 5.2258443901133536), offset);
+    let frustum_volume = 140.0 * PI / 3.0;
+
+    check_every_operation(
+        "frustums",
+        &first,
+        &second,
+        (frustum_volume, frustum_volume),
+    );
+}
+
+#[test]
+fn a_torus_cap_left_standing_proud_of_a_prism_is_a_lump_of_its_own() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let axis = Vector3::new(-0.17823612765869656, 0.9101407932511176, 0.7522099263519695);
+    let offset = (0.2804253215780763, -0.24670073799333214, 0.2836545541088349);
+
+    let prism = moved(
+        rotated(
+            crate::fixtures::extruded_spline(5.0),
+            axis,
+            0.7621520371935318,
+        ),
+        offset,
+    );
+    let left = run(&ring, &prism, BooleanOperation::Difference);
+
+    assert_eq!(left.shells().count(), 2);
+    assert_eq!(left.lumps().unwrap().len(), 2);
+    check_every_operation(
+        "torus and spline prism",
+        &ring,
+        &prism,
+        (exact_volume(&ring), exact_volume(&prism)),
+    );
+}
+
+#[test]
+fn a_block_turned_half_a_millionth_across_a_bore_combines() {
+    let body = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    let axis = Vector3::new(-0.29140809068823215, 0.4185567846308851, 0.3058401292192492);
+    let offset = (-0.944413995096073, 1.225047722910706, 1.7225755326143042);
+
+    let placed = moved(
+        rotated(
+            crate::fixtures::cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            axis,
+            6.283184742528468,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "block across a bore",
+        &body,
+        &placed,
+        (exact_volume(&body), 24.0),
+    );
+}
+
+#[test]
+fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_y_combine() {
+    let (ring_radius, tube_radius) = (6.0, 2.0);
+    let ring = crate::fixtures::torus(ring_radius, tube_radius);
+    let torus_volume = 2.0 * PI * PI * ring_radius * tube_radius * tube_radius;
+    let shift = 1e-5;
+    let swept = 8.0 * ring_radius * tube_radius * shift;
+
+    let placed = moved(ring.clone(), (0.0, shift, 0.0));
+
+    for (operation, expected, within) in [
+        (BooleanOperation::Union, torus_volume + swept, 1e-5),
+        (BooleanOperation::Difference, swept, 1e-9),
+        (BooleanOperation::Intersection, torus_volume - swept, 1e-5),
+    ] {
+        let result = run(&ring, &placed, operation);
+        assert_eq!(result.validate(), Ok(()), "{operation:?}");
+        assert_watertight(
+            "torus shifted along y",
+            &result.tessellate(&result.default_tolerance()).unwrap(),
+        );
+        let found = exact_volume(&result);
+        assert!(
+            (found - expected).abs() <= within,
+            "{operation:?}: {found} against {expected}"
+        );
+    }
+}
+
+#[test]
 fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly() {
     let (ring_radius, tube_radius) = (6.0, 2.0);
     let ring = crate::fixtures::torus(ring_radius, tube_radius);
