@@ -431,9 +431,9 @@ pub fn replace_face() -> Value {
     object(
         json!({
             "body": reference("The body, by id or name"),
-            "faces": keys("Flat face keys from list_faces"),
+            "faces": keys("Face keys from list_faces: flat faces for a plane, round faces for a round face about the same axis or, for a cylinder, one of the same radius and direction"),
             "target": {
-                "description": "The plane the faces are replaced with: XY, XZ or YZ, a flat face {body, face} of any body made before, this one included, a datum plane {datum} or {frame, plane}",
+                "description": "What the faces are replaced with: XY, XZ or YZ, a face {body, face} of any body made before, this one included, a datum plane {datum} or {frame, plane}",
                 "anyOf": [plane()]
             },
             "name": name()

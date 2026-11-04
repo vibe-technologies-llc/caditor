@@ -790,13 +790,14 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 - Replace face (no default key; Model menu, palette, the right-click menu's face tools) takes the
   selected faces (`replace_face_tools::selected_faces`): the faces of the body picked first (or of
   the body with several faces picked when another has one) are replaced, and one more pick, a
-  principal, datum or coordinate system plane or a face of another body (`datum_tools::
-  plane_reference` at the bar), is the target; several such picks are `SeveralTargets`, refused in
-  words. It creates a `ReplaceFace` with that target, or none (the feature then waits for one,
+  principal, datum or coordinate system plane or a face of another body (`replace_face_tools::
+  target_reference` at the bar, a flat face through `datum_tools::plane_reference`, a round one
+  through `sketch_placement::surface_at`), is the target; several such picks are `SeveralTargets`,
+  refused in words. It creates a `ReplaceFace` with that target, or none (the feature then waits for one,
   whose callout starts `Slot::ReplaceTarget`), and opens: a description, Faces to replace in words
   with Leave this face out, Replace with (`plane_selector::row` of `datum_tools::listed_planes`
-  with the picker on `Slot::ReplaceTarget`, any plane or flat face made before it, this body's
-  included, `replace_face_tools::plane_change`) and Body. While open and computed it shows the
+  with the picker on `Slot::ReplaceTarget`, any plane or face made before it, this body's included,
+  `replace_face_tools::plane_change`) and Body. While open and computed it shows the
   result as a move face does (`FaceChoice::Moving`, the replaced faces in the selected colour,
   `replace_face_tools::replaced_faces`), a click replacing a face or leaving it out
   (`replace_face_tools::toggle_face`); failed or pending, the body before it.

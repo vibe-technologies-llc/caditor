@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_kernel::{
     EdgeId, FaceId, FaceReference, MoveError, ReplaceError, Solid, Surface, replace_faces,
+    replace_faces_onto_round,
 };
 
 use crate::{
@@ -109,6 +110,14 @@ impl Context<'_> {
             }),
             ReplaceError::MissingFace(_) => self.error(ReplaceFaceCause::FaceGone { body }),
             ReplaceError::NotFlat(of) => self.error(ReplaceFaceCause::NotFlat { face: face(of) }),
+            ReplaceError::FlatOntoRound(of) => self.error(ReplaceFaceCause::FlatOntoRound {
+                face: face(of),
+                target: self.target(),
+            }),
+            ReplaceError::OffAxis(of) => self.error(ReplaceFaceCause::OffAxis {
+                face: face(of),
+                target: self.target(),
+            }),
             ReplaceError::SquareToTarget(of) => self.error(ReplaceFaceCause::SquareToTarget {
                 face: face(of),
                 target: self.target(),
@@ -175,6 +184,8 @@ impl Context<'_> {
 pub(crate) enum ReplaceFaceCause {
     FaceGone { body: String },
     NotFlat { face: String },
+    FlatOntoRound { face: String, target: String },
+    OffAxis { face: String, target: String },
     SquareToTarget { face: String, target: String },
     BeyondBody { face: String, target: String },
     Merging { first: String, second: String },
@@ -194,8 +205,19 @@ impl ReplaceFaceCause {
                 format!("A face to replace is no longer part of the body of {body}.")
             }
             Self::NotFlat { face } => format!(
-                "{} is curved; only flat faces can be replaced.",
+                "{} is curved; only flat faces can lie on a plane.",
                 capitalized(face)
+            ),
+            Self::FlatOntoRound { face, target } => format!(
+                "{} is flat, so it cannot lie on the round {}.",
+                capitalized(face),
+                target
+            ),
+            Self::OffAxis { face, target } => format!(
+                "{} cannot reach {}: a round face follows a round target about its own axis, or \
+                 a cylinder one of its radius and direction.",
+                capitalized(face),
+                target
             ),
             Self::SquareToTarget { face, target } => format!(
                 "{} runs square to {}, so it cannot be turned onto it.",
@@ -209,8 +231,8 @@ impl ReplaceFaceCause {
                 face
             ),
             Self::Merging { first, second } => format!(
-                "{} meets {} along an edge, and both would lie on the target, joining them into \
-                 one face.",
+                "{} and {} would both lie on the target, but cannot be joined into one face \
+                 there.",
                 capitalized(second),
                 first
             ),
@@ -244,7 +266,15 @@ impl ReplaceFaceCause {
             Self::FaceGone { .. } => {
                 "Choose the faces again, or undo the change that removed it.".to_owned()
             }
-            Self::NotFlat { .. } => "Leave this face out.".to_owned(),
+            Self::NotFlat { .. } => {
+                "Leave this face out, or choose a round target about its axis.".to_owned()
+            }
+            Self::FlatOntoRound { .. } => {
+                "Leave this face out, or choose a plane or flat face as the target.".to_owned()
+            }
+            Self::OffAxis { .. } => {
+                "Leave this face out, or choose a target about the same axis.".to_owned()
+            }
             Self::SquareToTarget { .. } => {
                 "Leave this face out, or choose a target that leans less from it.".to_owned()
             }
@@ -252,7 +282,7 @@ impl ReplaceFaceCause {
                 "Choose a target that crosses the body or lies outside this face.".to_owned()
             }
             Self::Merging { .. } => {
-                "Delete the face between them first, or replace only one of them.".to_owned()
+                "Replace only one of them, or choose another target.".to_owned()
             }
             Self::AlreadyOnTarget { .. } => "Choose another target, or other faces.".to_owned(),
             Self::UnsupportedEdge { .. } | Self::Corner { .. } => {
@@ -275,6 +305,16 @@ impl From<ReplaceFaceCause> for Cause {
     fn from(cause: ReplaceFaceCause) -> Self {
         Self::ReplaceFace(cause)
     }
+}
+
+fn round_target(inputs: &Inputs<'_>, target: &PlaneReference) -> Option<Surface> {
+    let PlaneReference::Face(attachment) = target else {
+        return None;
+    };
+    let body = inputs.body(attachment.body)?;
+    let found = attachment.face.resolve(body).ok()?;
+    let surface = body.face(found)?.surface();
+    (!matches!(surface, Surface::Plane(_))).then(|| surface.clone())
 }
 
 pub(crate) fn evaluate(
@@ -316,12 +356,22 @@ pub(crate) fn evaluate(
             body: definition.body,
         }));
     };
-    let target = Resolver { feature, inputs }.plane(target)?;
-    if cancel.is_cancelled() {
-        return Err(Failure::Cancelled);
-    }
-    let result =
-        replace_faces(solid, &faces, &target).map_err(|error| context.failure(solid, &error))?;
+    let replaced = match round_target(inputs, target) {
+        Some(surface) => {
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            replace_faces_onto_round(solid, &faces, &surface)
+        }
+        None => {
+            let target = Resolver { feature, inputs }.plane(target)?;
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            replace_faces(solid, &faces, &target)
+        }
+    };
+    let result = replaced.map_err(|error| context.failure(solid, &error))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         result,

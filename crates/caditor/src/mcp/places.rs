@@ -279,6 +279,30 @@ pub fn plane(
     }
 }
 
+pub fn plane_or_round_face(
+    document: &Document,
+    evaluation: &Evaluation,
+    choice: &PlaneChoice,
+) -> Result<PlaneReference, ToolError> {
+    let flat = plane(document, evaluation, choice);
+    let PlaneChoice::Face(on) = choice else {
+        return flat;
+    };
+    let Err(refusal) = flat else {
+        return flat;
+    };
+    let body = references::body(document, evaluation, &on.body)?;
+    let (key, _, _) = references::face(document, evaluation, body, &on.face)?;
+    sketch_placement::surface_in(
+        document,
+        evaluation,
+        FaceChoice { body, face: key },
+        document.bar_index(),
+    )
+    .map(PlaneReference::Face)
+    .map_err(|_| refusal)
+}
+
 pub struct FacePlace {
     pub reference: PlaneReference,
     pub middle: Option<Point2>,

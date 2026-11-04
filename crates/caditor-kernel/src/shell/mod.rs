@@ -7,6 +7,7 @@ mod draft;
 mod draft_tests;
 mod edge;
 mod inner;
+mod merge;
 mod moving;
 #[cfg(test)]
 mod moving_tests;
@@ -59,7 +60,7 @@ pub use delete::{DeleteError, delete_faces};
 pub use draft::{DraftError, DraftedFace, STEEPEST_DRAFT, check_draftable, draft_faces};
 pub use moving::{MoveError, move_faces};
 pub use offset::{OffsetError, offset_faces};
-pub use replace::{ReplaceError, STEEPEST_REPLACING_TURN, replace_faces};
+pub use replace::{ReplaceError, STEEPEST_REPLACING_TURN, replace_faces, replace_faces_onto_round};
 pub use walls::{ShellSide, Walls};
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -213,6 +214,7 @@ struct Offsets<'a> {
     distances: BTreeMap<FaceId, f64>,
     settled: f64,
     motions: Option<Motions>,
+    squeezing: bool,
 }
 
 impl<'a> Offsets<'a> {
@@ -224,6 +226,7 @@ impl<'a> Offsets<'a> {
             reach,
             settled: SETTLED_RESIDUAL,
             motions: None,
+            squeezing: false,
             distances: solid
                 .faces()
                 .map(|(id, _)| {
@@ -247,6 +250,7 @@ impl<'a> Offsets<'a> {
             reach: outward * walls.reach(),
             settled: SETTLED_RESIDUAL,
             motions: None,
+            squeezing: false,
             distances: solid
                 .faces()
                 .filter(|(id, _)| !open.contains(id))
@@ -261,7 +265,21 @@ impl<'a> Offsets<'a> {
             reach: inward.abs(),
             settled: SETTLED_RESIDUAL,
             motions: None,
+            squeezing: false,
             distances: faces.iter().map(|face| (*face, inward)).collect(),
+        }
+    }
+
+    fn moving_each(solid: &'a Solid, inward: BTreeMap<FaceId, f64>) -> Self {
+        Self {
+            solid,
+            reach: inward
+                .values()
+                .fold(0.0, |most, distance| most.max(distance.abs())),
+            settled: SETTLED_RESIDUAL,
+            motions: None,
+            squeezing: false,
+            distances: inward,
         }
     }
 
@@ -278,6 +296,7 @@ impl<'a> Offsets<'a> {
             settled: SETTLED_RESIDUAL,
             distances: BTreeMap::new(),
             motions: Some(Motions { motions, faces }),
+            squeezing: false,
         }
     }
 
@@ -288,6 +307,14 @@ impl<'a> Offsets<'a> {
             distances: BTreeMap::new(),
             settled: SETTLED_RESIDUAL,
             motions: None,
+            squeezing: false,
+        }
+    }
+
+    fn squeezing(self) -> Self {
+        Self {
+            squeezing: true,
+            ..self
         }
     }
 
@@ -719,6 +746,7 @@ pub(crate) fn snapped(solid: &Solid, inward: BTreeMap<FaceId, f64>) -> Option<So
         distances: inward,
         settled: SNAPPED_RESIDUAL,
         motions: None,
+        squeezing: false,
     };
     inner::inner_solid(&offsets, inner::Naming::Kept)
         .ok()

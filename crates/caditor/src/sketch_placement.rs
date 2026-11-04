@@ -254,10 +254,20 @@ pub fn surface_at(
     choice: FaceChoice,
     index: usize,
 ) -> Result<FaceAttachment, AttachmentError> {
-    let body = bodies::shown(model.evaluation(), choice.body).ok_or(AttachmentError::Gone)?;
+    surface_in(model.document(), model.evaluation(), choice, index)
+}
+
+pub fn surface_in(
+    document: &Document,
+    evaluation: &Evaluation,
+    choice: FaceChoice,
+    index: usize,
+) -> Result<FaceAttachment, AttachmentError> {
+    let body = bodies::shown(evaluation, choice.body).ok_or(AttachmentError::Gone)?;
     let face = bodies::find_face(body, choice.face).ok_or(AttachmentError::Gone)?;
     let reference = FaceReference::capture(&body.solid, face).ok_or(AttachmentError::Gone)?;
-    let state = body_state_before(model, choice.body, index).map_err(StateError::face)?;
+    let state =
+        body_state_in(document, evaluation, choice.body, index).map_err(StateError::face)?;
     let there = reference
         .resolve(state)
         .map_err(|_| AttachmentError::MadeAfter)?;

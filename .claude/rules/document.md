@@ -962,9 +962,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Replace face (`replace_face.rs`)
 
-- `ReplaceFace { body, faces, target }` puts flat faces of its body onto the target plane (kernel
-  `replace_faces`). `target` is an `Option<PlaneReference>` (a principal, datum or coordinate
-  system plane or a flat face of any body made before it, its own included, resolved through
+- `ReplaceFace { body, faces, target }` puts faces of its body onto the target (kernel
+  `replace_faces`, or `replace_faces_onto_round` when the target is a face that is not flat,
+  `round_target`). `target` is an `Option<PlaneReference>` (a principal, datum or coordinate
+  system plane or a face of any body made before it, its own included, a flat one resolved through
   `Resolver::plane`; its datum, frame and body count as used, its face is healed as "its target
   plane", it is renamed when pasted and anchored for model scale); none waits as
   `MissingInput::TargetPlane`, which the app answers by picking. `faces` are `FaceReference`s
@@ -972,18 +973,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   none waits as `MissingInput::FacesToReplace`).
 - It has no values, so no expressions or parameters, and model scale changes nothing but the
   anchored target. Kernel refusals become sentences naming the face, edge or corner, each with
-  what to change: a curved face, a target square to a face, a target on or past the far side of the
-  body (turning it inside out), two faces along an edge that would both lie on the target, every
-  face already on it, and a move's (a face that would vanish, faces that would cross, a neighbour
-  that cannot follow).
-- It modifies its body (`modifies_body`) and keeps every face and edge name and the state before it.
+  what to change: a curved face onto a plane, a flat one onto a round target, a round one off its
+  axis, a target square to a face, a target on or past the far side of the body (turning it inside
+  out), faces that would lie on the target but cannot be joined, every face already on it, and a
+  move's (a face that would vanish, faces that would cross, a neighbour that cannot follow).
+- It modifies its body (`modifies_body`) and keeps the state before it and every face and edge name,
+  but for faces merged on the target, which keep one name between them (`kernel-operations.md`).
 
 ### Delete face (`delete_face.rs`)
 
 - `DeleteFace { body, faces }` resolves its `FaceReference`s in the body's state before it (lost or
   tied fails, no face waits as `MissingInput::FacesToDelete`) and removes them, the faces around
-  closing the gap (kernel `delete_faces`). It modifies its body (`modifies_body`), keeps the state
-  before it and every name the kernel keeps; it has no expressions. Kernel refusals become sentences
+  closing the gap (kernel `delete_faces`, which levels a riser and grows a blend's chain). It modifies
+  its body (`modifies_body`), keeps the state before it and every name the kernel keeps; it has no expressions. Kernel refusals become sentences
   naming the face (`DeleteError`: neighbours that cannot close the gap, with what to choose too; a
   face that would vanish; faces that would cross; a result that would not stay valid).
 

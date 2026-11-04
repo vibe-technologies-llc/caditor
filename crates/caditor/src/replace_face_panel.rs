@@ -16,10 +16,10 @@ use crate::{
     widgets,
 };
 
-pub const DESCRIPTION: &str = "Replaces the chosen flat faces with a plane or another flat face's \
-                               plane, the faces around them extending or trimming to meet it";
+pub const DESCRIPTION: &str = "Replaces the chosen faces with a plane or another face's surface, \
+                               the faces around them extending or trimming to meet it";
 pub const TARGET: &str = "Replace with";
-const PICK_HOVER: &str = "Replace the faces with the selected plane or flat face instead";
+const PICK_HOVER: &str = "Replace the faces with the selected plane or face instead";
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 
 fn face_rows(

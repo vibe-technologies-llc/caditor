@@ -277,7 +277,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::MoveFaceDirection => format!("Click {AXIS} to shift the faces along"),
         Slot::MoveFaceAxis => format!("Click {AXIS} to tilt the faces about"),
         Slot::DraftNeutral => "Click a plane or flat face to draft from".to_owned(),
-        Slot::ReplaceTarget => "Click a plane or flat face to replace the faces with".to_owned(),
+        Slot::ReplaceTarget => "Click a plane or face to replace the faces with".to_owned(),
         Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
                                     along"
             .to_owned(),

@@ -381,7 +381,7 @@ pub fn replace_face_built(
         "replace",
     )?;
     let target = match &asked.target {
-        Some(choice) => Some(places::plane(
+        Some(choice) => Some(places::plane_or_round_face(
             session.document(),
             session.evaluation(),
             choice,

@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{EdgeReference, FaceId, FaceReference, SamplingTolerance, Solid, Surface};
@@ -423,9 +425,152 @@ fn a_curved_face_is_refused_by_name() {
     assert!(
         error
             .reason()
-            .ends_with("is curved; only flat faces can be replaced."),
+            .ends_with("is curved; only flat faces can lie on a plane."),
         "{}",
         error.reason()
     );
-    assert_eq!(error.remedy(), "Leave this face out.");
+    assert_eq!(
+        error.remedy(),
+        "Leave this face out, or choose a round target about its axis."
+    );
+}
+
+fn stepped_outline() -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(20.0, 5.0),
+        Point2::new(10.0, 5.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(0.0, 10.0),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        sketch.add_line(*corner, corners[(index + 1) % corners.len()]);
+    }
+    sketch
+}
+
+#[test]
+fn a_step_levelled_keeps_the_replaced_face_s_name_for_later_features() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let base = extruded(&mut transaction, "Base", stepped_outline(), "10 mm");
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(base).unwrap().clone();
+
+    let lower = flat_face(&solid, Vector3::Y, Point3::new(15.0, 5.0, 5.0));
+    let upper = flat_face(&solid, Vector3::Y, Point3::new(5.0, 10.0, 5.0));
+    let reference = FaceReference::capture(&solid, lower).unwrap();
+    let mut transaction = document.transaction("Replace face");
+    let replace = transaction.add_feature(
+        "Replace face 1",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: base,
+            faces: vec![reference.clone()],
+            target: Some(PlaneReference::Face(
+                FaceAttachment::capture(base, &solid, upper).unwrap().0,
+            )),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+
+    assert!(matches!(
+        evaluation.feature(replace).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert_volume(&evaluation, base, 20.0 * 10.0 * 10.0);
+    let level = evaluation.body(base).unwrap();
+    assert_eq!(level.faces().count(), 6);
+    assert!(reference.resolve(level).is_ok());
+}
+
+fn drum(
+    transaction: &mut TransactionBuilder<'_>,
+    name: &str,
+    center: Point2,
+    radius: f64,
+) -> FeatureId {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(center, radius);
+    extruded(transaction, name, sketch, "10 mm")
+}
+
+fn round_wall(solid: &Solid) -> FaceId {
+    solid
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Cylinder(_)))
+        .map(|(id, _)| id)
+        .unwrap()
+}
+
+#[test]
+fn a_round_face_follows_a_cylinder_of_another_body_on_its_axis_and_refuses_one_off_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let inner = drum(&mut transaction, "Inner", Point2::ZERO, 5.0);
+    let outer = drum(&mut transaction, "Outer", Point2::ZERO, 7.0);
+    let aside = drum(&mut transaction, "Aside", Point2::new(40.0, 0.0), 9.0);
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let evaluation = evaluate(&document, &mut engine);
+    let solid = evaluation.body(inner).unwrap().clone();
+    let wall = round_wall(&solid);
+    let attachment = |body: FeatureId| {
+        let shape = evaluation.body(body).unwrap();
+        PlaneReference::Face(FaceAttachment {
+            body,
+            face: FaceReference::capture(shape, round_wall(shape)).unwrap(),
+        })
+    };
+    let onto_outer = attachment(outer);
+    let onto_aside = attachment(aside);
+    let top = flat_face(&solid, Vector3::Z, Point3::new(0.0, 0.0, 10.0));
+
+    let mut transaction = document.transaction("Replace face");
+    let replace = transaction.add_feature(
+        "Replace face 1",
+        FeatureKind::ReplaceFace(ReplaceFace {
+            body: inner,
+            faces: vec![FaceReference::capture(&solid, wall).unwrap()],
+            target: Some(onto_outer),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    assert_volume(&evaluation, inner, PI * 49.0 * 10.0);
+
+    let definition = |faces: Vec<FaceReference>, target: PlaneReference| {
+        Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind {
+                id: replace,
+                kind: FeatureKind::ReplaceFace(ReplaceFace {
+                    body: inner,
+                    faces,
+                    target: Some(target),
+                }),
+            },
+        )
+    };
+    let chosen = FaceReference::capture(&solid, wall).unwrap();
+    document
+        .apply(definition(vec![chosen], onto_aside.clone()))
+        .unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let error = failure(&evaluation, replace);
+    assert!(
+        error.reason().contains("cannot reach"),
+        "{}",
+        error.reason()
+    );
+
+    let flat = FaceReference::capture(&solid, top).unwrap();
+    document.apply(definition(vec![flat], onto_aside)).unwrap();
+    let evaluation = evaluate(&document, &mut engine);
+    let error = failure(&evaluation, replace);
+    assert!(error.reason().contains("is flat"), "{}", error.reason());
 }

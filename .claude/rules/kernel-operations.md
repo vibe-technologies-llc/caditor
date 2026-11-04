@@ -942,25 +942,52 @@ paths:
   steep enough to fold the body fails there rather than building a bad solid. Splitting at a
   parting line is the document's (`split_faces` first, `document.md`).
 
-# Replacing faces (`shell/replace.rs`)
+# Replacing faces (`shell/replace.rs`, `shell/merge.rs`)
 
 - `replace_faces(solid, faces, target)` puts each chosen flat face onto the target plane, keeping
   the side it faces: the target's normal is taken signed to agree with the face's outward normal,
   and the face turns about the line where its plane meets the target (by the angle between the
   normals, about `normal × target`) or, parallel, shifts along it, then a residual shift along the
-  target's normal lands it exactly. Faces sharing a plane share one motion; the groups go to
-  `move_each`, so neighbours extend or trim as they do for a move and every `MoveError` (wrapped as
-  `ReplaceError::Move`) and name keeping are a move's.
+  target's normal lands it exactly. Faces sharing a plane share one motion; the groups are the
+  moving faces' (`moving::carrying`, `Motion::Rigid`), so neighbours extend or trim as they do for a
+  move and every `MoveError` (wrapped as `ReplaceError::Move`) and name keeping are a move's.
 - Refusals before building: no face `NothingToReplace`, a face not of the solid `MissingFace`, a
-  curved face `NotFlat` (curved targets and faces are roadmap entries), a target leaning
-  `STEEPEST_REPLACING_TURN` (89°) or more from a face `SquareToTarget`, a target on or past the far
-  side of the body from a face (every sampled point of the edges not bounding it on or outside the
-  target) `BeyondBody`, a replaced face meeting along an edge a face of another group or an unmoved
-  face already on the target `Merging` (the two would become one face, which needs a topology
-  change), every face already on the target `AlreadyOnTarget`. A face listed twice is taken once.
-- A face beside the replaced one squeezed to nothing between it and the target (levelling a step
-  with its riser standing) fails in the move as an edge collapsing; merging the faces either side is
-  a roadmap entry.
+  curved face `NotFlat`, a target leaning `STEEPEST_REPLACING_TURN` (89°) or more from a face
+  `SquareToTarget`, a target on or past the far side of the body from a face (every sampled point
+  of the edges not bounding it on or outside the target) `BeyondBody`, every face already on the
+  target `AlreadyOnTarget`. A face listed twice is taken once.
+- Faces landing beside each other become one. The inner solid runs `Offsets::squeezing`, whose only
+  difference is that a face shrinking away may end flat on the point it closes to
+  (`Collapses::closes_over`), so a riser between a moved face and the target closes like any band,
+  its rims joined in one edge between two coincident surfaces (`edge::offset_edge` rebuilds it as it
+  lies on both). A dropped face is accepted only when squeezed flat: at least two of its neighbours
+  are landing or already on the target (`squeezed_flat`), else `MoveError::Vanishes`.
+- `joined_on_target` then finds, across each edge of the result, two faces both on the target with
+  one outward side and in different groups (still faces being no group, so pieces of one split face
+  stay apart, as do two still faces), and `merge::merged_faces` rebuilds the solid with each set as
+  one face: boundary half-edges chained into loops (a vertex two of them leave is refused, as a
+  pinched outline), the one enclosing positive area in the keeper's uv first (exactly one, else
+  refused), coedges of other members refitted on the keeper's surface, every other loop's pcurves
+  settled. At a vertex the removed edges touched where only two edges between the same faces are
+  left, lines in line or arcs of one circle are joined (`joined_edge`) and that loop refitted, so a
+  levelled step is a plain block of 6 faces and 12 edges. Refused merges are `ReplaceError::Merging`.
+  `find_crossing` runs after merging, since coincident faces would answer it wrongly.
+- Names: the merged face takes the smallest `FaceName` among the replaced faces in it
+  (`MergedName::OfReplaced`), and delete face's levelling that of the still face
+  (`MergedName::OfStill`, `kernel-naming.md`). A reference to the other face's name no longer
+  resolves and its feature says so; an edge keeps its own name, so an edge of the absorbed face still
+  resolves by name, and a joined edge takes the name of the piece beside the keeper.
+- `replace_faces_onto_round(solid, faces, target)` takes a target surface that is not a plane and
+  moves round faces onto it by the shell's offsets (`round_landing`, `Offsets::moving_each`, one
+  distance per face, `Naming::Kept`): a cylinder onto a cylinder on its axis, a cone onto a cone on
+  its axis with its half angle, a sphere onto a concentric sphere, a torus onto one of its ring and
+  axis take the difference in radius, signed by the face's sense so a bore and a boss both land. A
+  cylinder onto a parallel one of its radius off its axis is a rigid shift across (`move_each`),
+  several only when all land alike, and shifts and offsets are never mixed. A flat face is
+  `FlatOntoRound`, anything else `OffAxis` (a cone onto a cylinder needs `Taper`'s second hinge; the
+  shell offset cannot change an angle).
+- The document takes a `PlaneReference::Face` whose face is not flat as a round target
+  (`replace_face::round_target`), so the same stored reference holds both and no record changed.
 
 # Delete faces (`shell/delete.rs`)
 
@@ -991,9 +1018,23 @@ paths:
 - So a fillet or chamfer goes back to its sharp edge (a rim of fillets or mitred chamfers at once,
   every blend of a fully rounded or bevelled box with its corner patches),
   a hole's rim chamfer or round goes leaving the hole, a torus rim fillet of a drum goes, and a
-  pocket's floor fillets go. One face of a tangent chain whose ends meet other blends, a face whose
-  neighbours run parallel (a box's top), a hole's wall without its floor and a boss's side without
-  its top are `CannotClose`.
+  pocket's floor fillets go. A face whose neighbours run parallel and opposite (a box's top), a
+  hole's wall without its floor and a boss's side without its top are `CannotClose`.
+- A riser goes by levelling (`levelled_riser`), tried first: every chosen face has two sides beyond
+  one flat face each, parallel, facing the same way, apart (`riser_sides`, two distinct across
+  edges, so no seam), and neither face it joins is wholly bordered by chosen faces (`enclosed_by`:
+  a boss's top or a pocket's floor, whose whole outline is chosen, stays a cap's business). With one
+  pair among all the chosen faces the smaller by area moves onto the larger's plane, the lower one
+  when they match; with several (a notch's two sides) the face they share moves onto the others',
+  which must be coplanar. It is `replace_face`'s landing with `MergedName::OfStill`, so the merged
+  face keeps the larger's name. A kept face other than the joined ones going too is `Vanishes` (one
+  side of a notch names the other; `only_the_riser_went`).
+- A `CannotClose` is tried once more with the chain grown from the chosen faces (`blend_chain`):
+  every face reached across edges with the same `FaceOrigin::Fillet` or `Chamfer`, or, with neither
+  (an imported body), the same rolling radius (a cylinder's radius, a torus's tube, a sphere's). So
+  one fillet of a rim mitred at its corners, which cannot close while its neighbours stay, takes the
+  rim. A chain that still fails reports the first error, naming the chosen face. Only the chosen
+  faces are drawn see-through in the app's preview; the result shows the rest gone.
 
 # Threads (`thread/`)
 
