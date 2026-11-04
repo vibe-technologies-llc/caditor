@@ -469,7 +469,9 @@ impl<'g, 'a> Topology<'g, 'a> {
         let Some(precision) = self.geometry.units.precision else {
             return;
         };
-        if matches!(self.healing, Healing::Faceted | Healing::Bent) {
+        if matches!(self.healing, Healing::Faceted | Healing::Bent)
+            || self.geometry.crossings == Crossings::Trusted
+        {
             return;
         }
         let edges: Vec<(Curve, [u64; 2])> = self
@@ -1227,8 +1229,13 @@ impl<'g, 'a> Topology<'g, 'a> {
                 curve.point(parameter) + moved_start.lerp(moved_end, along)
             })
             .collect();
-        let rebuilt =
-            IntersectionCurve::through([first.clone(), second.clone()], &points, start == end)?;
+        let faces = [first.clone(), second.clone()];
+        let closed = start == end;
+        let rebuilt = if self.healing == Healing::Faceted {
+            IntersectionCurve::through(faces, &points, closed)?
+        } else {
+            IntersectionCurve::through_to_its_ends(faces, &points, closed)?
+        };
         let domain = rebuilt.domain();
         let fits = rebuilt.point(domain.start()).distance(from) <= LINEAR_RESOLUTION
             && rebuilt.point(domain.end()).distance(to) <= LINEAR_RESOLUTION;

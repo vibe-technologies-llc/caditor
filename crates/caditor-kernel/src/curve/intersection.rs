@@ -29,6 +29,7 @@ const MAX_UNROLLED_PERIODS: i64 = 8;
 const SMALL_TURN: f64 = 1e-6;
 const TOUCHING_ITERATIONS: usize = 12;
 const TOUCHING_GAP: f64 = LINEAR_RESOLUTION;
+const PIN_REACH: f64 = 0.75 * LINEAR_RESOLUTION;
 const SEED_GAP: f64 = 1e-3 * LINEAR_RESOLUTION;
 const MIN_INDEXED_SEGMENTS: usize = 16;
 const PROBE_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
@@ -269,27 +270,21 @@ impl IntersectionCurve {
     }
 
     pub fn through(surfaces: [Surface; 2], points: &[Point3], closed: bool) -> Option<Self> {
-        let mut contacts: Vec<Contact> = Vec::with_capacity(points.len());
-        {
-            let [first, second] = &surfaces;
-            let pair = [first, second];
-            let mut hints: Option<[Point2; 2]> = None;
-            for (index, point) in points.iter().enumerate() {
-                let previous = index
-                    .checked_sub(1)
-                    .and_then(|before| points.get(before))
-                    .unwrap_or(point);
-                let next = points.get(index + 1).unwrap_or(point);
-                let tangent = (*next - *previous).try_normalize()?;
-                let start = [
-                    first.project(*point, hints.map(|[hint, _]| hint)),
-                    second.project(*point, hints.map(|[_, hint]| hint)),
-                ];
-                let contact = refine_on_plane(pair, start, *point, tangent)
-                    .or_else(|| touching_contact(pair, start, *point))?;
-                hints = Some(contact.uv);
-                contacts.push(contact);
-            }
+        let contacts = rough_contacts(&surfaces, points, closed)?;
+        Self::traced(surfaces, &contacts, closed, Touching::Follow).ok()
+    }
+
+    pub fn through_to_its_ends(
+        surfaces: [Surface; 2],
+        points: &[Point3],
+        closed: bool,
+    ) -> Option<Self> {
+        let mut contacts = rough_contacts(&surfaces, points, closed)?;
+        if let (Some(contact), Some(end)) = (contacts.first_mut(), points.first()) {
+            pin_within_reach(&surfaces, contact, *end);
+        }
+        if let (Some(contact), Some(end)) = (contacts.last_mut(), points.last()) {
+            pin_within_reach(&surfaces, contact, *end);
         }
         if closed
             && let (Some(first), Some(last)) = (contacts.first().copied(), contacts.last_mut())
@@ -712,6 +707,56 @@ impl IntersectionCurve {
 enum Touching {
     Refuse,
     Follow,
+}
+
+fn rough_contacts(
+    surfaces: &[Surface; 2],
+    points: &[Point3],
+    closed: bool,
+) -> Option<Vec<Contact>> {
+    let mut contacts: Vec<Contact> = Vec::with_capacity(points.len());
+    let [first, second] = surfaces;
+    let pair = [first, second];
+    let mut hints: Option<[Point2; 2]> = None;
+    for (index, point) in points.iter().enumerate() {
+        let previous = index
+            .checked_sub(1)
+            .and_then(|before| points.get(before))
+            .unwrap_or(point);
+        let next = points.get(index + 1).unwrap_or(point);
+        let tangent = (*next - *previous).try_normalize()?;
+        let start = [
+            first.project(*point, hints.map(|[hint, _]| hint)),
+            second.project(*point, hints.map(|[_, hint]| hint)),
+        ];
+        let contact = refine_on_plane(pair, start, *point, tangent)
+            .or_else(|| touching_contact(pair, start, *point))?;
+        hints = Some(contact.uv);
+        contacts.push(contact);
+    }
+    if closed && let (Some(first), Some(last)) = (contacts.first().copied(), contacts.last_mut()) {
+        *last = first;
+    }
+    Some(contacts)
+}
+
+fn pin_within_reach(surfaces: &[Surface; 2], contact: &mut Contact, end: Point3) {
+    let [first, second] = surfaces;
+    let [first_hint, second_hint] = contact.uv;
+    let (first_uv, second_uv) = (
+        first.project(end, Some(first_hint)),
+        second.project(end, Some(second_hint)),
+    );
+    let reached = first
+        .point_at(first_uv)
+        .distance(end)
+        .max(second.point_at(second_uv).distance(end));
+    if reached <= PIN_REACH {
+        *contact = Contact {
+            uv: [first_uv, second_uv],
+            point: end,
+        };
+    }
 }
 
 fn touching_contact(surfaces: [&Surface; 2], start: [Point2; 2], point: Point3) -> Option<Contact> {

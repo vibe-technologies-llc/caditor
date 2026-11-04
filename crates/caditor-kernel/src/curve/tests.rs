@@ -337,6 +337,45 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
 }
 
 #[test]
+fn a_curve_traced_to_its_ends_ends_on_a_point_both_nearly_tangent_surfaces_hold() {
+    use crate::{
+        IntersectionCurve,
+        surface::{Cylinder, PlaneSurface, Surface},
+    };
+
+    let (radius, dip) = (5.0, 1e-7);
+    let floor: Surface = PlaneSurface::new(Plane::XY).unwrap().into();
+    let roller: Surface = Cylinder::new(
+        Plane::from_frame(Point3::new(0.0, 0.0, radius - dip), Vector3::X, Vector3::Y).unwrap(),
+        radius,
+    )
+    .unwrap()
+    .into();
+    let crossing = (2.0 * radius * dip).sqrt();
+    let end = Point3::new(10.0, 2.0 * crossing, 0.0);
+    let rough: Vec<Point3> = (0..=8)
+        .map(|index| Point3::new(1.25 * index as f64, crossing, 0.0))
+        .take(8)
+        .chain([end])
+        .collect();
+
+    let followed =
+        IntersectionCurve::through([floor.clone(), roller.clone()], &rough, false).unwrap();
+    let pinned =
+        IntersectionCurve::through_to_its_ends([floor.clone(), roller.clone()], &rough, false)
+            .unwrap();
+
+    assert!(followed.point(followed.domain().end()).distance(end) > 0.1 * crossing);
+    let domain = pinned.domain();
+    assert!(pinned.point(domain.end()).distance(end) < 1e-9);
+    for step in 0..=200 {
+        let point = pinned.point(domain.at(step as f64 / 200.0));
+        assert!(floor.distance(point) < 1e-6);
+        assert!(roller.distance(point) < 1e-6);
+    }
+}
+
+#[test]
 fn contacts_with_no_intersection_curve_between_them_are_refused_where_it_strays() {
     use crate::{
         IntersectionCurve,

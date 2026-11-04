@@ -183,7 +183,9 @@ paths:
   common point lies (`settle_on` with an unbounded reach): a Fusion thread's run-out corner, where
   the flank grazes the bore, lies 0.035 mm from where it is written and the body is exact there.
   Tracing starts from the file's curve carried along with its vertices' moves, so a vertex that
-  moved along a shallow crossing keeps its edge on that crossing.
+  moved along a shallow crossing keeps its edge on that crossing, and ends on the vertices
+  themselves (`through_to_its_ends`) except in the faceted build, whose vertices may lie as far as
+  the precision off and which keeps the file's curve when the trace misses them.
 - Settling keeps the order of an edge's two vertices when the file declares a precision
   (`Topology::keep_vertex_order`, not in the faceted or bent builds, which place vertices their own
   way). Where nearly tangent faces make each of two close vertices slide past the other, so that the
