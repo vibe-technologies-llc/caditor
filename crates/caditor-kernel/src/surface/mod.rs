@@ -379,9 +379,14 @@ impl Surface {
     }
 
     fn at_pole(&self, uv: Point2, hint: Option<Point2>) -> Point2 {
-        match (self.pole_at(uv), hint) {
-            (Some(_), Some(hint)) => Point2::new(hint.x, uv.y),
-            _ => uv,
+        let (Some(pole), Some(hint)) = (self.pole_at(uv), hint) else {
+            return uv;
+        };
+        let turned = Point2::new(hint.x, uv.y);
+        if self.point_at(turned).distance(self.point_at(uv)) <= LINEAR_RESOLUTION {
+            turned
+        } else {
+            Point2::new(hint.x, pole.v)
         }
     }
 

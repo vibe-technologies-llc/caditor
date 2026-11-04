@@ -40,7 +40,7 @@ impl HalfEdge {
         Self { piece, sense, hint }
     }
 
-    fn is_reverse_of(&self, other: &Self) -> bool {
+    pub(super) fn is_reverse_of(&self, other: &Self) -> bool {
         self.piece == other.piece && self.sense != other.sense
     }
 }

@@ -299,7 +299,10 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         })),
     );
     let mut round = Sketch::new(Plane::XY);
-    round.add_circle(Point2::new(9.999999668346453, 5.000001667334977), 2.499999);
+    round.add_circle(
+        Point2::new(10.0000079169858, 5.000001340737086),
+        2.5000077585717273,
+    );
     let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
     let peg = transaction.add_feature(
         "Peg",
@@ -330,8 +333,8 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     let place = error.place.unwrap();
     assert_eq!(
         error.reason(),
-        "The bodies of Plate and Peg could not be combined. The faces of the result would not \
-         close up at Plate side from Circle 13."
+        "The bodies of Plate and Peg could not be combined. Plate start face could not be \
+         divided where the bodies meet."
     );
     assert!(
         error
@@ -347,7 +350,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     );
     let from_axis = (place.x - 10.0).hypot(place.y - 5.0);
     assert!((from_axis - 2.5).abs() < 1e-4, "{place:?}");
-    assert!((place.z - 2.0).abs() < 1e-6, "{place:?}");
+    assert!(place.z.abs() < 1e-6, "{place:?}");
 }
 
 fn boss_on_peg(pair: &mut Pair) -> FeatureId {

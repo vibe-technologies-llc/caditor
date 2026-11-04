@@ -10,12 +10,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724 and 767) gave are pinned by tests and combine. Seeds 20 to 1114 all
-  combine, those from 61 to 985 surveyed before the last marching change and not again. Of seeds
-  1115 to 1420, nine still fail, each also on the build before that change: 1115 and 1383 (torus and
-  sphere, `Unfollowable`), 1135 (holed block and cuboid, `Invalid`), 1136 (torus and torus,
-  `Invalid`), 1214 (hollow cuboid and frustum, `Open`), 1225 and 1344 (frustum or cuboid and sphere,
-  `Ambiguous`), 1272 (sphere and cuboid, `Invalid`) and 1402 (cuboid and cuboid, `Invalid`). Seeds
+  403, 405, 432, 486, 632, 724, 767, 1135, 1272 and 1402) gave are pinned by tests and combine.
+  Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before the last marching change and
+  not again. Of seeds
+  1115 to 1420, six still fail, each also on the build before that change: 1115 and 1383 (torus and
+  sphere, `Unfollowable`), 1136 (torus and torus, `Invalid`), 1214 (hollow cuboid and frustum,
+  `Open`), 1225 (frustum and sphere, `Ambiguous`) and 1344 (cuboid and sphere, `Ambiguous`). Seeds
   beyond 1420 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
@@ -44,20 +44,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the plate's, so no test pins it yet; the exact error was not recorded.
 - [medium · hard] Near-tangent booleans can turn on the last bit of the C library's `sin`, `cos`
   and `atan2`, which glibc and the Windows UCRT round differently: a plug 2e-6 off its bore's axis
-  at 247.5 degrees and 1e-6 narrower fails as `Open` on glibc (the bore's rim at the start face is
-  used by the plate's side and start face and the peg's start face but not the peg's side) and as
-  edge contact on Windows and whenever every transcendental result is moved one ulp either way.
-  The combine tests of a failing place use a plug 1.7e-6 off at 101.25 degrees and 1e-6 narrower
-  (`Open`, naming the bore's wall halfway up its seam), whose outcome survived every result moved
-  one ulp up, down or at random; the pure-Rust `libm` was not tried on it. A plug 2e-6 off at 116.25
-  or 221.25 degrees fails `Split` at the plate's start face on glibc but turns `NonManifold` or
-  `Open` one ulp away, and the plug 2.5e-6 off at 292.5 degrees these tests used before is
-  `NonManifold` now that the seam is split where the walls' section crosses it. That one reads as
-  parts meeting only along an edge though the bodies overlap, and names no place, since
-  `CombineCause::Edgewise` drops the kernel's `BooleanSite`. Each of these plugs is a hair more than
-  the resolution narrower than its bore (1.00000000003e-6), so snapping shifts it onto the axis but
-  leaves the radius, and that boolean is `Invalid` by the same hair (a vertex 1.000000001e-6 from
-  its edge's end) before the plain one fails.
+  at 45 degrees and 3e-6 wider fails as `Open` at the plate's start face on glibc and with every
+  result moved one ulp down, and combines with every result moved one ulp up or at random. The
+  combine tests of a failing place use a plug 8.03e-6 off at about 9.6 degrees and 7.76e-6 wider, so
+  its wall dips just inside the bore's near where they touch (`Split` at the plate's start face),
+  whose outcome survived every result moved one ulp up, down or at random; the pure-Rust `libm` was
+  not tried on it. A combine failing `NonManifold` names no place, whatever the reason, since
+  `CombineCause::Edgewise` drops the kernel's `BooleanSite`.
   Taking the kernel's maths from `libm` would make Linux and Windows agree
   bit for bit, and `boolean::tests` all pass with it in the kernel; `glam`'s rotations in the
   geometry crate would have to follow through its `libm` feature, or a turned solid still differs.

@@ -33,6 +33,7 @@ const CROSSING_SIDE: f64 = 0.5 * TOLERANCE;
 const CROSSING_FLOOR: f64 = 0.1 * TOLERANCE;
 const CROSSING_BISECTIONS: usize = 60;
 const ALONG_SINE: f64 = 1e-2;
+const END_REACH: f64 = 8.0 * TOLERANCE;
 
 type Mark = (f64, Option<usize>);
 
@@ -182,12 +183,95 @@ impl Arrangement {
         }
     }
 
+    fn bring_ends_to_vertices(&mut self) {
+        self.bring_ends_nearer();
+        let strays = self.vertices_off_their_ends();
+        if strays.is_empty() {
+            return;
+        }
+        for (vertex, ends) in strays {
+            let middle = Aabb::from_points(ends).map(|bounds| bounds.center());
+            if let (Some(middle), Some(point)) = (middle, self.points.get_mut(vertex)) {
+                *point = middle;
+            }
+        }
+        self.bring_ends_nearer();
+    }
+
+    fn vertices_off_their_ends(&self) -> BTreeMap<usize, Vec<Point3>> {
+        let mut ends: BTreeMap<usize, Vec<Point3>> = BTreeMap::new();
+        let mut strays = BTreeSet::new();
+        for index in 0..self.pieces.len() {
+            let Some((curve, piece)) = self.curve(index) else {
+                continue;
+            };
+            for (vertex, parameter) in [
+                (piece.start, piece.interval.start()),
+                (piece.end, piece.interval.end()),
+            ] {
+                let end = curve.point(parameter);
+                ends.entry(vertex).or_default().push(end);
+                if self
+                    .point(vertex)
+                    .is_some_and(|point| point.distance(end) > TOLERANCE)
+                {
+                    strays.insert(vertex);
+                }
+            }
+        }
+        ends.retain(|vertex, _| strays.contains(vertex));
+        ends
+    }
+
+    fn bring_ends_nearer(&mut self) {
+        let settled: Vec<(usize, Interval)> = (0..self.pieces.len())
+            .filter_map(|index| {
+                let (curve, piece) = self.curve(index)?;
+                let start = nearest_end(curve, piece.interval.start(), self.point(piece.start)?);
+                let end = nearest_end(curve, piece.interval.end(), self.point(piece.end)?);
+                (start != piece.interval.start() || end != piece.interval.end())
+                    .then(|| Some((index, Interval::new(start, end)?)))
+                    .flatten()
+            })
+            .collect();
+        for (index, interval) in settled {
+            if let Some(piece) = self.pieces.get_mut(index) {
+                piece.interval = interval;
+            }
+        }
+    }
+
     pub fn add_piece(&mut self, piece: Piece) -> usize {
         self.pieces.push(piece);
         self.representatives
             .push((self.pieces.len() - 1, Sense::Same));
         self.pieces.len() - 1
     }
+}
+
+fn nearest_end(curve: &Curve, parameter: f64, vertex: Point3) -> f64 {
+    if curve.point(parameter).distance(vertex) <= TOLERANCE {
+        return parameter;
+    }
+    let reach = END_REACH
+        / curve
+            .evaluate(parameter)
+            .first
+            .length()
+            .max(f64::MIN_POSITIVE);
+    let domain = curve.domain();
+    let window = Interval::new(
+        domain.clamp(parameter - reach),
+        domain.clamp(parameter + reach),
+    );
+    window.map_or(parameter, |window| {
+        let nearest = curve.closest_parameter(vertex, window);
+        if curve.point(nearest).distance(vertex) < curve.point(parameter).distance(vertex) {
+            nearest
+        } else {
+            parameter
+        }
+    })
 }
 
 type Cell = (i64, i64, i64);
@@ -389,6 +473,7 @@ pub(super) fn imprint(input: &Input) -> Result<Arrangement, BooleanError> {
     }
     arrangement.close_pinches(&pinched);
     arrangement.points = pool.points;
+    arrangement.bring_ends_to_vertices();
     arrangement.representatives = deduplicate(&arrangement)?;
     Ok(arrangement)
 }

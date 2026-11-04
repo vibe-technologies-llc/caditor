@@ -2782,6 +2782,71 @@ fn a_block_turned_half_a_millionth_across_a_bore_combines() {
 }
 
 #[test]
+fn a_block_edge_passing_a_resolution_from_another_block_edge_combines() {
+    let body = cuboid(Vector3::new(4.0, 3.0, 2.0));
+    let axis = Vector3::new(-0.0735123621365894, 0.337230193298389, -0.8812628289303737);
+    let offset = (1.217432915790654, 0.396838546716648, 0.08087601563595581);
+
+    let placed = moved(rotated(body.clone(), axis, 4.899297762516522), offset);
+
+    check_every_operation("edges passing by", &body, &placed, (24.0, 24.0));
+}
+
+#[test]
+fn a_block_edge_just_past_a_resolution_from_a_holed_block_edge_combines() {
+    let body = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    let axis = Vector3::new(
+        -0.42433358656659714,
+        0.12905030169290677,
+        -0.4457799121646502,
+    );
+    let offset = (
+        -0.11477002392877442,
+        -0.04853095145545547,
+        0.06503623700262295,
+    );
+
+    let placed = moved(
+        rotated(
+            cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            axis,
+            4.2524605851280874,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "edges just past the resolution",
+        &body,
+        &placed,
+        (exact_volume(&body), 24.0),
+    );
+}
+
+#[test]
+fn a_block_face_passing_within_a_resolution_of_a_sphere_pole_combines() {
+    let ball = sphere(4.0);
+    let axis = Vector3::new(
+        -0.7488208721387393,
+        -0.30615939913416956,
+        0.9546981091008169,
+    );
+    let offset = (0.638773935751912, 0.7390423324912176, 0.3794913892625984);
+
+    let placed = moved(
+        rotated(cuboid(Vector3::new(4.0, 3.0, 2.0)), axis, 3.164149832774333),
+        offset,
+    );
+
+    check_every_operation(
+        "block face beside a pole",
+        &ball,
+        &placed,
+        (exact_volume(&ball), 24.0),
+    );
+}
+
+#[test]
 fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_y_combine() {
     let (ring_radius, tube_radius) = (6.0, 2.0);
     let ring = crate::fixtures::torus(ring_radius, tube_radius);
