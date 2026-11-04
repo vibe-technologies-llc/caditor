@@ -113,7 +113,9 @@ paths:
 - A spline surface whose first and last rows or columns meet is periodic there (C0 suffices). A row
   collapsed to a point is a pole; a column cannot be, so importers transpose and flip the face.
   Singularities are always `Pole`s (sphere poles, cone apex, a revolution profile ending on its
-  axis); a point within the resolution of one takes the hint's u.
+  axis); a point within the resolution of one takes the hint's u, and the pole's v when that u
+  alone would move its foot past the resolution (a block's circle 7.1e-7 from a sphere's pole read
+  1.03e-6 off the sphere, `Surface::project`).
 - u is the angle around the frame normal on rotational surfaces; v: cone slant distance from its
   reference circle, sphere latitude, torus tube angle, revolution profile parameter; an extrusion
   is (profile parameter, distance). du × dv points outward on every elementary surface.

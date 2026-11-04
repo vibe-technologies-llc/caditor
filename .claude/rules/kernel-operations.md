@@ -373,7 +373,11 @@ paths:
   left a face that could not be divided, so a pattern of them failed as `Split` instead of keeping
   separate shells), which it then joins (a cylinder's cap meeting a block's bottom in a chord 2.9e-6 long along the block's
   edge, where the cap crosses that edge 1.4e-6 inside its rim: dropped, the bottom had no cut to
-  turn along the edge's piece between the cap and the rim, and the result was `Open`).
+  turn along the edge's piece between the cap and the rim, and the result was `Open`). A longer
+  piece no sample of which lies strictly inside a face is still kept when it runs along no one edge
+  of that face and its middle lies exactly inside (`cuts_within`): a frustum's cap taking a
+  triangle 3.6e-6 by 3.8e-6 by 2e-6 off a void's corner stays within the resolution of one leg or
+  the other all along its hypotenuse, and dropped, the result was `Open`.
   Pieces with the same end vertices and geometry within `LINEAR_RESOLUTION` (the bound validation
   holds edges to) are one edge, so an intersection along an existing edge and coincident faces need
   no special case; pieces a few micrometres apart stay two edges bounding a sliver. Pieces of two
@@ -384,7 +388,13 @@ paths:
   through other pieces too short to keep and which is itself no longer than `PINCHED_PIECE` (four
   resolutions) is dropped (`pinched_pieces`), the pieces of its curve on either side meeting at
   the parameter of the vertex kept: two split points 1.2e-6 apart, one a tangent root, became one
-  vertex and left a piece from it to itself that the trace walked into twice.
+  vertex and left a piece from it to itself that the trace walked into twice. A piece under the
+  resolution long joins the two stops at its ends though the points themselves may lie farther
+  apart, so once vertices are joined any piece ending farther than the resolution from its vertex
+  moves that end along its curve to the point nearest the vertex, and a vertex still too far from
+  some end moves to the middle of the ends meeting there (`bring_ends_to_vertices`): edges of two
+  blocks passing 1.04e-6 apart, each holding one vertex of the pair the other's faces make, left one
+  vertex that far from the second edge (`Invalid`).
 - Face tracing: a face with no cuts and no split edges passes through with its own loops and
   pcurves. Otherwise it is traced into loops from its boundary pieces and cuts; at each vertex the
   next edge is the first clockwise from the arriving one about the outward normal (at a pole, the
@@ -393,7 +403,11 @@ paths:
   pole, where a seam ends so) bounds nothing and is dropped first, repeatedly
   (`without_spikes`): an edge of the other operand 1.7e-6 long, between where a fillet foot meets a
   torus exactly and where the tool's own marched corner lies, otherwise had its spike taken as a
-  loop of its own. A traced loop whose fitted pcurves enclose no area has its coedges halved round after round
+  loop of its own. A cut one traced loop walks both ways at one place in the domain bounds nothing
+  and only ties two loops together (`bridges`, seams lying a period apart being left alone): it is
+  dropped and the face traced again. A block's edge lying 1.4e-6 along another block's face, from
+  where it enters that face to where it leaves past the face's edge, tied the hole a corner of the
+  block cuts there to the face's outer loop (`Invalid`). A traced loop whose fitted pcurves enclose no area has its coedges halved round after round
   (`untangle::open_flat`) before it is refused as `Split`: a cylinder's cap meeting a frustum's
   wall in an ellipse that leaves the top rim and rejoins it 0.055 along, never more than 4.1e-5
   below it, had both edges fitted from their ends alone at a tolerance wider than that.
@@ -405,7 +419,10 @@ paths:
   sliver or coaxial annulus narrower than `PCURVE_TOLERANCE` is sampled inside itself. A fragment
   whose area over perimeter is `DEEP_GATE` times its coarsest tolerance skips the depth scan.
 - Selection: each fragment is classified against the other solid at up to `INTERIOR_POINTS`
-  interior points (`classify_fragment_point`; inside or outside wins over touching; inside and
+  interior points, those farther from its polygons than its coarsest pcurve tolerance when any are
+  (`interior_points`: scanning just inside a sphere's arc on a block's top, the polygon's chords
+  stopped short of the arc, so one sample lay on the arc's far side and the fragment read
+  `Ambiguous`) (`classify_fragment_point`; inside or outside wins over touching; inside and
   outside together, inside or outside beside a coincident sample, or coincident samples of opposite
   senses, are `Ambiguous`: a fragment only partly coincident was not split where the coincidence
   ends, and either class keeps or drops the coincident part wrongly; none occurs in the boolean

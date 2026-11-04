@@ -63,7 +63,7 @@ fn split_face(
         sense: face.sense(),
         center,
     };
-    let Boundary { loops, cuts } = boundary(solid, arrangement, key, face)?;
+    let Boundary { loops, mut cuts } = boundary(solid, arrangement, key, face)?;
     if cuts.is_empty()
         && let Some(fragment) = passed_through(solid, arrangement, key, face)
     {
@@ -78,20 +78,28 @@ fn split_face(
     } else {
         BTreeMap::new()
     };
-    let mut half_edges: Vec<HalfEdge> = loops
+    let boundary_half_edges: Vec<HalfEdge> = loops
         .into_iter()
         .enumerate()
         .filter(|(position, _)| !quiet.contains_key(position))
         .flat_map(|(_, members)| members)
         .collect();
-    for piece in cuts {
-        half_edges.push(HalfEdge::new(piece, Sense::Same, None));
-        half_edges.push(HalfEdge::new(piece, Sense::Reversed, None));
-    }
-    let mut loops = trace(arrangement, &chart, &half_edges)?
-        .into_iter()
-        .map(|members| fit_loop(arrangement, &chart, members))
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut loops = loop {
+        let mut half_edges = boundary_half_edges.clone();
+        for piece in &cuts {
+            half_edges.push(HalfEdge::new(*piece, Sense::Same, None));
+            half_edges.push(HalfEdge::new(*piece, Sense::Reversed, None));
+        }
+        let traced = trace(arrangement, &chart, &half_edges)?
+            .into_iter()
+            .map(|members| fit_loop(arrangement, &chart, members))
+            .collect::<Result<Vec<_>, _>>()?;
+        let bridges = bridges(face.surface(), &traced, &cuts);
+        if bridges.is_empty() {
+            break traced;
+        }
+        cuts.retain(|piece| !bridges.contains(piece));
+    };
     loops.extend(quiet.into_values());
     untangle(arrangement, &chart, &mut loops)?;
     let mut fragments = group(&chart, loops)?;
@@ -101,6 +109,24 @@ fn split_face(
         fragments,
         untouched: false,
     })
+}
+
+fn bridges(surface: &Surface, loops: &[TracedLoop], cuts: &BTreeSet<usize>) -> BTreeSet<usize> {
+    let mut found = BTreeSet::new();
+    for traced in loops {
+        for (position, coedge) in traced.coedges.iter().enumerate() {
+            let piece = coedge.half_edge.piece;
+            let walked_back = traced.coedges.iter().skip(position + 1).any(|other| {
+                other.half_edge.is_reverse_of(&coedge.half_edge)
+                    && continues(surface, coedge.pcurve.end(), other.pcurve.start())
+                    && continues(surface, other.pcurve.end(), coedge.pcurve.start())
+            });
+            if walked_back && cuts.contains(&piece) {
+                found.insert(piece);
+            }
+        }
+    }
+    found
 }
 
 fn quiet_loops(

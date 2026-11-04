@@ -112,6 +112,11 @@ paths:
     patch running across a closed surface's seam (a face widened past it) is bounded by the boxes
     of its pieces either side (`BSplineSurface::bounds`, `seam_pieces`), never the whole net,
     or subdivision near the seam would never prune.
+  - A leaf's closest approach within the resolution that `refine_contact` cannot bring onto both
+    surfaces seeds nothing unless its normals' sine is at most `TOUCH_SINE`: the surfaces come near
+    and do not meet there, and marching from it collapsed on its first step (`Unfollowable`), as
+    4.7e-7 apart, sine 8.6e-5, beside the lobes a sphere 1.6e-4 off centre leaves along a torus's
+    inner equator.
   - Arrangement points lying on both surfaces (an edge of one solid piercing a face of the other)
     are also seeds (`intersect_surfaces_through`), so a short branch near a patch corner is found
     when no subdivision leaf seeds it; a failing hint is ignored.

@@ -2782,6 +2782,173 @@ fn a_block_turned_half_a_millionth_across_a_bore_combines() {
 }
 
 #[test]
+fn a_block_edge_passing_a_resolution_from_another_block_edge_combines() {
+    let body = cuboid(Vector3::new(4.0, 3.0, 2.0));
+    let axis = Vector3::new(-0.0735123621365894, 0.337230193298389, -0.8812628289303737);
+    let offset = (1.217432915790654, 0.396838546716648, 0.08087601563595581);
+
+    let placed = moved(rotated(body.clone(), axis, 4.899297762516522), offset);
+
+    check_every_operation("edges passing by", &body, &placed, (24.0, 24.0));
+}
+
+#[test]
+fn a_block_edge_just_past_a_resolution_from_a_holed_block_edge_combines() {
+    let body = crate::fixtures::holed_block(10.0, 4.0, 2.5);
+    let axis = Vector3::new(
+        -0.42433358656659714,
+        0.12905030169290677,
+        -0.4457799121646502,
+    );
+    let offset = (
+        -0.11477002392877442,
+        -0.04853095145545547,
+        0.06503623700262295,
+    );
+
+    let placed = moved(
+        rotated(
+            cuboid(Vector3::new(4.0, 3.0, 2.0)),
+            axis,
+            4.2524605851280874,
+        ),
+        offset,
+    );
+
+    check_every_operation(
+        "edges just past the resolution",
+        &body,
+        &placed,
+        (exact_volume(&body), 24.0),
+    );
+}
+
+#[test]
+fn a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let ball = sphere(4.0);
+    let (ring_volume, ball_volume) = (2.0 * PI * PI * 6.0 * 4.0, 256.0 * PI / 3.0);
+    let in_ring = moved(
+        rotated(
+            ball.clone(),
+            Vector3::new(0.8774398952325138, 0.37287953149887976, 0.5513799997478457),
+            0.46862833127541864,
+        ),
+        (
+            7.199162678728688e-5,
+            0.00013742161105208652,
+            -4.581857377546674e-5,
+        ),
+    );
+    let round_ball = moved(
+        rotated(
+            ring.clone(),
+            Vector3::new(
+                -0.40405666279114416,
+                -0.2537813235518609,
+                0.0961677245412631,
+            ),
+            4.692553640727873,
+        ),
+        (
+            6.817599587967787e-5,
+            5.732492023165746e-6,
+            2.9605737496157282e-5,
+        ),
+    );
+
+    for (name, first, second, first_volume) in [
+        ("sphere in a torus", &ring, &in_ring, ring_volume),
+        ("torus round a sphere", &ball, &round_ball, ball_volume),
+    ] {
+        let union = run(first, second, BooleanOperation::Union);
+        check(name, &union, ring_volume + ball_volume);
+        let difference = run(first, second, BooleanOperation::Difference);
+        check(name, &difference, first_volume);
+        let common = run(first, second, BooleanOperation::Intersection);
+        assert_eq!(common.validate(), Ok(()), "{name}");
+        assert_watertight(
+            name,
+            &common.tessellate(&common.default_tolerance()).unwrap(),
+        );
+        let shared = common
+            .tessellate(&SamplingTolerance::new(2e-3, 0.02).unwrap())
+            .unwrap()
+            .mass_properties()
+            .volume;
+        assert!((1e-6..1e-3).contains(&shared), "{name}: {shared}");
+    }
+}
+
+#[test]
+fn a_fragment_is_not_sampled_where_its_chords_sag_past_its_arc() {
+    let block = cuboid(Vector3::new(4.0, 3.0, 2.0));
+    let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let ball = sphere(4.0);
+    let ball_volume = 256.0 * PI / 3.0;
+    let beside_block = moved(
+        ball.clone(),
+        (0.25966097392071186, 1.12663027583669, 0.3052616461845772),
+    );
+    let beside_frustum = moved(
+        ball,
+        (0.46722990273120635, 0.7950070451844358, -0.504384283402061),
+    );
+
+    check_every_operation("arc on a block", &block, &beside_block, (24.0, ball_volume));
+    check_every_operation(
+        "arc on a frustum",
+        &frustum,
+        &beside_frustum,
+        (140.0 * PI / 3.0, ball_volume),
+    );
+}
+
+#[test]
+fn a_frustum_cap_cutting_a_few_micrometres_off_a_void_corner_combines() {
+    let hollow = crate::fixtures::hollow_cuboid(10.0, 4.0);
+    let frustum = crate::fixtures::frustum(4.0, 2.0, 5.0);
+    let axis = Vector3::new(0.9735692794338566, -0.6178810586874486, 0.8369002365485445);
+    let offset = (
+        0.6798245837903727,
+        -0.27429081143566136,
+        -0.3024659810099717,
+    );
+
+    let placed = moved(rotated(frustum, axis, 5.486596139956586), offset);
+
+    check_every_operation(
+        "cap at a void's corner",
+        &hollow,
+        &placed,
+        (exact_volume(&hollow), 140.0 * PI / 3.0),
+    );
+}
+
+#[test]
+fn a_block_face_passing_within_a_resolution_of_a_sphere_pole_combines() {
+    let ball = sphere(4.0);
+    let axis = Vector3::new(
+        -0.7488208721387393,
+        -0.30615939913416956,
+        0.9546981091008169,
+    );
+    let offset = (0.638773935751912, 0.7390423324912176, 0.3794913892625984);
+
+    let placed = moved(
+        rotated(cuboid(Vector3::new(4.0, 3.0, 2.0)), axis, 3.164149832774333),
+        offset,
+    );
+
+    check_every_operation(
+        "block face beside a pole",
+        &ball,
+        &placed,
+        (exact_volume(&ball), 24.0),
+    );
+}
+
+#[test]
 fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_y_combine() {
     let (ring_radius, tube_radius) = (6.0, 2.0);
     let ring = crate::fixtures::torus(ring_radius, tube_radius);

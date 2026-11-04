@@ -299,7 +299,10 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         })),
     );
     let mut round = Sketch::new(Plane::XY);
-    round.add_circle(Point2::new(10.00000095670858, 4.999997690301169), 2.499999);
+    round.add_circle(
+        Point2::new(10.0000079169858, 5.000001340737086),
+        2.5000077585717273,
+    );
     let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
     let peg = transaction.add_feature(
         "Peg",

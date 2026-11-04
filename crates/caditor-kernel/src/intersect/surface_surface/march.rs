@@ -328,9 +328,14 @@ impl<'a> Tracer<'a> {
                     .point_at(first)
                     .lerp(b.surface().point_at(second), 0.5),
             };
-            let contact = refine_contact(surfaces, uv, Constraint::Free).unwrap_or(fallback);
-            if let Some(seed) = self.seed_at(contact) {
-                return Some(seed);
+            let seed = match refine_contact(surfaces, uv, Constraint::Free) {
+                Some(contact) => self.seed_at(contact),
+                None => self
+                    .seed_at(fallback)
+                    .filter(|seed| seed.sine <= TOUCH_SINE),
+            };
+            if seed.is_some() {
+                return seed;
             }
         }
         self.grid_seed(a, b)

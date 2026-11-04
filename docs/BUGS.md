@@ -10,13 +10,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724 and 767) gave are pinned by tests and combine. Seeds 20 to 1114 all
-  combine, those from 61 to 985 surveyed before the last marching change and not again. Of seeds
-  1115 to 1420, nine still fail, each also on the build before that change: 1115 and 1383 (torus and
-  sphere, `Unfollowable`), 1135 (holed block and cuboid, `Invalid`), 1136 (torus and torus,
-  `Invalid`), 1214 (hollow cuboid and frustum, `Open`), 1225 and 1344 (frustum or cuboid and sphere,
-  `Ambiguous`), 1272 (sphere and cuboid, `Invalid`) and 1402 (cuboid and cuboid, `Invalid`). Seeds
-  beyond 1420 are unsurveyed.
+  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1214, 1225, 1272, 1344, 1383 and 1402) gave are
+  pinned by tests and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before
+  the last marching change and not again. Of seeds 1115 to 1420, one still fails, as it did on the
+  build before that change: 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890,
+  union and difference) is `Invalid`, a face's boundary crossing itself in its domain. Their outer
+  equators cross near (7.65, 2.33, 0) with the surfaces nearly tangent, and the section there passes
+  the first torus's equator seam twice, at u 0.2953 and 0.2968, reaching 8e-6 past it between them,
+  while imprinting pools one vertex on the seam, at u 0.2962, off the section; healing then joins the
+  seam's two pieces across that vertex, and the section's pcurve crosses the seam's. No fix was
+  tried. Seeds 1115 to 1420 were not surveyed again after the fixes for 1135 and the others; the
+  survey's own seed 2 and seed 1422 combine throughout on this build, and seeds beyond 1422 are
+  unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
@@ -40,12 +45,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   changed none of these.
 - [medium · hard] Near-tangent booleans can turn on the last bit of the C library's `sin`, `cos`
   and `atan2`, which glibc and the Windows UCRT round differently: a plug 2e-6 off its bore's axis
-  at 247.5 degrees and 1e-6 narrower fails as `Open` on glibc (the bore's rim at the start face is
-  used by the plate's side and start face and the peg's start face but not the peg's side) and as
-  edge contact on Windows and whenever every transcendental result is moved one ulp either way.
-  The combine test of a failing place now uses a plug 2.5e-6 off at 292.5 degrees (`Split` at the
-  plate's start face), whose outcome survived the pure-Rust `libm` and every result moved one ulp
-  up, down or at random. Taking the kernel's maths from `libm` would make Linux and Windows agree
+  at 45 degrees and 3e-6 wider fails as `Open` at the plate's start face on glibc and with every
+  result moved one ulp down, and combines with every result moved one ulp up or at random. The
+  combine tests of a failing place use a plug 8.03e-6 off at about 9.6 degrees and 7.76e-6 wider, so
+  its wall dips just inside the bore's near where they touch (`Split` at the plate's start face),
+  whose outcome survived every result moved one ulp up, down or at random; the pure-Rust `libm` was
+  not tried on it. A combine failing `NonManifold` names no place, whatever the reason, since
+  `CombineCause::Edgewise` drops the kernel's `BooleanSite`.
+  Taking the kernel's maths from `libm` would make Linux and Windows agree
   bit for bit, and `boolean::tests` all pass with it in the kernel; `glam`'s rotations in the
   geometry crate would have to follow through its `libm` feature, or a turned solid still differs.
   With every result moved one ulp up or down,
@@ -108,6 +115,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner, `Reach::unfolded` cuts the chord's overhang beyond it below `LEAST_OVERHANG`, and the
   lofted tool's sections would cross there. Rounding these needs a tool whose sections are not
   fanned about the rim's curvature axis, or the fillet surface trimmed where it folds.
+- [low · medium] The exact mass of a body holding a thin lens of a sphere is off by up to about 8e-3
+  in 474: `face_area` gives up (`None`) on the sphere's lens of area 0.39 that a sphere 1.6e-4 off
+  centre in a torus's inner equator leaves
+  (`a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines`, which checks the mesh's volume
+  for that reason), so `mass_properties_tessellating` meshes that face at the default tolerance and
+  the difference and intersection read 473.7492 and -0.0027 where a fine mesh and the union give
+  473.7410 and 2.8e-5. The areas of the torus's two pieces add up exactly.
 
 - [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
   boolean show no line where their surfaces cross (each hides its part inside the other, and the
