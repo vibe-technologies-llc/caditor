@@ -113,6 +113,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   lofted tool's sections would cross there. Rounding these needs a tool whose sections are not
   fanned about the rim's curvature axis, or the fillet surface trimmed where it folds.
 
+- [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
+  boolean show no line where their surfaces cross (each hides its part inside the other, and the
+  stretches are right). A traced silhouette on a revolution or spline face misses a closed loop
+  smaller than a cell of its grid (`hidden_lines/trace.rs`, `MAX_CELLS` a side), and a contour
+  folding in the gap between two samples of a bounding edge can run past the edge there
+  (`roots_among` brackets by sign changes at sampled points).
+
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when

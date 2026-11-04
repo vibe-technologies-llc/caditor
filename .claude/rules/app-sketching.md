@@ -335,6 +335,15 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   curve, construction included, and every lone point (`Sketch::free_points`), each through the same
   `add_projection` a click makes. Sources already projected are left out and an info notice says
   how many (`Projection::left_out`); all already projected, or a later sketch, is refused in words.
+- `Command::ProjectOutline` (no default key; palette, Modify group menu, Sketch › Modify geometry)
+  projects the outer outline of the highlighted or hovered body, else the one body chosen in the
+  tree (`projecting::body_to_project`), as seen square to the sketch, in one transaction
+  (`projecting::project_outline`, "Project the outline of <body>"): `body_outline` gives every curve
+  with its `ProjectionSource::BodyOutline`. It runs on the UI thread under `OUTLINE_BUDGET` (3 s)
+  through the kernel interrupt, and a body that takes longer is refused in words
+  (`OutlineTooLong`, asking for its edges); the recompute that keeps it following runs on the
+  worker with no budget. Curves already projected are left out with a notice, all of them refused
+  (`OutlineProjected`), a body the plane sees no outline of `NoOutline`.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's arrow menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool
   (`Tool::projects`); `Context::intersecting` also offers shown datum planes above the sketch and

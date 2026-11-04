@@ -828,3 +828,159 @@ fn a_projected_axis_turned_end_on_fails_its_sketch_naming_the_axis() {
         )
     );
 }
+
+fn with_projected_outline(block: &mut Block) -> (FeatureId, Vec<EntityId>) {
+    let solid = evaluate(&block.document, &mut block.engine)
+        .body(block.base)
+        .unwrap()
+        .clone();
+    let pieces = body_outline(&solid, block.base, &Plane::XZ).unwrap();
+    let mut transaction = block.document.transaction("Outline of Base");
+    let outlined = transaction.add_feature("Outlined", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let lines = pieces
+        .iter()
+        .map(|(source, outline)| transaction.add_projection(outlined, source.clone(), outline))
+        .collect();
+    block.document.apply(transaction.finish()).unwrap();
+    (outlined, lines)
+}
+
+fn tallest(sketch: &Sketch, lines: &[EntityId]) -> f64 {
+    lines
+        .iter()
+        .flat_map(|line| {
+            let (start, end) = sketch.line_endpoints(*line).unwrap();
+            [start.y.abs(), end.y.abs()]
+        })
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn a_projected_outline_is_four_lines_that_follow_the_body_and_keep_their_ids() {
+    let mut block = block();
+    let (outlined, lines) = with_projected_outline(&mut block);
+
+    let first = solved(&evaluate(&block.document, &mut block.engine), outlined);
+
+    assert_eq!(lines.len(), 4);
+    assert!(lines.iter().all(|line| first.is_projected(*line)));
+    assert!((tallest(&first, &lines) - 4.0).abs() < 1e-9);
+
+    let taller = Transaction::single(
+        "Taller",
+        Edit::SetParameterExpression {
+            id: block.height,
+            expression: Expression::parse_stored("6 mm").unwrap(),
+        },
+    );
+    block.document.apply(taller).unwrap();
+    let moved = solved(&evaluate(&block.document, &mut block.engine), outlined);
+
+    assert!((tallest(&moved, &lines) - 6.0).abs() < 1e-9);
+}
+
+#[test]
+fn an_outline_cut_into_more_curves_fails_the_sketch_alone_naming_it() {
+    let mut block = block();
+    let (outlined, _) = with_projected_outline(&mut block);
+    let mut transaction = block.document.transaction("Notch");
+    let notch = transaction.add_feature(
+        "Notch outline",
+        FeatureKind::from(rectangle(
+            Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap(),
+            (4.0, -1.0),
+            (6.0, 9.0),
+        )),
+    );
+    let cut = transaction.add_feature(
+        "Notch",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: notch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+            operation: BodyOperation::Remove(block.base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    transaction.edit(Edit::MoveFeature {
+        id: outlined,
+        index: 5,
+    });
+    block.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&block.document, &mut block.engine);
+    let error = failure(&evaluation, outlined);
+
+    assert!(
+        matches!(
+            evaluation.feature(cut).unwrap().state,
+            FeatureState::UpToDate
+        ),
+        "the notch itself computes"
+    );
+    assert!(
+        error.reason().contains("the outline of Base"),
+        "{}",
+        error.reason()
+    );
+}
+
+#[test]
+fn the_outline_of_a_cylinder_keeps_its_silhouette_lines_apart() {
+    let mut document = Document::default();
+    let mut drawn = Sketch::new(Plane::XY);
+    drawn.add_circle(Point2::ZERO, 3.0);
+    let mut transaction = document.transaction("Round");
+    let outline = transaction.add_feature("Circle", FeatureKind::from(drawn));
+    let round = transaction.add_feature(
+        "Round",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let solid = evaluate(&document, &mut engine)
+        .body(round)
+        .unwrap()
+        .clone();
+
+    let pieces = body_outline(&solid, round, &Plane::XZ).unwrap();
+    let parts: Vec<(u32, u32)> = pieces
+        .iter()
+        .filter_map(|(source, _)| match source {
+            ProjectionSource::BodyOutline { part, .. }
+                if matches!(part.origin, OutlineOrigin::Silhouette(_)) =>
+            {
+                Some((part.occurrence, part.of))
+            }
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(pieces.len(), 4);
+    assert_eq!(parts, vec![(0, 2), (1, 2)]);
+    assert!(
+        pieces
+            .iter()
+            .all(|(_, outline)| matches!(outline, Outline::Line { .. }))
+    );
+    let (first, second) = (pieces.first().unwrap(), pieces.get(1).unwrap());
+    assert!(!first.0.is_same_source(&second.0));
+
+    let circle = body_outline(&solid, round, &Plane::XY).unwrap();
+    assert_eq!(circle.len(), 1);
+    assert!(matches!(circle.first().unwrap().1, Outline::Circle { .. }));
+}

@@ -115,3 +115,7 @@ paths:
   through the same joining without `SplitEdges` (its fragments are ambiguous matches only).
   `trace_edge` gives the app the same answer (`TracedEdge`) for a measurement's pick: found as
   one edge or as pieces, partly traced, or gone.
+- A body's projected outline (`document.md`) holds an `EdgeReference` or `FaceReference` per curve
+  and tells curves of one source apart by their order along the sketch and their number, since
+  neither a silhouette line nor a stretch of an edge has a name of its own; the number changing
+  fails the sketch.

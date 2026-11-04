@@ -144,10 +144,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   file record and glyph; the free ends of an open spline's offset slide along it for the same
   reason. Such a curve also cannot be offset within a chain of lines and arcs, whose joints would
   need the spline to meet them.
-- [low · hard] Project takes edges,
-  corners and the boundaries of faces, but not the outline of a body seen square to the sketch
-  plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
-  be brought in, so a sketch following a body's outline is drawn by hand.
 
 ## STEP import and export
 

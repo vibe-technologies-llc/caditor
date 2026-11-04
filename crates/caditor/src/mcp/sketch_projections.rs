@@ -31,6 +31,8 @@ pub struct Projecting {
     pub faces: Vec<String>,
     #[serde(default)]
     pub corners: Vec<[f64; 3]>,
+    #[serde(default)]
+    pub outline: bool,
     pub source_sketch: Option<Named>,
     #[serde(default)]
     pub source_curves: Vec<EntityName>,
@@ -102,8 +104,8 @@ fn body_things(
     asked: &Projecting,
     wanted: &mut Wanted,
 ) -> Result<Option<String>, ToolError> {
-    let needs_body =
-        !(asked.edges.is_empty() && asked.faces.is_empty() && asked.corners.is_empty());
+    let needs_body = asked.outline
+        || !(asked.edges.is_empty() && asked.faces.is_empty() && asked.corners.is_empty());
     let Some(named) = &asked.body else {
         return if needs_body {
             Err(SketchEditError::BodyNeeded.into())
@@ -128,6 +130,12 @@ fn body_things(
         sketch: target.name.to_owned(),
     };
     let plane = target.shown.plane();
+    if asked.outline {
+        wanted.extend(
+            projecting::outline_projections(seen, body, &plane, &body_name)
+                .map_err(SketchEditError::Projection)?,
+        );
+    }
     for key in &asked.edges {
         let name = super::places::edge_key(key)?;
         let edge = bodies::find_edge(seen, name).ok_or_else(|| not_seen("edge", key))?;
@@ -173,7 +181,7 @@ fn body_things(
             Pickable::Vertex { body, vertex },
         )?);
     }
-    Ok((!asked.edges.is_empty() || !asked.faces.is_empty()).then_some(body_name))
+    Ok((asked.outline || !asked.edges.is_empty() || !asked.faces.is_empty()).then_some(body_name))
 }
 
 fn other_things(
@@ -245,6 +253,7 @@ pub(super) fn project(target: &Target<'_>, asked: &Projecting) -> Result<Planned
         + asked.axes.len()
         + asked.datums.len()
         + usize::from(asked.origin)
+        + usize::from(asked.outline)
         + usize::from(asked.source_sketch.is_some());
     if named == 0 {
         return Err(SketchEditError::NothingToProject.into());

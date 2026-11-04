@@ -14,13 +14,13 @@ use caditor_document::{
     Feature, FilletSizing, FinePitch, Finish, Helix, Hole, HoleBottom, HoleDepth, HoleFit,
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, Loft, LoftSection, Mate,
     MatePair, MetricSize, Mirror, MirrorOutcome, ModelProperties, Move, MoveFace, OffsetFace,
-    Outline, ParameterOwner, ParameterValues, Pattern, PatternKind, PatternOutcome, PieceKey,
-    PieceLooks, Pieces, Pipe, PitchRow, PlaneRotation, PlaneThrough, PointBy, PointReference,
-    PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds,
-    RibSide, Scale, ShapeRow, Shell, ShellSide, SketchFeature, SolidFeature, SolidStart, Split,
-    SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread, ThreadFamily, ThreadForm,
-    ThreadHand, TurnCentre, Wall, point_instance,
+    Outline, OutlineOrigin, OutlinePart, ParameterOwner, ParameterValues, Pattern, PatternKind,
+    PatternOutcome, PieceKey, PieceLooks, Pieces, Pipe, PitchRow, PlaneRotation, PlaneThrough,
+    PointBy, PointReference, PointsPattern, PrincipalAxis, PrincipalGeometry, PrincipalShowing,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib,
+    RibDirection, RibEnds, RibSide, Scale, ShapeRow, Shell, ShellSide, SketchFeature, SolidFeature,
+    SolidStart, Split, SplitAlong, SplitCarry, SplitFace, Sweep, SweepPath, TappedThread,
+    ThreadFamily, ThreadForm, ThreadHand, TurnCentre, Wall, point_instance,
 };
 use caditor_kernel::{
     BoundaryPiece, CoilPlacement, CoilShape, EdgeName, EdgeReference, FaceName, FaceOrigin,
@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 78] = [
+const KEPT: [(&str, &str); 79] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -108,6 +108,10 @@ const KEPT: [(&str, &str); 78] = [
     (
         "model-1/bodies.caditor",
         "8e65cdd34444ca11d831fa7ae40b30d81c3de5e3386608a59b33fbe6e7a7f9c9",
+    ),
+    (
+        "model-1/body-outlines.caditor",
+        "ef76a594d7dcdc1bf6e3195afbed633eaf86bec99e286a130949604c252d328a",
     ),
     (
         "model-1/chord-fillets.caditor",
@@ -928,6 +932,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             model("projected-datums"),
             saved(&projected_datums(), "Projected datums"),
         ),
+        (
+            model("body-outlines"),
+            saved(&body_outlines(), "Body outlines"),
+        ),
         (model("extents"), saved(&extents_model().0, "Extents")),
         (model("starts"), saved(&starts_model().0, "Starts")),
         (model("sweeps"), saved(&sweeps(), "Sweeps")),
@@ -1088,6 +1096,52 @@ fn edge(digest: u128) -> EdgeReference {
         [FaceName::from_digest(1), FaceName::from_digest(2)],
         [VertexName::from_digest(3), VertexName::from_digest(4)],
     )
+}
+
+fn body_outlines() -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Outlines");
+    let side = transaction.add_feature("Side", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let body = FeatureId::from_raw(90);
+    let projections = [
+        (
+            OutlineOrigin::Edge(edge(25)),
+            0,
+            1,
+            Outline::Line {
+                start: Point2::new(-3.0, 0.0),
+                end: Point2::new(3.0, 0.0),
+            },
+        ),
+        (
+            OutlineOrigin::Silhouette(end_cap(26)),
+            0,
+            2,
+            Outline::Line {
+                start: Point2::new(-3.0, 0.0),
+                end: Point2::new(-3.0, 5.0),
+            },
+        ),
+        (
+            OutlineOrigin::Silhouette(end_cap(26)),
+            1,
+            2,
+            Outline::Line {
+                start: Point2::new(3.0, 0.0),
+                end: Point2::new(3.0, 5.0),
+            },
+        ),
+    ];
+    for (origin, occurrence, of, outline) in projections {
+        let part = Box::new(OutlinePart {
+            origin,
+            occurrence,
+            of,
+        });
+        transaction.add_projection(side, ProjectionSource::BodyOutline { body, part }, &outline);
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn end_cap(digest: u128) -> FaceReference {

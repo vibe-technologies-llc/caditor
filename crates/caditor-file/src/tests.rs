@@ -10440,6 +10440,27 @@ fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_
         caditor_document::ProjectionSource::Origin,
         &caditor_document::Outline::Point(Point2::ZERO),
     );
+    transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::BodyOutline {
+            body: FeatureId::from_raw(90),
+            part: Box::new(caditor_document::OutlinePart {
+                origin: caditor_document::OutlineOrigin::Silhouette(
+                    caditor_kernel::FaceReference::new(
+                        caditor_kernel::FaceName::from_digest(5),
+                        None,
+                        [caditor_kernel::FaceName::from_digest(6)],
+                    ),
+                ),
+                occurrence: 1,
+                of: 2,
+            }),
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(3.0, 0.0),
+            end: Point2::new(3.0, 5.0),
+        },
+    );
     let change = transaction.finish();
     let undo = document.apply(change.clone()).unwrap();
 
@@ -10459,6 +10480,7 @@ fn projected_datum_axes_points_principal_axes_and_the_origin_survive_saving_and_
     assert!(text.contains("\"principal_axis\""), "{text}");
     assert!(text.contains("\"datum_point\""), "{text}");
     assert!(text.contains("\"source\":\"origin\""), "{text}");
+    assert!(text.contains("\"body_outline\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     assert!(

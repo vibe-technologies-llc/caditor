@@ -20,17 +20,17 @@ use caditor_document::{
     MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
     MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement,
     MetricSize, Mirror, MirrorOutcome, ModelProperties, ModelProperty, Move, MoveFace, NamedView,
-    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner, Pattern,
-    PatternKind, PatternOutcome, PieceKey, PieceLooks, PieceStandIns, Pieces, Pipe, PitchRow,
-    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget,
-    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, PrincipalShowing, ProjectionSource, Reading, RegionChoice, Remove, ReplaceFace,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection, RibEnds, RibSide, RollbackBar,
-    SavedView, SavedViews, Scale, ShapeRow, Shell, ShellSide, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, StepText, Sweep, SweepPath,
-    TappedThread, Thread, ThreadFamily, ThreadForm, ThreadHand, ThreadLength, ThreadSide,
-    ThreadSize, Transaction, TurnCentre, Wall, folder_label, group_name, material_name, unscaled,
-    untwisted, view_name,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, OutlineOrigin, OutlinePart, Parameter,
+    ParameterOwner, Pattern, PatternKind, PatternOutcome, PieceKey, PieceLooks, PieceStandIns,
+    Pieces, Pipe, PitchRow, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, PrincipalShowing, ProjectionSource, Reading,
+    RegionChoice, Remove, ReplaceFace, Revolve, RevolveAxis, RevolveExtent, Rgb, Rib, RibDirection,
+    RibEnds, RibSide, RollbackBar, SavedView, SavedViews, Scale, ShapeRow, Shell, ShellSide,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitCarry,
+    SplitFace, StepText, Sweep, SweepPath, TappedThread, Thread, ThreadFamily, ThreadForm,
+    ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, folder_label,
+    group_name, material_name, unscaled, untwisted, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -2134,6 +2134,19 @@ pub(crate) enum ProjectionSourceRecord {
         datum: u64,
     },
     Origin,
+    BodyOutline {
+        body: u64,
+        origin: OutlineOriginRecord,
+        occurrence: u32,
+        of: u32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum OutlineOriginRecord {
+    Edge(EdgeRecord),
+    Silhouette(FaceRecord),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5732,6 +5745,17 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
             ProjectionSourceRecord::DatumPoint { datum: datum.raw() }
         }
         ProjectionSource::Origin => ProjectionSourceRecord::Origin,
+        ProjectionSource::BodyOutline { body, part } => ProjectionSourceRecord::BodyOutline {
+            body: body.raw(),
+            origin: match &part.origin {
+                OutlineOrigin::Edge(edge) => OutlineOriginRecord::Edge(edge_record(edge)),
+                OutlineOrigin::Silhouette(face) => {
+                    OutlineOriginRecord::Silhouette(face_record(face))
+                }
+            },
+            occurrence: part.occurrence,
+            of: part.of,
+        },
     }
 }
 
@@ -5775,6 +5799,24 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
             datum: FeatureId::from_raw(*datum),
         },
         ProjectionSourceRecord::Origin => ProjectionSource::Origin,
+        ProjectionSourceRecord::BodyOutline {
+            body,
+            origin,
+            occurrence,
+            of,
+        } => ProjectionSource::BodyOutline {
+            body: FeatureId::from_raw(*body),
+            part: Box::new(OutlinePart {
+                origin: match origin {
+                    OutlineOriginRecord::Edge(edge) => OutlineOrigin::Edge(restore_edge(edge)?),
+                    OutlineOriginRecord::Silhouette(face) => OutlineOrigin::Silhouette(
+                        restore_face(&face.face, face.origin, face.copy, &face.neighbours)?,
+                    ),
+                },
+                occurrence: *occurrence,
+                of: *of,
+            }),
+        },
     })
 }
 

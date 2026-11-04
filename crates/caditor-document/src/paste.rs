@@ -587,7 +587,8 @@ impl FeatureKind {
                     match source {
                         ProjectionSource::Edge { body, .. }
                         | ProjectionSource::Vertex { body, .. }
-                        | ProjectionSource::Section { body, .. } => *body = rename(*body),
+                        | ProjectionSource::Section { body, .. }
+                        | ProjectionSource::BodyOutline { body, .. } => *body = rename(*body),
                         ProjectionSource::SketchEntity { sketch, .. } => *sketch = rename(*sketch),
                         ProjectionSource::DatumPlane { datum, .. }
                         | ProjectionSource::DatumAxis { datum, .. }

@@ -46,8 +46,8 @@ first, so two programs never change one model at once.
   [offset](offset), [mirror](sketch-mirror), repeat in rows or around a point as the
   [sketch patterns](sketch-patterns) do, round or cut corners with
   [Sketch fillet](sketch-fillet), and move, rotate or scale entities, which the sketch's
-  constraints hold as a drag does. It can also [project](project-and-intersect) edges, faces and
-  corners of a body, curves of other sketches, axes, datums and the origin into a sketch,
+  constraints hold as a drag does. It can also [project](project-and-intersect) edges, faces,
+  corners or the outline of a body, curves of other sketches, axes, datums and the origin into a sketch,
   following their source as it changes, and intersect a body, a face or a plane with the sketch
   plane. The same tool switches curves to construction geometry and back, splits a curve at a
   point, breaks curves at their crossings (see [splitting and breaking](sketch-editing)), adds a

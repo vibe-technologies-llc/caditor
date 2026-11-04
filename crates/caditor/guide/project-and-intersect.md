@@ -18,6 +18,15 @@ them. {command:sketch.project_sketch} does the same from the keyboard on the hig
 on the one other sketch chosen in the [feature tree](feature-tree). Anything already projected is
 left out, and the message says how much.
 
+{command:sketch.project_outline} brings in the outer outline of a body as seen square to the sketch:
+the highlighted body with the Project tool, or the one body chosen in the
+[feature tree](feature-tree). It is what you would trace round the body's shadow on the sketch,
+so a cylinder lying along the plane gives its two side lines and two ends, a sphere one circle and
+a torus seen along its axis its rim, while a hole seen right through stays out. Outlines on curved
+surfaces that have no simple shape come in as splines. Each curve follows the body as it changes.
+If the outline comes to have another number of curves from the same edge or face, or a curve
+changes kind, the sketch stops and says so: delete those curves and project the outline again.
+
 A projected edge follows its body when an earlier sketch is changed. If [Trim](trim-and-extend) or
 split cuts the edge's curve in two and the parts still run on end to end, the projection becomes the
 whole of them, with its points and the [constraints](constraints) and

@@ -180,8 +180,10 @@ The journal snapshot carries the same record under the same name, held by the se
   `body` and an edge record, `vertex` with `body` and the vertex name's digest, `sketch_entity`
   with `sketch` and `entity`, `datum_plane` with `datum` and a finite positive `reach`,
   `principal_plane` with `plane` `xy`/`xz`/`yz` and `reach`, `datum_axis` with `datum` and
-  `reach`, `principal_axis` with `axis` `x`/`y`/`z` and `reach`, `datum_point` with `datum`, or
-  `origin`; the corpus holds the last four in `projected-datums.caditor`). The projected flags are
+  `reach`, `principal_axis` with `axis` `x`/`y`/`z` and `reach`, `datum_point` with `datum`,
+  `origin`, or `body_outline` with `body`, `origin` (`edge` an edge record or `silhouette` a face
+  record), `occurrence` and `of`; the corpus holds the datums and origin in
+  `projected-datums.caditor` and the last in `body-outlines.caditor`). The projected flags are
   derived on load after the constraints. Unknown or unreadable source (an older reader meeting a
   newer kind): geometry kept as ordinary, reported.
   Journal: `set_sketch_projection`, absent for none.

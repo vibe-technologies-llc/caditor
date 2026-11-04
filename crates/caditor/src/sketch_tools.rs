@@ -2364,7 +2364,8 @@ fn followed(document: &Document, source: &ProjectionSource) -> String {
     match source {
         ProjectionSource::Edge { body, .. }
         | ProjectionSource::Vertex { body, .. }
-        | ProjectionSource::Section { body, .. } => named(*body),
+        | ProjectionSource::Section { body, .. }
+        | ProjectionSource::BodyOutline { body, .. } => named(*body),
         ProjectionSource::SketchEntity { sketch, .. } => named(*sketch),
         ProjectionSource::DatumPlane { datum, .. }
         | ProjectionSource::DatumAxis { datum, .. }
