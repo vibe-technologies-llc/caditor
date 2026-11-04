@@ -1154,10 +1154,16 @@ paths:
   turns than the helix makes or leaving fewer than `LEAST_COIL_TURNS` between them `EndsTooLong`,
   and ends taking every turn of a helix whose final pitch differs `ProgressionWithoutBody`. `HelixSpec::table` (`PitchStop { turns, pitch }`) is a table of pitches
   by turn instead: stops at the start's `pitch` and then each row, linear between them and constant
-  after the last (`PitchLaw::tabled`), refused with ends or a final pitch (`TableWithOther`), rows
-  not strictly increasing from above zero (`TableOrder`) or past the turns (`TableBeyond`);
-  `HelixPitch::table` sizes it (height the law's rise, the start pitch solved from the rise's
-  linearity in it, turns by inverting the rise stretch by stretch, `PitchLaw::turns_for`). A sweep along it keeps the screw motion's
+  after the last (`PitchLaw::tabled`), refused with a final pitch (`TableWithOther`), rows
+  not strictly increasing from above zero (`TableOrder`) or past the turns (`TableBeyond`, shared
+  `pitch::checked_table`); `HelixPitch::table` sizes it (height the law's rise, the start pitch
+  solved from the rise's linearity in it, turns by inverting the rise stretch by stretch,
+  `PitchLaw::turns_for`). With closed ends the law is `PitchLaw::closed_ends_tabled`: the end pitch
+  for the end turns, the change to the start pitch, the rows counted from the start of the body
+  (`body_start`), the last row's pitch held to the end of the body, the change to the end pitch and
+  the far end turns; rows past the body's turns are `TableBeyondEnds`. `HelixPitch` sizes it as the
+  ends' rise (`2 * end_turns + change` turns at the end pitch plus the two changes) plus the table's
+  over the body, and `turns_for` solves the body's turns and adds the ends'. A sweep along it keeps the screw motion's
   placement, so its section keeps the lean to the axis it starts with where the pitch changes.
 - `spiral(SpiralSpec)` (`coil/spiral.rs`) winds a flat (Archimedean) spiral in the frame's plane:
   radius from the inner `radius` growing by `pitch` a turn, `hand`, `start_angle` and pieces as a
@@ -1169,11 +1175,18 @@ paths:
   pace is continuous too, which a sweep's stations need to converge. The spans a turn start at
   `SPANS_PER_TURN` and double, up to sixteen times as many, until every span's radial deviation at
   four samples is within `SPIRAL_TOLERANCE` (`LINEAR_RESOLUTION`), else `Unfitted`.
+  `SpiralSpec::final_pitch` and `table` give the radial growth a `PitchLaw` as a helix's
+  (`radius_at` is the radius plus the law's rise, the tangent's growth the pitch over `TAU`); the
+  pieces are cut at the law's breaks as a helix's, so no span straddles a change of slope, and
+  `Shape` carries the spec with its law through the fit. A table with a final pitch is
+  `TableWithFinalPitch`, rows out of order or past the turns `TableOrder` and `TableBeyond`.
+  `SpiralSpec` is no longer `Copy` (the table is a `Vec`).
   `SpiralSpec::point_at`, `radius_at`, `outer_radius` and `length` (the closed form of its arc
-  length) are analytic; `turns_clear_of(across)` and `least_pitch_for(across)` say whether a
+  length for an even pitch, else Simpson over each stretch between the law's breaks) are
+  analytic; `turns_clear_of(across)` and `least_pitch_for(across)` say whether a
   section that wide in the spiral's plane keeps its turns apart: the section square to the path
   meets the meridian stretched by `sqrt(r² + b²) / r` (b the pitch over a turn), worst at the inner
-  turn and the one outside it, plus the coil's `LEAST_GAP`. Refusals: non-finite values, no
+  turn and the one outside it, plus the coil's `LEAST_GAP`. With a changing pitch they judge the narrowest pitch (`narrowest_pitch`) against a bound holding wherever the turns lie: a turn's separation is at least the narrowest pitch, and the stretch is bounded by the widest pitch at the inner radius, so `least_pitch_for` is `across * sqrt(r0² + (widest / 2π)²) / r0` plus the gap. Refusals: non-finite values, no
   radius or pitch, turns out of range, a reach past `MAX_SIZE`. `coil/spiral_tests.rs` holds its
   points to the spiral, its length to the closed form, and a pipe along it to a valid watertight
   solid of the volume the screw motion's flux gives.

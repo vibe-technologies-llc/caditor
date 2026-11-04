@@ -91,7 +91,7 @@ fn a_flat_spiral_winds_out_from_its_inner_diameter_in_the_plane_square_to_its_ax
 
     let evaluation = evaluate(&document);
     let result = curve(&evaluation, feature);
-    let spec = result.spiral.unwrap();
+    let spec = result.spiral.clone().unwrap();
     let length: f64 = result
         .turns
         .iter()
@@ -328,4 +328,142 @@ fn a_profile_wider_than_the_spiral_s_pitch_fails_the_sweep_as_running_into_itsel
     let error = failure(&evaluation, model.follower);
 
     assert_eq!(error.reason(), "Sweep 1 runs into itself along its path.");
+}
+
+fn progressive_spiral(turns: f64, pitch: f64, last: f64) -> Helix {
+    Helix {
+        final_pitch: Some(mm(last)),
+        ..turns_and_pitch(turns, pitch)
+    }
+}
+
+fn tabled_spiral(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
+    Helix {
+        pitch_table: rows
+            .iter()
+            .map(|&(turns, pitch)| PitchRow::new(Expression::number(turns), mm(pitch)))
+            .collect(),
+        ..turns_and_pitch(turns, pitch)
+    }
+}
+
+fn outer_radius(spiral: Helix) -> f64 {
+    let (document, feature) = alone(spiral);
+    let evaluation = evaluate(&document);
+    assert_eq!(evaluation.failed_count(), 0);
+    curve(&evaluation, feature).spiral.unwrap().outer_radius()
+}
+
+#[test]
+fn a_flat_spiral_grows_by_a_pitch_changing_evenly_or_through_a_table() {
+    assert!((outer_radius(progressive_spiral(4.0, 2.0, 6.0)) - (10.0 + 16.0)).abs() < 1e-9);
+    assert!(
+        (outer_radius(tabled_spiral(5.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)])) - (10.0 + 18.0)).abs()
+            < 1e-9
+    );
+}
+
+#[test]
+fn a_flat_spiral_is_sized_by_its_outer_diameter_with_a_changing_pitch() {
+    for (law, turns, pitch) in [
+        (progressive_spiral(4.0, 2.0, 6.0), 4.0, 2.0),
+        (tabled_spiral(5.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]), 5.0, 2.0),
+    ] {
+        let width = outer_radius(law.clone()) - 10.0;
+        let by_turns = Helix {
+            length: CoilLength::HeightAndTurns {
+                height: mm(2.0 * (10.0 + width)),
+                turns: Expression::number(turns),
+            },
+            ..law.clone()
+        };
+        let by_pitch = Helix {
+            length: CoilLength::HeightAndPitch {
+                height: mm(2.0 * (10.0 + width)),
+                pitch: mm(pitch),
+            },
+            ..law
+        };
+
+        for sized in [by_turns, by_pitch] {
+            let (document, feature) = alone(sized);
+            let evaluation = evaluate(&document);
+            let spec = curve(&evaluation, feature).spiral.unwrap();
+
+            assert_eq!(evaluation.failed_count(), 0);
+            assert!((spec.turns - turns).abs() < 1e-9, "{}", spec.turns);
+            assert!((spec.pitch - pitch).abs() < 1e-9, "{}", spec.pitch);
+            assert!((spec.outer_radius() - 10.0 - width).abs() < 1e-9);
+        }
+    }
+}
+
+#[test]
+fn a_flat_spiral_ignores_closed_ends_but_follows_a_pitch_law() {
+    let ended = Helix {
+        ends: Some(Box::default()),
+        ..progressive_spiral(4.0, 2.0, 6.0)
+    };
+
+    assert!((outer_radius(ended) - 26.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_flat_spiral_with_a_table_and_a_final_pitch_or_a_row_past_its_turns_fails_in_words() {
+    let both = Helix {
+        final_pitch: Some(mm(4.0)),
+        ..tabled_spiral(4.0, 2.0, &[(2.0, 3.0)])
+    };
+    let beyond = tabled_spiral(4.0, 2.0, &[(5.0, 3.0)]);
+    let (document, first) = alone(both);
+    let (other, second) = alone(beyond);
+
+    let evaluation = evaluate(&document);
+    let found = evaluate(&other);
+
+    assert!(failure(&evaluation, first).reason().contains("table"));
+    assert!(failure(&found, second).reason().contains("only 4.00 turns"));
+}
+
+#[test]
+fn a_flat_spiral_whose_outer_diameter_leaves_no_start_pitch_fails_in_words() {
+    let law = Helix {
+        length: CoilLength::HeightAndTurns {
+            height: mm(24.0),
+            turns: Expression::number(4.0),
+        },
+        ..progressive_spiral(4.0, 2.0, 6.0)
+    };
+    let (document, feature) = alone(law);
+
+    let evaluation = evaluate(&document);
+
+    assert!(
+        failure(&evaluation, feature)
+            .reason()
+            .contains("no pitch above zero to start at")
+    );
+}
+
+#[test]
+fn a_pipe_along_a_spiral_of_changing_pitch_is_judged_by_the_narrowest_pitch() {
+    let narrow = piped(progressive_spiral(3.0, 3.0, 2.0), 2.5);
+    let wide = piped(progressive_spiral(3.0, 2.8, 4.0), 2.5);
+
+    let narrow_evaluation = evaluate(&narrow.document);
+    let wide_evaluation = evaluate(&wide.document);
+    let error = failure(&narrow_evaluation, narrow.follower);
+
+    assert!(
+        error.reason().starts_with(
+            "The turns of Pipe 1 would touch along Spiral 1: at its narrowest pitch of 2.000 mm"
+        ),
+        "{}",
+        error.reason()
+    );
+    assert_eq!(wide_evaluation.failed_count(), 0);
+    assert_eq!(
+        wide_evaluation.body(wide.follower).unwrap().validate(),
+        Ok(())
+    );
 }

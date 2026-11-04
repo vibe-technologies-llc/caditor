@@ -505,6 +505,20 @@ pub(crate) enum CoilCause {
         turns: f64,
         helix: f64,
     },
+    PitchTableBeyondEnds {
+        name: String,
+        turns: f64,
+        body: f64,
+    },
+    SpiralFinalPitchFillsWidth {
+        name: String,
+        width: f64,
+        final_pitch: f64,
+    },
+    SpiralTableFillsWidth {
+        name: String,
+        width: f64,
+    },
     PitchTableFillsHeight {
         name: String,
         height: f64,
@@ -608,6 +622,22 @@ impl CoilCause {
                 "The pitch table of {name} has a row at turn {turns:.2}, but it makes only \
                  {helix:.2} turns."
             ),
+            Self::PitchTableBeyondEnds { name, turns, body } => format!(
+                "The pitch table of {name} counts turns from the start of the body between its \
+                 closed ends, which makes {body:.2}, but has a row at turn {turns:.2}."
+            ),
+            Self::SpiralFinalPitchFillsWidth {
+                name,
+                width,
+                final_pitch,
+            } => format!(
+                "Growing {width} mm out to its outer diameter with a final pitch of \
+                 {final_pitch} mm leaves {name} no pitch above zero to start at."
+            ),
+            Self::SpiralTableFillsWidth { name, width } => format!(
+                "Growing {width} mm out to its outer diameter with the rows of its pitch table \
+                 leaves {name} no pitch above zero to start at."
+            ),
             Self::PitchTableLong { name, rows } => format!(
                 "The pitch table of {name} has {rows} rows, more than the {MAX_PITCH_ROWS} a \
                  helix takes."
@@ -686,7 +716,7 @@ impl CoilCause {
                 "Make the height larger or the final pitch smaller.".to_owned()
             }
             Self::PitchTableAlone { .. } => {
-                "Leave out the closed ends or the final pitch, or clear the table.".to_owned()
+                "Leave out the final pitch, or clear the table.".to_owned()
             }
             Self::PitchTableOrder { .. } => {
                 "Put the rows in order of turn, each after the one before, the first after the \
@@ -694,7 +724,18 @@ impl CoilCause {
                     .to_owned()
             }
             Self::PitchTableBeyond { .. } => {
-                "Move the row inside the turns the helix makes, or make more turns.".to_owned()
+                "Move the row inside the turns it makes, or make more turns.".to_owned()
+            }
+            Self::PitchTableBeyondEnds { .. } => {
+                "Move the row inside the turns between the closed ends, make more turns or \
+                 shorten the ends."
+                    .to_owned()
+            }
+            Self::SpiralFinalPitchFillsWidth { .. } => {
+                "Make the outer diameter larger or the final pitch smaller.".to_owned()
+            }
+            Self::SpiralTableFillsWidth { .. } => {
+                "Make the outer diameter larger or the pitches in the table smaller.".to_owned()
             }
             Self::PitchTableLong { .. } => {
                 format!("Remove rows from the table, leaving {MAX_PITCH_ROWS} or fewer.")

@@ -132,18 +132,18 @@ pub fn helix() -> Value {
             "end_pitch": amount("The pitch of the closed ends, a hair more than the wire's size so the turns do not touch; 2.5 mm by default"),
             "end_change": amount("How many turns the pitch takes to change between a closed end's and the main pitch, 0.05 or more; 0.5 by default. Given, it closes the ends too"),
             "progressive": flag("Change the pitch evenly along the helix from its pitch at the start to final_pitch at the end, as a progressive spring's; false winds at one pitch again"),
-            "final_pitch": amount("The pitch at the far end of a progressive helix, where the closed ends' changes begin if it has them. Giving it makes the helix progressive"),
+            "final_pitch": amount("The pitch at the far end of a progressive helix or flat spiral, where the closed ends' changes begin if it has them. Giving it makes it progressive"),
             "pitch_table": {
                 "type": "array",
                 "items": object(
                     json!({
-                        "turns": amount("The turn this row's pitch is reached at, more than the row before it, counted from the helix's start; at most the helix's turns"),
+                        "turns": amount("The turn this row's pitch is reached at, more than the row before it, counted from the start (of the body between the closed ends, if it has them); at most the turns it makes there"),
                         "pitch": amount("The pitch reached at that turn")
                     }),
                     &["turns", "pitch"],
                 ),
                 "maxItems": 24,
-                "description": "Wind to a table of pitches by turn: the pitch is the helix's pitch at the start and changes evenly to each row's at its turn, then stays at the last row's. It stands alone, clearing closed ends and final_pitch, and giving them clears it; an empty list clears the table. A helix, not a flat spiral"
+                "description": "Wind to a table of pitches by turn: the pitch is the pitch at the start and changes evenly to each row's at its turn, then stays at the last row's. A helix or a flat spiral; with closed ends the turns count from the start of the body between the ends. It clears final_pitch, and giving final_pitch or progressive clears it; an empty list clears the table"
             },
             "name": name()
         }),

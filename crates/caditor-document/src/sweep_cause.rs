@@ -136,6 +136,7 @@ pub(crate) enum SweepCause {
         spiral: String,
         pitch: f64,
         least: f64,
+        changing: bool,
     },
     BendTooLong {
         at: Segments,
@@ -307,9 +308,11 @@ impl SweepCause {
                 spiral,
                 pitch,
                 least,
+                changing,
             } => format!(
-                "The turns of {name} would touch along {spiral}: at a pitch of {pitch:.3} mm its \
-                 section needs more than {least:.3} mm between turns."
+                "The turns of {name} would touch along {spiral}: at {} pitch of {pitch:.3} mm its \
+                 section needs more than {least:.3} mm between turns.",
+                if *changing { "its narrowest" } else { "a" }
             ),
             Self::BendTooLong { at } => format!(
                 "Rounding the corner between {}{} to the bend radius needs more than the length \

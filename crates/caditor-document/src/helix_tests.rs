@@ -550,7 +550,7 @@ fn a_table_sizes_the_helix_by_its_height_and_by_its_turns() {
 }
 
 #[test]
-fn a_table_row_past_the_turns_or_beside_closed_ends_fails_the_helix_alone() {
+fn a_table_row_past_the_turns_or_beside_a_final_pitch_fails_the_helix_alone() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Build");
     let beyond = transaction.add_feature(
@@ -560,7 +560,7 @@ fn a_table_row_past_the_turns_or_beside_closed_ends_fails_the_helix_alone() {
     let closed = transaction.add_feature(
         "Closed",
         FeatureKind::Helix(Helix {
-            ends: Some(Box::default()),
+            final_pitch: Some(mm(4.0)),
             ..tabled(8.0, 2.0, &[(5.0, 3.0)])
         }),
     );
@@ -573,4 +573,73 @@ fn a_table_row_past_the_turns_or_beside_closed_ends_fails_the_helix_alone() {
     assert!(failure(&evaluation, beyond).reason().contains("table"));
     assert!(failure(&evaluation, closed).reason().contains("table"));
     assert!(evaluation.feature(fine).unwrap().result.is_some());
+}
+
+fn tabled_between_ends(turns: f64, pitch: f64, rows: &[(f64, f64)]) -> Helix {
+    Helix {
+        ends: Some(Box::default()),
+        ..tabled(turns, pitch, rows)
+    }
+}
+
+fn end_of(helix: Helix) -> Point3 {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let feature = transaction.add_feature("Helix 1", FeatureKind::Helix(helix));
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+    let result = evaluation.feature(feature).unwrap().result.clone().unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    result.helix().unwrap().end().unwrap()
+}
+
+#[test]
+fn a_table_between_closed_ends_counts_its_turns_from_the_body_between_them() {
+    let end = end_of(tabled_between_ends(9.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]));
+
+    assert!(end.distance(Point3::new(10.0, 0.0, 32.25)) < 1e-9, "{end}");
+}
+
+#[test]
+fn a_table_between_closed_ends_sizes_the_helix_by_its_height_and_by_its_turns() {
+    let law = tabled_between_ends(9.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+    let height = 32.25;
+    let by_height = Helix {
+        length: CoilLength::HeightAndTurns {
+            height: mm(height),
+            turns: Expression::number(9.0),
+        },
+        ..law.clone()
+    };
+    let by_pitch = Helix {
+        length: CoilLength::HeightAndPitch {
+            height: mm(height),
+            pitch: mm(2.0),
+        },
+        ..law
+    };
+
+    for sized in [by_height, by_pitch] {
+        let end = end_of(sized);
+        assert!(end.distance(Point3::new(10.0, 0.0, height)) < 1e-6, "{end}");
+    }
+}
+
+#[test]
+fn a_table_row_past_the_body_between_closed_ends_fails_the_helix_in_words() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let beyond = transaction.add_feature(
+        "Beyond",
+        FeatureKind::Helix(tabled_between_ends(6.0, 2.0, &[(3.5, 3.0)])),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document);
+
+    let reason = failure(&evaluation, beyond).reason();
+    assert!(reason.contains("between its closed ends"), "{reason}");
+    assert!(reason.contains("3.00"), "{reason}");
 }

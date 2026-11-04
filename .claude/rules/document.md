@@ -754,7 +754,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`helix::spiral_span`: turns are half the outer less the inner diameter over the pitch, an outer
   diameter not larger than the inner fails, `CoilCause::OuterWithinInner`, and turns out of range
   are `OuterPitchTurns`); `taper` is kept but unused. The start angle, start point, hand and
-  `reversed` act as a helix's. `HelixResult::spiral` holds the spec (`None` for a helix).
+  `reversed` act as a helix's. `HelixResult::spiral` holds the spec (`None` for a helix). A flat
+  spiral takes `final_pitch` and `pitch_table` as a helix does (below): the radial growth a turn
+  follows the pitch law, `spiral_span` sizes by the outer diameter over the same kernel
+  `HelixPitch` (the width is the law's integral over the turns, a width and turns solve the start
+  pitch, a width and pitch the turns), and a pitch left no positive start by the width is
+  `SpiralFinalPitchFillsWidth` or `SpiralTableFillsWidth`. Its `ends` are kept but ignored
+  (`pitch_plan` leaves them out for a flat spiral, so unreadable end expressions never fail it).
 - `ends` (`Option<ClosedEnds>`: `turns`, a plain number, `pitch`, a length, and `change`, a plain
   number of turns, `END_CHANGE_TURNS` (half a turn) by default) closes a helix's ends as a
   compression spring's (kernel `HelixEnds`): the end turns wind at the end pitch and the pitch
@@ -771,22 +777,30 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `EndChangeRange`. Fewer turns than the ends take is `CoilCause::EndsTooLong`
   (also the kernel's refusal of a remainder under `LEAST_COIL_TURNS`), a height the ends fill on
   their own `EndsFillHeight`, end turns of a sliver `EndTurnsRange`. Its expressions are among the
-  helix's, the pitches among `lengths_mut`. A flat spiral keeps but ignores them (the app drops them on
-  switching to one).
+  helix's, the pitches among `lengths_mut`. A flat spiral keeps but ignores `ends` (the app drops
+  them on switching to one); it follows `final_pitch` and `pitch_table`, which the app keeps on
+  switching and the file format stores as `pitched_spiral` (`file-format.md`): a flat spiral
+  stored before it followed them loads with both cleared, since they were ignored then.
 - `pitch_table` (`Vec<PitchRow>`, each a `turns` plain number and a `pitch` length; empty for none,
   at most `MAX_PITCH_ROWS`, `CoilCause::PitchTableLong`) is a table of pitches by turn: the pitch is
   `length`'s at the start and changes evenly to each row's at its turn, then stays at the last
   row's (kernel `HelixSpec::table`, `PitchStop`; `HelixPitch::table` sizes it as the law's integral,
-  `turns_for` inverting it piecewise). It stands alone: with closed ends or a final pitch the
-  kernel refuses it (`PitchTableAlone`, the app's panel and tools clearing the other law when one is
-  chosen), and rows out of order or past the helix's turns are `PitchTableOrder` and
+  `turns_for` inverting it piecewise). It works with closed ends, its turns counted from the start
+  of the body between the ends (after the first end and its change; `HelixPitch` sizes the whole
+  spring as the ends' rise plus the table's over the turns left, and the pitch stays at the last
+  row until the far end's change begins). With a final pitch the kernel refuses it
+  (`PitchTableAlone`, the app's panel and tools clearing the final pitch when a table is chosen and
+  the table when a progressive pitch is), and rows out of order, past the helix's turns (past the
+  turns between its closed ends, `PitchTableBeyondEnds`) are `PitchTableOrder` and
   `PitchTableBeyond`; a table the height leaves no pitch above zero for is `PitchTableFillsHeight`.
-  A flat spiral keeps but ignores it; the rows' expressions are among the helix's and their pitches
-  among `lengths_mut`.
+  A flat spiral counts its table from its start; the rows' expressions are among the helix's and
+  their pitches among `lengths_mut`.
 - A pipe along a flat spiral refuses turns its section would touch before building
   (`pipe::clear_turns`, `SweepCause::SpiralTurnsTouch` naming the pipe, the spiral, the pitch and
-  `SpiralSpec::least_pitch_for` its size); a sweep's profile too wide for the pitch fails as
-  running into itself, as along a helix.
+  `SpiralSpec::least_pitch_for` its size); with a changing pitch it judges the narrowest pitch
+  (`SpiralSpec::narrowest_pitch`, the least over the law's stops and the end) against a bound that
+  holds wherever the turns lie (`SpiralSpec::turns_clear_of`) and says "its narrowest pitch"; a
+  sweep's profile too wide for the pitch fails as running into itself, as along a helix.
 ### Rib (`rib.rs`, `rib_tool.rs`)
 
 - `Rib { sketch, body, thickness, draft, side, direction, ends, reversed }` joins thin walls along the

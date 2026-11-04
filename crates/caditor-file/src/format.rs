@@ -358,6 +358,7 @@ pub(crate) enum FeatureKindRecord {
     RevolveUpToNext(Box<RevolveUpToNextRecord>),
     RevolveUpToSurface(Box<RevolveUpToSurfaceRecord>),
     RevolveOffset(Box<RevolveOffsetRecord>),
+    PitchedSpiral(Box<FlatSpiralRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1241,7 +1242,7 @@ pub(crate) const FEATURE_FIELDS: [&str; 5] = [
     "piece_stand_ins",
 ];
 
-pub(crate) const FEATURE_KINDS: [&str; 94] = [
+pub(crate) const FEATURE_KINDS: [&str; 95] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -1336,6 +1337,7 @@ pub(crate) const FEATURE_KINDS: [&str; 94] = [
     "drafted_emboss",
     "replace_face",
     "mirror_new_body",
+    "pitched_spiral",
 ];
 
 #[derive(Debug, Clone)]
@@ -4382,9 +4384,14 @@ fn helix_record(helix: &Helix) -> FeatureKindRecord {
             kind: HelixKind::Helix,
             ..helix.clone()
         };
-        return FeatureKindRecord::FlatSpiral(Box::new(FlatSpiralRecord {
+        let record = Box::new(FlatSpiralRecord {
             feature: helix_record(&helical),
-        }));
+        });
+        return if helix.is_progressive() || helix.has_pitch_table() {
+            FeatureKindRecord::PitchedSpiral(record)
+        } else {
+            FeatureKindRecord::FlatSpiral(record)
+        };
     }
     if !helix.pitch_table.is_empty() {
         let even = Helix {
@@ -7329,6 +7336,21 @@ fn restore_kind(
             kind
         }
         FeatureKindRecord::FlatSpiral(flat) => {
+            let mut kind = restore_kind(&flat.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Helix(helix) => {
+                    helix.kind = HelixKind::FlatSpiral;
+                    helix.final_pitch = None;
+                    helix.pitch_table = Vec::new();
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to be a flat spiral, but it is not a helix, so that was left \
+                     out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::PitchedSpiral(flat) => {
             let mut kind = restore_kind(&flat.feature, name, texts, issues);
             match &mut kind {
                 FeatureKind::Helix(helix) => helix.kind = HelixKind::FlatSpiral,

@@ -107,17 +107,13 @@ pub enum CurveToolError {
     FlatEnds,
     #[error("closed_ends: false leaves the ends open, so give no end_turns or end_pitch with it")]
     OpenEndsSized,
-    #[error("a flat spiral has no changing pitch; leave out progressive and final_pitch")]
-    FlatProgressive,
     #[error("progressive: false winds at one pitch, so give no final_pitch with it")]
     EvenPitchSized,
     #[error("progressive: true needs a final_pitch")]
     ProgressiveUnsized,
-    #[error("a flat spiral has no table of pitches; leave out pitch_table")]
-    FlatPitchTable,
     #[error(
-        "a pitch_table stands alone: leave out closed_ends, end_turns, end_pitch, end_change, \
-         progressive and final_pitch, or give an empty pitch_table to clear it"
+        "a pitch_table stands alone with a final pitch: leave out progressive and final_pitch, \
+         or give an empty pitch_table to clear it"
     )]
     PitchTableAlone,
     #[error("a pitch_table takes at most {MAX_PITCH_ROWS} rows, not {rows}")]
@@ -172,7 +168,6 @@ pub fn helix_built(
         length(session, "final_pitch", pitch)
     })?;
     let table = pitch_rows(session, asked.pitch_table.as_deref())?;
-    let end_turns_given = end_turns.is_some() || end_pitch.is_some() || end_change.is_some();
     let final_pitch_given = final_pitch.is_some();
     session.evaluate(work)?;
     let unit = LengthUnit::Millimetre;
@@ -232,13 +227,9 @@ pub fn helix_built(
         (end_turns, end_pitch, end_change),
     )?;
     helix.final_pitch = progression(&helix, asked.progressive, final_pitch)?;
-    let other_laws = asked.closed_ends == Some(true)
-        || asked.progressive == Some(true)
-        || end_turns_given
-        || final_pitch_given;
+    let other_laws = asked.progressive == Some(true) || final_pitch_given;
     helix.pitch_table = tabled(&helix, table, other_laws)?;
     if !helix.pitch_table.is_empty() {
-        helix.ends = None;
         helix.final_pitch = None;
     }
     if let Some(clockwise) = asked.clockwise {
@@ -281,7 +272,6 @@ fn tabled(
 ) -> Result<Vec<PitchRow>, CurveToolError> {
     match asked {
         Some(rows) if rows.is_empty() => Ok(rows),
-        Some(_) if helix.is_flat() => Err(CurveToolError::FlatPitchTable),
         Some(_) if other_laws => Err(CurveToolError::PitchTableAlone),
         Some(rows) => Ok(rows),
         None if other_laws => Ok(Vec::new()),
@@ -329,10 +319,7 @@ fn progression(
         };
     }
     if last.is_none() && progressive.is_none() {
-        return Ok(helix.final_pitch.clone().filter(|_| !helix.is_flat()));
-    }
-    if helix.is_flat() {
-        return Err(CurveToolError::FlatProgressive);
+        return Ok(helix.final_pitch.clone());
     }
     last.or_else(|| helix.final_pitch.clone())
         .map(Some)

@@ -457,3 +457,74 @@ fn a_table_of_pitches_is_chosen_edited_grown_and_shrunk_in_the_panel_in_undoable
     assert!(helix_of(&harness, helix).pitch_table.is_empty());
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
+
+fn spiral_reach(harness: &Harness, spiral: FeatureId) -> f64 {
+    helix_tools::points(harness.model.evaluation(), spiral)
+        .last()
+        .copied()
+        .expect("the spiral is built")
+        .truncate()
+        .length()
+}
+
+#[test]
+fn a_flat_spiral_takes_a_pitch_changing_evenly_or_by_a_table_in_the_panel() {
+    let mut harness = Harness::new();
+    harness.select([Pickable::Axis(Axis::Z)]);
+    run_from_palette(&mut harness, "flat spiral");
+    harness.settle();
+    let spiral = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the spiral is open");
+    let pitch = caditor_document::DEFAULT_PITCH;
+
+    assert!(harness.shows(helix_panel::PITCH_LAW));
+    assert!(!harness.shows(helix_panel::ENDS));
+    assert!(!harness.shows(coil_panel::TAPER));
+
+    choose(&mut harness, "Even", "Progressive");
+
+    assert!(harness.shows(helix_panel::FINAL_PITCH));
+    assert!(helix_of(&harness, spiral).final_pitch.is_some());
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!((spiral_reach(&harness, spiral) - (RADIUS + 1.5 * pitch * 5.0)).abs() < 1e-9);
+    assert_eq!(harness.model.undo_label(), Some("Edit Spiral 1"));
+
+    choose(&mut harness, "Progressive", "Table");
+    let tabled = helix_of(&harness, spiral);
+
+    assert_eq!(tabled.pitch_table.len(), 2);
+    assert_eq!(tabled.final_pitch, None);
+    assert!(harness.shows("Row 2 pitch"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!((spiral_reach(&harness, spiral) - (RADIUS + 6.25 * pitch)).abs() < 1e-9);
+
+    choose(&mut harness, "Table", "Even");
+
+    assert!(helix_of(&harness, spiral).pitch_table.is_empty());
+    assert!((spiral_reach(&harness, spiral) - (RADIUS + 5.0 * pitch)).abs() < 1e-9);
+}
+
+#[test]
+fn a_table_of_pitches_stays_when_the_ends_are_closed_and_counts_its_turns_between_them() {
+    let mut harness = Harness::new();
+    let helix = open_vertical_helix(&mut harness);
+    harness.type_into_field(Id::unique(("helix-field", helix, "turns")), "9");
+    harness.settle();
+
+    choose(&mut harness, "Open", "Closed");
+    choose(&mut harness, "Even", "Table");
+    let both = helix_of(&harness, helix);
+
+    assert!(both.ends.is_some());
+    assert_eq!(both.pitch_table.len(), 2);
+    assert_eq!(both.pitch_table[1].turns, Expression::number(6.0));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    choose(&mut harness, "Closed", "Open");
+
+    assert!(helix_of(&harness, helix).ends.is_none());
+    assert_eq!(helix_of(&harness, helix).pitch_table.len(), 2);
+}

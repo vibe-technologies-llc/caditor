@@ -642,15 +642,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   pitch), Diameter (`INNER_DIAMETER` for a flat spiral), Taper, Pitch (`PITCH_LAW`, Even, Progressive or Table,
   `helix_tools::with_progression` starting the final pitch at twice the evaluated pitch, and while
   progressive Final pitch, `Rule::AboveZero`; `with_pitch_table` starting two rows, the pitch at
-  half the turns and twice it at all of them, clearing the ends and final pitch, and while
-  tabled a "Row n at turn" and "Row n pitch" field per row, `Rule::AboveZero`, with add
-  (`ADD_PITCH_ROW`, halfway between the last row and the end at the last pitch, up to
-  `MAX_PITCH_ROWS`) and remove-last (`REMOVE_PITCH_ROW`, keeping one) buttons; `with_progression`
-  and `with_closed_ends(true)` clear the table) and Ends (`ENDS`, Open or Closed,
-  `helix_tools::with_closed_ends` setting `ClosedEnds::default`, and while closed End turns,
-  `Rule::ZeroOrMore`, End pitch and End change, `Rule::AboveZero`; Pitch and Ends are left out for
-  a flat spiral, and dropped by `with_kind` switching to one; `sized_by` resizes through
-  `span_with_pitch` with `helix_tools::evaluated_plan`),
+  half the turns between the ends and twice it at all of them (`covered_turns`), clearing the
+  final pitch, and while tabled a "Row n at turn" and "Row n pitch" field per row,
+  `Rule::AboveZero`, with add (`ADD_PITCH_ROW`, halfway between the last row and the end of the
+  covered turns at the last pitch, up to `MAX_PITCH_ROWS`) and remove-last (`REMOVE_PITCH_ROW`,
+  keeping one) buttons; `with_progression` clears the table, closing the ends leaves it) and Ends
+  (`ENDS`, Open or Closed, `helix_tools::with_closed_ends` setting `ClosedEnds::default`, and
+  while closed End turns, `Rule::ZeroOrMore`, End pitch and End change, `Rule::AboveZero`; Taper
+  and Ends are left out for a flat spiral and `with_kind` drops the ends switching to one, while
+  Pitch stays, with its Final pitch and rows, and sizes the spiral by its outer diameter;
+  `sized_by` resizes through `span_with_pitch` with `helix_tools::evaluated_plan`, a flat
+  spiral's through `helix_tools::spiral_span` over the same plan with no ends),
   Starts at (`STARTS_AT`: a `Slot::HelixStart` picker for a corner, round edge,
   sketch point or datum point made before the helix, `datum_tools::only_point`, through
   `helix_tools::start_point_change`; its remove button, `with_start_point(None)`, returns to the

@@ -1883,17 +1883,52 @@ impl Builder<'_> {
         gauges
     }
 
-    fn spiral_span(&self, length: &CoilLength, inner: f64) -> Option<(f64, f64)> {
+    fn pitch_plan(&self, helix: &Helix) -> Option<HelixPitch> {
+        let ends = match &helix.ends {
+            Some(ends) if !helix.is_flat() => Some(HelixEnds {
+                turns: self.count(&ends.turns)?,
+                pitch: self.length(&ends.pitch)?,
+                change: self.count(&ends.change)?,
+            }),
+            _ => None,
+        };
+        let final_pitch = match &helix.final_pitch {
+            None => None,
+            Some(last) => Some(self.length(last)?),
+        };
+        let table = helix
+            .pitch_table
+            .iter()
+            .map(|row| {
+                Some(PitchStop {
+                    turns: self.count(&row.turns)?,
+                    pitch: self.length(&row.pitch)?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(HelixPitch {
+            ends,
+            final_pitch,
+            table,
+        })
+    }
+
+    fn spiral_span(
+        &self,
+        length: &CoilLength,
+        inner: f64,
+        plan: &HelixPitch,
+    ) -> Option<(f64, f64)> {
         let width = |outer: &Expression| Some(0.5 * (self.length(outer)? - inner));
         let (pitch, turns) = match length {
             CoilLength::TurnsAndPitch { turns, pitch } => (self.length(pitch)?, self.count(turns)?),
             CoilLength::HeightAndTurns { height, turns } => {
                 let turns = self.count(turns)?;
-                (width(height)? / turns, turns)
+                (plan.pitch_for(width(height)?, turns), turns)
             }
             CoilLength::HeightAndPitch { height, pitch } => {
                 let pitch = self.length(pitch)?;
-                (pitch, width(height)? / pitch)
+                (pitch, plan.turns_for(width(height)?, pitch))
             }
         };
         (pitch.is_finite() && pitch > 0.0 && turns.is_finite() && turns > 0.0)
@@ -1901,7 +1936,10 @@ impl Builder<'_> {
     }
 
     fn spiral(&self, helix: &Helix, diameter: f64, start: f64) -> Vec<Gauge> {
-        let Some((pitch, turns)) = self.spiral_span(&helix.length, diameter) else {
+        let Some(plan) = self.pitch_plan(helix) else {
+            return Vec::new();
+        };
+        let Some((pitch, turns)) = self.spiral_span(&helix.length, diameter, &plan) else {
             return Vec::new();
         };
         let Some(frame) = displayed_axis(self.model.evaluation(), self.feature, &helix.axis)
@@ -1916,6 +1954,8 @@ impl Builder<'_> {
             turns,
             hand: helix.turning.hand(),
             start_angle: start.to_radians(),
+            final_pitch: plan.final_pitch,
+            table: plan.table,
         };
         let Some(started) = spec.start_frame() else {
             return Vec::new();
@@ -1965,40 +2005,8 @@ impl Builder<'_> {
         let Some((pitch, turns)) = self.coil_span(&helix.length) else {
             return Vec::new();
         };
-        let ends = match &helix.ends {
-            None => None,
-            Some(ends) => match (
-                self.count(&ends.turns),
-                self.length(&ends.pitch),
-                self.count(&ends.change),
-            ) {
-                (Some(turns), Some(pitch), Some(change)) => Some(HelixEnds {
-                    turns,
-                    pitch,
-                    change,
-                }),
-                _ => return Vec::new(),
-            },
-        };
-        let final_pitch = match &helix.final_pitch {
-            None => None,
-            Some(last) => match self.length(last) {
-                Some(last) => Some(last),
-                None => return Vec::new(),
-            },
-        };
-        let mut table = Vec::new();
-        for row in &helix.pitch_table {
-            let (Some(turns), Some(pitch)) = (self.count(&row.turns), self.length(&row.pitch))
-            else {
-                return Vec::new();
-            };
-            table.push(PitchStop { turns, pitch });
-        }
-        let plan = HelixPitch {
-            ends,
-            final_pitch,
-            table,
+        let Some(plan) = self.pitch_plan(helix) else {
+            return Vec::new();
         };
         let even = CoilSpan {
             height: pitch * turns,
@@ -2020,8 +2028,8 @@ impl Builder<'_> {
             taper: taper.to_radians(),
             hand: helix.turning.hand(),
             start_angle: start.to_radians(),
-            ends,
-            final_pitch,
+            ends: plan.ends,
+            final_pitch: plan.final_pitch,
             table: plan.table,
         };
         let Some(started) = spec.start_frame() else {

@@ -216,8 +216,9 @@ fn clear_turns(
         SweepCause::SpiralTurnsTouch {
             name: feature.name.clone(),
             spiral,
-            pitch: spec.pitch,
+            pitch: spec.narrowest_pitch(),
             least: spec.least_pitch_for(size),
+            changing: spec.has_changing_pitch(),
         },
         FixTarget::Feature(feature.id()),
     ))

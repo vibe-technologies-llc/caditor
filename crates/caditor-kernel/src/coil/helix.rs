@@ -7,7 +7,7 @@ use super::{
     AXIS_CLEARANCE, LEAST_COIL_TURNS, MAX_COIL_TAPER_DEGREES, MAX_COIL_TURNS, STRAIGHT_TAPER,
     Winding,
     faces::{Motion, pieces_through},
-    pitch::{ClosedEndLaw, END_CHANGE_TURNS, PitchLaw, PitchStop},
+    pitch::{ClosedEndLaw, END_CHANGE_TURNS, PitchLaw, PitchStop, TableFault, checked_table},
 };
 use crate::{
     build::PathSegment,
@@ -65,8 +65,24 @@ impl HelixPitch {
         self.ends.map_or(0.0, |ends| ends.turns_taken())
     }
 
+    fn tabled_law(&self, pitch: f64, turns: f64) -> PitchLaw {
+        match self.ends {
+            Some(ends) => PitchLaw::closed_ends_tabled(pitch, &self.table, ends.law(), turns),
+            None => PitchLaw::tabled(pitch, &self.table),
+        }
+    }
+
     fn tabled_rise(&self, pitch: f64, turns: f64) -> f64 {
-        PitchLaw::tabled(pitch, &self.table).rise(TAU * turns)
+        self.tabled_law(pitch, turns).rise(TAU * turns)
+    }
+
+    fn tabled_turns_for(&self, height: f64, pitch: f64) -> f64 {
+        let Some(ends) = self.ends else {
+            return PitchLaw::tabled(pitch, &self.table).turns_for(height);
+        };
+        let last = self.table.last().map_or(pitch, |row| row.pitch);
+        let end_rise = ends.turns_at_end_pitch() * ends.pitch + 0.5 * ends.change * (pitch + last);
+        PitchLaw::tabled(pitch, &self.table).turns_for(height - end_rise) + ends.turns_taken()
     }
 
     fn at_end_pitch(&self) -> (f64, f64) {
@@ -98,7 +114,7 @@ impl HelixPitch {
 
     pub fn turns_for(&self, height: f64, pitch: f64) -> f64 {
         if !self.table.is_empty() {
-            return PitchLaw::tabled(pitch, &self.table).turns_for(height);
+            return self.tabled_turns_for(height, pitch);
         }
         let (at_end, end_pitch) = self.at_end_pitch();
         (height - at_end * end_pitch) / self.mean(pitch) + at_end
@@ -152,7 +168,7 @@ impl HelixSpec {
     fn law(&self) -> PitchLaw {
         let body = (self.pitch, self.last_pitch());
         if !self.table.is_empty() {
-            return PitchLaw::tabled(self.pitch, &self.table);
+            return self.plan().tabled_law(self.pitch, self.turns);
         }
         match (self.ends, self.final_pitch) {
             (Some(ends), _) => PitchLaw::closed_ends(body, ends.law(), self.turns),
@@ -234,6 +250,11 @@ pub enum HelixError {
     TableOrder { turns: f64 },
     #[error("a row of the pitch table lies at turn {turns}, past the helix's {helix} turns")]
     TableBeyond { turns: f64, helix: f64 },
+    #[error(
+        "a row of the pitch table lies at turn {turns}, past the {body} turns between the closed \
+         ends"
+    )]
+    TableBeyondEnds { turns: f64, body: f64 },
     #[error("the helix reaches farther than {MAX_SIZE} mm")]
     TooLarge,
     #[error("the helix's geometry cannot be built: {0}")]
@@ -294,7 +315,7 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     if let Some(ends) = spec.ends {
         checked_ends(&ends, spec)?;
     }
-    checked_table(spec)?;
+    checked_table_of(spec)?;
     let reach = spec.radius.max(spec.end_radius())
         + spec.height()
         + spec.frame.origin().abs().max_element();
@@ -311,40 +332,29 @@ fn checked(spec: &HelixSpec) -> Result<f64, HelixError> {
     })
 }
 
-fn checked_table(spec: &HelixSpec) -> Result<(), HelixError> {
+fn checked_table_of(spec: &HelixSpec) -> Result<(), HelixError> {
     if spec.table.is_empty() {
         return Ok(());
-    }
-    if spec.ends.is_some() {
-        return Err(HelixError::TableWithOther {
-            other: "closed ends",
-        });
     }
     if spec.final_pitch.is_some() {
         return Err(HelixError::TableWithOther {
             other: "a final pitch",
         });
     }
-    let mut before = 0.0;
-    for stop in &spec.table {
-        if !stop.turns.is_finite() || !stop.pitch.is_finite() {
-            return Err(HelixError::NonFinite);
-        }
-        if stop.pitch <= LINEAR_RESOLUTION {
-            return Err(HelixError::NoPitch);
-        }
-        if stop.turns <= before + ROUNDING_SLACK {
-            return Err(HelixError::TableOrder { turns: stop.turns });
-        }
-        if stop.turns > spec.turns + ROUNDING_SLACK {
-            return Err(HelixError::TableBeyond {
-                turns: stop.turns,
+    let body = spec.ends.map(|ends| spec.turns - ends.turns_taken());
+    let covered = body.unwrap_or(spec.turns);
+    checked_table(&spec.table, covered).map_err(|fault| match fault {
+        TableFault::NonFinite => HelixError::NonFinite,
+        TableFault::NoPitch => HelixError::NoPitch,
+        TableFault::Order { turns } => HelixError::TableOrder { turns },
+        TableFault::Beyond { turns } => match body {
+            Some(body) => HelixError::TableBeyondEnds { turns, body },
+            None => HelixError::TableBeyond {
+                turns,
                 helix: spec.turns,
-            });
-        }
-        before = stop.turns;
-    }
-    Ok(())
+            },
+        },
+    })
 }
 
 fn checked_ends(ends: &HelixEnds, spec: &HelixSpec) -> Result<(), HelixError> {

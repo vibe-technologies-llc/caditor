@@ -94,6 +94,14 @@ impl<'f> Typeface<'f> {
         self.cut_mut(instance.italic).cap_height(instance.weight)
     }
 
+    pub fn subscript_drop(&self, instance: Instance) -> Option<f64> {
+        self.cut(instance.italic).subscript_drop()
+    }
+
+    pub fn superscript_rise(&self, instance: Instance) -> Option<f64> {
+        self.cut(instance.italic).superscript_rise()
+    }
+
     pub fn line_height(&mut self, instance: Instance) -> Option<f64> {
         self.cut_mut(instance.italic).line_height(instance.weight)
     }
@@ -212,6 +220,16 @@ impl<'f> Cut<'f> {
             .cap_height
             .map(f64::from)
             .filter(|height| height.is_finite() && *height > 0.0)
+    }
+
+    fn subscript_drop(&self) -> Option<f64> {
+        let offset = f64::from(self.font.os2().ok()?.y_subscript_y_offset()).abs();
+        (offset > 0.0).then_some(offset)
+    }
+
+    fn superscript_rise(&self) -> Option<f64> {
+        let offset = f64::from(self.font.os2().ok()?.y_superscript_y_offset()).abs();
+        (offset > 0.0).then_some(offset)
     }
 
     fn line_height(&mut self, weight: u16) -> Option<f64> {

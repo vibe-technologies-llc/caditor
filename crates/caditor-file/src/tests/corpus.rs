@@ -56,7 +56,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 78] = [
+const KEPT: [(&str, &str); 79] = [
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -264,6 +264,10 @@ const KEPT: [(&str, &str); 78] = [
     (
         "model-1/pieces.caditor",
         "f4745712d55b915884d644d687473b879d96e9ba8f066938a5358ba1a16023b2",
+    ),
+    (
+        "model-1/pitched-spirals.caditor",
+        "621347dbd650f7dbc07d4fc7d7eb96050dd76d0cf5c8fd35599e35dd073be1df",
     ),
     (
         "model-1/pipes.caditor",
@@ -965,6 +969,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (
             model("helix-table"),
             saved(&helix_table(), "Helix pitch table"),
+        ),
+        (
+            model("pitched-spirals"),
+            saved(&pitched_spirals(), "Pitched flat spirals"),
         ),
         (
             model("revolve-stops"),
@@ -2619,6 +2627,49 @@ fn helix_laws() -> Document {
             FeatureKind::Pipe(Pipe::new(
                 SweepPath::Helix { helix },
                 parse("2 mm"),
+                parse("0 mm"),
+            )),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn pitched_spirals() -> Document {
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pitched flat spirals");
+    let progressive = transaction.add_feature(
+        "Progressive spring",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("5"),
+                pitch: parse("3 mm"),
+            },
+            final_pitch: Some(parse("6 mm")),
+            ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
+        }),
+    );
+    let tabled = transaction.add_feature(
+        "Tabled spring",
+        FeatureKind::Helix(Helix {
+            length: CoilLength::HeightAndTurns {
+                height: parse("100 mm"),
+                turns: parse("5"),
+            },
+            pitch_table: vec![
+                PitchRow::new(parse("2"), parse("3 mm")),
+                PitchRow::new(parse("4"), parse("5 mm")),
+            ],
+            ..Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"))
+        }),
+    );
+    for (name, helix) in [("Progressive wire", progressive), ("Tabled wire", tabled)] {
+        transaction.add_feature(
+            name,
+            FeatureKind::Pipe(Pipe::new(
+                SweepPath::Helix { helix },
+                parse("1.5 mm"),
                 parse("0 mm"),
             )),
         );

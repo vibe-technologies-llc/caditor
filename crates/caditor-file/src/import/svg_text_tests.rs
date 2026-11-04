@@ -534,13 +534,40 @@ fn a_baseline_shift_raises_or_lowers_its_letters() {
 
     let outlines = loops(&drawing);
 
+    let face = regular();
+    let units = f64::from(face.units_per_em());
+    let os2 = face.font.os2().unwrap();
+    let raise = f64::from(os2.y_superscript_y_offset()).abs() / units * 20.0;
+    let lower = f64::from(os2.y_subscript_y_offset()).abs() / units * 20.0;
+    let metrics = face.font.metrics(Size::unscaled(), &face.location);
+    let line = f64::from(metrics.ascent) - f64::from(metrics.descent) + f64::from(metrics.leading);
+    assert!(raise > 0.0 && lower > 0.0 && line > units);
     assert_eq!(outlines.len(), 6);
     let base = outlines[0].low.y;
-    assert_close(outlines[1].low.y - base, 8.0);
-    assert_close(outlines[2].low.y - base, -4.0);
+    assert_close(outlines[1].low.y - base, raise);
+    assert_close(outlines[2].low.y - base, -lower);
     assert_close(outlines[3].low.y - base, -3.0);
-    assert_close(outlines[4].low.y - base, 7.0);
+    assert_close(outlines[4].low.y - base, -3.0 + 0.5 * line / units * 20.0);
     assert_close(outlines[5].low.y, base);
+}
+
+#[test]
+fn nested_sub_and_super_shifts_add_up_by_the_size_each_was_set_at() {
+    let drawing = read(
+        r#"<text x="10" y="50" font-size="20">I<tspan baseline-shift="super" font-size="10">I<tspan baseline-shift="sub">I</tspan></tspan></text>"#,
+    );
+
+    let outlines = loops(&drawing);
+
+    let face = regular();
+    let units = f64::from(face.units_per_em());
+    let os2 = face.font.os2().unwrap();
+    let raise = f64::from(os2.y_superscript_y_offset()).abs() / units;
+    let lower = f64::from(os2.y_subscript_y_offset()).abs() / units;
+    let base = outlines[0].low.y;
+    assert_eq!(outlines.len(), 3);
+    assert_close(outlines[1].low.y - base, raise * 20.0);
+    assert_close(outlines[2].low.y - base, raise * 20.0 - lower * 10.0);
 }
 
 #[test]
@@ -620,4 +647,114 @@ fn overlapping_strokes_merge_so_the_default_regions_fill_the_whole_letter() {
     assert!(inside(600.0, 574.0), "the bar");
     assert!(!inside(600.0, 800.0), "the eye");
     assert!(!inside(600.0, 300.0), "the mouth");
+}
+
+const ROUND_PATH: &str = "M 100 50 A 40 40 0 1 1 20 50 A 40 40 0 1 1 100 50";
+
+fn radii_round_the_circle(drawing: &Drawing) -> Vec<f64> {
+    let centre = Point2::new(60.0, -50.0);
+    drawing
+        .curves
+        .iter()
+        .flat_map(points)
+        .map(|point| (point - centre).length())
+        .collect()
+}
+
+#[test]
+fn stretched_text_on_a_straight_path_is_the_text_on_that_baseline() {
+    let straight = read(r#"<text x="10" y="50" font-size="20">HIH</text>"#);
+    let stretched = read(
+        r##"<text font-size="20"><textPath path="M 10 50 L 190 50" method="stretch">HIH</textPath></text>"##,
+    );
+
+    assert_same_bounds(&loops(&stretched), &loops(&straight));
+    assert_eq!(stretched.curves.len(), straight.curves.len());
+    assert!(stretched.notes.is_empty(), "{:?}", stretched.notes);
+}
+
+#[test]
+fn stretched_letters_bend_with_a_curved_path_while_aligned_ones_stay_rigid() {
+    let dash = |method: &str| {
+        read(&format!(
+            r#"<text font-size="20"><textPath path="{ROUND_PATH}" method="{method}" startOffset="30">—</textPath></text>"#
+        ))
+    };
+
+    let stretched = dash("stretch");
+    let aligned = dash("align");
+
+    let face = regular();
+    let extent = glyph_extent(&face, '—');
+    let scale = 20.0 / f64::from(face.units_per_em());
+    let (bottom, top) = (40.0 + extent.low.y * scale, 40.0 + extent.high.y * scale);
+    let on_the_two_edges = |drawing: &Drawing| {
+        radii_round_the_circle(drawing)
+            .iter()
+            .all(|radius| (radius - bottom).abs() < 0.03 || (radius - top).abs() < 0.03)
+    };
+    assert!(
+        on_the_two_edges(&stretched),
+        "{:?}",
+        radii_round_the_circle(&stretched)
+    );
+    assert!(
+        !on_the_two_edges(&aligned),
+        "{:?}",
+        radii_round_the_circle(&aligned)
+    );
+    assert!(stretched.curves.len() > aligned.curves.len());
+    loops(&stretched);
+}
+
+#[test]
+fn stretched_letters_past_the_end_of_the_path_are_left_out_as_aligned_ones_are() {
+    let stretched = read(
+        r#"<text font-size="20"><textPath path="M 10 50 L 40 50" method="stretch">HHHHH</textPath></text>"#,
+    );
+    let aligned =
+        read(r#"<text font-size="20"><textPath path="M 10 50 L 40 50">HHHHH</textPath></text>"#);
+
+    assert_eq!(loops(&stretched).len(), loops(&aligned).len());
+    assert!(
+        stretched
+            .notes
+            .iter()
+            .any(|note| note.contains("running past the end")),
+        "{:?}",
+        stretched.notes
+    );
+}
+
+#[test]
+fn auto_spacing_matches_exact_on_a_straight_path_and_spreads_letters_round_a_curve() {
+    let on = |path: &str, spacing: &str| {
+        read(&format!(
+            r#"<text font-size="40"><textPath path="{path}" spacing="{spacing}">IIIII</textPath></text>"#
+        ))
+    };
+    let angle = |drawing: &Drawing| {
+        let centre = Point2::new(60.0, -50.0);
+        let letters = loops(drawing);
+        let turned = |bounds: &Bounds| {
+            let middle = (bounds.low + bounds.high) / 2.0 - centre;
+            (-middle.y.atan2(middle.x)).rem_euclid(std::f64::consts::TAU)
+        };
+        let mut angles: Vec<f64> = letters.iter().map(turned).collect();
+        angles.sort_by(f64::total_cmp);
+        angles
+    };
+
+    assert_same_bounds(
+        &loops(&on("M 10 50 L 190 50", "auto")),
+        &loops(&on("M 10 50 L 190 50", "exact")),
+    );
+    let tight = "M 75 50 A 15 15 0 1 1 45 50 A 15 15 0 1 1 75 50";
+    let (auto, exact) = (on(tight, "auto"), on(tight, "exact"));
+    let (auto, exact) = (angle(&auto), angle(&exact));
+    assert_eq!(auto.len(), 5);
+    assert!(
+        auto[4] - auto[0] > exact[4] - exact[0],
+        "{auto:?} against {exact:?}"
+    );
 }

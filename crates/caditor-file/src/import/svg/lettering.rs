@@ -1,5 +1,5 @@
 use caditor_geometry::{Point2, Vector2};
-use caditor_lettering::{GlyphId, Instance, Typeface};
+use caditor_lettering::{GlyphId, Instance, Segment, Typeface};
 
 use crate::import::{
     ImportError, MAX_READ_CURVES,
@@ -9,13 +9,20 @@ use crate::import::{
         shapes::{Axis, outline_of},
         style::Inherited,
         syntax::{Length, Matrix, numbers, transform_list},
-        text_path::{Side, Track},
-        text_style::Anchor,
+        text_path::{Method, Side, Spacing, Track},
+        text_style::{Anchor, FontShift, TextStyle},
     },
     xml::{Content, Node},
 };
 
 const SPACE: char = ' ';
+const FALLBACK_SUBSCRIPT_EMS: f64 = 0.2;
+const FALLBACK_SUPERSCRIPT_EMS: f64 = 0.4;
+const MAX_CHORD_STEPS: usize = 4096;
+const CHORD_STEPS_PER_ADVANCE: f64 = 32.0;
+const CHORD_BISECTIONS: usize = 60;
+const PIECES_PER_ADVANCE: f64 = 6.0;
+const MOST_PIECES: usize = 32;
 const MAX_FAMILY_CHARS: usize = 40;
 const INTER_NAMES: [&str; 4] = ["inter", "intervariable", "intervar", "interdisplay"];
 const SANS_SERIF_NAMES: [&str; 3] = ["sans-serif", "system-ui", "ui-sans-serif"];
@@ -173,6 +180,7 @@ struct Placed {
     rotate: f64,
     rise: f64,
     off_path: bool,
+    warped_along: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,11 +264,18 @@ impl<'a, 't> Walker<'a, 't> {
                 self.beyond_the_limit = self.beyond_the_limit.saturating_add(count);
                 continue;
             }
-            let outline = traced(&typeface.outline(placed.instance, glyph));
-            let matrix = Matrix::scale(placed.scale * placed.stretch, -placed.scale)
-                .then(&Matrix::rotation(placed.rotate))
-                .then(&Matrix::translation(placed.at.x, placed.at.y))
-                .then(&context.matrix);
+            let segments = typeface.outline(placed.instance, glyph);
+            let warping = placed.warped_along.and_then(|index| tracks.get(index));
+            let (outline, matrix) = match warping {
+                Some(track) => (traced(&warped(&segments, placed, track)), context.matrix),
+                None => (
+                    traced(&segments),
+                    Matrix::scale(placed.scale * placed.stretch, -placed.scale)
+                        .then(&Matrix::rotation(placed.rotate))
+                        .then(&Matrix::translation(placed.at.x, placed.at.y))
+                        .then(&context.matrix),
+                ),
+            };
             let lettered = Context {
                 style: letter.style,
                 ..context.clone()
@@ -345,6 +360,14 @@ impl<'a, 't> Walker<'a, 't> {
             Some("right") => Side::Right,
             _ => Side::Left,
         };
+        let method = match text_path.attribute("method").map(str::trim) {
+            Some("stretch") => Method::Stretch,
+            _ => Method::Align,
+        };
+        let spacing = match text_path.attribute("spacing").map(str::trim) {
+            Some("auto") => Spacing::Auto,
+            _ => Spacing::Exact,
+        };
         let mut track = match text_path.attribute("path") {
             Some(data) => Track::of(&path_outline(data), &Matrix::IDENTITY, side),
             None => {
@@ -364,6 +387,8 @@ impl<'a, 't> Walker<'a, 't> {
             }
         };
         let length = track.length();
+        track.method = method;
+        track.spacing = spacing;
         track.start = text_path
             .attribute("startOffset")
             .and_then(|offset| Length::parse(offset.trim()))
@@ -459,8 +484,9 @@ fn lay_out(
             scale,
             stretch: 1.0,
             rotate: at(&positions.rotate).unwrap_or(0.0),
-            rise: letter.style.text.rise,
+            rise: font_rise(typeface, instance, &letter.style.text, units_per_em),
             off_path: false,
+            warped_along: None,
         });
         let word_spacing = if letter.character == SPACE {
             letter.style.text.word_spacing
@@ -501,8 +527,8 @@ fn lay_out(
         };
         anchored(run, anchor);
         match chunk.run {
-            Run::OnPath(track) => {
-                path_end = tracks.get(track).and_then(|track| along(run, track));
+            Run::OnPath(index) => {
+                path_end = tracks.get(index).and_then(|track| along(run, track, index));
             }
             Run::AfterPath => {
                 let shift = path_end.map_or(Vector2::ZERO, |end| end - Point2::ZERO);
@@ -556,7 +582,39 @@ fn fitted(placed: &mut [Placed], fit: &Fit, end_of_chunk: usize) {
     }
 }
 
-fn along(run: &mut [Placed], track: &Track) -> Option<Point2> {
+fn font_rise(
+    typeface: &mut Typeface<'_>,
+    instance: Instance,
+    style: &TextStyle<'_>,
+    units_per_em: f64,
+) -> f64 {
+    if style.font_shift == FontShift::default() {
+        return style.rise;
+    }
+    let FontShift {
+        subscripted,
+        superscripted,
+        of_line_height,
+    } = style.font_shift;
+    let in_ems = |units: Option<f64>, fallback: f64| units.map_or(fallback, |u| u / units_per_em);
+    let dropped = in_ems(typeface.subscript_drop(instance), FALLBACK_SUBSCRIPT_EMS);
+    let raised = in_ems(
+        typeface.superscript_rise(instance),
+        FALLBACK_SUPERSCRIPT_EMS,
+    );
+    let line = in_ems(typeface.line_height(instance), 1.0);
+    style.rise + raised * superscripted - dropped * subscripted + line * of_line_height
+}
+
+fn along(run: &mut [Placed], track: &Track, index: usize) -> Option<Point2> {
+    match (track.method, track.spacing) {
+        (Method::Stretch, _) => stretched_along(run, track, index),
+        (Method::Align, Spacing::Exact) => aligned_along(run, track),
+        (Method::Align, Spacing::Auto) => chorded_along(run, track),
+    }
+}
+
+fn aligned_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
     let mut end = None;
     for letter in run {
         let middle = track.start + letter.at.x + letter.advance / 2.0;
@@ -572,6 +630,159 @@ fn along(run: &mut [Placed], track: &Track) -> Option<Point2> {
         end = Some(point + tangent * (letter.advance / 2.0));
     }
     end
+}
+
+fn chord_end(track: &Track, start: f64, advance: f64) -> f64 {
+    let Some((from, _)) = track.extended(start) else {
+        return start + advance;
+    };
+    let reach = |distance: f64| {
+        track
+            .extended(distance)
+            .map_or(0.0, |(point, _)| (point - from).length())
+    };
+    let step = advance / CHORD_STEPS_PER_ADVANCE;
+    let mut near = start;
+    for count in 1..=MAX_CHORD_STEPS {
+        let far = start + step * count as f64;
+        if reach(far) >= advance {
+            let (mut low, mut high) = (near, far);
+            for _ in 0..CHORD_BISECTIONS {
+                let middle = 0.5 * (low + high);
+                if reach(middle) >= advance {
+                    high = middle;
+                } else {
+                    low = middle;
+                }
+            }
+            return high;
+        }
+        near = far;
+    }
+    start + advance
+}
+
+fn chorded_along(run: &mut [Placed], track: &Track) -> Option<Point2> {
+    let mut end = None;
+    let mut shift = 0.0;
+    for letter in run {
+        let start = track.start + letter.at.x + shift;
+        let finish = chord_end(track, start, letter.advance);
+        shift += finish - start - letter.advance;
+        let middle = 0.5 * (start + finish);
+        let ends = track.extended(start).zip(track.extended(finish));
+        let (Some(((from, _), (to, _))), true) = (ends, (0.0..=track.length()).contains(&middle))
+        else {
+            letter.off_path = true;
+            continue;
+        };
+        let Some(direction) = (to - from).try_normalize() else {
+            letter.off_path = true;
+            continue;
+        };
+        let normal = Vector2::new(-direction.y, direction.x);
+        let offset = letter.at.y - letter.rise;
+        letter.at = from + normal * offset;
+        letter.rotate += direction.y.atan2(direction.x).to_degrees();
+        letter.rise = 0.0;
+        end = Some(to);
+    }
+    end
+}
+
+fn stretched_along(run: &mut [Placed], track: &Track, index: usize) -> Option<Point2> {
+    let mut end = None;
+    for letter in run {
+        let middle = track.start + letter.at.x + letter.advance / 2.0;
+        if track.at(middle).is_none() {
+            letter.off_path = true;
+            continue;
+        }
+        letter.at.y -= letter.rise;
+        letter.rise = 0.0;
+        letter.warped_along = Some(index);
+        end = track
+            .extended(track.start + letter.at.x + letter.advance)
+            .map(|(point, _)| point);
+    }
+    end
+}
+
+fn warped(segments: &[Segment], placed: &Placed, track: &Track) -> Vec<Segment> {
+    let across = placed.scale * placed.stretch;
+    let place = |point: Point2| {
+        let distance = track.start + placed.at.x + point.x * across;
+        track
+            .extended(distance)
+            .map_or(point, |(on_path, tangent)| {
+                let normal = Vector2::new(-tangent.y, tangent.x);
+                on_path + normal * (placed.at.y - point.y * placed.scale)
+            })
+    };
+    let piece_length = (placed.advance / PIECES_PER_ADVANCE).max(f64::EPSILON);
+    let mut warped = Vec::with_capacity(segments.len());
+    for segment in segments {
+        let line;
+        let points: &[Point2] = match segment {
+            Segment::Line(from, to) => {
+                line = [*from, *to];
+                &line
+            }
+            Segment::Bezier(points) => points,
+        };
+        let (low, high) = points
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), point| {
+                (low.min(point.x), high.max(point.x))
+            });
+        let from = track.start + placed.at.x + low * across;
+        let to = track.start + placed.at.x + high * across;
+        let pieces = if track.turns_between(from, to) {
+            (((to - from) / piece_length).ceil() as usize).clamp(1, MOST_PIECES)
+        } else {
+            1
+        };
+        match segment {
+            Segment::Line(start, end) => {
+                for step in 0..pieces {
+                    let (first, last) = (
+                        start.lerp(*end, step as f64 / pieces as f64),
+                        start.lerp(*end, (step + 1) as f64 / pieces as f64),
+                    );
+                    warped.push(Segment::Line(place(first), place(last)));
+                }
+            }
+            Segment::Bezier(points) => {
+                let mut rest = points.clone();
+                for step in 0..pieces {
+                    let share = 1.0 / (pieces - step) as f64;
+                    let (head, tail) = split_bezier(&rest, share);
+                    warped.push(Segment::Bezier(head.into_iter().map(place).collect()));
+                    rest = tail;
+                }
+            }
+        }
+    }
+    warped
+}
+
+fn split_bezier(points: &[Point2], at: f64) -> (Vec<Point2>, Vec<Point2>) {
+    let mut head = Vec::with_capacity(points.len());
+    let mut tail = Vec::with_capacity(points.len());
+    let mut level = points.to_vec();
+    while let Some(first) = level.first().copied() {
+        head.push(first);
+        tail.push(level.last().copied().unwrap_or(first));
+        level = level
+            .windows(2)
+            .map(|pair| match pair {
+                [from, to] => from.lerp(*to, at),
+                _ => Point2::ZERO,
+            })
+            .collect();
+    }
+    tail.reverse();
+    (head, tail)
 }
 
 fn extent(chunk: &[Placed]) -> (f64, f64) {
@@ -633,4 +844,104 @@ fn substituted(families: &str) -> Option<String> {
             .take(MAX_FAMILY_CHARS)
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f64::consts::TAU;
+
+    use caditor_lettering::INTER;
+
+    use super::*;
+    use crate::import::svg::path::path_outline;
+
+    fn circle(radius: f64) -> Track {
+        let data = format!(
+            "M {radius} 0 A {radius} {radius} 0 1 1 {} 0 A {radius} {radius} 0 1 1 {radius} 0",
+            -radius
+        );
+        Track::of(&path_outline(&data), &Matrix::IDENTITY, Side::Left)
+    }
+
+    fn run(count: usize, advance: f64) -> Vec<Placed> {
+        let typeface = Typeface::parse(INTER, None).unwrap();
+        let instance = typeface.instance(400.0, false);
+        (0..count)
+            .map(|index| Placed {
+                at: Point2::new(advance * index as f64, 0.0),
+                advance,
+                glyph: None,
+                instance,
+                scale: 1.0,
+                stretch: 1.0,
+                rotate: 0.0,
+                rise: 0.0,
+                off_path: false,
+                warped_along: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn auto_spacing_puts_each_letter_s_start_a_chord_of_its_advance_from_the_last() {
+        let track = circle(40.0);
+        let mut automatic = run(5, 10.0);
+        let mut exact = run(5, 10.0);
+
+        chorded_along(&mut automatic, &track);
+        aligned_along(&mut exact, &track);
+
+        for pair in automatic.windows(2) {
+            assert!(
+                ((pair[1].at - pair[0].at).length() - 10.0).abs() < 1e-9,
+                "{:?}",
+                pair
+            );
+        }
+        let angle = |at: Point2| at.y.atan2(at.x).rem_euclid(TAU);
+        let covered = |letters: &[Placed]| angle(letters[4].at) - angle(letters[0].at);
+        let predicted = 2.0 * (10.0_f64 / 80.0).asin() / (10.0 / 40.0);
+        assert!(
+            (covered(&automatic) / covered(&exact) - predicted).abs() < 0.01,
+            "{} against {}",
+            covered(&automatic),
+            covered(&exact)
+        );
+        assert!(automatic.iter().all(|letter| !letter.off_path));
+    }
+
+    #[test]
+    fn auto_spacing_on_a_straight_track_keeps_the_exact_places() {
+        let track = Track::of(
+            &path_outline("M 0 0 L 100 0"),
+            &Matrix::IDENTITY,
+            Side::Left,
+        );
+        let mut automatic = run(4, 10.0);
+        let mut exact = run(4, 10.0);
+
+        chorded_along(&mut automatic, &track);
+        aligned_along(&mut exact, &track);
+
+        for (automatic, exact) in automatic.iter().zip(&exact) {
+            assert!((automatic.at - exact.at).length() < 1e-9);
+            assert!((automatic.rotate - exact.rotate).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_chord_that_the_track_cannot_reach_leaves_the_letter_off_it() {
+        let track = Track::of(&path_outline("M 0 0 L 24 0"), &Matrix::IDENTITY, Side::Left);
+        let mut letters = run(4, 10.0);
+
+        chorded_along(&mut letters, &track);
+
+        assert_eq!(
+            letters
+                .iter()
+                .map(|letter| letter.off_path)
+                .collect::<Vec<_>>(),
+            [false, false, true, true]
+        );
+    }
 }

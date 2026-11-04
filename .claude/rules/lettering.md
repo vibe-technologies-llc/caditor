@@ -15,8 +15,9 @@ it without either depending on the other.
   one copy. SVG import still has the faces handed in (`TextOutlines`), the app passing these.
 - `Typeface` (`font.rs`) reads a face pair: one `Cut` per face, an `Instance` of weight and italic,
   one `skrifa` `Location` per weight, the `wght` axis clamped to the face's range, GPOS `kern` pair
-  kerning (Latin, else the default script), advances, cap height (`Metrics::cap_height`) and
-  outlines. A glyph's outline is cached per weight and glyph as `Segment`s (lines and quadratic or
+  kerning (Latin, else the default script), advances, cap height (`Metrics::cap_height`), the
+  OS/2 subscript and superscript offsets (`Typeface::subscript_drop`, `superscript_rise`, font
+  units, `None` when the face gives zero) and outlines. A glyph's outline is cached per weight and glyph as `Segment`s (lines and quadratic or
   cubic Béziers, as drawn) after merging.
 - A variable font keeps overlapping contours (Inter's `e`, `t`, `f`, `k`), which even-depth regions
   would read as notches, so `overlap.rs` merges each glyph first (`merged`): its segments build a
