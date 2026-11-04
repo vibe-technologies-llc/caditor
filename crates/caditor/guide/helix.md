@@ -41,7 +41,7 @@ drawn on the YZ plane is carried along it instead.
   progressive spring's; **Table** follows a table of pitches by turn (see below). The turns, pitch
   and height above then size the helix by its mean pitch (by its table, for a table): typing a
   height and turns, the start pitch is solved for, and typing a height and the pitch, the turns.
-  Not offered for a flat spiral.
+  A flat spiral takes the same three, sized by its outer diameter in place of the height.
 - **Ends**: **Open** winds as the pitch above says from end to end; **Closed** closes the ends as
   a compression spring's are. **End turns** at each end wind at the **End pitch**, and the pitch
   then changes evenly to the helix's own over the next **End change** turns (half a turn at
@@ -72,7 +72,9 @@ A flat spiral lies in the plane through the axis's start square to the axis. It 
 and grows outward by its **Pitch** each turn, an Archimedean spiral. **Sized by** picks two of
 turns, pitch and **Outer diameter**: an outer diameter and turns spread the turns evenly between
 the two diameters, an outer diameter and a pitch make as many turns as fit (they need not be
-whole). An outer diameter no larger than the inner one fails saying so. A flat spiral has no taper;
+whole), or, with a changing pitch (below), by the pitch that changes: an outer diameter and turns
+solve the start pitch, an outer diameter and the pitch the turns. An outer diameter no larger than
+the inner one fails saying so. A flat spiral has no taper and no closed ends;
 **Reverse direction** turns its plane over, so it winds the other way round from the same start, as
 **Turning** does. Its arrows drag the inner diameter, the pitch (outward from where it starts) and
 the outer diameter (at its end).
@@ -103,6 +105,12 @@ its start to the final one. With closed ends it changes between the two closed e
 the turns between them. A pipe or sweep along it keeps the section's lean to the axis that it
 starts with, so a round wire is a hair out of round where the pitch differs from the start's.
 
+A flat spiral takes a changing pitch the same way, for a spiral spring whose turns open up or close
+together as they wind outward: the radial growth each turn follows the pitch at that turn. A pipe
+along it must keep its turns apart at the narrowest pitch the spiral reaches (the start pitch, the
+final pitch or a row's), and fails before it is built, naming that pitch and the least it needs,
+if not.
+
 ## A table of pitches
 
 For a pitch that no even change describes (a spring closing up in steps, a coil that opens and
@@ -115,10 +123,15 @@ the last row and the helix's end, at the last row's pitch; **Remove the last row
 must grow from row to row, the first after the start and the last within the turns the helix
 makes, and a helix takes at most 24 rows; a row out of place fails the helix saying which.
 
-A table stands alone: it replaces a progressive pitch's final pitch and the closed ends, and
-choosing **Progressive** or **Closed** ends clears it. A turn that is not whole puts a row inside
-a turn. As with a progressive pitch, a sweep along it keeps the section's lean to the axis it
-starts with.
+A table replaces a progressive pitch's final pitch, and choosing **Progressive** clears it. It
+works with closed ends: the end turns wind at the end pitch and the table applies between them,
+its turns counted from the start of the body between the ends (after the first end and its change
+of pitch). The pitch at the start is then the pitch where the first end's change leaves off, a
+row's turn is counted along the body, the last row must lie within the turns between the ends, and
+the pitch stays at the last row's until the far end's change begins. A turn that is not whole puts
+a row inside a turn. A flat spiral takes a table too, counting its turns from where it starts. As
+with a progressive pitch, a sweep along a helix of changing pitch keeps the section's lean to the
+axis it starts with.
 
 ## Sweeping along it
 
@@ -131,7 +144,7 @@ it), so a thread profile stays a thread profile all the way.
   flat spiral) runs into itself and the sweep fails saying so.
 - A pipe along a flat spiral must leave a gap between its turns: one as thick as the pitch fails
   before it is built, naming the least pitch its section needs (a little more than its size, more
-  where the inner turns are tight).
+  where the inner turns are tight). With a changing pitch it is the narrowest pitch that counts.
 - A profile drawn on the XZ plane across where a flat spiral round Z starts is carried round it,
   as along a helix.
 - A profile reaching across the axis cannot wind around it and fails.

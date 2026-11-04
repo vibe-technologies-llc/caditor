@@ -170,11 +170,6 @@ pub fn reversed(helix: &Helix) -> Helix {
 pub fn with_closed_ends(helix: &Helix, closed: bool) -> Helix {
     Helix {
         ends: closed.then(Box::default),
-        pitch_table: if closed {
-            Vec::new()
-        } else {
-            helix.pitch_table.clone()
-        },
         ..helix.clone()
     }
 }
@@ -194,10 +189,9 @@ pub fn with_progression(model: &Model, helix: &Helix, progressive: bool) -> Heli
 
 pub fn with_pitch_table(model: &Model, helix: &Helix, tabled: bool) -> Helix {
     let pitch_table = if tabled {
-        let (start, turns) = coil_tools::evaluated_span(model, &helix.length)
-            .map_or((DEFAULT_PITCH, DEFAULT_TURNS), |span| {
-                (span.pitch, span.turns)
-            });
+        let start = coil_tools::evaluated_span(model, &helix.length)
+            .map_or(DEFAULT_PITCH, |span| span.pitch);
+        let turns = covered_turns(model, helix);
         vec![
             PitchRow::new(
                 Expression::number((0.5 * turns * 100.0).round() / 100.0),
@@ -212,10 +206,20 @@ pub fn with_pitch_table(model: &Model, helix: &Helix, tabled: bool) -> Helix {
         Vec::new()
     };
     Helix {
-        ends: if tabled { None } else { helix.ends.clone() },
         final_pitch: None,
         pitch_table,
         ..helix.clone()
+    }
+}
+
+fn covered_turns(model: &Model, helix: &Helix) -> f64 {
+    let turns =
+        coil_tools::evaluated_span(model, &helix.length).map_or(DEFAULT_TURNS, |span| span.turns);
+    let taken = evaluated_plan(model, helix).map_or(0.0, |plan| plan.turns_taken());
+    if turns - taken > 0.0 {
+        turns - taken
+    } else {
+        turns
     }
 }
 
@@ -224,8 +228,7 @@ pub fn can_add_pitch_row(helix: &Helix) -> bool {
 }
 
 pub fn with_pitch_row_added(model: &Model, helix: &Helix) -> Helix {
-    let turns =
-        coil_tools::evaluated_span(model, &helix.length).map_or(DEFAULT_TURNS, |span| span.turns);
+    let turns = covered_turns(model, helix);
     let last = helix.pitch_table.last();
     let after = last
         .and_then(|row| number(model, &row.turns))
@@ -311,17 +314,14 @@ fn number(model: &Model, expression: &Expression) -> Option<f64> {
 }
 
 pub fn evaluated_plan(model: &Model, helix: &Helix) -> Option<HelixPitch> {
-    if helix.is_flat() {
-        return Some(HelixPitch::default());
-    }
     let number = |expression: &Expression| number(model, expression);
     let ends = match &helix.ends {
-        None => None,
-        Some(ends) => Some(HelixEnds {
+        Some(ends) if !helix.is_flat() => Some(HelixEnds {
             turns: number(&ends.turns)?,
             pitch: value(model, Some(&ends.pitch), Dimension::LENGTH)?,
             change: number(&ends.change)?,
         }),
+        _ => None,
     };
     let final_pitch = match &helix.final_pitch {
         None => None,
@@ -346,6 +346,7 @@ pub fn evaluated_plan(model: &Model, helix: &Helix) -> Option<HelixPitch> {
 
 fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
     let length = &helix.length;
+    let plan = evaluated_plan(model, helix).unwrap_or_default();
     let inner = value(model, Some(&helix.diameter), Dimension::LENGTH).unwrap_or(DEFAULT_DIAMETER);
     let width = value(model, length.height(), Dimension::LENGTH)
         .map(|outer| 0.5 * (outer - inner))
@@ -353,13 +354,18 @@ fn spiral_span(model: &Model, helix: &Helix) -> CoilSpan {
     let pitch = value(model, length.pitch(), Dimension::LENGTH);
     let turns = value(model, length.turns(), Dimension::NONE);
     let (pitch, turns) = match (width, pitch, turns) {
-        (Some(width), Some(pitch), _) => (pitch, width / pitch),
-        (Some(width), None, Some(turns)) => (width / turns, turns),
+        (Some(width), Some(pitch), _) => (pitch, plan.turns_for(width, pitch)),
+        (Some(width), None, Some(turns)) => (plan.pitch_for(width, turns), turns),
         (_, Some(pitch), Some(turns)) => (pitch, turns),
         _ => (DEFAULT_PITCH, DEFAULT_TURNS),
     };
+    let (pitch, turns) = if pitch.is_finite() && pitch > 0.0 && turns.is_finite() && turns > 0.0 {
+        (pitch, turns)
+    } else {
+        (DEFAULT_PITCH, DEFAULT_TURNS)
+    };
     CoilSpan {
-        height: inner + 2.0 * pitch * turns,
+        height: inner + 2.0 * plan.height(pitch, turns),
         pitch,
         turns,
     }

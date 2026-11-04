@@ -646,13 +646,66 @@ fn a_table_out_of_order_past_the_helix_or_with_other_laws_is_refused() {
             other: "a final pitch"
         })
     );
+}
+
+fn tabled_between_ends(turns: f64, first: f64, rows: &[(f64, f64)]) -> HelixSpec {
+    HelixSpec {
+        ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
+        ..tabled_helix(turns, first, rows)
+    }
+}
+
+#[test]
+fn a_table_between_closed_ends_counts_its_turns_from_the_start_of_the_body() {
+    let spec = tabled_between_ends(9.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+    let at = |turns: f64| spec.point_at(TAU * turns).unwrap().z;
+
+    assert_follows_the_law(&spec);
+
+    assert_eq!(spec.body_start(), TAU * 1.5);
+    for (turns, rise) in [
+        (1.0, 2.2),
+        (1.5, 3.25),
+        (3.5, 7.25),
+        (5.5, 15.25),
+        (7.5, 27.25),
+        (8.0, 29.3),
+        (9.0, 31.5),
+    ] {
+        assert!((at(turns) - rise).abs() < 1e-12, "{turns}: {}", at(turns));
+    }
+    assert!((spec.height() - 31.5).abs() < 1e-12);
+}
+
+#[test]
+fn a_table_between_closed_ends_sizes_the_helix_from_a_height_a_pitch_or_turns() {
+    let spec = tabled_between_ends(9.0, 2.0, &[(2.0, 2.0), (4.0, 6.0)]);
+    let plan = spec.plan();
+    let height = plan.height(2.0, 9.0);
+
+    assert!((height - spec.height()).abs() < 1e-12);
+    assert!((plan.pitch_for(height, 9.0) - 2.0).abs() < 1e-9);
+    assert!((plan.turns_for(height, 2.0) - 9.0).abs() < 1e-9);
+    assert!((plan.turns_for(height + 3.0, 2.0) - (9.0 + 0.5)).abs() < 1e-9);
+}
+
+#[test]
+fn a_table_between_closed_ends_is_refused_past_the_body_or_with_a_final_pitch() {
+    assert_eq!(
+        helix(&tabled_between_ends(6.0, 2.0, &[(3.1, 3.0)])),
+        Err(HelixError::TableBeyondEnds {
+            turns: 3.1,
+            body: 3.0
+        })
+    );
+    assert!(helix(&tabled_between_ends(6.0, 2.0, &[(3.0, 3.0)])).is_ok());
     assert_eq!(
         helix(&HelixSpec {
-            ends: Some(HelixEnds::with_default_change(1.0, 2.2)),
-            ..tabled_helix(6.0, 2.0, &[(3.0, 3.0)])
+            final_pitch: Some(4.0),
+            ..tabled_between_ends(8.0, 2.0, &[(3.0, 3.0)])
         }),
         Err(HelixError::TableWithOther {
-            other: "closed ends"
+            other: "a final pitch"
         })
     );
 }

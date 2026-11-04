@@ -11931,3 +11931,80 @@ fn a_split_with_nothing_chosen_to_split_along_is_saved_and_loaded_as_it_was() {
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
 }
+
+fn pitched_spiral_model() -> (
+    Document,
+    caditor_document::FeatureId,
+    caditor_document::FeatureId,
+) {
+    use caditor_document::{AxisReference, CoilLength, Helix, PitchRow, PrincipalAxis};
+    let (mut document, _, _) = solid_model();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let mut transaction = document.transaction("Pitched spirals");
+    let spiral = |law: Helix| {
+        FeatureKind::Helix(Helix {
+            length: CoilLength::TurnsAndPitch {
+                turns: parse("5"),
+                pitch: parse("3 mm"),
+            },
+            ..law
+        })
+    };
+    let flat = || Helix::flat_spiral(AxisReference::Principal(PrincipalAxis::Z), parse("10 mm"));
+    let progressive = transaction.add_feature(
+        "Progressive",
+        spiral(Helix {
+            final_pitch: Some(parse("6 mm")),
+            ..flat()
+        }),
+    );
+    let tabled = transaction.add_feature(
+        "Tabled",
+        spiral(Helix {
+            pitch_table: vec![
+                PitchRow::new(parse("2"), parse("3 mm")),
+                PitchRow::new(parse("4"), parse("5 mm")),
+            ],
+            ..flat()
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, progressive, tabled)
+}
+
+#[test]
+fn a_flat_spiral_of_changing_pitch_is_its_own_record_and_round_trips() {
+    let (document, progressive, tabled) = pitched_spiral_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("pitched_spiral", "pitched_spiril"));
+
+    assert_eq!(text.matches("\"pitched_spiral\"").count(), 2, "{text}");
+    assert!(!text.contains("\"flat_spiral\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(progressive).is_none());
+    assert!(older.document.feature(tabled).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
+fn a_flat_spiral_stored_before_it_followed_a_pitch_law_keeps_its_even_shape() {
+    let (document, progressive, tabled) = pitched_spiral_model();
+
+    let text = encode(&document).unwrap();
+    let before = decode_text(&text.replace("pitched_spiral", "flat_spiral"));
+
+    assert_eq!(before.issues, Vec::<String>::new());
+    for feature in [progressive, tabled] {
+        let restored = before
+            .document
+            .feature(feature)
+            .and_then(|feature| feature.kind.helix())
+            .unwrap();
+        assert!(restored.is_flat());
+        assert_eq!(restored.final_pitch, None);
+        assert!(restored.pitch_table.is_empty());
+    }
+}

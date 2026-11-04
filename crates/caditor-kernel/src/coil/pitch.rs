@@ -1,7 +1,10 @@
 use std::f64::consts::TAU;
 
+use crate::tolerance::LINEAR_RESOLUTION;
+
 pub const END_CHANGE_TURNS: f64 = 0.5;
 const BREAK_SLACK: f64 = 1e-9;
+const ROUNDING_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PitchStop {
@@ -17,6 +20,34 @@ impl PitchStop {
         }
         self.pitch + (to.pitch - self.pitch) * (turns - self.turns) / length
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum TableFault {
+    NonFinite,
+    NoPitch,
+    Order { turns: f64 },
+    Beyond { turns: f64 },
+}
+
+pub(super) fn checked_table(table: &[PitchStop], turns: f64) -> Result<(), TableFault> {
+    let mut before = 0.0;
+    for stop in table {
+        if !stop.turns.is_finite() || !stop.pitch.is_finite() {
+            return Err(TableFault::NonFinite);
+        }
+        if stop.pitch <= LINEAR_RESOLUTION {
+            return Err(TableFault::NoPitch);
+        }
+        if stop.turns <= before + ROUNDING_SLACK {
+            return Err(TableFault::Order { turns: stop.turns });
+        }
+        if stop.turns > turns + ROUNDING_SLACK {
+            return Err(TableFault::Beyond { turns: stop.turns });
+        }
+        before = stop.turns;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,6 +110,57 @@ impl PitchLaw {
                 stop(turns, end),
             ],
         }
+    }
+
+    pub(super) fn closed_ends_tabled(
+        first: f64,
+        table: &[PitchStop],
+        ends: ClosedEndLaw,
+        turns: f64,
+    ) -> Self {
+        let stop = |turns: f64, pitch: f64| PitchStop { turns, pitch };
+        let ClosedEndLaw {
+            pitch: end,
+            turns: end_turns,
+            change,
+        } = ends;
+        let body_start = end_turns + change;
+        let body_end = turns - body_start;
+        let last = table.last().map_or(first, |row| row.pitch);
+        let mut stops = vec![
+            stop(0.0, end),
+            stop(end_turns, end),
+            stop(body_start, first),
+        ];
+        stops.extend(
+            table
+                .iter()
+                .map(|row| stop(body_start + row.turns, row.pitch)),
+        );
+        let held_to = stops.last().map_or(body_start, |last| last.turns);
+        if body_end > held_to + BREAK_SLACK {
+            stops.push(stop(body_end, last));
+        }
+        stops.extend([stop(turns - end_turns, end), stop(turns, end)]);
+        Self { stops }
+    }
+
+    pub(super) fn narrowest(&self, turns: f64) -> f64 {
+        self.stops
+            .iter()
+            .filter(|stop| stop.turns < turns)
+            .map(|stop| stop.pitch)
+            .chain([self.pitch_at(TAU * turns)])
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    pub(super) fn widest(&self, turns: f64) -> f64 {
+        self.stops
+            .iter()
+            .filter(|stop| stop.turns < turns)
+            .map(|stop| stop.pitch)
+            .chain([self.pitch_at(TAU * turns)])
+            .fold(0.0, f64::max)
     }
 
     fn bounds(&self) -> (PitchStop, PitchStop) {

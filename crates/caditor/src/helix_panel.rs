@@ -39,7 +39,8 @@ const EVEN_PITCH: &str = "Even";
 const PROGRESSIVE_PITCH: &str = "Progressive";
 const TABLE_PITCH: &str = "Table";
 const TABLE_PITCH_HOVER: &str = "Follow a table of pitches by turn: the pitch changes evenly from \
-                                 one row to the next and stays at the last row's";
+                                 one row to the next and stays at the last row's. Between closed \
+                                 ends the turns count from the start of the body between them";
 const EVEN_PITCH_HOVER: &str = "Wind at the same pitch from end to end";
 const PROGRESSIVE_PITCH_HOVER: &str = "Change the pitch evenly from the pitch at the start to the \
                                        final pitch at the end, as a progressive spring's";
@@ -343,7 +344,7 @@ impl Panel<'_> {
             let add = widgets::small_button(ui, icons::ADD, ADD_PITCH_ROW);
             if ui
                 .add_enabled(helix_tools::can_add_pitch_row(&helix), add)
-                .on_disabled_hover_text(format!("A helix has at most {MAX_PITCH_ROWS} rows"))
+                .on_disabled_hover_text(format!("A table has at most {MAX_PITCH_ROWS} rows"))
                 .clicked()
             {
                 change = Some(self.change(helix_tools::with_pitch_row_added(self.model, &helix)));
@@ -513,7 +514,9 @@ pub fn show(
         panel.diameter_row(ui);
         if !flat {
             panel.taper_row(ui);
-            panel.pitch_law_rows(ui);
+        }
+        panel.pitch_law_rows(ui);
+        if !flat {
             panel.ends_rows(ui);
         }
         panel.start_row(ui);

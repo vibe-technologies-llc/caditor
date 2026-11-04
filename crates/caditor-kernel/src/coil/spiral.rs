@@ -3,7 +3,11 @@ use std::f64::consts::{PI, TAU};
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2};
 use thiserror::Error;
 
-use super::{AXIS_CLEARANCE, LEAST_COIL_TURNS, LEAST_GAP, MAX_COIL_TURNS, helix::HelixTurn};
+use super::{
+    AXIS_CLEARANCE, LEAST_COIL_TURNS, LEAST_GAP, MAX_COIL_TURNS,
+    helix::HelixTurn,
+    pitch::{PitchLaw, PitchStop, TableFault, checked_table},
+};
 use crate::{
     bspline::BSpline,
     curve::Curve,
@@ -19,8 +23,10 @@ const ROUNDING_SLACK: f64 = 1e-9;
 const LEAST_PITCH_STEPS: usize = 64;
 const CROSSING_HALVINGS: usize = 60;
 const CHECKS_PER_SPAN: [f64; 4] = [0.125, 0.25, 0.75, 0.875];
+const LENGTH_STEPS: usize = 2000;
+const BREAK_SLACK: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpiralSpec {
     pub frame: Plane,
     pub radius: f64,
@@ -28,6 +34,8 @@ pub struct SpiralSpec {
     pub turns: f64,
     pub hand: Handedness,
     pub start_angle: f64,
+    pub final_pitch: Option<f64>,
+    pub table: Vec<PitchStop>,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -38,6 +46,12 @@ pub enum SpiralError {
     NoRadius,
     #[error("the pitch must be more than zero")]
     NoPitch,
+    #[error("a table of pitches cannot be followed with a final pitch as well")]
+    TableWithFinalPitch,
+    #[error("a row of the pitch table lies at turn {turns}, which must follow the row before it")]
+    TableOrder { turns: f64 },
+    #[error("a row of the pitch table lies at turn {turns}, past the spiral's {spiral} turns")]
+    TableBeyond { turns: f64, spiral: f64 },
     #[error("the spiral must make at least {LEAST_COIL_TURNS} of a turn, not {turns}")]
     TooFewTurns { turns: f64 },
     #[error("the spiral would turn {turns} times, more than {MAX_COIL_TURNS}")]
@@ -55,8 +69,22 @@ impl SpiralSpec {
         [self.radius, self.pitch, self.turns, self.start_angle]
     }
 
-    fn growth(&self) -> f64 {
-        self.pitch / TAU
+    pub fn has_changing_pitch(&self) -> bool {
+        self.final_pitch.is_some() || !self.table.is_empty()
+    }
+
+    fn law(&self) -> PitchLaw {
+        if !self.table.is_empty() {
+            return PitchLaw::tabled(self.pitch, &self.table);
+        }
+        match self.final_pitch {
+            Some(last) => PitchLaw::progressive(self.pitch, last, self.turns),
+            None => PitchLaw::even(self.pitch),
+        }
+    }
+
+    pub fn narrowest_pitch(&self) -> f64 {
+        self.law().narrowest(self.turns)
     }
 
     pub fn start_frame(&self) -> Option<Plane> {
@@ -69,24 +97,15 @@ impl SpiralSpec {
     }
 
     pub fn radius_at(&self, angle: f64) -> f64 {
-        self.radius + self.growth() * angle
+        Shape::of(self).radius_at(angle)
     }
 
     pub fn outer_radius(&self) -> f64 {
-        self.radius + self.pitch * self.turns
+        self.radius_at(self.sweep())
     }
 
     pub fn sweep(&self) -> f64 {
         TAU * self.turns
-    }
-
-    fn local(&self, angle: f64) -> Point2 {
-        Point2::new(angle.cos(), angle.sin()) * self.radius_at(angle)
-    }
-
-    fn local_tangent(&self, angle: f64) -> Vector2 {
-        let (sin, cos) = angle.sin_cos();
-        Vector2::new(cos, sin) * self.growth() + Vector2::new(-sin, cos) * self.radius_at(angle)
     }
 
     fn placed(&self, frame: &Plane, at: Point2) -> Point3 {
@@ -95,7 +114,7 @@ impl SpiralSpec {
 
     pub fn point_at(&self, angle: f64) -> Option<Point3> {
         let frame = self.start_frame()?;
-        Some(self.placed(&frame, self.local(angle)))
+        Some(self.placed(&frame, Shape::of(self).local(angle)))
     }
 
     pub fn start(&self) -> Option<Point3> {
@@ -110,31 +129,104 @@ impl SpiralSpec {
     }
 
     pub fn turns_clear_of(&self, across: f64) -> bool {
-        self.turns <= 1.0 || self.pitch > self.reach_between_turns(across, self.pitch)
+        if self.turns <= 1.0 {
+            return true;
+        }
+        if self.has_changing_pitch() {
+            return self.narrowest_pitch() > self.least_pitch_for(across);
+        }
+        self.pitch > self.reach_between_turns(across, self.pitch)
     }
 
     pub fn least_pitch_for(&self, across: f64) -> f64 {
+        if self.has_changing_pitch() {
+            let widest = self.law().widest(self.turns);
+            let gap = (LEAST_GAP * across).max(AXIS_CLEARANCE);
+            return across * self.radius.hypot(widest / TAU) / self.radius + gap;
+        }
         (0..LEAST_PITCH_STEPS).fold(across, |pitch, _| self.reach_between_turns(across, pitch))
     }
 
     pub fn length(&self) -> f64 {
-        let growth = self.growth();
+        if self.has_changing_pitch() {
+            return self.integrated_length();
+        }
+        let growth = self.pitch / TAU;
         let primitive = |radius: f64| {
             let reach = radius.hypot(growth);
             radius * reach + growth * growth * (radius + reach).ln()
         };
         (primitive(self.outer_radius()) - primitive(self.radius)) / (2.0 * growth)
     }
+
+    fn integrated_length(&self) -> f64 {
+        let shape = Shape::of(self);
+        let speed = |angle: f64| shape.radius_at(angle).hypot(shape.growth(angle));
+        let breaks = shape.law.breaks(self.turns);
+        breaks
+            .iter()
+            .zip(breaks.iter().skip(1))
+            .map(|(from, to)| {
+                let (from, to) = (TAU * from, TAU * to);
+                let step = (to - from) / LENGTH_STEPS as f64;
+                let inner: f64 = (1..LENGTH_STEPS)
+                    .map(|index| {
+                        let weight = if index % 2 == 1 { 4.0 } else { 2.0 };
+                        weight * speed(from + step * index as f64)
+                    })
+                    .sum();
+                step / 3.0 * (speed(from) + inner + speed(to))
+            })
+            .sum()
+    }
+}
+
+struct Shape<'a> {
+    spec: &'a SpiralSpec,
+    law: PitchLaw,
+}
+
+impl<'a> Shape<'a> {
+    fn of(spec: &'a SpiralSpec) -> Self {
+        Self {
+            spec,
+            law: spec.law(),
+        }
+    }
+
+    fn radius_at(&self, angle: f64) -> f64 {
+        self.spec.radius + self.law.rise(angle)
+    }
+
+    fn growth(&self, angle: f64) -> f64 {
+        self.law.pitch_at(angle) / TAU
+    }
+
+    fn local(&self, angle: f64) -> Point2 {
+        Point2::new(angle.cos(), angle.sin()) * self.radius_at(angle)
+    }
+
+    fn local_tangent(&self, angle: f64) -> Vector2 {
+        let (sin, cos) = angle.sin_cos();
+        Vector2::new(cos, sin) * self.growth(angle)
+            + Vector2::new(-sin, cos) * self.radius_at(angle)
+    }
 }
 
 fn checked(spec: &SpiralSpec) -> Result<(), SpiralError> {
-    if !spec.values().into_iter().all(f64::is_finite) {
+    if !spec.values().into_iter().all(f64::is_finite)
+        || spec.final_pitch.is_some_and(|last| !last.is_finite())
+    {
         return Err(SpiralError::NonFinite);
     }
     if spec.radius <= LINEAR_RESOLUTION {
         return Err(SpiralError::NoRadius);
     }
-    if spec.pitch <= LINEAR_RESOLUTION {
+    if spec.pitch <= LINEAR_RESOLUTION
+        || spec
+            .final_pitch
+            .is_some_and(|last| last <= LINEAR_RESOLUTION)
+    {
         return Err(SpiralError::NoPitch);
     }
     if spec.turns < LEAST_COIL_TURNS {
@@ -143,10 +235,29 @@ fn checked(spec: &SpiralSpec) -> Result<(), SpiralError> {
     if spec.turns > MAX_COIL_TURNS {
         return Err(SpiralError::TooManyTurns { turns: spec.turns });
     }
+    checked_pitch_table(spec)?;
     if spec.outer_radius() + spec.frame.origin().abs().max_element() > MAX_SIZE {
         return Err(SpiralError::TooLarge);
     }
     Ok(())
+}
+
+fn checked_pitch_table(spec: &SpiralSpec) -> Result<(), SpiralError> {
+    if spec.table.is_empty() {
+        return Ok(());
+    }
+    if spec.final_pitch.is_some() {
+        return Err(SpiralError::TableWithFinalPitch);
+    }
+    checked_table(&spec.table, spec.turns).map_err(|fault| match fault {
+        TableFault::NonFinite => SpiralError::NonFinite,
+        TableFault::NoPitch => SpiralError::NoPitch,
+        TableFault::Order { turns } => SpiralError::TableOrder { turns },
+        TableFault::Beyond { turns } => SpiralError::TableBeyond {
+            turns,
+            spiral: spec.turns,
+        },
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,12 +284,12 @@ fn cross(first: Vector2, second: Vector2) -> f64 {
 }
 
 fn crossing(
-    spec: &SpiralSpec,
+    shape: &Shape<'_>,
     (from, to): (f64, f64),
     middle: Point2,
     towards: Vector2,
 ) -> Option<f64> {
-    let side = |angle: f64| cross(spec.local(angle) - middle, towards);
+    let side = |angle: f64| cross(shape.local(angle) - middle, towards);
     let (mut low, mut high) = (from, to);
     let low_side = side(low);
     if low_side * side(high) >= 0.0 {
@@ -195,9 +306,9 @@ fn crossing(
     Some(0.5 * (low + high))
 }
 
-fn fitted_span(spec: &SpiralSpec, from: f64, to: f64) -> Option<Span> {
-    let (start, end) = (spec.local(from), spec.local(to));
-    let (leaving, arriving) = (spec.local_tangent(from), spec.local_tangent(to));
+fn fitted_span(shape: &Shape<'_>, from: f64, to: f64) -> Option<Span> {
+    let (start, end) = (shape.local(from), shape.local(to));
+    let (leaving, arriving) = (shape.local_tangent(from), shape.local_tangent(to));
     let chord = end - start;
     let turning = cross(leaving, arriving);
     if turning.abs() <= f64::EPSILON * leaving.length() * arriving.length() {
@@ -211,8 +322,8 @@ fn fitted_span(spec: &SpiralSpec, from: f64, to: f64) -> Option<Span> {
     let shoulder = start + leaving * out;
     let middle = (start + end) * 0.5;
     let towards = shoulder - middle;
-    let crossing = crossing(spec, (from, to), middle, towards)?;
-    let reach = (spec.local(crossing) - middle).dot(towards) / towards.length_squared();
+    let crossing = crossing(shape, (from, to), middle, towards)?;
+    let reach = (shape.local(crossing) - middle).dot(towards) / towards.length_squared();
     if !(reach > 0.0 && reach < 1.0) {
         return None;
     }
@@ -224,13 +335,13 @@ fn fitted_span(spec: &SpiralSpec, from: f64, to: f64) -> Option<Span> {
     })
 }
 
-fn deviation(spec: &SpiralSpec, span: &Span, from: f64) -> f64 {
+fn deviation(shape: &Shape<'_>, span: &Span, from: f64) -> f64 {
     CHECKS_PER_SPAN
         .into_iter()
         .map(|t| {
             let point = span.point(t);
             let turned = (point.y.atan2(point.x) - from + PI).rem_euclid(TAU) - PI;
-            (point.length() - spec.radius_at(from + turned)).abs()
+            (point.length() - shape.radius_at(from + turned)).abs()
         })
         .fold(0.0, f64::max)
 }
@@ -241,35 +352,42 @@ struct Piece {
     step: f64,
 }
 
-fn pieces(turns: f64, spans_per_turn: usize) -> Vec<Piece> {
-    let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
-    let length = turns / count;
-    let spans = ((length * spans_per_turn as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
-    (0..count as usize)
-        .map(|index| Piece {
-            start: TAU * length * index as f64,
-            spans,
-            step: TAU * length / spans as f64,
+fn pieces(breaks: &[f64], spans_per_turn: usize) -> Vec<Piece> {
+    breaks
+        .iter()
+        .zip(breaks.iter().skip(1))
+        .filter(|(from, to)| **to - **from > BREAK_SLACK)
+        .flat_map(|(from, to)| {
+            let turns = to - from;
+            let count = (turns - ROUNDING_SLACK).ceil().max(1.0);
+            let length = turns / count;
+            let spans = ((length * spans_per_turn as f64 - ROUNDING_SLACK).ceil() as usize).max(1);
+            (0..count as usize).map(move |index| Piece {
+                start: TAU * (from + length * index as f64),
+                spans,
+                step: TAU * length / spans as f64,
+            })
         })
         .collect()
 }
 
-fn fitted_piece(spec: &SpiralSpec, piece: &Piece) -> Option<Vec<Span>> {
+fn fitted_piece(shape: &Shape<'_>, piece: &Piece) -> Option<Vec<Span>> {
     (0..piece.spans)
         .map(|index| {
             let from = piece.start + piece.step * index as f64;
-            let span = fitted_span(spec, from, from + piece.step)?;
-            (deviation(spec, &span, from) <= SPIRAL_TOLERANCE).then_some(span)
+            let span = fitted_span(shape, from, from + piece.step)?;
+            (deviation(shape, &span, from) <= SPIRAL_TOLERANCE).then_some(span)
         })
         .collect()
 }
 
-fn fitted(spec: &SpiralSpec) -> Result<Vec<Vec<Span>>, SpiralError> {
+fn fitted(shape: &Shape<'_>) -> Result<Vec<Vec<Span>>, SpiralError> {
+    let breaks = shape.law.breaks(shape.spec.turns);
     let mut spans_per_turn = SPANS_PER_TURN;
     while spans_per_turn <= MOST_SPANS_PER_TURN {
-        let fits: Option<Vec<Vec<Span>>> = pieces(spec.turns, spans_per_turn)
+        let fits: Option<Vec<Vec<Span>>> = pieces(&breaks, spans_per_turn)
             .iter()
-            .map(|piece| fitted_piece(spec, piece))
+            .map(|piece| fitted_piece(shape, piece))
             .collect();
         if let Some(fits) = fits {
             return Ok(fits);
@@ -323,7 +441,7 @@ fn turn_of(spec: &SpiralSpec, frame: &Plane, spans: &[Span]) -> Result<HelixTurn
 pub fn spiral(spec: &SpiralSpec) -> Result<Vec<HelixTurn>, SpiralError> {
     checked(spec)?;
     let frame = spec.start_frame().ok_or(GeometryError::ZeroDirection)?;
-    fitted(spec)?
+    fitted(&Shape::of(spec))?
         .iter()
         .map(|spans| turn_of(spec, &frame, spans))
         .collect()

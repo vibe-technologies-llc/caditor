@@ -166,12 +166,12 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `end_turns`, `end_pitch` or `end_change` close the ends, `closed_ends: false` opens them, refused
   with any (`OpenEndsSized`) or on a flat spiral (`FlatEnds`); `final_pitch` makes the pitch
   progressive, `progressive: false` winds at one pitch again, refused with a `final_pitch`
-  (`EvenPitchSized`), `progressive: true` with none to keep (`ProgressiveUnsized`) or on a flat
-  spiral (`FlatProgressive`); `pitch_table` (rows of `turns` and `pitch`, at most
-  `MAX_PITCH_ROWS`, `PitchTableLong`) winds to a table of pitches by turn and clears the closed
-  ends and final pitch, refused with `closed_ends: true`, the end sizes, `progressive: true` or a
-  `final_pitch` (`PitchTableAlone`) or on a flat spiral (`FlatPitchTable`), while those given
-  without it clear a table and an empty one clears it; an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
+  (`EvenPitchSized`) or `progressive: true` with none to keep (`ProgressiveUnsized`), on a helix or
+  a flat spiral; `pitch_table` (rows of `turns` and `pitch`, at most
+  `MAX_PITCH_ROWS`, `PitchTableLong`) winds to a table of pitches by turn, on a helix (with or
+  without closed ends) or a flat spiral, and clears the final pitch, refused with
+  `progressive: true` or a `final_pitch` (`PitchTableAlone`), while those given without it clear a
+  table and an empty one clears it; an edit keeping what it is not given), curve patterns (`sketch_pattern_tools::curve` along a sketch passing
   `is_curve_path`, or `edges` `{body, edges}` with keys from `list_edges` instead, never both;
   an edit keeps the path it is not given; spread or `spacing`, following or keeping the turn) and point patterns
   (`PointsPattern` from a base point, the sketch needing lone points).

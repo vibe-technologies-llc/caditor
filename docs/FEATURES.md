@@ -46,16 +46,18 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ending at a point or leaving its end profiles square, but takes no guide rails or centreline, no
   end tangent to a neighbouring face of a body or curvature-continuous ends, and no square end at a
   middle profile.
-- [medium · hard] Few helix pitch laws: Helix gives a sweep or pipe a helix (tapered or not) of
-  one pitch, a pitch changing evenly along it (a progressive spring's), through a table of
-  pitches by turn, or with a compression spring's closed ends (end turns at an end pitch, changing
-  to the pitch over chosen turns), or a flat spiral of one pitch, but a table stands alone (not
-  with closed ends or a final pitch) and a flat spiral takes no changing pitch. A sweep along a
-  changing pitch keeps the section's lean
+- [medium · hard] Few helix pitch laws: Helix gives a sweep or pipe a helix (tapered or not) or a
+  flat spiral of one pitch, a pitch changing evenly along it, or through a table of pitches by
+  turn, and a helix a compression spring's closed ends (end turns at an end pitch, changing to the
+  pitch over chosen turns) with any of them, but a table cannot be given a final pitch as well (its
+  last row says where the pitch ends). A sweep along a changing pitch keeps the section's lean
   to the axis it starts with, so a round wire is a hair out of round where the pitch differs from
   the end's. Turns cannot touch (a closed coil, a profile as tall as the pitch swept along a helix
   or as wide as it along a flat spiral, or a pipe as thick as a flat spiral's pitch, needs a pitch
-  a hair larger), so a closed end's turns stand a hair apart.
+  a hair larger), so a closed end's turns stand a hair apart. A pipe along a flat spiral of
+  changing pitch is judged by a bound that holds wherever its turns lie (the narrowest pitch
+  against the stretch of the widest at the inner radius), so it can refuse a pipe that would just
+  fit where the pitch is widest at the outside.
 - [medium · hard] Patterns stop short of what other modellers repeat: a pattern repeats features or
   whole bodies but never chosen faces.
   A feature pattern or mirror repeats a shell only when nothing else changes the body between the
@@ -166,9 +168,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   which needs a shaping engine (rustybuzz) and bidirectional reordering rather than the per-letter
   layout `lettering.rs` does, and letters of different glyphs that overlap are not merged into one
   outline (`overlap.rs` merges each glyph alone; merging across letters needs the profile built
-  over the whole text). `textPath`'s `method` and `spacing` are ignored, and `sub`, `super` and
-  percentage baseline shifts use fixed shares of the font size rather than the font's own
-  subscript and superscript metrics.
+  over the whole text). `textPath` bends letters only as `method="stretch"` does by cutting each
+  outline into pieces and mapping their control points, so a sharp corner in the path inside a
+  letter's reach is bent at the cut nearest it rather than at the corner, `stretch` ignores
+  `rotate` and `spacing`, and `spacing="auto"` is the chord layout of one baseline per letter, not
+  an optimised fit of the glyph shapes; the font's variable subscript and superscript offsets (the
+  `MVAR` table) are not read, so a heavy weight shifts as the regular one does.
 
 ## Mesh import and export
 

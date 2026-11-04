@@ -298,7 +298,13 @@ Extrusions and revolves:
   (unreadable 1 and 5 mm, reported), written only when `pitch_table` is not empty; an older reader
   reports the helix as from a newer version rather than winding it at one pitch; wrapped around a
   kind that is not a helix it loads without it, reported. The corpus holds it in
-  `helix-table.caditor`.
+  `helix-table.caditor`. `pitched_spiral`: the flat spiral wrapper (`feature`, as `flat_spiral`)
+  written instead of it when the spiral has a `final_pitch` or a `pitch_table`, which it follows
+  (`document.md`); an older reader reports the spiral as from a newer version rather than winding
+  it at one pitch. A `flat_spiral` record is the older wrapper, written only for a spiral with
+  neither: its readers ignored the law, so loading one clears `final_pitch` and `pitch_table` of
+  the helix inside, and a spiral stored before the law applied keeps its shape. The corpus holds
+  `pitched_spiral` in `pitched-spirals.caditor`.
 - `rib`: `sketch`, `body`, `thickness` (unreadable 2 mm, reported), `side` (`one_side`,
   `other_side`, `symmetric`), `direction` (`parallel`, `square`) and `reversed` only when set. The
   corpus holds it in `ribs.caditor`.

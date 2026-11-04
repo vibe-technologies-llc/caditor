@@ -193,11 +193,11 @@ impl Helix {
     }
 
     pub fn is_progressive(&self) -> bool {
-        !self.is_flat() && self.final_pitch.is_some()
+        self.final_pitch.is_some()
     }
 
     pub fn has_pitch_table(&self) -> bool {
-        !self.is_flat() && !self.pitch_table.is_empty()
+        !self.pitch_table.is_empty()
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -291,6 +291,13 @@ fn failure(context: &Context<'_>, feature: &Feature, error: &HelixError) -> Fail
             turns: *turns,
             helix: *helix,
         }),
+        HelixError::TableBeyondEnds { turns, body } => {
+            context.error(CoilCause::PitchTableBeyondEnds {
+                name,
+                turns: *turns,
+                body: *body,
+            })
+        }
         HelixError::EndsTooLong { taken, turns } => context.error(CoilCause::EndsTooLong {
             name,
             taken: *taken,
@@ -314,6 +321,19 @@ fn spiral_failure(context: &Context<'_>, feature: &Feature, error: &SpiralError)
             context.error(CoilCause::TurnsRangeOf { name })
         }
         SpiralError::TooLarge => context.error(CoilCause::TooFar { name }),
+        SpiralError::TableWithFinalPitch => context.error(CoilCause::PitchTableAlone {
+            name,
+            other: "a final pitch",
+        }),
+        SpiralError::TableOrder { turns } => context.error(CoilCause::PitchTableOrder {
+            name,
+            turns: *turns,
+        }),
+        SpiralError::TableBeyond { turns, spiral } => context.error(CoilCause::PitchTableBeyond {
+            name,
+            turns: *turns,
+            helix: *spiral,
+        }),
         SpiralError::NonFinite
         | SpiralError::NoRadius
         | SpiralError::NoPitch
@@ -382,8 +402,13 @@ fn pitch_plan(
             })
         })
         .collect::<Result<Vec<_>, Failure>>()?;
+    let ends = if definition.is_flat() {
+        None
+    } else {
+        closed_ends(context, definition)?
+    };
     Ok(HelixPitch {
-        ends: closed_ends(context, definition)?,
+        ends,
         final_pitch,
         table,
     })
@@ -452,7 +477,10 @@ fn helix_span(
             let pitch = context.size(pitch, "pitch")?;
             let turns = plan.turns_for(height, pitch);
             if plan.ends.is_some() && turns < plan.turns_taken() {
-                return Err(context.error(fills(height)));
+                return Err(context.error(CoilCause::EndsFillHeight {
+                    name: name(),
+                    height,
+                }));
             }
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
                 return Err(context.error(CoilCause::HeightPitchTurns {
@@ -486,27 +514,45 @@ fn outward(
     Ok(0.5 * (outer - inner))
 }
 
-fn spiral_span(
+pub(crate) fn spiral_span(
     context: &Context<'_>,
     feature: &Feature,
     inner: f64,
     length: &CoilLength,
+    plan: &HelixPitch,
 ) -> Result<CoilSpan, Failure> {
     match length {
         CoilLength::TurnsAndPitch { .. } => coil::span(context, length),
         CoilLength::HeightAndTurns { height, turns } => {
             let width = outward(context, feature, inner, height)?;
             let turns = coil::number(context, turns, "turns")?;
+            let pitch = plan.pitch_for(width, turns);
+            if (!pitch.is_finite() || pitch <= LINEAR_RESOLUTION)
+                && (plan.final_pitch.is_some() || !plan.table.is_empty())
+            {
+                return Err(context.error(if plan.table.is_empty() {
+                    CoilCause::SpiralFinalPitchFillsWidth {
+                        name: feature.name.clone(),
+                        width,
+                        final_pitch: plan.final_pitch.unwrap_or_default(),
+                    }
+                } else {
+                    CoilCause::SpiralTableFillsWidth {
+                        name: feature.name.clone(),
+                        width,
+                    }
+                }));
+            }
             Ok(CoilSpan {
                 height: width,
-                pitch: width / turns,
+                pitch,
                 turns,
             })
         }
         CoilLength::HeightAndPitch { height, pitch } => {
             let width = outward(context, feature, inner, height)?;
             let pitch = context.size(pitch, "pitch")?;
-            let turns = width / pitch;
+            let turns = plan.turns_for(width, pitch);
             if !(LEAST_COIL_TURNS..=MAX_COIL_TURNS).contains(&turns) {
                 return Err(context.error(CoilCause::OuterPitchTurns {
                     name: feature.name.clone(),
@@ -571,7 +617,8 @@ fn evaluate_spiral(
 ) -> Result<FeatureResult, Failure> {
     let context = Context::new(feature, inputs, SPIRAL_SHAPE);
     let diameter = context.size(&definition.diameter, "inner diameter")?;
-    let span = spiral_span(&context, feature, diameter, &definition.length)?;
+    let plan = pitch_plan(&context, feature, definition)?;
+    let span = spiral_span(&context, feature, diameter, &definition.length, &plan)?;
     let frame = frame_of(&context, feature, definition)?;
     let start = start_angle(&context, feature, definition, &frame)?;
     if cancel.is_cancelled() {
@@ -584,6 +631,8 @@ fn evaluate_spiral(
         turns: span.turns,
         hand: definition.turning.hand(),
         start_angle: start,
+        final_pitch: plan.final_pitch,
+        table: plan.table,
     };
     let turns = spiral(&spec).map_err(|error| spiral_failure(&context, feature, &error))?;
     Ok(FeatureResult::Helix(HelixResult {

@@ -364,7 +364,7 @@ pub(crate) fn spiral_of(inputs: &Inputs<'_>, path: &SweepPath) -> Option<(String
     let FeatureResult::Helix(result) = inputs.features.get(&helix)?.as_ref() else {
         return None;
     };
-    Some((feature_name(inputs, helix), result.spiral?))
+    Some((feature_name(inputs, helix), result.spiral.clone()?))
 }
 
 pub(crate) fn path_of(
