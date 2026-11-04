@@ -664,8 +664,9 @@ paths:
   is `UnsupportedEnd` (the fills' seam there is concave); fills that use up a whole face (a pocket's
   walls) lose the edges on it (`Lost`), and cutting first leaves the pocket's corner edges ending at
   the rim chamfers' mitre. A circular edge whose extended sweep would pass a full turn is
-  `WrapsAround`. `survey.rs` (ignored) chamfers and fillets every corner of twenty bodies, all
-  of which blend.
+  `WrapsAround`. `survey.rs` (ignored) chamfers and fillets every corner of twenty bodies: every
+  chamfer blends, and every fillet but one choice on the boss (`docs/BUGS.md`), which keeps
+  `every_corner_fillets` out of the stress job.
 - Three straight edges of one kind filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball, subtracted at a convex corner and added at a
   concave one, a pocket's inside corner at its floor); other corners mitre. The corner is built
