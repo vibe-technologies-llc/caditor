@@ -96,7 +96,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   `Built`: kind, default title, asked name, sketches to hide, answer details) and `features::added`
   adds it as one `Create …` transaction, named as the tool names it
   (`editing::next_feature_name`): a revolve (`RevolveAxis::Sketch` or `Model`, full turn without an
-  angle, `up_to` `"next"` (`UpToNext`) or a plane (`RevolveExtent::UpTo`), `up_to_surface` a face (`UpToSurface`), `reversed` kept on an edit, `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
+  angle, `up_to` `"next"` (`UpToNext`) or a plane (`RevolveExtent::UpTo`), `up_to_surface` a face (`UpToSurface`), `end_offset` an angle past it, negative short of it, kept across edits that keep the stop (`OffsetWithoutUpTo` without a stop), `reversed` kept on an edit, `TwoSides` with `second_angle`, `solid_tools::default_operation` without an operation),
   fillets and chamfers (`EdgeReference::capture_in` per edge key,
   `EdgeGroup::Face` per face key, `EdgeGroup::Body` for `all_edges`, `EdgeGroup::Rule` for `convex_edges`, `concave_edges` and each feature of `edges_made_by`, which combine with edges and faces but not with `all_edges`), shell (`face_thicknesses`, replaced as a list), offset face,
   primitives (`primitive_tools::default_shape` with the given sizes, at a face's middle
@@ -112,7 +112,7 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
 - `solids.rs` holds extrusions and holes. An extrusion's end is one of a distance, `through_all`,
   `up_to` (`"next"` or a plane, `ExtrudeEnd::UpToNext`/`UpToFace`, with `end_offset`) or
   `up_to_surface` (`{body, face}` of any shape through `places::face_at_bar`,
-  `ExtrudeEnd::UpToSurface`, no offset), and it takes `second_distance` or the object
+  `ExtrudeEnd::UpToSurface`, with `end_offset`, positive past the face and negative short of it), and it takes `second_distance` or the object
   `second_end` (`TwoSides`, the same ends and its own `end_offset`, the two refused together),
   `start_offset` (`SolidStart::Distance`), `taper`, `direction` (an axis as
   `places::axis` takes it, `"square"` clears it) and `thin_wall` with `wall_side` (`Wall`,

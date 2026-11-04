@@ -67,6 +67,7 @@ pub struct Revolution {
     pub second_angle: Option<Amount>,
     pub up_to: Option<UpTo>,
     pub up_to_surface: Option<OnFace>,
+    pub end_offset: Option<Amount>,
     pub symmetric: Option<bool>,
     pub reversed: Option<bool>,
     pub regions: Option<RegionsAsk>,
@@ -752,7 +753,7 @@ impl RevolveSides {
                 (Some(forward.clone()), Some(backward.clone()), false, false)
             }
             RevolveExtent::UpTo { reversed, .. }
-            | RevolveExtent::UpToNext { reversed }
+            | RevolveExtent::UpToNext { reversed, .. }
             | RevolveExtent::UpToSurface { reversed, .. } => (None, None, false, *reversed),
         };
         Self {
@@ -799,6 +800,9 @@ pub fn revolve_built(
     let second = parsed(session, asked.second_angle.as_ref(), |session, angle| {
         turn(session, "second_angle", angle)
     })?;
+    let end_offset = parsed(session, asked.end_offset.as_ref(), |session, offset| {
+        turn(session, "end_offset", offset)
+    })?;
     let thickness = parsed(
         session,
         asked.thin_wall.as_ref().and_then(WallAsk::thickness),
@@ -833,10 +837,14 @@ pub fn revolve_built(
     let reversed = asked
         .reversed
         .unwrap_or(base.is_some_and(|base| base.extent.reversed_up_to()));
+    let kept_offset = base.and_then(|base| base.extent.offset().cloned());
     let extent = match (&asked.up_to, &asked.up_to_surface, base) {
-        (Some(UpTo::Next(NextFace::Next)), _, _) => RevolveExtent::UpToNext { reversed },
+        (Some(UpTo::Next(NextFace::Next)), _, _) => {
+            RevolveExtent::up_to_next(reversed).with_offset(kept_offset)
+        }
         (Some(UpTo::Plane(choice)), _, _) => {
             RevolveExtent::up_to(places::plane(document, evaluation, choice)?, reversed)
+                .with_offset(kept_offset)
         }
         (None, Some(on), _) => {
             let (at, face) = places::face_at_bar(document, evaluation, on)?;
@@ -847,6 +855,7 @@ pub fn revolve_built(
                 },
                 reversed,
             )
+            .with_offset(kept_offset)
         }
         (None, None, Some(base)) if !turns && base.extent.turns_up_to() => {
             if reversed == base.extent.reversed_up_to() {
@@ -877,6 +886,11 @@ pub fn revolve_built(
             }
             .extent()?
         }
+    };
+    let extent = match end_offset {
+        Some(offset) if extent.turns_up_to() => extent.with_offset(Some(offset)),
+        Some(_) => return Err(ModellingError::OffsetWithoutUpTo.into()),
+        None => extent,
     };
     let regions = regions_chosen(
         evaluation,

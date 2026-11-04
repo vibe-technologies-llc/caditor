@@ -6,7 +6,7 @@ use crate::{
     document::{Document, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction},
     pattern::PatternKind,
-    solid::{ExtrudeExtent, RevolveExtent, SolidFeature, SolidStart},
+    solid::{ExtrudeExtent, SolidFeature, SolidStart},
 };
 
 impl Document {
@@ -182,16 +182,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
             expressions
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
-            let mut expressions = match &mut revolve.extent {
-                RevolveExtent::Full
-                | RevolveExtent::UpTo { .. }
-                | RevolveExtent::UpToNext { .. }
-                | RevolveExtent::UpToSurface { .. } => Vec::new(),
-                RevolveExtent::OneSide { angle, .. } | RevolveExtent::Symmetric { angle } => {
-                    vec![angle]
-                }
-                RevolveExtent::TwoSides { forward, backward } => vec![forward, backward],
-            };
+            let mut expressions = revolve.extent.expressions_mut();
             expressions.extend(start_distance(&mut revolve.start));
             expressions.extend(revolve.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions

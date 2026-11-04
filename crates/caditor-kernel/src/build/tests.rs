@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -1844,4 +1844,66 @@ fn vertices_chained_within_the_resolution_merge_into_one() {
         plan.edge_ends(),
         vec![(chain[0], far), (chain[0], far), (chain[0], far)]
     );
+}
+
+#[test]
+fn the_curved_end_of_a_stopped_sweep_moves_along_it_or_the_move_is_refused() {
+    let rod = rod();
+    let strip = regions(&rectangle(2, (1.0, -1.0), (2.0, 1.0)));
+    let from_below = extrude(&Plane::XY, &strip, one_side(30.0), 2).unwrap();
+    let stopped = stop_at_body(&from_below, &rod, &Plane::XY, &strip, false, 30.0)
+        .unwrap()
+        .solid;
+    let start = (&Plane::XY, strip.as_slice());
+    let up = RigidTransform::translation(Vector3::new(0.0, 0.0, 0.5)).unwrap();
+    let far = RigidTransform::translation(Vector3::new(0.0, 0.0, 12.0)).unwrap();
+    let expected = 20.0 - under_the_rod(2.0);
+
+    let past = move_end(&stopped, start, Vector3::Z, &up, true, 3).unwrap();
+    let short = move_end(&stopped, start, Vector3::Z, &up, false, 3).unwrap();
+    let too_far_past = move_end(&stopped, start, Vector3::Z, &far, true, 3);
+    let too_far_short = move_end(&stopped, start, Vector3::Z, &far, false, 3);
+
+    past.validate().unwrap();
+    short.validate().unwrap();
+    assert_eq!(past.shells().count(), 1);
+    assert_eq!(short.shells().count(), 1);
+    let past_volume = fine_mesh(&past).mass_properties().volume;
+    let short_volume = fine_mesh(&short).mass_properties().volume;
+    assert!((past_volume - (expected + 1.0)).abs() < 2e-3 * expected);
+    assert!((short_volume - (expected - 1.0)).abs() < 2e-3 * expected);
+    assert_eq!(too_far_past, Err(EndMoveError::Detached));
+    assert_eq!(too_far_short, Err(EndMoveError::Detached));
+}
+
+#[test]
+fn a_turned_end_moves_by_an_angle_about_the_axis() {
+    let plate = plate((-1.0, 3.0));
+    let ring = regions(&rectangle(2, (5.0, 0.0), (7.0, 2.0)));
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    let tool = revolve(
+        &Plane::XY,
+        &ring,
+        axis,
+        AngularExtent::one_side(-NEARLY_A_TURN).unwrap(),
+        2,
+    )
+    .unwrap();
+    let stopped = stop_turning_at_body(&tool, &plate, &Plane::XY, &ring, axis, -NEARLY_A_TURN)
+        .unwrap()
+        .solid;
+    let start = (&Plane::XY, ring.as_slice());
+    let turn = RigidTransform::rotation_about(Point3::ZERO, Vector3::Y, -0.1).unwrap();
+    let expected = 2.0 * (under_the_plate(7.0) - under_the_plate(5.0));
+    let swept = 0.1 * (49.0 - 25.0) / 2.0 * 2.0;
+
+    let past = move_end(&stopped, start, Vector3::Z, &turn, true, 3).unwrap();
+    let short = move_end(&stopped, start, Vector3::Z, &turn, false, 3).unwrap();
+
+    past.validate().unwrap();
+    short.validate().unwrap();
+    let past_volume = fine_mesh(&past).mass_properties().volume;
+    let short_volume = fine_mesh(&short).mass_properties().volume;
+    assert!((past_volume - (expected + swept)).abs() < 5e-3 * expected);
+    assert!((short_volume - (expected - swept)).abs() < 5e-3 * expected);
 }

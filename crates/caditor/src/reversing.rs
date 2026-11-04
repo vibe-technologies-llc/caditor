@@ -70,7 +70,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, ReverseError> {
             match &mut revolve.extent {
                 RevolveExtent::OneSide { reversed, .. }
                 | RevolveExtent::UpTo { reversed, .. }
-                | RevolveExtent::UpToNext { reversed }
+                | RevolveExtent::UpToNext { reversed, .. }
                 | RevolveExtent::UpToSurface { reversed, .. } => {
                     *reversed = !*reversed;
                 }

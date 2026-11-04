@@ -35,6 +35,9 @@ through a hidden sketch that follows their edges.
   the profile first meets that face, and is refused when the profile meets other faces of its body
   first. A datum or principal plane must contain the axis. A plane can be picked from the list as
   well as selected or clicked.
+- **Past the face** on an Up to next or Up to face turn is an angle: the end turns that far beyond
+  where the profile meets the face or plane, or short of it when negative. It must stay less than
+  the turn itself.
 - {command:model.reverse_direction} turns a one-sided, Up to next or Up to face revolve the other
   way.
 - **Profile**: Whole, or One side keeping only the regions on one side of the axis; Keep the other

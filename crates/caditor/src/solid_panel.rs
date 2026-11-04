@@ -249,10 +249,14 @@ pub fn captioned(solid: &SolidFeature) -> Vec<(&'static str, &Expression)> {
     match solid {
         SolidFeature::Extrude(extrude) => extent_captioned(&extrude.extent),
         SolidFeature::Revolve(revolve) => match &revolve.extent {
-            RevolveExtent::Full
-            | RevolveExtent::UpTo { .. }
-            | RevolveExtent::UpToNext { .. }
-            | RevolveExtent::UpToSurface { .. } => Vec::new(),
+            RevolveExtent::Full => Vec::new(),
+            RevolveExtent::UpTo { offset, .. }
+            | RevolveExtent::UpToNext { offset, .. }
+            | RevolveExtent::UpToSurface { offset, .. } => offset
+                .as_deref()
+                .map(|offset| (END_OFFSET, offset))
+                .into_iter()
+                .collect(),
             RevolveExtent::OneSide { angle, .. } => vec![(ANGLE, angle)],
             RevolveExtent::Symmetric { angle } => vec![(TOTAL_ANGLE, angle)],
             RevolveExtent::TwoSides { forward, backward } => {
@@ -638,7 +642,7 @@ impl Panel<'_> {
                 self.offset_row(ui, rows, extrude, end, rebuild);
                 return;
             }
-            ExtrudeEnd::UpToSurface { face } => {
+            ExtrudeEnd::UpToSurface { face, .. } => {
                 let shown = Shown::Named(capitalized(&describe_origin(
                     self.document(),
                     face.face.origin(),
@@ -652,6 +656,7 @@ impl Panel<'_> {
                     None,
                     self.actions,
                 );
+                self.offset_row(ui, rows, extrude, end, rebuild);
                 return;
             }
             ExtrudeEnd::UpToNext { .. } => self.offset_row(ui, rows, extrude, end, rebuild),
@@ -1075,9 +1080,8 @@ impl Panel<'_> {
             let next = match revolve.operation.target() {
                 Some(_) => panel
                     .change(SolidFeature::Revolve(Revolve {
-                        extent: RevolveExtent::UpToNext {
-                            reversed: revolve.extent.reversed_up_to(),
-                        },
+                        extent: RevolveExtent::up_to_next(revolve.extent.reversed_up_to())
+                            .with_offset(revolve.extent.offset().cloned()),
                         ..revolve.clone()
                     }))
                     .map(Action::Apply),
@@ -1298,13 +1302,18 @@ impl Panel<'_> {
             RevolveExtent::Full => {}
             RevolveExtent::UpTo { target, .. } => {
                 self.revolve_target_row(ui, revolve, Some(target));
+                self.turn_offset_row(ui, revolve);
                 self.reverse_turn_row(ui, revolve);
             }
             RevolveExtent::UpToSurface { face, .. } => {
                 self.revolve_surface_row(ui, revolve, face);
+                self.turn_offset_row(ui, revolve);
                 self.reverse_turn_row(ui, revolve);
             }
-            RevolveExtent::UpToNext { .. } => self.reverse_turn_row(ui, revolve),
+            RevolveExtent::UpToNext { .. } => {
+                self.turn_offset_row(ui, revolve);
+                self.reverse_turn_row(ui, revolve);
+            }
             RevolveExtent::OneSide { angle, reversed } => {
                 let reversed = *reversed;
                 self.expression(
@@ -1400,6 +1409,28 @@ impl Panel<'_> {
         }
     }
 
+    fn turn_offset_row(&mut self, ui: &mut Ui, revolve: &Revolve) {
+        let offset = revolve
+            .extent
+            .offset()
+            .cloned()
+            .unwrap_or_else(|| solid_tools::degrees(0.0));
+        self.expression(
+            ui,
+            END_OFFSET,
+            "turn-offset",
+            &offset,
+            (Dimension::ANGLE, Rule::Any),
+            |value| {
+                let kept = (!is_zero(&value)).then_some(value);
+                SolidFeature::Revolve(Revolve {
+                    extent: revolve.extent.clone().with_offset(kept),
+                    ..revolve.clone()
+                })
+            },
+        );
+    }
+
     fn revolve_target_picker(
         &self,
         ui: &Ui,
@@ -1448,7 +1479,8 @@ impl Panel<'_> {
         };
         self.plane_row(ui, row, |plane| {
             SolidFeature::Revolve(Revolve {
-                extent: RevolveExtent::up_to(plane, reversed),
+                extent: RevolveExtent::up_to(plane, reversed)
+                    .with_offset(revolve.extent.offset().cloned()),
                 ..revolve.clone()
             })
         });
@@ -2016,7 +2048,8 @@ pub fn revolve_target_change(
             selected_surface(model, selection, feature, flat)?,
             reversed,
         ),
-    };
+    }
+    .with_offset(revolve.extent.offset().cloned());
     if extent == revolve.extent {
         return Err(SolidChangeError::RevolutionAlreadyUpToTarget);
     }

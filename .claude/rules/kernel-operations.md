@@ -281,6 +281,16 @@ paths:
   ignoring points within `AXIS_CLEARANCE` of the profile's size of the axis. A kept shell must reach
   back to the start and stop short of the end cap (`PassesBeside` otherwise).
 
+- `move_end(tool, (plane, regions), onward, shift, grow, feature)` moves the end of a tool cut back
+  by `stop_at_body` or `stop_turning_at_body` by `shift` (a rigid translation along the sweep or a
+  rotation about the revolve's axis, always the forward move): growing joins the tool to a copy
+  moved forward (`pattern::placed_once`, the copy's faces named as the pattern copy `[0, 1]`, so no
+  name repeats), shrinking intersects it with a copy moved back. The tool keeps its start; the
+  result is one shell and covers every start probe (`EndMoveError::Detached` otherwise: the move is
+  longer than the tool in places, growing would leave a gap and shrinking would cut the tool away
+  from the profile). Sides of a straight prism or a revolution coincide with themselves under
+  the move, a tapered side does not, so callers refuse a taper.
+
 # Booleans (`boolean/`)
 
 - `boolean(first, second, BooleanOperation)`: valid or a `BooleanError`, never a bad solid

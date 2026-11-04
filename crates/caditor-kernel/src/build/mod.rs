@@ -26,8 +26,8 @@ pub use self::{
     extrude::{extrude, extrude_along},
     loft::{LoftEnds, LoftError, LoftProfile, LoftSkin, MAX_LOFT_PROFILES, loft, loft_through},
     reach::{
-        Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
-        next_face_along, stop_at_body, stop_turning_at_body,
+        EndMoveError, Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along,
+        move_end, next_face, next_face_along, stop_at_body, stop_turning_at_body,
     },
     revolve::revolve,
     sweep::{

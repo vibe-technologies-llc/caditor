@@ -70,7 +70,7 @@ fn second_end() -> Value {
             "through_all": flag("Cut through the whole body on the other side"),
             "up_to": up_to(),
             "up_to_surface": surface(),
-            "end_offset": amount("With up_to: stop this far short of it (negative: beyond)")
+            "end_offset": amount("With up_to or up_to_surface: end this far past it, or short of it when negative")
         },
         "additionalProperties": false
     })
@@ -160,7 +160,7 @@ pub fn extrusion() -> Value {
         "through_all": flag("Cut through the whole body"),
         "up_to": up_to(),
         "up_to_surface": surface(),
-        "end_offset": amount("With up_to: stop this far short of it (negative: beyond)"),
+        "end_offset": amount("With up_to or up_to_surface: end this far past it, or short of it when negative"),
         "symmetric": flag("Half the distance each way from the sketch plane"),
         "second_distance": amount("How far it also goes on the other side of the sketch plane"),
         "second_end": second_end(),
@@ -182,7 +182,7 @@ pub fn hole() -> Value {
             "diameter": amount("An expression such as \"6 mm\"; or give standard"),
             "depth": amount("An expression, or \"through all\""),
             "up_to": up_to(),
-            "end_offset": amount("With up_to: stop this far short of it"),
+            "end_offset": amount("With up_to: end this far past the face, or short of it when negative"),
             "style": choice(&["plain", "counterbore", "countersink", "stepped"], "The hole's mouth"),
             "head_diameter": amount("The counterbore's or countersink's diameter"),
             "head_depth": amount("The counterbore's depth"),

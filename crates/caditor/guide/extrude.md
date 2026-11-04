@@ -39,9 +39,11 @@ sketch from the panel's **Sketch** list does the same.
 - A cut whose distance reaches more than ten times the size of the bodies it cuts offers **Cut
   through all instead**, which keeps cutting through however the bodies grow.
 - **Past the face** moves an Up to next or Up to face end beyond the face it reaches, or short of
-  it when negative.
-- On one side and without an offset, Up to next follows a curved next face, or several faces at
-  different heights, and Up to face takes a curved face.
+  it when negative. Where the face is curved, or Up to next meets several faces at different
+  heights, the whole end moves along the extrusion by that distance, and a taper allows no offset
+  there. It must stay less than the extrusion is long.
+- Up to next follows a curved next face, or several faces at different heights, and Up to face
+  takes a curved face, on either side of Two sides.
 - While it is open, drag the arrow at the end in the view to change its distance. It stands over the
   regions the extrusion sweeps, not the rest of the sketch. A named
   distance keeps its name; one that follows other parameters does not drag (see

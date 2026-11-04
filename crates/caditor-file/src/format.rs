@@ -354,6 +354,7 @@ pub(crate) enum FeatureKindRecord {
     EdgeCurvePattern(Box<EdgeCurvePatternRecord>),
     RevolveUpToNext(Box<RevolveUpToNextRecord>),
     RevolveUpToSurface(Box<RevolveUpToSurfaceRecord>),
+    RevolveOffset(Box<RevolveOffsetRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1157,6 +1158,12 @@ pub(crate) struct RevolveUpToSurfaceRecord {
     pub face: Lenient<AttachmentRecord>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RevolveOffsetRecord {
+    pub feature: FeatureKindRecord,
+    pub offset: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3375,7 +3382,19 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
-        && let RevolveExtent::UpToNext { reversed } = &revolve.extent
+        && let Some(offset) = revolve.extent.offset()
+    {
+        let plain = Revolve {
+            extent: revolve.extent.clone().with_offset(None),
+            ..revolve.clone()
+        };
+        return FeatureKindRecord::RevolveOffset(Box::new(RevolveOffsetRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(plain))),
+            offset: offset.to_stored_text(),
+        }));
+    }
+    if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
+        && let RevolveExtent::UpToNext { reversed, .. } = &revolve.extent
     {
         let full = Revolve {
             extent: RevolveExtent::Full,
@@ -3387,7 +3406,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
-        && let RevolveExtent::UpToSurface { face, reversed } = &revolve.extent
+        && let RevolveExtent::UpToSurface { face, reversed, .. } = &revolve.extent
     {
         let full = Revolve {
             extent: RevolveExtent::Full,
@@ -3400,7 +3419,9 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
-        && let RevolveExtent::UpTo { target, reversed } = &revolve.extent
+        && let RevolveExtent::UpTo {
+            target, reversed, ..
+        } = &revolve.extent
     {
         let full = Revolve {
             extent: RevolveExtent::Full,
@@ -3411,6 +3432,16 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             target: Lenient::Read(plane_reference_record(target)),
             reversed: *reversed,
         }));
+    }
+    if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind
+        && extrude
+            .extent
+            .ends()
+            .into_iter()
+            .any(|end| end.surface().is_some() && end.offset().is_some())
+        && let Some(record) = offset_ends_record(extrude)
+    {
+        return record;
     }
     if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind
         && let Some(record) = surface_ends_record(extrude)
@@ -7411,9 +7442,7 @@ fn restore_kind(
             let mut kind = restore_kind(&up_to.feature, name, texts, issues);
             match &mut kind {
                 FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
-                    revolve.extent = RevolveExtent::UpToNext {
-                        reversed: up_to.reversed,
-                    };
+                    revolve.extent = RevolveExtent::up_to_next(up_to.reversed);
                 }
                 _ => issues.push(format!(
                     "“{name}” was to turn up to the next face, but it is not a revolution, so \
@@ -7439,6 +7468,22 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to turn up to a face, but it is not a revolution, so that was \
                      left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::RevolveOffset(offset) => {
+            let mut kind = restore_kind(&offset.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Revolve(revolve))
+                    if revolve.extent.turns_up_to() =>
+                {
+                    let angle = restore_value(&offset.offset, "end offset", "0 deg", name, issues);
+                    revolve.extent = revolve.extent.clone().with_offset(Some(angle));
+                }
+                _ => issues.push(format!(
+                    "The end offset of “{name}” belongs to a revolution that does not turn up to \
+                     a face or plane, so it was left out."
                 )),
             }
             kind

@@ -242,7 +242,7 @@ pub enum ModellingError {
     ThroughAllAdds,
     #[error("a symmetric extrusion takes a distance, not through_all or up_to")]
     SymmetricThroughAll,
-    #[error("end_offset goes with an end up_to the next face or a plane")]
+    #[error("end_offset goes with an end up_to the next face, a plane or a face")]
     OffsetWithoutUpTo,
     #[error("wall_side goes with thin_wall, the wall's thickness")]
     SideWithoutWall,

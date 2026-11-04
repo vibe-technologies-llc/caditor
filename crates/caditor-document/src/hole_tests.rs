@@ -1699,26 +1699,58 @@ fn drilled_under_the_channel(radius: f64) -> f64 {
         .sum()
 }
 
-#[test]
-fn a_hole_up_to_a_curved_next_face_with_an_offset_is_refused_in_words() {
+fn offset_hole_in_the_channel(offset: &str) -> (Pair, FeatureId, Evaluation) {
     let mut pair = pair();
-    channelled(&mut pair, 3.0);
-    let offset = expression(&pair.document, "-1 mm");
+    channelled(&mut pair, 2.5);
+    let offset = expression(&pair.document, offset);
     let hole = up_to(
         &mut pair,
         HoleDepth::up_to_next().with_offset(Some(offset)),
         |_| HoleStyle::Plain,
     );
+    let evaluation = evaluate(&pair.document, &mut Recompute::default());
+    (pair, hole, evaluation)
+}
 
-    let refused = failure(&evaluate(&pair.document, &mut Recompute::default()), hole);
+#[test]
+fn a_hole_up_to_a_curved_next_face_stops_short_of_it_or_past_it_by_its_offset() {
+    let (pair, short_hole, short) = offset_hole_in_the_channel("-1 mm");
+    let (_, past_hole, past) = offset_hole_in_the_channel("1 mm");
+    let (_, plain_hole, plain) = offset_hole_in_the_channel("0 mm");
 
-    assert!(
-        refused.reason().contains("is curved"),
-        "{}",
-        refused.reason()
+    for (evaluation, hole) in [
+        (&short, short_hole),
+        (&past, past_hole),
+        (&plain, plain_hole),
+    ] {
+        assert_eq!(
+            evaluation.failed_count(),
+            0,
+            "{:?}",
+            evaluation.feature(hole)
+        );
+    }
+    let channel = PLATE - PI * 6.25 / 2.0 * 20.0;
+    let removed = |evaluation: &Evaluation| channel - volume(evaluation, pair.plate);
+    let circle = PI * 4.0;
+    assert!((removed(&plain) - removed(&short) - circle).abs() < 0.3);
+    assert!((removed(&plain) - removed(&past)).abs() < 0.3);
+    short.body(pair.plate).unwrap().validate().unwrap();
+}
+
+#[test]
+fn a_hole_whose_offset_moves_its_end_farther_than_it_is_long_is_refused_in_words() {
+    let (_, hole, evaluation) = offset_hole_in_the_channel("-9 mm");
+
+    let refused = failure(&evaluation, hole);
+
+    assert_eq!(
+        refused.reason(),
+        "Stopping the hole at Point 0 9 mm short of the faces of Plate would end it before it \
+         starts in places."
     );
     assert_eq!(
         refused.remedy(),
-        "Clear the end offset, or use Up to face with a flat face or plane."
+        "Enter a smaller end offset, or use Up to face or drill it blind."
     );
 }

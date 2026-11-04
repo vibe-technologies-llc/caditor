@@ -536,14 +536,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     and `THROUGH_ALL_MARGIN`; a body wholly behind fails.
   - Up to next needs a target body and ends on the plane of the first face the profile meets
     (kernel `next_face`); an addition starting inside the body, or a cut first entering it, fails.
-    When the first faces are curved or several, a one-sided extrusion with no end offset is swept
-    through all and cut back where it first meets the target body (kernel `stop_at_body`,
-    `Stopping` in `solid.rs`); two sides or an offset need one flat face and fail in words. The
-    plane of each flat first face is recorded unoffset in the result (`SolidResult::reached`, a
-    `ReachedEnd` per side), where the interface stands its Past the face arrow.
+    When the first faces are curved or several, that side is swept through all and cut back where
+    it first meets the target body (kernel `stop_at_body`, `Stopping` in `solid.rs`, one `StopAt`
+    per side in `Ends::stops`). The plane of each flat first face is recorded unoffset in the
+    result (`SolidResult::reached`, a `ReachedEnd` per side), where the interface stands its Past
+    the face arrow.
+  - Two sides with any such stop are built as two one-sided tools (`Extruded::parts`), each cut
+    back by its own stop, then joined (`Stopping::assembled`), so each side may stop at another
+    body or end on a plane or a distance; the tool is otherwise one extrusion.
+  - An offset on a stop (curved or several faces; `StopAt::shift`, an `EndShift`) moves the cut
+    back tool's end along the extrusion (`Stopping::moved`, kernel `move_end`): the tool is
+    joined to, or intersected with, a copy of itself moved by the offset along the direction
+    (the sketch's normal, or the extrusion's direction scaled so its rise is the offset). It
+    fails in words (`StopOffset`) where the offset reaches farther than the tool is long, and a
+    taper refuses it (`StopOffsetTapered`: a moved taper does not coincide with itself).
   - Up to face ends on the face's plane extended, which must lie beyond the whole profile.
-  - `UpToSurface` (boxed `FaceAttachment`, no offset) ends on any face: flat on its plane, curved
-    by `stop_at_body` (failing naming the other faces met first). Its body counts among
+  - `UpToSurface` (boxed `FaceAttachment`, optional `offset`) ends on any face: flat on its plane,
+    curved by `stop_at_body` (failing naming the other faces met first). Its body counts among
     `end_bodies`, its origins among the feature's, healing keeps it.
   - Either up-to end may carry an `offset` (signed length expression, boxed, zero stored as
     absent) along the end plane's normal, so a slanted plane keeps its slant; it fails naming the
@@ -554,13 +563,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   fail in words), with the same tool: they are in `bodies_used` and `Feature::bodies`, their
   results are `SolidResult::others`, through all reaches past all of them, the target and repeats
   are skipped, and a body the tool removes entirely fails the feature naming it.
-- `RevolveExtent::UpTo { target, reversed }` turns until its half-plane first lies in the plane of
+- `RevolveExtent::UpTo { target, reversed, offset }` turns until its half-plane first lies in the plane of
   a flat face or plane holding the axis (boxed `PlaneReference`, resolved, counted and healed like
   an extrusion's end; `Turn` in `solid.rs`, from the chosen regions' middle). A target holding the
   profile itself fails in words; a flat face not holding the axis is stopped at as
   `UpToSurface` is; a datum or principal plane not holding it fails (`NotThroughAxis`).
-- `RevolveExtent::UpToNext { reversed }` (needs a target body, `TurnNextNeedsBody`) and
-  `UpToSurface { face, reversed }` (boxed `FaceAttachment`, counted among `end_bodies` and healed
+- `RevolveExtent::UpToNext { reversed, offset }` (needs a target body, `TurnNextNeedsBody`) and
+  `UpToSurface { face, reversed, offset }` (boxed `FaceAttachment`, counted among `end_bodies` and healed
   like an extrusion's surface end; a flat face holding the axis ends on its plane as `UpTo`) turn
   `SEARCHED_TURN` (a full turn less `SEARCH_GAP`, 1°) and cut the tool back where it first meets the
   body (kernel `stop_turning_at_body`, `TurnStop` and `Stopping::trim_turning`). A chosen face met
@@ -568,6 +577,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   the body, a removal first entering it, part of the profile turning past it, a profile straddling
   it and a body wholly inside the turn fail as `TurnUnstopped` (`Unstopped`), worded for a
   revolution.
+- Each of the three up-to revolve extents may carry an `offset`, a signed angle expression (boxed,
+  zero stored as absent, counted among the feature's expressions): on a plane the turn goes that far
+  past it or stops short of it (`TurnOffsetShort` when that turns back past the start), on a stop
+  the cut back tool's end is turned about the axis by it (`TurnStop::shift`, kernel `move_end`
+  with a rotation, signed to run with the turn, `StopOffset` where it reaches farther than the
+  tool is long).
 - `RevolveAxis` is a line of its own sketch (it cannot then be deleted; `AxisNotALine`) or an
   `AxisReference` to a model axis in the sketch plane.
 - A revolve's `side` (`AxisSide`; none turns the whole profile) keeps only the part of the chosen
@@ -1030,12 +1045,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   bottom. Up to next asks kernel `next_face` along the hole's outline (circle or slot) in the body
   before the feature and fails in words when the hole first enters the body or passes beside it;
   the plane it found, per hole in drilling order, is recorded in the result's `reached` as an
-  extrusion's is. Where the first faces are curved or several and there is no offset, each drill
+  extrusion's is. Where the first faces are curved or several, each drill
   is made through all (`reach`) and cut back where it leaves the body (kernel `stop_at_body` in
   `Context::stopped`, nothing recorded in `reached`; a counterbore or steps are cut back with it,
-  `head_fits` does not apply); with an offset they fail in words (`NextCurved`, `NextSeveral`),
-  and a hole starting partly inside the body, around a void, or not buildable fails alone
-  (`NextStraddles`, `NextEnclosed`, `NextUnbuilt`). An up-to hole's counterbore, countersink or steps must stay
+  `head_fits` does not apply); an offset moves the cut back drill's end along the hole by kernel
+  `move_end` (`NextOffset` where it reaches farther than the drill is long). A hole starting
+  partly inside the body, around a void, or not buildable fails alone (`NextStraddles`,
+  `NextEnclosed`, `NextUnbuilt`). An up-to hole's counterbore, countersink or steps must stay
   shallower than each depth, and it ends flat whatever its bottom says.
 - `HoleStyle`: plain, counterbore (diameter, depth), countersink (diameter, angle) or stepped
   (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and own depth; each

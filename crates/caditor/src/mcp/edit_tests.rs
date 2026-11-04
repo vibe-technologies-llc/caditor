@@ -461,6 +461,21 @@ fn extrusions_end_up_to_a_curved_face() {
     );
     assert!(close(total_volume(&mut client) - before, 80.0), "{reached}");
 
+    added(
+        &mut client,
+        "edit_feature",
+        json!({
+            "feature": column,
+            "up_to_surface": { "body": dome, "face": round },
+            "end_offset": -1
+        }),
+    );
+    let short = total_volume(&mut client) - before;
+    assert!(
+        (reached - 16.0 - short).abs() < 3.0 && short < reached - 10.0,
+        "{short} {reached}"
+    );
+
     let twice = client.tool_error(
         "add_extrusion",
         json!({
@@ -612,6 +627,47 @@ fn a_revolve_turns_up_to_a_plane() {
         json!({ "sketch": sketch, "axis": "Z", "up_to": "YZ", "angle": "90 deg" }),
     );
     assert!(both.contains("not both"), "{both}");
+    client.finish();
+}
+
+#[test]
+fn a_revolve_stop_takes_an_end_offset_in_degrees_kept_across_edits() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "rectangle", "corner": [10, 0], "opposite": [20, 30] }]
+        }),
+    );
+    let quarter = PI * 300.0 * 30.0 / 4.0;
+    let tenth = PI * 300.0 * 30.0 / 36.0;
+    let ring = added(
+        &mut client,
+        "add_revolve",
+        json!({ "sketch": sketch, "axis": "Z", "up_to": "YZ", "end_offset": "10 deg" }),
+    );
+    assert!(close(total_volume(&mut client), quarter + tenth));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": ring, "reversed": true }),
+    );
+    assert!(close(total_volume(&mut client), quarter + tenth));
+    added(
+        &mut client,
+        "edit_feature",
+        json!({ "feature": ring, "end_offset": "-10 deg" }),
+    );
+    assert!(close(total_volume(&mut client), quarter - tenth));
+
+    let none = client.tool_error(
+        "add_revolve",
+        json!({ "sketch": sketch, "axis": "Z", "angle": "90 deg", "end_offset": "5 deg" }),
+    );
+    assert!(none.contains("goes with an end up_to"), "{none}");
     client.finish();
 }
 

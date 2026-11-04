@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     f64::consts::{PI, TAU},
     panic::{self, AssertUnwindSafe},
@@ -7,17 +7,17 @@ use std::{
 };
 
 use caditor_expression::{Dimension, Expression, ParameterId};
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Ray, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3, Ray, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{
     Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
-    FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound,
-    LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
-    MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region,
-    RegionMesh, RegionReference, SamplingTolerance, Selection, Solid, StopError, Stopped,
-    SweepError, TessellationError, VertexId, VertexName, WallError, WallSide, boolean,
-    extrude_tapered, extrude_tapered_along, heights, heights_along, mass_properties_tessellating,
-    next_face, next_face_along, resolve_regions, revolve, stop_at_body, stop_turning_at_body,
-    vertex_names, wall_regions,
+    EndMoveError, FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION,
+    LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh,
+    MeshQuality, MeshedSolid, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError,
+    ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection, Solid,
+    StopError, Stopped, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide,
+    boolean, extrude_tapered, extrude_tapered_along, heights, heights_along,
+    mass_properties_tessellating, move_end, next_face, next_face_along, resolve_regions, revolve,
+    stop_at_body, stop_turning_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -106,6 +106,7 @@ pub enum ExtrudeEnd {
     },
     UpToSurface {
         face: Box<FaceAttachment>,
+        offset: Option<Box<Expression>>,
     },
 }
 
@@ -124,6 +125,7 @@ impl ExtrudeEnd {
     pub fn up_to_surface(face: FaceAttachment) -> Self {
         Self::UpToSurface {
             face: Box::new(face),
+            offset: None,
         }
     }
 
@@ -149,7 +151,7 @@ impl ExtrudeEnd {
 
     pub fn surface(&self) -> Option<&FaceAttachment> {
         match self {
-            Self::UpToSurface { face } => Some(face),
+            Self::UpToSurface { face, .. } => Some(face),
             Self::Distance(_)
             | Self::ThroughAll
             | Self::UpToNext { .. }
@@ -159,23 +161,28 @@ impl ExtrudeEnd {
 
     pub fn offset(&self) -> Option<&Expression> {
         match self {
-            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => offset.as_deref(),
-            Self::Distance(_) | Self::ThroughAll | Self::UpToSurface { .. } => None,
+            Self::UpToNext { offset }
+            | Self::UpToFace { offset, .. }
+            | Self::UpToSurface { offset, .. } => offset.as_deref(),
+            Self::Distance(_) | Self::ThroughAll => None,
         }
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         match self {
             Self::Distance(distance) => vec![distance],
-            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => {
-                offset.as_deref_mut().into_iter().collect()
-            }
-            Self::ThroughAll | Self::UpToSurface { .. } => Vec::new(),
+            Self::UpToNext { offset }
+            | Self::UpToFace { offset, .. }
+            | Self::UpToSurface { offset, .. } => offset.as_deref_mut().into_iter().collect(),
+            Self::ThroughAll => Vec::new(),
         }
     }
 
     pub fn takes_offset(&self) -> bool {
-        matches!(self, Self::UpToNext { .. } | Self::UpToFace { .. })
+        matches!(
+            self,
+            Self::UpToNext { .. } | Self::UpToFace { .. } | Self::UpToSurface { .. }
+        )
     }
 
     #[must_use]
@@ -184,7 +191,8 @@ impl ExtrudeEnd {
         match self {
             Self::UpToNext { .. } => Self::UpToNext { offset },
             Self::UpToFace { target, .. } => Self::UpToFace { target, offset },
-            other @ (Self::Distance(_) | Self::ThroughAll | Self::UpToSurface { .. }) => other,
+            Self::UpToSurface { face, .. } => Self::UpToSurface { face, offset },
+            other @ (Self::Distance(_) | Self::ThroughAll) => other,
         }
     }
 }
@@ -294,13 +302,16 @@ pub enum RevolveExtent {
     UpTo {
         target: Box<PlaneReference>,
         reversed: bool,
+        offset: Option<Box<Expression>>,
     },
     UpToNext {
         reversed: bool,
+        offset: Option<Box<Expression>>,
     },
     UpToSurface {
         face: Box<FaceAttachment>,
         reversed: bool,
+        offset: Option<Box<Expression>>,
     },
 }
 
@@ -309,6 +320,14 @@ impl RevolveExtent {
         Self::UpTo {
             target: Box::new(target),
             reversed,
+            offset: None,
+        }
+    }
+
+    pub fn up_to_next(reversed: bool) -> Self {
+        Self::UpToNext {
+            reversed,
+            offset: None,
         }
     }
 
@@ -316,6 +335,53 @@ impl RevolveExtent {
         Self::UpToSurface {
             face: Box::new(face),
             reversed,
+            offset: None,
+        }
+    }
+
+    pub fn offset(&self) -> Option<&Expression> {
+        match self {
+            Self::UpTo { offset, .. }
+            | Self::UpToNext { offset, .. }
+            | Self::UpToSurface { offset, .. } => offset.as_deref(),
+            Self::Full | Self::OneSide { .. } | Self::Symmetric { .. } | Self::TwoSides { .. } => {
+                None
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn with_offset(self, offset: Option<Expression>) -> Self {
+        let offset = offset.map(Box::new);
+        match self {
+            Self::UpTo {
+                target, reversed, ..
+            } => Self::UpTo {
+                target,
+                reversed,
+                offset,
+            },
+            Self::UpToNext { reversed, .. } => Self::UpToNext { reversed, offset },
+            Self::UpToSurface { face, reversed, .. } => Self::UpToSurface {
+                face,
+                reversed,
+                offset,
+            },
+            other @ (Self::Full
+            | Self::OneSide { .. }
+            | Self::Symmetric { .. }
+            | Self::TwoSides { .. }) => other,
+        }
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Full => Vec::new(),
+            Self::UpTo { offset, .. }
+            | Self::UpToNext { offset, .. }
+            | Self::UpToSurface { offset, .. } => offset.as_deref_mut().into_iter().collect(),
+            Self::OneSide { angle, .. } | Self::Symmetric { angle } => vec![angle],
+            Self::TwoSides { forward, backward } => vec![forward, backward],
         }
     }
 
@@ -354,7 +420,7 @@ impl RevolveExtent {
         matches!(
             self,
             Self::UpTo { reversed: true, .. }
-                | Self::UpToNext { reversed: true }
+                | Self::UpToNext { reversed: true, .. }
                 | Self::UpToSurface { reversed: true, .. }
         )
     }
@@ -362,16 +428,27 @@ impl RevolveExtent {
     #[must_use]
     pub fn flipped_up_to(&self) -> Option<Self> {
         match self {
-            Self::UpTo { target, reversed } => Some(Self::UpTo {
+            Self::UpTo {
+                target,
+                reversed,
+                offset,
+            } => Some(Self::UpTo {
                 target: target.clone(),
                 reversed: !reversed,
+                offset: offset.clone(),
             }),
-            Self::UpToNext { reversed } => Some(Self::UpToNext {
+            Self::UpToNext { reversed, offset } => Some(Self::UpToNext {
                 reversed: !reversed,
+                offset: offset.clone(),
             }),
-            Self::UpToSurface { face, reversed } => Some(Self::UpToSurface {
+            Self::UpToSurface {
+                face,
+                reversed,
+                offset,
+            } => Some(Self::UpToSurface {
                 face: face.clone(),
                 reversed: !reversed,
+                offset: offset.clone(),
             }),
             Self::Full | Self::OneSide { .. } | Self::Symmetric { .. } | Self::TwoSides { .. } => {
                 None
@@ -381,9 +458,10 @@ impl RevolveExtent {
 
     fn expressions(&self) -> Vec<&Expression> {
         match self {
-            Self::Full | Self::UpTo { .. } | Self::UpToNext { .. } | Self::UpToSurface { .. } => {
-                Vec::new()
-            }
+            Self::Full => Vec::new(),
+            Self::UpTo { offset, .. }
+            | Self::UpToNext { offset, .. }
+            | Self::UpToSurface { offset, .. } => offset.as_deref().into_iter().collect(),
             Self::OneSide { angle, .. } | Self::Symmetric { angle } => vec![angle],
             Self::TwoSides { forward, backward } => vec![forward, backward],
         }
@@ -1311,7 +1389,6 @@ pub(crate) fn evaluate(
         Some(start) => start_plane(&context, inputs, solid.shape(), plane, start)?,
         None => plane,
     };
-    let mut stopped = None;
     let mut turned_stop = None;
     let kept;
     let mut stopped_regions: &[Region] = &regions;
@@ -1319,9 +1396,16 @@ pub(crate) fn evaluate(
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
             let built = extruded(&context, inputs, definition, started, &regions, None)?;
-            stopped = built.stop;
             reached = built.reached;
-            Ok(built.tool)
+            Ok(Stopping {
+                context: &context,
+                inputs,
+                operation: solid.operation(),
+                plane: &started,
+                regions: &regions,
+                landing: None,
+            }
+            .assembled(built.parts)?)
         }
         SolidFeature::Revolve(definition) => {
             let axis = match &definition.axis {
@@ -1365,10 +1449,9 @@ pub(crate) fn evaluate(
         regions: stopped_regions,
         landing: None,
     };
-    let tool = match (stopped, turned_stop) {
-        (Some(stop), _) => stopping.trim(tool, stop)?,
-        (None, Some(stop)) => stopping.trim_turning(tool, stop)?,
-        (None, None) => tool,
+    let tool = match turned_stop {
+        Some(stop) => stopping.trim_turning(tool, stop)?,
+        None => tool,
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
@@ -1467,9 +1550,13 @@ fn profiled<'a>(
     })
 }
 
-struct Extruded {
+struct Part {
     tool: Solid,
     stop: Option<StopAt>,
+}
+
+struct Extruded {
+    parts: Vec<Part>,
     reached: Vec<ReachedEnd>,
 }
 
@@ -1511,27 +1598,49 @@ fn extruded(
         other_bodies: &definition.other_bodies,
         plane,
         regions,
-        stop: Cell::new(None),
+        stops: RefCell::new(Vec::new()),
         reached: RefCell::new(Vec::new()),
         along,
         landing,
     };
-    let (extent, stop) = ends.extent(&extent)?;
+    let built = ends.extent(&extent)?;
     let reached = ends.reached.take();
     let taper = match definition.taper.as_deref() {
         Some(angle) => taper_angle(context, angle, inputs.parameters)?,
         None => 0.0,
     };
-    let tool = match along {
-        Some(direction) => extrude_tapered_along(&plane, regions, extent, taper, direction, raw),
-        None => extrude_tapered(&plane, regions, extent, taper, raw),
+    if taper != 0.0 && built.stops.iter().any(|stop| stop.shift.is_some()) {
+        return Err(context.error(SolidCause::StopOffsetTapered {
+            sketch: context.sketch_name.clone(),
+        }));
     }
-    .map_err(|error| sweep_failure(context, "extrusion", &error))?;
-    Ok(Extruded {
-        tool,
-        stop,
-        reached,
-    })
+    let build = |extent: LinearExtent| {
+        match along {
+            Some(direction) => {
+                extrude_tapered_along(&plane, regions, extent, taper, direction, raw)
+            }
+            None => extrude_tapered(&plane, regions, extent, taper, raw),
+        }
+        .map_err(|error| sweep_failure(context, "extrusion", &error))
+    };
+    let stop_of = |reversed: bool| built.stops.iter().find(|stop| stop.reversed == reversed);
+    let parts = match built.halves {
+        Some([forward, backward]) => vec![
+            Part {
+                tool: build(forward)?,
+                stop: stop_of(false).copied(),
+            },
+            Part {
+                tool: build(backward)?,
+                stop: stop_of(true).copied(),
+            },
+        ],
+        None => vec![Part {
+            tool: build(built.extent)?,
+            stop: built.stops.first().copied(),
+        }],
+    };
+    Ok(Extruded { parts, reached })
 }
 
 pub(crate) fn land(
@@ -1558,18 +1667,15 @@ pub(crate) fn land(
         Some(landing),
     )?;
     let landed_plane = landing.plane(&started);
-    let tool = match built.stop {
-        Some(stop) => Stopping {
-            context: &context,
-            inputs,
-            operation: definition.operation,
-            plane: &landed_plane,
-            regions: &regions,
-            landing: Some(landing),
-        }
-        .trim(built.tool, stop)?,
-        None => built.tool,
-    };
+    let tool = Stopping {
+        context: &context,
+        inputs,
+        operation: definition.operation,
+        plane: &landed_plane,
+        regions: &regions,
+        landing: Some(landing),
+    }
+    .assembled(built.parts)?;
     let tool = landing.named(&tool)?;
     let body = boolean(landing.standing, &tool, landing.operation).map_err(|error| {
         boolean_failure(
@@ -2114,7 +2220,7 @@ struct Ends<'a> {
     other_bodies: &'a [FeatureId],
     plane: Plane,
     regions: &'a [Region],
-    stop: Cell<Option<StopAt>>,
+    stops: RefCell<Vec<StopAt>>,
     reached: RefCell<Vec<ReachedEnd>>,
     along: Option<Vector3>,
     landing: Option<&'a Landing<'a>>,
@@ -2126,6 +2232,21 @@ struct StopAt {
     far: f64,
     reversed: bool,
     face: Option<FaceName>,
+    shift: Option<EndShift>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EndShift {
+    by: RigidTransform,
+    onward: Vector3,
+    grow: bool,
+    offset: f64,
+}
+
+struct Built {
+    extent: LinearExtent,
+    stops: Vec<StopAt>,
+    halves: Option<[LinearExtent; 2]>,
 }
 
 impl Ends<'_> {
@@ -2133,7 +2254,8 @@ impl Ends<'_> {
         self.context.error(cause)
     }
 
-    fn extent(&self, extent: &ExtrudeExtent) -> Result<(LinearExtent, Option<StopAt>), Failure> {
+    fn extent(&self, extent: &ExtrudeExtent) -> Result<Built, Failure> {
+        let mut halves = None;
         let built = match extent {
             ExtrudeExtent::OneSide { end, reversed } => LinearExtent::between(
                 LinearBound::Offset(0.0),
@@ -2147,22 +2269,33 @@ impl Ends<'_> {
             ExtrudeExtent::Symmetric { distance } => {
                 LinearExtent::symmetric(self.length(distance, "distance")? * self.rise())
             }
-            ExtrudeExtent::TwoSides { forward, backward } => LinearExtent::between(
-                self.bound(backward, Side::Backward)?,
-                self.bound(forward, Side::Forward)?,
-            ),
+            ExtrudeExtent::TwoSides { forward, backward } => {
+                let backward = self.bound(backward, Side::Backward)?;
+                let forward = self.bound(forward, Side::Forward)?;
+                halves = Some([
+                    LinearExtent::between(LinearBound::Offset(0.0), forward),
+                    LinearExtent::between(LinearBound::Offset(0.0), backward),
+                ]);
+                LinearExtent::between(backward, forward)
+            }
         };
         let built = built.map_err(|error| match error {
             SweepError::ZeroLength => self.error(SolidCause::ExtrusionEmpty),
             other => sweep_failure(self.context, "extrusion", &other),
         })?;
-        let stop = self.stop.get();
-        if stop.is_some() && !matches!(extent, ExtrudeExtent::OneSide { .. }) {
-            return Err(self.error(SolidCause::TwoSidedStop {
-                sketch: self.context.sketch_name.clone(),
-            }));
-        }
-        Ok((built, stop))
+        let stops = self.stops.take();
+        let halves = match halves {
+            Some([forward, backward]) if !stops.is_empty() => Some([
+                forward.map_err(|error| sweep_failure(self.context, "extrusion", &error))?,
+                backward.map_err(|error| sweep_failure(self.context, "extrusion", &error))?,
+            ]),
+            _ => None,
+        };
+        Ok(Built {
+            extent: built,
+            stops,
+            halves,
+        })
     }
 
     fn length(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
@@ -2191,11 +2324,19 @@ impl Ends<'_> {
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_face(target, side, offset)
             }
-            ExtrudeEnd::UpToSurface { face } => self.up_to_surface(face, side),
+            ExtrudeEnd::UpToSurface { face, offset } => {
+                let offset = self.offset(offset.as_deref(), side)?;
+                self.up_to_surface(face, side, offset)
+            }
         }
     }
 
-    fn up_to_surface(&self, face: &FaceAttachment, side: Side) -> Result<LinearBound, Failure> {
+    fn up_to_surface(
+        &self,
+        face: &FaceAttachment,
+        side: Side,
+        offset: f64,
+    ) -> Result<LinearBound, Failure> {
         let solid = self.body(face.body)?;
         let body_name = feature_name(self.inputs, face.body);
         let found = face.face.resolve(solid).map_err(|error| {
@@ -2206,12 +2347,11 @@ impl Ends<'_> {
         })?;
         let name = describe_origin(self.inputs.document, face.face.origin());
         if let Some(plane) = face_plane(solid, found) {
-            return self.offset_end(plane, side, 0.0, &name);
+            return self.offset_end(plane, side, offset, &name);
         }
-        let stop = self.stop_at(face.body, side)?;
-        if let Some(mut known) = self.stop.get() {
+        let stop = self.stop_at(face.body, side, offset)?;
+        if let Some(known) = self.stops.borrow_mut().last_mut() {
             known.face = solid.face(found).map(|found| found.name());
-            self.stop.set(Some(known));
         }
         Ok(stop)
     }
@@ -2333,17 +2473,8 @@ impl Ends<'_> {
         };
         let found = match reached {
             Ok(found) => found,
-            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) if offset == 0.0 => {
-                return self.stop_at(body, side);
-            }
-            Err(error @ (ReachError::Curved(_) | ReachError::SeveralFaces(_))) => {
-                let found = match self.next_failure(solid, body, side, &error) {
-                    Failure::Error(found) => found,
-                    other @ (Failure::Waiting(_) | Failure::Cancelled) => return Err(other),
-                };
-                return Err(self.error(SolidCause::NextUnoffsettable {
-                    reached: found.cause,
-                }));
+            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) => {
+                return self.stop_at(body, side, offset);
             }
             Err(error) => return Err(self.next_failure(solid, body, side, &error)),
         };
@@ -2372,7 +2503,7 @@ impl Ends<'_> {
         }
     }
 
-    fn stop_at(&self, body: FeatureId, side: Side) -> Result<LinearBound, Failure> {
+    fn stop_at(&self, body: FeatureId, side: Side, offset: f64) -> Result<LinearBound, Failure> {
         let bounds = self.body(body)?.bounding_box();
         let direction = self.plane.normal() * side.sign();
         let farthest = bounds.map_or(f64::NEG_INFINITY, |bounds| {
@@ -2385,13 +2516,37 @@ impl Ends<'_> {
         let margin =
             bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
         let far = (farthest + margin).min(MAX_SIZE);
-        self.stop.set(Some(StopAt {
+        let shift = self.shift_of(side, offset)?;
+        self.stops.borrow_mut().push(StopAt {
             body,
             far,
             reversed: side.reversed(),
             face: None,
-        }));
+            shift,
+        });
         Ok(LinearBound::Offset(side.sign() * far))
+    }
+
+    fn shift_of(&self, side: Side, offset: f64) -> Result<Option<EndShift>, Failure> {
+        if offset == 0.0 {
+            return Ok(None);
+        }
+        let travel = match self.along {
+            Some(direction) => direction / self.rise(),
+            None => self.plane.normal(),
+        } * side.sign();
+        let by = RigidTransform::translation(travel * offset.abs()).ok_or_else(|| {
+            self.error(SolidCause::EndNotMoved {
+                name: "the faces it stops at".to_owned(),
+                offset: side.offset(),
+            })
+        })?;
+        Ok(Some(EndShift {
+            by,
+            onward: travel,
+            grow: offset > 0.0,
+            offset,
+        }))
     }
 
     fn next_failure(
@@ -2498,6 +2653,33 @@ impl Stopping<'_> {
         self.context.error(cause)
     }
 
+    fn assembled(&self, parts: Vec<Part>) -> Result<Solid, Failure> {
+        let mut trimmed = Vec::with_capacity(parts.len());
+        for part in parts {
+            trimmed.push(match part.stop {
+                Some(stop) => self.trim(part.tool, stop)?,
+                None => part.tool,
+            });
+        }
+        let mut joined = trimmed.into_iter();
+        let Some(mut whole) = joined.next() else {
+            return Err(self.error(SolidCause::ExtrusionEmpty));
+        };
+        for half in joined {
+            whole = boolean(&whole, &half, BooleanOperation::Union).map_err(|error| {
+                boolean_failure(
+                    self.context,
+                    self.inputs,
+                    [&whole, &half],
+                    self.context.feature.id(),
+                    self.operation,
+                    &error,
+                )
+            })?;
+        }
+        Ok(whole)
+    }
+
     fn trim(&self, tool: Solid, stop: StopAt) -> Result<Solid, Failure> {
         let standing = self.landing.and_then(|landing| landing.body(stop.body));
         let body = match standing {
@@ -2516,7 +2698,45 @@ impl Stopping<'_> {
             stop.far,
         );
         let stopped = stopped.map_err(|error| self.swept_failure(&tool, body, stop.body, error))?;
-        self.finish(body, stop.body, stop.face, stopped)
+        let trimmed = self.finish(body, stop.body, stop.face, stopped)?;
+        match stop.shift {
+            Some(shift) => self.moved(trimmed, shift, stop.body),
+            None => Ok(trimmed),
+        }
+    }
+
+    fn moved(&self, tool: Solid, shift: EndShift, body: FeatureId) -> Result<Solid, Failure> {
+        let EndShift {
+            by,
+            onward,
+            grow,
+            offset,
+        } = shift;
+        move_end(
+            &tool,
+            (self.plane, self.regions),
+            onward,
+            &by,
+            grow,
+            self.context.feature.id().raw(),
+        )
+        .map_err(|error| match error {
+            EndMoveError::Cancelled(_) => Failure::Cancelled,
+            EndMoveError::Detached => self.error(SolidCause::StopOffset {
+                body: feature_name(self.inputs, body),
+                offset,
+            }),
+            EndMoveError::Placement(_) | EndMoveError::Boolean(_) => {
+                log::warn!(
+                    "{} could not move its end by the offset: {error}",
+                    self.context.feature.name
+                );
+                self.error(SolidCause::StopOffset {
+                    body: feature_name(self.inputs, body),
+                    offset,
+                })
+            }
+        })
     }
 
     fn trim_turning(&self, tool: Solid, stop: TurnStop) -> Result<Solid, Failure> {
@@ -2545,9 +2765,13 @@ impl Stopping<'_> {
             _ => {}
         }
         let body_name = feature_name(self.inputs, stop.body);
-        match stop.face {
-            Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid),
-            None => Ok(stopped.solid),
+        let trimmed = match stop.face {
+            Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid)?,
+            None => stopped.solid,
+        };
+        match stop.shift {
+            Some(shift) => self.moved(trimmed, shift, stop.body),
+            None => Ok(trimmed),
         }
     }
 
@@ -2713,6 +2937,7 @@ struct TurnStop {
     face: Option<FaceName>,
     axis: Axis2,
     turn: f64,
+    shift: Option<EndShift>,
 }
 
 impl Turn<'_> {
@@ -2726,14 +2951,22 @@ impl Turn<'_> {
         operation: BodyOperation,
     ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         match extent {
-            RevolveExtent::UpTo { target, reversed } => self.up_to(target, *reversed),
-            RevolveExtent::UpToNext { reversed } => {
+            RevolveExtent::UpTo {
+                target,
+                reversed,
+                offset,
+            } => self.up_to(target, *reversed, self.offset(offset.as_deref())?),
+            RevolveExtent::UpToNext { reversed, offset } => {
                 let body = operation
                     .target()
                     .ok_or_else(|| self.error(SolidCause::TurnNextNeedsBody))?;
-                self.stopping(body, None, *reversed)
+                self.stopping(body, None, *reversed, self.offset(offset.as_deref())?)
             }
-            RevolveExtent::UpToSurface { face, reversed } => self.up_to_surface(face, *reversed),
+            RevolveExtent::UpToSurface {
+                face,
+                reversed,
+                offset,
+            } => self.up_to_surface(face, *reversed, self.offset(offset.as_deref())?),
             other @ (RevolveExtent::Full
             | RevolveExtent::OneSide { .. }
             | RevolveExtent::Symmetric { .. }
@@ -2744,26 +2977,42 @@ impl Turn<'_> {
         }
     }
 
+    fn offset(&self, offset: Option<&Expression>) -> Result<f64, Failure> {
+        let Some(offset) = offset else {
+            return Ok(0.0);
+        };
+        let degrees = evaluate_value(
+            self.context,
+            offset,
+            Dimension::ANGLE,
+            "end offset",
+            self.inputs.parameters,
+        )?;
+        Ok(degrees.to_radians())
+    }
+
     fn up_to(
         &self,
         target: &PlaneReference,
         reversed: bool,
+        offset: f64,
     ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         let found = resolve_target(self.context, self.inputs, target, TargetFor::RevolutionEnd)?;
         let name = capitalized(&describe_plane(self.inputs.document, target));
         if self.holds_axis(&found) {
-            return Ok((self.onto_plane(&found, &name, reversed)?, None));
+            return Ok((self.onto_plane(&found, &name, reversed, offset)?, None));
         }
         let PlaneReference::Face(attachment) = target else {
             return Err(self.error(SolidCause::NotThroughAxis { name }));
         };
-        self.up_to_surface(attachment, reversed)
+        self.up_to_surface(attachment, reversed, offset)
     }
 
     fn up_to_surface(
         &self,
         face: &FaceAttachment,
         reversed: bool,
+        offset: f64,
     ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         let solid = self
             .inputs
@@ -2779,10 +3028,10 @@ impl Turn<'_> {
             && self.holds_axis(&plane)
         {
             let name = capitalized(&describe_origin(self.inputs.document, face.face.origin()));
-            return Ok((self.onto_plane(&plane, &name, reversed)?, None));
+            return Ok((self.onto_plane(&plane, &name, reversed, offset)?, None));
         }
         let name = solid.face(found).map(|found| found.name());
-        self.stopping(face.body, name, reversed)
+        self.stopping(face.body, name, reversed, offset)
     }
 
     fn stopping(
@@ -2790,6 +3039,7 @@ impl Turn<'_> {
         body: FeatureId,
         face: Option<FaceName>,
         reversed: bool,
+        offset: f64,
     ) -> Result<(AngularExtent, Option<TurnStop>), Failure> {
         let turn = if reversed {
             -SEARCHED_TURN
@@ -2805,8 +3055,51 @@ impl Turn<'_> {
                 face,
                 axis: self.axis,
                 turn,
+                shift: self.shift_of(turn, offset)?,
             }),
         ))
+    }
+
+    fn shift_of(&self, turn: f64, offset: f64) -> Result<Option<EndShift>, Failure> {
+        if offset == 0.0 {
+            return Ok(None);
+        }
+        let unturnable = || {
+            self.error(SolidCause::WouldNotTurn {
+                name: "the faces it stops at".to_owned(),
+                sketch: self.context.sketch_name.clone(),
+            })
+        };
+        let (origin, direction) = self.axis_in_world();
+        let axis = direction.try_normalize().ok_or_else(unturnable)?;
+        let centre2d = self
+            .regions
+            .iter()
+            .filter_map(Region::bounds)
+            .reduce(Aabb2::union)
+            .map(|bounds| bounds.center())
+            .ok_or_else(unturnable)?;
+        let centre = self.plane.to_world(centre2d);
+        let radial = (centre - origin) - axis * (centre - origin).dot(axis);
+        let side = if self.axis.signed_distance(centre2d) < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+        let onward = self.plane.normal() * side * turn.signum();
+        let spin = if axis.cross(radial).dot(onward) < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+        let by = RigidTransform::rotation_about(origin, axis, spin * offset.abs())
+            .ok_or_else(unturnable)?;
+        Ok(Some(EndShift {
+            by,
+            onward,
+            grow: offset > 0.0,
+            offset,
+        }))
     }
 
     fn axis_in_world(&self) -> (Point3, Vector3) {
@@ -2828,6 +3121,7 @@ impl Turn<'_> {
         found: &Plane,
         name: &str,
         reversed: bool,
+        offset: f64,
     ) -> Result<AngularExtent, Failure> {
         let (origin, direction) = self.axis_in_world();
         let unturnable = || {
@@ -2854,7 +3148,14 @@ impl Turn<'_> {
             return Err(unturnable());
         }
         let angle = if reversed { first - PI } else { first };
-        AngularExtent::one_side(angle)
+        let moved = angle + angle.signum() * offset;
+        if moved * angle <= HOLDS_PROFILE {
+            return Err(self.error(SolidCause::TurnOffsetShort {
+                offset,
+                name: name.to_owned(),
+            }));
+        }
+        AngularExtent::one_side(moved)
             .map_err(|error| sweep_failure(self.context, "revolution", &error))
     }
 }

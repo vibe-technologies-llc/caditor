@@ -501,6 +501,14 @@ fn optional_distance(input: &mut Unstructured, scene: &Scene) -> Result<Option<B
     })
 }
 
+fn optional_turn(input: &mut Unstructured, scene: &Scene) -> Result<Option<Box<Expression>>> {
+    Ok(if input.arbitrary::<bool>()? {
+        Some(Box::new(scene.turn(input)?))
+    } else {
+        None
+    })
+}
+
 fn extrude_end(input: &mut Unstructured, scene: &Scene) -> Result<ExtrudeEnd> {
     Ok(match input.int_in_range(0u8..=4)? {
         0 => ExtrudeEnd::ThroughAll,
@@ -513,6 +521,7 @@ fn extrude_end(input: &mut Unstructured, scene: &Scene) -> Result<ExtrudeEnd> {
         },
         3 => ExtrudeEnd::UpToSurface {
             face: Box::new(scene.face_attachment(input)?),
+            offset: optional_distance(input, scene)?,
         },
         _ => ExtrudeEnd::Distance(scene.distance(input)?),
     })
@@ -734,14 +743,17 @@ fn solid(input: &mut Unstructured, scene: &Scene) -> Result<Option<FeatureKind>>
             },
             4 => RevolveExtent::UpToNext {
                 reversed: input.arbitrary()?,
+                offset: optional_turn(input, scene)?,
             },
             5 => RevolveExtent::UpToSurface {
                 face: Box::new(scene.face_attachment(input)?),
                 reversed: input.arbitrary()?,
+                offset: optional_turn(input, scene)?,
             },
             _ => RevolveExtent::UpTo {
                 target: Box::new(scene.plane(input)?),
                 reversed: input.arbitrary()?,
+                offset: optional_turn(input, scene)?,
             },
         };
         SolidFeature::Revolve(Revolve {

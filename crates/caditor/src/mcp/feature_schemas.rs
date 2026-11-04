@@ -201,6 +201,7 @@ pub fn revolve() -> Value {
                 "anyOf": [{ "type": "string", "enum": ["next"] }, plane()]
             },
             "up_to_surface": surface(),
+            "end_offset": amount("With up_to or up_to_surface: turn this far past it, or short of it when negative, such as \"5 deg\""),
             "symmetric": { "type": "boolean", "description": "Half the angle each way from the sketch" },
             "reversed": { "type": "boolean", "description": "Turn the other way" },
             "regions": regions(),

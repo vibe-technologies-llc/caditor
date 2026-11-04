@@ -477,30 +477,6 @@ fn up_to_a_curved_next_face_follows_the_face() {
             BodyOperation::Remove(rod),
         ),
     );
-    let offset = add(
-        &mut document,
-        "Offset",
-        extrusion(
-            strip,
-            one_side(
-                ExtrudeEnd::up_to_next().with_offset(Some(millimetres(1.0))),
-                false,
-            ),
-            BodyOperation::Add(rod),
-        ),
-    );
-    let both = add(
-        &mut document,
-        "Both ways",
-        extrusion(
-            strip,
-            ExtrudeExtent::TwoSides {
-                forward: ExtrudeEnd::up_to_next(),
-                backward: ExtrudeEnd::Distance(millimetres(2.0)),
-            },
-            BodyOperation::Add(rod),
-        ),
-    );
 
     let evaluation = evaluate(&document, &mut Recompute::default());
 
@@ -519,15 +495,6 @@ fn up_to_a_curved_next_face_follows_the_face() {
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
-    );
-    assert_eq!(
-        failure(&evaluation, offset).remedy(),
-        "Clear the end offset, or use Up to face with a flat face or plane."
-    );
-    assert_eq!(
-        failure(&evaluation, both).reason(),
-        "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
-         sides can only stop at one flat face."
     );
 }
 
@@ -1596,19 +1563,6 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
             steep.clone(),
         ),
     );
-    let both = add(
-        &mut document,
-        "Both ways",
-        leaning(
-            strip,
-            ExtrudeExtent::TwoSides {
-                forward: ExtrudeEnd::up_to_next(),
-                backward: ExtrudeEnd::Distance(millimetres(2.0)),
-            },
-            BodyOperation::Add(rod),
-            steep,
-        ),
-    );
 
     let flat = evaluate(&model.document, &mut Recompute::default());
     let curved = evaluate(&document, &mut Recompute::default());
@@ -1630,11 +1584,6 @@ fn an_extrusion_along_a_slant_runs_up_to_the_next_face_flat_or_curved() {
     assert!(
         (found - expected).abs() < 2e-3 * expected,
         "{found} {expected}"
-    );
-    assert_eq!(
-        failure(&curved, both).reason(),
-        "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
-         sides can only stop at one flat face."
     );
 }
 
@@ -1813,7 +1762,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         "Unchanged",
         turning(
             section,
-            RevolveExtent::UpToNext { reversed: false },
+            RevolveExtent::up_to_next(false),
             BodyOperation::NewBody,
         ),
     );
@@ -1822,7 +1771,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         "Forward",
         turning(
             section,
-            RevolveExtent::UpToNext { reversed: false },
+            RevolveExtent::up_to_next(false),
             BodyOperation::Add(wall),
         ),
     );
@@ -1831,7 +1780,7 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
         "Backward",
         turning(
             section,
-            RevolveExtent::UpToNext { reversed: true },
+            RevolveExtent::up_to_next(true),
             BodyOperation::Add(post),
         ),
     );
@@ -1879,4 +1828,264 @@ fn a_revolve_turns_up_to_the_next_face_or_a_chosen_face_off_its_axis() {
             .bodies_used()
             .contains(&post)
     );
+}
+
+fn grooved_rod(extent: ExtrudeExtent, taper: Option<Expression>) -> Grooved {
+    let mut document = Document::default();
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let groove = add(
+        &mut document,
+        "Groove sketch",
+        FeatureKind::from(rectangle(at(20.0), (-6.0, -1.0), (-4.0, 1.0))),
+    );
+    let mut kind = extrusion(groove, extent, BodyOperation::Remove(rod));
+    if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = &mut kind {
+        extrude.taper = taper.map(Box::new);
+    }
+    let cut = add(&mut document, "Groove", kind);
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    Grooved {
+        evaluation,
+        rod,
+        cut,
+    }
+}
+
+struct Grooved {
+    evaluation: Evaluation,
+    rod: FeatureId,
+    cut: FeatureId,
+}
+
+impl Grooved {
+    fn removed(&self) -> f64 {
+        assert_eq!(
+            self.evaluation.failed_count(),
+            0,
+            "{:?}",
+            self.evaluation.feature(self.cut)
+        );
+        self.evaluation.body(self.rod).unwrap().validate().unwrap();
+        500.0 * PI - volume(&self.evaluation, self.rod)
+    }
+}
+
+fn grooving_up_to_next(offset: f64) -> ExtrudeExtent {
+    one_side(
+        ExtrudeEnd::up_to_next().with_offset(Some(millimetres(offset))),
+        false,
+    )
+}
+
+#[test]
+fn an_end_up_to_a_curved_next_face_moves_short_of_it_or_past_it_by_its_offset() {
+    let plain = grooved_rod(grooving_up_to_next(0.0), None).removed();
+    let short = grooved_rod(grooving_up_to_next(-1.0), None).removed();
+    let past = grooved_rod(grooving_up_to_next(1.0), None).removed();
+    let behind = grooved_rod(grooving_up_to_next(-9.0), None);
+    let tapered = grooved_rod(grooving_up_to_next(-1.0), Some(degrees(3.0)));
+
+    assert!((plain - 2.0 * under_the_rod(2.0)).abs() < 0.8);
+    assert!((plain - short - 4.0).abs() < 0.8, "{plain} {short}");
+    assert!((plain - past).abs() < 0.8, "{plain} {past}");
+    assert_eq!(
+        failure(&behind.evaluation, behind.cut).reason(),
+        "Stopping 9 mm short of the faces of Rod would end the extrusion before it starts in \
+         places."
+    );
+    assert_eq!(
+        failure(&behind.evaluation, behind.cut).remedy(),
+        "Enter a smaller end offset, or use Up to face or a distance."
+    );
+    assert_eq!(
+        failure(&tapered.evaluation, tapered.cut).reason(),
+        "The profile of Groove sketch first meets curved or several faces, and an extrusion with \
+         a taper can only end on them without an offset."
+    );
+}
+
+#[test]
+fn each_side_of_a_two_sided_extrusion_stops_at_the_faces_it_meets() {
+    let one_way = grooved_rod(grooving_up_to_next(0.0), None).removed();
+    let both = grooved_rod(
+        ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::up_to_next(),
+            backward: ExtrudeEnd::up_to_next(),
+        },
+        None,
+    )
+    .removed();
+    let shortened = grooved_rod(
+        ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::up_to_next().with_offset(Some(millimetres(-1.0))),
+            backward: ExtrudeEnd::up_to_next(),
+        },
+        None,
+    )
+    .removed();
+    let measured = grooved_rod(
+        ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::up_to_next(),
+            backward: ExtrudeEnd::Distance(millimetres(2.0)),
+        },
+        None,
+    )
+    .removed();
+
+    assert!((both - 2.0 * one_way).abs() < 0.8, "{both} {one_way}");
+    assert!((both - shortened - 4.0).abs() < 0.8, "{both} {shortened}");
+    assert!(
+        (measured - one_way - 8.0).abs() < 0.8,
+        "{measured} {one_way}"
+    );
+}
+
+fn turned_section(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> (Evaluation, FeatureId) {
+    let mut document = Document::default();
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+    );
+    let wall_sketch = add(
+        &mut document,
+        "Wall sketch",
+        FeatureKind::from(rectangle(at(-1.0), (-0.5, 0.0), (0.5, 10.0))),
+    );
+    let wall = add(
+        &mut document,
+        "Wall",
+        extrusion(
+            wall_sketch,
+            ExtrudeExtent::one_side(millimetres(5.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let turned = add(
+        &mut document,
+        "Turned",
+        turning(section, extent(wall), BodyOperation::Add(wall)),
+    );
+    (evaluate(&document, &mut Recompute::default()), turned)
+}
+
+fn turned_added(extent: impl FnOnce(FeatureId) -> RevolveExtent) -> f64 {
+    let (evaluation, turned) = turned_section(extent);
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(turned)
+    );
+    let body = evaluation
+        .feature(turned)
+        .unwrap()
+        .result
+        .as_deref()
+        .unwrap();
+    let body = body.solid().unwrap();
+    body.solid.validate().unwrap();
+    volume(&evaluation, body.body) - 50.0
+}
+
+#[test]
+fn a_revolve_up_to_the_next_face_ends_short_of_it_or_past_it_by_its_offset() {
+    let next =
+        |offset: f64| move |_| RevolveExtent::up_to_next(false).with_offset(Some(degrees(offset)));
+    let wedge = 18.0 * 10.0_f64.to_radians();
+
+    let plain = turned_added(next(0.0));
+    let short = turned_added(next(-10.0));
+    let past = turned_added(next(10.0));
+
+    assert!((plain - short - wedge).abs() < 0.1, "{plain} {short}");
+    assert!((plain - past).abs() < 0.1, "{plain} {past}");
+}
+
+#[test]
+fn a_revolve_up_to_a_plane_turns_on_past_it_or_stops_short_by_its_offset() {
+    let mut document = Document::default();
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+    );
+    let to = |offset: f64| {
+        turning(
+            section,
+            RevolveExtent::up_to(PlaneReference::Principal(PrincipalPlane::Yz), false)
+                .with_offset(Some(degrees(offset))),
+            BodyOperation::NewBody,
+        )
+    };
+    let plain = add(&mut document, "Plain", to(0.0));
+    let past = add(&mut document, "Past", to(10.0));
+    let short = add(&mut document, "Short", to(-10.0));
+    let behind = add(&mut document, "Behind", to(-100.0));
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let full = PI * (16.0 - 4.0) * 3.0;
+    let tenth = full * 10.0 / 360.0;
+    let quarter = volume(&evaluation, plain);
+    assert!((volume(&evaluation, past) - quarter - tenth).abs() < 1e-3 * full);
+    assert!((quarter - volume(&evaluation, short) - tenth).abs() < 1e-3 * full);
+    assert_eq!(
+        failure(&evaluation, behind).reason(),
+        "Stopping 100° short of The YZ plane would end the revolution before it starts."
+    );
+}
+
+#[test]
+fn a_round_profile_moves_its_curved_end_by_an_offset() {
+    let mut volumes = Vec::new();
+    for offset in [0.0, -1.0, 1.0] {
+        let mut document = Document::default();
+        let rod_sketch = add(&mut document, "Rod sketch", rod());
+        let rod = add(
+            &mut document,
+            "Rod",
+            extrusion(
+                rod_sketch,
+                ExtrudeExtent::one_side(millimetres(20.0), false),
+                BodyOperation::NewBody,
+            ),
+        );
+        let groove = add(
+            &mut document,
+            "Groove sketch",
+            FeatureKind::from(circle(at(20.0), (-5.0, 0.0), 0.8)),
+        );
+        let cut = add(
+            &mut document,
+            "Groove",
+            extrusion(
+                groove,
+                grooving_up_to_next(offset),
+                BodyOperation::Remove(rod),
+            ),
+        );
+        let evaluation = evaluate(&document, &mut Recompute::default());
+        assert_eq!(
+            evaluation.failed_count(),
+            0,
+            "{:?}",
+            evaluation.feature(cut)
+        );
+        evaluation.body(rod).unwrap().validate().unwrap();
+        volumes.push(volume(&evaluation, rod));
+    }
+
+    let area = PI * 0.64;
+    assert!((volumes[1] - volumes[0] - area).abs() < 0.2, "{volumes:?}");
+    assert!((volumes[0] - volumes[2]).abs() < 0.2, "{volumes:?}");
 }

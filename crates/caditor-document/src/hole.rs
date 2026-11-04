@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity};
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanOperation, FaceId, FaceOrigin, LINEAR_RESOLUTION, LinearExtent,
-    MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid, StopError, boolean,
-    extrude, next_face, revolve, stop_at_body,
+    AngularExtent, Axis2, BooleanOperation, EndMoveError, FaceId, FaceOrigin, LINEAR_RESOLUTION,
+    LinearExtent, MAX_SIZE, Profile, ProfileCurve, RING_ENTITY, ReachError, Region, Solid,
+    StopError, boolean, extrude, move_end, next_face, revolve, stop_at_body,
 };
 use caditor_sketch::{Entity, EntityId, Sketch};
 
@@ -13,7 +13,7 @@ use crate::{
     attachment::AttachmentError,
     datum::{PlaneReference, Resolver, capitalized, describe_plane},
     describe::{describe_origin, lowercase_first},
-    document::{Feature, FeatureId, list_names},
+    document::{Feature, FeatureId},
     failure::{Cause, Expected, Upstream},
     hole_standard::HoleStandard,
     landing::{Landed, Landing},
@@ -964,6 +964,7 @@ enum Reach {
 struct Stop {
     plane: Plane,
     footprint: Vec<Region>,
+    offset: f64,
 }
 
 enum Next {
@@ -1085,15 +1086,21 @@ impl Context<'_> {
         };
         let found = match next_face(body, &plane, &footprint, false) {
             Ok(found) => found,
-            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) if offset == 0.0 => {
-                return Ok(Next::Stops(Stop { plane, footprint }));
+            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) => {
+                return Ok(Next::Stops(Stop {
+                    plane,
+                    footprint,
+                    offset,
+                }));
             }
             Err(error) => {
                 return Err(match error {
                     ReachError::Cancelled(_) => Failure::Cancelled,
-                    ReachError::NoRegions | ReachError::Undecided | ReachError::AlongSketch => {
-                        unusable()
-                    }
+                    ReachError::NoRegions
+                    | ReachError::Undecided
+                    | ReachError::AlongSketch
+                    | ReachError::Curved(_)
+                    | ReachError::SeveralFaces(_) => unusable(),
                     ReachError::Nothing => self.error(HoleCause::NextNothing {
                         at: at.to_owned(),
                         body: body_name.to_owned(),
@@ -1101,15 +1108,6 @@ impl Context<'_> {
                     ReachError::Partly => self.error(HoleCause::NextPartly {
                         at: at.to_owned(),
                         body: body_name.to_owned(),
-                    }),
-                    ReachError::SeveralFaces(faces) => self.error(HoleCause::NextSeveral {
-                        at: at.to_owned(),
-                        body: body_name.to_owned(),
-                        faces: faces.iter().map(|face| describe(*face)).collect(),
-                    }),
-                    ReachError::Curved(face) => self.error(HoleCause::NextCurved {
-                        at: at.to_owned(),
-                        face: describe(face),
                     }),
                 });
             }
@@ -1184,7 +1182,28 @@ impl Context<'_> {
                 body: body_name.to_owned(),
             }));
         }
-        Ok(stopped.solid)
+        if stop.offset == 0.0 {
+            return Ok(stopped.solid);
+        }
+        let travel = stop.plane.normal() * stop.offset.abs();
+        let by = RigidTransform::translation(travel).ok_or_else(unbuilt)?;
+        move_end(
+            &stopped.solid,
+            (&stop.plane, &stop.footprint),
+            stop.plane.normal(),
+            &by,
+            stop.offset > 0.0,
+            self.feature.id().raw(),
+        )
+        .map_err(|error| match error {
+            EndMoveError::Cancelled(_) => Failure::Cancelled,
+            EndMoveError::Detached | EndMoveError::Placement(_) | EndMoveError::Boolean(_) => self
+                .error(HoleCause::NextOffset {
+                    at: at.to_owned(),
+                    body: body_name.to_owned(),
+                    offset: stop.offset,
+                }),
+        })
     }
 
     fn head_fits(
@@ -1596,14 +1615,10 @@ pub(crate) enum HoleCause {
         at: String,
         body: String,
     },
-    NextSeveral {
+    NextOffset {
         at: String,
         body: String,
-        faces: Vec<String>,
-    },
-    NextCurved {
-        at: String,
-        face: String,
+        offset: f64,
     },
     NextStraddles {
         at: String,
@@ -1732,13 +1747,15 @@ impl HoleCause {
                 "Part of the hole at {at} passes beside the body of {body}, so there is no one \
                  next face to stop at."
             ),
-            Self::NextSeveral { at, body, faces } => format!(
-                "The hole at {at} meets several faces of {body} first: {}.",
-                list_names(faces)
+            Self::NextOffset { at, body, offset } if *offset > 0.0 => format!(
+                "Ending the hole at {at} {} past the faces of {body} reaches farther than the \
+                 hole is long in places.",
+                Quantity::length(*offset)
             ),
-            Self::NextCurved { at, face } => format!(
-                "The next face the hole at {at} meets, {face}, is curved, and a hole stopping \
-                 short of or past it needs a flat face or plane."
+            Self::NextOffset { at, body, offset } => format!(
+                "Stopping the hole at {at} {} short of the faces of {body} would end it before it \
+                 starts in places.",
+                Quantity::length(-offset)
             ),
             Self::NextStraddles { at, body } => format!(
                 "The hole at {at} starts partly inside the body of {body} and partly outside it, \
@@ -1841,8 +1858,8 @@ impl HoleCause {
             Self::NextPartly { .. } => {
                 "Use Up to face to choose where it stops, or move the point.".to_owned()
             }
-            Self::NextSeveral { .. } | Self::NextCurved { .. } => {
-                "Clear the end offset, or use Up to face with a flat face or plane.".to_owned()
+            Self::NextOffset { .. } => {
+                "Enter a smaller end offset, or use Up to face or drill it blind.".to_owned()
             }
             Self::NextStraddles { .. } | Self::NextEnclosed { .. } => {
                 "Move the point, or use Up to face to choose where it stops.".to_owned()
