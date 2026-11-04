@@ -65,8 +65,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [low · medium] `hidden_lines` and `outer_outline` run on one thread: each stretch casts its rays
   in turn (`visibility::verdict`), which a large body could fan out as `find_crossing` fans out its
-  pairs. Project's first outline therefore runs on the UI thread under a 3 s budget and a body
-  taking longer is refused in words (`projecting::OUTLINE_BUDGET`); no timings on a large body yet.
+  pairs. No timings on a large body yet.
 
 ## STEP import
 
@@ -78,6 +77,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
+- [high · medium] Project outline works out a body's outline on the UI thread, so the window can
+  freeze for up to 3 s (`projecting::OUTLINE_BUDGET`) before a body taking longer is refused in
+  words, against `ux.md` (the UI thread never blocks on long work) and against the 150 ms that
+  `body_reach::REACH_BUDGET` allows the only similar check. It should run off the UI thread with
+  progress and Cancel, queued like `queued.rs` actions, and then needs no budget or refusal. No
+  timings on a large body yet.
 - [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
   change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
   `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each
