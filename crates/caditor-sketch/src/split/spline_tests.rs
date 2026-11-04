@@ -172,20 +172,14 @@ fn a_constraint_on_the_far_stretch_follows_it_to_the_far_piece() {
 }
 
 #[test]
-fn a_fit_spline_a_closed_spline_and_a_point_off_the_curve_are_refused_in_words() {
+fn a_closed_spline_and_a_point_off_the_curve_are_refused_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
-    let fit = sketch.add_spline_of(&wavy(), SplineKind::fit(false));
     let closed = sketch.add_spline_of(&wavy(), SplineKind::Control { closed: true });
     let control = sketch.add_spline(&wavy());
-    let on_fit = on_spline(&mut sketch, fit, 0.4);
     let on_closed = on_spline(&mut sketch, closed, 0.4);
     let off = sketch.add_point(Point2::new(20.0, 50.0));
     let before = sketch.clone();
 
-    assert!(matches!(
-        sketch.check_split(fit, on_fit),
-        Err(SplitError::FitSpline { .. })
-    ));
     assert!(matches!(
         sketch.check_split(closed, on_closed),
         Err(SplitError::ClosedSpline { .. })
@@ -194,8 +188,61 @@ fn a_fit_spline_a_closed_spline_and_a_point_off_the_curve_are_refused_in_words()
         sketch.check_split(control, off),
         Err(SplitError::NotOnCurve { .. })
     ));
-    assert!(sketch.split_at(fit, on_fit).is_err());
+    assert!(sketch.split_at(closed, on_closed).is_err());
     assert!(sketch.same_content(&before));
+}
+
+#[test]
+fn a_fit_spline_splits_into_two_control_splines_of_the_same_curve() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
+    let cut = on_spline(&mut sketch, fit, 0.45);
+    let whole = sketch.spline(fit).unwrap();
+
+    let piece = sketch.split_at(fit, cut).unwrap();
+
+    let near = sketch.spline(fit).unwrap();
+    let far = sketch.spline(piece).unwrap();
+    assert_pieces_keep_the_shape(&whole, &[&near, &far]);
+    assert!(
+        !sketch
+            .entity(fit)
+            .and_then(Entity::spline_kind)
+            .unwrap()
+            .passes_its_points()
+    );
+    assert!(
+        !sketch
+            .entity(piece)
+            .and_then(Entity::spline_kind)
+            .unwrap()
+            .passes_its_points()
+    );
+    assert_eq!(ends(&sketch, fit).1, cut);
+    assert_eq!(ends(&sketch, piece).0, cut);
+}
+
+#[test]
+fn a_fit_spline_with_a_held_fit_point_splits_through_its_points_instead() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
+    let cut = on_spline(&mut sketch, fit, 0.2);
+    let held = sketch.entity(fit).unwrap().points()[4];
+    let at = sketch.point(held).unwrap();
+    let fix = Constraint::Fix { point: held, at };
+    sketch.add_constraint(fix.clone()).unwrap();
+
+    let piece = sketch.split_at(fit, cut).unwrap();
+
+    assert!(
+        sketch
+            .entity(piece)
+            .and_then(Entity::spline_kind)
+            .unwrap()
+            .passes_its_points()
+    );
+    assert!(sketch.entity(piece).unwrap().points().contains(&held));
+    assert!(has(&sketch, &fix));
 }
 
 #[test]
@@ -236,20 +283,38 @@ fn a_spline_is_broken_where_other_curves_cross_it_into_pieces_of_the_same_curve(
 }
 
 #[test]
-fn breaking_refuses_fit_and_closed_splines_in_words() {
+fn breaking_refuses_closed_splines_in_words() {
     let mut sketch = Sketch::new(Plane::XY);
-    let fit = sketch.add_spline_of(&long_wave(), SplineKind::fit(false));
     let closed = sketch.add_spline_of(&long_wave(), SplineKind::Control { closed: true });
     sketch.add_line(Point2::new(15.0, -40.0), Point2::new(15.0, 40.0));
     let before = sketch.clone();
 
     assert!(matches!(
-        sketch.break_curve(fit),
-        Err(BreakError::FitSpline { .. })
-    ));
-    assert!(matches!(
         sketch.break_curve(closed),
         Err(BreakError::ClosedSpline { .. })
     ));
     assert!(sketch.same_content(&before));
+}
+
+#[test]
+fn a_fit_spline_is_broken_where_other_curves_cross_it_keeping_its_shape() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let raised: Vec<Point2> = long_wave()
+        .iter()
+        .map(|point| *point + Point2::new(0.0, 100.0))
+        .collect();
+    let spline = sketch.add_spline_of(&raised, SplineKind::fit(false));
+    sketch.add_line(Point2::new(15.0, 60.0), Point2::new(15.0, 140.0));
+    sketch.add_line(Point2::new(45.0, 60.0), Point2::new(45.0, 140.0));
+    let whole = sketch.spline(spline).unwrap();
+
+    let pieces = sketch.break_curve(spline).unwrap();
+
+    assert_eq!(pieces.len(), 2);
+    let curves: Vec<BSpline> = [spline]
+        .iter()
+        .chain(&pieces)
+        .map(|piece| sketch.spline(*piece).unwrap())
+        .collect();
+    assert_pieces_keep_the_shape(&whole, &curves.iter().collect::<Vec<_>>());
 }

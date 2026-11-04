@@ -14,16 +14,8 @@ const TOLERANCE: f64 = 1e-7;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SplitError {
-    #[error(
-        "{label} cannot be split; only lines, arcs, elliptical arcs and splines drawn from control \
-         points can"
-    )]
+    #[error("{label} cannot be split; only lines, arcs, elliptical arcs and open splines can")]
     NotSplittable { entity: EntityId, label: String },
-    #[error(
-        "{label} passes through its points, so it cannot be split without changing its shape; \
-         trim it, or draw it from control points instead"
-    )]
-    FitSpline { entity: EntityId, label: String },
     #[error("{label} is closed, so one point does not split it; trim it open first")]
     ClosedSpline { entity: EntityId, label: String },
     #[error("{label} is not a point")]
@@ -96,12 +88,6 @@ impl Sketch {
                 off <= tolerance && turned > slack && turned < ellipse.sweep - slack
             }
             Entity::Spline { kind, .. } => {
-                if kind.passes_its_points() {
-                    return Err(SplitError::FitSpline {
-                        entity: curve,
-                        label: self.entity_label(curve),
-                    });
-                }
                 if kind.is_closed() {
                     return Err(SplitError::ClosedSpline {
                         entity: curve,

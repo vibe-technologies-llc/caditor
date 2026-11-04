@@ -186,7 +186,7 @@ pub fn length_text(unit: Units, millimetres: f64) -> String {
 pub enum StepError {
     #[error("The sketch has no line, arc or spline whose end could be blended")]
     NoEnds,
-    #[error("The sketch has no corner where two lines, arcs or elliptical arcs meet")]
+    #[error("The sketch has no corner where two lines, arcs, elliptical arcs or splines meet")]
     NothingToRound,
     #[error("The sketch has no curve to trim")]
     NothingToTrim,

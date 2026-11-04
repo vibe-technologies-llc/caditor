@@ -241,6 +241,7 @@ impl Sketch {
             SplineKind::Control { closed: false } if count == 3 => Form::Quadratic,
             SplineKind::Control { closed: false }
             | SplineKind::Piece { .. }
+            | SplineKind::Graded { .. }
             | SplineKind::Knotted { closed: false, .. } => {
                 Form::Knotted(self.spline_source(curve).ok_or_else(no_length)?.knotted)
             }

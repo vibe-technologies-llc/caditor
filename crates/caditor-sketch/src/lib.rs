@@ -9,6 +9,7 @@ mod clip;
 mod constraint;
 mod curve;
 mod datum;
+mod degree;
 mod entity;
 mod fillet;
 mod fit;
@@ -41,7 +42,10 @@ pub use crate::{
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, conic_weight},
-    entity::{Entity, FitSpacing, MAX_RHO, MIN_PIECE_POINTS, MIN_RHO, SplineKind},
+    degree::DegreeError,
+    entity::{
+        Entity, FitSpacing, MAX_DEGREE, MAX_RHO, MIN_DEGREE, MIN_PIECE_POINTS, MIN_RHO, SplineKind,
+    },
     fillet::{Bevel, ChamferSize, Corner, CrossingPlan, FilletError, Pick, Rounding},
     fit::FittedSpline,
     gear::{

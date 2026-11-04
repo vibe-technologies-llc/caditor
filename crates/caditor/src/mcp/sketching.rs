@@ -69,6 +69,11 @@ pub enum SketchToolError {
     )]
     SplinePoints { form: &'static str, needed: usize },
     #[error(
+        "a spline of degree {degree} takes the form control, left open, with at least {} points; a degree runs from 1 to 25",
+        degree + 1
+    )]
+    SplineDegree { degree: usize },
+    #[error(
         "an ellipse needs a major end away from its centre and a minor radius that is a finite number above zero within a kilometre, not {0}"
     )]
     DegenerateEllipse(f64),
@@ -175,6 +180,7 @@ pub struct SplineShape {
     pub form: Option<SplineForm>,
     #[serde(default)]
     pub closed: bool,
+    pub degree: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -550,6 +556,14 @@ impl SplineShape {
                     closed: self.closed,
                 },
             ),
+        };
+        let kind = match self.degree {
+            None => kind,
+            Some(degree) if form == "control" && !self.closed => {
+                SplineKind::graded(degree, self.points.len())
+                    .ok_or(SketchToolError::SplineDegree { degree })?
+            }
+            Some(degree) => return Err(SketchToolError::SplineDegree { degree }.into()),
         };
         if self.points.len() < kind.fewest_points() || self.points.len() > MOST_ITEMS {
             return Err(SketchToolError::SplinePoints {

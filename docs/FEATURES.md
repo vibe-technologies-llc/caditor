@@ -118,15 +118,16 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
 - [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
-  point has no curvature handle; the degree cannot be chosen; a point cannot be removed while
-  keeping the shape (only approximately possible); and a point cannot be inserted into a conic
+  point has no curvature handle (a second-derivative row would join `HandledLayout`'s derivative rows, but a handle line carries only direction and pull, so the curvature needs its own dimension or vector, a new constraint kind with file record and glyph); the degree is chosen only after drawing and only for open
+  control-point splines (a closed spline stays cubic, and the spline tool draws cubic ones); a
+  point cannot be removed while keeping the shape (only approximately possible); and a point cannot be inserted into a conic
   keeping the shape (its two halves would be rational arcs with weights of their own, which no
   spline kind but the conic holds).
-- [medium · hard] A sketch fillet cannot round a spline (the corner would need a centre rolled
-  along the spline's offset and the spline cut at the touching
-  parameter by blossoming, as trim cuts it). A trimmed fit-point spline is
-  refitted through its remaining points rather than kept exactly, and one cannot be split or broken
-  at a point (its knots follow its points, so no fit spline holds the piece).
+- [low · hard] A fit-point spline whose kept stretch holds a fit point carrying a constraint, a tangent
+  handle or another curve is still refitted through its points by a trim, split or break (the
+  constraints on a point go with it when the control spline replaces it), so its shape near the cut
+  shifts slightly; a sketch fillet or chamfer cannot join two splines that would meet only when
+  extended, and a chamfer at a spline's end cannot be given by an angle.
 - [medium · hard] Sketches lie on one plane, so a sweep path or rail that bends in space (a cable
   run, a handle) cannot be drawn; only a chain of model edges gives the sweep one. A 3D sketch of
   lines, arcs and splines, with points placed by typed coordinates in space or moved off the

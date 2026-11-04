@@ -3,10 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
-    BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, Dimensioned,
-    EntityId, ExtendError, FilletError, GearError, GearValueError, InsertError, MAX_LENGTH,
-    MirrorError, OffsetError, PatternError, PatternRow, RectangularPattern, Side, Sketch,
-    SketchError, SplitError, Spread, TangentError, TextError, TrimError,
+    BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, DegreeError,
+    Dimensioned, EntityId, ExtendError, FilletError, GearError, GearValueError, InsertError,
+    MAX_LENGTH, MirrorError, OffsetError, PatternError, PatternRow, RectangularPattern, Side,
+    Sketch, SketchError, SplitError, Spread, TangentError, TextError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -22,7 +22,8 @@ use crate::{
             self, Blending, Copying, GearEditing, Gearing, Lettered, TangentCircling, TextEditing,
         },
         sketch_cuts::{
-            self, Breaking, Constructing, Handling, InsertingPoints, Respacing, Splitting,
+            self, Breaking, Constructing, Handling, InsertingPoints, Respacing, SplineDegreeing,
+            Splitting,
         },
         sketch_moves,
         sketch_projections::{self, Intersecting, Projecting},
@@ -99,6 +100,10 @@ pub enum SketchEditError {
     Insert(InsertError),
     #[error("a tangent handle cannot be added there: {0}")]
     Handle(SketchError),
+    #[error("the degree cannot be set: {0}")]
+    Degree(DegreeError),
+    #[error("give at least one spline in {sketch} to set the degree of")]
+    DegreeTargets { sketch: String },
     #[error(
         "give at least one spline in {sketch} to add a control point to, and a point only with a single spline"
     )]
@@ -209,6 +214,7 @@ pub enum Modification {
     Break(Breaking),
     Respace(Respacing),
     InsertControlPoint(InsertingPoints),
+    SplineDegree(SplineDegreeing),
     TangentHandle(Handling),
     TangentCircle(TangentCircling),
     Blend(Blending),
@@ -547,6 +553,7 @@ fn sketch_of(asked: &Modification) -> &Named {
         Modification::Break(asked) => &asked.sketch,
         Modification::Respace(asked) => &asked.sketch,
         Modification::InsertControlPoint(asked) => &asked.sketch,
+        Modification::SplineDegree(asked) => &asked.sketch,
         Modification::TangentHandle(asked) => &asked.sketch,
         Modification::TangentCircle(asked) => &asked.sketch,
         Modification::Blend(asked) => &asked.sketch,
@@ -585,6 +592,7 @@ fn plan(
         Modification::InsertControlPoint(asked) => {
             sketch_cuts::insert_control_points(target, asked)
         }
+        Modification::SplineDegree(asked) => sketch_cuts::spline_degree(target, asked),
         Modification::TangentHandle(asked) => sketch_cuts::tangent_handle(target, asked),
         Modification::TangentCircle(asked) => {
             sketch_additions::tangent_circle(session, target, asked)

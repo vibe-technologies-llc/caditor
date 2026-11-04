@@ -534,7 +534,9 @@ Sketch entities:
   refused with fewer than five points or end spans not above zero; `spline-pieces.caditor` in the
   corpus), `spline_knots` (`control_points`, `spans`; what adding a control point leaves, refused
   unless the spans are at least two, above zero, and three fewer than the points;
-  `spline-knots.caditor`), `closed_spline_knots` (`control_points`, `spans`; what adding a control
+  `spline-knots.caditor`), `spline_degree` (`control_points`, `degree`, `spans`; an open control
+  spline of a chosen degree, refused unless the degree is 1 to 25 and the spans, above zero, number
+  the points less the degree; `spline-degrees.caditor`), `closed_spline_knots` (`control_points`, `spans`; what adding a control
   point to a closed spline leaves, one span per point; `closed-spline-knots.caditor`, read by older
   versions as a kind from a newer one). A tangent handle is a `spline_handle` constraint
   (`spline`, `line`), read by older versions as a kind from a newer one and the spline left plain;

@@ -781,6 +781,7 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                 }
                 Entity::Spline { points, kind } => {
                     entry.insert("kind".to_owned(), json!("spline"));
+                    let points_count = points.len();
                     let points: Vec<Value> = points.iter().map(|id| entity_name(*id)).collect();
                     entry.insert("points".to_owned(), Value::Array(points));
                     let form = match kind {
@@ -789,8 +790,12 @@ fn entities(sketch: &Sketch) -> Vec<Value> {
                         SplineKind::Conic { .. } => "conic",
                         SplineKind::Piece { .. } => "piece",
                         SplineKind::Knotted { .. } => "knotted",
+                        SplineKind::Graded { .. } => "graded",
                     };
                     entry.insert("form".to_owned(), json!(form));
+                    if let Some(degree) = kind.degree_of(points_count) {
+                        entry.insert("degree".to_owned(), json!(degree));
+                    }
                     if let SplineKind::Conic { rho } = kind {
                         entry.insert("rho".to_owned(), rounded(*rho));
                     }

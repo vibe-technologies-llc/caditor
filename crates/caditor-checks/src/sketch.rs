@@ -270,6 +270,25 @@ pub fn sketch(input: &mut Unstructured, plane: Plane) -> Result<Sketch> {
     Ok(sketch)
 }
 
+pub fn regraded(input: &mut Unstructured, sketch: &Sketch) -> Result<Sketch> {
+    let mut graded = sketch.clone();
+    let splines: Vec<(EntityId, usize)> = sketch
+        .entities()
+        .filter_map(|(id, entity)| match entity {
+            Entity::Spline {
+                points,
+                kind: SplineKind::Control { closed: false },
+            } if points.len() > 2 => Some((id, points.len())),
+            _ => None,
+        })
+        .collect();
+    for (spline, count) in splines {
+        let degree = input.int_in_range(1..=count - 1)?;
+        let _ = graded.set_spline_degree(spline, degree);
+    }
+    Ok(graded)
+}
+
 pub fn drag(input: &mut Unstructured, sketch: &Sketch) -> Result<Option<Drag>> {
     let existing = points(sketch);
     if existing.is_empty() {

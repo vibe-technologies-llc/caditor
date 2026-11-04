@@ -1,8 +1,15 @@
 # Sketch fillet and chamfer
 
-{command:sketch.fillet} rounds the corner where two lines, arcs or elliptical arcs meet with an
-arc tangent to both. Click near the corner, then move the pointer to set the radius and click, or
-type the radius and press Enter.
+{command:sketch.fillet} rounds the corner where two lines, arcs, elliptical arcs or splines meet
+with an arc tangent to both. Click near the corner, then move the pointer to set the radius and
+click, or type the radius and press Enter.
+
+A spline is cut where the arc touches it, keeping exactly the shape it had, as
+[Trim](trim-and-extend) does; what is left is a spline drawn from control points. The rounding is
+tangent to the spline, and the sharp corner point is kept only when something else holds it (a
+dimension, say), and then lies on the other curve alone, since no constraint holds a point on a
+spline's continuation. A radius larger than the spline's own bend allows is refused. Splines are
+rounded at the corners where their ends meet, not by clicking two curves that would meet.
 
 Two lines, arcs, circles or elliptical arcs need not meet first. Click one, then the other: the
 corner is where the two cross, or would meet if extended, nearest the clicks, and each is trimmed
@@ -36,7 +43,8 @@ Sketch fillet's in the Modify group of the sketch ribbon. Type:
 - `5` for the same distance along both curves,
 - `5, 3` for a distance along each, in order,
 - `5 < 45` for a distance along the first curve and the angle of the cut, measured from the
-  first curve's tangent where the cut meets it, an arc's or an elliptical arc's included.
+  first curve's tangent where the cut meets it, an arc's or an elliptical arc's included. A cut at an angle
+to a spline is refused, since no angle dimension can be held against one.
 
 The values are kept as typed, parameters included. These work on sketch corners; to round the edges
 of a body use [Fillet and Chamfer](fillet-and-chamfer).

@@ -50,7 +50,9 @@ and a new `Edit` or `FeatureKind` fails to compile in one place (`ci.md`).
   (a micrometre; centripetal respacing leaves tens of nanometres). Sketches with control points
   within a micrometre of each other are skipped, since a one-point spline has no side or tangent.
   The seeds beyond which these still fail are in `docs/BUGS.md`, so `CADITOR_CASES` stays under
-  them.
+  them. `regraded` gives those sketches splines of random degrees after they are drawn (so the
+  pinned seeds keep their meaning), and a solved one must stay put too; one test holds
+  `caditor_sketch::MAX_DEGREE` equal to the kernel's `MAX_SPLINE_DEGREE`.
 - `regressions/<suite>/` holds inputs that once broke a fuzz target or a suite, replayed by
   `every_input_kept_in_the_regression_folder_still_holds` through the same checks. A crash libFuzzer
   finds in `document` is copied there (`fuzz/artifacts` is not tracked), next to the fix.

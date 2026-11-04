@@ -9,7 +9,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, MAX_SPLINE_DEGREE},
-    entity::{Entity, FitSpacing, MIN_PIECE_POINTS, Role, SplineKind},
+    entity::{Entity, FitSpacing, MAX_DEGREE, MIN_DEGREE, MIN_PIECE_POINTS, Role, SplineKind},
     gear::{
         Gear, GearOutline, GearValueError, GearValues, ToothedOutline, gear_curve_gear,
         same_gear_bits,
@@ -70,6 +70,9 @@ pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<
             },
             _,
         ) => BSpline::looped(positions, spans),
+        (SplineKind::Graded { degree, spans }, _) => {
+            BSpline::graded(positions.to_vec(), *degree, spans)
+        }
     }
 }
 
@@ -123,6 +126,12 @@ pub enum SketchError {
     KnotSpanCount,
     #[error("a closed spline with knot spans of its own has one span for each control point")]
     LoopedKnotSpanCount,
+    #[error("a spline's degree must be a whole number from {MIN_DEGREE} to {MAX_DEGREE}")]
+    InvalidDegree,
+    #[error("the knot spans of a spline of a chosen degree must be finite and longer than nothing")]
+    InvalidGradedSpans,
+    #[error("a spline of a chosen degree has as many control points as spans plus its degree")]
+    GradedSpanCount,
     #[error("{label} cannot be cut at that point into pieces that keep its shape")]
     NoExactPiece { entity: EntityId, label: String },
     #[error("it uses {label} twice")]
@@ -501,6 +510,7 @@ impl Sketch {
             SplineKind::Control { closed: false }
             | SplineKind::Conic { .. }
             | SplineKind::Piece { .. }
+            | SplineKind::Graded { .. }
             | SplineKind::Knotted { closed: false, .. } => Some(positions),
             SplineKind::Control { closed: true } | SplineKind::Knotted { closed: true, .. } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
@@ -715,6 +725,7 @@ impl Sketch {
                 SplineKind::Control { .. }
                 | SplineKind::Fit { .. }
                 | SplineKind::Piece { .. }
+                | SplineKind::Graded { .. }
                 | SplineKind::Knotted { .. } => {
                     return None;
                 }
@@ -1547,7 +1558,8 @@ impl Sketch {
                 for (entity, role) in [(a, first), (b, second)] {
                     let straight = matches!(
                         self.entity(entity),
-                        Some(Entity::Spline { points, .. }) if points.len() < 3
+                        Some(Entity::Spline { points, kind })
+                            if points.len() < 3 || kind.degree_of(points.len()) == Some(1)
                     );
                     if role == Role::Spline && straight {
                         return Err(straight_spline(self, entity));
@@ -2148,6 +2160,28 @@ impl Sketch {
                     },
             } if points.len() != spans.len() => {
                 return Err(SketchError::LoopedKnotSpanCount);
+            }
+            Entity::Spline {
+                kind: SplineKind::Graded { degree, .. },
+                ..
+            } if !SplineKind::degree_is_valid(degree) => {
+                return Err(SketchError::InvalidDegree);
+            }
+            Entity::Spline {
+                kind: SplineKind::Graded { ref spans, .. },
+                ..
+            } if spans.is_empty()
+                || !spans
+                    .iter()
+                    .all(|span| SplineKind::end_span_is_valid(*span)) =>
+            {
+                return Err(SketchError::InvalidGradedSpans);
+            }
+            Entity::Spline {
+                ref points,
+                kind: SplineKind::Graded { degree, ref spans },
+            } if points.len() != spans.len() + degree => {
+                return Err(SketchError::GradedSpanCount);
             }
             Entity::Spline {
                 ref points,

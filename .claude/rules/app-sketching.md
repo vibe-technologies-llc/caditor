@@ -165,6 +165,11 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`Sketch::check_point_insertion`, `CannotInsert`) and inserts keeping the shape
   (`Sketch::insert_control_point`, `sketch.md`); else `NOTHING_TO_INSERT`. A held neighbour
   point fails the transaction as a warning notice (`Insert`).
+  Raise and Lower spline degree (`Command::RaiseSplineDegree`, `LowerSplineDegree`,
+  `sketch_tools::DegreeChange` with a `DegreeStep`, beside it in the Modify menu and the palette)
+  take the selected splines that `Sketch::check_spline_degree` accepts one degree higher or lower
+  and set each (`Sketch::set_spline_degree`, `sketch.md`) in one transaction; else
+  `NOTHING_TO_RAISE` or `NOTHING_TO_LOWER`, or the sketch's refusal (`Degree`) as a warning notice.
   Add a tangent handle (`Command::AddTangentHandle`, `sketch_tools::HandleChange`, beside it in
   the Modify menu, the context menu and the palette) takes one selected fit point of one fit
   spline, open or closed, (the spline selected with it when several hold the point) without a handle there, else
@@ -495,7 +500,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   transaction.
 - Sketch fillet is named so to keep it apart from the model's Fillet. It first takes its corners:
   started with a selection, every selected point that is a corner (`Sketch::corner_at`) and every
-  corner where two selected lines, arcs or elliptical arcs meet (`Sketch::fillet_corners`),
+  corner where two selected lines, arcs, elliptical arcs or open splines meet (`Sketch::fillet_corners`),
   duplicates dropped (`filleting::gathered`), the words saying how many were left out with the first
   one's reason; two selected curves meeting at no corner make one where they cross or would meet
   (`filleting::Aim::Crossing`, `Sketch::crossing_picks`); else the curve end under the pointer. A

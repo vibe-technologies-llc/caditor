@@ -968,6 +968,7 @@ fn control_polygon(sketch: &Sketch, id: EntityId, entity: &Entity) -> Vec<Segmen
                 | SplineKind::Conic { .. }
                 | SplineKind::Piece { .. }
                 | SplineKind::Knotted { .. }
+                | SplineKind::Graded { .. }
         )
     );
     match sketch.spline_control_points(id) {

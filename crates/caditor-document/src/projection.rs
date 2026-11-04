@@ -236,6 +236,7 @@ enum SplineForm {
     Conic,
     Piece,
     Knotted(bool),
+    Graded(usize),
 }
 
 impl SplineForm {
@@ -254,6 +255,7 @@ impl SplineForm {
             SplineKind::Conic { .. } => Self::Conic,
             SplineKind::Piece { .. } => Self::Piece,
             SplineKind::Knotted { closed, .. } => Self::Knotted(closed),
+            SplineKind::Graded { degree, .. } => Self::Graded(degree),
         }
     }
 }

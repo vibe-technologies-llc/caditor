@@ -2195,6 +2195,11 @@ pub(crate) enum EntityKindRecord {
         control_points: Vec<u64>,
         spans: Vec<f64>,
     },
+    SplineDegree {
+        control_points: Vec<u64>,
+        degree: u64,
+        spans: Vec<f64>,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -2299,7 +2304,7 @@ const DEFAULT_GEAR_TEETH: f64 = 20.0;
 const DEFAULT_SPROCKET_TEETH: f64 = 17.0;
 const DEFAULT_PRESSURE_ANGLE: f64 = 20.0;
 
-const ENTITY_KINDS: [&str; 20] = [
+const ENTITY_KINDS: [&str; 21] = [
     "point",
     "line",
     "circle",
@@ -2314,6 +2319,7 @@ const ENTITY_KINDS: [&str; 20] = [
     "spline_piece",
     "spline_knots",
     "closed_spline_knots",
+    "spline_degree",
     "ellipse",
     "elliptical_arc",
     "text",
@@ -5949,6 +5955,11 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                     _,
                 ) => EntityKindRecord::ClosedSplineKnots {
                     control_points: raw,
+                    spans: spans.clone(),
+                },
+                (SplineKind::Graded { degree, spans }, _) => EntityKindRecord::SplineDegree {
+                    control_points: raw,
+                    degree: *degree as u64,
                     spans: spans.clone(),
                 },
             }
@@ -10730,6 +10741,17 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
             kind: SplineKind::Knotted {
                 spans: spans.clone(),
                 closed: true,
+            },
+        },
+        EntityKindRecord::SplineDegree {
+            control_points,
+            degree,
+            spans,
+        } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Graded {
+                degree: usize::try_from(*degree).unwrap_or(usize::MAX),
+                spans: spans.clone(),
             },
         },
         EntityKindRecord::Ellipse {

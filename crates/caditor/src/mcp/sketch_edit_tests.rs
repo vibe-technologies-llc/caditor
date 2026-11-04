@@ -563,6 +563,98 @@ fn filleting_and_chamfering_round_and_cut_corners() {
 }
 
 #[test]
+fn a_fit_spline_meeting_a_line_is_rounded_exactly_into_a_control_spline() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+    let drawn = draw(
+        &mut client,
+        &sketch,
+        json!([
+            { "kind": "spline", "form": "fit", "points": [[10, 0], [14, 6], [18, 6], [24, 0]] },
+            { "kind": "line", "from": [10, 0], "to": [0, -8] }
+        ]),
+    );
+    let corner = drawn[0]["points"][0].clone();
+    client.tool(
+        "add_sketch_constraints",
+        json!({
+            "sketch": sketch,
+            "constraints": [{ "kind": "coincident", "a": corner, "b": drawn[1]["start"] }]
+        }),
+    );
+
+    let rounded = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "fillet", "corners": [corner], "radius": "1.5 mm" }),
+    );
+    let after = described(&mut client, &sketch);
+    client.tool("undo", json!({}));
+    let undone = described(&mut client, &sketch);
+    client.finish();
+
+    assert_eq!(rounded["change"], "Fillet corner");
+    assert_eq!(entity(&after, &drawn[0]["id"])["form"], "control");
+    assert_eq!(entity(&undone, &drawn[0]["id"])["form"], "fit");
+}
+
+#[test]
+fn a_control_spline_is_drawn_and_changed_to_a_degree_and_refused_where_it_cannot_have_one() {
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let sketch = new_sketch(&mut client);
+    let drawn = draw(
+        &mut client,
+        &sketch,
+        json!([
+            {
+                "kind": "spline", "form": "control", "degree": 5,
+                "points": [[0, 0], [10, 8], [20, -6], [30, 7], [40, -4], [50, 5]]
+            },
+            { "kind": "spline", "form": "fit", "points": [[0, 20], [10, 28], [20, 14]] }
+        ]),
+    );
+    let (control, fit) = (drawn[0]["id"].clone(), drawn[1]["id"].clone());
+    let before = described(&mut client, &sketch);
+
+    let lowered = modify(
+        &mut client,
+        &sketch,
+        json!({ "operation": "spline_degree", "splines": [control], "degree": 3 }),
+    );
+    let after = described(&mut client, &sketch);
+    let too_high = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "spline_degree", "splines": [control], "degree": 6 }),
+    );
+    let on_fit = refused(
+        &mut client,
+        &sketch,
+        json!({ "operation": "spline_degree", "splines": [fit], "degree": 1 }),
+    );
+    let bad_draw = client.tool_error(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "spline", "form": "fit", "degree": 3, "points": [[0, 0], [1, 1], [2, 0], [3, 1]] }]
+        }),
+    );
+    client.finish();
+
+    assert_eq!(entity(&before, &control)["degree"], 5);
+    assert_eq!(entity(&before, &control)["form"], "graded");
+    assert_eq!(lowered["change"], "Change spline degree");
+    assert_eq!(lowered["regraded"], json!([control]));
+    assert_eq!(entity(&after, &control)["degree"], 3);
+    assert_eq!(entity(&after, &control)["form"], "control");
+    assert!(too_high.contains("at most 5"), "{too_high}");
+    assert!(on_fit.contains("no degree to choose"), "{on_fit}");
+    assert!(bad_draw.contains("degree"), "{bad_draw}");
+}
+
+#[test]
 fn moving_rotating_and_scaling_solve_like_a_drag_and_keep_constraints() {
     let folder = TempDir::new().unwrap();
     let mut client = started(&folder);
