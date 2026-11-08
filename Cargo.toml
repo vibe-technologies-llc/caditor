@@ -58,7 +58,7 @@ env_logger = {
     default-features = false,
     features = ["auto-color", "humantime"]
 }
-glam = "0.34.2"
+glam = "0.34.3"
 graviola = "0.4.4"
 half = { version = "2.7.1", default-features = false }
 image = {
@@ -67,7 +67,7 @@ image = {
     features = ["bmp", "gif", "hdr", "jpeg", "png", "qoi", "tga", "tiff", "webp"]
 }
 jiff = {
-    version = "0.2.39",
+    version = "0.2.40",
     default-features = false,
     features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"]
 }
