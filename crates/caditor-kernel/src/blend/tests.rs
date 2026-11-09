@@ -1706,3 +1706,18 @@ fn a_filleted_edge_meets_its_neighbours_smoothly() {
         .count();
     assert!(smooth >= 2);
 }
+
+#[test]
+fn every_straight_edge_of_a_boss_fillets_together() {
+    let boss = bossed_block();
+    let every_edge: Vec<EdgeId> = boss.edges().map(|(id, _)| id).collect();
+
+    let rounded = run(&boss, &every_edge, fillet(0.5));
+
+    assert_eq!(every_edge.len(), 24);
+    assert_eq!(rounded.validate(), Ok(()));
+    assert_watertight(
+        "every edge",
+        &rounded.tessellate(&rounded.default_tolerance()).unwrap(),
+    );
+}

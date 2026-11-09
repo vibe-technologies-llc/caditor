@@ -337,11 +337,16 @@ paths:
   first of the operands as given.
 - What no tool touches is carried rather than rebuilt, so work follows the size of the contact: a
   face's loops with unsplit, unshared edges and vertices no cut or other loop reaches keep their
-  pcurves and skip tracing and refitting; a fragment with an edge whose box misses the other
-  solid's extent is outside without sampling; coedges reaching assembly with the operand's own
-  edge, surface, sense and pcurve go to the `Plan` as `PlanPcurve::Settled`, skipping geometry
-  validation (`SolidBuilder::settle`). Every other check, volume and lump checks over the whole
-  result included, still runs. `Input::with_carrying(.., false)` runs the full pipeline;
+  pcurves and skip tracing and refitting, except a coedge whose edge's one piece no longer spans
+  the edge's interval, which is refitted on the piece (`keeps_its_interval`): a piece shorter than
+  the resolution at an edge's end is dropped and its vertices joined, so the piece before it ends
+  that far short. Filleting every straight edge of a boss on a block, the concave fill's section
+  arc at an upright's foot meets the upright fillet's tangent line 9.8e-7 short of its end, and the
+  untouched fill face kept the arc's old end parameter, settled (`PcurveEnds`). A fragment with an
+  edge whose box misses the other solid's extent is outside without sampling; coedges reaching
+  assembly with the operand's own edge, surface, sense and pcurve go to the `Plan` as
+  `PlanPcurve::Settled`, skipping geometry validation (`SolidBuilder::settle`). Every other check,
+  volume and lump checks over the whole result included, still runs. `Input::with_carrying(.., false)` runs the full pipeline;
   `carry_tests.rs` compares the two.
 - Imprint: vertices within `LINEAR_RESOLUTION` are pooled; every edge and face-face branch is split
   at the pooled vertices on it. Where two branches of one face pair cross (sections meeting where
@@ -681,9 +686,8 @@ paths:
   is `UnsupportedEnd` (the fills' seam there is concave); fills that use up a whole face (a pocket's
   walls) lose the edges on it (`Lost`), and cutting first leaves the pocket's corner edges ending at
   the rim chamfers' mitre. A circular edge whose extended sweep would pass a full turn is
-  `WrapsAround`. `survey.rs` (ignored) chamfers and fillets every corner of twenty bodies: every
-  chamfer blends, and every fillet but one choice on the boss (`docs/BUGS.md`), which keeps
-  `every_corner_fillets` out of the stress job.
+  `WrapsAround`. `survey.rs` (ignored, in the stress job) chamfers and fillets every corner of
+  twenty bodies, and every one blends.
 - Three straight edges of one kind filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball, subtracted at a convex corner and added at a
   concave one, a pocket's inside corner at its floor); other corners mitre. The corner is built
