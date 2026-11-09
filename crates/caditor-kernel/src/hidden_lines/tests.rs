@@ -2,11 +2,11 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use caditor_geometry::{Point2, Point3, RigidTransform, Vector3};
 
-use super::*;
+use super::{outline::outer_outline_on, *};
 use crate::{
     fixtures::{
         Fixture, Tweak, add_cuboid, cone, cuboid, cylinder, extruded_spline, frustum, holed_block,
-        sphere, spline_topped_block, torus,
+        perforated_plate, sphere, spline_topped_block, torus,
     },
     tally,
     test_support::{assert_cancelled_anywhere, polls_during},
@@ -792,7 +792,8 @@ fn work_on_a_row_of_blocks_grows_about_linearly() {
         let blocks = row_of_blocks(count);
         let refs: Vec<&Solid> = blocks.iter().collect();
         let view = HiddenLineView::new(Vector3::Y, Vector3::Z).unwrap();
-        let (lines, units) = tally::measure(|| hidden_lines(&refs, &view, &tolerance()).unwrap());
+        let (lines, units) =
+            tally::measure(|| hidden_lines_on(&refs, &view, &tolerance(), 1).unwrap());
         assert_eq!(lines.undecided, 0);
         units
     };
@@ -1019,4 +1020,91 @@ fn outline_pieces_of_one_source_are_numbered_along_the_view() {
     );
     let middle_x = |piece: &OutlinePiece| piece.curve.point(piece.range.middle()).x;
     assert!(middle_x(lines[0]) < middle_x(lines[1]));
+}
+
+fn oblique_over_a_plate() -> HiddenLineView {
+    HiddenLineView::new(Vector3::new(0.3, 0.5, -0.8), Vector3::Z).unwrap()
+}
+
+#[test]
+fn lines_found_on_many_threads_are_those_of_one_thread() {
+    let plate = perforated_plate(3, 0);
+    let views = [oblique_over_a_plate(), from_above(), from_front()];
+
+    for view in &views {
+        let alone = hidden_lines_on(&[&plate], view, &tolerance(), 1).unwrap();
+        let shared = hidden_lines_on(&[&plate], view, &tolerance(), 6).unwrap();
+        assert_eq!(alone, shared);
+        assert!(alone.pieces.len() > 3 * TRACKS_PER_THREAD);
+
+        let outline = outer_outline_on(&plate, view, &tolerance(), 1).unwrap();
+        let shared_outline = outer_outline_on(&plate, view, &tolerance(), 6).unwrap();
+        assert_eq!(outline, shared_outline);
+    }
+}
+
+#[test]
+fn it_can_be_cancelled_anywhere_on_many_threads() {
+    let plate = perforated_plate(2, 0);
+    let view = oblique_over_a_plate();
+
+    let lines = assert_cancelled_anywhere(
+        "hidden lines on many threads",
+        || hidden_lines_on(&[&plate], &view, &tolerance(), 4),
+        |error| matches!(error, HiddenLineError::Cancelled(_)),
+    );
+    let outline = assert_cancelled_anywhere(
+        "an outline on many threads",
+        || outer_outline_on(&plate, &view, &tolerance(), 4),
+        |error| matches!(error, HiddenLineError::Cancelled(_)),
+    );
+
+    assert!(lines > 1 && outline > 1);
+}
+
+#[test]
+#[ignore = "a timing benchmark: cargo test --release -p caditor-kernel hidden_line_costs -- --ignored --nocapture"]
+fn hidden_line_costs() {
+    let median = |work: &dyn Fn()| {
+        let runs = 15;
+        let mut times: Vec<std::time::Duration> = (0..runs)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                work();
+                started.elapsed()
+            })
+            .collect();
+        times.sort();
+        times[runs / 2]
+    };
+    let view = oblique_over_a_plate();
+    let threads = crate::fan_out::available_threads();
+
+    for holes in [4, 8, 14] {
+        let plate = perforated_plate(holes, 0);
+        let faces = plate.faces().count();
+        let lines = |threads: usize| {
+            median(&|| {
+                hidden_lines_on(&[&plate], &view, &tolerance(), threads).unwrap();
+            })
+        };
+        let outline = |threads: usize| {
+            median(&|| {
+                outer_outline_on(&plate, &view, &tolerance(), threads).unwrap();
+            })
+        };
+        let scene = Scene::of(&[&plate]);
+        let setup = median(&|| {
+            tracks_of_scene(&scene, view.frame(), &tolerance()).unwrap();
+        });
+
+        println!(
+            "{faces} faces: tracks {setup:?}; hidden lines one thread {:?}, {threads} threads \
+             {:?}; outline one thread {:?}, {threads} threads {:?}",
+            lines(1),
+            lines(threads),
+            outline(1),
+            outline(threads),
+        );
+    }
 }

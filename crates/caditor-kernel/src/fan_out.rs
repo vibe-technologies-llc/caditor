@@ -25,7 +25,7 @@ pub(crate) fn both<A, B: Send>(
         let interrupt = interrupt::current();
         let second = &second;
         let helper = thread::Builder::new()
-            .name("tessellation".to_owned())
+            .name("kernel".to_owned())
             .spawn_scoped(scope, move || interrupt::within(interrupt, second));
         let made = first();
         match helper.map(|helper| helper.join()) {
@@ -62,7 +62,7 @@ pub(crate) fn each_in_order<T: Send>(
             .filter_map(|_| {
                 let interrupt = interrupt::current();
                 thread::Builder::new()
-                    .name("tessellation".to_owned())
+                    .name("kernel".to_owned())
                     .spawn_scoped(scope, move || interrupt::within(interrupt, take))
                     .ok()
             })

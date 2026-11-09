@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, f64::consts::FRAC_PI_2};
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 
 use crate::{
+    boolean::{BooleanOperation, boolean},
     bspline::BSpline,
     curve::{Circle, Curve},
     interval::Interval,
@@ -548,4 +549,38 @@ pub(crate) fn every_solid() -> Vec<(&'static str, Solid)> {
         ("cone", cone(3.0, 4.0)),
         ("extruded spline", extruded_spline(5.0)),
     ]
+}
+
+pub(crate) fn perforated_plate(holes: usize, dimples: usize) -> Solid {
+    let pitch = 15.0;
+    let side = pitch * holes as f64;
+    let placed = |solid: Solid, at: Vector3| {
+        solid
+            .transformed(&RigidTransform::translation(at).unwrap())
+            .unwrap()
+    };
+    let mut plate = cuboid(Vector3::new(side, side, 10.0));
+    for row in 0..holes {
+        for column in 0..holes {
+            let at = Vector3::new(
+                pitch * (column as f64 + 0.5),
+                pitch * (row as f64 + 0.5),
+                -1.0,
+            );
+            let drill = placed(cylinder(3.0, 12.0), at);
+            plate = boolean(&plate, &drill, BooleanOperation::Difference).unwrap();
+        }
+    }
+    for row in 0..dimples {
+        for column in 0..dimples {
+            let at = Vector3::new(
+                pitch * (column as f64 + 1.0),
+                pitch * (row as f64 + 1.0),
+                10.0,
+            );
+            let ball = placed(sphere(4.0), at);
+            plate = boolean(&plate, &ball, BooleanOperation::Difference).unwrap();
+        }
+    }
+    plate
 }

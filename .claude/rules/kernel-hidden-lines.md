@@ -10,13 +10,27 @@ paths:
   carrying its `ViewSource` (an edge with its `EdgeName` and `ViewEdgeKind`, or the silhouette of a
   named face) and whether it is `exact`. A `HiddenLineView` is a look direction and an up
   (`new`), or a plane seen square (`square_to`); either way a `Plane` whose normal points at the
-  viewer, so its local coordinates are the view's. Orthographic only. It runs on the calling
-  thread: callers keep it off the UI thread or under a deadline, and it polls `interrupt::check`
-  per edge, face, ray and every `POLL_EVERY` segments (`HiddenLineError::Cancelled`).
+  viewer, so its local coordinates are the view's. Orthographic only. It runs on
+  the calling thread and the scoped threads it fans out (below): callers keep it off the UI thread
+  or under a deadline, and it polls `interrupt::check` per edge, face, ray and every `POLL_EVERY`
+  segments (`HiddenLineError::Cancelled`).
 - Pipeline: a `Track` per curve to draw (`tracks_of_scene`), its splits (below), each stretch
   between splits judged at its middle (`visibility::verdict`), neighbours of one class merged, a
   closed conic's last and first pieces joined round its seam so a whole circle is one piece. Every
   piece of a curve keeps one `Curve2`; a fold makes separate tracks, so nothing merges across one.
+- The judging of tracks, the part that casts rays, is fanned out over the tracks
+  (`fan_out::each_in_order`: scoped threads up to the available parallelism, at least
+  `TRACKS_PER_THREAD` tracks each, each worker taking the next track, the caller's interrupt
+  installed on every one). Each track's result is its own, kept in track order and joined after,
+  so the pieces, the `undecided` count and the first error (a cancel from any thread) are those of
+  one thread whatever the thread count; `hidden_lines_on` and `outer_outline_on` take the count for
+  the tests. Building the tracks (`tracks_of_scene`: flattening, silhouettes, splits) stays on the
+  calling thread. A perforated plate (`fixtures::perforated_plate`, release, a machine at twice its
+  cores in load, 16 threads, median of 15, `hidden_line_costs` ignored) took, building tracks
+  apart: 22 faces 1.8 ms with `hidden_lines` 3.6 ms on one thread against 6.1 ms on 16; 70 faces
+  7.9 ms, 15.1 against 11.3; 202 faces 22.5 ms, 42.2 against 32.6, and `outer_outline` 47.6 against
+  35.5. So small bodies lose to the cost of spawning and a large one gains a quarter, with the
+  serial tracks about half the one-thread time bounding it near two.
 
 ## Projecting (`flatten.rs`)
 
@@ -106,4 +120,7 @@ paths:
 
 - `tests.rs` holds the fixture solids to known answers, `edge_totals` to the sum over each edge,
   `verdicts_agree_with_rays_cast_at_a_fine_mesh` every fixture to rays against a fine mesh wherever
-  the mesh decides clearly, and `work_on_a_row_of_blocks_grows_about_linearly` the cost by `tally`.
+  the mesh decides clearly, and `work_on_a_row_of_blocks_grows_about_linearly` the cost by `tally` on one thread (tally is
+  per thread). `lines_found_on_many_threads_are_those_of_one_thread` and
+  `it_can_be_cancelled_anywhere_on_many_threads` hold the fan-out to the serial answer and to
+  cancelling at every poll.

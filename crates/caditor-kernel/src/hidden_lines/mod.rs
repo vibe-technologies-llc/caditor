@@ -25,6 +25,7 @@ use crate::{
     curve::Curve,
     curve2::Curve2,
     error::GeometryError,
+    fan_out::{self, available_threads},
     interrupt::{self, Interrupted},
     intersect::{IntersectionError, intersect_curve_surface},
     interval::Interval,
@@ -37,6 +38,7 @@ use crate::{
 
 const SAME_SPLIT: f64 = 1e-7;
 const PROBES: [f64; 3] = [0.5, 0.25, 0.75];
+const TRACKS_PER_THREAD: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum HiddenLineError {
@@ -520,8 +522,8 @@ fn classified_pieces(
     track: &Track,
     scene: &Scene<'_>,
     view: &Plane,
-    undecided: &mut usize,
-) -> Result<Vec<Classified>, HiddenLineError> {
+) -> Result<(Vec<Classified>, usize), HiddenLineError> {
+    let mut undecided = 0;
     let ends = piece_ends(track, view);
     let mut pieces: Vec<Classified> = Vec::with_capacity(ends.len());
     for pair in ends.windows(2) {
@@ -532,7 +534,7 @@ fn classified_pieces(
             continue;
         };
         let visibility = decided(track, range, scene, view.normal())?.unwrap_or_else(|| {
-            *undecided += 1;
+            undecided += 1;
             Visibility::Visible
         });
         match pieces.last_mut() {
@@ -544,7 +546,7 @@ fn classified_pieces(
             _ => pieces.push(Classified { range, visibility }),
         }
     }
-    Ok(joined_round_the_seam(track, pieces))
+    Ok((joined_round_the_seam(track, pieces), undecided))
 }
 
 fn joined_round_the_seam(track: &Track, mut pieces: Vec<Classified>) -> Vec<Classified> {
@@ -587,12 +589,29 @@ pub fn hidden_lines(
     view: &HiddenLineView,
     tolerance: &SamplingTolerance,
 ) -> Result<HiddenLines, HiddenLineError> {
+    hidden_lines_on(solids, view, tolerance, available_threads())
+}
+
+fn hidden_lines_on(
+    solids: &[&Solid],
+    view: &HiddenLineView,
+    tolerance: &SamplingTolerance,
+    threads: usize,
+) -> Result<HiddenLines, HiddenLineError> {
     let plane = view.frame();
     let scene = Scene::of(solids);
     let (tracks, mut undecided) = tracks_of_scene(&scene, plane, tolerance)?;
+    let classified = fan_out::each_in_order(tracks.len(), threads, TRACKS_PER_THREAD, |index| {
+        let Some(track) = tracks.get(index) else {
+            return Ok((Vec::new(), 0));
+        };
+        classified_pieces(track, &scene, plane)
+    });
     let mut pieces = Vec::new();
-    for track in &tracks {
-        for piece in classified_pieces(track, &scene, plane, &mut undecided)? {
+    for (track, found) in tracks.iter().zip(classified) {
+        let (classes, skipped) = found?;
+        undecided += skipped;
+        for piece in classes {
             pieces.extend(view_piece(track, &piece, plane));
         }
     }

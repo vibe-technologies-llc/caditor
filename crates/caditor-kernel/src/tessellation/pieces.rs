@@ -6,11 +6,12 @@ use spade::{
 };
 
 use crate::{
+    fan_out,
     interrupt::{self, Interrupted},
     tessellation::{
         POLL_EVERY, TessellationError,
         constrained::{self, Built, Hole, Outline, Splitting},
-        gaps, parallel,
+        gaps,
     },
     topology::FaceId,
 };
@@ -188,7 +189,7 @@ fn strips(
     if count < SPLIT_POINTS || most < 2 {
         return Ok(Vec::new());
     }
-    let (ranked, gap) = parallel::both(
+    let (ranked, gap) = fan_out::both(
         threads,
         || Ranked::new(mapped, outline),
         || gaps::widest(mapped, outline),
@@ -242,7 +243,7 @@ fn in_pieces(
     strips: &[Strip],
     threads: usize,
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
-    let pieces = parallel::each_in_order(strips.len(), threads, 1, |index| {
+    let pieces = fan_out::each_in_order(strips.len(), threads, 1, |index| {
         piece(face, mapped, outline, strips, index)
     });
     let pieces = pieces.into_iter().collect::<Result<Vec<Piece>, _>>()?;

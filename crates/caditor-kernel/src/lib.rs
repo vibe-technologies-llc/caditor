@@ -11,6 +11,7 @@ mod curve2;
 mod enclose;
 mod error;
 mod faceted;
+mod fan_out;
 #[cfg(test)]
 mod fixtures;
 mod hidden_lines;
