@@ -5,7 +5,7 @@ use caditor_geometry::{Maths, Point3, RigidTransform, Vector3};
 use super::*;
 use crate::{
     boolean::{BooleanOperation, boolean},
-    fixtures,
+    fixtures::{self, perforated_plate},
     interval::Interval,
     numeric::integrate,
     test_support::{Random, assert_cancelled_anywhere, assert_watertight},
@@ -945,40 +945,6 @@ fn indexed_containment_agrees_with_testing_every_triangle() {
             );
         }
     }
-}
-
-fn perforated_plate(holes: usize, dimples: usize) -> Solid {
-    let pitch = 15.0;
-    let side = pitch * holes as f64;
-    let placed = |solid: Solid, at: Vector3| {
-        solid
-            .transformed(&RigidTransform::translation(at).unwrap())
-            .unwrap()
-    };
-    let mut plate = fixtures::cuboid(Vector3::new(side, side, 10.0));
-    for row in 0..holes {
-        for column in 0..holes {
-            let at = Vector3::new(
-                pitch * (column as f64 + 0.5),
-                pitch * (row as f64 + 0.5),
-                -1.0,
-            );
-            let drill = placed(fixtures::cylinder(3.0, 12.0), at);
-            plate = boolean(&plate, &drill, BooleanOperation::Difference).unwrap();
-        }
-    }
-    for row in 0..dimples {
-        for column in 0..dimples {
-            let at = Vector3::new(
-                pitch * (column as f64 + 1.0),
-                pitch * (row as f64 + 1.0),
-                10.0,
-            );
-            let ball = placed(fixtures::sphere(4.0), at);
-            plate = boolean(&plate, &ball, BooleanOperation::Difference).unwrap();
-        }
-    }
-    plate
 }
 
 #[test]

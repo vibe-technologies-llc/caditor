@@ -84,7 +84,7 @@ paths:
 ## Threads and reuse
 
 - Edges are sampled on the calling thread, which numbers their positions in edge order; pole
-  samplings, and faces once overlapping ends are parted, run on scoped threads (`parallel.rs`: up
+  samplings, and faces once overlapping ends are parted, run on scoped threads (`fan_out.rs`: up
   to the available parallelism, at least `FACES_PER_THREAD` faces each). Helpers run under the
   caller's interrupt; a panic in one is resumed on the caller.
 - A face of at least `SPLIT_POINTS` points holding at least a `DOMINANT_SHARE`th of the body's

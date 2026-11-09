@@ -300,7 +300,13 @@ paths:
   surface knots and where a boundary crosses a knot line, so each piece is smooth. Values are about
   the centre of the box of edges, which keeps second moments from cancelling. A face that does not
   converge within `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead
-  and is listed in `SolidMass::meshed_faces`.
+  and is listed in `SolidMass::meshed_faces`. The boundary integrand (a strip integral times
+  dv/dt of the projected edge point) carries noise of about 1e-11 of its largest value, however
+  small it is where the boundary turns in v, so a piece is also accepted when its error is within
+  `BOUNDARY_NOISE` (1e-10) of the largest density seen so far times its length
+  (`Tolerance::noise`; strips have none). Without it a thin sphere lens (a sphere 1.6e-4 off
+  centre in a torus's inner equator) bisected to depth 30 at every such turn, spent the budget and
+  went to the mesh, which read its mass 8e-3 off in 474.
   `mass_properties_tessellating` takes a sampling tolerance and tessellates only when some face does
   not converge (failure is `MeasureError::Meshing`). `face_area` is the same integral for one face
   (`None` when it gives up).
