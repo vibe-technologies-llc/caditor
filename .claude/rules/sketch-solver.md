@@ -12,8 +12,17 @@ paths:
 - `solve` evaluates dimensions first; lengths are at most `MAX_LENGTH`, a huge value refused in
   words rather than overflowing the solver's scale.
 - Damped Gauss-Newton with minimal-norm steps per independent part: SVD up to `DENSE_LIMIT`
-  variables, above that CGLS on the sparse Jacobian with a sparse factorisation for the analysis
-  (`sparse.rs`). Every equation has an analytic gradient.
+  variables, above that `Jᵀ (J Jᵀ)⁻¹` of the normalised rows through a sparse Cholesky of their
+  Gram matrix (`sparse::Gram`, shifted by `STEP_SHIFTS` of its typical diagonal in turn, the first
+  none, until it factors), with a sparse factorisation for the analysis (`sparse.rs`). CGLS steps
+  instead when the Gram matrix, or the clique of the rows sharing its busiest variable, would cost
+  more than `GRAM_ITERATIONS` CGLS iterations, checked before it is built and again as it factors:
+  a point shared by hundreds of equations makes their rows one dense block (a 300-line star on one
+  free point solves in about 600,000 units, where its Gram matrix would take 75 million a step to
+  factor). Elsewhere CGLS loses: on a nearly singular Jacobian, a chain pulled straight against a
+  held end, it runs to its `4 n + 100` iteration limit, 160 million units for one step of a
+  2,000-line chain whose Gram matrix factors in about 130,000. Every equation has an analytic
+  gradient.
 - When a whole Gauss-Newton step does not lower the cost, the step is Newton's on the cost
   (`numeric/newton.rs`): near a least-squares point that cannot reach zero the Jacobian is nearly
   singular along what only the residuals' curvature resists (a chain bending), so a Gauss-Newton
@@ -62,6 +71,15 @@ paths:
   of a chain's frame); when that cannot work they are only `STIFF` times
   as willing to leave their targets as free geometry is to move. Geometry already satisfying its
   constraints does not move; under-constrained geometry moves as little as possible.
+- A part above `DENSE_LIMIT` whose `FROZEN` solve fails, and whose only held variables are
+  dragged ones, is not solved `STIFF`: the pose `FROZEN` ended at, pressed toward its targets, is
+  settled onto the constraints with everything free by the reaching step's restoration
+  (`Solver::settle_onto_constraints`, from the frame's `REACH_WORK`), and reaching goes on from
+  that or the drawn pose, whichever lies closer. From the targets, `STIFF` retraces `FROZEN`'s
+  descent with the targets all but held, and on a long chain pulled past its reach its Newton
+  steps crawl, three attempts of a hundred steps failing on 2,000 lines, twice the work for a pose
+  reaching mostly discards. Only a part that does not settle is solved `STIFF`, and parts up to
+  `DENSE_LIMIT` always are.
 - A part whose `STIFF` solve fails (a pointer past what the geometry reaches) solves from where it
   was drawn (`solve_from_drawn`); only a part failing from both is diagnosed. Every part with a
   target then reaches toward it (`numeric/reach.rs`) from whichever of its solved and drawn poses
@@ -75,11 +93,11 @@ paths:
   (SVD), negative or flat curvatures replaced by their size or `FLATTEST`, projected back onto the
   constraints by unit-weight Gauss-Newton and halved until the pose holds and lies closer.
 - Above it (`numeric/reach/augmented.rs`) nothing is dense. The multipliers come from a sparse
-  Cholesky of the Gram matrix `J Jᵀ`; the step is Newton's on the augmented Lagrangian at the
-  current pose, `(H + ρ JᵀJ) p = -(g + Jᵀλ)` with `ρ` `AUGMENTATION` times the steepest curvature,
-  factored by `sparse::Cholesky` (the multiplier Hessian probed by colour as in `newton.rs`) under a
-  shift from `LEAST_SHIFT` of that curvature, raised until it factors, then its remainder off the
-  null space removed through the Gram factor. A tiny shift matters: a long chain turning about its
+  Cholesky of the Gram matrix `J Jᵀ` (`sparse::Gram` under `GRAM_SHIFTS`); the step is Newton's
+  on the augmented Lagrangian at the current pose, `(H + ρ JᵀJ) p = -(g + Jᵀλ)` with `ρ`
+  `AUGMENTATION` times the steepest curvature, factored by `sparse::Cholesky` (the multiplier
+  Hessian probed by colour as in `newton.rs`) under a shift from `LEAST_SHIFT` of that curvature,
+  raised until it factors, then its remainder off the null space removed through the Gram factor. A tiny shift matters: a long chain turning about its
   end bends in modes whose curvature falls with the square of its length. Steps are capped by
   their largest single move (`MAX_STEP` of the scale), not their norm, since swinging a long chain
   moves everything. The step is halved (each step starting from twice the last fraction) until a
@@ -93,9 +111,12 @@ paths:
 - A frame's reaching stops once it has spent `REACH_WORK` units (`ReachWork`, counting what
   `tally` counts, refused factorisations and orderings included); the pose it stops at holds and
   the next frame goes on from it. A 500-line zig-zag chain dragged past its reach lands on the ray
-  toward the pointer at full extension in about 21 million units for the whole frame (5 million
-  reaching), a 2,000-line one in about 371 million (92 million reaching, the rest the `FROZEN` and
-  `STIFF` solves; an ignored test in `reach_tests.rs`, run nightly).
+  toward the pointer at full extension in about 5.5 million units for the whole frame (`FROZEN`
+  4.2 million, settling 0.4 million, reaching 0.9 million), a 2,000-line one in about 82 million
+  (`FROZEN` 55 million, settling 3.4 million, reaching 23 million; an ignored test in
+  `reach_tests.rs`, run nightly). Each further frame of such a drag, from the last frame's
+  stretched pose, takes about 2.7 million units on 500 lines (`FROZEN` 1.7 million) and 19 million
+  on 2,000 (`FROZEN` 10 million).
 - `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the same solve
   without rank and degrees-of-freedom analysis, returning a memo whose parts are marked not
   analysed, so they warm-start a later solve but never stand in for its analysis.
@@ -360,8 +381,8 @@ paths:
   46,000 units for all three attempts, against 192,000 by line search alone. A 300-line chain is
   diagnosed in about 103,000 units (the support's descent from the drawing 46,000, trimming 3,600,
   the closest witness's descent 53,000), a 1,000-line chain in about 456,000, so both are named
-  within the budget, as are chains of 1,100, 1,500 and 2,000 lines in 4, 8 and 12 seconds of a release
-  build (ignored stress tests in `diagnosis_tests.rs`, run by the nightly job).
+  within the budget, as is a chain of 2,000 lines, in under 5 seconds of the test build (ignored
+  stress tests in `diagnosis_tests.rs`, run by the nightly job).
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest

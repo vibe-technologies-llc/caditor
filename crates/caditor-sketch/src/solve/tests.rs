@@ -887,6 +887,35 @@ fn a_long_chain_solves_and_analyses_within_its_work_budget() {
     );
 }
 
+#[test]
+fn a_star_of_lines_meeting_at_a_free_point_solves_without_factoring_the_clique_of_its_rows() {
+    const STAR_WORK: usize = 1_000_000;
+    let mut sketch = Sketch::new(Plane::XY);
+    let hub = sketch.add_point(Point2::new(0.3, -0.2));
+    for index in 0..300 {
+        let angle = index as f64 * 0.1;
+        let line = sketch.add_line(
+            Point2::ZERO,
+            Point2::new(10.0 * angle.cos(), 10.0 * angle.sin()),
+        );
+        let (start, end) = ends(&sketch, line);
+        add(&mut sketch, Constraint::Coincident(hub, start));
+        add(
+            &mut sketch,
+            Constraint::Distance {
+                from: start,
+                to: end,
+                value: mm(12.0),
+            },
+        );
+    }
+
+    let (solved, work) = super::tally::measure(|| solve(&sketch).unwrap());
+
+    assert!(work < STAR_WORK, "{work}");
+    assert_eq!(solved.solution.degrees_of_freedom(), 302);
+}
+
 fn many_rectangles(count: usize) -> Sketch {
     rectangles_of_width(count, &mm(40.0))
 }

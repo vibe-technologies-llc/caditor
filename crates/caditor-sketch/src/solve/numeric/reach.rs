@@ -170,6 +170,15 @@ impl Solver<'_> {
         Ok(())
     }
 
+    pub fn settle_onto_constraints(
+        &self,
+        component: &Component,
+        values: &mut [f64],
+        work: &mut ReachWork,
+    ) -> Result<bool, Cancelled> {
+        self.restored(&self.part(component), values, work)
+    }
+
     fn reaching_step(&self, part: &Part<'_>, aims: &[Aim], values: &[f64]) -> Option<Vec<f64>> {
         let width = part.component.variables.len();
         let (rows, _) = self.linearize(part, values);

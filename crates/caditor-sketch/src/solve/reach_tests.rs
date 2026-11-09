@@ -4,7 +4,7 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    Constraint, Drag, Entity, EntityId, Sketch,
+    Constraint, Drag, Entity, EntityId, Sketch, SolveMemo,
     solve::{
         numeric::{ReachWork, STIFF, Solver, components},
         system::System,
@@ -55,32 +55,48 @@ fn zigzag_arm(count: usize) -> Arm {
     Arm { sketch, hand }
 }
 
-fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
-    let arm = zigzag_arm(count);
-    let pointer = Point2::new(1.2, 0.5) * count as f64;
+struct Frame {
+    sketch: Sketch,
+    memo: SolveMemo,
+    hand: Point2,
+    work: usize,
+}
 
-    let (followed, work) = tally::measure(|| {
-        arm.sketch
+fn frame(sketch: &Sketch, hand: EntityId, pointer: Point2, memo: Option<&SolveMemo>) -> Frame {
+    let ((followed, memo), work) = tally::measure(|| {
+        sketch
             .solve_geometry_from(
                 &no_parameters,
                 &|| false,
                 &[Drag::Point {
-                    point: arm.hand,
+                    point: hand,
                     to: pointer,
                 }],
-                None,
+                memo,
             )
             .unwrap()
-            .0
     });
+    Frame {
+        hand: followed.point(hand).unwrap(),
+        sketch: followed,
+        memo,
+        work,
+    }
+}
+
+fn drag_past_reach(count: usize) -> (Point2, Point2, usize) {
+    let arm = zigzag_arm(count);
+    let pointer = Point2::new(1.2, 0.5) * count as f64;
+
+    let followed = frame(&arm.sketch, arm.hand, pointer, None);
     let stretched = pointer.normalize() * count as f64;
 
-    (followed.point(arm.hand).unwrap(), stretched, work)
+    (followed.hand, stretched, followed.work)
 }
 
 #[test]
 fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 25_000_000;
+    const FRAME_WORK: usize = 7_000_000;
 
     let (hand, stretched, work) = drag_past_reach(500);
 
@@ -89,6 +105,40 @@ fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
         "{hand} is not {stretched}"
     );
     assert!(work < FRAME_WORK, "{work}");
+}
+
+#[test]
+fn a_chain_held_past_its_reach_follows_the_pointer_frame_by_frame() {
+    const NEXT_FRAME_WORK: usize = 4_000_000;
+    let arm = zigzag_arm(500);
+    let first = Point2::new(600.0, 250.0);
+    let next = Point2::new(600.0, 260.0);
+
+    let reached = frame(&arm.sketch, arm.hand, first, None);
+    let followed = frame(&reached.sketch, arm.hand, next, Some(&reached.memo));
+    let stretched = next.normalize() * 500.0;
+
+    assert!(
+        followed.hand.distance(stretched) < ON_THE_RAY * 500.0,
+        "{} is not {stretched}",
+        followed.hand
+    );
+    assert!(followed.work < NEXT_FRAME_WORK, "{}", followed.work);
+}
+
+#[test]
+fn a_stretched_chain_pulled_back_within_its_reach_lands_on_the_pointer() {
+    let arm = zigzag_arm(200);
+    let pointer = Point2::new(40.0, 16.0);
+
+    let stretched = frame(&arm.sketch, arm.hand, Point2::new(240.0, 100.0), None);
+    let pulled = frame(&stretched.sketch, arm.hand, pointer, Some(&stretched.memo));
+
+    assert!(
+        pulled.hand.distance(pointer) < ON_THE_RAY,
+        "{} is not {pointer}",
+        pulled.hand
+    );
 }
 
 #[test]
@@ -132,7 +182,7 @@ fn a_reach_out_of_work_stops_closer_at_a_pose_that_holds() {
 #[test]
 #[ignore = "drags a chain of thousands of points through a whole frame, best run in release"]
 fn a_chain_of_2000_lines_dragged_past_its_reach_follows_the_pointer() {
-    const FRAME_WORK: usize = 400_000_000;
+    const FRAME_WORK: usize = 100_000_000;
 
     let (hand, stretched, work) = drag_past_reach(2_000);
 
