@@ -164,7 +164,8 @@ jobs:
             boolean::tests::random_placements_of_every_fixture \
             boolean::tests::aligned_contacts_a_micrometre_or_so_apart \
             boolean::carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time \
-            blend::survey::every_corner_chamfers
+            blend::survey::every_corner_chamfers \
+            blend::survey::every_corner_fillets
 
       - name: Run the solver surveys and the diagnosis of conflicts across hundreds of entities
         run: |

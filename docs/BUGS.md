@@ -75,10 +75,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner rebuilt from the arrangement of its offset planes under its own union and intersection
   formula (convex edges intersect, concave ones unite), with an edge allowed to change its pair of
   faces and faces of one plane allowed to merge; the plan builds one face per original face.
-- [medium · hard] Filleting 0.5 mm all 24 straight edges of the survey's boss together, 20 convex
-  and 4 concave, fails validation as `PcurveEnds`
-  (`blend::survey::every_corner_fillets`, ignored and left out of the stress job until it passes).
-  Every other corner of the twenty surveyed bodies fillets.
 - [low · hard] Fills that use up a whole face lose the edges on it: a 4 mm pocket's twelve edges
   chamfered 2 mm (`fills_using_up_a_pocket_s_walls_lose_its_rim`) is `Lost` for the rim, since the
   corner edges' bevels meet exactly across each wall and take it away; cutting first instead leaves
