@@ -9,7 +9,7 @@ use caditor_kernel::{
 use crate::{
     invariants::assert_sound,
     profile::{FEATURE, placement, swept_solid},
-    seeded::for_each_case,
+    seeded::{for_each_case, replay_case},
 };
 
 const SWEPT_CASES: u64 = 400;
@@ -21,6 +21,7 @@ const FEWEST_PAIRS: usize = 8;
 const CHORD: f64 = 0.01;
 const ANGLE: f64 = 0.1;
 const RELATIVE_VOLUME_TOLERANCE: f64 = 1e-6;
+const TORUS_FACE_SEED: u64 = 6413;
 
 fn never() -> Interrupt {
     Arc::new(|| false)
@@ -66,56 +67,91 @@ fn swept_solids_are_sound() {
     );
 }
 
+fn combines_soundly_with_the_volume_identities(input: &mut Unstructured) -> bool {
+    let Some((first, second)) = pair(input) else {
+        return false;
+    };
+    let (Some(first_volume), Some(second_volume)) = (volume(&first), volume(&second)) else {
+        return false;
+    };
+    let scale = first_volume.abs() + second_volume.abs();
+
+    let union = combine(&first, &second, BooleanOperation::Union);
+    let reversed = combine(&second, &first, BooleanOperation::Union);
+    let common = combine(&first, &second, BooleanOperation::Intersection);
+    let rest = combine(&first, &second, BooleanOperation::Difference);
+
+    for result in [&union, &reversed, &common, &rest].into_iter().flatten() {
+        assert_sound(result, &MeshQuality::COARSE);
+    }
+
+    let combined = if let (Some(union), Some(common)) = (&union, &common)
+        && let (Some(union), Some(common)) = (volume(union), volume(common))
+    {
+        assert_close(
+            union + common,
+            first_volume + second_volume,
+            scale,
+            "union plus intersection against the two volumes",
+        );
+        true
+    } else {
+        false
+    };
+    if let (Some(common), Some(rest)) = (&common, &rest)
+        && let (Some(common), Some(rest)) = (volume(common), volume(rest))
+    {
+        assert_close(
+            common + rest,
+            first_volume,
+            scale,
+            "intersection plus difference against the first volume",
+        );
+    }
+    if let (Some(union), Some(reversed)) = (&union, &reversed)
+        && let (Some(union), Some(reversed)) = (volume(union), volume(reversed))
+    {
+        assert_close(union, reversed, scale, "union against its reverse");
+    }
+    combined
+}
+
 #[test]
 fn booleans_that_succeed_are_sound_and_obey_the_volume_identities() {
     let mut pairs = 0;
     for_each_case("boolean volumes", BOOLEAN_CASES, |_, input| {
-        let Some((first, second)) = pair(input) else {
-            return;
-        };
-        let (Some(first_volume), Some(second_volume)) = (volume(&first), volume(&second)) else {
-            return;
-        };
-        let scale = first_volume.abs() + second_volume.abs();
-
-        let union = combine(&first, &second, BooleanOperation::Union);
-        let reversed = combine(&second, &first, BooleanOperation::Union);
-        let common = combine(&first, &second, BooleanOperation::Intersection);
-        let rest = combine(&first, &second, BooleanOperation::Difference);
-
-        for result in [&union, &reversed, &common, &rest].into_iter().flatten() {
-            assert_sound(result, &MeshQuality::COARSE);
-        }
-
-        if let (Some(union), Some(common)) = (&union, &common)
-            && let (Some(union), Some(common)) = (volume(union), volume(common))
-        {
-            assert_close(
-                union + common,
-                first_volume + second_volume,
-                scale,
-                "union plus intersection against the two volumes",
-            );
+        if combines_soundly_with_the_volume_identities(input) {
             pairs += 1;
-        }
-        if let (Some(common), Some(rest)) = (&common, &rest)
-            && let (Some(common), Some(rest)) = (volume(common), volume(rest))
-        {
-            assert_close(
-                common + rest,
-                first_volume,
-                scale,
-                "intersection plus difference against the first volume",
-            );
-        }
-        if let (Some(union), Some(reversed)) = (&union, &reversed)
-            && let (Some(union), Some(reversed)) = (volume(union), volume(reversed))
-        {
-            assert_close(union, reversed, scale, "union against its reverse");
         }
     });
     assert!(
         pairs >= FEWEST_PAIRS,
         "only {pairs} pairs combined, so the generators no longer reach enough"
     );
+}
+
+fn meshed_faces(solid: &Solid) -> usize {
+    SamplingTolerance::new(CHORD, ANGLE)
+        .and_then(|tolerance| mass_properties_tessellating(solid, &tolerance).ok())
+        .map_or(0, |mass| mass.meshed_faces.len())
+}
+
+#[test]
+fn a_torus_face_left_by_a_difference_is_measured_exactly_and_the_volume_identities_hold() {
+    replay_case(TORUS_FACE_SEED, |_, input| {
+        let (first, second) = pair(input).unwrap();
+
+        let results = [
+            combine(&first, &second, BooleanOperation::Union).unwrap(),
+            combine(&first, &second, BooleanOperation::Intersection).unwrap(),
+            combine(&first, &second, BooleanOperation::Difference).unwrap(),
+        ];
+
+        for result in &results {
+            assert_eq!(meshed_faces(result), 0, "a face fell back to its mesh");
+        }
+    });
+    replay_case(TORUS_FACE_SEED, |_, input| {
+        assert!(combines_soundly_with_the_volume_identities(input));
+    });
 }
