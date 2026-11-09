@@ -5,7 +5,6 @@ mod gaps;
 mod insertion;
 mod mass;
 mod normal;
-mod parallel;
 mod patch;
 mod pieces;
 mod reuse;
@@ -31,6 +30,7 @@ use self::{
     reuse::{FaceKey, KeptFace},
 };
 use crate::{
+    fan_out,
     interrupt::{self, Interrupted},
     tolerance::{MeshQuality, SamplingTolerance},
     topology::{Edge, EdgeId, Face, FaceId, Solid},
@@ -311,7 +311,7 @@ pub(crate) fn tessellate_for_display(
     keys: Keys<'_>,
 ) -> Result<DisplayMesh, TessellationError> {
     let fallback = quality.at_least(&MeshQuality::COARSE);
-    let threads = parallel::available_threads();
+    let threads = fan_out::available_threads();
     match mesh_faces(
         solid,
         &quality.display_tolerance(extent),
@@ -342,7 +342,7 @@ pub(crate) fn tessellate_within(
         tolerance,
         limit,
         Keys::Skipped,
-        parallel::available_threads(),
+        fan_out::available_threads(),
     )
     .map(DisplayMesh::into_mesh)
 }
@@ -521,10 +521,10 @@ impl<'a> Tessellator<'a> {
     }
 
     fn find_poles(&mut self, faces: &[FaceId]) -> Result<(), TessellationError> {
-        let found = parallel::each_in_order(
+        let found = fan_out::each_in_order(
             faces.len(),
             self.threads,
-            parallel::FACES_PER_THREAD,
+            fan_out::FACES_PER_THREAD,
             |index| {
                 let face = faces.get(index).ok_or(TessellationError::MissingEntity)?;
                 face::pole_sampling(self.solid, *face, &self.tolerances.face(*face))
@@ -755,10 +755,10 @@ impl<'a> Tessellator<'a> {
                     })
             })
             .collect();
-        let made = parallel::each_in_order(
+        let made = fan_out::each_in_order(
             faces.len(),
             self.threads,
-            parallel::FACES_PER_THREAD,
+            fan_out::FACES_PER_THREAD,
             |index| {
                 faces
                     .get(index)

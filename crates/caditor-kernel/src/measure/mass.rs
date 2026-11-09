@@ -17,6 +17,7 @@ use crate::{
 };
 
 const BOUNDARY_TOLERANCE: f64 = 1e-12;
+const BOUNDARY_NOISE: f64 = 1e-10;
 const STRIP_TOLERANCE: f64 = 1e-14;
 const FACE_EVALUATIONS: usize = 1 << 23;
 const QUARTER_TURN: f64 = FRAC_PI_2;
@@ -142,6 +143,7 @@ impl Frame {
                 relative: BOUNDARY_TOLERANCE,
                 scales,
                 floor: scaled(&scales, BOUNDARY_TOLERANCE * square),
+                noise: BOUNDARY_NOISE,
             },
         }
     }
@@ -152,6 +154,7 @@ impl Frame {
             relative: STRIP_TOLERANCE,
             scales: self.scales,
             floor: scaled(&self.scales, per_v),
+            noise: 0.0,
         }
     }
 }

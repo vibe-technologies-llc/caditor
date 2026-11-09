@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector2};
 
 use super::{
-    HiddenLineError, HiddenLineView, Scene, Track, ViewEdgeKind, ViewSource, Visibility, decided,
+    HiddenLineError, HiddenLineView, Scene, TRACKS_PER_THREAD, Track, ViewEdgeKind, ViewSource,
+    Visibility, decided,
     flatten::{flat_parameter, flat_vector},
     piece_ends, tracks_of_scene,
     visibility::covered_along,
@@ -11,6 +12,7 @@ use super::{
 use crate::{
     box_tree::BoxTree,
     curve2::Curve2,
+    fan_out::{self, available_threads},
     interrupt,
     interval::Interval,
     tally,
@@ -111,44 +113,61 @@ fn start_height(scene: &Scene<'_>, view: &Plane) -> f64 {
         - BEHIND_MARGIN
 }
 
+fn track_runs(index: usize, track: &Track, sides: &Sides<'_>) -> Result<Vec<Run>, HiddenLineError> {
+    let Some(rank) = rank_of(&track.source) else {
+        return Ok(Vec::new());
+    };
+    let mut runs = Vec::new();
+    for pair in piece_ends(track, sides.view).windows(2) {
+        let [start, end] = pair else {
+            continue;
+        };
+        let Some(range) = Interval::new(*start, *end) else {
+            continue;
+        };
+        let Some(visibility) = decided(track, range, sides.scene, sides.view.normal())? else {
+            return Err(HiddenLineError::OutlineUndecided);
+        };
+        if visibility != Visibility::Visible {
+            continue;
+        }
+        let Some(material_on_left) = sides.material_on_left(track, range)? else {
+            continue;
+        };
+        runs.push(Run {
+            track: index,
+            range,
+            material_on_left,
+            rank,
+        });
+    }
+    Ok(runs)
+}
+
 fn boundary_runs(
     tracks: &[Track],
     scene: &Scene<'_>,
     view: &Plane,
+    threads: usize,
 ) -> Result<Vec<Run>, HiddenLineError> {
     let sides = Sides {
         scene,
         view,
         start_height: start_height(scene, view),
     };
-    let mut runs: Vec<Run> = Vec::new();
-    for (index, track) in tracks.iter().enumerate() {
-        let Some(rank) = rank_of(&track.source) else {
-            continue;
-        };
-        for pair in piece_ends(track, view).windows(2) {
-            let [start, end] = pair else {
-                continue;
-            };
-            let Some(range) = Interval::new(*start, *end) else {
-                continue;
-            };
-            let Some(visibility) = decided(track, range, scene, view.normal())? else {
-                return Err(HiddenLineError::OutlineUndecided);
-            };
-            if visibility != Visibility::Visible {
-                continue;
-            }
-            let Some(material_on_left) = sides.material_on_left(track, range)? else {
-                continue;
-            };
-            runs.push(Run {
-                track: index,
-                range,
-                material_on_left,
-                rank,
-            });
-        }
+    let found =
+        fan_out::each_in_order(
+            tracks.len(),
+            threads,
+            TRACKS_PER_THREAD,
+            |index| match tracks.get(index) {
+                Some(track) => track_runs(index, track, &sides),
+                None => Ok(Vec::new()),
+            },
+        );
+    let mut runs = Vec::new();
+    for track_runs in found {
+        runs.extend(track_runs?);
     }
     Ok(runs)
 }
@@ -443,10 +462,19 @@ pub fn outer_outline(
     view: &HiddenLineView,
     tolerance: &SamplingTolerance,
 ) -> Result<Vec<OutlinePiece>, HiddenLineError> {
+    outer_outline_on(solid, view, tolerance, available_threads())
+}
+
+pub(super) fn outer_outline_on(
+    solid: &Solid,
+    view: &HiddenLineView,
+    tolerance: &SamplingTolerance,
+    threads: usize,
+) -> Result<Vec<OutlinePiece>, HiddenLineError> {
     let plane = view.frame();
     let scene = Scene::of(&[solid]);
     let (tracks, _) = tracks_of_scene(&scene, plane, tolerance)?;
-    let runs = boundary_runs(&tracks, &scene, plane)?;
+    let runs = boundary_runs(&tracks, &scene, plane, threads)?;
     let runs = without_coincident(runs, &tracks, plane, tolerance.chord())?;
     let runs = joined_runs(runs, &tracks);
     let outer = outer_loops(&runs, &tracks, plane, tolerance.chord())?;

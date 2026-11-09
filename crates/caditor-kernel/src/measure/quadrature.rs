@@ -44,17 +44,22 @@ pub(crate) struct Tolerance {
     pub(crate) relative: f64,
     pub(crate) scales: Values,
     pub(crate) floor: Values,
+    pub(crate) noise: f64,
 }
 
 impl Tolerance {
-    fn accepts(&self, error: &Values, magnitude: &Values, share: f64) -> bool {
+    fn accepts(&self, error: &Values, magnitude: &Values, share: f64, noise: &Values) -> bool {
         let reach = magnitude.first().copied().unwrap_or(0.0);
         error
             .iter()
             .zip(magnitude)
             .zip(self.scales.iter().zip(&self.floor))
-            .all(|((error, magnitude), (scale, floor))| {
-                *error <= (self.relative * magnitude.max(reach * scale)).max(floor * share)
+            .zip(noise)
+            .all(|(((error, magnitude), (scale, floor)), noise)| {
+                let allowed = (self.relative * magnitude.max(reach * scale))
+                    .max(floor * share)
+                    .max(self.noise * noise);
+                *error <= allowed
             })
     }
 }
@@ -141,6 +146,7 @@ pub(crate) fn integrate(
         .map(|piece| (piece, 0))
         .collect();
     let width: f64 = pending.iter().map(|(piece, _)| piece.length()).sum();
+    let mut peak_density: Values = [0.0; COMPONENTS];
     while let Some((piece, depth)) = pending.pop() {
         if !budget.spend(KRONROD_EVALUATIONS) {
             return Quadrature {
@@ -156,7 +162,16 @@ pub(crate) fn integrate(
                 converged: false,
             };
         }
-        let accepted = tolerance.accepts(&found.error, &found.magnitude, piece.length() / width);
+        for (peak, magnitude) in peak_density.iter_mut().zip(&found.magnitude) {
+            *peak = peak.max(magnitude / piece.length());
+        }
+        let noise = peak_density.map(|density| density * piece.length());
+        let accepted = tolerance.accepts(
+            &found.error,
+            &found.magnitude,
+            piece.length() / width,
+            &noise,
+        );
         let halves = (
             Interval::new(piece.start(), piece.middle()),
             Interval::new(piece.middle(), piece.end()),

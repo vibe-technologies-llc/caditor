@@ -10,7 +10,7 @@ use crate::{
     interrupt,
     sense::Sense,
     surface::Surface,
-    topology::{Face, LoopId, Solid, continues, fit_pcurve, signed_area},
+    topology::{EdgeId, Face, LoopId, Solid, continues, fit_pcurve, signed_area},
 };
 
 #[derive(Debug, Clone)]
@@ -238,7 +238,9 @@ fn carried_loop(
         };
         let (representative, relation) = arrangement.representative(*piece);
         let sense = coedge.sense().combined(relation);
-        let pcurve = if representative == *piece {
+        let pcurve = if representative == *piece
+            && keeps_its_interval(solid, arrangement, *piece, coedge.edge())
+        {
             coedge.pcurve().clone()
         } else {
             let (curve, data) = arrangement.curve(representative)?;
@@ -260,6 +262,17 @@ fn carried_loop(
     let mut traced = TracedLoop { coedges, area: 0.0 };
     traced.area = signed_area(&traced.polygon());
     (closed && traced.area.is_finite() && traced.area != 0.0).then_some(traced)
+}
+
+fn keeps_its_interval(
+    solid: &Solid,
+    arrangement: &Arrangement,
+    piece: usize,
+    edge: EdgeId,
+) -> bool {
+    let original = solid.edge(edge).map(|edge| edge.interval());
+    let carried = arrangement.piece(piece).map(|piece| piece.interval);
+    original.is_some() && original == carried
 }
 
 struct Boundary {
