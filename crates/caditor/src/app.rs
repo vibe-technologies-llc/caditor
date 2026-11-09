@@ -38,7 +38,9 @@ use crate::{
     commands::{self, Clipboard, Command, CommandFrame, Declined, Offer, Situation},
     completion,
     configurations::{self, ConfigurationsDraft},
-    constraint_trial, defender, draft_tools, drawing_export, drop_target,
+    constraint_trial, defender, draft_tools, drawing_export,
+    drawings_panel::{self, DrawingsContext, DrawingsTool},
+    drop_target,
     editing::{self, EditingCommand, SketchEditing, Tool},
     feature_tree,
     file_drops::FileDrops,
@@ -197,6 +199,7 @@ pub struct Workspace {
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
     pub interference: InterferenceTool,
+    pub drawings: DrawingsTool,
     pub analysis: AnalysisTool,
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
@@ -270,6 +273,7 @@ impl Workspace {
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
             interference: InterferenceTool::default(),
+            drawings: DrawingsTool::default(),
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
@@ -323,6 +327,7 @@ impl Workspace {
         self.pair_reading = PairReading::default();
         self.measure = MeasureTool::default();
         self.interference = InterferenceTool::default();
+        self.drawings = DrawingsTool::default();
         self.analysis = AnalysisTool::default();
         self.comb = CombTool::default();
         self.isocurves = IsocurveTool::default();
@@ -356,6 +361,7 @@ impl Workspace {
             self.scale_model = None;
             self.measure.forget();
             self.interference.forget();
+            self.drawings = DrawingsTool::default();
             self.analysis.forget();
             self.comb.forget();
             self.isocurves.forget();
@@ -659,6 +665,7 @@ pub fn show(
         selection_offers,
         measure,
         interference,
+        drawings,
         analysis,
         comb,
         isocurves,
@@ -776,6 +783,7 @@ pub fn show(
     if commands.available(Command::Interference) {
         interference.toggle();
     }
+    drawings_panel::commands(model, drawings, &bodies_to_export, &mut commands, actions);
     analysis_commands(model, viewport.selection(), analysis, &mut commands);
     if commands.available(Command::Analysis(AnalysisCommand::Comb)) {
         comb.toggle();
@@ -833,6 +841,7 @@ pub fn show(
             panels,
             measure,
             interference,
+            drawings,
             analysis,
             comb,
             isocurves,
@@ -875,6 +884,7 @@ pub fn show(
     let open_panels = 1
         + usize::from(measure.open)
         + usize::from(interference.open)
+        + usize::from(drawings.open)
         + usize::from(analysis.open)
         + usize::from(comb.open)
         + usize::from(isocurves.open)
@@ -955,6 +965,15 @@ pub fn show(
         Vec::new()
     };
     viewport.set_interference(marks);
+    if drawings.open {
+        drawings.refresh(model);
+        let context = DrawingsContext {
+            model,
+            selected: &bodies_to_export,
+        };
+        drawings_panel::show(ui, &context, drawings, room, actions);
+        drawings_panel::export_when_ready(model, drawings, actions);
+    }
     let (analysing, shown) = if analysis.open {
         viewport.analyses().wake_with(|| model.waker());
         let context = AnalysisContext {
@@ -1517,6 +1536,7 @@ struct GuideBasis<'a> {
     panels: &'a PanelState,
     measure: &'a MeasureTool,
     interference: &'a InterferenceTool,
+    drawings: &'a DrawingsTool,
     analysis: &'a AnalysisTool,
     comb: &'a CombTool,
     isocurves: &'a IsocurveTool,
@@ -1548,6 +1568,7 @@ fn guide_commands(
         (basis.lighting.open, SidePanel::Lighting),
         (basis.section.open, SidePanel::Section),
         (basis.interference.open, SidePanel::Interference),
+        (basis.drawings.open, SidePanel::Drawings),
         (basis.measure.open, SidePanel::Measure),
     ]
     .into_iter()

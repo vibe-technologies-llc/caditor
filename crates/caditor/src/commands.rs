@@ -185,6 +185,9 @@ pub enum Command {
     InsertImage,
     ScaleModel,
     Configurations,
+    Drawings,
+    NewDrawing,
+    ExportDrawingSheet,
     FitView,
     PreviousView,
     NextView,
@@ -923,6 +926,9 @@ plain_commands! {
     InsertImage,
     ScaleModel,
     Configurations,
+    Drawings,
+    NewDrawing,
+    ExportDrawingSheet,
     FinishSketch,
     CancelSketch,
     ReverseArc,
@@ -1244,6 +1250,9 @@ impl Command {
             Self::InsertImage => "model.insert_reference_image",
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
+            Self::Drawings => "model.drawings",
+            Self::NewDrawing => "model.new_drawing",
+            Self::ExportDrawingSheet => "file.export_drawing_sheet",
             Self::FitView => "view.fit",
             Self::PreviousView => "view.previous",
             Self::NextView => "view.next",
@@ -1580,6 +1589,9 @@ impl Command {
             Self::InsertImage => "Insert reference image…",
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
+            Self::Drawings => "Drawings",
+            Self::NewDrawing => "New drawing",
+            Self::ExportDrawingSheet => "Export drawing sheet…",
             Self::FitView => "Fit view",
             Self::PreviousView => "Go back to the previous view",
             Self::NextView => "Go forward to the next view",
@@ -1930,6 +1942,17 @@ impl Command {
             Self::OpenInFusionApp => &["fusion", "autodesk", "step", "desktop", "app", "cad"],
             Self::Import => &["dxf", "svg", "step", "stl", "obj", "3mf"],
             Self::Configurations => &["variants", "family table", "design table"],
+            Self::Drawings | Self::NewDrawing => &[
+                "technical drawing",
+                "sheet",
+                "blueprint",
+                "orthographic",
+                "title block",
+                "2d",
+            ],
+            Self::ExportDrawingSheet => {
+                &["pdf", "svg", "dxf", "print", "technical drawing", "sheet"]
+            }
             Self::ImportConfigurations | Self::ExportConfigurations => &[
                 "csv",
                 "spreadsheet",
@@ -1998,6 +2021,7 @@ impl Command {
             | Self::ExportConfigurations
             | Self::ExportSketch
             | Self::ExportFace
+            | Self::ExportDrawingSheet
             | Self::KeepDrawingConstruction
             | Self::Preferences
             | Self::KeyboardShortcuts
@@ -2182,6 +2206,8 @@ impl Command {
             | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
+            | Self::Drawings
+            | Self::NewDrawing
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
@@ -2464,10 +2490,13 @@ impl Command {
             | Self::InsertImage
             | Self::ScaleModel
             | Self::Configurations
+            | Self::Drawings
+            | Self::NewDrawing
             | Self::ModelProperties
             | Self::KeyboardShortcuts
             | Self::ExportSketch
             | Self::ExportFace
+            | Self::ExportDrawingSheet
             | Self::KeepDrawingConstruction
             | Self::Interference
             | Self::BodyAppearance

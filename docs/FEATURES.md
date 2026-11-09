@@ -190,20 +190,21 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Technical drawings
 
-- [medium · hard] No 2D drawings
-  at all (the views' visible and hidden curves are ready: kernel `hidden_lines`): no sheet with a title block, no projected front, top, side and isometric views of the
-  bodies, no section or detail views, no dimensions or notes taken from the model, and no PDF, SVG
-  or DXF output of a sheet, though parts made for a workshop need one. Views update with the model
-  and their dimensions refer to edges by name, so they survive edits as features do.
-- [medium · hard · blocked by: 2D drawings (above)] Annotations beyond plain dimensions and notes:
-  centre marks and centrelines on holes and round edges, hole and thread callouts read from the
-  hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus, limits,
-  ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture symbols
-  (ISO 21920) and weld symbols (ISO 2553), and a title block filled from the model properties.
-- [low · medium · blocked by: 2D drawings (above)] Views and sheets beyond the standard ones:
+- [medium · hard] Drawings have standard views only and nothing measured on them: a drawing
+  (`drawings.md`) lays out front, top, right, left and isometric views on an ISO sheet with a title
+  block and exports PDF, SVG or DXF, but has no section or detail views, no dimensions or notes
+  taken from the model (dimensions should refer to edges by `EdgeName`, so they survive edits as
+  features do), no views placed or moved by hand, and the sheet is previewed only inside the
+  Drawings panel rather than in a view of its own the size of the window.
+- [medium · hard · blocked by: dimensions on drawings (above)] Annotations beyond plain dimensions
+  and notes: centre marks and centrelines on holes and round edges, hole and thread callouts read
+  from the hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus,
+  limits, ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture
+  symbols (ISO 21920) and weld symbols (ISO 2553).
+- [low · medium · blocked by: section views (above)] Views and sheets beyond the standard ones:
   auxiliary views square to an inclined face, broken views shortening a long part, broken-out and
-  half sections, cropped views, first- or third-angle projection, ISO 5457 sheets from A4 to A0 and
-  several sheets per drawing, a revision table, and section hatching chosen per material.
+  half sections, cropped views, several sheets per drawing, a revision table, a title block whose
+  cells the user lays out, and section hatching chosen per material.
 
 ## Application
 

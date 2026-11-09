@@ -2614,3 +2614,101 @@ fn a_3mf_without_threads_is_byte_for_byte_what_it_was() {
         format!("{}{}", &with[..group_start], &with[group_end..]).replace(&declaration, "");
     assert_eq!(stripped, without);
 }
+
+fn sheet_lines(
+    drawing: &caditor_document::Drawing,
+    solids: &[&Solid],
+) -> Vec<caditor_document::ViewLines> {
+    drawing
+        .views
+        .iter()
+        .map(|view| caditor_document::drawing_view(*view, solids).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
+    let (block, pin) = (block(), pin());
+    let drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Sheet".to_owned(),
+    );
+    let lines = sheet_lines(&drawing, &[&block, &pin]);
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let fields = caditor_document::TitleFields {
+        title: "Bracket".to_owned(),
+        ..caditor_document::TitleFields::default()
+    };
+    let plan = caditor_document::lay_out_sheet(&drawing, &fields, &extents);
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .filter_map(|placed| {
+            Some(SheetView {
+                placed: *placed,
+                lines: lines.iter().find(|lines| lines.view == placed.view)?,
+            })
+        })
+        .collect();
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("sheet.{}", format.extension()));
+
+    let written: Vec<SheetExported> = SheetFormat::ALL
+        .into_iter()
+        .map(|format| {
+            export_sheet(
+                &path(format),
+                &plan,
+                &views,
+                true,
+                format,
+                &CancelToken::never(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let without_hidden = export_sheet(
+        &path(SheetFormat::Svg),
+        &plan,
+        &views,
+        false,
+        SheetFormat::Svg,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+    let dxf = std::fs::read(path(SheetFormat::Dxf)).unwrap();
+    let pdf = std::fs::read(path(SheetFormat::Pdf)).unwrap();
+    let pdf_text = String::from_utf8_lossy(&pdf);
+    let start_of_table: usize = pdf_text
+        .rsplit("startxref\n")
+        .next()
+        .and_then(|rest| rest.lines().next())
+        .and_then(|number| number.parse().ok())
+        .unwrap();
+    let read_back = crate::parse_dxf(&dxf).unwrap();
+
+    let first = written[0];
+    assert_eq!(first.views, 4);
+    assert!(first.visible > 0 && first.hidden > 0);
+    assert!(written.iter().all(|exported| *exported == first));
+    assert_eq!(without_hidden.hidden, 0);
+    assert_eq!(without_hidden.visible, first.visible);
+    assert!(svg.contains(r#"width="420mm" height="297mm" viewBox="0 -297 420 297""#));
+    assert!(!svg.contains(r#"id="Hidden""#));
+    assert!(svg.contains(">Bracket</text>"));
+    assert!(pdf.starts_with(b"%PDF-1.4"));
+    assert!(pdf_text.ends_with("%%EOF\n"));
+    let table = String::from_utf8(pdf[start_of_table..].to_vec()).unwrap();
+    assert!(table.starts_with("xref"));
+    for (index, line) in table.lines().skip(3).take(5).enumerate() {
+        let offset: usize = line[..10].parse().unwrap();
+        assert!(pdf[offset..].starts_with(format!("{} 0 obj", index + 1).as_bytes()));
+    }
+    assert!(read_back.layers.iter().any(|layer| layer == "Visible"));
+    assert!(read_back.layers.iter().any(|layer| layer == "Frame"));
+    assert!(!read_back.construction.is_empty());
+}

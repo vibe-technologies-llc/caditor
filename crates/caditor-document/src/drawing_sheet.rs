@@ -1,0 +1,612 @@
+use std::collections::BTreeMap;
+
+use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_lettering::{Alignment, Style, lettered};
+
+use crate::{
+    drawings::{
+        Drawing, DrawingScale, Projection, ScaleRatio, SheetOrientation, SheetSize, StandardView,
+    },
+    properties::ModelProperties,
+};
+
+pub const VIEW_GAP: f64 = 15.0;
+pub const TITLE_BLOCK_WIDTH: f64 = 180.0;
+pub const TITLE_BLOCK_HEIGHT: f64 = 36.0;
+const TITLE_ROW: f64 = 9.0;
+const VIEW_AREA_PADDING: f64 = 5.0;
+const FILING_MARGIN: f64 = 20.0;
+const NARROW_MARGIN: f64 = 10.0;
+const WIDE_MARGIN: f64 = 20.0;
+const CENTRING_MARK: f64 = 5.0;
+const CAPTION_HEIGHT: f64 = 1.8;
+const VALUE_HEIGHT: f64 = 3.5;
+const TITLE_HEIGHT: f64 = 5.0;
+const SMALLEST_TEXT: f64 = 2.0;
+const CELL_INSET: f64 = 1.5;
+const CAPTION_INSET: f64 = 1.0;
+const CAPTION_GAP: f64 = 1.0;
+const ESTIMATED_WIDTH_PER_HEIGHT: f64 = 0.75;
+const SYMBOL_DIAMETER: f64 = 5.0;
+const SYMBOL_LENGTH: f64 = 5.0;
+const SYMBOL_GAP: f64 = 2.5;
+const ELLIPSIS: char = '…';
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAnchor {
+    Start,
+    Middle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheetText {
+    pub at: Point2,
+    pub height: f64,
+    pub content: String,
+    pub anchor: TextAnchor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SheetMark {
+    Line(Point2, Point2),
+    Circle { center: Point2, radius: f64 },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TitleFields {
+    pub title: String,
+    pub part_number: String,
+    pub revision: String,
+    pub author: String,
+    pub organisation: String,
+    pub drawing: String,
+}
+
+impl TitleFields {
+    pub fn of(properties: &ModelProperties, model_name: &str, drawing: &Drawing) -> Self {
+        let title = if properties.title.is_empty() {
+            model_name.to_owned()
+        } else {
+            properties.title.clone()
+        };
+        Self {
+            title,
+            part_number: properties.part_number.clone(),
+            revision: properties.revision.clone(),
+            author: properties.author.clone(),
+            organisation: properties.organisation.clone(),
+            drawing: drawing.name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlacedView {
+    pub view: StandardView,
+    pub origin: Point2,
+    pub scale: f64,
+}
+
+impl PlacedView {
+    pub fn on_sheet(&self, point: Point2) -> Point2 {
+        self.origin + point * self.scale
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheetPlan {
+    pub width: f64,
+    pub height: f64,
+    pub frame: Aabb2,
+    pub view_area: Aabb2,
+    pub marks: Vec<SheetMark>,
+    pub texts: Vec<SheetText>,
+    pub views: Vec<PlacedView>,
+    pub scale: ScaleRatio,
+    pub fits: bool,
+}
+
+pub fn sheet_size(size: SheetSize, orientation: SheetOrientation) -> (f64, f64) {
+    let (short, long) = size.short_and_long_sides();
+    match orientation {
+        SheetOrientation::Landscape => (long, short),
+        SheetOrientation::Portrait => (short, long),
+    }
+}
+
+fn frame_of(size: SheetSize, width: f64, height: f64) -> Aabb2 {
+    let margin = match size {
+        SheetSize::A0 | SheetSize::A1 => WIDE_MARGIN,
+        SheetSize::A2 | SheetSize::A3 | SheetSize::A4 => NARROW_MARGIN,
+    };
+    Aabb2::from_point(Point2::new(FILING_MARGIN.max(margin), margin))
+        .including(Point2::new(width - margin, height - margin))
+}
+
+fn rectangle(marks: &mut Vec<SheetMark>, bounds: Aabb2) {
+    let (low, high) = (bounds.min(), bounds.max());
+    let corners = [
+        low,
+        Point2::new(high.x, low.y),
+        high,
+        Point2::new(low.x, high.y),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        let next = corners
+            .get((index + 1) % corners.len())
+            .copied()
+            .unwrap_or(low);
+        marks.push(SheetMark::Line(*corner, next));
+    }
+}
+
+fn centring_marks(marks: &mut Vec<SheetMark>, width: f64, height: f64, frame: Aabb2) {
+    let (low, high) = (frame.min(), frame.max());
+    let middle = Point2::new(width / 2.0, height / 2.0);
+    marks.push(SheetMark::Line(
+        Point2::new(middle.x, 0.0),
+        Point2::new(middle.x, low.y + CENTRING_MARK),
+    ));
+    marks.push(SheetMark::Line(
+        Point2::new(middle.x, height),
+        Point2::new(middle.x, high.y - CENTRING_MARK),
+    ));
+    marks.push(SheetMark::Line(
+        Point2::new(0.0, middle.y),
+        Point2::new(low.x + CENTRING_MARK, middle.y),
+    ));
+    marks.push(SheetMark::Line(
+        Point2::new(width, middle.y),
+        Point2::new(high.x - CENTRING_MARK, middle.y),
+    ));
+}
+
+pub fn text_width(content: &str, height: f64) -> f64 {
+    let per_height = lettered(content, Style::default(), Alignment::Left).map_or_else(
+        |_| ESTIMATED_WIDTH_PER_HEIGHT * content.chars().count() as f64,
+        |laid| laid.width,
+    );
+    height * per_height
+}
+
+fn fitted_text(content: &str, height: f64, room: f64) -> (String, f64) {
+    if text_width(content, height) <= room {
+        return (content.to_owned(), height);
+    }
+    let shrunk = (room / text_width(content, 1.0)).max(SMALLEST_TEXT);
+    if text_width(content, shrunk) <= room {
+        return (content.to_owned(), shrunk);
+    }
+    let characters: Vec<char> = content.chars().collect();
+    let cut = (0..characters.len())
+        .rev()
+        .map(|kept| {
+            let kept: String = characters.iter().take(kept).collect();
+            format!("{}{ELLIPSIS}", kept.trim_end())
+        })
+        .find(|cut| text_width(cut, shrunk) <= room)
+        .unwrap_or_else(|| ELLIPSIS.to_string());
+    (cut, shrunk)
+}
+
+struct Cell {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    caption: &'static str,
+    value: String,
+    value_height: f64,
+}
+
+fn cell_texts(texts: &mut Vec<SheetText>, origin: Point2, cell: &Cell, room_taken: f64) {
+    let left = origin.x + cell.x + CELL_INSET;
+    let top = origin.y + cell.y + cell.height;
+    texts.push(SheetText {
+        at: Point2::new(left, top - CAPTION_INSET - CAPTION_HEIGHT),
+        height: CAPTION_HEIGHT,
+        content: cell.caption.to_owned(),
+        anchor: TextAnchor::Start,
+    });
+    if cell.value.is_empty() {
+        return;
+    }
+    let room = cell.width - 2.0 * CELL_INSET - room_taken;
+    let (content, height) = fitted_text(&cell.value, cell.value_height, room);
+    let below_caption = cell.height - CELL_INSET - CAPTION_INSET - CAPTION_HEIGHT - CAPTION_GAP;
+    let baseline = origin.y + cell.y + CELL_INSET + ((below_caption - height) / 2.0).max(0.0);
+    texts.push(SheetText {
+        at: Point2::new(left, baseline),
+        height,
+        content,
+        anchor: TextAnchor::Start,
+    });
+}
+
+fn projection_symbol(
+    marks: &mut Vec<SheetMark>,
+    projection: Projection,
+    right: f64,
+    middle_y: f64,
+) {
+    let big = SYMBOL_DIAMETER / 2.0;
+    let small = big / 2.0;
+    let width = SYMBOL_LENGTH + SYMBOL_GAP + SYMBOL_DIAMETER;
+    let left = right - width;
+    let (cone_left, circles_center_x) = match projection {
+        Projection::FirstAngle => (left, right - big),
+        Projection::ThirdAngle => (left + SYMBOL_DIAMETER + SYMBOL_GAP, left + big),
+    };
+    let cone_right = cone_left + SYMBOL_LENGTH;
+    let corners = [
+        Point2::new(cone_left, middle_y - small),
+        Point2::new(cone_right, middle_y - big),
+        Point2::new(cone_right, middle_y + big),
+        Point2::new(cone_left, middle_y + small),
+    ];
+    for (index, corner) in corners.iter().enumerate() {
+        let next = corners
+            .get((index + 1) % corners.len())
+            .copied()
+            .unwrap_or(*corner);
+        marks.push(SheetMark::Line(*corner, next));
+    }
+    let center = Point2::new(circles_center_x, middle_y);
+    marks.push(SheetMark::Circle {
+        center,
+        radius: big,
+    });
+    marks.push(SheetMark::Circle {
+        center,
+        radius: small,
+    });
+}
+
+fn title_block(
+    marks: &mut Vec<SheetMark>,
+    texts: &mut Vec<SheetText>,
+    frame: Aabb2,
+    fields: &TitleFields,
+    drawing: &Drawing,
+    scale: ScaleRatio,
+) {
+    let origin = Point2::new(frame.max().x - TITLE_BLOCK_WIDTH, frame.min().y);
+    let block = Aabb2::from_point(origin)
+        .including(origin + Vector2::new(TITLE_BLOCK_WIDTH, TITLE_BLOCK_HEIGHT));
+    rectangle(marks, block);
+    let at = |x: f64, y: f64| origin + Vector2::new(x, y);
+    let rules = [
+        (at(0.0, TITLE_ROW), at(TITLE_BLOCK_WIDTH, TITLE_ROW)),
+        (
+            at(0.0, 2.0 * TITLE_ROW),
+            at(TITLE_BLOCK_WIDTH, 2.0 * TITLE_ROW),
+        ),
+        (
+            at(110.0, 3.0 * TITLE_ROW),
+            at(TITLE_BLOCK_WIDTH, 3.0 * TITLE_ROW),
+        ),
+        (at(30.0, 0.0), at(30.0, TITLE_ROW)),
+        (at(55.0, 0.0), at(55.0, TITLE_ROW)),
+        (at(110.0, 0.0), at(110.0, TITLE_ROW)),
+        (at(140.0, 0.0), at(140.0, TITLE_ROW)),
+        (at(70.0, TITLE_ROW), at(70.0, 2.0 * TITLE_ROW)),
+        (at(130.0, TITLE_ROW), at(130.0, 2.0 * TITLE_ROW)),
+        (at(110.0, 2.0 * TITLE_ROW), at(110.0, TITLE_BLOCK_HEIGHT)),
+    ];
+    marks.extend(rules.map(|(from, to)| SheetMark::Line(from, to)));
+    let cell = |x, y, width, height, caption, value: &str, value_height| Cell {
+        x,
+        y,
+        width,
+        height,
+        caption,
+        value: value.to_owned(),
+        value_height,
+    };
+    let symbol_room = SYMBOL_LENGTH + SYMBOL_GAP + SYMBOL_DIAMETER + CELL_INSET;
+    let cells = [
+        cell(0.0, 18.0, 110.0, 18.0, "Title", &fields.title, TITLE_HEIGHT),
+        cell(
+            110.0,
+            27.0,
+            70.0,
+            9.0,
+            "Part number",
+            &fields.part_number,
+            VALUE_HEIGHT,
+        ),
+        cell(
+            110.0,
+            18.0,
+            70.0,
+            9.0,
+            "Revision",
+            &fields.revision,
+            VALUE_HEIGHT,
+        ),
+        cell(
+            0.0,
+            9.0,
+            70.0,
+            9.0,
+            "Organisation",
+            &fields.organisation,
+            VALUE_HEIGHT,
+        ),
+        cell(
+            70.0,
+            9.0,
+            60.0,
+            9.0,
+            "Drawn by",
+            &fields.author,
+            VALUE_HEIGHT,
+        ),
+        cell(
+            130.0,
+            9.0,
+            50.0,
+            9.0,
+            "Drawing",
+            &fields.drawing,
+            VALUE_HEIGHT,
+        ),
+        cell(0.0, 0.0, 30.0, 9.0, "Scale", &scale.label(), VALUE_HEIGHT),
+        cell(
+            30.0,
+            0.0,
+            25.0,
+            9.0,
+            "Size",
+            drawing.size.name(),
+            VALUE_HEIGHT,
+        ),
+        cell(110.0, 0.0, 30.0, 9.0, "Units", "mm", VALUE_HEIGHT),
+        cell(140.0, 0.0, 40.0, 9.0, "Sheet", "1 / 1", VALUE_HEIGHT),
+    ];
+    for cell in &cells {
+        cell_texts(texts, origin, cell, 0.0);
+    }
+    let projection = cell(
+        55.0,
+        0.0,
+        55.0,
+        9.0,
+        "Projection",
+        drawing.projection.name(),
+        VALUE_HEIGHT * 0.8,
+    );
+    cell_texts(texts, origin, &projection, symbol_room);
+    projection_symbol(
+        marks,
+        drawing.projection,
+        origin.x + 110.0 - CELL_INSET,
+        origin.y + (TITLE_ROW - CAPTION_HEIGHT) / 2.0,
+    );
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Column {
+    Left,
+    Middle,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Row {
+    Upper,
+    Middle,
+    Lower,
+}
+
+fn cell_of(view: StandardView, projection: Projection) -> (Column, Row) {
+    match (view, projection) {
+        (StandardView::Front, _) => (Column::Middle, Row::Middle),
+        (StandardView::Top, Projection::FirstAngle) => (Column::Middle, Row::Lower),
+        (StandardView::Top, Projection::ThirdAngle) => (Column::Middle, Row::Upper),
+        (StandardView::Right, Projection::FirstAngle)
+        | (StandardView::Left, Projection::ThirdAngle) => (Column::Left, Row::Middle),
+        (StandardView::Right, Projection::ThirdAngle)
+        | (StandardView::Left, Projection::FirstAngle) => (Column::Right, Row::Middle),
+        (StandardView::Isometric, _) => (Column::Right, Row::Upper),
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Span {
+    aligned: Option<(f64, f64)>,
+    free: f64,
+}
+
+impl Span {
+    fn align(&mut self, low: f64, high: f64) {
+        self.aligned = Some(match self.aligned {
+            Some((from, to)) => (from.min(low), to.max(high)),
+            None => (low, high),
+        });
+    }
+
+    fn length(&self) -> f64 {
+        let aligned = self.aligned.map_or(0.0, |(low, high)| high - low);
+        aligned.max(self.free)
+    }
+}
+
+struct Grid {
+    columns: BTreeMap<Column, Span>,
+    rows: BTreeMap<Row, Span>,
+}
+
+impl Grid {
+    fn of(drawing: &Drawing, extents: &BTreeMap<StandardView, Aabb2>) -> Self {
+        let mut grid = Self {
+            columns: BTreeMap::new(),
+            rows: BTreeMap::new(),
+        };
+        for view in &drawing.views {
+            let Some(bounds) = extents.get(view) else {
+                continue;
+            };
+            let (column, row) = cell_of(*view, drawing.projection);
+            let (low, high) = (bounds.min(), bounds.max());
+            let column = grid.columns.entry(column).or_default();
+            let row = grid.rows.entry(row).or_default();
+            if *view == StandardView::Isometric {
+                column.free = column.free.max(high.x - low.x);
+                row.free = row.free.max(high.y - low.y);
+            } else {
+                column.align(low.x, high.x);
+                row.align(low.y, high.y);
+            }
+        }
+        grid
+    }
+
+    fn lengths<Key>(spans: &BTreeMap<Key, Span>) -> (f64, f64) {
+        let total = spans.values().map(Span::length).sum::<f64>();
+        let gaps = VIEW_GAP * spans.len().saturating_sub(1) as f64;
+        (total, gaps)
+    }
+
+    fn largest_scale(&self, area: Aabb2) -> Option<f64> {
+        let size = area.size();
+        let (across, across_gaps) = Self::lengths(&self.columns);
+        let (down, down_gaps) = Self::lengths(&self.rows);
+        let by_width = (across > 0.0).then(|| (size.x - across_gaps) / across);
+        let by_height = (down > 0.0).then(|| (size.y - down_gaps) / down);
+        match (by_width, by_height) {
+            (Some(width), Some(height)) => Some(width.min(height)),
+            (one, other) => one.or(other),
+        }
+    }
+
+    fn fits(&self, area: Aabb2, scale: f64) -> bool {
+        let (across, across_gaps) = Self::lengths(&self.columns);
+        let (down, down_gaps) = Self::lengths(&self.rows);
+        let size = area.size();
+        let slack = 1e-9 * (1.0 + size.x.max(size.y));
+        across * scale + across_gaps <= size.x + slack && down * scale + down_gaps <= size.y + slack
+    }
+}
+
+fn chosen_scale(drawing: &Drawing, grid: &Grid, area: Aabb2) -> (ScaleRatio, bool) {
+    match drawing.scale {
+        DrawingScale::Ratio(ratio) => (ratio, grid.fits(area, ratio.factor())),
+        DrawingScale::Fit => {
+            let Some(largest) = grid.largest_scale(area) else {
+                return (ScaleRatio::new(1, 1), true);
+            };
+            let fitting = ScaleRatio::PREFERRED
+                .into_iter()
+                .find(|ratio| ratio.factor() <= largest * (1.0 + 1e-9));
+            match fitting {
+                Some(ratio) => (ratio, true),
+                None => {
+                    let smallest = ScaleRatio::PREFERRED
+                        .last()
+                        .copied()
+                        .unwrap_or(ScaleRatio::new(1, 1));
+                    (smallest, false)
+                }
+            }
+        }
+    }
+}
+
+fn starts<Key: Copy + Ord>(
+    spans: &BTreeMap<Key, Span>,
+    scale: f64,
+    from: f64,
+) -> BTreeMap<Key, f64> {
+    let mut at = from;
+    let mut placed = BTreeMap::new();
+    for (key, span) in spans {
+        placed.insert(*key, at);
+        at += span.length() * scale + VIEW_GAP;
+    }
+    placed
+}
+
+fn placed_views(
+    drawing: &Drawing,
+    extents: &BTreeMap<StandardView, Aabb2>,
+    grid: &Grid,
+    area: Aabb2,
+    scale: f64,
+) -> Vec<PlacedView> {
+    let (across, across_gaps) = Grid::lengths(&grid.columns);
+    let (down, down_gaps) = Grid::lengths(&grid.rows);
+    let width = across * scale + across_gaps;
+    let height = down * scale + down_gaps;
+    let center = area.center();
+    let lefts = starts(&grid.columns, scale, center.x - width / 2.0);
+    let tops = starts(&grid.rows, scale, 0.0);
+    let top = center.y + height / 2.0;
+    let mut views = Vec::new();
+    for view in &drawing.views {
+        let Some(bounds) = extents.get(view) else {
+            continue;
+        };
+        let (column, row) = cell_of(*view, drawing.projection);
+        let (Some(column_span), Some(row_span), Some(left), Some(down_from_top)) = (
+            grid.columns.get(&column),
+            grid.rows.get(&row),
+            lefts.get(&column),
+            tops.get(&row),
+        ) else {
+            continue;
+        };
+        let cell_width = column_span.length() * scale;
+        let cell_height = row_span.length() * scale;
+        let bottom = top - down_from_top - cell_height;
+        let origin = if *view == StandardView::Isometric {
+            let cell_center = Point2::new(left + cell_width / 2.0, bottom + cell_height / 2.0);
+            cell_center - bounds.center() * scale
+        } else {
+            let (low_x, high_x) = column_span.aligned.unwrap_or((0.0, 0.0));
+            let (low_y, high_y) = row_span.aligned.unwrap_or((0.0, 0.0));
+            Point2::new(
+                left + (cell_width - (high_x - low_x) * scale) / 2.0 - low_x * scale,
+                bottom + (cell_height - (high_y - low_y) * scale) / 2.0 - low_y * scale,
+            )
+        };
+        views.push(PlacedView {
+            view: *view,
+            origin,
+            scale,
+        });
+    }
+    views
+}
+
+pub fn lay_out_sheet(
+    drawing: &Drawing,
+    fields: &TitleFields,
+    extents: &BTreeMap<StandardView, Aabb2>,
+) -> SheetPlan {
+    let (width, height) = sheet_size(drawing.size, drawing.orientation);
+    let frame = frame_of(drawing.size, width, height);
+    let view_area = Aabb2::from_point(
+        frame.min() + Vector2::new(VIEW_AREA_PADDING, TITLE_BLOCK_HEIGHT + VIEW_AREA_PADDING),
+    )
+    .including(frame.max() - Vector2::splat(VIEW_AREA_PADDING));
+    let grid = Grid::of(drawing, extents);
+    let (scale, fits) = chosen_scale(drawing, &grid, view_area);
+    let mut marks = Vec::new();
+    let mut texts = Vec::new();
+    rectangle(&mut marks, frame);
+    centring_marks(&mut marks, width, height, frame);
+    title_block(&mut marks, &mut texts, frame, fields, drawing, scale);
+    let views = placed_views(drawing, extents, &grid, view_area, scale.factor());
+    SheetPlan {
+        width,
+        height,
+        frame,
+        view_area,
+        marks,
+        texts,
+        views,
+        scale,
+        fits,
+    }
+}

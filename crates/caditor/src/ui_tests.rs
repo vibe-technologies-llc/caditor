@@ -78,6 +78,7 @@ mod dimension_labels;
 mod display_styles;
 mod draft;
 mod drawing_import;
+mod drawings;
 mod emboss;
 mod exporting;
 mod extrude_from_selection;
@@ -330,6 +331,10 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_image_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        self.respond(directory, respond);
+    }
+
+    fn pick_sheet_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
         self.respond(directory, respond);
     }
 

@@ -22,9 +22,20 @@ pub(super) enum Layer {
     Holes,
     Dimensions,
     Labels,
+    Visible,
+    Hidden,
+    Frame,
 }
 
 impl Layer {
+    pub(super) fn is_dashed(self) -> bool {
+        matches!(self, Self::Construction | Self::Hidden)
+    }
+
+    pub(super) fn is_on_sheet(self) -> bool {
+        matches!(self, Self::Visible | Self::Hidden | Self::Frame)
+    }
+
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Sketch => "0",
@@ -33,6 +44,9 @@ impl Layer {
             Self::Holes => "Holes",
             Self::Dimensions => "Dimensions",
             Self::Labels => "Labels",
+            Self::Visible => "Visible",
+            Self::Hidden => "Hidden",
+            Self::Frame => "Frame",
         }
     }
 }

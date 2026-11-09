@@ -17,13 +17,42 @@ const POINT_RADIUS: f64 = 0.25;
 const DECIMALS: usize = 6;
 const DASH: f64 = 1.0;
 const GAP: f64 = 0.5;
+const VISIBLE_WIDTH: f64 = 0.5;
+const HIDDEN_WIDTH: f64 = 0.25;
+const HIDDEN_DASH: f64 = 3.0;
+const HIDDEN_GAP: f64 = 1.5;
+const FRAME_WIDTH: f64 = 0.35;
+const CAP_HEIGHT_PER_FONT_SIZE: f64 = 0.727;
+
+#[derive(Debug, Clone, Copy)]
+struct Page {
+    low: Point2,
+    high: Point2,
+    margin: f64,
+}
 
 pub(super) fn encode(figure: &Figure) -> Result<String, ExportError> {
     let Some((low, high)) = extent(figure) else {
         return Err(ExportError::NoCurves);
     };
     let mut text = String::new();
-    write_document(&mut text, figure, low, high).map_err(|_| ExportError::Encoding)?;
+    let page = Page {
+        low,
+        high,
+        margin: MARGIN,
+    };
+    write_document(&mut text, figure, page).map_err(|_| ExportError::Encoding)?;
+    Ok(text)
+}
+
+pub(super) fn encode_page(figure: &Figure, width: f64, height: f64) -> Result<String, ExportError> {
+    let mut text = String::new();
+    let page = Page {
+        low: Point2::ZERO,
+        high: Point2::new(width, height),
+        margin: 0.0,
+    };
+    write_document(&mut text, figure, page).map_err(|_| ExportError::Encoding)?;
     Ok(text)
 }
 
@@ -40,21 +69,17 @@ fn extent(figure: &Figure) -> Option<(Point2, Point2)> {
         })
 }
 
-fn write_document(
-    text: &mut String,
-    figure: &Figure,
-    low: Point2,
-    high: Point2,
-) -> std::fmt::Result {
-    let width = high.x - low.x + 2.0 * MARGIN;
-    let height = high.y - low.y + 2.0 * MARGIN;
+fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::Result {
+    let Page { low, high, margin } = page;
+    let width = high.x - low.x + 2.0 * margin;
+    let height = high.y - low.y + 2.0 * margin;
     writeln!(
         text,
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{}mm" height="{}mm" viewBox="{} {} {} {}">"#,
         Real(width),
         Real(height),
-        Real(low.x - MARGIN),
-        Real(-high.y - MARGIN),
+        Real(low.x - margin),
+        Real(-high.y - margin),
         Real(width),
         Real(height)
     )?;
@@ -77,9 +102,34 @@ fn write_document(
             Layer::Outline | Layer::Holes | Layer::Dimensions | Layer::Labels => {
                 writeln!(text, r#"<g id="{}">"#, layer.name())?;
             }
+            Layer::Visible => writeln!(
+                text,
+                r#"<g id="{}" stroke-width="{}">"#,
+                layer.name(),
+                Real(VISIBLE_WIDTH)
+            )?,
+            Layer::Hidden => writeln!(
+                text,
+                r#"<g id="{}" stroke-width="{}" stroke-dasharray="{} {}" stroke-linecap="butt">"#,
+                layer.name(),
+                Real(HIDDEN_WIDTH),
+                Real(HIDDEN_DASH),
+                Real(HIDDEN_GAP)
+            )?,
+            Layer::Frame => writeln!(
+                text,
+                r#"<g id="{}" stroke-width="{}">"#,
+                layer.name(),
+                Real(FRAME_WIDTH)
+            )?,
         }
+        let font_scale = if layer.is_on_sheet() {
+            1.0 / CAP_HEIGHT_PER_FONT_SIZE
+        } else {
+            1.0
+        };
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
-            write_shape(text, shape)?;
+            write_shape(text, shape, font_scale)?;
         }
         if grouped {
             writeln!(text, "</g>")?;
@@ -89,7 +139,7 @@ fn write_document(
     writeln!(text, "</svg>")
 }
 
-fn write_shape(text: &mut String, shape: &Shape) -> std::fmt::Result {
+fn write_shape(text: &mut String, shape: &Shape, font_scale: f64) -> std::fmt::Result {
     match shape {
         Shape::Point(point) => writeln!(
             text,
@@ -136,17 +186,17 @@ fn write_shape(text: &mut String, shape: &Shape) -> std::fmt::Result {
         Shape::Ellipse(ellipse) => write_ellipse(text, ellipse),
         Shape::Spline(spline) => write_polyline(text, &spline.polyline),
         Shape::Polyline(points) => write_polyline(text, points),
-        Shape::Text(label) => write_text(text, label),
+        Shape::Text(label) => write_text(text, label, font_scale),
         Shape::Dimension(dimension) => {
             for mark in &dimension.marks {
-                write_shape(text, mark)?;
+                write_shape(text, mark, font_scale)?;
             }
-            write_text(text, &dimension.text)
+            write_text(text, &dimension.text, font_scale)
         }
     }
 }
 
-fn write_text(text: &mut String, label: &Text) -> std::fmt::Result {
+fn write_text(text: &mut String, label: &Text, font_scale: f64) -> std::fmt::Result {
     let (anchor, baseline) = match label.anchor {
         Anchor::Start => ("start", "auto"),
         Anchor::Middle => ("middle", "central"),
@@ -155,7 +205,7 @@ fn write_text(text: &mut String, label: &Text) -> std::fmt::Result {
     write!(
         text,
         r##"<text x="{x}" y="{y}" font-size="{}" font-family="sans-serif" text-anchor="{anchor}" dominant-baseline="{baseline}" fill="#000000" stroke="none""##,
-        Real(label.height),
+        Real(label.height * font_scale),
         x = Real(label.at.x),
         y = Real(-label.at.y),
     )?;

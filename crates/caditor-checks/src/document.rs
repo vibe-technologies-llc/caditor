@@ -84,6 +84,7 @@ impl Generator {
             Edit::SetModelProperties { .. }
             | Edit::SetSavedViews { .. }
             | Edit::SetSelectionSets { .. }
+            | Edit::SetDrawings { .. }
             | Edit::SetConfigurations { .. }
             | Edit::SetActiveConfiguration { .. } => Self::Model,
         }

@@ -50,6 +50,7 @@ use serde_json::Value;
 use crate::{
     checked_texts::persist_checked,
     configurations::{ConfigurationsRecord, configurations_record_of, restore_configurations},
+    drawings::{DrawingsRecord, drawings_record_of, restore_drawings},
     parallel::in_parallel,
     reference_images::{
         Pictures, ReferenceImageRecord, reference_image_record, restore_reference_image,
@@ -77,9 +78,10 @@ pub(crate) enum Record {
     NamedValues(NamedValuesRecord),
     SelectionSets(SelectionSetsRecord),
     Configurations(ConfigurationsRecord),
+    Drawings(DrawingsRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 11] = [
+pub(crate) const RECORD_KINDS: [&str; 12] = [
     "parameter",
     "feature",
     "next_ids",
@@ -91,6 +93,7 @@ pub(crate) const RECORD_KINDS: [&str; 11] = [
     "named_values",
     "selection_sets",
     "configurations",
+    "drawings",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -2734,6 +2737,9 @@ pub(crate) enum EditRecord {
     },
     SetConfigurations {
         configurations: ConfigurationsRecord,
+    },
+    SetDrawings {
+        drawings: DrawingsRecord,
     },
     SetActiveConfiguration {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6394,6 +6400,9 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetSelectionSets { sets } => EditRecord::SetSelectionSets {
             sets: selection_sets_record_of(sets),
         },
+        Edit::SetDrawings { drawings } => EditRecord::SetDrawings {
+            drawings: drawings_record_of(drawings),
+        },
         Edit::SetConfigurations { configurations } => EditRecord::SetConfigurations {
             configurations: configurations_record_of(configurations),
         },
@@ -6709,6 +6718,9 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
         },
         EditRecord::SetSelectionSets { sets } => Edit::SetSelectionSets {
             sets: Box::new(restore_selection_sets(sets, &mut Vec::new())),
+        },
+        EditRecord::SetDrawings { drawings } => Edit::SetDrawings {
+            drawings: Box::new(restore_drawings(drawings, &mut Vec::new())),
         },
         EditRecord::SetConfigurations { configurations } => {
             let mut issues = Vec::new();

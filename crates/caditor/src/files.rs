@@ -26,8 +26,9 @@ use caditor_file::{
     MESH_IMPORT_EXTENSIONS, MeshUnit, ModelImport, NamedFace, NamedSketch, PARAMETERS_EXTENSION,
     PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage, RecentChange, RecentFiles,
     Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings,
-    SheetLayout, SketchExported, SketchFormat, TextOutlines, UpdateFailure, describe_set_aside,
-    journal_for, load_cancellable, load_version, read_drawing, scan,
+    SheetExported, SheetFormat, SheetLayout, SketchExported, SketchFormat, TextOutlines,
+    UpdateFailure, describe_set_aside, journal_for, load_cancellable, load_version, read_drawing,
+    scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -76,6 +77,7 @@ use crate::{
     preferences::{self, Choice, ExportMemory, PreferencesCommand, RecentListed, Startup},
     samples::Sample,
     scene_palette::Canvas,
+    sheet_export::{self, SheetJob},
     sketch_placement::FaceChoice,
     slicer::{self, FindError, Installation, PrepareError},
     snapshot::Snapshot,
@@ -216,6 +218,7 @@ pub enum FileCommand {
     KeepDrawingConstruction(bool),
     InsertImage(ImageTarget),
     ChooseBackdrop,
+    ExportSheet(Box<SheetJob>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +258,7 @@ pub trait Dialogs {
         file_name: String,
         respond: Respond,
     );
+    fn pick_sheet_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
     fn pick_parameters_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
     fn pick_parameters(&self, directory: Option<PathBuf>, respond: Respond);
     fn pick_configurations_path(
@@ -391,6 +395,24 @@ impl Dialogs for NativeDialogs {
             .map(|format| Filter::new(format.name(), &[format.extension()]))
             .to_vec();
         let request = Self::request(Mode::Save, title, directory, Some(file_name), filters);
+        Self::spawn(respond, request);
+    }
+
+    fn pick_sheet_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+        let mut filters = vec![Filter::new(
+            sheet_export::KIND,
+            &SheetFormat::ALL.map(SheetFormat::extension),
+        )];
+        filters.extend(
+            SheetFormat::ALL.map(|format| Filter::new(format.name(), &[format.extension()])),
+        );
+        let request = Self::request(
+            Mode::Save,
+            "Export drawing sheet",
+            directory,
+            Some(file_name),
+            filters,
+        );
         Self::spawn(respond, request);
     }
 
@@ -559,6 +581,7 @@ enum Purpose {
     Export(ExportFormat),
     Image,
     Drawing,
+    Sheet,
     Import,
     ExportParameters,
     ImportParameters,
@@ -574,7 +597,7 @@ impl Purpose {
             Self::Open => Some(Folder::Open),
             Self::Import | Self::Picture | Self::Backdrop => Some(Folder::Import),
             Self::Export(_) => Some(Folder::Export),
-            Self::Drawing => Some(Folder::Drawing),
+            Self::Drawing | Self::Sheet => Some(Folder::Drawing),
             Self::ExportParameters
             | Self::ImportParameters
             | Self::ExportConfigurations
@@ -633,6 +656,9 @@ enum Output {
     Drawing {
         path: PathBuf,
     },
+    Sheet {
+        path: PathBuf,
+    },
     Template {
         path: PathBuf,
     },
@@ -650,6 +676,7 @@ impl Output {
             Self::Export { path, .. }
             | Self::Image { path }
             | Self::Drawing { path }
+            | Self::Sheet { path }
             | Self::Template { path }
             | Self::Parameters { path }
             | Self::Configurations { path } => path,
@@ -672,6 +699,9 @@ impl Output {
             },
             Self::Drawing { path } => Self::Drawing {
                 path: drawing_export::with_format_extension(path),
+            },
+            Self::Sheet { path } => Self::Sheet {
+                path: sheet_export::with_format_extension(path),
             },
             Self::Template { path } => Self::Template {
                 path: with_extension(path),
@@ -868,6 +898,11 @@ enum Event {
         nested: bool,
         result: Result<DrawingExported, ExportError>,
     },
+    SheetExported {
+        path: PathBuf,
+        name: String,
+        result: Result<SheetExported, ExportError>,
+    },
     HistoryListed {
         path: PathBuf,
         result: Result<History, LoadError>,
@@ -918,7 +953,8 @@ impl Event {
         match self {
             Self::SketchExported { path, .. }
             | Self::FaceExported { path, .. }
-            | Self::BothExported { path, .. } => Some((WriteKind::Drawing, path)),
+            | Self::BothExported { path, .. }
+            | Self::SheetExported { path, .. } => Some((WriteKind::Drawing, path)),
             Self::ParametersExported { path, .. } => Some((WriteKind::Parameters, path)),
             Self::ConfigurationsExported { path, .. } => Some((WriteKind::Configurations, path)),
             Self::TemplateSaved { path, .. } => Some((WriteKind::Template, path)),
@@ -1132,6 +1168,7 @@ pub struct Files {
     exporter: Exporter,
     image: ImageExporter,
     drawing: DrawingExporter,
+    sheet: Option<Box<SheetJob>>,
     drawing_construction: Construction,
     history: VersionHistory,
     picking: Option<(u64, Purpose, Since)>,
@@ -1199,6 +1236,7 @@ impl Files {
             exporter: Exporter::default(),
             image: ImageExporter::default(),
             drawing: DrawingExporter::default(),
+            sheet: None,
             drawing_construction: Construction::LeftOut,
             history: VersionHistory::default(),
             picking: None,
@@ -1555,6 +1593,12 @@ impl Files {
             }
             FileCommand::ConfigurationImport(command) => {
                 self.configuration_import_command(command, model);
+            }
+            FileCommand::ExportSheet(job) => {
+                if self.picking.is_none() {
+                    self.sheet = Some(job);
+                    self.pick(Purpose::Sheet, model);
+                }
             }
             FileCommand::DrawingExport(command) => {
                 self.drawing.perform(command);
@@ -2245,6 +2289,9 @@ impl Files {
             } => {
                 model.set_notice(drawing_export::both_finished(&path, &name, nested, result));
             }
+            Event::SheetExported { path, name, result } => {
+                model.set_notice(sheet_export::finished(&path, &name, result));
+            }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
             Event::VersionLoaded {
                 path,
@@ -2628,8 +2675,10 @@ impl Files {
     }
 
     fn drop_output(&mut self, output: &Output) {
-        if let Output::Image { .. } = output {
-            self.image.pick_cancelled();
+        match output {
+            Output::Image { .. } => self.image.pick_cancelled(),
+            Output::Sheet { .. } => self.sheet = None,
+            _ => {}
         }
     }
 
@@ -2642,10 +2691,35 @@ impl Files {
             } => self.export(path, format, configurations, model),
             Output::Image { path } => self.image.picked(path),
             Output::Drawing { path } => self.export_drawing(path, model),
+            Output::Sheet { path } => self.export_sheet(path),
             Output::Template { path } => self.save_template(path, model),
             Output::Parameters { path } => self.export_parameters(path, model),
             Output::Configurations { path } => self.export_configurations(path, model),
         }
+    }
+
+    fn export_sheet(&mut self, path: PathBuf) {
+        let Some(job) = self.sheet.take() else {
+            return;
+        };
+        let failed = (path.clone(), job.name.clone());
+        self.spawn_write(
+            WriteKind::Drawing,
+            path.clone(),
+            move || {
+                let result = job.write(&path, &CancelToken::never());
+                Event::SheetExported {
+                    path,
+                    name: job.name,
+                    result,
+                }
+            },
+            move || Event::SheetExported {
+                path: failed.0,
+                name: failed.1,
+                result: Err(ExportError::Encoding),
+            },
+        );
     }
 
     fn export_drawing(&mut self, path: PathBuf, model: &mut Model) {
@@ -3096,6 +3170,10 @@ impl Files {
             (Purpose::Drawing, Some(path)) => {
                 self.check_output(Output::Drawing { path }, since.session);
             }
+            (Purpose::Sheet, Some(path)) => {
+                self.check_output(Output::Sheet { path }, since.session);
+            }
+            (Purpose::Sheet, None) => self.sheet = None,
             (Purpose::ExportParameters, Some(path)) => {
                 self.check_output(Output::Parameters { path }, since.session);
             }
@@ -3225,6 +3303,13 @@ impl Files {
                     .into_owned();
                 self.dialogs
                     .pick_drawing_path(title, directory, file_name, respond);
+            }
+            Purpose::Sheet => {
+                let file_name = self
+                    .sheet
+                    .as_ref()
+                    .map_or_else(|| "Drawing.pdf".to_owned(), |job| job.file_name());
+                self.dialogs.pick_sheet_path(directory, file_name, respond);
             }
             Purpose::Import => self.dialogs.pick_import(directory, respond),
             Purpose::ExportParameters => {

@@ -364,6 +364,21 @@ fn shoot(harness: &mut Harness, gpu: &Gpu, out: &Path, scene: &str, look: Look) 
     harness.screenshot(gpu, &out.join(format!("{scene}-{}.png", look.name)));
 }
 
+fn drawings_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    harness.open_sample(Sample::Bracket);
+    for _ in 0..3 {
+        harness.workspace.queue_command(Command::WiderPanel);
+        harness.frame();
+    }
+    harness.workspace.queue_command(Command::NewDrawing);
+    harness.frame();
+    harness.wait_until("the drawing's views are worked out", |harness| {
+        harness.workspace.drawings.is_ready()
+    });
+    harness.still();
+    shoot(harness, gpu, out, "drawings", look);
+}
+
 #[test]
 #[ignore = "writes screenshots of the interface to the directory named by CADITOR_SCREENSHOTS"]
 fn screenshots() {
@@ -447,6 +462,11 @@ fn screenshots() {
         let mut grouped = Harness::styled(look, dir.path(), false);
         body_groups_scene(&mut grouped, &gpu, &out, look);
         drop(grouped);
+
+        let dir = TempDir::new().expect("a temporary directory");
+        let mut drawn = Harness::styled(look, dir.path(), false);
+        drawings_scene(&mut drawn, &gpu, &out, look);
+        drop(drawn);
 
         let dir = TempDir::new().expect("a temporary directory");
         let mut configured = Harness::styled(look, dir.path(), false);

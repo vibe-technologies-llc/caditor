@@ -13,6 +13,7 @@ use crate::{
         parse, push_packed_for_recovery, start_file, value,
     },
     configurations::{ConfigurationsRecord, configurations_record},
+    drawings::{DrawingsRecord, drawings_record},
     format::{
         FeatureRecord, ImportTexts, Lenient, NamedValuesRecord, NextIdsRecord, ParameterRecord,
         PrincipalRecord, PropertiesRecord, Record, RollbackRecord, SuppressedRecord,
@@ -77,6 +78,8 @@ struct SnapshotRecord {
     selection_sets: Option<SelectionSetsRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     configurations: Option<ConfigurationsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    drawings: Option<DrawingsRecord>,
 }
 
 pub(crate) struct JournalHead<'a> {
@@ -251,6 +254,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
         named_values: named_values_record(document),
         selection_sets: selection_sets_record(document),
         configurations: configurations_record(document),
+        drawings: drawings_record(document),
     }
 }
 
@@ -404,6 +408,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
         named_values: snapshot.named_values,
         selection_sets: snapshot.selection_sets,
         configurations: snapshot.configurations,
+        drawings: snapshot.drawings,
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

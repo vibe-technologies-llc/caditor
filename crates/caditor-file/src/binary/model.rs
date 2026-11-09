@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     configurations::configurations_record,
+    drawings::drawings_record,
     format::{
         FORMAT_VERSION, Lenient, Record, Unreadable, feature_records, named_values_record,
         next_ids_record, parameter_record, principal_record, properties_record, rollback_record,
@@ -655,6 +656,7 @@ fn document_values(document: &Document) -> impl Iterator<Item = Record> + '_ {
         .chain(named_values_record(document).map(Record::NamedValues))
         .chain(selection_sets_record(document).map(Record::SelectionSets))
         .chain(configurations_record(document).map(Record::Configurations))
+        .chain(drawings_record(document).map(Record::Drawings))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
 }
 

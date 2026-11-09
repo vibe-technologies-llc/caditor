@@ -22,6 +22,7 @@ use crate::{
     },
     delete_face::DeleteFace,
     draft::Draft,
+    drawings::Drawings,
     edit::{Edit, Transaction},
     emboss::Emboss,
     feature_list::FeatureList,
@@ -1922,6 +1923,7 @@ pub struct Document {
     pub(crate) views: Arc<SavedViews>,
     pub(crate) selection_sets: Arc<SelectionSets>,
     pub(crate) configurations: Arc<Configurations>,
+    pub(crate) drawings: Arc<Drawings>,
 }
 
 impl Document {
@@ -2140,6 +2142,7 @@ impl Document {
             && self.views == other.views
             && self.selection_sets == other.selection_sets
             && self.configurations.same_content(&other.configurations)
+            && self.drawings.same_content(&other.drawings)
             && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
@@ -2223,6 +2226,9 @@ impl Document {
             (self.selection_sets != target.selection_sets).then(|| Edit::SetSelectionSets {
                 sets: Box::new(SelectionSets::clone(&target.selection_sets)),
             });
+        let drawings = (!self.drawings.same_content(&target.drawings)).then(|| Edit::SetDrawings {
+            drawings: Box::new(Drawings::clone(&target.drawings)),
+        });
         let names_a_removed_parameter = self
             .configurations
             .parameters_named()
@@ -2253,6 +2259,7 @@ impl Document {
                 .chain(properties)
                 .chain(views)
                 .chain(selection_sets)
+                .chain(drawings)
                 .chain(configurations)
                 .collect(),
         )

@@ -1,4 +1,5 @@
 mod annotation;
+mod drawing_sheet;
 #[cfg(test)]
 mod drawing_tests;
 mod dxf;
@@ -8,6 +9,7 @@ mod image;
 mod nest;
 mod obj;
 mod outline;
+mod pdf;
 mod sheet;
 mod stl;
 mod svg;
@@ -32,17 +34,18 @@ use caditor_step::{
     FaceLook, StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step_detailed,
 };
 
-use self::{
-    figure::{Figure, Layer, Shape},
-    sheet::Part,
-};
 pub use self::{
+    drawing_sheet::{SheetExported, SheetFormat, SheetView, export_sheet},
     image::{
         ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage, export_png,
         png_bytes,
     },
     sheet::{Annotations, DrawingSheet, Nesting, SheetLayout},
     stl::StlEncoding,
+};
+use self::{
+    figure::{Figure, Layer, Shape},
+    sheet::Part,
 };
 use crate::{
     reason::WriteFailure,

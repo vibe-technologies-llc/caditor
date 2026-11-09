@@ -359,6 +359,9 @@ paths:
 
 ### Drawings
 
+- Technical drawing sheets (`export_sheet`, PDF, SVG or DXF of a model's drawing with its views and
+  title block) are in `drawings.md`; they share `Figure`, the DXF and SVG writers below and add
+  `Layer::Visible`, `Hidden` and `Frame`.
 - `export_drawing` turns each source (`NamedSketch` or `NamedFace`, both kinds in one drawing,
   sketches first) into a `Figure` of 2D `Shape`s each on a `Layer` (`export/figure.rs`), arranges
   them by a `DrawingSheet` (`export/sheet.rs`) and writes with `export/dxf.rs` or `export/svg.rs`;
