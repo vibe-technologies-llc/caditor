@@ -61,3 +61,7 @@ paths:
   209 s; at level 1 they take 10 s and 54 s, and the app's test binary shrinks from 1.5 GB to 0.5 GB
   with line tables instead of full debug info. The app and render crates stay unoptimised, since
   their tests spend their time in egui and the GPU.
+- `libm` (default features, so its exactly rounded `sqrt`, `fma` and rounding may use the CPU's
+  instructions) is pure Rust and supplies the kernel's and the geometry crate's transcendental maths
+  (`kernel.md`); `caditor-geometry` also turns on `glam`'s `libm` feature, which `glam` already
+  depends on, so every crate's `glam` rotations use it too.

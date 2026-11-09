@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI},
 };
 
-use caditor_geometry::{Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Point3, RigidTransform, Vector3};
 
 use super::{
     MoveError, move_faces,
@@ -87,7 +87,7 @@ fn a_wall_tilted_about_its_bottom_edge_leans_out_and_the_top_follows() {
     let outward = carried(&block, &[side], turned(hinge, Vector3::Y, 10.0));
     let inward = carried(&block, &[side], turned(hinge, Vector3::Y, -10.0));
 
-    let wedge = 500.0 * 10f64.to_radians().tan();
+    let wedge = 500.0 * 10f64.to_radians().tan_libm();
     check("outward", &outward, 1000.0 + wedge);
     check("inward", &inward, 1000.0 - wedge);
     assert_eq!(names(&outward), names(&block));
@@ -214,7 +214,7 @@ fn a_bore_tilted_about_a_line_across_its_middle_slants_through_the_plate() {
     check(
         "slanted",
         &slanted,
-        20.0 * 20.0 * 6.0 - 9.0 * PI * 6.0 / tilt.cos(),
+        20.0 * 20.0 * 6.0 - 9.0 * PI * 6.0 / tilt.cos_libm(),
     );
 }
 

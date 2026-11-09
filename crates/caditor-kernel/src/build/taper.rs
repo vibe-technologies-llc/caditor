@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
 
 use crate::{
     build::{
@@ -193,7 +193,7 @@ impl Sweep<'_> {
                 sweep,
                 ..
             } => {
-                let half_angle = (-sweep.signum() * self.taper.rate * going).atan();
+                let half_angle = (-sweep.signum() * self.taper.rate * going).atan_libm();
                 let frame = Plane::from_frame(
                     self.point(center, self.taper.reference),
                     normal,
@@ -293,7 +293,14 @@ pub fn extrude_tapered(
     if angle.abs().to_degrees() >= MAX_TAPER_DEGREES {
         return Err(SweepError::TaperTooSteep);
     }
-    tapered(plane, plane.normal(), regions, extent, angle.tan(), feature)
+    tapered(
+        plane,
+        plane.normal(),
+        regions,
+        extent,
+        angle.tan_libm(),
+        feature,
+    )
 }
 
 pub fn extrude_tapered_along(
@@ -319,7 +326,7 @@ pub fn extrude_tapered_along(
         rising,
         regions,
         extent,
-        angle.tan() * rising.length(),
+        angle.tan_libm() * rising.length(),
         feature,
     )
 }
@@ -342,7 +349,7 @@ pub fn extrude_flared(
         plane.normal(),
         regions,
         extent,
-        flank.tan().recip(),
+        flank.tan_libm().recip(),
         feature,
     )
 }

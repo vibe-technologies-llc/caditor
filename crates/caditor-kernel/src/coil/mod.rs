@@ -9,7 +9,7 @@ mod tests;
 
 use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Maths, Plane, Point2};
 use thiserror::Error;
 
 use self::pitch::PitchLaw;
@@ -140,7 +140,7 @@ impl CoilSpec {
     }
 
     pub fn radial_rise(&self) -> f64 {
-        self.taper.tan() * self.height()
+        self.taper.tan_libm() * self.height()
     }
 
     pub fn volume(&self) -> f64 {
@@ -290,7 +290,7 @@ fn section(shape: CoilShape, centre: Point2, half: f64) -> [SectionPiece; SECTIO
 fn least_pitch(spec: &CoilSpec) -> f64 {
     let gap = (LEAST_GAP * spec.size).max(AXIS_CLEARANCE);
     let reach = spec.size + gap;
-    let slant = spec.taper.tan();
+    let slant = spec.taper.tan_libm();
     match spec.shape {
         CoilShape::Square => reach / slant.abs().max(1.0),
         CoilShape::Round => reach / (1.0 + slant * slant).sqrt(),
@@ -299,10 +299,10 @@ fn least_pitch(spec: &CoilSpec) -> f64 {
 
 fn turns_apart(spec: &CoilSpec) -> bool {
     let reach = spec.size + (LEAST_GAP * spec.size).max(AXIS_CLEARANCE);
-    let across = spec.pitch * spec.taper.tan();
+    let across = spec.pitch * spec.taper.tan_libm();
     match spec.shape {
         CoilShape::Square => spec.pitch.max(across.abs()) > reach,
-        CoilShape::Round => spec.pitch.hypot(across) > reach,
+        CoilShape::Round => spec.pitch.hypot_libm(across) > reach,
     }
 }
 
@@ -359,7 +359,7 @@ fn layout(spec: &CoilSpec) -> Result<Layout, CoilError> {
             frame: spec.frame,
             hand: spec.hand,
             law: PitchLaw::even(spec.pitch),
-            spread: taper.tan(),
+            spread: taper.tan_libm(),
         },
         turns: spec.turns,
         centre,

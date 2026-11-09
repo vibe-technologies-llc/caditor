@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, TAU},
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use crate::{
     bspline::BSpline,
@@ -359,7 +359,7 @@ pub(super) fn arc_spline(
     let curve = Curve2::from(*circle);
     let pieces = (range.length() / FRAC_PI_2).ceil().max(1.0) as usize;
     let step = range.length() / pieces as f64;
-    let weight = (0.5 * step).cos();
+    let weight = (0.5 * step).cos_libm();
     let mut points = Vec::with_capacity(2 * pieces + 1);
     let mut weights = Vec::with_capacity(2 * pieces + 1);
     let mut knots = vec![0.0; 3];
@@ -410,7 +410,7 @@ pub(super) fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, 
                 )?
                 .into()
             } else {
-                let half_angle = (high_radius - low_radius).atan2(high_height - low_height);
+                let half_angle = (high_radius - low_radius).atan2_libm(high_height - low_height);
                 Cone::new(frame.meridian(low_height)?, low_radius.max(0.0), half_angle)?.into()
             }
         }

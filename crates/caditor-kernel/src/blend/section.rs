@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Maths, Point2, Vector2};
 
 use crate::{profile::ProfileCurve, tolerance::LINEAR_RESOLUTION};
 
@@ -108,7 +108,7 @@ impl SectionSide {
                 if half >= 1.0 {
                     return None;
                 }
-                let turn = 2.0 * half.asin();
+                let turn = 2.0 * half.asin_libm();
                 let from = corner - center;
                 let angle = if from.perp_dot(self.inward) >= 0.0 {
                     turn

@@ -4,7 +4,7 @@ mod tests;
 
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_geometry::{Maths, Plane, Point2, Vector2};
 use thiserror::Error;
 
 pub(crate) use self::groove::helix_knots;
@@ -64,7 +64,7 @@ pub struct ThreadForm {
 
 impl ThreadForm {
     pub fn half_width_at(&self, radius: f64) -> f64 {
-        0.5 * self.root_width + (radius - self.root_radius).abs() * self.flank_angle.tan()
+        0.5 * self.root_width + (radius - self.root_radius).abs() * self.flank_angle.tan_libm()
     }
 
     fn values(&self) -> [f64; 5] {

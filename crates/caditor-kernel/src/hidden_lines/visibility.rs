@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Point2, Point3, Vector3};
 
 use super::{Own, Scene, Track, trace::on_contour};
 use crate::{
@@ -95,7 +95,10 @@ fn edge_hides_itself(
         return None;
     }
     let turned = |direction: Vector3| {
-        (-direction.dot(one.normal).atan2(direction.dot(one.inward))).rem_euclid(TAU)
+        (-direction
+            .dot(one.normal)
+            .atan2_libm(direction.dot(one.inward)))
+        .rem_euclid(TAU)
     };
     let seen = turned(square);
     let material = turned(two.inward);

@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Aabb2, Point2};
+use caditor_geometry::{Aabb2, Maths, Point2};
 
 use crate::{
     coordinates::distance_to_segment,
@@ -37,7 +37,7 @@ pub(crate) fn overlaps(a: &Aabb2, b: &Aabb2) -> bool {
 
 fn angle_seen(from: Point2, a: Point2, b: Point2) -> f64 {
     let (a, b) = (a - from, b - from);
-    a.perp_dot(b).atan2(a.dot(b))
+    a.perp_dot(b).atan2_libm(a.dot(b))
 }
 
 fn swept_angle(curve: &Curve2, range: Interval, point: Point2) -> f64 {

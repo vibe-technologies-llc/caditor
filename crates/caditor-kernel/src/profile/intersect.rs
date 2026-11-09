@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Aabb2, Point2};
+use caditor_geometry::{Aabb2, Maths, Point2};
 
 use crate::{
     curve2::{Circle2, Curve2, Line2},
@@ -167,7 +167,7 @@ fn circle_parameter(
     let offset = point - circle.center();
     let angle = offset
         .dot(circle.y_axis())
-        .atan2(offset.dot(circle.x_axis()));
+        .atan2_libm(offset.dot(circle.x_axis()));
     let slack = tolerance / circle.radius();
     let turns = ((range.start() - slack - angle) / TAU).ceil();
     let parameter = angle + turns * TAU;

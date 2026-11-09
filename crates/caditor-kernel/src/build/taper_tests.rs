@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::PI};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -55,7 +55,7 @@ fn a_tapered_square_is_a_frustum_of_a_pyramid() {
     )
     .unwrap();
 
-    let top = 10.0 - 2.0 * 4.0 * angle.tan();
+    let top = 10.0 - 2.0 * 4.0 * angle.tan_libm();
     assert_near(volume(&solid), frustum(4.0, 100.0, top * top));
     assert_eq!(solid.faces().count(), 6);
     let names: BTreeSet<FaceName> = solid.faces().map(|(_, face)| face.name()).collect();
@@ -77,7 +77,7 @@ fn a_negative_taper_draws_out_and_a_reversed_extrusion_tapers_downwards() {
     )
     .unwrap();
 
-    let bottom = 10.0 + 2.0 * 3.0 * angle.tan();
+    let bottom = 10.0 + 2.0 * 3.0 * angle.tan_libm();
     assert_near(volume(&solid), frustum(3.0, 100.0, bottom * bottom));
     let lowest = solid
         .vertices()
@@ -100,7 +100,7 @@ fn a_tapered_circle_is_a_frustum_of_a_cone() {
     )
     .unwrap();
 
-    let top = 6.0 - 5.0 * angle.tan();
+    let top = 6.0 - 5.0 * angle.tan_libm();
     assert_near(
         volume(&solid),
         PI * 5.0 / 3.0 * (36.0 + 6.0 * top + top * top),
@@ -126,7 +126,7 @@ fn a_symmetric_taper_narrows_both_ways_from_the_sketch() {
     )
     .unwrap();
 
-    let end = 4.0 - 3.0 * angle.tan();
+    let end = 4.0 - 3.0 * angle.tan_libm();
     let half = PI * 3.0 / 3.0 * (16.0 + 4.0 * end + end * end);
     assert_near(volume(&solid), 2.0 * half);
     let side = FaceName::side(FEATURE, disc[0].outer().pieces()[0].id());
@@ -149,7 +149,7 @@ fn a_taper_from_a_start_offset_starts_from_the_profile_as_drawn() {
     )
     .unwrap();
 
-    let top = 8.0 - 2.0 * 4.0 * angle.tan();
+    let top = 8.0 - 2.0 * 4.0 * angle.tan_libm();
     assert_near(volume(&solid), frustum(4.0, 64.0, top * top));
 }
 
@@ -174,7 +174,7 @@ fn a_rounded_slot_with_a_hole_tapers_with_curved_corners() {
     )
     .unwrap();
 
-    let inset = 2.0 * angle.tan();
+    let inset = 2.0 * angle.tan_libm();
     let area = |inset: f64| {
         let radius = 3.0 - inset;
         10.0 * 2.0 * radius + PI * radius * radius - PI * (1.0 + inset).powi(2)
@@ -245,7 +245,7 @@ fn drawn_length(curve: &ProfileCurve) -> f64 {
 }
 
 fn tapered_prism_volume(area: f64, perimeter: f64, corners: f64, height: f64, angle: f64) -> f64 {
-    let slope = angle.tan();
+    let slope = angle.tan_libm();
     area * height - perimeter * slope * height * height / 2.0
         + corners * slope * slope * height.powi(3) / 3.0
 }
@@ -299,7 +299,7 @@ fn a_tapered_spline_closed_by_a_line_widens_when_drawn_out() {
 
     let area = bump[0].area();
     let perimeter = drawn_length(&curves[0]) + 8.0;
-    let corners = 2.0 * (0.5 * 0.9_f64).tan().recip();
+    let corners = 2.0 * (0.5 * 0.9_f64).tan_libm().recip();
     let expected = |angle: f64| tapered_prism_volume(area, perimeter, corners, 2.0, angle);
     assert!((volume(&narrowing) - expected(angle)).abs() < 5e-3 * expected(0.0));
     assert!((volume(&widening) - expected(-angle)).abs() < 5e-3 * expected(0.0));
@@ -347,7 +347,7 @@ fn a_flared_square_leans_its_sides_by_the_flank_from_the_sketch() {
 
     let solid = extrude_flared(&Plane::XY, &square, extent, flank, FEATURE).unwrap();
 
-    let top = 10.0 - 2.0 * 0.6 / flank.tan();
+    let top = 10.0 - 2.0 * 0.6 / flank.tan_libm();
     assert_near(volume(&solid), frustum(0.6, 100.0, top * top));
     assert_eq!(solid.faces().count(), 6);
 }
@@ -433,7 +433,7 @@ fn a_square_tapered_along_a_slant_is_a_sheared_frustum_stepping_in_by_the_distan
     )
     .unwrap();
 
-    let inset = 4.0 * leaning(slant) * angle.tan();
+    let inset = 4.0 * leaning(slant) * angle.tan_libm();
     let top = 10.0 - 2.0 * inset;
     assert_near(volume(&solid), frustum(4.0, 100.0, top * top));
     let bounds = solid.bounding_box().unwrap();
@@ -470,9 +470,9 @@ fn a_disc_tapered_along_a_slant_is_an_oblique_frustum_of_a_cone() {
     .unwrap();
 
     let cone = |height: f64, top: f64| PI * height / 3.0 * (25.0 + 5.0 * top + top * top);
-    let narrowed = 5.0 - 8.0 * leaning(slant) * angle.tan();
+    let narrowed = 5.0 - 8.0 * leaning(slant) * angle.tan_libm();
     assert_near(volume(&narrowing), cone(8.0, narrowed));
-    let widened = 5.0 + 3.0 * leaning(slant) * angle.tan();
+    let widened = 5.0 + 3.0 * leaning(slant) * angle.tan_libm();
     assert_near(volume(&widening), cone(3.0, widened));
     let bounds = narrowing.bounding_box().unwrap();
     assert!(
@@ -502,7 +502,7 @@ fn a_rounded_slot_with_a_hole_tapers_along_a_slant_as_much_as_square_to_its_sket
 
     let solid = extrude_tapered_along(&Plane::XY, &slot, extent, angle, slant, FEATURE).unwrap();
 
-    let inset = 2.0 * leaning(slant) * angle.tan();
+    let inset = 2.0 * leaning(slant) * angle.tan_libm();
     let area = |inset: f64| {
         let radius = 3.0 - inset;
         10.0 * 2.0 * radius + PI * radius * radius - PI * (1.0 + inset).powi(2)
@@ -525,7 +525,7 @@ fn a_spline_and_a_corner_arc_taper_along_a_slant_by_the_volume_of_the_square_tap
     ]);
     let slant = Vector3::new(0.5, -0.5, 1.0);
     let angle = 3.0_f64.to_radians();
-    let square_angle = (angle.tan() * leaning(slant)).atan();
+    let square_angle = (angle.tan_libm() * leaning(slant)).atan_libm();
     let extent = LinearExtent::one_side(2.0).unwrap();
 
     for profile in [&bump, &quarter] {
@@ -551,7 +551,7 @@ fn a_taper_along_a_direction_refuses_what_a_square_taper_refuses() {
     let to_level =
         extrude_tapered_along(&Plane::XY, &square, up_to(level), 0.1, slant, FEATURE).unwrap();
 
-    let top = 4.0 - 2.0 * 3.0 * leaning(slant) * 0.1_f64.tan();
+    let top = 4.0 - 2.0 * 3.0 * leaning(slant) * 0.1_f64.tan_libm();
     assert_near(volume(&to_level), frustum(3.0, 16.0, top * top));
     assert_eq!(
         extrude_tapered_along(&Plane::XY, &square, up_to(tilted), 0.1, slant, FEATURE),

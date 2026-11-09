@@ -3,7 +3,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -390,7 +390,7 @@ impl Turning {
         }
         let angle = radial
             .dot(self.onward)
-            .atan2(radial.dot(self.outward))
+            .atan2_libm(radial.dot(self.outward))
             .rem_euclid(TAU);
         let angle = if angle >= self.wrap {
             angle - TAU

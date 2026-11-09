@@ -1,6 +1,6 @@
 use std::f64::consts::{EULER_GAMMA, PI};
 
-use caditor_geometry::{Aabb, Point3, Vector3};
+use caditor_geometry::{Aabb, Maths, Point3, Vector3};
 
 use crate::{
     box_tree::BoxTree, intersect::line_window, tessellation::Mesh, tolerance::LINEAR_RESOLUTION,
@@ -132,9 +132,9 @@ impl MassProperties {
             let half_determinant = (sa * (sb * sc - sf * sf) - sd * (sd * sc - sf * se)
                 + se * (sd * sf - sb * se))
                 / 2.0;
-            let angle = half_determinant.clamp(-1.0, 1.0).acos() / 3.0;
-            let largest = mean + 2.0 * spread * angle.cos();
-            let smallest = mean + 2.0 * spread * (angle + 2.0 * PI / 3.0).cos();
+            let angle = half_determinant.clamp(-1.0, 1.0).acos_libm() / 3.0;
+            let largest = mean + 2.0 * spread * angle.cos_libm();
+            let smallest = mean + 2.0 * spread * (angle + 2.0 * PI / 3.0).cos_libm();
             [smallest, 3.0 * mean - largest - smallest, largest]
         };
         moments.sort_by(f64::total_cmp);

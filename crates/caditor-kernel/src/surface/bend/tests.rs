@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3};
 
 use super::*;
 use crate::interrupt::interruptible;
@@ -21,7 +21,11 @@ fn rolling(weights: bool) -> BSplineSurface {
     for row in 0..rows {
         for column in 0..columns {
             let (x, y) = (column as f64 * 4.0, row as f64 * 3.0);
-            points.push(Point3::new(x, y, 2.0 * (x * 0.15).sin() + (y * 0.2).cos()));
+            points.push(Point3::new(
+                x,
+                y,
+                2.0 * (x * 0.15).sin_libm() + (y * 0.2).cos_libm(),
+            ));
         }
     }
     let weights = weights.then(|| {
@@ -54,8 +58,8 @@ fn on_side(surface: &BSplineSurface, side: SurfaceSide, along: f64) -> Point3 {
 fn lifted(surface: &BSplineSurface, side: SurfaceSide) -> impl Fn(f64) -> Option<Point3> + '_ {
     move |along: f64| {
         let base = on_side(surface, side, along);
-        let lift = Vector3::new(0.3, -0.2, 1.0) * 2e-4 * (7.0 * along).sin()
-            + Vector3::new(1.0, 0.5, 0.0) * 1e-4 * (3.0 * along).cos();
+        let lift = Vector3::new(0.3, -0.2, 1.0) * 2e-4 * (7.0 * along).sin_libm()
+            + Vector3::new(1.0, 0.5, 0.0) * 1e-4 * (3.0 * along).cos_libm();
         Some(base + lift)
     }
 }
@@ -168,7 +172,7 @@ fn a_straight_side_of_a_ruled_surface_is_raised_to_cubic_and_bent() {
         .flat_map(|row| {
             (0..columns).map(move |column| {
                 let x = column as f64 * 5.0;
-                Point3::new(x, (x * 0.1).sin(), row as f64 * 10.0)
+                Point3::new(x, (x * 0.1).sin_libm(), row as f64 * 10.0)
             })
         })
         .collect();
@@ -270,7 +274,7 @@ fn a_missing_target_and_a_seam_are_refused() {
         .flat_map(|row| {
             (0..columns).map(move |column| {
                 let angle = std::f64::consts::TAU * column as f64 / (columns - 1) as f64;
-                Point3::new(5.0 * angle.cos(), 5.0 * angle.sin(), row as f64)
+                Point3::new(5.0 * angle.cos_libm(), 5.0 * angle.sin_libm(), row as f64)
             })
         })
         .collect();
@@ -306,7 +310,7 @@ fn a_side_closed_around_stays_closed_while_it_moves() {
         .flat_map(|row| {
             (0..columns).map(move |column| {
                 let angle = std::f64::consts::TAU * column as f64 / (columns - 1) as f64;
-                Point3::new(5.0 * angle.cos(), 5.0 * angle.sin(), row as f64)
+                Point3::new(5.0 * angle.cos_libm(), 5.0 * angle.sin_libm(), row as f64)
             })
         })
         .collect();

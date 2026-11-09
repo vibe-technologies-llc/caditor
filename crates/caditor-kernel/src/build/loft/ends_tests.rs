@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -58,7 +58,7 @@ fn round_the_ring(count: usize, curves: impl Fn(u64) -> Vec<ProfileCurve>) -> Ve
     (0..count)
         .map(|index| {
             let angle = TAU * index as f64 / count as f64;
-            let radial = Vector3::new(angle.cos(), angle.sin(), 0.0);
+            let radial = Vector3::new(angle.cos_libm(), angle.sin_libm(), 0.0);
             let plane = Plane::from_frame(
                 Point3::ZERO + radial * RING,
                 Vector3::Z.cross(radial),

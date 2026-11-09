@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Maths, Point3, Vector3};
 
 use super::{Accuracy, EdgeShape, Element, MeasureError, Separation};
 use crate::{
@@ -289,7 +289,7 @@ fn shared_corner(first: [Point3; 2], second: [Point3; 2]) -> Option<[Point3; 3]>
 }
 
 fn between(first: Vector3, second: Vector3) -> f64 {
-    first.cross(second).length().atan2(first.dot(second))
+    first.cross(second).length().atan2_libm(first.dot(second))
 }
 
 fn acute(radians: f64) -> f64 {

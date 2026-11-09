@@ -1688,6 +1688,8 @@ mod tests {
         f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2},
     };
 
+    use caditor_geometry::Maths;
+
     use super::*;
     use crate::surface::Surface;
 
@@ -1747,7 +1749,11 @@ mod tests {
         for row in 0..size {
             for column in 0..size {
                 let (x, y) = (column as f64 * 4.0, row as f64 * 4.0);
-                points.push(Point3::new(x, y, 3.0 * (x * 0.21).sin() * (y * 0.17).cos()));
+                points.push(Point3::new(
+                    x,
+                    y,
+                    3.0 * (x * 0.21).sin_libm() * (y * 0.17).cos_libm(),
+                ));
             }
         }
         let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
@@ -1830,8 +1836,8 @@ mod tests {
                 let angle = column as f64 / (size - 1) as f64 * std::f64::consts::PI;
                 let radius = row as f64;
                 points.push(Point3::new(
-                    radius * angle.cos(),
-                    radius * angle.sin(),
+                    radius * angle.cos_libm(),
+                    radius * angle.sin_libm(),
                     radius,
                 ));
             }

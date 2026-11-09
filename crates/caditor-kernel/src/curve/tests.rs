@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{curve2::Circle2, test_support::Random};
@@ -35,7 +35,11 @@ fn wavy_spline() -> Curve {
     let points = (0..80)
         .map(|index| {
             let along = f64::from(index);
-            Point3::new(along * 0.5, 2.0 * (along * 0.7).sin(), (along * 0.3).cos())
+            Point3::new(
+                along * 0.5,
+                2.0 * (along * 0.7).sin_libm(),
+                (along * 0.3).cos_libm(),
+            )
         })
         .collect();
     BSpline::clamped_uniform(3, points).unwrap().into()
@@ -132,7 +136,7 @@ fn closest_parameter_on_a_circle_follows_the_range_across_the_seam() {
     let circle = Curve::from(Circle::new(Plane::XY, 2.0).unwrap());
     let range = Interval::new(1.5 * PI, 2.5 * PI).unwrap();
     let found = circle.closest_parameter(Point3::new(5.0, 0.5, 1.0), range);
-    assert!((found - (TAU + 0.5f64.atan2(5.0))).abs() < 1e-12);
+    assert!((found - (TAU + 0.5f64.atan2_libm(5.0))).abs() < 1e-12);
     let outside = circle.closest_parameter(Point3::new(-5.0, 0.1, 0.0), range);
     assert!((outside - 2.5 * PI).abs() < 1e-12);
     let on_axis = circle.closest_parameter(Point3::new(0.0, 0.0, 3.0), range);
@@ -307,9 +311,9 @@ fn an_intersection_curve_rebuilt_through_rough_points_lies_on_both_surfaces() {
     let rough: Vec<Point3> = (0..=24)
         .map(|index| {
             let angle = std::f64::consts::TAU * index as f64 / 24.0;
-            let (y, z) = (5.0 * angle.cos(), 5.0 * angle.sin());
+            let (y, z) = (5.0 * angle.cos_libm(), 5.0 * angle.sin_libm());
             let x = (64.0 - y * y).sqrt();
-            Point3::new(x + 1e-4 * angle.sin(), y, z + 1e-4)
+            Point3::new(x + 1e-4 * angle.sin_libm(), y, z + 1e-4)
         })
         .collect();
     let curve =
@@ -433,7 +437,11 @@ fn an_intersection_segment_fitting_at_its_middle_but_not_its_quarters_is_split()
             .unwrap()
             .into();
     let contacts = [0.9_f64, 1.11].map(|angle| {
-        let point = Point3::new(2.0 * angle.cos(), 2.0 * angle.sin(), -2.0 * angle.sin());
+        let point = Point3::new(
+            2.0 * angle.cos_libm(),
+            2.0 * angle.sin_libm(),
+            -2.0 * angle.sin_libm(),
+        );
         Contact {
             uv: [upright.project(point, None), slant.project(point, None)],
             point,
@@ -584,6 +592,6 @@ fn a_parabola_spline_curves_by_its_closed_form_whatever_its_speed() {
     let end = parabola.curvature(1.0).unwrap();
 
     assert!((vertex - Vector3::new(0.0, 2.0, 0.0)).length() < 1e-12);
-    assert!((end.length() - 2.0 / 5.0_f64.powf(1.5)).abs() < 1e-12);
+    assert!((end.length() - 2.0 / 5.0_f64.powf_libm(1.5)).abs() < 1e-12);
     assert!(end.dot(Vector3::new(-2.0, 1.0, 0.0)) > 0.0);
 }

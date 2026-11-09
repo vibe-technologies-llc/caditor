@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use caditor_geometry::{Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 const CLOSE: f64 = 1e-6;
 
 fn tilted_from_axis(degrees: f64) -> HiddenLineView {
-    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (sin, cos) = degrees.to_radians().sin_cos_libm();
     HiddenLineView::new(Vector3::new(0.0, sin, -cos), Vector3::new(0.0, cos, sin)).unwrap()
 }
 
@@ -259,7 +259,7 @@ fn a_tilted_cylinder_breaks_its_far_rim_where_the_silhouette_meets_it() {
         .collect();
     let half = PI * 3.0;
     let ellipse_half = {
-        let minor = 3.0 * FRAC_PI_2.cos().abs().max(0.5_f64.sqrt());
+        let minor = 3.0 * FRAC_PI_2.cos_libm().abs().max(0.5_f64.sqrt());
         let Curve2::Ellipse(any) = &ellipses.first().unwrap().curve else {
             panic!("an oblique rim is an ellipse");
         };

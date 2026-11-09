@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3};
 
 use crate::{
     coordinates::{Coordinates, angle_between},
@@ -345,7 +345,7 @@ impl<C: Traceable> Pair<'_, C> {
         let [_, a, _] = self.first.evaluate(first);
         let [_, b, _] = self.second.evaluate(second);
         let angle = angle_between(a, b);
-        angle.sin().abs()
+        angle.sin_libm().abs()
     }
 
     fn curvature_gap(&self, first: f64) -> f64 {

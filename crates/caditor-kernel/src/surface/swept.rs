@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use crate::{
     checks::{finite_point, unit},
@@ -153,7 +153,7 @@ impl Revolution {
             .ok_or(GeometryError::DegenerateSurface)?;
         let meridian_angle = farthest
             .dot(axis.y_axis())
-            .atan2(farthest.dot(axis.x_axis()));
+            .atan2_libm(farthest.dot(axis.x_axis()));
         let meridian_normal = axis.normal().cross(farthest).normalize();
         let skew = range.split(DEGENERACY_SAMPLES).any(|parameter| {
             (profile.point(parameter) - axis.origin())
@@ -194,7 +194,7 @@ impl Revolution {
 
     pub(crate) fn rotate(&self, vector: Vector3, angle: f64) -> Vector3 {
         let axis = self.axis.normal();
-        let (sin, cos) = angle.sin_cos();
+        let (sin, cos) = angle.sin_cos_libm();
         vector * cos + axis.cross(vector) * sin + axis * (axis.dot(vector) * (1.0 - cos))
     }
 
@@ -229,8 +229,8 @@ impl Revolution {
             offset.dot(self.axis.x_axis()),
             offset.dot(self.axis.y_axis()),
         );
-        let turn = if x.hypot(y) > AXIS_EPSILON * (1.0 + offset.length()) {
-            y.atan2(x) - self.meridian_angle
+        let turn = if x.hypot_libm(y) > AXIS_EPSILON * (1.0 + offset.length()) {
+            y.atan2_libm(x) - self.meridian_angle
         } else {
             hint.map_or(0.0, |hint| hint.x)
         };

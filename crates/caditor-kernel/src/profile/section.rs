@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_geometry::{Aabb2, Maths, Point2, Vector2};
 
 use crate::{
     curve2::{Circle2, Curve2},
@@ -110,9 +110,9 @@ impl Integrals {
 
     fn sector(center: Vector2, radius: f64, from: f64, to: f64) -> Self {
         let sweep = to - from;
-        let (sin_from, cos_from) = from.sin_cos();
-        let (sin_to, cos_to) = to.sin_cos();
-        let double_sines = (2.0 * to).sin() - (2.0 * from).sin();
+        let (sin_from, cos_from) = from.sin_cos_libm();
+        let (sin_to, cos_to) = to.sin_cos_libm();
+        let double_sines = (2.0 * to).sin_libm() - (2.0 * from).sin_libm();
         let area = radius.powi(2) / 2.0 * sweep;
         let u = radius.powi(3) / 3.0 * (sin_to - sin_from);
         let v = -radius.powi(3) / 3.0 * (cos_to - cos_from);
@@ -149,12 +149,12 @@ impl AreaMoments {
     pub fn principal(&self) -> PrincipalMoments {
         let mean = (self.about_x + self.about_y) / 2.0;
         let half_difference = (self.about_x - self.about_y) / 2.0;
-        let spread = half_difference.hypot(self.product);
+        let spread = half_difference.hypot_libm(self.product);
         let isotropic = spread <= ISOTROPIC_SHARE * mean.abs();
         PrincipalMoments {
             major: mean + spread,
             minor: mean - spread,
-            angle: (!isotropic).then(|| (-self.product).atan2(half_difference) / 2.0),
+            angle: (!isotropic).then(|| (-self.product).atan2_libm(half_difference) / 2.0),
         }
     }
 
@@ -254,7 +254,7 @@ fn piece_integrals(piece: &Piece, reference: Point2, size: f64) -> (Integrals, b
 
 fn arc_integrals(circle: &Circle2, start: f64, end: f64, reference: Point2) -> Integrals {
     let axis = circle.x_axis();
-    let base = axis.y.atan2(axis.x);
+    let base = axis.y.atan2_libm(axis.x);
     let sense = if circle.is_counter_clockwise() {
         1.0
     } else {
@@ -264,7 +264,7 @@ fn arc_integrals(circle: &Circle2, start: f64, end: f64, reference: Point2) -> I
     let radius = circle.radius();
     let center = circle.center() - reference;
     let polar = |angle: f64| {
-        let (sin, cos) = angle.sin_cos();
+        let (sin, cos) = angle.sin_cos_libm();
         center + Vector2::new(cos, sin) * radius
     };
     let (from, to) = (angle(start), angle(end));
@@ -428,7 +428,7 @@ mod tests {
         assert_close(section.moments.product, -3.0);
         assert_close(principal.major, 10.0);
         assert_close(principal.minor, 2.5);
-        assert_close(principal.angle.unwrap(), 2.0_f64.atan());
+        assert_close(principal.angle.unwrap(), 2.0_f64.atan_libm());
     }
 
     #[test]
@@ -483,7 +483,7 @@ mod tests {
             spline(1, &[(0.0, 0.0), (1.0, 2.0), (2.0, 0.0)]),
             line(2, (2.0, 0.0), (0.0, 0.0)),
         ]);
-        let arch = 5.0_f64.sqrt() + (2.0 + 5.0_f64.sqrt()).ln() / 2.0;
+        let arch = 5.0_f64.sqrt() + (2.0 + 5.0_f64.sqrt()).ln_libm() / 2.0;
 
         assert_close(section.area, 4.0 / 3.0);
         assert_close(section.perimeter, 2.0 + arch);

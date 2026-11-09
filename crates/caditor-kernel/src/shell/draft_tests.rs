@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::PI};
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::{
     DraftError, DraftedFace, draft_faces,
@@ -64,7 +64,7 @@ fn block_walls(block: &Solid) -> Vec<FaceId> {
 fn a_block_drafted_from_its_floor_narrows_toward_the_pull() {
     let block = cuboid(Vector3::splat(10.0));
     let sides = block_walls(&block);
-    let shrink = 2.0 * 10.0 * 5f64.to_radians().tan();
+    let shrink = 2.0 * 10.0 * 5f64.to_radians().tan_libm();
 
     let narrowed = drafted(&block, &at(&sides, 5.0), &floor_at(0.0));
     let widened = drafted(&block, &at(&sides, -5.0), &floor_at(0.0));
@@ -79,7 +79,7 @@ fn a_block_drafted_from_its_floor_narrows_toward_the_pull() {
 fn a_neutral_plane_across_the_middle_keeps_the_middle_where_it_is() {
     let block = cuboid(Vector3::splat(10.0));
     let sides = block_walls(&block);
-    let step = 2.0 * 5.0 * 3f64.to_radians().tan();
+    let step = 2.0 * 5.0 * 3f64.to_radians().tan_libm();
 
     let result = drafted(&block, &at(&sides, 3.0), &floor_at(5.0));
 
@@ -90,7 +90,7 @@ fn a_neutral_plane_across_the_middle_keeps_the_middle_where_it_is() {
 fn a_reversed_pull_narrows_the_other_way() {
     let block = cuboid(Vector3::splat(10.0));
     let sides = block_walls(&block);
-    let shrink = 2.0 * 10.0 * 4f64.to_radians().tan();
+    let shrink = 2.0 * 10.0 * 4f64.to_radians().tan_libm();
     let ceiling = Plane::new(Point3::new(0.0, 0.0, 10.0), Vector3::NEG_Z).unwrap();
 
     let result = drafted(&block, &at(&sides, 4.0), &ceiling);
@@ -110,7 +110,7 @@ fn a_pocket_drafted_from_its_floor_opens_toward_the_pull() {
     );
     let holed = boolean(&plate, &hole, BooleanOperation::Difference).unwrap();
     let sides = walls(&holed, Point3::new(15.0, 15.0, 4.0), 5.0, true);
-    let opening = 2.0 * 8.0 * 6f64.to_radians().tan();
+    let opening = 2.0 * 8.0 * 6f64.to_radians().tan_libm();
 
     let result = drafted(&holed, &at(&sides, 6.0), &floor_at(0.0));
 
@@ -136,7 +136,7 @@ fn faces_take_angles_of_their_own() {
             angle: -5f64.to_radians(),
         },
     ];
-    let wedge = |degrees: f64| 500.0 * degrees.to_radians().tan();
+    let wedge = |degrees: f64| 500.0 * degrees.to_radians().tan_libm();
 
     let result = drafted(&block, &faces, &floor_at(0.0));
 
@@ -264,7 +264,7 @@ fn surfaces_of(solid: &Solid, faces: &[FaceId]) -> Vec<Surface> {
 fn a_post_drafted_from_its_floor_becomes_a_cone_narrowing_toward_the_pull() {
     let post = cylinder(5.0, 10.0);
     let round = round_faces(&post);
-    let top = 5.0 - 10.0 * 5f64.to_radians().tan();
+    let top = 5.0 - 10.0 * 5f64.to_radians().tan_libm();
 
     let narrowed = drafted(&post, &at(&round, 5.0), &floor_at(0.0));
     let cones = round_faces(&narrowed);
@@ -282,7 +282,7 @@ fn a_post_drafted_from_its_floor_becomes_a_cone_narrowing_toward_the_pull() {
 fn a_neutral_plane_across_a_post_keeps_its_hinge_circle() {
     let post = cylinder(5.0, 10.0);
     let round = round_faces(&post);
-    let step = 5.0 * 4f64.to_radians().tan();
+    let step = 5.0 * 4f64.to_radians().tan_libm();
 
     let result = drafted(&post, &at(&round, 4.0), &floor_at(5.0));
 
@@ -298,7 +298,7 @@ fn a_hole_drafted_from_its_floor_widens_toward_the_pull() {
     let drill = swept(&[circle(9, (15.0, 15.0), 4.0)], 8.0);
     let holed = boolean(&plate(8.0), &drill, BooleanOperation::Difference).unwrap();
     let wall = round_faces(&holed);
-    let opening = 4.0 + 8.0 * 6f64.to_radians().tan();
+    let opening = 4.0 + 8.0 * 6f64.to_radians().tan_libm();
 
     let result = drafted(&holed, &at(&wall, 6.0), &floor_at(0.0));
 
@@ -315,7 +315,7 @@ fn a_boss_drafted_from_the_plate_it_stands_on_narrows_upward() {
     let boss = prism(&[circle(9, (15.0, 15.0), 4.0)], 5.0, 6.0);
     let joined = boolean(&plate(5.0), &boss, BooleanOperation::Union).unwrap();
     let side = round_faces(&joined);
-    let top = 4.0 - 6.0 * 4f64.to_radians().tan();
+    let top = 4.0 - 6.0 * 4f64.to_radians().tan_libm();
 
     let result = drafted(&joined, &at(&side, 4.0), &floor_at(5.0));
 
@@ -343,7 +343,7 @@ fn a_slot_wall_is_drafted_as_one_smooth_chain() {
     let cutter = swept(&slot((15.0, 15.0), 10.0, 3.0), 8.0);
     let slotted = boolean(&plate(8.0), &cutter, BooleanOperation::Difference).unwrap();
     let wall = tangent_faces(&slotted, &round_faces(&slotted)[..1]);
-    let slope = 5f64.to_radians().tan();
+    let slope = 5f64.to_radians().tan_libm();
     let area = |height: f64| {
         let half = 3.0 + height * slope;
         20.0 * half + PI * half * half
@@ -389,7 +389,7 @@ fn rounded_rectangle(width: f64, depth: f64, radius: f64) -> Vec<ProfileCurve> {
 fn a_rounded_block_is_drafted_round_its_whole_side() {
     let block = swept(&rounded_rectangle(20.0, 12.0, 3.0), 10.0);
     let side = tangent_faces(&block, &round_faces(&block)[..1]);
-    let slope = 5f64.to_radians().tan();
+    let slope = 5f64.to_radians().tan_libm();
     let area = |height: f64| {
         let inset = height * slope;
         let corner = 3.0 - inset;
@@ -406,13 +406,13 @@ fn a_rounded_block_is_drafted_round_its_whole_side() {
 fn a_cone_is_redrafted_to_the_new_angle_and_back_to_a_cylinder() {
     let cone = frustum_solid(6.0, 4.0, 10.0);
     let side = round_faces(&cone);
-    let top = 6.0 - 10.0 * 3f64.to_radians().tan();
+    let top = 6.0 - 10.0 * 3f64.to_radians().tan_libm();
 
     let gentler = drafted(&cone, &at(&side, 3.0), &floor_at(0.0));
     let square = drafted(&cone, &at(&side, 0.0), &floor_at(0.0));
     let already = draft_faces(
         &cone,
-        &at(&side, 0.2f64.atan().to_degrees()),
+        &at(&side, 0.2f64.atan_libm().to_degrees()),
         &floor_at(0.0),
     );
 

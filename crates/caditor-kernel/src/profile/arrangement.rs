@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Maths, Point2, Point3, Vector2};
 
 use crate::{
     box_tree::BoxTree,
@@ -1335,7 +1335,7 @@ fn leaving(piece: &GraphPiece, half_edge: usize, forward: bool) -> Leaving {
     }
     Leaving {
         half_edge,
-        angle: tangent.y.atan2(tangent.x).rem_euclid(TAU),
+        angle: tangent.y.atan2_libm(tangent.x).rem_euclid(TAU),
         start: derivatives.point,
         probe_speed: derivatives.first.length(),
     }
@@ -1376,7 +1376,7 @@ fn probe_angle(
         piece.range.clamp(piece.range.end() - step)
     };
     let offset = piece.curve.point(parameter) - leaving.start;
-    let angle = offset.y.atan2(offset.x);
+    let angle = offset.y.atan2_libm(offset.x);
     (angle - base + PI).rem_euclid(TAU) - PI
 }
 

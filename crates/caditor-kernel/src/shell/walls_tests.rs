@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, f64::consts::PI};
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Maths, Point3, Vector3};
 
 use super::{
     tests::{check, face_facing, swept},
@@ -150,7 +150,7 @@ fn arch() -> Solid {
 fn under_circle(radius: f64, from: f64, to: f64) -> f64 {
     let primitive = |u: f64| {
         let root = (radius * radius - u * u).sqrt();
-        0.5 * (u * root + radius * radius * (u / radius).asin())
+        0.5 * (u * root + radius * radius * (u / radius).asin_libm())
     };
     primitive(to) - primitive(from)
 }

@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::PI};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
 use super::{
     MoveError, ReplaceError, replace_faces, replace_faces_onto_round,
@@ -79,12 +79,16 @@ fn a_top_replaced_by_a_tilted_plane_slopes_and_trims_the_sides() {
     let slope = 20f64.to_radians();
     let target = plane(
         (0.0, 0.0, 8.0),
-        Vector3::new(-slope.sin(), 0.0, slope.cos()),
+        Vector3::new(-slope.sin_libm(), 0.0, slope.cos_libm()),
     );
 
     let result = replaced(&block, &[top], &target);
 
-    check("result", &result, 10.0 * 10.0 * (8.0 + 5.0 * slope.tan()));
+    check(
+        "result",
+        &result,
+        10.0 * 10.0 * (8.0 + 5.0 * slope.tan_libm()),
+    );
     assert_eq!(result.faces().count(), 6);
     assert!(lies_on(&result, &target));
 }
@@ -108,7 +112,7 @@ fn a_cylinder_s_top_replaced_by_a_slanted_plane_meets_its_side_in_an_ellipse() {
     let slope = 15f64.to_radians();
     let target = plane(
         (0.0, 0.0, 12.0),
-        Vector3::new(slope.sin(), 0.0, slope.cos()),
+        Vector3::new(slope.sin_libm(), 0.0, slope.cos_libm()),
     );
 
     let result = replaced(&drum, &[top], &target);

@@ -12,7 +12,7 @@ mod tests;
 use std::f64::consts::PI;
 
 use caditor_geometry::{
-    Aabb2, Plane, Point2, Point3, RigidTransform, Similarity, Vector2, Vector3,
+    Aabb2, Maths, Plane, Point2, Point3, RigidTransform, Similarity, Vector2, Vector3,
 };
 use thiserror::Error;
 
@@ -679,7 +679,9 @@ fn turned_by(plane: &Plane, axis: Vector3, end: &Similarity) -> Option<f64> {
         return None;
     }
     let x_axis = end.apply_direction(plane.x_axis());
-    let angle = x_axis.dot(plane.y_axis()).atan2(x_axis.dot(plane.x_axis()));
+    let angle = x_axis
+        .dot(plane.y_axis())
+        .atan2_libm(x_axis.dot(plane.x_axis()));
     Some(angle * axis.dot(plane.normal()).signum())
 }
 

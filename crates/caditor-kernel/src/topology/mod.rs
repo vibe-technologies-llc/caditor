@@ -16,7 +16,7 @@ mod validate;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Aabb, Maths, Point2, Point3, RigidTransform, Vector3};
 
 pub use self::{
     builder::{BuildError, SolidBuilder},
@@ -1004,7 +1004,7 @@ fn torus_extremes(torus: &Torus) -> Vec<Point3> {
             None => (0..RING_SAMPLES)
                 .map(|step| {
                     let angle = std::f64::consts::TAU * step as f64 / RING_SAMPLES as f64;
-                    frame.x_axis() * angle.cos() + frame.y_axis() * angle.sin()
+                    frame.x_axis() * angle.cos_libm() + frame.y_axis() * angle.sin_libm()
                 })
                 .collect(),
         };

@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use super::{Groove, ThreadError};
 use crate::{
@@ -85,12 +85,14 @@ struct Sweep<'a> {
 impl Sweep<'_> {
     fn radial(&self, angle: f64) -> Vector3 {
         let frame = &self.groove.frame;
-        frame.x_axis() * angle.cos() + frame.y_axis() * (self.groove.hand.sign() * angle.sin())
+        frame.x_axis() * angle.cos_libm()
+            + frame.y_axis() * (self.groove.hand.sign() * angle.sin_libm())
     }
 
     fn tangential(&self, angle: f64) -> Vector3 {
         let frame = &self.groove.frame;
-        frame.x_axis() * -angle.sin() + frame.y_axis() * (self.groove.hand.sign() * angle.cos())
+        frame.x_axis() * -angle.sin_libm()
+            + frame.y_axis() * (self.groove.hand.sign() * angle.cos_libm())
     }
 
     fn centre_at(&self, angle: f64) -> f64 {
@@ -110,7 +112,7 @@ impl Sweep<'_> {
 
     fn control_net(&self, corner: Corner, piece: Piece) -> (Vec<Point3>, Vec<f64>) {
         let half = 0.5 * piece.step;
-        let middle_weight = half.cos();
+        let middle_weight = half.cos_libm();
         let count = 2 * piece.spans + 1;
         let mut points = Vec::with_capacity(count);
         let mut weights = Vec::with_capacity(count);

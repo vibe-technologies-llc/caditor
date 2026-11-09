@@ -43,21 +43,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the X shift again (`Invalid`: an edge used twice at one place in a face's domain) or a 1e-5 turn
   (`Split`), and polishing near-tangent contacts on one surface by the other's signed distance
   changed none of these.
-- [medium · hard] Near-tangent booleans can turn on the last bit of the C library's `sin`, `cos`
-  and `atan2`, which glibc and the Windows UCRT round differently: a plug 2e-6 off its bore's axis
-  at 45 degrees and 3e-6 wider fails as `Open` at the plate's start face on glibc and with every
-  result moved one ulp down, and combines with every result moved one ulp up or at random. The
-  combine tests of a failing place use a plug 8.03e-6 off at about 9.6 degrees and 7.76e-6 wider, so
-  its wall dips just inside the bore's near where they touch (`Split` at the plate's start face),
-  whose outcome survived every result moved one ulp up, down or at random; the pure-Rust `libm` was
-  not tried on it. A combine failing `NonManifold` names no place, whatever the reason, since
+- [medium · hard] Near-tangent booleans can turn on the last bit of a result. The kernel and the
+  geometry crate now take their maths from `libm`, so Linux and Windows agree bit for bit, but a
+  plug 2e-6 off its bore's axis at 45 degrees and 3e-6 wider still fails as `Open` at the plate's
+  start face in the intersection (it combined with the C library's results moved one ulp up or at
+  random), and `a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`
+  fails `Open` with every result moved one ulp up or down, so such tori still turn on the last
+  bit. The combine tests of a failing place use a plug 8.03e-6 off at about 9.6 degrees and
+  7.76e-6 wider, so its wall dips just inside the bore's near where they touch (`Split` at the
+  plate's start face), whose outcome survived every result moved one ulp up, down or at random. A
+  combine failing `NonManifold` names no place, whatever the reason, since
   `CombineCause::Edgewise` drops the kernel's `BooleanSite`.
-  Taking the kernel's maths from `libm` would make Linux and Windows agree
-  bit for bit, and `boolean::tests` all pass with it in the kernel; `glam`'s rotations in the
-  geometry crate would have to follow through its `libm` feature, or a turned solid still differs.
-  With every result moved one ulp up or down,
-  `a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine` fails `Open`, so
-  such tori still turn on the last bit.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave
   edges alternate (two ridges of different slopes crossing) or one convex edge meets concave ones (a
   cavity whose ridge runs over its inside corner): the offset there joins faces the body keeps
@@ -121,7 +117,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   (`a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines`, which checks the mesh's volume
   for that reason), so `mass_properties_tessellating` meshes that face at the default tolerance and
   the difference and intersection read 473.7492 and -0.0027 where a fine mesh and the union give
-  473.7410 and 2.8e-5. The areas of the torus's two pieces add up exactly.
+  473.7410 and 2.8e-5. The areas of the torus's two pieces add up exactly. The test measures the
+  lens at a chord of 1e-4: the lens a torus round the same sphere leaves meshes at the default
+  chord of 2e-3 to -1.6e-6, where the finer mesh reads 7.6e-6.
 
 - [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
   boolean show no line where their surfaces cross (each hides its part inside the other, and the

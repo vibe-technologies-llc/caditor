@@ -1,4 +1,4 @@
-use caditor_geometry::{Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Point2, Point3, Vector3};
 
 use crate::{bspline::BSpline, curve::BSplineCurve, error::GeometryError, surface::BSplineSurface};
 
@@ -245,7 +245,7 @@ fn ends_weighted_one(points: &[Homogeneous]) -> Vec<Homogeneous> {
     if degree == 0 || start <= 0.0 || end <= 0.0 {
         return points.to_vec();
     }
-    let ratio = (start / end).powf(1.0 / degree as f64);
+    let ratio = (start / end).powf_libm(1.0 / degree as f64);
     points
         .iter()
         .enumerate()

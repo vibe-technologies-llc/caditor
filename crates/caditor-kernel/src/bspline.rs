@@ -823,7 +823,7 @@ pub(crate) fn clamped_domain(knots: &[f64], degree: usize) -> Option<Interval> {
 
 #[cfg(test)]
 mod tests {
-    use caditor_geometry::{Point2, Point3};
+    use caditor_geometry::{Maths, Point2, Point3};
 
     use super::*;
 
@@ -887,8 +887,8 @@ mod tests {
                 let along = index as f64;
                 Point3::new(
                     along,
-                    (along * 0.7 + seed).sin() * 3.0,
-                    (along * 0.3).cos() * seed,
+                    (along * 0.7 + seed).sin_libm() * 3.0,
+                    (along * 0.3).cos_libm() * seed,
                 )
             })
             .collect()
@@ -1187,7 +1187,7 @@ mod tests {
 
     #[test]
     fn an_interpolating_spline_passes_through_its_points_and_follows_their_curve() {
-        let on_helix = |angle: f64| Point3::new(angle.cos(), angle.sin(), 0.2 * angle);
+        let on_helix = |angle: f64| Point3::new(angle.cos_libm(), angle.sin_libm(), 0.2 * angle);
         let points: Vec<Point3> = (0..=24)
             .map(|index| on_helix(index as f64 * 0.25))
             .collect();
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn a_spline_interpolating_at_given_parameters_meets_each_point_there() {
-        let on_helix = |angle: f64| Point3::new(angle.cos(), angle.sin(), 0.2 * angle);
+        let on_helix = |angle: f64| Point3::new(angle.cos_libm(), angle.sin_libm(), 0.2 * angle);
         let parameters: Vec<f64> = (0..=12).map(|index| 1.0 + index as f64 * 0.5).collect();
         let points: Vec<Point3> = parameters.iter().map(|angle| on_helix(*angle)).collect();
 

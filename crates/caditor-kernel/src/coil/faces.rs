@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use super::{COIL_PARTS, CoilError, Layout, SECTION_PIECES, SectionPiece, Winding};
 use crate::{
@@ -52,12 +52,14 @@ pub(super) struct Motion {
 impl Motion {
     fn radial(&self, angle: f64) -> Vector3 {
         let frame = &self.winding.frame;
-        frame.x_axis() * angle.cos() + frame.y_axis() * (self.winding.hand.sign() * angle.sin())
+        frame.x_axis() * angle.cos_libm()
+            + frame.y_axis() * (self.winding.hand.sign() * angle.sin_libm())
     }
 
     fn tangential(&self, angle: f64) -> Vector3 {
         let frame = &self.winding.frame;
-        frame.x_axis() * -angle.sin() + frame.y_axis() * (self.winding.hand.sign() * angle.cos())
+        frame.x_axis() * -angle.sin_libm()
+            + frame.y_axis() * (self.winding.hand.sign() * angle.cos_libm())
     }
 
     fn rise(&self, angle: f64) -> f64 {
@@ -77,7 +79,7 @@ impl Motion {
 
     fn net(&self, at: Point2, weight: f64, piece: Piece) -> (Vec<Point3>, Vec<f64>) {
         let half = 0.5 * piece.step;
-        let middle_weight = half.cos();
+        let middle_weight = half.cos_libm();
         let count = 2 * piece.spans + 1;
         let mut points = Vec::with_capacity(count);
         let mut weights = Vec::with_capacity(count);

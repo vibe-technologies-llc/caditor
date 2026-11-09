@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use crate::{
     curve::{Circle, Curve, Line},
@@ -34,7 +34,7 @@ impl Taper {
         let along = axis.normal();
         let radius = hinge + middle * slopes.to;
         let anchor = Plane::from_frame(axis.origin() + along * middle, along, axis.x_axis())?;
-        let half_angle = slopes.to.atan();
+        let half_angle = slopes.to.atan_libm();
         let surface: Surface = if half_angle.abs() <= ANGULAR_RESOLUTION {
             Cylinder::new(anchor, radius).ok()?.into()
         } else {
