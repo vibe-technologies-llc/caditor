@@ -11,6 +11,7 @@ unsafe_code = "deny"
 [lints.clippy]
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+disallowed_methods = "deny"
 disallowed_types = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
