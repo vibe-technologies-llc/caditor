@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -50,7 +50,7 @@ fn a_flat_spiral_lies_on_its_archimedean_spiral_in_the_frame_s_plane() {
             let range = turn.range();
             for step in 0..=400 {
                 let point = turn.curve().point(range.at(f64::from(step) / 400.0));
-                let turned = (point.y.atan2(point.x) - previous + PI).rem_euclid(TAU) - PI;
+                let turned = (point.y.atan2_libm(point.x) - previous + PI).rem_euclid(TAU) - PI;
                 let angle = previous + turned;
                 previous = angle;
 
@@ -84,7 +84,7 @@ fn a_flat_spiral_is_as_long_as_its_closed_form() {
     let rough: f64 = (0..100_000)
         .map(|step| {
             let angle = spec.sweep() * (f64::from(step) + 0.5) / 100_000.0;
-            spec.radius_at(angle).hypot(spec.pitch / TAU) * spec.sweep() / 100_000.0
+            spec.radius_at(angle).hypot_libm(spec.pitch / TAU) * spec.sweep() / 100_000.0
         })
         .sum();
 
@@ -189,7 +189,7 @@ fn a_pipe_follows_a_flat_spiral_into_a_valid_watertight_clock_spring() {
 
     let solid = pipe(&path, &section, 0.0, Vector3::Z, FEATURE).unwrap();
     let growth = spec.pitch / TAU;
-    let reach = spec.radius.hypot(growth);
+    let reach = spec.radius.hypot_libm(growth);
     let sweep = spec.sweep();
     let area = PI * 0.25 * size * size;
     let expected = area / reach
@@ -241,7 +241,7 @@ fn assert_lies_on_its_law(spec: &SpiralSpec) {
         }
         for step in 0..=200 {
             let point = turn.curve().point(range.at(f64::from(step) / 200.0));
-            let turned = (point.y.atan2(point.x) - previous + PI).rem_euclid(TAU) - PI;
+            let turned = (point.y.atan2_libm(point.x) - previous + PI).rem_euclid(TAU) - PI;
             let angle = previous + turned;
             previous = angle;
 
@@ -302,7 +302,7 @@ fn the_length_of_a_flat_spiral_of_changing_pitch_is_its_integral() {
             .map(|step| {
                 let angle = spec.sweep() * (f64::from(step) + 0.5) / 400_000.0;
                 let growth = spec.radius_at(angle + 1e-6) - spec.radius_at(angle - 1e-6);
-                spec.radius_at(angle).hypot(growth / 2e-6) * spec.sweep() / 400_000.0
+                spec.radius_at(angle).hypot_libm(growth / 2e-6) * spec.sweep() / 400_000.0
             })
             .sum();
         let curve: f64 = spiral(&spec)

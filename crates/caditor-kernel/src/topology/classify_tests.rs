@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -127,7 +127,7 @@ fn cases() -> Vec<(&'static str, Solid, Oracle)> {
             "torus",
             torus(6.0, 2.0),
             Box::new(move |point| {
-                let tube = (radial(point) - 6.0).hypot(point.z);
+                let tube = (radial(point) - 6.0).hypot_libm(point.z);
                 clear(tube - 2.0)?;
                 Some(tube < 2.0)
             }),
@@ -533,8 +533,8 @@ fn built_solids_classify_like_their_shapes() {
             "revolved torus",
             ring,
             Box::new(|point: Point3| {
-                let radial = point.x.hypot(point.z);
-                let tube = (radial - 5.0).hypot(point.y);
+                let radial = point.x.hypot_libm(point.z);
+                let tube = (radial - 5.0).hypot_libm(point.y);
                 clear(tube - 1.0)?;
                 Some(tube < 1.0)
             }),
@@ -551,14 +551,14 @@ fn built_solids_classify_like_their_shapes() {
             "quarter tube",
             wedge,
             Box::new(|point: Point3| {
-                let radial = point.x.hypot(point.z);
-                let angle = (-point.z).atan2(point.x);
+                let radial = point.x.hypot_libm(point.z);
+                let angle = (-point.z).atan2_libm(point.x);
                 clear(radial - 2.0)?;
                 clear(radial - 3.0)?;
                 clear(point.y)?;
                 clear(point.y - 4.0)?;
-                clear(radial * angle.sin())?;
-                clear(radial * (angle - FRAC_PI_2).sin())?;
+                clear(radial * angle.sin_libm())?;
+                clear(radial * (angle - FRAC_PI_2).sin_libm())?;
                 Some(
                     radial > 2.0
                         && radial < 3.0

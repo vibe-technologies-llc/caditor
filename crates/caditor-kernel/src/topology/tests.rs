@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -126,7 +126,7 @@ fn a_seam_to_a_cone_apex_between_two_arcs_carries_the_rest_of_the_loop_round() {
     let (seam, _) = fixture.line(far, apex);
 
     fixture.face(
-        Cone::new(Plane::XY, radius, (-radius).atan2(height)).unwrap(),
+        Cone::new(Plane::XY, radius, (-radius).atan2_libm(height)).unwrap(),
         Sense::Same,
         &[vec![
             (first_half, Sense::Same),
@@ -596,7 +596,7 @@ fn a_pcurve_keeps_an_arc_bowing_less_than_its_tolerance_apart_from_its_chord() {
     let sweep = Interval::new(0.0, 0.02).unwrap();
 
     let pcurve = fit_pcurve(&surface, &arc, sweep, crate::sense::Sense::Same, None).unwrap();
-    let bow = 0.3 * (1.0 - 0.01f64.cos());
+    let bow = 0.3 * (1.0 - 0.01f64.cos_libm());
 
     assert!(bow < crate::tolerance::PCURVE_TOLERANCE);
     assert!(pcurve.tolerance() <= 0.5 * bow, "{}", pcurve.tolerance());
@@ -753,8 +753,13 @@ fn a_face_folded_onto_its_neighbour_crosses_it() {
 fn a_curved_flap_passing_through_its_neighbour_crosses_it() {
     let mut fixture = Fixture::new();
     let radius = 2.0_f64.sqrt();
-    let rim =
-        |x: f64, angle: f64| Point3::new(x, 1.0 + radius * angle.cos(), 1.0 + radius * angle.sin());
+    let rim = |x: f64, angle: f64| {
+        Point3::new(
+            x,
+            1.0 + radius * angle.cos_libm(),
+            1.0 + radius * angle.sin_libm(),
+        )
+    };
     let start = -PI / 3.0;
     let end = 1.25 * PI;
     let shared =
@@ -945,7 +950,11 @@ fn polygonal_prism(sides: usize) -> Solid {
         (0..sides)
             .map(|index| {
                 let angle = TAU * index as f64 / sides as f64;
-                fixture.vertex(Point3::new(100.0 * angle.cos(), 100.0 * angle.sin(), z))
+                fixture.vertex(Point3::new(
+                    100.0 * angle.cos_libm(),
+                    100.0 * angle.sin_libm(),
+                    z,
+                ))
             })
             .collect()
     };

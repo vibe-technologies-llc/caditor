@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use super::{
@@ -72,7 +72,7 @@ impl Landing {
 
 fn outward_target(normal: Vector3, target: &Plane, face: FaceId) -> Result<Vector3, ReplaceError> {
     let along = normal.dot(target.normal());
-    if along.abs() < STEEPEST_REPLACING_TURN.cos() {
+    if along.abs() < STEEPEST_REPLACING_TURN.cos_libm() {
         return Err(ReplaceError::SquareToTarget(face));
     }
     Ok(target.normal() * along.signum())
@@ -92,7 +92,9 @@ fn turn_onto(
     let across = hinge.cross(normal);
     let toward_target = outward.dot(target.origin() - through) / outward.dot(across);
     let on_hinge = through + across * toward_target;
-    let turn = hinge.dot(normal.cross(outward)).atan2(normal.dot(outward));
+    let turn = hinge
+        .dot(normal.cross(outward))
+        .atan2_libm(normal.dot(outward));
     RigidTransform::rotation_about(on_hinge, hinge, turn)
 }
 
@@ -443,8 +445,8 @@ fn round_landing(
             let (own_frame, wanted_frame) = (own.frame(), wanted.frame());
             let turned = same_axis_direction(own_frame, wanted_frame).ok_or(off_axis.clone())?;
             let between = wanted_frame.origin() - own_frame.origin();
-            let slope = own.half_angle().tan();
-            let wanted_slope = wanted.half_angle().tan() * turned;
+            let slope = own.half_angle().tan_libm();
+            let wanted_slope = wanted.half_angle().tan_libm() * turned;
             let height = between.dot(own_frame.normal());
             let aside = between.reject_from(own_frame.normal()).length();
             if aside > LINEAR_RESOLUTION || (slope - wanted_slope).abs() > ANGULAR_RESOLUTION {
@@ -452,7 +454,7 @@ fn round_landing(
             }
             let wanted_here = wanted.radius() - wanted_slope * height;
             Ok(outward_by(
-                (wanted_here - own.radius()) * own.half_angle().cos(),
+                (wanted_here - own.radius()) * own.half_angle().cos_libm(),
                 sign,
             ))
         }

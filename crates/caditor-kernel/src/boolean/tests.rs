@@ -3,7 +3,7 @@ use std::{
     f64::consts::PI,
 };
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::{
     imprint::Arrangement,
@@ -1304,7 +1304,7 @@ fn aligned_contacts_failing(seed: u64, contacts: usize, exponents: (f64, f64)) -
 
     for _ in 0..contacts {
         let contact = aligned_contact(&mut random, |random| {
-            let size = 10f64.powf(random.between(exponents.0, exponents.1));
+            let size = 10f64.powf_libm(random.between(exponents.0, exponents.1));
             if random.unit() < 0.5 { size } else { -size }
         });
         for operation in [
@@ -1822,7 +1822,7 @@ fn a_plug_beside_its_bores_axis_by_a_few_resolutions_combines() {
         (4e-6, 75.0, 0.0),
     ] {
         let angle = f64::to_radians(degrees);
-        let center = (10.0 + gap * angle.cos(), 5.0 + gap * angle.sin());
+        let center = (10.0 + gap * angle.cos_libm(), 5.0 + gap * angle.sin_libm());
         combine_within_the_resolution(
             &format!("a plug {gap} off at {degrees} degrees and {wider} wider"),
             &plate,
@@ -1899,8 +1899,8 @@ fn wavy_extrusion(control_points: usize) -> Solid {
     let points: Vec<(f64, f64)> = (0..=control_points)
         .map(|index| {
             let angle = 2.0 * PI * (index % control_points) as f64 / control_points as f64;
-            let radius = 20.0 + 2.0 * (7.0 * angle).sin();
-            (radius * angle.cos(), radius * angle.sin())
+            let radius = 20.0 + 2.0 * (7.0 * angle).sin_libm();
+            (radius * angle.cos_libm(), radius * angle.sin_libm())
         })
         .collect();
     let regions = Profile::new(&[spline(1, &points)])
@@ -1997,14 +1997,14 @@ fn crossing_holes_cut_alike_wherever_their_seams_lie() {
         let front = drill(
             Point3::new(5.0, 0.0, 12.0),
             -Vector3::Y,
-            Vector3::new(front_seam.cos(), 0.0, front_seam.sin()),
+            Vector3::new(front_seam.cos_libm(), 0.0, front_seam.sin_libm()),
             1.0,
             8.0,
         );
         let side = drill(
             Point3::new(20.0, 6.0, 12.0),
             Vector3::X,
-            Vector3::new(0.0, side_seam.cos(), side_seam.sin()),
+            Vector3::new(0.0, side_seam.cos_libm(), side_seam.sin_libm()),
             1.5,
             24.0,
         );
@@ -2872,7 +2872,7 @@ fn a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines() {
             &common.tessellate(&common.default_tolerance()).unwrap(),
         );
         let shared = common
-            .tessellate(&SamplingTolerance::new(2e-3, 0.02).unwrap())
+            .tessellate(&SamplingTolerance::new(1e-4, 0.005).unwrap())
             .unwrap()
             .mass_properties()
             .volume;

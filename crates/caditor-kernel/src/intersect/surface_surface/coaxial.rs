@@ -1,6 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Maths, Plane, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     curve::{Circle, Curve},
@@ -190,7 +190,7 @@ fn meridian(
         )),
         Surface::Cone(cone) => {
             let apex = axis.height(cone.apex());
-            let (sine, cosine) = cone.half_angle().abs().sin_cos();
+            let (sine, cosine) = cone.half_angle().abs().sin_cos_libm();
             let opening = cone.opening_direction().dot(axis.direction).signum();
             let length = window.reach / sine;
             Some((

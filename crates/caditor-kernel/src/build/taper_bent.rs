@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use crate::{
     bspline::BSpline,
@@ -132,7 +132,7 @@ pub(super) fn leaning_cone(
     {
         return Err(SweepError::Unassembled);
     }
-    let middle_weight = FRAC_PI_4.cos();
+    let middle_weight = FRAC_PI_4.cos_libm();
     let mut offsets = Vec::with_capacity(2 * QUARTERS + 1);
     let mut weights = Vec::with_capacity(2 * QUARTERS + 1);
     for quarter in 0..QUARTERS {

@@ -9,4 +9,5 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-glam.workspace = true
+glam = { workspace = true, features = ["libm"] }
+libm.workspace = true

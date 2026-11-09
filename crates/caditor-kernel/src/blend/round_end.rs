@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
 
 use super::{BlendError, Named, half_space};
 use crate::{
@@ -54,7 +54,7 @@ impl Round {
                 origin: cone.frame().origin(),
                 axis: cone.frame().normal(),
                 radius: cone.radius(),
-                slope: cone.half_angle().tan(),
+                slope: cone.half_angle().tan_libm(),
             }),
             Surface::Sphere(sphere) => Some(Self::Sphere {
                 centre: sphere.frame().origin(),

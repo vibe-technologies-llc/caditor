@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -123,7 +123,7 @@ impl<'a> Wrap<'a> {
         } else {
             normal
         };
-        let (sin, cos) = f64::sin_cos(half_angle);
+        let (sin, cos) = <f64 as Maths>::sin_cos_libm(half_angle);
         Ok(Self {
             sketch,
             centre: frame.origin(),
@@ -199,12 +199,12 @@ impl<'a> Wrap<'a> {
         let offset = point - self.centre;
         (
             offset.dot(self.axis),
-            offset.dot(self.across).atan2(offset.dot(self.facing)),
+            offset.dot(self.across).atan2_libm(offset.dot(self.facing)),
         )
     }
 
     fn radial(&self, angle: f64) -> Vector3 {
-        let (sin, cos) = angle.sin_cos();
+        let (sin, cos) = angle.sin_cos_libm();
         self.facing * cos + self.across * sin
     }
 
@@ -237,7 +237,7 @@ impl<'a> Wrap<'a> {
         Ok(if self.sin == 0.0 {
             Cylinder::new(frame, radius)?.into()
         } else {
-            Cone::new(frame, radius, self.sin.atan2(self.cos))?.into()
+            Cone::new(frame, radius, self.sin.atan2_libm(self.cos))?.into()
         })
     }
 

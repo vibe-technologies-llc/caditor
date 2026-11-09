@@ -1,0 +1,40 @@
+allow-expect-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests = true
+allow-unwrap-in-tests = true
+
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "use ahash::AHashMap" },
+    { path = "std::collections::HashSet", reason = "use ahash::AHashSet" },
+    { path = "std::sync::Mutex", reason = "use parking_lot::Mutex" },
+    { path = "std::sync::RwLock", reason = "use parking_lot::RwLock" },
+    { path = "std::sync::Condvar", reason = "use parking_lot::Condvar" },
+]
+
+disallowed-methods = [
+    { path = "f64::sin", reason = "use caditor_geometry::Maths::sin_libm" },
+    { path = "f64::cos", reason = "use caditor_geometry::Maths::cos_libm" },
+    { path = "f64::tan", reason = "use caditor_geometry::Maths::tan_libm" },
+    { path = "f64::sin_cos", reason = "use caditor_geometry::Maths::sin_cos_libm" },
+    { path = "f64::asin", reason = "use caditor_geometry::Maths::asin_libm" },
+    { path = "f64::acos", reason = "use caditor_geometry::Maths::acos_libm" },
+    { path = "f64::atan", reason = "use caditor_geometry::Maths::atan_libm" },
+    { path = "f64::atan2", reason = "use caditor_geometry::Maths::atan2_libm" },
+    { path = "f64::sinh", reason = "use caditor_geometry::Maths::sinh_libm" },
+    { path = "f64::cosh", reason = "use caditor_geometry::Maths::cosh_libm" },
+    { path = "f64::tanh", reason = "use caditor_geometry::Maths::tanh_libm" },
+    { path = "f64::asinh", reason = "use caditor_geometry::Maths::asinh_libm" },
+    { path = "f64::acosh", reason = "use caditor_geometry::Maths::acosh_libm" },
+    { path = "f64::atanh", reason = "use caditor_geometry::Maths::atanh_libm" },
+    { path = "f64::exp", reason = "use caditor_geometry::Maths::exp_libm" },
+    { path = "f64::exp2", reason = "use caditor_geometry::Maths::exp2_libm" },
+    { path = "f64::exp_m1", reason = "use caditor_geometry::Maths::exp_m1_libm" },
+    { path = "f64::ln", reason = "use caditor_geometry::Maths::ln_libm" },
+    { path = "f64::ln_1p", reason = "use caditor_geometry::Maths::ln_1p_libm" },
+    { path = "f64::log", reason = "use caditor_geometry::Maths::ln_libm, then divide" },
+    { path = "f64::log2", reason = "use caditor_geometry::Maths::log2_libm" },
+    { path = "f64::log10", reason = "use caditor_geometry::Maths::log10_libm" },
+    { path = "f64::powf", reason = "use caditor_geometry::Maths::powf_libm" },
+    { path = "f64::hypot", reason = "use caditor_geometry::Maths::hypot_libm" },
+    { path = "f64::cbrt", reason = "use caditor_geometry::Maths::cbrt_libm" },
+]

@@ -1,4 +1,4 @@
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
 use thiserror::Error;
 
 use super::{
@@ -391,7 +391,7 @@ fn sampled_middles(leg: &Leg, after: &Leg, turn: f64, bend: f64) -> Vec<BendMidd
     let room = corner
         .distance(leg.start_point())
         .min(corner.distance(after.end_point()));
-    let widest = room / (turn / 2.0).tan();
+    let widest = room / (turn / 2.0).tan_libm();
     let mut radii: Vec<f64> = (1..=BEND_SAMPLES)
         .map(|index| widest * f64::from(index) / f64::from(BEND_SAMPLES))
         .collect();

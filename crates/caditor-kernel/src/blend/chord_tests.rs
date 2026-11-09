@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::{
     chord::{ChordError, chord_fillet_radius},
@@ -59,7 +59,7 @@ fn a_sharper_corner_needs_a_smaller_radius_for_the_same_chord() {
     let acute_radius = chord_fillet_radius(&solid, &[acute], 1.0).unwrap();
 
     assert!(acute_radius < right_radius);
-    let expected = 1.0 / (2.0 * (135.0_f64.to_radians() / 2.0).sin());
+    let expected = 1.0 / (2.0 * (135.0_f64.to_radians() / 2.0).sin_libm());
     assert!((acute_radius - expected).abs() < 1e-9, "{acute_radius}");
 }
 

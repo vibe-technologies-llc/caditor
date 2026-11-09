@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use caditor_geometry::{Aabb, Point2, Point3, Similarity, Vector3};
+use caditor_geometry::{Aabb, Maths, Point2, Point3, Similarity, Vector3};
 
 use crate::{
     box_tree::BoxTree,
@@ -145,7 +145,7 @@ fn arc_estimate(start: Point3, start_tangent: Vector3, end: Point3, end_tangent:
     if turn < SMALL_TURN {
         chord
     } else {
-        chord * (0.5 * turn) / (0.5 * turn).sin()
+        chord * (0.5 * turn) / (0.5 * turn).sin_libm()
     }
 }
 

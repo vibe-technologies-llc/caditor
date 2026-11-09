@@ -169,6 +169,8 @@ fn refine(
 mod tests {
     use std::{cell::Cell, f64::consts::PI};
 
+    use caditor_geometry::Maths;
+
     use super::*;
 
     #[test]
@@ -176,7 +178,7 @@ mod tests {
         let value = integrate(&[0.0, 1.0, 3.0], |x| x.powi(7) - 2.0 * x);
         let exact = 3f64.powi(8) / 8.0 - 9.0;
         assert!((value - exact).abs() < 1e-9 * exact.abs());
-        assert!((integrate(&[0.0, PI], f64::sin) - 2.0).abs() < 1e-12);
+        assert!((integrate(&[0.0, PI], f64::sin_libm) - 2.0).abs() < 1e-12);
         assert_eq!(integrate(&[1.0], |x| x), 0.0);
     }
 

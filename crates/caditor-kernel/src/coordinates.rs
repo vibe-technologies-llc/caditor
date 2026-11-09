@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Mul, Neg, Sub},
 };
 
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3};
 
 pub trait Coordinates:
     Copy
@@ -99,7 +99,7 @@ pub(crate) fn angle_between<P: Coordinates>(a: P, b: P) -> f64 {
         return 0.0;
     }
     let cross = (aa * bb - ab * ab).max(0.0).sqrt();
-    cross.atan2(ab)
+    cross.atan2_libm(ab)
 }
 
 pub(crate) fn distance_to_segment<P: Coordinates>(point: P, start: P, end: P) -> f64 {

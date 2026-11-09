@@ -14,6 +14,21 @@ paths:
   `Plane::with_x_axis` rejects its x direction from the normal a second time when the first leaves
   them further from square than `Plane::from_frame` keeps, so an x direction nearly along the
   normal still gives a frame that saves and loads to the same bits.
+- Transcendental maths comes from the pure-Rust `libm` crate through `caditor_geometry::Maths`
+  (`x.sin_libm()`, `atan2_libm`, `hypot_libm`, `powf_libm`, `cbrt_libm`, and so on), never from the
+  C library `std` calls: glibc and the Windows UCRT round `sin`, `cos`, `atan2` and the rest
+  differently in the last bit, and a near-tangent boolean can turn on it, so Linux and Windows
+  would disagree on which solids combine. The geometry crate takes `glam`'s `libm` feature for the
+  same reason, so its rotations, `from_angle` and `angle_between` follow. `clippy.toml` in this
+  crate and in `caditor-kernel` lists every `f64` method of that kind under `disallowed-methods`
+  (the workspace denies `disallowed_methods`), so clippy refuses `x.sin()` and `f64::sin` there and
+  names the replacement. Those two crates carry their own `clippy.toml`, which replaces the
+  workspace one for their files, so a change to the root file's settings is made in all three. The
+  methods IEEE specifies exactly (`sqrt`, `abs`, `floor`, `round`, `trunc`, `rem_euclid`,
+  `to_radians`, `to_degrees`, `mul_add`) and `powi` (compiler-builtins' repeated multiplication,
+  the same on both platforms) stay `std`. Only `f64` is covered; other crates keep `std` maths.
+  Dependencies keep their own: `spade` takes a `sin` of its refinement angle limit and a `powf` in
+  its interpolation.
 - Operations return a valid solid or an error naming what failed; iterations are bounded and
   constructors reject non-finite and degenerate input with a `GeometryError` each.
 - `LINEAR_RESOLUTION` is the one absolute length tolerance; `ANGULAR_RESOLUTION` moves a point at

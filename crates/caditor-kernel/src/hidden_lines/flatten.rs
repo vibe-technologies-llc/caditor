@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     bspline::BSpline,
@@ -177,8 +177,8 @@ fn conic(
             sampled: false,
         }]);
     }
-    let turn = 0.5 * twice_shared.atan2(difference);
-    let (sin, cos) = turn.sin_cos();
+    let turn = 0.5 * twice_shared.atan2_libm(difference);
+    let (sin, cos) = turn.sin_cos_libm();
     let major = along * cos + across * sin;
     let minor = across * cos - along * sin;
     if minor.length() <= EDGE_ON {

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Aabb, Plane, Point3};
+use caditor_geometry::{Aabb, Maths, Plane, Point3};
 
 use crate::{
     checks::{checked_frame, size},
@@ -54,10 +54,10 @@ impl Circle {
             local.dot(self.frame.x_axis()),
             local.dot(self.frame.y_axis()),
         );
-        if x.hypot(y) <= f64::MIN_POSITIVE {
+        if x.hypot_libm(y) <= f64::MIN_POSITIVE {
             return range.start();
         }
-        let angle = y.atan2(x);
+        let angle = y.atan2_libm(x);
         let unwrapped = range.start() + (angle - range.start()).rem_euclid(TAU);
         let [start, _, _] = self.evaluate(range.start());
         let [end, _, _] = self.evaluate(range.end());
@@ -130,7 +130,7 @@ impl Ellipse {
 }
 
 fn conic_derivatives(frame: &Plane, along_x: f64, along_y: f64, parameter: f64) -> [Point3; 3] {
-    let (sin, cos) = parameter.sin_cos();
+    let (sin, cos) = parameter.sin_cos_libm();
     let x = frame.x_axis();
     let y = frame.y_axis();
     let radial = x * (along_x * cos) + y * (along_y * sin);
@@ -147,7 +147,7 @@ fn conic_bounds(frame: &Plane, along_x: f64, along_y: f64, range: Interval) -> A
     let x = frame.x_axis().to_array();
     let y = frame.y_axis().to_array();
     for (x_component, y_component) in x.into_iter().zip(y) {
-        let extreme = (along_y * y_component).atan2(along_x * x_component);
+        let extreme = (along_y * y_component).atan2_libm(along_x * x_component);
         let first = ((range.start() - extreme) / PI).ceil();
         for step in 0..MAX_EXTREMA_PER_AXIS {
             let parameter = extreme + (first + step as f64) * PI;

@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::PI};
 
-use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_geometry::{Maths, Plane, Point2, Vector2};
 
 use super::*;
 use crate::{
@@ -455,7 +455,7 @@ fn a_drafted_wall_along_a_spline_or_an_ellipse_arc_widens_with_its_height() {
         .unwrap();
 
         let perimeter = 2.0 * length + 2.0;
-        let slope = angle.tan();
+        let slope = angle.tan_libm();
         let expected = area(&wall) * height
             + perimeter * slope * height * height / 2.0
             + 4.0 * slope * slope * height.powi(3) / 3.0;

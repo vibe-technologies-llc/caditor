@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use super::{
     BlendShape, flat,
@@ -244,7 +244,7 @@ fn line_contact(
 }
 
 fn rotated(vector: Vector3, axis: Vector3, angle: f64) -> Vector3 {
-    let (sin, cos) = angle.sin_cos();
+    let (sin, cos) = angle.sin_cos_libm();
     vector * cos + axis.cross(vector) * sin + axis * axis.dot(vector) * (1.0 - cos)
 }
 
@@ -543,8 +543,8 @@ impl Cross {
             return None;
         }
         let half = 0.5 * turned;
-        let middle = (first + second).try_normalize()? * (radius / half.cos());
-        Some((center + middle, half.cos()))
+        let middle = (first + second).try_normalize()? * (radius / half.cos_libm());
+        Some((center + middle, half.cos_libm()))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use crate::{
     checks::{checked_frame, size},
@@ -55,7 +55,7 @@ struct Axial {
 }
 
 fn axial(frame: &Plane, u: f64) -> Axial {
-    let (sin, cos) = u.sin_cos();
+    let (sin, cos) = u.sin_cos_libm();
     Axial {
         radial: frame.x_axis() * cos + frame.y_axis() * sin,
         tangential: frame.y_axis() * cos - frame.x_axis() * sin,
@@ -73,9 +73,9 @@ struct Cylindrical {
 fn cylindrical(frame: &Plane, point: Point3) -> Cylindrical {
     let offset = point - frame.origin();
     let (x, y) = (offset.dot(frame.x_axis()), offset.dot(frame.y_axis()));
-    let distance = x.hypot(y);
+    let distance = x.hypot_libm(y);
     Cylindrical {
-        angle: (distance > AXIS_EPSILON * (1.0 + offset.length())).then(|| y.atan2(x)),
+        angle: (distance > AXIS_EPSILON * (1.0 + offset.length())).then(|| y.atan2_libm(x)),
         distance,
         height: offset.dot(frame.normal()),
     }
@@ -180,15 +180,16 @@ impl Cone {
     }
 
     pub fn apex_parameter(&self) -> f64 {
-        -self.radius / self.half_angle.sin()
+        -self.radius / self.half_angle.sin_libm()
     }
 
     pub fn apex(&self) -> Point3 {
-        self.frame.origin() + self.frame.normal() * (self.apex_parameter() * self.half_angle.cos())
+        self.frame.origin()
+            + self.frame.normal() * (self.apex_parameter() * self.half_angle.cos_libm())
     }
 
     pub fn opening_direction(&self) -> Vector3 {
-        self.frame.normal() * self.half_angle.sin().signum()
+        self.frame.normal() * self.half_angle.sin_libm().signum()
     }
 
     pub(crate) fn evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
@@ -197,7 +198,7 @@ impl Cone {
             tangential,
             axis,
         } = axial(&self.frame, u);
-        let (sin, cos) = self.half_angle.sin_cos();
+        let (sin, cos) = self.half_angle.sin_cos_libm();
         let local_radius = self.radius + v * sin;
         SurfaceDerivatives {
             point: self.frame.origin() + radial * local_radius + axis * (v * cos),
@@ -211,13 +212,13 @@ impl Cone {
 
     pub(crate) fn normal(&self, u: f64) -> Vector3 {
         let Axial { radial, axis, .. } = axial(&self.frame, u);
-        let (sin, cos) = self.half_angle.sin_cos();
+        let (sin, cos) = self.half_angle.sin_cos_libm();
         radial * cos - axis * sin
     }
 
     pub(crate) fn project(&self, point: Point3, hint: Option<Point2>) -> Point2 {
         let local = cylindrical(&self.frame, point);
-        let (sin, cos) = self.half_angle.sin_cos();
+        let (sin, cos) = self.half_angle.sin_cos_libm();
         let along = (local.distance - self.radius) * sin + local.height * cos;
         let v = if sin > 0.0 {
             along.max(self.apex_parameter())
@@ -265,7 +266,7 @@ impl Sphere {
             tangential,
             axis,
         } = axial(&self.frame, u);
-        let (sin, cos) = v.sin_cos();
+        let (sin, cos) = v.sin_cos_libm();
         let r = self.radius;
         let outward = radial * cos + axis * sin;
         SurfaceDerivatives {
@@ -280,13 +281,13 @@ impl Sphere {
 
     pub(crate) fn normal(&self, u: f64, v: f64) -> Vector3 {
         let Axial { radial, axis, .. } = axial(&self.frame, u);
-        let (sin, cos) = v.sin_cos();
+        let (sin, cos) = v.sin_cos_libm();
         radial * cos + axis * sin
     }
 
     pub(crate) fn project(&self, point: Point3, hint: Option<Point2>) -> Point2 {
         let local = cylindrical(&self.frame, point);
-        let v = local.height.atan2(local.distance);
+        let v = local.height.atan2_libm(local.distance);
         let u = angle_near(local.angle, hint.map(|hint| hint.x));
         Point2::new(u, v)
     }
@@ -326,7 +327,7 @@ impl Torus {
             tangential,
             axis,
         } = axial(&self.frame, u);
-        let (sin, cos) = v.sin_cos();
+        let (sin, cos) = v.sin_cos_libm();
         let r = self.minor_radius;
         let ring = self.major_radius + r * cos;
         let tube = radial * cos + axis * sin;
@@ -342,7 +343,7 @@ impl Torus {
 
     pub(crate) fn normal(&self, u: f64, v: f64) -> Vector3 {
         let Axial { radial, axis, .. } = axial(&self.frame, u);
-        let (sin, cos) = v.sin_cos();
+        let (sin, cos) = v.sin_cos_libm();
         radial * cos + axis * sin
     }
 
@@ -350,8 +351,9 @@ impl Torus {
         let local = cylindrical(&self.frame, point);
         let u = angle_near(local.angle, hint.map(|hint| hint.x));
         let across = local.distance - self.major_radius;
-        let tube_angle = (across.hypot(local.height) > AXIS_EPSILON * (1.0 + self.major_radius))
-            .then(|| local.height.atan2(across));
+        let tube_angle = (across.hypot_libm(local.height)
+            > AXIS_EPSILON * (1.0 + self.major_radius))
+            .then(|| local.height.atan2_libm(across));
         let v = angle_near(tube_angle, hint.map(|hint| hint.y));
         Point2::new(u, v)
     }

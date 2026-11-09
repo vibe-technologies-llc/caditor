@@ -1,3 +1,4 @@
+use caditor_geometry::Maths;
 use thiserror::Error;
 
 use super::{TANGENT_FACE_ANGLE, blend_chain, edge_faces, face_normal};
@@ -96,7 +97,7 @@ pub fn chord_fillet_radius(solid: &Solid, edges: &[EdgeId], chord: f64) -> Resul
         }
     }
     match (found, first_smooth) {
-        (Some((_, turn)), _) => Ok(chord / (2.0 * (turn / 2.0).sin())),
+        (Some((_, turn)), _) => Ok(chord / (2.0 * (turn / 2.0).sin_libm())),
         (None, Some(edge)) => Err(ChordError::Smooth(edge)),
         (None, None) => Err(ChordError::NoEdges),
     }

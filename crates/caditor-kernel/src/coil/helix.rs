@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use super::{
@@ -190,10 +190,10 @@ impl HelixSpec {
 
     pub fn point_at(&self, angle: f64) -> Option<Point3> {
         let frame = self.start_frame()?;
-        let around =
-            frame.x_axis() * angle.cos() + frame.y_axis() * (self.hand.sign() * angle.sin());
+        let around = frame.x_axis() * angle.cos_libm()
+            + frame.y_axis() * (self.hand.sign() * angle.sin_libm());
         let rise = self.law().rise(angle);
-        let radius = self.radius + self.taper.tan() * rise;
+        let radius = self.radius + self.taper.tan_libm() * rise;
         Some(frame.origin() + around * radius + frame.normal() * rise)
     }
 
@@ -202,7 +202,7 @@ impl HelixSpec {
     }
 
     pub fn end_radius(&self) -> f64 {
-        self.radius + self.taper.tan() * self.height()
+        self.radius + self.taper.tan_libm() * self.height()
     }
 
     pub fn axis(&self) -> (Point3, Vector3) {
@@ -393,7 +393,7 @@ pub fn helix(spec: &HelixSpec) -> Result<Vec<HelixTurn>, HelixError> {
             frame,
             hand: spec.hand,
             law: law.clone(),
-            spread: taper.tan(),
+            spread: taper.tan_libm(),
         },
         centre: Point2::ZERO,
     };

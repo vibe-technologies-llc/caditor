@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -1263,7 +1263,7 @@ fn a_crescent_extrudes_wherever_its_tip_lies() {
 
 fn circle_of_spans(entity: u64, centre: Point2, radius: f64, spans: usize) -> ProfileCurve {
     let turn = std::f64::consts::TAU / spans as f64;
-    let middle_weight = (0.5 * turn).cos();
+    let middle_weight = (0.5 * turn).cos_libm();
     let at = |angle: f64, reach: f64| centre + Vector2::from_angle(PI + angle) * reach;
     let mut control_points = vec![at(0.0, radius)];
     let mut weights = vec![1.0];
@@ -1307,7 +1307,7 @@ fn a_crescent_revolves_part_way_wherever_its_tip_lies() {
     let quarter = AngularExtent::one_side(FRAC_PI_2).unwrap();
     for degrees in [0.0, 30.0, 45.0, 200.0, 311.0] {
         let tip = f64::to_radians(degrees);
-        let centroid = 6.0 - 0.8 * tip.cos();
+        let centroid = 6.0 - 0.8 * tip.cos_libm();
 
         let solid = revolve(
             &Plane::XY,
@@ -1410,8 +1410,8 @@ fn a_dense_spline_profile_extrudes_validates_and_meshes_in_bounded_work() {
     let points: Vec<(f64, f64)> = (0..=count)
         .map(|index| {
             let angle = TAU * (index % count) as f64 / count as f64;
-            let radius = 20.0 + 2.0 * (7.0 * angle).sin();
-            (radius * angle.cos(), radius * angle.sin())
+            let radius = 20.0 + 2.0 * (7.0 * angle).sin_libm();
+            (radius * angle.cos_libm(), radius * angle.sin_libm())
         })
         .collect();
     let profile = regions(&[spline(1, &points)]);
@@ -1516,7 +1516,7 @@ fn rod() -> Solid {
 
 fn under_the_rod(width: f64) -> f64 {
     let half = width / 2.0;
-    2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin())
+    2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin_libm())
 }
 
 #[test]
@@ -1586,7 +1586,7 @@ fn plate(width: (f64, f64)) -> Solid {
 fn under_the_plate(radius: f64) -> f64 {
     let height: f64 = 3.0;
     height / 2.0 * (radius * radius - height * height).sqrt()
-        + radius * radius / 2.0 * (height / radius).asin()
+        + radius * radius / 2.0 * (height / radius).asin_libm()
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -77,7 +77,7 @@ fn check(name: &str, solid: &Solid, expected: &Expected) {
         expected.volume,
     );
     close(name, "area", found.area, expected.area, expected.area);
-    let reach = expected.centroid.length().max(expected.volume.cbrt());
+    let reach = expected.centroid.length().max(expected.volume.cbrt_libm());
     for (found, wanted) in found
         .centroid
         .to_array()
@@ -134,7 +134,7 @@ fn a_cone_matches_its_closed_form() {
         &cone(radius, height),
         &Expected {
             volume,
-            area: PI * radius * radius + PI * radius * radius.hypot(height),
+            area: PI * radius * radius + PI * radius * radius.hypot_libm(height),
             centroid,
             about_origin: shifted(
                 diagonal(across, across, 3.0 / 80.0 * volume * height * height),

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_geometry::{Aabb2, Maths, Point2, Vector2};
 
 use crate::{
     checks::{finite_point2, size, unit2},
@@ -115,7 +115,7 @@ impl Circle2 {
     }
 
     pub(crate) fn evaluate(&self, parameter: f64) -> [Point2; 3] {
-        let (sin, cos) = parameter.sin_cos();
+        let (sin, cos) = parameter.sin_cos_libm();
         let radial = (self.x_axis * cos + self.y_axis * sin) * self.radius;
         let tangent = (self.y_axis * cos - self.x_axis * sin) * self.radius;
         [self.center + radial, tangent, -radial]
@@ -124,10 +124,10 @@ impl Circle2 {
     pub(crate) fn closest_parameter(&self, point: Point2, range: Interval) -> f64 {
         let local = point - self.center;
         let (x, y) = (local.dot(self.x_axis), local.dot(self.y_axis));
-        if x.hypot(y) <= f64::MIN_POSITIVE {
+        if x.hypot_libm(y) <= f64::MIN_POSITIVE {
             return range.start();
         }
-        let unwrapped = range.start() + (y.atan2(x) - range.start()).rem_euclid(TAU);
+        let unwrapped = range.start() + (y.atan2_libm(x) - range.start()).rem_euclid(TAU);
         let distance = |parameter: f64| {
             let [position, _, _] = self.evaluate(parameter);
             position.distance_squared(point)
@@ -154,7 +154,7 @@ impl Circle2 {
             (self.x_axis.y, self.y_axis.y),
         ];
         for (x_component, y_component) in components {
-            let extreme = y_component.atan2(x_component);
+            let extreme = y_component.atan2_libm(x_component);
             let first = ((range.start() - extreme) / PI).ceil();
             for step in 0..MAX_EXTREMA_PER_AXIS {
                 let parameter = extreme + (first + step as f64) * PI;
@@ -240,11 +240,11 @@ impl Ellipse2 {
         let local = point - self.center;
         let along = local.dot(self.x_axis) / self.major_radius;
         let across = local.dot(self.y_axis) / self.minor_radius;
-        across.atan2(along)
+        across.atan2_libm(along)
     }
 
     pub(crate) fn evaluate(&self, parameter: f64) -> [Point2; 3] {
-        let (sin, cos) = parameter.sin_cos();
+        let (sin, cos) = parameter.sin_cos_libm();
         let radial =
             self.x_axis * (self.major_radius * cos) + self.y_axis * (self.minor_radius * sin);
         let tangent =
@@ -257,7 +257,7 @@ impl Ellipse2 {
             self.major_radius * direction.dot(self.x_axis),
             self.minor_radius * direction.dot(self.y_axis),
         );
-        (along != Vector2::ZERO).then(|| along.y.atan2(along.x))
+        (along != Vector2::ZERO).then(|| along.y.atan2_libm(along.x))
     }
 
     pub(crate) fn bounds(&self, range: Interval) -> Aabb2 {

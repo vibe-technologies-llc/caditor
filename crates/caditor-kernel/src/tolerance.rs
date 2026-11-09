@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_4, PI};
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Maths, Point3, Vector3};
 
 pub const LINEAR_RESOLUTION: f64 = 1e-6;
 pub const MODEL_EXTENT: f64 = 1e4;
@@ -65,7 +65,7 @@ impl SamplingTolerance {
         let by_chord = if self.chord >= 2.0 * radius {
             f64::INFINITY
         } else {
-            2.0 * radius * (1.0 - self.chord / radius).clamp(-1.0, 1.0).acos()
+            2.0 * radius * (1.0 - self.chord / radius).clamp(-1.0, 1.0).acos_libm()
         };
         by_angle.min(by_chord)
     }
@@ -131,7 +131,7 @@ impl MeshQuality {
 
 fn nearest_power_of_two(extent: f64) -> f64 {
     if extent.is_finite() && extent > 0.0 {
-        extent.log2().round().exp2()
+        extent.log2_libm().round().exp2_libm()
     } else {
         extent
     }
@@ -217,7 +217,7 @@ mod tests {
         let tolerance = SamplingTolerance::new(0.01, 0.2).unwrap();
         let step = tolerance.step_on_radius(10.0);
         assert!(step <= 10.0 * 0.2 + 1e-12);
-        let sagitta = 10.0 * (1.0 - (step / 20.0).cos());
+        let sagitta = 10.0 * (1.0 - (step / 20.0).cos_libm());
         assert!(sagitta <= 0.01 + 1e-12);
         assert!(tolerance.step_on_radius(0.001) <= 0.001 * 0.2 + 1e-15);
     }
