@@ -33,11 +33,13 @@ use crate::{
     files::FileCommand,
     image_textures::ImageTextures,
     last_values::LastValues,
+    outlining::{self, OutlineFinished, OutlineRequest, Outlines},
     pasting::{
         self, PasteFinished, PasteProgress, PasteRequest, PasteTarget, PastedFeatures, Pastes,
         Planned,
     },
     preferences::PreferencesCommand,
+    projecting,
     queued::{Awaited, Queue, Queued, Rerun},
     save_preview::SavePreviews,
     scene,
@@ -92,6 +94,8 @@ pub enum Action {
     DropQueued,
     Paste(Box<PasteRequest>),
     CancelPaste,
+    Outline(Box<OutlineRequest>),
+    CancelOutline,
     Preview {
         feature: FeatureId,
         draft: Option<Transaction>,
@@ -301,6 +305,7 @@ pub struct Model {
     trials: Trials,
     queued: Queue,
     pastes: Pastes,
+    outlines: Outlines,
     pasted: Option<PastedFeatures>,
     pastes_finished: u64,
     threads_cosmetic: bool,
@@ -360,6 +365,7 @@ impl Model {
             trials: Trials::default(),
             queued: Queue::default(),
             pastes: Pastes::default(),
+            outlines: Outlines::default(),
             pasted: None,
             pastes_finished: 0,
             threads_cosmetic: false,
@@ -1220,6 +1226,16 @@ impl Model {
                 }
                 Ok(None)
             }
+            Action::Outline(request) => {
+                self.start_outline(*request);
+                Ok(None)
+            }
+            Action::CancelOutline => {
+                if self.outlines.cancel() {
+                    self.set_notice(Notice::info(outlining::STOPPED));
+                }
+                Ok(None)
+            }
             Action::Preview { feature, draft } => {
                 self.preview(feature, draft);
                 Ok(None)
@@ -1493,6 +1509,44 @@ impl Model {
         true
     }
 
+    fn start_outline(&mut self, request: OutlineRequest) {
+        let wake = (self.services.make_waker)();
+        if let Err(refusal) = self.outlines.start(request, self.revision(), wake) {
+            self.set_notice(Notice::warning(format!("{refusal}.")));
+        }
+    }
+
+    fn outlining_finished(&mut self, finished: Option<OutlineFinished>) -> bool {
+        let actions = match finished {
+            None => return false,
+            Some(OutlineFinished::Cancelled) => {
+                self.set_notice(Notice::info(outlining::STOPPED));
+                return true;
+            }
+            Some(OutlineFinished::Refused(refusal)) => projecting::projected(Err(refusal)),
+            Some(OutlineFinished::Worked { request, pieces }) => projecting::projected(
+                projecting::outline_projection(self.document(), &request, pieces),
+            ),
+        };
+        for action in actions {
+            self.perform(action);
+        }
+        true
+    }
+
+    pub fn outlining(&self) -> Option<&str> {
+        self.outlines.name()
+    }
+
+    pub fn is_outlining(&self) -> bool {
+        self.outlines.is_running()
+    }
+
+    #[cfg(test)]
+    pub fn hold_outlines(&mut self, hold: crate::bodies::Hold) {
+        self.outlines.hold_on_a_thread(hold);
+    }
+
     pub fn is_pasting(&self) -> bool {
         self.pastes.is_running()
     }
@@ -1589,6 +1643,8 @@ impl Model {
         let judged = self.judged(verdict);
         let finished = self.pastes.poll(self.revision());
         let judged = self.pasting_finished(finished) | judged;
+        let outlined = self.outlines.poll(self.revision());
+        let judged = self.outlining_finished(outlined) | judged;
         let polled = self.display.dragging.poll();
         let stored =
             judged | self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
@@ -1782,6 +1838,7 @@ impl Model {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
         self.trials.cancel();
         self.pastes.cancel();
+        self.outlines.cancel();
         self.pasted = None;
         self.revision_offset = self.revision() + 1;
         self.editor = session.editor;

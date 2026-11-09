@@ -3992,7 +3992,7 @@ impl ViewportState {
         if commands.invoke(Command::ProjectSketch, &sketch)
             && let Ok((active, source)) = sketch
         {
-            actions.extend(projected(projecting::project_sketch(
+            actions.extend(projecting::projected(projecting::project_sketch(
                 model,
                 active.feature,
                 source,
@@ -4002,6 +4002,7 @@ impl ViewportState {
         let outlined = editing
             .active()
             .ok_or(projecting::NoBodyToProject)
+            .map_err(projecting::OutlineRefusal::from)
             .and_then(|active| {
                 projecting::body_to_project(
                     model,
@@ -4009,15 +4010,24 @@ impl ViewportState {
                     &self.chosen_rows,
                 )
                 .map(|body| (active, body))
+                .map_err(projecting::OutlineRefusal::from)
+            })
+            .and_then(|found| {
+                if model.is_outlining() {
+                    Err(projecting::OutlineRefusal::StillOutlining)
+                } else {
+                    Ok(found)
+                }
             });
         if commands.invoke(Command::ProjectOutline, &outlined)
             && let Ok((active, body)) = outlined
         {
-            actions.extend(projected(projecting::project_outline(
-                model,
-                active.feature,
-                body,
-            )));
+            actions.extend(
+                match projecting::outline_request(model, active.feature, body) {
+                    Ok(request) => vec![Action::Outline(Box::new(request))],
+                    Err(refusal) => projecting::projected(Err(refusal)),
+                },
+            );
             return;
         }
         let activation = self
@@ -5240,7 +5250,12 @@ impl ViewportState {
             )
         });
         if escape {
-            self.escape(model.queued().is_some(), editing, actions);
+            self.escape(
+                model.queued().is_some(),
+                model.is_outlining(),
+                editing,
+                actions,
+            );
         }
         if finish {
             if self.trimming.is_active() {
@@ -5542,13 +5557,23 @@ impl ViewportState {
         self.context_menu.as_ref().map(ViewMenu::anchor)
     }
 
-    fn escape(&mut self, queued: bool, editing: &SketchEditing, actions: &mut Vec<Action>) {
+    fn escape(
+        &mut self,
+        queued: bool,
+        outlining: bool,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) {
         let active = editing.active();
         if self.pick_list.take().is_some() {
             return;
         }
         if queued {
             actions.push(Action::DropQueued);
+            return;
+        }
+        if outlining {
+            actions.push(Action::CancelOutline);
             return;
         }
         if self.typed_point.is_waiting() {
@@ -6855,21 +6880,6 @@ fn edge_feature(model: &Model, body: FeatureId, edge: EdgeName) -> Option<Featur
         .max_by_key(|feature| document.feature_index(*feature))
 }
 
-fn projected(
-    projection: Result<projecting::Projection, projecting::ProjectionError>,
-) -> Vec<Action> {
-    match projection {
-        Ok(projection) => std::iter::once(Action::Apply(projection.transaction))
-            .chain(
-                projection
-                    .left_out
-                    .map(|words| Action::Inform(Notice::info(format!("{words}.")))),
-            )
-            .collect(),
-        Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
-    }
-}
-
 fn pick_action(
     (pickable, ray): (Option<Pickable>, Option<Ray>),
     (model, selection): (&Model, &Selection),
@@ -6950,7 +6960,9 @@ fn pick_action(
     if let Some(active) = editing.active().filter(|active| active.tool.projects()) {
         let target = pickable.filter(|pickable| projecting::projectable(model, active, *pickable));
         return Some(match target {
-            Some(target) => projected(projecting::project(model, active, target, whole)),
+            Some(target) => {
+                projecting::projected(projecting::project(model, active, target, whole))
+            }
             None => Vec::new(),
         });
     }

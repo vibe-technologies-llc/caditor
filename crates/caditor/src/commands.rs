@@ -280,6 +280,7 @@ pub enum Command {
     ContinueUploading,
     CancelIsocurves,
     CancelInterference,
+    CancelOutline,
     CheckInterferenceAgain,
     RenameFeature,
     GroupFeatures,
@@ -975,6 +976,7 @@ plain_commands! {
     ContinueUploading,
     CancelIsocurves,
     CancelInterference,
+    CancelOutline,
     CheckInterferenceAgain,
     RenameFeature,
     GroupFeatures,
@@ -1345,6 +1347,7 @@ impl Command {
             Self::ContinueUploading => "view.continue_uploading",
             Self::CancelIsocurves => "view.cancel_isocurves",
             Self::CancelInterference => "view.cancel_interference",
+            Self::CancelOutline => "view.cancel_outline",
             Self::CheckInterferenceAgain => "view.check_interference_again",
             Self::RenameFeature => "model.rename_feature",
             Self::GroupFeatures => "model.group_features",
@@ -1675,6 +1678,7 @@ impl Command {
             Self::ContinueUploading => "Continue loading to the graphics card",
             Self::CancelIsocurves => "Cancel the isocurves",
             Self::CancelInterference => "Cancel the interference check",
+            Self::CancelOutline => "Cancel projecting the outline",
             Self::CheckInterferenceAgain => "Check interference again",
             Self::RenameFeature => "Rename feature",
             Self::GroupFeatures => "Group features",
@@ -1799,6 +1803,7 @@ impl Command {
             | Self::CancelPreparingBodies
             | Self::CancelUploading
             | Self::CancelIsocurves
+            | Self::CancelOutline
             | Self::CancelInterference => &["stop", "abort", "background work"],
             Self::AnalyseAgain
             | Self::WorkOutMassProperties
@@ -2071,6 +2076,7 @@ impl Command {
             | Self::ContinueUploading
             | Self::CancelIsocurves
             | Self::CancelInterference
+            | Self::CancelOutline
             | Self::CheckInterferenceAgain
             | Self::Section(
                 SectionCommand::Toggle
@@ -2532,6 +2538,7 @@ impl Command {
             | Self::ContinueUploading
             | Self::CancelIsocurves
             | Self::CancelInterference
+            | Self::CancelOutline
             | Self::CheckInterferenceAgain
             | Self::CancelPaste
             | Self::Ungroup

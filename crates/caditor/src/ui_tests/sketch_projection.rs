@@ -1,11 +1,11 @@
-use caditor_document::FeatureKind;
+use caditor_document::{FeatureId, FeatureKind};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::{Entity, EntityId, Sketch};
 use egui::{Key, Modifiers};
 
 use super::{CAMERA_SETTLE, Harness, extruded_plate, run_from_palette};
-use crate::{editing::Tool, model::Action, selection::Pickable};
+use crate::{bodies::Hold, editing::Tool, model::Action, outlining, selection::Pickable};
 
 #[test]
 fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboard() {
@@ -515,17 +515,7 @@ fn the_palette_projects_the_outline_of_the_highlighted_body_as_one_undoable_step
     harness.settle();
     let projected = |harness: &Harness| harness.sketch(sketch).projected().count();
 
-    for _ in 0..80 {
-        if matches!(
-            harness.workspace.viewport.keyboard_highlight(),
-            Some(Pickable::Face { body, .. } | Pickable::Edge { body, .. } | Pickable::Vertex { body, .. })
-                if body == extrude
-        ) {
-            break;
-        }
-        harness.key(Key::N, Modifiers::NONE);
-        harness.frame();
-    }
+    highlight_body(&mut harness, extrude);
     run_from_palette(&mut harness, "project the outline of a body");
     harness.settle();
 
@@ -552,4 +542,112 @@ fn the_palette_projects_the_outline_of_the_highlighted_body_as_one_undoable_step
     harness.settle();
 
     assert_eq!(projected(&harness), 0);
+}
+
+fn highlight_body(harness: &mut Harness, body: FeatureId) {
+    for _ in 0..80 {
+        if matches!(
+            harness.workspace.viewport.keyboard_highlight(),
+            Some(Pickable::Face { body: found, .. } | Pickable::Edge { body: found, .. } | Pickable::Vertex { body: found, .. })
+                if found == body
+        ) {
+            return;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+}
+
+fn outline_lines(harness: &Harness, sketch: FeatureId) -> usize {
+    let shown = harness.shown(sketch);
+    harness
+        .sketch(sketch)
+        .projected()
+        .filter(|id| matches!(shown.entity(*id), Some(Entity::Line { .. })))
+        .count()
+}
+
+#[test]
+fn the_outline_of_a_body_is_worked_out_off_the_window_thread_and_projected_when_it_arrives() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.settle();
+    highlight_body(&mut harness, extrude);
+    let hold = Hold::holding();
+    harness.model.hold_outlines(hold.clone());
+    let label = harness.model.undo_label().map(str::to_owned);
+
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.frame();
+    harness.frame();
+    let working = harness.model.is_outlining();
+    let progress = harness.shows_containing("Working out the outline of");
+    let waiting = harness.sketch(sketch).projected().count();
+    let unchanged = harness.model.undo_label().map(str::to_owned);
+
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.frame();
+    let refused = harness.shows_containing(outlining::STILL_OUTLINING);
+
+    hold.release();
+    harness.wait_until("the outline is projected", |harness| {
+        !harness.model.is_outlining()
+    });
+    harness.settle();
+
+    assert!(working);
+    assert!(
+        progress,
+        "the status bar says which outline is being worked out"
+    );
+    assert_eq!(waiting, 0);
+    assert_eq!(unchanged, label);
+    assert!(refused, "a second outline waits for the first");
+    assert_eq!(outline_lines(&harness, sketch), 4);
+    assert!(
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Project the outline of"))
+    );
+}
+
+#[test]
+fn cancelling_the_outline_from_the_palette_or_with_escape_leaves_the_sketch_unchanged() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let sketch = harness.draw_on_new_sketch();
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    harness.settle();
+    highlight_body(&mut harness, extrude);
+    let hold = Hold::holding();
+    harness.model.hold_outlines(hold.clone());
+    let revision = harness.model.revision();
+
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.frame();
+    let working = harness.model.is_outlining();
+    run_from_palette(&mut harness, "cancel projecting the outline");
+    harness.frame();
+    let stopped = harness.shows(outlining::STOPPED);
+    let idle = !harness.model.is_outlining();
+
+    run_from_palette(&mut harness, "project the outline of a body");
+    harness.frame();
+    let working_again = harness.model.is_outlining();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let escaped = !harness.model.is_outlining();
+
+    hold.release();
+    harness.settle();
+
+    assert!(working && working_again);
+    assert!(stopped && idle && escaped);
+    assert!(harness.shows(outlining::STOPPED));
+    assert_eq!(outline_lines(&harness, sketch), 0);
+    assert_eq!(harness.sketch(sketch).projected().count(), 0);
+    assert_eq!(harness.model.revision(), revision);
 }

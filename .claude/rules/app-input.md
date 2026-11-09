@@ -181,7 +181,7 @@ paths:
 - The Cancel of every background wait is a command, and so is the button that picks the work up
   again, so each is in the palette and the View menu's Background work: `CancelAnalysis`,
   `CancelMassProperties`, `CancelPreparingBodies`, `CancelUploading`, `CancelIsocurves`,
-  `CancelInterference` and `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`,
+  `CancelInterference`, `CancelOutline` and `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`,
   `ContinueUploading`, `CheckInterferenceAgain` (with
   `CancelRecompute`, `CancelImport`, `CancelPaste` and the export Cancels, which already were).
   The code drawing the wait calls `invoke` beside its button and ORs the two

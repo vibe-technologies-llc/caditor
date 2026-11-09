@@ -23,7 +23,10 @@ the highlighted body with the Project tool, or the one body chosen in the
 [feature tree](feature-tree). It is what you would trace round the body's shadow on the sketch,
 so a cylinder lying along the plane gives its two side lines and two ends, a sphere one circle and
 a torus seen along its axis its rim, while a hole seen right through stays out. Outlines on curved
-surfaces that have no simple shape come in as splines. Each curve follows the body as it changes.
+surfaces that have no simple shape come in as splines. Each curve follows the body as it changes. A large body's outline is worked out in the
+background: the status bar shows it and **Cancel** (or Esc, or {command:view.cancel_outline}) stops it,
+adding nothing. If the model changes meanwhile, nothing is added and the message asks you to project
+it again.
 If the outline comes to have another number of curves from the same edge or face, or a curve
 changes kind, the sketch stops and says so: delete those curves and project the outline again.
 

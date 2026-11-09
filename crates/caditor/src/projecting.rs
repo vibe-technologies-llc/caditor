@@ -1,9 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::BTreeSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
 use caditor_document::{
     Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, Outline, ProjectionSource,
@@ -11,7 +6,7 @@ use caditor_document::{
     datum_outline, edge_outline, point_outline, section_curves, sketch_outline, vertex_outline,
 };
 use caditor_geometry::{Aabb, Plane, Point3, Ray};
-use caditor_kernel::{EdgeId, EdgeReference, FaceId, HiddenLineError, interruptible};
+use caditor_kernel::{EdgeId, EdgeReference, FaceId, HiddenLineError};
 use caditor_sketch::{Entity, EntityId};
 
 use crate::{
@@ -21,7 +16,8 @@ use crate::{
     datum_tools,
     display::Displayed,
     editing::ActiveSketch,
-    model::Model,
+    model::{Action, Model, Notice},
+    outlining::{OutlineRequest, STILL_OUTLINING},
     selection::{Axis, Pickable},
     visibility,
 };
@@ -131,8 +127,17 @@ pub enum ProjectionError {
          edges instead"
     )]
     OutlineUnclear { name: String },
-    #[error("{name} is too intricate to work out its outline at once; project its edges instead")]
-    OutlineTooLong { name: String },
+    #[error(
+        "The outline of {name} could not be worked out because something went wrong; your model is safe"
+    )]
+    OutlineCrashed { name: String },
+    #[error("{STILL_OUTLINING}")]
+    StillOutlining,
+    #[error(
+        "The outline of {name} was not projected, because the model changed while it was worked \
+         out; project it again"
+    )]
+    OutlineOutdated { name: String },
 }
 
 pub const ALREADY_PROJECTED: &str = "That is already projected into this sketch";
@@ -157,6 +162,20 @@ impl Reason for NoSketchToProject {
 )]
 pub struct NoBodyToProject;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OutlineRefusal {
+    #[error(transparent)]
+    NoBody(#[from] NoBodyToProject),
+    #[error("{STILL_OUTLINING}")]
+    StillOutlining,
+}
+
+impl Reason for OutlineRefusal {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
 impl Reason for NoBodyToProject {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
@@ -168,11 +187,6 @@ pub const NO_FACE_HIGHLIGHTED: &str =
     "Choose the Intersect tool and highlight a face of a body first";
 const DEFAULT_DATUM_REACH: f64 = 50.0;
 const DATUM_REACH_MARGIN: f64 = 1.1;
-const OUTLINE_BUDGET: Duration = if cfg!(test) {
-    Duration::from_secs(60)
-} else {
-    Duration::from_secs(3)
-};
 
 pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> bool {
     match (active.tool.intersects(), pickable) {
@@ -382,35 +396,52 @@ pub fn outline_projections(
     plane: &Plane,
     name: &str,
 ) -> Result<Vec<Projected>, ProjectionError> {
-    let deadline = Instant::now() + OUTLINE_BUDGET;
-    let interrupt = Arc::new(move || Instant::now() >= deadline);
-    interruptible(interrupt, || body_outline(&result.solid, body, plane)).map_err(|error| {
-        let name = name.to_owned();
-        match error {
-            HiddenLineError::Cancelled(_) => ProjectionError::OutlineTooLong { name },
-            error => {
-                log::warn!("the outline of {name} could not be worked out: {error}");
-                ProjectionError::OutlineUnclear { name }
-            }
-        }
-    })
+    body_outline(&result.solid, body, plane).map_err(|error| outline_unclear(name, &error))
 }
 
-pub fn project_outline(
+pub fn outline_unclear(name: &str, error: &HiddenLineError) -> ProjectionError {
+    log::warn!("the outline of {name} could not be worked out: {error}");
+    ProjectionError::OutlineUnclear {
+        name: name.to_owned(),
+    }
+}
+
+pub fn outline_request(
     model: &dyn Surroundings,
     sketch: FeatureId,
     body: FeatureId,
-) -> Result<Projection, ProjectionError> {
+) -> Result<OutlineRequest, ProjectionError> {
     let document = model.document();
-    let (definition, plane) = sketch_plane(model, sketch)?;
-    let result = seen_or_refuse(model, sketch, body)?;
-    let name = feature_name(document, body);
-    let pieces = outline_projections(result, body, &plane, &name)?;
+    let (_, plane) = sketch_plane(model, sketch)?;
+    let result = model
+        .evaluation()
+        .body_state_seen_by(sketch, body)
+        .filter(|state| state.solid().is_some())
+        .ok_or_else(|| ProjectionError::BodyAfter {
+            body: feature_name(document, body),
+            sketch: feature_name(document, sketch),
+        })?;
+    Ok(OutlineRequest {
+        sketch,
+        body,
+        name: feature_name(document, body),
+        plane,
+        result: Arc::clone(result),
+    })
+}
+
+pub fn outline_projection(
+    document: &Document,
+    request: &OutlineRequest,
+    pieces: Vec<Projected>,
+) -> Result<Projection, ProjectionError> {
+    let name = request.name.clone();
+    let definition = sketch_definition(document, request.sketch)?;
     if pieces.is_empty() {
         return Err(ProjectionError::NoOutline { name });
     }
     let total = pieces.len();
-    let fresh: Vec<&(ProjectionSource, Outline)> = pieces
+    let fresh: Vec<&Projected> = pieces
         .iter()
         .filter(|(source, _)| !already_projected(definition, source))
         .collect();
@@ -419,7 +450,7 @@ pub fn project_outline(
     }
     let mut transaction = document.transaction(format!("Project the outline of {name}"));
     for (source, outline) in &fresh {
-        transaction.add_projection(sketch, source.clone(), outline);
+        transaction.add_projection(request.sketch, source.clone(), outline);
     }
     let left_out = (fresh.len() < total).then(|| {
         format!(
@@ -431,6 +462,19 @@ pub fn project_outline(
         transaction: transaction.finish(),
         left_out,
     })
+}
+
+pub fn projected(projection: Result<Projection, ProjectionError>) -> Vec<Action> {
+    match projection {
+        Ok(projection) => std::iter::once(Action::Apply(projection.transaction))
+            .chain(
+                projection
+                    .left_out
+                    .map(|words| Action::Inform(Notice::info(format!("{words}.")))),
+            )
+            .collect(),
+        Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
+    }
 }
 
 pub fn sketch_candidates(
@@ -737,17 +781,28 @@ pub fn existing_projection(
         .map(|(id, _)| *id)
 }
 
+fn sketch_definition(
+    document: &Document,
+    sketch: FeatureId,
+) -> Result<&SketchFeature, ProjectionError> {
+    let edited = document
+        .feature(sketch)
+        .ok_or(ProjectionError::SketchGone)?;
+    match &edited.kind {
+        FeatureKind::Sketch(definition) => Ok(definition),
+        _ => Err(ProjectionError::NotASketch),
+    }
+}
+
 fn sketch_plane(
     model: &dyn Surroundings,
     sketch: FeatureId,
 ) -> Result<(&SketchFeature, Plane), ProjectionError> {
+    let definition = sketch_definition(model.document(), sketch)?;
     let edited = model
         .document()
         .feature(sketch)
         .ok_or(ProjectionError::SketchGone)?;
-    let FeatureKind::Sketch(definition) = &edited.kind else {
-        return Err(ProjectionError::NotASketch);
-    };
     let plane = model
         .shown_sketch(edited)
         .map_or_else(|| definition.sketch.plane(), |displayed| displayed.plane());
