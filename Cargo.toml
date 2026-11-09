@@ -67,7 +67,7 @@ image = {
     features = ["bmp", "gif", "hdr", "jpeg", "png", "qoi", "tga", "tiff", "webp"]
 }
 jiff = {
-    version = "0.2.40",
+    version = "0.2.41",
     default-features = false,
     features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"]
 }
