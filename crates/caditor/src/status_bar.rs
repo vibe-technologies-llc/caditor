@@ -16,6 +16,7 @@ use crate::{
     icons,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
     offers::Offers,
+    outlining,
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
     queued, ribbon,
@@ -146,6 +147,7 @@ pub fn show(
             divided(ui, |ui| {
                 files::activity(ui, model, context.files, commands, actions);
                 feature_clipboard::activity(ui, model, commands, actions);
+                outlining::activity(ui, model, commands, actions);
                 queued::note(ui, model, actions);
                 upload_note(ui, context, actions);
             });

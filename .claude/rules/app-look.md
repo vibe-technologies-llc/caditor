@@ -297,7 +297,7 @@ paths:
     that says so (Analyse again, Work them out, Show the rest). Each of these Cancels, and each of
     those resuming buttons (Check again included), is also a command (`Command::CancelAnalysis`,
     `CancelMassProperties`, `CancelPreparingBodies`, `CancelUploading`, `CancelIsocurves`,
-    `CancelInterference`; `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`,
+    `CancelInterference`, `CancelOutline`; `AnalyseAgain`, `WorkOutMassProperties`, `ShowRestOfBodies`,
     `ContinueUploading`, `CheckInterferenceAgain`), invoked
     by the panel or status bar that draws the wait, so the button and the command share one path
     (`app-input.md`).
