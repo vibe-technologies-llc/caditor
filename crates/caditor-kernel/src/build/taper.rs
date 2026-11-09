@@ -27,7 +27,7 @@ use crate::{
     topology::Solid,
 };
 
-const STRAIGHT_TAPER: f64 = 1e-5;
+pub(super) const STRAIGHT_TAPER: f64 = 1e-5;
 pub const MAX_TAPER_DEGREES: f64 = 89.0;
 pub const MIN_FLANK_DEGREES: f64 = 0.1;
 const JOINT_SAMPLES: usize = 12;

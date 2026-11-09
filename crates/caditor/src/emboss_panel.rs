@@ -1,6 +1,5 @@
 use caditor_document::{
     Document, Emboss, EmbossForm, Feature, FeatureId, RegionChoice, Resolution, SolidResult,
-    face_plane,
 };
 use caditor_expression::Dimension;
 use caditor_kernel::FaceId;
@@ -311,17 +310,6 @@ fn depth_row(
     actions.extend(drafting.into_actions(id));
 }
 
-fn is_wrapped(model: &Model, feature: FeatureId, emboss: &Emboss) -> bool {
-    let Some(input) = bodies::input(model.evaluation(), feature) else {
-        return false;
-    };
-    emboss.resolve(&input.solid).is_ok_and(|faces| {
-        faces
-            .iter()
-            .any(|face| face_plane(&input.solid, *face).is_none())
-    })
-}
-
 fn draft_row(
     ui: &mut Ui,
     model: &Model,
@@ -330,9 +318,6 @@ fn draft_row(
     actions: &mut Vec<Action>,
 ) {
     let id = feature.id();
-    if !emboss.is_drafted() && is_wrapped(model, id, emboss) {
-        return;
-    }
     let quantity = Quantity {
         feature: id,
         id: Id::unique(("emboss-draft", id)),

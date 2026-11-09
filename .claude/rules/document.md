@@ -1463,8 +1463,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     several surfaces and `NotAlongAxis` fail as its wrap does): the tool is `wrap_regions_within` with a
     `WrapBand` of `depth` towards the side the material goes and `EMBED` the other, `inward` and
     `outward` swapped for a concave face (a bore, sense reversed) so Raise always leaves the body. A
-    depth leaving no radius (`WrapError::ReachesAxis`) is `TooDeep`. A draft there fails as
-    `DraftWrapped`, asking for 0°, since the wrap cannot taper.
+    depth leaving no radius (`WrapError::ReachesAxis`) is `TooDeep`. A draft there is the band's
+    `leaning(draft, WrapNarrowing)`, narrowing away from the body (`Outward` when the material
+    stands out of the face, `Inward` when it sinks into it, so a bore's raise narrows `Inward`):
+    the outlines keep their drawn size on the face and the walls lean by the angle along the axis,
+    a little more or less across it (`kernel-operations.md`). A draft closing an outline is
+    `DraftCloses` as on a flat face.
 - Before joining, kernel `split_faces` of the chosen faces along the tool must divide them, and no
   piece inside the tool (`FaceName::split(feature, name, Inside)`) may border a face that is not
   chosen (`reaching_edge`): an outline reaching or crossing the edge of a face, or a hole in it, is

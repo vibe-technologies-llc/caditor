@@ -101,7 +101,20 @@ paths:
   and an `outward` distance (positive, `UnusableBand` otherwise) from the unrolled surface towards and
   away from its axis, the wrap's start and end caps lying at the one the sketch's side faces. An
   inward distance leaving no radius is `ReachesAxis`. The document's emboss builds its raised or
-  recessed material with it.
+  recessed material with it. `WrapBand::leaning(angle, WrapNarrowing)` drafts the walls
+  (`wrap_lean.rs`): the outline keeps its drawn size on the surface and at a normal distance `d` is
+  the outlines' loops offset to their left by `tan(angle) * d` (`Outward`, narrowing away from the
+  axis) or `-tan(angle) * d` (`Inward`), one signed offset for the whole band so the wall leans
+  one way through the surface. Each loop's courses are offset with `offset_courses` as
+  `extrude_tapered` does (corners mitred, `Course::at` giving the point of a course at a share of
+  its length, a trimmed spline's through its offset curve), then each piece's row at a copy is the
+  offset course sampled at the same shares as the stations; the wall is ruled between the two rows
+  extended by `WALL_OVERHANG`, so it meets each vertical edge's line exactly. The offset is made in
+  the unrolled surface, so a wall running along the axis leans by exactly the angle and one running
+  round by the ratio of the radii at its top and the surface more or less. An angle of
+  `MAX_TAPER_DEGREES` or more, or negative, is `DraftOutOfRange`; an offset that uses a piece up,
+  turns a loop over or makes loops cross at either copy is `DraftCloses` naming the pieces' sketch
+  entities. Below `STRAIGHT_TAPER` it is the straight wrap.
 - `wrapped_stand(plane, regions, surface, at)` (`wrap.rs`) gives where a sketch point lands on the
   surface the same regions wrap onto (the reference of their reach included) and the unit normal
   there pointing away from the axis, for the emboss's depth arrow; the errors are the wrap's.

@@ -1029,20 +1029,92 @@ fn a_draft_closing_the_outline_before_its_depth_fails_in_words() {
     );
 }
 
+fn lean_wrapped(model: &mut Model, draft: &str) {
+    let draft = model.document.parse(draft).unwrap();
+    change(model, |emboss| emboss.draft = draft);
+}
+
+fn wrapped_material(model: &mut Model) -> f64 {
+    let plain = unembossed_volume(model);
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(evaluation.failed_count(), 0);
+    (volume(&evaluation, model.base) - plain).abs()
+}
+
+fn drafted_patch(radius: f64, depth: f64, degrees: f64, towards_axis: f64) -> f64 {
+    let lean = degrees.to_radians().tan();
+    let steps = 200;
+    let step = depth / steps as f64;
+    (0..steps)
+        .map(|index| {
+            let height = (index as f64 + 0.5) * step;
+            let inset = 2.0 * lean * height;
+            let round = (radius + towards_axis * height) / radius;
+            (12.0 - inset) * (10.0 - inset) * round * step
+        })
+        .sum()
+}
+
 #[test]
-fn a_wrapped_outline_with_a_draft_fails_in_words() {
-    let mut model = rod(patch(), EmbossForm::Raised, "1 mm");
-    let draft = model.document.parse("5 deg").unwrap();
-    change(&mut model, |emboss| emboss.draft = draft);
+fn a_drafted_raised_outline_wrapped_round_a_cylinder_narrows_away_from_it() {
+    let mut straight = rod(patch(), EmbossForm::Raised, "2 mm");
+    let mut leaning = rod(patch(), EmbossForm::Raised, "2 mm");
+    lean_wrapped(&mut leaning, "10 deg");
+
+    let plain = wrapped_material(&mut straight);
+    let drafted = wrapped_material(&mut leaning);
+
+    let expected = drafted_patch(10.0, 2.0, 10.0, 1.0);
+    assert!(drafted < plain - 5.0, "{drafted} {plain}");
+    assert!(
+        (drafted - expected).abs() < expected * 0.01,
+        "{drafted} {expected}"
+    );
+}
+
+#[test]
+fn a_drafted_recess_wrapped_into_a_cylinder_narrows_towards_its_floor() {
+    let mut leaning = rod(patch(), EmbossForm::Recessed, "2 mm");
+    lean_wrapped(&mut leaning, "10 deg");
+
+    let drafted = wrapped_material(&mut leaning);
+
+    let expected = drafted_patch(10.0, 2.0, 10.0, -1.0);
+    assert!(
+        (drafted - expected).abs() < expected * 0.01,
+        "{drafted} {expected}"
+    );
+}
+
+#[test]
+fn drafted_outlines_wrap_into_a_bore_and_round_a_cone() {
+    for form in [EmbossForm::Raised, EmbossForm::Recessed] {
+        let mut bore = tube(bore_patch(), form, "1 mm");
+        let mut round = cone(cone_patch(), form, "1 mm");
+        let straight = [wrapped_material(&mut bore), wrapped_material(&mut round)];
+        lean_wrapped(&mut bore, "8 deg");
+        lean_wrapped(&mut round, "8 deg");
+
+        let leaning = [wrapped_material(&mut bore), wrapped_material(&mut round)];
+
+        assert!(leaning[0] < straight[0] - 0.5, "{leaning:?} {straight:?}");
+        assert!(leaning[1] < straight[1] - 0.5, "{leaning:?} {straight:?}");
+    }
+}
+
+#[test]
+fn a_wrapped_draft_closing_the_outline_before_its_depth_fails_in_words() {
+    let mut model = rod(patch(), EmbossForm::Raised, "6 mm");
+    lean_wrapped(&mut model, "44 deg");
 
     let evaluation = evaluate(&model.document, &mut model.engine);
     let error = failure(&evaluation, model.emboss);
 
     assert_eq!(
         error.reason(),
-        "Outlines wrapped round a cylinder cannot have drafted walls yet."
+        "With its draft, an outline of Label closes up before it reaches the depth."
     );
-    assert_eq!(error.remedy(), "Set the draft to 0°.");
+    assert_eq!(error.remedy(), "Make the draft or the depth smaller.");
 }
 
 #[test]

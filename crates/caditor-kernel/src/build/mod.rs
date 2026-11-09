@@ -14,6 +14,7 @@ mod wrap;
 mod wrap_cut;
 #[cfg(test)]
 mod wrap_cut_tests;
+mod wrap_lean;
 #[cfg(test)]
 mod wrap_tests;
 
@@ -39,7 +40,7 @@ pub use self::{
         MAX_TAPER_DEGREES, MIN_FLANK_DEGREES, extrude_flared, extrude_tapered,
         extrude_tapered_along,
     },
-    wrap::{WrapBand, WrapError, wrap_regions, wrap_regions_within, wrapped_stand},
+    wrap::{WrapBand, WrapError, WrapNarrowing, wrap_regions, wrap_regions_within, wrapped_stand},
     wrap_cut::wrap_chain,
 };
 use crate::{
