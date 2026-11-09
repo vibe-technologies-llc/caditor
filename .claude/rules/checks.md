@@ -84,6 +84,12 @@ property or a pinned input.
   feature of the view, the consumers of its bodies included.
 - The undo that could not be applied around configurations and moves (`b94cd16b`) fails the undo,
   save, soundness and recompute suites alike, with the generator's `check_inverse` naming the edit.
+- An exact mass reading short where a face falls back to its mesh failed the boolean volumes at
+  seed 6413 of the stress job (intersection plus difference 3108.31 against 3111.06): the
+  difference's torus face missed the boundary integral's tolerance and took its triangles at the
+  suite's `CHORD`, 2.75 short, while the boolean itself was right. Accepting a boundary piece
+  within `BOUNDARY_NOISE` fixed it (`kernel.md`); `kernel_tests.rs` replays the seed and asserts no
+  face of its union, intersection or difference is meshed.
 - The menu bar's gear dropping its command (`49903142`) fails the button sweep and the harness's
   dropped-command guard in `app-tests.md`, with no test written for the gear.
 - Layout regressions of a side panel (`73c8123c`, the parameter table's names) are caught only by
