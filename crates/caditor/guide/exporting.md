@@ -73,6 +73,9 @@ width you give, with or without dimensions and names. Every dimension is written
 line stack outward as on the canvas, and a label that would overlap another is moved clear of it. {command:file.keep_drawing_construction}
 also writes construction geometry, on a dashed layer of its own.
 
+A technical drawing of the bodies, with views, hidden lines and a title block on an ISO sheet, is
+made and exported as PDF, SVG or DXF from [Drawings](drawings).
+
 ## Parameters
 
 {command:file.export_parameters} writes the [parameters](parameters) to a CSV file.

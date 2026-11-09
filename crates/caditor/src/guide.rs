@@ -94,6 +94,7 @@ pub enum Page {
     Importing,
     Cloud,
     Exporting,
+    Drawings,
     Templates,
     WindowsDefender,
     CommandLine,
@@ -185,6 +186,7 @@ all_variants!(
     Importing,
     Cloud,
     Exporting,
+    Drawings,
     Templates,
     WindowsDefender,
     CommandLine,
@@ -317,6 +319,7 @@ impl Page {
             Self::CurvatureComb => "curvature-comb",
             Self::Isocurves => "isocurves",
             Self::SectionView => "section-view",
+            Self::Drawings => "drawings",
             Self::Saving => "saving",
             Self::VersionHistory => "version-history",
             Self::Importing => "importing",
@@ -414,6 +417,7 @@ impl Page {
             Self::CurvatureComb => include_str!("../guide/curvature-comb.md"),
             Self::Isocurves => include_str!("../guide/isocurves.md"),
             Self::SectionView => include_str!("../guide/section-view.md"),
+            Self::Drawings => include_str!("../guide/drawings.md"),
             Self::Saving => include_str!("../guide/saving.md"),
             Self::VersionHistory => include_str!("../guide/version-history.md"),
             Self::Importing => include_str!("../guide/importing.md"),
@@ -510,6 +514,7 @@ impl Page {
             | Self::Importing
             | Self::Cloud
             | Self::Exporting
+            | Self::Drawings
             | Self::Templates
             | Self::WindowsDefender
             | Self::CommandLine
@@ -609,6 +614,7 @@ impl Page {
             SidePanel::Comb => Self::CurvatureComb,
             SidePanel::Isocurves => Self::Isocurves,
             SidePanel::Section => Self::SectionView,
+            SidePanel::Drawings => Self::Drawings,
             SidePanel::Tidying => Self::AutomaticConstraints,
             SidePanel::Lighting => Self::RenderedView,
         }
@@ -633,6 +639,7 @@ pub enum SidePanel {
     Section,
     Tidying,
     Lighting,
+    Drawings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

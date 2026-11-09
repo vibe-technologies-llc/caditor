@@ -90,6 +90,9 @@ const MODEL_BODIES: [&[Command]; 3] = [
         Command::MateAngle,
         Command::ScaleModel,
         Command::Configurations,
+        Command::Drawings,
+        Command::NewDrawing,
+        Command::ExportDrawingSheet,
     ],
     &[
         Command::BodyAppearance,

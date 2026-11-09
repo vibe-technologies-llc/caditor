@@ -8,6 +8,11 @@ paths:
   - "crates/caditor-file/src/tests/drawings.rs"
   - "crates/caditor-file/src/export/drawing_sheet.rs"
   - "crates/caditor-file/src/export/pdf.rs"
+  - "crates/caditor/src/drawings_panel.rs"
+  - "crates/caditor/src/sheet_views.rs"
+  - "crates/caditor/src/sheet_export.rs"
+  - "crates/caditor/src/ui_tests/drawings.rs"
+  - "crates/caditor/guide/drawings.md"
 ---
 
 # Technical drawings
@@ -87,3 +92,21 @@ lines, never a picture of the 3D view.
   coordinates through a `cm` transform, arcs and ellipses as Béziers, text as filled Inter outlines
   from `caditor-lettering` (no embedded font), the producer `APPLICATION` and nothing identifying
   the user.
+
+## App (`drawings_panel.rs`, `sheet_views.rs`, `sheet_export.rs`)
+
+- Commands: Drawings (toggles the right-hand `DrawingsTool` panel), New drawing (of the bodies
+  selected in the view or chosen in the tree, else every shown body; opens it) and Export drawing
+  sheet… (opens the panel and exports once the views are ready). Every setting in the panel is one
+  undoable `changing_drawing`; Delete is undoable.
+- `DrawingViews` works out each wanted view on its own `drawing views` thread, keyed by the view and
+  the drawn bodies' result `Arc`s, so a view is redone only when a body it draws changes; a newer
+  basis bumps a shared ticket that interrupts the view in flight. A panic becomes `Panicked`. A
+  failing view is a callout naming it and why; the others draw as usual. Closing the panel or a
+  new session forgets everything.
+- The sheet preview paints the plan in theme tokens (paper `raised`, lines `text`, hidden lines
+  `text_muted` dashed): drag pans, `zoom_delta` (pinch, Ctrl and scroll) and the Zoom in, Zoom out
+  and Fit buttons zoom, arrow keys pan the focused sheet.
+- Export goes through `FileCommand::ExportSheet` with a `SheetJob` (plan plus each view's
+  outcome), `Purpose::Sheet`, the drawing folder and the ordinary output confirmation, written on
+  the file worker.
