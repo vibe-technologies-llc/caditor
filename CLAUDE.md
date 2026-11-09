@@ -101,6 +101,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP and mesh import, model, image and drawing export, parameter files. |
+| `drawings.md` | Technical drawings: the model's drawings, standard views from hidden lines, the ISO sheet and title block, PDF, SVG and DXF sheet export, the Drawings panel. |
 | `cloud.md` | Home, the opt-out cloud services and the Fusion 360 import: the `Provider` abstraction, Autodesk sign-in and conversion, the service, the manager. |
 | `checks.md` | The checks crate: seeded property suites, the generators it shares with the fuzz targets, coverage floors. |
 | `notices.md` | The third-party notices file: which crates and fonts it lists, where the texts come from, how packages install it. |

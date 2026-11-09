@@ -1,4 +1,4 @@
-use std::{f64::consts::TAU, fmt::Write};
+use std::{collections::BTreeSet, f64::consts::TAU, fmt::Write};
 
 use caditor_geometry::Point2;
 
@@ -19,6 +19,12 @@ const DASH: f64 = 1.0;
 const GAP: f64 = 0.5;
 const ALIGNED_PATTERN: u32 = 65;
 const GREY: u32 = 8;
+const BY_INDEX_BLACK: u32 = 7;
+const HIDDEN_DASH: f64 = 3.0;
+const HIDDEN_GAP: f64 = 1.5;
+const VISIBLE_WEIGHT: u32 = 50;
+const HIDDEN_WEIGHT: u32 = 25;
+const FRAME_WEIGHT: u32 = 35;
 const ANONYMOUS_BLOCK: u32 = 1;
 const ROTATED_DIMENSION: u32 = 0;
 const DIAMETER_DIMENSION: u32 = 3;
@@ -34,7 +40,10 @@ const LARGEST_ESCAPED: u32 = 0xFFFF;
 pub(super) fn encode(figure: &Figure) -> String {
     let mut writer = Writer::default();
     writer.header();
-    if figure.layers().contains(&Layer::Construction) {
+    let layers = figure.layers();
+    if layers.iter().any(|layer| layer.is_on_sheet()) {
+        writer.sheet_tables(&layers);
+    } else if layers.contains(&Layer::Construction) {
         writer.dashed_tables();
     }
     let dimensions: Vec<&Dimension> = figure
@@ -89,9 +98,38 @@ impl Writer {
         self.pair(0, "ENDSEC");
     }
 
-    fn dashed_tables(&mut self) {
+    fn sheet_tables(&mut self, layers: &BTreeSet<Layer>) {
         self.pair(0, "SECTION");
         self.pair(2, "TABLES");
+        self.linetypes(HIDDEN_DASH, HIDDEN_GAP);
+        let described: Vec<(Layer, u32, &str, Option<u32>)> = layers
+            .iter()
+            .filter_map(|layer| match layer {
+                Layer::Construction => Some((*layer, GREY, DASHED, None)),
+                Layer::Visible => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(VISIBLE_WEIGHT))),
+                Layer::Hidden => Some((*layer, BY_INDEX_BLACK, DASHED, Some(HIDDEN_WEIGHT))),
+                Layer::Frame => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(FRAME_WEIGHT))),
+                _ => None,
+            })
+            .collect();
+        self.pair(0, "TABLE");
+        self.pair(2, "LAYER");
+        self.pair(70, described.len());
+        for (layer, colour, linetype, weight) in described {
+            self.pair(0, "LAYER");
+            self.pair(2, layer.name());
+            self.pair(70, 0);
+            self.pair(62, colour);
+            self.pair(6, linetype);
+            if let Some(weight) = weight {
+                self.pair(370, weight);
+            }
+        }
+        self.pair(0, "ENDTAB");
+        self.pair(0, "ENDSEC");
+    }
+
+    fn linetypes(&mut self, dash: f64, gap: f64) {
         self.pair(0, "TABLE");
         self.pair(2, "LTYPE");
         self.pair(70, 2);
@@ -108,10 +146,16 @@ impl Writer {
         self.pair(3, "Dashed __ __ __");
         self.pair(72, ALIGNED_PATTERN);
         self.pair(73, 2);
-        self.real(40, DASH + GAP);
-        self.real(49, DASH);
-        self.real(49, -GAP);
+        self.real(40, dash + gap);
+        self.real(49, dash);
+        self.real(49, -gap);
         self.pair(0, "ENDTAB");
+    }
+
+    fn dashed_tables(&mut self) {
+        self.pair(0, "SECTION");
+        self.pair(2, "TABLES");
+        self.linetypes(DASH, GAP);
         self.pair(0, "TABLE");
         self.pair(2, "LAYER");
         self.pair(70, 1);
@@ -132,7 +176,7 @@ impl Writer {
     fn entity(&mut self, kind: &str, layer: Layer) {
         self.pair(0, kind);
         self.pair(8, layer.name());
-        if layer == Layer::Construction {
+        if layer.is_dashed() {
             self.pair(6, DASHED);
         }
     }

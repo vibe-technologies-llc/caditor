@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
     Between, BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue,
-    Datum, DatumPoint, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem, Measurement,
-    ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns, Pieces,
-    PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    PrincipalShowing, ProjectionSource, Reading, Rgb, RollbackBar, SavedView, SavedViews,
-    SelectionSet, SelectionSets, SetMember, Setting, SketchAttachment, Transaction,
+    Datum, DatumPoint, Drawing, DrawingId, DrawingScale, Drawings, Edit, FaceColour, FeatureId,
+    FeatureKind, Finish, MeasuredItem, Measurement, ModelProperties, ModelProperty, NamedView,
+    Outline, ParameterOwner, PieceStandIns, Pieces, PlaneReference, PointReference, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, PrincipalShowing, Projection, ProjectionSource, Reading,
+    Rgb, RollbackBar, SavedView, SavedViews, ScaleRatio, SelectionSet, SelectionSets, SetMember,
+    Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
@@ -816,9 +817,66 @@ fn configurations(input: &mut Unstructured, scene: &Scene) -> Result<Configurati
     })
 }
 
+fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
+    let mut drawing = Drawing::new(
+        DrawingId::from_raw(input.int_in_range(0u64..=6)?),
+        text(input)?,
+    );
+    drawing.size = *input.choose(&SheetSize::ALL)?;
+    drawing.orientation = *input.choose(&SheetOrientation::ALL)?;
+    drawing.projection = *input.choose(&Projection::ALL)?;
+    drawing.scale = if input.arbitrary::<bool>()? {
+        DrawingScale::Fit
+    } else {
+        DrawingScale::Ratio(ScaleRatio::new(
+            input.int_in_range(0u32..=60)?,
+            input.int_in_range(0u32..=1200)?,
+        ))
+    };
+    drawing.views = StandardView::ALL
+        .into_iter()
+        .filter(|_| input.arbitrary::<bool>().unwrap_or(false))
+        .collect();
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        drawing.bodies.push(scene.body(input)?);
+    }
+    drawing.hidden_lines = input.arbitrary()?;
+    Ok(drawing)
+}
+
+fn drawings(input: &mut Unstructured, scene: &Scene) -> Result<Drawings> {
+    let mut drawings = scene.document.drawings().clone();
+    match input.int_in_range(0u8..=2)? {
+        0 => drawings.drawings.push(drawing(input, scene)?),
+        1 if !drawings.drawings.is_empty() => {
+            let index = input.choose_index(drawings.drawings.len())?;
+            drawings.drawings.remove(index);
+        }
+        _ => {
+            if let Some(first) = drawings.drawings.first_mut() {
+                let id = first.id;
+                *first = Drawing {
+                    id,
+                    ..drawing(input, scene)?
+                };
+            }
+        }
+    }
+    drawings.next_id = input.int_in_range(0u64..=8)?;
+    Ok(drawings)
+}
+
+fn drawing_id(input: &mut Unstructured, scene: &Scene) -> Result<DrawingId> {
+    let drawings = &scene.document.drawings().drawings;
+    if drawings.is_empty() || input.ratio(1u8, 8)? {
+        return Ok(DrawingId::from_raw(input.int_in_range(0u64..=8)?));
+    }
+    Ok(input.choose(drawings)?.id)
+}
+
 pub fn model_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Transaction>> {
     let document = scene.document;
-    Ok(match input.int_in_range(0u8..=14)? {
+    Ok(match input.int_in_range(0u8..=17)? {
         0 => single(Edit::SetModelProperties {
             properties: Box::new(properties(input, scene)?),
         }),
@@ -868,6 +926,31 @@ pub fn model_edit(input: &mut Unstructured, scene: &Scene) -> Result<Option<Tran
             let setting = setting(input, scene, value)?;
             document
                 .setting_configuration(configuration_id(input, scene)?, value, setting)
+                .ok()
+        }
+        13 => single(Edit::SetDrawings {
+            drawings: Box::new(drawings(input, scene)?),
+        }),
+        14 => {
+            let mut bodies = Vec::new();
+            if input.arbitrary::<bool>()? {
+                bodies.push(scene.body(input)?);
+            }
+            document
+                .adding_drawing(bodies)
+                .ok()
+                .map(|(transaction, _)| transaction)
+        }
+        15 => document.deleting_drawing(drawing_id(input, scene)?).ok(),
+        16 => {
+            let replacement = drawing(input, scene)?;
+            document
+                .changing_drawing(drawing_id(input, scene)?, "Change drawing", |changed| {
+                    *changed = Drawing {
+                        id: changed.id,
+                        ..replacement
+                    };
+                })
                 .ok()
         }
         _ => document.activating(configuration_id(input, scene)?).ok(),

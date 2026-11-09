@@ -27,6 +27,9 @@ use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         list_names,
     },
+    drawings::{
+        Drawings, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SCALE_TERM,
+    },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     measurement::{Measured, reading_users},
@@ -128,6 +131,9 @@ pub enum Edit {
     },
     SetConfigurations {
         configurations: Box<Configurations>,
+    },
+    SetDrawings {
+        drawings: Box<Drawings>,
     },
     SetActiveConfiguration {
         active: Option<ConfigurationId>,
@@ -327,6 +333,7 @@ impl Transaction {
                 Edit::SetModelProperties { .. } => touched.properties = true,
                 Edit::SetSavedViews { .. } => touched.views = true,
                 Edit::SetSelectionSets { .. } => touched.selection_sets = true,
+                Edit::SetDrawings { .. } => touched.drawings = true,
                 Edit::SetConfigurations { .. } | Edit::SetActiveConfiguration { .. } => {
                     touched.configurations = true;
                 }
@@ -364,6 +371,7 @@ impl Transaction {
                 }
                 Edit::SetSavedViews { views } => size_of::<SavedViews>() + views.heap_size(),
                 Edit::SetSelectionSets { sets } => size_of::<SelectionSets>() + sets.heap_size(),
+                Edit::SetDrawings { drawings } => size_of::<Drawings>() + drawings.heap_size(),
                 Edit::SetConfigurations { configurations } => {
                     size_of::<Configurations>() + configurations.heap_size()
                 }
@@ -479,6 +487,28 @@ pub enum EditError {
         "A selection set holds at most {MAX_SET_MEMBERS} faces, edges and bodies, and '{name}' has {members}"
     )]
     SetTooLarge { name: String, members: usize },
+    #[error("A drawing needs a name")]
+    DrawingNameEmpty,
+    #[error(
+        "A drawing's name may be at most {MAX_DRAWING_NAME_CHARS} characters long, and this one has {length}"
+    )]
+    DrawingNameTooLong { length: usize },
+    #[error("There is already a drawing named '{0}'. Choose another name.")]
+    DrawingNameTaken(String),
+    #[error("A model keeps at most {MAX_DRAWINGS} drawings. Delete one first.")]
+    TooManyDrawings,
+    #[error("Two drawings have the number {0}")]
+    DrawingIdRepeated(u64),
+    #[error(
+        "A drawing shows at most {MAX_DRAWING_BODIES} chosen bodies, and '{name}' has {bodies}. Leave the choice empty to show every body."
+    )]
+    DrawingTooManyBodies { name: String, bodies: usize },
+    #[error(
+        "The scale {sheet}:{model} cannot be used. Both numbers must be whole, from 1 to {MAX_SCALE_TERM}."
+    )]
+    DrawingScaleOutOfRange { sheet: u32, model: u32 },
+    #[error("That drawing no longer exists")]
+    MissingDrawing,
     #[error("A configuration needs a name")]
     ConfigurationNameEmpty,
     #[error(
@@ -761,6 +791,7 @@ pub struct Touched {
     pub properties: bool,
     pub views: bool,
     pub selection_sets: bool,
+    pub drawings: bool,
     pub configurations: bool,
 }
 
@@ -971,6 +1002,7 @@ impl Document {
             Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
             Edit::SetSavedViews { views } => self.set_saved_views(*views),
             Edit::SetSelectionSets { sets } => self.set_selection_sets(*sets),
+            Edit::SetDrawings { drawings } => self.set_drawings(*drawings),
             Edit::SetConfigurations { configurations } => self.set_configurations(*configurations),
             Edit::SetActiveConfiguration { active } => self.set_active_configuration(active),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
@@ -1758,6 +1790,24 @@ impl Document {
         let previous = std::mem::replace(&mut self.selection_sets, Arc::new(sets));
         Ok(Edit::SetSelectionSets {
             sets: Box::new(Arc::unwrap_or_clone(previous)),
+        })
+    }
+
+    fn set_drawings(&mut self, drawings: Drawings) -> Result<Edit, EditError> {
+        let mut drawings = drawings.checked()?;
+        for body in drawings.bodies() {
+            check_storable(body.maker().raw())?;
+        }
+        let beyond = drawings
+            .bodies()
+            .map(|body| body.maker().raw().saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        self.next_feature_id = self.next_feature_id.max(beyond);
+        drawings.next_id = drawings.first_free_id().max(self.drawings.first_free_id());
+        let previous = std::mem::replace(&mut self.drawings, Arc::new(drawings));
+        Ok(Edit::SetDrawings {
+            drawings: Box::new(Arc::unwrap_or_clone(previous)),
         })
     }
 

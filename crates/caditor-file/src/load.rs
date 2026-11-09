@@ -15,6 +15,7 @@ use caditor_sketch::EntityId;
 use crate::{
     binary::{self, FileDigest, History, UnpackError},
     configurations::{ConfigurationsRecord, restore_configurations},
+    drawings::{DrawingsRecord, restore_drawings},
     format::{
         FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, Lenient, NamedValuesRecord,
         NextIdsRecord, ParameterRecord, PrincipalGeometryRecord, PrincipalRecord, PropertiesRecord,
@@ -163,6 +164,7 @@ pub(crate) struct Parts {
     pub named_values: Option<NamedValuesRecord>,
     pub selection_sets: Option<SelectionSetsRecord>,
     pub configurations: Option<ConfigurationsRecord>,
+    pub drawings: Option<DrawingsRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -194,6 +196,7 @@ impl Parts {
             Record::Configurations(configurations) => {
                 self.configurations = Some(configurations);
             }
+            Record::Drawings(drawings) => self.drawings = Some(drawings),
         }
     }
 }
@@ -434,6 +437,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     restore_saved_views(&mut document, parts.views, issues);
     restore_named_values(&mut document, parts.named_values, issues);
     restore_document_sets(&mut document, parts.selection_sets, issues);
+    restore_document_drawings(&mut document, parts.drawings, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
     restore_document_configurations(&mut document, parts.configurations, issues);
@@ -559,6 +563,26 @@ fn restore_document_sets(
         issues.push(
             "The model's selection sets could not be restored, so there are none.".to_owned(),
         );
+    }
+}
+
+fn restore_document_drawings(
+    document: &mut Document,
+    record: Option<DrawingsRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let drawings = restore_drawings(record, issues);
+    let edit = Edit::SetDrawings {
+        drawings: Box::new(drawings),
+    };
+    if document
+        .apply(Transaction::single("Drawings", edit))
+        .is_err()
+    {
+        issues.push("The model's drawings could not be restored, so there are none.".to_owned());
     }
 }
 

@@ -1127,6 +1127,7 @@ fn changes_only(step: &Transaction, feature: FeatureId, owned: &BTreeSet<Paramet
         || touched.properties
         || touched.views
         || touched.selection_sets
+        || touched.drawings
         || touched.configurations;
     !elsewhere
         && touched.features.iter().all(|id| *id == feature)

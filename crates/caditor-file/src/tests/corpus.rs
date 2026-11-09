@@ -35,7 +35,8 @@ use serde::{
 use serde_json::Value;
 
 use super::{
-    configurations::configured_model, seeds::seed_journal_by_reference, selection_sets::sets_of, *,
+    configurations::configured_model, drawings::with_drawings, seeds::seed_journal_by_reference,
+    selection_sets::sets_of, *,
 };
 use crate::{
     binary::{
@@ -56,7 +57,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 80] = [
+const KEPT: [(&str, &str); 82] = [
+    (
+        "journal-1/drawings.journal",
+        "b5bfeb9e056a48adce246d4ec4690a25f7918674fe0e86deb60fa5885a64ee86",
+    ),
+    (
+        "model-1/drawings.caditor",
+        "cba3ec07f39674496a0ac4457067f61ddaff1066ee08fdb180e61be6a35ff760",
+    ),
     (
         "journal-1/by-reference.journal",
         "fe98725da8d9df46b19d7cede1474bcfb92bbda00d4de9c890e5bca5d0f2899f",
@@ -1092,6 +1101,8 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&principal_showing().0, "Principal showing"),
         ),
         (journal("principal-showing"), principal_showing_journal()),
+        (model("drawings"), saved(&drawn_model(), "Drawings")),
+        (journal("drawings"), drawings_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1829,6 +1840,30 @@ fn principal_showing_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/principal-showing.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn drawn_model() -> Document {
+    let (mut document, change) = with_drawings();
+    document.apply(change).unwrap();
+    document
+}
+
+fn drawings_journal() -> Vec<u8> {
+    let (base, change) = with_drawings();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(change);
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Drawings")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/drawings.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

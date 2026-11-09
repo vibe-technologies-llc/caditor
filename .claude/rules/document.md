@@ -261,8 +261,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   with the model. What `WhenNeeded` draws at a given moment is view state outside the document
   (`app-modelling.md`, Visibility).
 - Content in the `same_content`/`transaction_to`/`heap_size` family, ignored by recompute: a
-  feature's `group`, `appearance`, `piece_looks`, `ModelProperties`, `SavedViews`, `SelectionSets`
-  and `Configurations`. Each has one whole-set edit whose inverse holds the previous set. A
+  feature's `group`, `appearance`, `piece_looks`, `ModelProperties`, `SavedViews`, `SelectionSets`,
+  `Drawings` (`drawings.md`) and `Configurations`. Each has one whole-set edit whose inverse holds the previous set. A
   feature's `pieces` is in the family too but is computed (Separate pieces below).
 
 ### Feature groups (`grouping.rs`)

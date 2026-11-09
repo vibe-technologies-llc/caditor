@@ -161,6 +161,9 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
     if touched.selection_sets {
         lines.push("The model's selection sets".to_owned());
     }
+    if touched.drawings {
+        lines.push("The model's drawings".to_owned());
+    }
     if touched.configurations {
         lines.push("The model's configurations".to_owned());
     }
