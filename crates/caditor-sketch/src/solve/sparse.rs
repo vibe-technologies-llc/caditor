@@ -15,6 +15,10 @@ const ITERATIONS_PER_VARIABLE: usize = 4;
 const NEGLIGIBLE: f64 = 1e-15;
 const NEIGHBOURHOOD_HOPS: usize = 2;
 const CLIQUE_LIMIT: usize = 32;
+const GRAM_ITERATIONS: usize = 16;
+pub(crate) const GRAM_SHIFTS: [f64; 4] = [1e-12, 1e-10, 1e-8, 1e-6];
+const STEP_SHIFTS: [f64; 5] = [0.0, 1e-12, 1e-10, 1e-8, 1e-6];
+const GRAM_LEAST_PIVOT: f64 = 1e-14;
 
 pub(crate) type Row = Vec<(usize, f64)>;
 
@@ -59,15 +63,19 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
     }
     let mut scaled = Vec::with_capacity(rows.len());
     let mut target = Vec::with_capacity(rows.len());
+    let mut held_residuals_finite = true;
     for (row, residual) in rows.iter().zip(residuals) {
         let length = norm(row);
-        let divisor = if length > 0.0 { length } else { 1.0 };
+        if length == 0.0 {
+            held_residuals_finite &= residual.is_finite();
+            continue;
+        }
         scaled.push(
             row.iter()
-                .map(|(column, value)| (*column, value / divisor))
+                .map(|(column, value)| (*column, value / length))
                 .collect::<Row>(),
         );
-        target.push(-residual / divisor);
+        target.push(-residual / length);
     }
     let finite = scaled
         .iter()
@@ -75,46 +83,66 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
         .map(|(_, value)| value)
         .chain(&target)
         .all(|value| value.is_finite());
-    if !finite {
+    if !finite || !held_residuals_finite {
         return None;
     }
-    let multiply = |vector: &[f64]| -> Vec<f64> {
-        scaled
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|(column, value)| value * vector.get(*column).copied().unwrap_or(0.0))
-                    .sum()
-            })
-            .collect()
+    let nonzeros: usize = scaled.iter().map(Vec::len).sum();
+    let iteration = 2 * nonzeros + width;
+    let most = GRAM_ITERATIONS.saturating_mul(iteration);
+    let step = match Gram::factor(&scaled, width, &STEP_SHIFTS, most) {
+        Ok(gram) => {
+            let multipliers = gram.solve(&target);
+            tally::add(nonzeros);
+            transposed_times(&scaled, &multipliers, width)
+        }
+        Err(Unfactored { .. }) => conjugate_gradients(&scaled, target, width, iteration),
     };
-    let multiply_transposed = |vector: &[f64]| -> Vec<f64> {
-        let mut result = vec![0.0; width];
-        for (row, factor) in scaled.iter().zip(vector) {
-            for (column, value) in row {
-                if let Some(slot) = result.get_mut(*column) {
-                    *slot += value * factor;
-                }
+    step.iter().all(|value| value.is_finite()).then_some(step)
+}
+
+pub(crate) fn times(rows: &[Row], vector: &[f64]) -> Vec<f64> {
+    rows.iter()
+        .map(|row| {
+            row.iter()
+                .map(|(column, value)| value * vector.get(*column).copied().unwrap_or(0.0))
+                .sum()
+        })
+        .collect()
+}
+
+pub(crate) fn transposed_times(rows: &[Row], vector: &[f64], width: usize) -> Vec<f64> {
+    let mut result = vec![0.0; width];
+    for (row, factor) in rows.iter().zip(vector) {
+        for (column, value) in row {
+            if let Some(slot) = result.get_mut(*column) {
+                *slot += value * factor;
             }
         }
-        result
-    };
+    }
+    result
+}
+
+fn conjugate_gradients(
+    scaled: &[Row],
+    target: Vec<f64>,
+    width: usize,
+    iteration: usize,
+) -> Vec<f64> {
     let mut step = vec![0.0; width];
     let mut remaining = target;
-    let mut gradient = multiply_transposed(&remaining);
+    let mut gradient = transposed_times(scaled, &remaining, width);
     let mut direction = gradient.clone();
     let mut gamma = squared(&gradient);
     let stop = STEP_TOLERANCE * gamma.sqrt();
     let limit = width
         .saturating_mul(ITERATIONS_PER_VARIABLE)
         .saturating_add(EXTRA_ITERATIONS);
-    let nonzeros: usize = scaled.iter().map(Vec::len).sum();
     for _ in 0..limit {
         if gamma.sqrt() <= stop || gamma == 0.0 {
             break;
         }
-        tally::add(2 * nonzeros + width);
-        let image = multiply(&direction);
+        tally::add(iteration);
+        let image = times(scaled, &direction);
         let curvature = squared(&image);
         if curvature <= 0.0 || !curvature.is_finite() {
             break;
@@ -127,7 +155,7 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
             .iter_mut()
             .zip(&image)
             .for_each(|(value, delta)| *value -= alpha * delta);
-        gradient = multiply_transposed(&remaining);
+        gradient = transposed_times(scaled, &remaining, width);
         let next = squared(&gradient);
         let beta = next / gamma;
         direction
@@ -136,7 +164,95 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
             .for_each(|(value, fresh)| *value = fresh + beta * *value);
         gamma = next;
     }
-    step.iter().all(|value| value.is_finite()).then_some(step)
+    step
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Gram {
+    factored: Cholesky,
+    work: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Unfactored {
+    pub work: usize,
+}
+
+impl Gram {
+    pub fn factor(
+        rows: &[Row],
+        width: usize,
+        shifts: &[f64],
+        most: usize,
+    ) -> Result<Self, Unfactored> {
+        let mut by_column: Vec<Row> = vec![Vec::new(); width];
+        for (index, row) in rows.iter().enumerate() {
+            for (column, entry) in row {
+                if let Some(slot) = by_column.get_mut(*column) {
+                    slot.push((index, *entry));
+                }
+            }
+        }
+        let built: usize = by_column
+            .iter()
+            .map(|column| column.len() * column.len())
+            .sum();
+        let widest = by_column.iter().map(Vec::len).max().unwrap_or(0);
+        let clique = widest.saturating_pow(3) / 3;
+        if built.max(clique) > most {
+            return Err(Unfactored { work: 0 });
+        }
+        let mut gram: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); rows.len()];
+        let mut trace = 0.0;
+        for column in &by_column {
+            for (index, entry) in column {
+                trace += entry * entry;
+                let Some(slot) = gram.get_mut(*index) else {
+                    continue;
+                };
+                for (other, other_entry) in column {
+                    *slot.entry(*other).or_default() += entry * other_entry;
+                }
+            }
+        }
+        tally::add(built);
+        let gram: Vec<Row> = gram
+            .into_iter()
+            .map(|entries| entries.into_iter().collect())
+            .collect();
+        let typical = trace / rows.len().max(1) as f64;
+        let typical = if typical > 0.0 { typical } else { 1.0 };
+        let mut work = built;
+        for shift in shifts {
+            let left = most.saturating_sub(work);
+            let least_pivot = GRAM_LEAST_PIVOT * typical;
+            match Cholesky::factor_within(&gram, shift * typical, least_pivot, &by_column, left) {
+                Ok(factored) => {
+                    work += factored.work();
+                    return Ok(Self { factored, work });
+                }
+                Err(Refused::NotDefinite { work: refused }) => work += refused,
+                Err(Refused::Costly { work: refused }) => {
+                    return Err(Unfactored {
+                        work: work + refused,
+                    });
+                }
+            }
+        }
+        Err(Unfactored { work })
+    }
+
+    pub fn work(&self) -> usize {
+        self.work
+    }
+
+    pub fn entries(&self) -> usize {
+        self.factored.entries()
+    }
+
+    pub fn solve(&self, load: &[f64]) -> Vec<f64> {
+        self.factored.solve(load)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -394,6 +510,12 @@ pub(crate) struct NotDefinite {
     pub work: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refused {
+    NotDefinite { work: usize },
+    Costly { work: usize },
+}
+
 impl Cholesky {
     pub fn factor<'a>(
         matrix: &[Row],
@@ -410,6 +532,20 @@ impl Cholesky {
         least_pivot: f64,
         pattern: impl IntoIterator<Item = &'a Row>,
     ) -> Result<Self, NotDefinite> {
+        Self::factor_within(matrix, shift, least_pivot, pattern, usize::MAX).map_err(|refused| {
+            match refused {
+                Refused::NotDefinite { work } | Refused::Costly { work } => NotDefinite { work },
+            }
+        })
+    }
+
+    pub fn factor_within<'a>(
+        matrix: &[Row],
+        shift: f64,
+        least_pivot: f64,
+        pattern: impl IntoIterator<Item = &'a Row>,
+        most: usize,
+    ) -> Result<Self, Refused> {
         let width = matrix.len();
         let (columns, ordering) = fill_reducing_order(width, pattern);
         let mut positions = vec![0; width];
@@ -445,7 +581,7 @@ impl Cholesky {
                 .unwrap_or_default();
             let pivot = row.get(&position).copied().unwrap_or(0.0);
             if pivot.is_nan() || pivot <= least_pivot {
-                return Err(NotDefinite { work });
+                return Err(Refused::NotDefinite { work });
             }
             let root = pivot.sqrt();
             let factor_row: Row = row
@@ -455,6 +591,9 @@ impl Cholesky {
             let row_work = factor_row.len() * factor_row.len();
             tally::add(row_work);
             work += row_work;
+            if work > most {
+                return Err(Refused::Costly { work });
+            }
             for (index, (first, first_value)) in factor_row.iter().enumerate().skip(1) {
                 let Some(target) = pending.get_mut(*first) else {
                     continue;

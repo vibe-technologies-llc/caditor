@@ -8,7 +8,7 @@ use crate::solve::{
         newton::Entries,
         reach::{Aim, REACH_TOLERANCE, ReachWork, miss},
     },
-    sparse::{Cholesky, NotDefinite, Row},
+    sparse::{Cholesky, GRAM_SHIFTS, Gram, NotDefinite, Row, Unfactored, times, transposed_times},
     tally,
 };
 
@@ -17,95 +17,32 @@ const LEAST_SHIFT: f64 = 1e-10;
 const RESTORING_SHIFT: f64 = 1e-3;
 const SHIFT_GROWTH: f64 = 8.0;
 const SHIFTS: usize = 24;
-const GRAM_SHIFT: f64 = 1e-12;
-const GRAM_SHIFT_GROWTH: f64 = 100.0;
-const GRAM_SHIFTS: usize = 4;
 const LEAST_PIVOT: f64 = 1e-14;
 const RESTORING_STEPS: usize = 8;
 const RESTORING_FALL: f64 = 0.5;
 const CLOSE_SHARE: f64 = 1e-3;
 
-struct Gram {
-    factored: Cholesky,
+fn factored_gram(rows: &[Entries], width: usize, work: &mut ReachWork) -> Option<Gram> {
+    match Gram::factor(rows, width, &GRAM_SHIFTS, usize::MAX) {
+        Ok(gram) => {
+            work.spend(gram.work());
+            Some(gram)
+        }
+        Err(Unfactored { work: refused }) => {
+            work.spend(refused);
+            None
+        }
+    }
 }
 
-impl Gram {
-    fn factor(rows: &[Entries], width: usize, work: &mut ReachWork) -> Option<Self> {
-        let mut by_column: Vec<Row> = vec![Vec::new(); width];
-        for (index, row) in rows.iter().enumerate() {
-            for (column, entry) in row {
-                if let Some(slot) = by_column.get_mut(*column) {
-                    slot.push((index, *entry));
-                }
-            }
-        }
-        let mut gram: Vec<BTreeMap<usize, f64>> = vec![BTreeMap::new(); rows.len()];
-        let mut trace = 0.0;
-        let mut built = 0;
-        for column in &by_column {
-            built += column.len() * column.len();
-            for (index, entry) in column {
-                trace += entry * entry;
-                let Some(slot) = gram.get_mut(*index) else {
-                    continue;
-                };
-                for (other, other_entry) in column {
-                    *slot.entry(*other).or_default() += entry * other_entry;
-                }
-            }
-        }
-        tally::add(built);
-        work.spend(built);
-        let gram: Vec<Row> = gram
-            .into_iter()
-            .map(|entries| entries.into_iter().collect())
-            .collect();
-        let typical = trace / rows.len().max(1) as f64;
-        let typical = if typical > 0.0 { typical } else { 1.0 };
-        let mut shift = GRAM_SHIFT * typical;
-        for _ in 0..GRAM_SHIFTS {
-            match Cholesky::factor_counting(&gram, shift, LEAST_PIVOT * typical, &by_column) {
-                Ok(factored) => {
-                    work.spend(factored.work());
-                    return Some(Self { factored });
-                }
-                Err(NotDefinite { work: refused }) => work.spend(refused),
-            }
-            shift *= GRAM_SHIFT_GROWTH;
-        }
-        None
-    }
-
-    fn solve(&self, load: &[f64], work: &mut ReachWork) -> Vec<f64> {
-        solved(&self.factored, load, work)
-    }
+fn gram_solved(gram: &Gram, load: &[f64], work: &mut ReachWork) -> Vec<f64> {
+    work.spend(2 * gram.entries());
+    gram.solve(load)
 }
 
 fn solved(factored: &Cholesky, load: &[f64], work: &mut ReachWork) -> Vec<f64> {
     work.spend(2 * factored.entries());
     factored.solve(load)
-}
-
-fn times(rows: &[Entries], vector: &[f64]) -> Vec<f64> {
-    rows.iter()
-        .map(|row| {
-            row.iter()
-                .map(|(column, entry)| entry * vector.get(*column).copied().unwrap_or(0.0))
-                .sum()
-        })
-        .collect()
-}
-
-fn transposed_times(rows: &[Entries], vector: &[f64], width: usize) -> Vec<f64> {
-    let mut result = vec![0.0; width];
-    for (row, factor) in rows.iter().zip(vector) {
-        for (column, entry) in row {
-            if let Some(slot) = result.get_mut(*column) {
-                *slot += entry * factor;
-            }
-        }
-    }
-    result
 }
 
 struct Augmented {
@@ -211,9 +148,9 @@ impl Solver<'_> {
             }
         }
 
-        let gram = Gram::factor(&rows, width, work)?;
+        let gram = factored_gram(&rows, width, work)?;
         let load: Vec<f64> = times(&rows, &pull).iter().map(|entry| -entry).collect();
-        let multipliers = gram.solve(&load, work);
+        let multipliers = gram_solved(&gram, &load, work);
         let downhill: Vec<f64> = transposed_times(&rows, &multipliers, width)
             .iter()
             .zip(&pull)
@@ -223,7 +160,7 @@ impl Solver<'_> {
         let bent = self.augmented(part, values, &rows, &multipliers, aims, work);
         let factored = bent.factor(&rows, LEAST_SHIFT, work)?;
         let step = solved(&factored, &downhill, work);
-        let across = gram.solve(&times(&rows, &step), work);
+        let across = gram_solved(&gram, &times(&rows, &step), work);
         let step: Vec<f64> = step
             .iter()
             .zip(transposed_times(&rows, &across, width))
@@ -288,7 +225,7 @@ impl Solver<'_> {
         }
     }
 
-    fn restored(
+    pub(super) fn restored(
         &self,
         part: &Part<'_>,
         values: &mut [f64],

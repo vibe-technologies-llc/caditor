@@ -375,9 +375,9 @@ impl Solver<'_> {
         self.solve_parts(&parts, values)
     }
 
-    pub fn solve_parts(
+    pub fn solve_parts<'c>(
         &self,
-        parts: &[Component],
+        parts: impl IntoIterator<Item = &'c Component>,
         values: &mut [f64],
     ) -> Result<Vec<Failure>, Cancelled> {
         let mut failed = Vec::new();

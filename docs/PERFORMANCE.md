@@ -121,12 +121,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or
-  degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
-  the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
-  takes seconds a frame in a release build, where a chain joined only by `Coincident` takes tens of
-  milliseconds. Past its reach even a chain with only its lengths dimensioned pays this: for 2,000
-  lines the `FROZEN` solve (one attempt, its perturbed retries skipped) and the `STIFF` one spend about
-  280 million work units failing before reaching spends 92 million (`reach_tests.rs`); the reaching
-  step's sparse factorisations could stand in for their CGLS steps. For 500 lines the split is 6.5
-  million for `FROZEN`, 9 million for `STIFF` and 5 million reaching.
+- [medium · hard] A frame dragging a long chain past its reach is still mostly its failing `FROZEN`
+  attempt: dragging an end of a 2,000-line zig-zag chain from where it was drawn, its Newton steps
+  crawl, a hundred of them each lowering the cost 1 to 2 % (the Levenberg-Marquardt shift settles
+  near 1e-4 of the typical diagonal, the cost falling half as far as the model predicts), 55
+  million of the frame's 82 million work units; each further frame from the stretched pose takes
+  about 19 million (`FROZEN` 10 million, settling 2.4 million, reaching 6.4 million;
+  `reach_tests.rs`). The dragged part is never memoised, so a frame cannot know the last one ended
+  beyond reach and go straight to settling and reaching.

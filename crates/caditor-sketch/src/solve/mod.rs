@@ -55,8 +55,8 @@ use crate::{
         equation::value,
         memo::Recall,
         numeric::{
-            Analysis, Cancelled, Component, Descent, FROZEN, Failure, Parts, REACH_WORK, ReachWork,
-            STIFF, Solver,
+            Analysis, Cancelled, Component, DENSE_LIMIT, Descent, FROZEN, Failure, Parts,
+            REACH_WORK, ReachWork, STIFF, Solver,
         },
         system::System,
     },
@@ -225,12 +225,59 @@ fn solves_from(
     from: &[f64],
     values: &mut [f64],
 ) -> Result<bool, Cancelled> {
+    take_from(component, from, values);
+    Ok(solver.descend(component, values)? == Descent::Solved)
+}
+
+fn take_from(component: &Component, from: &[f64], values: &mut [f64]) {
     for variable in &component.variables {
         if let (Some(slot), Some(before)) = (values.get_mut(*variable), from.get(*variable)) {
             *slot = *before;
         }
     }
-    Ok(solver.descend(component, values)? == Descent::Solved)
+}
+
+fn settle_pressed<'a>(
+    solver: &Solver<'_>,
+    frozen_failed: &'a [Failure],
+    dragged: &BTreeSet<usize>,
+    start: &[f64],
+    values: &mut [f64],
+    work: &mut ReachWork,
+) -> Result<Vec<&'a Component>, Cancelled> {
+    let mut settled = Vec::new();
+    for failure in frozen_failed {
+        let component = &failure.component;
+        if !pressed_toward_its_targets(solver, component, dragged) {
+            continue;
+        }
+        for (variable, pressed) in component.variables.iter().zip(&failure.settled.end) {
+            if let Some(slot) = values.get_mut(*variable) {
+                *slot = *pressed;
+            }
+        }
+        if solver.settle_onto_constraints(component, values, work)? {
+            settled.push(component);
+        } else {
+            take_from(component, start, values);
+        }
+    }
+    Ok(settled)
+}
+
+fn pressed_toward_its_targets(
+    solver: &Solver<'_>,
+    component: &Component,
+    dragged: &BTreeSet<usize>,
+) -> bool {
+    let mut held = component
+        .variables
+        .iter()
+        .filter(|variable| solver.stiff.contains(variable))
+        .peekable();
+    component.variables.len() > DENSE_LIMIT
+        && held.peek().is_some()
+        && held.all(|variable| dragged.contains(variable))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -490,11 +537,14 @@ impl Sketch {
                 stiffness: FROZEN,
                 retrying: targets.is_empty(),
             };
+            let starting = parts.at(&system, &start);
             let mut values = start.clone();
-            let held = !stiff.is_empty()
-                && frozen
-                    .solve_parts(&parts.at(&system, &values), &mut values)?
-                    .is_empty();
+            let frozen_failed = if stiff.is_empty() {
+                None
+            } else {
+                Some(frozen.solve_parts(starting.iter(), &mut values)?)
+            };
+            let held = frozen_failed.as_ref().is_some_and(Vec::is_empty);
             let solver = Solver {
                 stiffness: STIFF,
                 retrying: true,
@@ -502,7 +552,19 @@ impl Sketch {
             };
             if !held {
                 values = start.clone();
-                let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
+                let mut work = ReachWork::new(REACH_WORK);
+                let pressed = settle_pressed(
+                    &solver,
+                    frozen_failed.as_deref().unwrap_or_default(),
+                    &dragged,
+                    &start,
+                    &mut values,
+                    &mut work,
+                )?;
+                let stiffened = starting
+                    .iter()
+                    .filter(|component| !pressed.contains(component));
+                let failed = solver.solve_parts(stiffened, &mut values)?;
                 let failed = solve_from_drawn(&solver, failed, &stiff, &drawn, &mut values)?;
                 let failed = if round > 0 {
                     let loose = Solver {
@@ -538,7 +600,6 @@ impl Sketch {
                         });
                     }
                 }
-                let mut work = ReachWork::new(REACH_WORK);
                 for component in parts.at(&system, &values).iter() {
                     solver.reach(component, &targets, &drawn, &mut values, &mut work)?;
                 }
