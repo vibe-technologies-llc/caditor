@@ -2071,11 +2071,12 @@ fn holes_flush_at_the_top_or_bottom_cut_through_the_point_where_they_touch() {
     }
 }
 
+fn exact_mass(solid: &Solid) -> crate::measure::SolidMass {
+    crate::measure::mass_properties_tessellating(solid, &solid.default_tolerance()).unwrap()
+}
+
 fn exact_volume(solid: &Solid) -> f64 {
-    crate::measure::mass_properties_tessellating(solid, &solid.default_tolerance())
-        .unwrap()
-        .properties
-        .volume
+    exact_mass(solid).properties.volume
 }
 
 fn check_valid(name: &str, solid: &Solid, expected: f64) {
@@ -2862,21 +2863,22 @@ fn a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines() {
         ("torus round a sphere", &ball, &round_ball, ball_volume),
     ] {
         let union = run(first, second, BooleanOperation::Union);
-        check(name, &union, ring_volume + ball_volume);
+        check_valid(name, &union, ring_volume + ball_volume);
         let difference = run(first, second, BooleanOperation::Difference);
-        check(name, &difference, first_volume);
+        check_valid(name, &difference, first_volume);
         let common = run(first, second, BooleanOperation::Intersection);
         assert_eq!(common.validate(), Ok(()), "{name}");
         assert_watertight(
             name,
             &common.tessellate(&common.default_tolerance()).unwrap(),
         );
-        let shared = common
-            .tessellate(&SamplingTolerance::new(1e-4, 0.005).unwrap())
-            .unwrap()
-            .mass_properties()
-            .volume;
-        assert!((1e-6..1e-3).contains(&shared), "{name}: {shared}");
+        let shared = exact_mass(&common);
+        assert!((1e-6..1e-3).contains(&shared.properties.volume), "{name}");
+        assert!(shared.meshed_faces.is_empty(), "{name}");
+        let overlap = ring_volume + ball_volume - exact_volume(&union);
+        assert!((shared.properties.volume - overlap).abs() <= 1e-6, "{name}");
+        let apart = first_volume - exact_volume(&difference);
+        assert!((shared.properties.volume - apart).abs() <= 1e-6, "{name}");
     }
 }
 

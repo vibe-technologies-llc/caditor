@@ -111,15 +111,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   corner, `Reach::unfolded` cuts the chord's overhang beyond it below `LEAST_OVERHANG`, and the
   lofted tool's sections would cross there. Rounding these needs a tool whose sections are not
   fanned about the rim's curvature axis, or the fillet surface trimmed where it folds.
-- [low · medium] The exact mass of a body holding a thin lens of a sphere is off by up to about 8e-3
-  in 474: `face_area` gives up (`None`) on the sphere's lens of area 0.39 that a sphere 1.6e-4 off
-  centre in a torus's inner equator leaves
-  (`a_sphere_a_little_off_centre_in_a_torus_inner_equator_combines`, which checks the mesh's volume
-  for that reason), so `mass_properties_tessellating` meshes that face at the default tolerance and
-  the difference and intersection read 473.7492 and -0.0027 where a fine mesh and the union give
-  473.7410 and 2.8e-5. The areas of the torus's two pieces add up exactly. The test measures the
-  lens at a chord of 1e-4: the lens a torus round the same sphere leaves meshes at the default
-  chord of 2e-3 to -1.6e-6, where the finer mesh reads 7.6e-6.
 
 - [low · hard] `hidden_lines` draws edges and silhouettes only, so two bodies overlapping without a
   boolean show no line where their surfaces cross (each hides its part inside the other, and the
