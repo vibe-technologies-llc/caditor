@@ -455,6 +455,23 @@ impl Course {
         }
     }
 
+    pub fn at(&self, fraction: f64) -> Point2 {
+        if fraction <= 0.0 {
+            return self.start();
+        }
+        if fraction >= 1.0 {
+            return self.end();
+        }
+        match self {
+            Self::Plain(strand) => strand.at(fraction),
+            Self::Bent { bend, by } => bend.offset_point(fraction, *by),
+            Self::Trimmed(trim) => trim.bend.offset_point(
+                trim.from.fraction + (trim.to.fraction - trim.from.fraction) * fraction,
+                trim.by,
+            ),
+        }
+    }
+
     pub fn start_tangent(&self) -> Vector2 {
         match self {
             Self::Plain(strand) => strand.start_tangent(),

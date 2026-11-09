@@ -119,6 +119,18 @@ impl Strand {
         }
     }
 
+    pub fn at(&self, fraction: f64) -> Point2 {
+        match *self {
+            Self::Line { start, end } => start.lerp(end, fraction),
+            Self::Arc {
+                center,
+                radius,
+                from,
+                sweep,
+            } => center + Vector2::from_angle(from + sweep * fraction) * radius,
+        }
+    }
+
     pub fn middle(&self) -> (Point2, Vector2) {
         match *self {
             Self::Line { start, end } => (start.midpoint(end), self.start_tangent()),

@@ -274,6 +274,7 @@ fn the_arrow_of_an_emboss_wrapped_into_a_bore_stands_on_its_wall_and_points_at_t
         .expect("the depth arrow stands somewhere");
     let before = depth(&harness);
 
+    assert!(harness.shows("Draft"));
     assert!((from_axis(foot) - (5.0 - before)).abs() < 1e-6);
     assert!((grip(&harness, 1.0) - grip(&harness, 0.0) + 1.0).abs() < 1e-6);
 

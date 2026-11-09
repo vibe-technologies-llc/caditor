@@ -5,8 +5,8 @@ use caditor_geometry::Plane;
 use caditor_kernel::{
     BooleanError, BooleanOperation, FaceId, FaceName, FaceReference, FaceSplitError,
     LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile, ProfileError, Region, RegionReference,
-    Selection, Solid, SplitPiece, SweepError, WrapBand, WrapError, boolean, extrude_tapered,
-    resolve_regions, split_faces, wrap_regions_within,
+    Selection, Solid, SplitPiece, SweepError, WrapBand, WrapError, WrapNarrowing, boolean,
+    extrude_tapered, resolve_regions, split_faces, wrap_regions_within,
 };
 
 use crate::{
@@ -390,11 +390,6 @@ impl Context<'_> {
         outlines: &Outlines,
         (depth, draft): (f64, f64),
     ) -> Result<Solid, Failure> {
-        if draft > 0.0 {
-            return Err(self.error(EmbossCause::DraftWrapped {
-                round: unrolled.round(),
-            }));
-        }
         if !tolerance::perpendicular(outlines.plane.normal(), unrolled.axis()) {
             return Err(self.error_at(
                 EmbossCause::NotAlongAxis {
@@ -410,7 +405,14 @@ impl Context<'_> {
         } else {
             (-below, above)
         };
-        let band = WrapBand::new(inward, outward).map_err(|error| self.unbuilt(&error))?;
+        let narrowing = if inward > outward {
+            WrapNarrowing::Inward
+        } else {
+            WrapNarrowing::Outward
+        };
+        let band = WrapBand::new(inward, outward)
+            .and_then(|band| band.leaning(draft, narrowing))
+            .map_err(|error| self.unbuilt(&error))?;
         let sketch = self.definition.sketch.unwrap_or(self.feature.id());
         wrap_regions_within(
             &outlines.plane,
@@ -422,6 +424,9 @@ impl Context<'_> {
         .map_err(|error| match error {
             WrapError::ReachesAxis => self.error(EmbossCause::TooDeep {
                 round: unrolled.round(),
+            }),
+            WrapError::DraftCloses { .. } => self.error(EmbossCause::DraftCloses {
+                sketch: outlines.name.clone(),
             }),
             other => {
                 let context = self.split_context(&outlines.name);
@@ -613,7 +618,6 @@ pub(crate) enum EmbossCause {
     DraftSteep,
     DraftCloses { sketch: String },
     DraftUnsupported { sketch: String },
-    DraftWrapped { round: Round },
     NoOutlines { name: String },
     RegionGone { sketch: String },
     RegionAmbiguous { sketch: String, candidates: usize },
@@ -643,10 +647,6 @@ impl EmbossCause {
             Self::DraftUnsupported { sketch } => format!(
                 "An outline of {sketch} is one whole spline or ellipse, whose walls cannot be \
                  drafted."
-            ),
-            Self::DraftWrapped { round } => format!(
-                "Outlines wrapped round a {} cannot have drafted walls yet.",
-                round.noun()
             ),
             Self::NoOutlines { name } => format!(
                 "{name} has no closed outline or text to emboss: its curves do not enclose any \
@@ -708,7 +708,6 @@ impl EmbossCause {
             Self::DraftUnsupported { .. } => {
                 "Split the curve into pieces in the sketch, or set the draft to 0°.".to_owned()
             }
-            Self::DraftWrapped { .. } => "Set the draft to 0°.".to_owned(),
             Self::NoOutlines { name } => {
                 format!("Close the outlines in {name}, or write some text in it.")
             }

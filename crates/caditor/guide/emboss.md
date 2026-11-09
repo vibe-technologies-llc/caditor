@@ -25,9 +25,10 @@ menu of faces or {command:palette}.
 - **Draft** leans the walls in away from the face by an angle, from 0° (straight walls, the
   default) up to below 45°, so raised letters narrow towards their tops and a recess narrows towards
   its floor, as a moulded or cast part needs to leave its mould. The outlines keep their drawn size
-  where they meet the face. It takes an angle or an expression, and works on flat faces only: on a
-  cylinder or cone the field is hidden, and a draft given to one there fails the emboss asking for
-  0°. A draft that closes an outline up before the depth fails it too.
+  where they meet the face. It takes an angle or an expression, and works on flat faces and on
+  faces of a cylinder or cone alike: wrapped round one, the walls lean by the angle along the axis
+  and by a little more (a raise) or less (a recess) across it, in the ratio of the radii at the top
+  and the face. A draft that closes an outline up before the depth fails the emboss.
 - **Raise** adds the outlines to the face; **Recess** cuts them into it.
 
 A flat face takes the outlines straight, as an extrusion from the face would: the sketch must lie
