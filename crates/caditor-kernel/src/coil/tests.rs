@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -84,7 +84,7 @@ fn a_tapered_coil_widens_along_its_axis() {
         ..spring(CoilShape::Round)
     };
     let made = coil(&spec, FEATURE).unwrap();
-    let rise = 12.0 * 10.0_f64.to_radians().tan();
+    let rise = 12.0 * 10.0_f64.to_radians().tan_libm();
 
     let expected = PI * TAU * 3.0 * (11.0 + 0.5 * rise);
 
@@ -237,7 +237,7 @@ fn a_helix_is_one_curve_a_turn_on_its_cylinder_rising_a_pitch_each_turn() {
         for step in 0..=40 {
             let point = turn.curve().point(range.at(f64::from(step) / 40.0));
             let along = (index as f64 + f64::from(step) / 40.0) * 2.5 / 3.0;
-            let angle = point.y.atan2(point.x).rem_euclid(2.0 * PI);
+            let angle = point.y.atan2_libm(point.x).rem_euclid(2.0 * PI);
             let expected = 4.0 * (along.floor() + angle / (2.0 * PI));
 
             assert!((point.truncate().length() - 10.0).abs() < 1e-9, "{point}");
@@ -361,7 +361,7 @@ fn closed_ends_wind_at_their_own_pitch_and_change_to_the_body_pitch_smoothly() {
         for step in 0..=64 {
             let point = turn.curve().point(range.at(f64::from(step) / 64.0));
             if let Some(before) = previous {
-                let turned = point.y.atan2(point.x) - before.y.atan2(before.x);
+                let turned = point.y.atan2_libm(point.x) - before.y.atan2_libm(before.x);
                 unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
             }
             previous = Some(point);
@@ -455,7 +455,7 @@ fn assert_follows_the_law(spec: &HelixSpec) {
         for step in 0..=64 {
             let point = turn.curve().point(range.at(f64::from(step) / 64.0));
             if let Some(before) = previous {
-                let turned = point.y.atan2(point.x) - before.y.atan2(before.x);
+                let turned = point.y.atan2_libm(point.x) - before.y.atan2_libm(before.x);
                 unwrapped += (turned + PI).rem_euclid(2.0 * PI) - PI;
             }
             previous = Some(point);

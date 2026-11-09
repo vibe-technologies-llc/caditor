@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
 
 use super::{HiddenLineError, flatten::polyline_curve, trace::traced_contours};
 use crate::{
@@ -130,10 +130,10 @@ fn cylinder_contours(
 ) -> Result<Vec<Contour>, HiddenLineError> {
     let frame = cylinder.frame();
     let (along_x, along_y) = (frame.x_axis().dot(toward), frame.y_axis().dot(toward));
-    if along_x.hypot(along_y) <= SEEN_ALONG_AXIS {
+    if along_x.hypot_libm(along_y) <= SEEN_ALONG_AXIS {
         return Ok(Vec::new());
     }
-    let first = (-along_x).atan2(along_y);
+    let first = (-along_x).atan2_libm(along_y);
     let margin = margin_of(uv_box.size().y);
     let mut contours = Vec::with_capacity(2);
     for u in [first, first + PI] {
@@ -156,17 +156,17 @@ fn cone_contours(
 ) -> Result<Vec<Contour>, HiddenLineError> {
     let frame = cone.frame();
     let (along_x, along_y) = (frame.x_axis().dot(toward), frame.y_axis().dot(toward));
-    let turning = along_x.hypot(along_y);
+    let turning = along_x.hypot_libm(along_y);
     if turning <= SEEN_ALONG_AXIS {
         return Ok(Vec::new());
     }
-    let (sin, cos) = cone.half_angle().sin_cos();
+    let (sin, cos) = cone.half_angle().sin_cos_libm();
     let wanted = sin * frame.normal().dot(toward) / (cos * turning);
     if wanted.abs() >= 1.0 {
         return Ok(Vec::new());
     }
-    let middle = along_y.atan2(along_x);
-    let spread = wanted.acos();
+    let middle = along_y.atan2_libm(along_x);
+    let spread = wanted.acos_libm();
     let margin = margin_of(uv_box.size().y);
     let domain = surface.v_domain();
     let (low, high) = (
@@ -195,7 +195,7 @@ fn torus_contours(
     let (major, minor) = (torus.major_radius(), torus.minor_radius());
     let (along_x, along_y) = (frame.x_axis().dot(toward), frame.y_axis().dot(toward));
     let along_axis = frame.normal().dot(toward);
-    if along_x.hypot(along_y) <= SEEN_ALONG_AXIS {
+    if along_x.hypot_libm(along_y) <= SEEN_ALONG_AXIS {
         let mut contours = vec![circle_contour(*frame, major + minor)?];
         if major > minor {
             contours.push(circle_contour(*frame, major - minor)?);
@@ -214,9 +214,9 @@ fn torus_contours(
             circle_contour(lifted(minor)?, major)?,
             circle_contour(lifted(-minor)?, major)?,
         ];
-        let first = (-along_x).atan2(along_y);
+        let first = (-along_x).atan2_libm(along_y);
         for u in [first, first + PI] {
-            let (sin, cos) = u.sin_cos();
+            let (sin, cos) = u.sin_cos_libm();
             let radial = frame.x_axis() * cos + frame.y_axis() * sin;
             let tangential = frame.y_axis() * cos - frame.x_axis() * sin;
             let tube = level_frame(frame.origin() + radial * major, tangential, radial)?;
@@ -227,9 +227,9 @@ fn torus_contours(
     let mut contours = Vec::with_capacity(2);
     for branch in [0.0, PI] {
         let tube = |u: f64| {
-            let (sin, cos) = u.sin_cos();
+            let (sin, cos) = u.sin_cos_libm();
             let across = along_x * cos + along_y * sin;
-            (-across).atan2(along_axis) + branch
+            (-across).atan2_libm(along_axis) + branch
         };
         let points = torus_branch(torus, &tube, tolerance)?;
         if let Some((curve, range)) = polyline_curve(&points)? {

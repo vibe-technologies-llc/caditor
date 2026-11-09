@@ -5,7 +5,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Maths, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     boolean::{BooleanError, imprint::Arrangement, untangle::open_flat},
@@ -222,7 +222,7 @@ impl Frame {
     }
 
     fn signed_angle(&self, direction: Vector3) -> f64 {
-        direction.dot(self.y).atan2(direction.dot(self.x))
+        direction.dot(self.y).atan2_libm(direction.dot(self.x))
     }
 
     fn angle(&self, direction: Vector3) -> f64 {

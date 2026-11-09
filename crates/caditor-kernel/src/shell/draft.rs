@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use super::{
@@ -142,7 +142,7 @@ fn tilt(
         return Err(DraftError::AlongNeutral(face));
     }
     let hinge = hinge.normalize();
-    let current = normal.dot(pull).clamp(-1.0, 1.0).asin();
+    let current = normal.dot(pull).clamp(-1.0, 1.0).asin_libm();
     let turn = drafted.angle - current;
     if turn.abs() <= ANGULAR_RESOLUTION {
         return Ok(None);
@@ -197,8 +197,8 @@ fn taper(
         return Ok(None);
     }
     let slopes = Slopes {
-        from: half_angle.tan(),
-        to: (leaning * drafted.angle).tan(),
+        from: half_angle.tan_libm(),
+        to: (leaning * drafted.angle).tan_libm(),
     };
     let to_neutral = (neutral.origin() - frame.origin()).dot(pull) / along;
     let axis = Plane::from_frame(

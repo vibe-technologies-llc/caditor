@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -259,7 +259,7 @@ fn a_parallel_sweep_along_an_arc_keeps_the_profile_upright() {
         Point3::ZERO,
         1.0,
     )];
-    let rise = Point3::new(0.0, 0.0, 10.0).distance(Point3::ZERO) * 1.0_f64.sin();
+    let rise = Point3::new(0.0, 0.0, 10.0).distance(Point3::ZERO) * 1.0_f64.sin_libm();
 
     let solid = swept(&upright(), &disc, &path, SweepOrientation::Parallel).unwrap();
 
@@ -470,7 +470,7 @@ fn a_profile_slanted_to_an_arc_path_is_turned_on_fitted_faces() {
             .faces()
             .any(|(_, face)| matches!(face.surface(), Surface::BSpline(_)))
     );
-    let lean = 0.3_f64.atan().cos();
+    let lean = 0.3_f64.atan_libm().cos_libm();
     assert_close(
         "slanted ring",
         volume(&solid),
@@ -655,7 +655,7 @@ fn a_triangle_winds_along_a_helix_keeping_its_place_about_the_axis() {
 fn a_tapered_helix_carries_the_triangle_outward_as_it_rises() {
     let taper = 5.0_f64.to_radians();
     let path = helix_path(3.0, 1.25, taper, Handedness::Right);
-    let centroid = 31.0 / 3.0 + 0.5 * taper.tan() * 3.75;
+    let centroid = 31.0 / 3.0 + 0.5 * taper.tan_libm() * 3.75;
 
     let wound = swept(
         &upright(),

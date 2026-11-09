@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -58,7 +58,7 @@ fn wavy_profile(lift: impl Fn(f64, f64) -> Point3) -> Curve {
     let points = (0..60)
         .map(|index| {
             let along = f64::from(index) * 0.3;
-            lift(along, 0.4 * (f64::from(index) * 0.9).sin())
+            lift(along, 0.4 * (f64::from(index) * 0.9).sin_libm())
         })
         .collect();
     BSpline::clamped_uniform(3, points).unwrap().into()
@@ -237,7 +237,7 @@ fn poles_sit_where_the_u_derivative_vanishes() {
     let apex = cone.poles()[0];
     assert!(
         apex.point
-            .distance(Point3::new(0.0, 0.0, -2.0 / 0.5f64.tan()))
+            .distance(Point3::new(0.0, 0.0, -2.0 / 0.5f64.tan_libm()))
             < 1e-12
     );
     let below = cone.project(Point3::new(0.1, 0.0, -20.0), Some(Point2::new(2.0, 0.0)));
@@ -665,7 +665,7 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
     let turns = 40;
     let spans = 4 * turns;
     let pitch = 0.5;
-    let corner_weight = FRAC_PI_4.cos();
+    let corner_weight = FRAC_PI_4.cos_libm();
     let at = |radius: f64, half_steps: usize| {
         let angle = FRAC_PI_4 * half_steps as f64;
         let stretch = if half_steps % 2 == 1 {
@@ -674,8 +674,8 @@ fn a_point_just_beyond_the_side_of_a_strip_of_many_turns_projects_onto_its_own_t
             1.0
         };
         Point3::new(
-            radius * stretch * angle.cos(),
-            radius * stretch * angle.sin(),
+            radius * stretch * angle.cos_libm(),
+            radius * stretch * angle.sin_libm(),
             pitch * half_steps as f64 / 8.0,
         )
     };

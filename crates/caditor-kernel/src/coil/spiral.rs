@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2};
 use thiserror::Error;
 
 use super::{
@@ -123,7 +123,7 @@ impl SpiralSpec {
 
     fn reach_between_turns(&self, across: f64, pitch: f64) -> f64 {
         let growth = pitch / TAU;
-        let stretch = |radius: f64| radius.hypot(growth) / radius;
+        let stretch = |radius: f64| radius.hypot_libm(growth) / radius;
         let gap = (LEAST_GAP * across).max(AXIS_CLEARANCE);
         0.5 * across * (stretch(self.radius) + stretch(self.radius + pitch)) + gap
     }
@@ -142,7 +142,7 @@ impl SpiralSpec {
         if self.has_changing_pitch() {
             let widest = self.law().widest(self.turns);
             let gap = (LEAST_GAP * across).max(AXIS_CLEARANCE);
-            return across * self.radius.hypot(widest / TAU) / self.radius + gap;
+            return across * self.radius.hypot_libm(widest / TAU) / self.radius + gap;
         }
         (0..LEAST_PITCH_STEPS).fold(across, |pitch, _| self.reach_between_turns(across, pitch))
     }
@@ -153,15 +153,15 @@ impl SpiralSpec {
         }
         let growth = self.pitch / TAU;
         let primitive = |radius: f64| {
-            let reach = radius.hypot(growth);
-            radius * reach + growth * growth * (radius + reach).ln()
+            let reach = radius.hypot_libm(growth);
+            radius * reach + growth * growth * (radius + reach).ln_libm()
         };
         (primitive(self.outer_radius()) - primitive(self.radius)) / (2.0 * growth)
     }
 
     fn integrated_length(&self) -> f64 {
         let shape = Shape::of(self);
-        let speed = |angle: f64| shape.radius_at(angle).hypot(shape.growth(angle));
+        let speed = |angle: f64| shape.radius_at(angle).hypot_libm(shape.growth(angle));
         let breaks = shape.law.breaks(self.turns);
         breaks
             .iter()
@@ -203,11 +203,11 @@ impl<'a> Shape<'a> {
     }
 
     fn local(&self, angle: f64) -> Point2 {
-        Point2::new(angle.cos(), angle.sin()) * self.radius_at(angle)
+        Point2::new(angle.cos_libm(), angle.sin_libm()) * self.radius_at(angle)
     }
 
     fn local_tangent(&self, angle: f64) -> Vector2 {
-        let (sin, cos) = angle.sin_cos();
+        let (sin, cos) = angle.sin_cos_libm();
         Vector2::new(cos, sin) * self.growth(angle)
             + Vector2::new(-sin, cos) * self.radius_at(angle)
     }
@@ -340,7 +340,7 @@ fn deviation(shape: &Shape<'_>, span: &Span, from: f64) -> f64 {
         .into_iter()
         .map(|t| {
             let point = span.point(t);
-            let turned = (point.y.atan2(point.x) - from + PI).rem_euclid(TAU) - PI;
+            let turned = (point.y.atan2_libm(point.x) - from + PI).rem_euclid(TAU) - PI;
             (point.length() - shape.radius_at(from + turned)).abs()
         })
         .fold(0.0, f64::max)

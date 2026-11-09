@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Aabb2, Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Aabb2, Maths, Plane, Point2, Point3, Vector3};
 
 use super::{OFFSET_TOLERANCE, Offsets, ShellError};
 use crate::{
@@ -32,7 +32,9 @@ pub(super) fn follows(
 fn angle_about(circle: &Circle, point: Point3, near: f64) -> f64 {
     let frame = circle.frame();
     let local = point - circle.center();
-    let angle = local.dot(frame.y_axis()).atan2(local.dot(frame.x_axis()));
+    let angle = local
+        .dot(frame.y_axis())
+        .atan2_libm(local.dot(frame.x_axis()));
     periodic_near(angle, TAU, Some(near))
 }
 
@@ -100,7 +102,7 @@ fn rebuilt(
                 let angle = axis
                     .cross(x_axis)
                     .dot(local)
-                    .atan2(x_axis.dot(local))
+                    .atan2_libm(x_axis.dot(local))
                     .rem_euclid(TAU);
                 if angle <= f64::EPSILON { TAU } else { angle }
             };

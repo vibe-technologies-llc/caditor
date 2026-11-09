@@ -152,6 +152,7 @@ mod offset_face_panel;
 mod offset_face_tools;
 mod offsetting;
 mod onboarding;
+mod outlining;
 mod overlay;
 mod paint_selection;
 mod pair_reading;

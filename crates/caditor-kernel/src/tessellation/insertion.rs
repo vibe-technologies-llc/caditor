@@ -85,6 +85,8 @@ pub(super) fn insertion_order(points: &[PlanePoint<f64>]) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
+    use caditor_geometry::Maths;
+
     use super::*;
 
     #[test]
@@ -92,7 +94,7 @@ mod tests {
         let points: Vec<PlanePoint<f64>> = (0..1000)
             .map(|index| {
                 let angle = f64::from(index) * 0.01;
-                PlanePoint::new(angle.cos(), angle.sin())
+                PlanePoint::new(angle.cos_libm(), angle.sin_libm())
             })
             .collect();
 

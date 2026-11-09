@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use crate::{
     curve::{Circle, Curve, Ellipse, IntersectionCurve, Line},
@@ -150,7 +150,9 @@ fn as_circle(
     let frame = oriented_frame(center, normal, x_axis, first.derivative, first.point)?;
     let circle = Circle::new(frame, radius).ok()?;
     let local = last.point - center;
-    let end = local.dot(frame.y_axis()).atan2(local.dot(frame.x_axis()));
+    let end = local
+        .dot(frame.y_axis())
+        .atan2_libm(local.dot(frame.x_axis()));
     Some((circle.into(), sweep(curve, 0.0, end)?))
 }
 
@@ -198,8 +200,8 @@ fn as_ellipse(
     let x0 = (b * e - 2.0 * c * d) / determinant;
     let y0 = (b * d - 2.0 * a * e) / determinant;
     let level = 1.0 - (a * x0 * x0 + b * x0 * y0 + c * y0 * y0 + d * x0 + e * y0);
-    let angle = 0.5 * b.atan2(a - c);
-    let (sin, cos) = angle.sin_cos();
+    let angle = 0.5 * b.atan2_libm(a - c);
+    let (sin, cos) = angle.sin_cos_libm();
     let first_value = a * cos * cos + b * sin * cos + c * sin * sin;
     let second_value = a * sin * sin - b * sin * cos + c * cos * cos;
     if level <= 0.0 || first_value <= 0.0 || second_value <= 0.0 {
@@ -221,7 +223,7 @@ fn as_ellipse(
     let ellipse = Ellipse::new(frame, major, minor).ok()?;
     let parameter_of = |point: Point3| {
         let offset = point - center;
-        (offset.dot(frame.y_axis()) / minor).atan2(offset.dot(frame.x_axis()) / major)
+        (offset.dot(frame.y_axis()) / minor).atan2_libm(offset.dot(frame.x_axis()) / major)
     };
     let as_curve = Curve::Ellipse(ellipse);
     let fits = points.iter().all(|point| {

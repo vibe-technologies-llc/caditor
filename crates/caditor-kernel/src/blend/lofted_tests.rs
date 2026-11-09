@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 
 use super::{
     tests::{block_at, check, edge_through, fillet, run, spandrel, swept, volume},
@@ -466,7 +466,7 @@ fn with_rounded_corners(angle: f64, corner: f64, bottom_too: bool) -> Solid {
 
 fn tapered_spandrel(radius: f64, angle: f64) -> f64 {
     let turn = std::f64::consts::FRAC_PI_2 - angle.to_radians();
-    radius * radius * ((0.5 * turn).tan() - 0.5 * turn)
+    radius * radius * ((0.5 * turn).tan_libm() - 0.5 * turn)
 }
 
 fn assert_top_rim_rounded(name: &str, body: &Solid, angle: f64, radius: f64) {

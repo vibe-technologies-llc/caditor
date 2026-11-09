@@ -101,6 +101,8 @@ impl PolygonIndex {
 
 #[cfg(test)]
 mod tests {
+    use caditor_geometry::Maths;
+
     use super::*;
     use crate::{test_support::Random, topology::validate::inside_polygon};
 
@@ -112,7 +114,7 @@ mod tests {
                 .map(|index| {
                     let angle = std::f64::consts::TAU * index as f64 / count as f64;
                     let radius = random.between(1.0, 5.0);
-                    center + radius * Point2::new(angle.cos(), angle.sin())
+                    center + radius * Point2::new(angle.cos_libm(), angle.sin_libm())
                 })
                 .collect()
         };

@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Similarity, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Similarity, Vector3};
 
 use super::*;
 use crate::{
@@ -169,7 +169,7 @@ fn cylinder_volume() -> f64 {
 }
 
 fn under_arc() -> f64 {
-    (RADIUS * RADIUS - 1.0).sqrt() + RADIUS * RADIUS * (1.0 / RADIUS).asin()
+    (RADIUS * RADIUS - 1.0).sqrt() + RADIUS * RADIUS * (1.0 / RADIUS).asin_libm()
 }
 
 fn round_faces(enclosure: &Enclosure) -> usize {

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::{
     BlendError, CLEARANCE, Topology, face_normal, face_set, faces_at, leaving, neighbours,
@@ -324,7 +324,7 @@ impl Builder {
         let toward = (end - center).normalize_or_zero();
         let normal = x_axis.cross(toward).normalize_or_zero();
         let frame = Plane::from_frame(center, normal, x_axis).ok_or(SweepError::Unassembled)?;
-        let angle = x_axis.dot(toward).clamp(-1.0, 1.0).acos();
+        let angle = x_axis.dot(toward).clamp(-1.0, 1.0).acos_libm();
         let interval = Interval::new(0.0, angle).ok_or(SweepError::Unassembled)?;
         let circle = Circle::new(frame, radius).map_err(SweepError::from)?;
         let edge = self

@@ -3,7 +3,7 @@ use std::{
     f64::consts::{FRAC_PI_2, PI},
 };
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -326,7 +326,7 @@ fn line_into_arc() -> [PathSegment; 2] {
 fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
     let (bend, arc_radius): (f64, f64) = (4.0, 10.0);
     let reach = ((arc_radius + bend).powi(2) - bend * bend).sqrt();
-    let touch = bend.atan2(reach);
+    let touch = bend.atan2_libm(reach);
     let centreline = (30.0 - reach) + bend * (FRAC_PI_2 - touch) + arc_radius * (FRAC_PI_2 - touch);
 
     let rounded = pipe(
@@ -358,7 +358,7 @@ fn a_bend_radius_rounds_a_sharp_corner_between_a_line_and_an_arc() {
 #[test]
 fn a_bend_radius_rounds_the_point_where_two_arcs_meet() {
     let (bend, arc_radius): (f64, f64) = (3.0, 10.0);
-    let sweep = 0.6f64.acos();
+    let sweep = 0.6f64.acos_libm();
     let path = [
         arc(
             10,
@@ -376,7 +376,7 @@ fn a_bend_radius_rounds_the_point_where_two_arcs_meet() {
         ),
     ];
     let rise = ((arc_radius - bend).powi(2) - 36.0).sqrt();
-    let centreline = 2.0 * arc_radius * rise.atan2(6.0) + 2.0 * bend * 6f64.atan2(rise);
+    let centreline = 2.0 * arc_radius * rise.atan2_libm(6.0) + 2.0 * bend * 6f64.atan2_libm(rise);
 
     let rounded = pipe(&path, &round(2.0, Some(0.5)), bend, Vector3::Z, FEATURE).unwrap();
 
@@ -408,7 +408,7 @@ fn a_corner_out_of_one_plane_is_rounded_by_a_smooth_blend() {
         ),
     ];
     let (bend, area) = (4.0, PI);
-    let cut = bend * (FRAC_PI_2 / 2.0).tan();
+    let cut = bend * (FRAC_PI_2 / 2.0).tan_libm();
     let whole = 20.0 + 10.0 * FRAC_PI_2;
 
     let rounded = pipe(&path, &round(2.0, None), bend, Vector3::Z, FEATURE).unwrap();

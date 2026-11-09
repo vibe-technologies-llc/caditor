@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Maths, Point2, Vector2};
 
 use crate::{
     curve2::{Circle2, Curve2, Line2},
@@ -48,7 +48,7 @@ fn wrapped(angle: f64) -> f64 {
 }
 
 fn direction_angle(direction: Vector2) -> f64 {
-    direction.y.atan2(direction.x)
+    direction.y.atan2_libm(direction.x)
 }
 
 impl Strand {

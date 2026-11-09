@@ -1,4 +1,4 @@
-use caditor_geometry::{Plane, Point3, RigidTransform, Rotation3, Similarity, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Rotation3, Similarity, Vector3};
 
 use super::{PathSweepError, WindingAxis};
 use crate::{
@@ -342,7 +342,7 @@ pub(super) fn winding(
         let across = radial(point);
         angle += direction
             .dot(previous.cross(across))
-            .atan2(previous.dot(across));
+            .atan2_libm(previous.dot(across));
         previous = across;
         let turn =
             RigidTransform::rotation_about(axis.origin, direction, angle).ok_or_else(degenerate)?;

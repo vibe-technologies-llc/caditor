@@ -30,7 +30,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector3};
 use thiserror::Error;
 
 use self::taper::Taper;
@@ -441,7 +441,7 @@ impl<'a> Offsets<'a> {
 }
 
 fn offset_cone(cone: &Cone, along_normal: f64) -> Option<Cone> {
-    let (sin, cos) = cone.half_angle().sin_cos();
+    let (sin, cos) = cone.half_angle().sin_cos_libm();
     let radius = cone.radius() + along_normal / cos;
     let frame = cone.frame();
     if radius >= 0.0 {

@@ -14,6 +14,7 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+disallowed_methods = "deny"
 disallowed_types = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
@@ -71,6 +72,7 @@ jiff = {
     default-features = false,
     features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo"]
 }
+libm = "0.2.16"
 libzstd-rs-sys = "0.0.1-prerelease.2"
 jxl-oxide = { version = "0.12.6", default-features = false }
 log = "0.4.35"

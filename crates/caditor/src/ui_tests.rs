@@ -778,6 +778,7 @@ impl Harness {
             || self.model.masses_pending()
             || self.model.requested_meshes_pending()
             || self.model.pictures().pending()
+            || self.model.is_outlining()
     }
 
     fn frames_while_woken(&mut self) {

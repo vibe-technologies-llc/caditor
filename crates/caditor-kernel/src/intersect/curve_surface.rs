@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Point3};
+use caditor_geometry::{Aabb, Aabb2, Maths, Plane, Point2, Point3};
 
 use crate::{
     coordinates::angle_between,
@@ -325,7 +325,7 @@ fn trigonometric(
     [constant, cosine, sine]: [f64; 3],
     scale: f64,
 ) -> Vec<Candidate> {
-    let amplitude = cosine.hypot(sine);
+    let amplitude = cosine.hypot_libm(sine);
     if amplitude / scale <= CONSTANT_VARIATION {
         return if probe.distance(range.middle()) <= TOLERANCE {
             vec![Candidate::Along(range)]
@@ -333,7 +333,7 @@ fn trigonometric(
             Vec::new()
         };
     }
-    let phase = sine.atan2(cosine);
+    let phase = sine.atan2_libm(cosine);
     let mut candidates: Vec<Candidate> = [phase, phase + PI]
         .into_iter()
         .flat_map(|extremum| periodic_in(extremum, range))
@@ -342,7 +342,7 @@ fn trigonometric(
         .collect();
     let ratio = -constant / amplitude;
     if ratio.abs() <= 1.0 {
-        let spread = ratio.acos();
+        let spread = ratio.acos_libm();
         candidates.extend(
             [phase + spread, phase - spread]
                 .into_iter()
@@ -421,7 +421,7 @@ fn analytic(probe: &Probe, range: Interval) -> Option<Vec<Candidate>> {
         }
         (Curve::Line(line), Surface::Cone(cone)) => {
             let axis = cone.opening_direction();
-            let cosine = cone.half_angle().cos();
+            let cosine = cone.half_angle().cos_libm();
             let cos2 = cosine * cosine;
             let offset = line.origin() - cone.apex();
             let direction = line.direction();

@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_geometry::{Aabb, Plane, Point3, Vector3};
+use caditor_geometry::{Aabb, Maths, Plane, Point3, Vector3};
 
 use crate::{
     curve::{Circle, Curve, Ellipse, Line},
@@ -185,7 +185,7 @@ fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {
     let normal = frame.normal();
     let apex = cone.apex();
     let axis = cone.opening_direction();
-    let (sine, cosine) = cone.half_angle().abs().sin_cos();
+    let (sine, cosine) = cone.half_angle().abs().sin_cos_libm();
     let reach = reach_from(apex, window);
     let height = frame.signed_distance(apex);
     let along = normal.dot(axis);
@@ -201,11 +201,12 @@ fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {
             return Some(raw);
         };
         let side = axis.cross(radial);
-        let ruling =
-            |angle: f64| axis * cosine + (radial * angle.cos() + side * angle.sin()) * sine;
+        let ruling = |angle: f64| {
+            axis * cosine + (radial * angle.cos_libm() + side * angle.sin_libm()) * sine
+        };
         let ratio = -cosine * along / (sine * spread);
         let nearest = if ratio >= 0.0 { 0.0 } else { PI };
-        let gap = (cosine * along + sine * spread * nearest.cos()).abs() * reach;
+        let gap = (cosine * along + sine * spread * nearest.cos_libm()).abs() * reach;
         if ratio.abs() > 1.0 {
             if gap <= TOLERANCE {
                 raw.curves.extend(ray(apex, ruling(nearest), window, true));
@@ -217,8 +218,8 @@ fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {
             }
             return Some(raw);
         }
-        let opening = ratio.acos();
-        if 2.0 * reach * sine * opening.sin() <= TOLERANCE {
+        let opening = ratio.acos_libm();
+        if 2.0 * reach * sine * opening.sin_libm() <= TOLERANCE {
             raw.curves.extend(ray(apex, ruling(nearest), window, true));
         } else {
             raw.curves.extend(ray(apex, ruling(opening), window, false));
@@ -289,9 +290,9 @@ fn plane_torus(plane: &PlaneSurface, torus: &Torus, window: &Aabb) -> Option<Raw
 }
 
 pub(crate) fn conjugate_ellipse(center: Point3, first: Vector3, second: Vector3) -> Option<Curve> {
-    let turn =
-        0.5 * (2.0 * first.dot(second)).atan2(first.length_squared() - second.length_squared());
-    let (sin, cos) = turn.sin_cos();
+    let turn = 0.5
+        * (2.0 * first.dot(second)).atan2_libm(first.length_squared() - second.length_squared());
+    let (sin, cos) = turn.sin_cos_libm();
     let major = first * cos + second * sin;
     let minor = second * cos - first * sin;
     let normal = major.cross(minor).try_normalize()?;

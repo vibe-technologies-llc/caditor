@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use caditor_geometry::Maths;
 use spade::{
     Point2 as PlanePoint, Triangulation,
     handles::{FixedFaceHandle, InnerTag},
@@ -73,7 +74,7 @@ impl Circle {
         let (b_square, c_square) = (bx * bx + by * by, cx * cx + cy * cy);
         let centre_x = (cy * b_square - by * c_square) / twice;
         let centre_y = (bx * c_square - cx * b_square) / twice;
-        let radius = centre_x.hypot(centre_y);
+        let radius = centre_x.hypot_libm(centre_y);
         let centre = PlanePoint::new(a.x + centre_x, a.y + centre_y);
         let spread = cy.abs() * b_square
             + by.abs() * c_square
@@ -627,15 +628,15 @@ mod tests {
                     let angle = -TAU * step as f64 / HOLE_POINTS as f64;
                     hole.push(mapped.len());
                     mapped.push(PlanePoint::new(
-                        centre.x + HOLE_RADIUS * angle.cos(),
-                        centre.y + HOLE_RADIUS * angle.sin(),
+                        centre.x + HOLE_RADIUS * angle.cos_libm(),
+                        centre.y + HOLE_RADIUS * angle.sin_libm(),
                     ));
                 }
                 area -= 0.5
                     * HOLE_POINTS as f64
                     * HOLE_RADIUS
                     * HOLE_RADIUS
-                    * (TAU / HOLE_POINTS as f64).sin();
+                    * (TAU / HOLE_POINTS as f64).sin_libm();
                 loops.push(hole);
                 centres.push(centre);
             }
@@ -644,9 +645,9 @@ mod tests {
             for x in 1..SIDE as usize {
                 for y in 1..SIDE as usize {
                     let at = PlanePoint::new(x as f64, y as f64);
-                    let clear = centres
-                        .iter()
-                        .all(|centre| (at.x - centre.x).hypot(at.y - centre.y) > HOLE_RADIUS + 0.5);
+                    let clear = centres.iter().all(|centre| {
+                        (at.x - centre.x).hypot_libm(at.y - centre.y) > HOLE_RADIUS + 0.5
+                    });
                     if clear {
                         mapped.push(at);
                     }

@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, f64::consts::FRAC_PI_2};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
 use crate::{
     boolean::{BooleanOperation, boolean},
@@ -430,7 +430,7 @@ pub(crate) fn frustum(bottom_radius: f64, top_radius: f64, height: f64) -> Solid
         top_vertex,
     );
     let (seam, _) = fixture.line(bottom_vertex, top_vertex);
-    let half_angle = (top_radius - bottom_radius).atan2(height);
+    let half_angle = (top_radius - bottom_radius).atan2_libm(height);
     fixture.face(
         Cone::new(horizontal(0.0), bottom_radius, half_angle).unwrap(),
         Sense::Same,
@@ -466,7 +466,7 @@ pub(crate) fn cone(radius: f64, height: f64) -> Solid {
     );
     let (seam, _) = fixture.line(rim, apex);
     fixture.face(
-        Cone::new(horizontal(0.0), radius, (-radius).atan2(height)).unwrap(),
+        Cone::new(horizontal(0.0), radius, (-radius).atan2_libm(height)).unwrap(),
         Sense::Same,
         &[vec![
             (base, Sense::Same),

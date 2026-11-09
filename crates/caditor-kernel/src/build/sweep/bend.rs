@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, Vector3};
 
 use super::{PathSegment, SMOOTH_TURN, degenerate, path::Leg, pipe::PipeError};
 use crate::{
@@ -125,7 +125,7 @@ impl Corner<'_> {
     }
 
     fn cut(&self) -> f64 {
-        self.radius * (self.turn / 2.0).tan()
+        self.radius * (self.turn / 2.0).tan_libm()
     }
 
     fn guess(&self, leg: &Leg, end: End) -> f64 {
@@ -192,8 +192,8 @@ impl Corner<'_> {
         let end = self.outgoing.curve.point(outgoing) - centre;
         let x_axis = (start - centre).try_normalize()?;
         let y_axis = self.normal.cross(x_axis);
-        let sweep = end.dot(y_axis).atan2(end.dot(x_axis)).rem_euclid(TAU);
-        let arriving = x_axis * -sweep.sin() + y_axis * sweep.cos();
+        let sweep = end.dot(y_axis).atan2_libm(end.dot(x_axis)).rem_euclid(TAU);
+        let arriving = x_axis * -sweep.sin_libm() + y_axis * sweep.cos_libm();
         let tangent = self
             .incoming
             .tangent(incoming)?
@@ -222,7 +222,7 @@ impl Corner<'_> {
         let chord = start.distance(end);
         let angle = leaving.angle_between(arriving);
         let handle = if angle > SMOOTH_TURN {
-            chord * 2.0 / 3.0 * (angle / 4.0).tan() / (angle / 2.0).sin()
+            chord * 2.0 / 3.0 * (angle / 4.0).tan_libm() / (angle / 2.0).sin_libm()
         } else {
             chord / 3.0
         };

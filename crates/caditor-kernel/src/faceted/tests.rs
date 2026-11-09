@@ -1,6 +1,6 @@
 use std::f64::consts::TAU;
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Maths, Point3, Vector3};
 
 use super::*;
 use crate::{Curve, tolerance::SamplingTolerance};
@@ -243,7 +243,9 @@ fn prism(sides: usize, radius: f64, height: f64, offset: Vector3) -> TriangleMes
     for level in [0.0, height] {
         for side in 0..sides {
             let angle = TAU * side as f64 / sides as f64;
-            positions.push(Point3::new(radius * angle.cos(), radius * angle.sin(), level) + offset);
+            positions.push(
+                Point3::new(radius * angle.cos_libm(), radius * angle.sin_libm(), level) + offset,
+            );
         }
     }
     let mut triangles = Vec::new();

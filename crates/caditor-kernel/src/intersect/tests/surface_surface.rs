@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_6, PI, TAU};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -28,7 +28,7 @@ fn whole_ball(surface: &Surface) -> SurfacePatch<'_> {
 fn tilted_plane(angle: f64, offset: f64) -> Surface {
     plane(
         Point3::new(0.0, 0.0, offset),
-        Vector3::new(angle.sin(), 0.0, angle.cos()),
+        Vector3::new(angle.sin_libm(), 0.0, angle.cos_libm()),
     )
 }
 
@@ -79,7 +79,7 @@ fn a_plane_cuts_a_cylinder_in_circles_ellipses_and_lines() {
                 assert!((circle.radius() - radius).abs() < 1e-12);
             }
             Curve::Ellipse(ellipse) => {
-                assert!((ellipse.major_radius() - radius / angle.cos()).abs() < 1e-9);
+                assert!((ellipse.major_radius() - radius / angle.cos_libm()).abs() < 1e-9);
                 assert!((ellipse.minor_radius() - radius).abs() < 1e-12);
             }
             other => panic!("unexpected {other:?}"),
@@ -151,7 +151,7 @@ fn cylinder_patches_clip_the_intersection() {
 fn a_long_curve_through_a_tiny_patch_is_found_there() {
     let tube = cylinder(Point3::ZERO, Vector3::Z, 10.0);
     let spot = plane(
-        Point3::new(10.0 * 1.0_f64.cos(), 10.0 * 1.0_f64.sin(), 0.0),
+        Point3::new(10.0 * 1.0_f64.cos_libm(), 10.0 * 1.0_f64.sin_libm(), 0.0),
         Vector3::Z,
     );
     let result = intersect_surfaces(&square(&spot, 0.0005), &around(&tube, (-20.0, 20.0))).unwrap();
@@ -187,7 +187,7 @@ fn a_plane_cuts_a_cone_in_every_conic() {
     let slope = FRAC_PI_2 - half_angle;
     let parabola = plane(
         Point3::new(0.0, 0.0, 5.0),
-        Vector3::new(slope.sin(), 0.0, slope.cos()),
+        Vector3::new(slope.sin_libm(), 0.0, slope.cos_libm()),
     );
     let result = intersect_surfaces(&square(&parabola, 40.0), &side).unwrap();
     check_all(&result, &parabola, &cone);
@@ -207,7 +207,10 @@ fn a_plane_cuts_a_cone_in_every_conic() {
             .iter()
             .all(|branch| matches!(branch.curve, Curve::Line(_)))
     );
-    let along_ruling = plane(apex, Vector3::new(half_angle.cos(), 0.0, -half_angle.sin()));
+    let along_ruling = plane(
+        apex,
+        Vector3::new(half_angle.cos_libm(), 0.0, -half_angle.sin_libm()),
+    );
     let result = intersect_surfaces(&square(&along_ruling, 40.0), &side).unwrap();
     check_all(&result, &along_ruling, &cone);
     assert_eq!(result.branches().len(), 1);
@@ -222,8 +225,9 @@ fn a_plane_cuts_a_cone_in_every_conic() {
 
 #[test]
 fn a_plane_between_the_half_angle_and_its_complement_is_an_ellipse_or_hyperbola_by_the_sine() {
-    let tilt = 0.7f64.acos();
-    let tilted = |through: Point3| plane(through, Vector3::new(tilt.sin(), 0.0, tilt.cos()));
+    let tilt = 0.7f64.acos_libm();
+    let tilted =
+        |through: Point3| plane(through, Vector3::new(tilt.sin_libm(), 0.0, tilt.cos_libm()));
 
     let narrow: Surface = Cone::new(Plane::XY, 2.0, FRAC_PI_6).unwrap().into();
     let side = around(&narrow, (-4.0, 30.0));

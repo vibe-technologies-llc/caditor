@@ -357,6 +357,7 @@ pub fn command(command: Command) -> &'static str {
         | Command::CancelUploading
         | Command::CancelIsocurves
         | Command::CancelInterference
+        | Command::CancelOutline
         | Command::CancelPaste => phosphor::STOP_CIRCLE,
         Command::Recompute
         | Command::AnalyseAgain

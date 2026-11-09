@@ -16,6 +16,7 @@ paths:
   - "crates/caditor/src/inference.rs"
   - "crates/caditor/src/body_snap.rs"
   - "crates/caditor/src/body_picks.rs"
+  - "crates/caditor/src/outlining.rs"
   - "crates/caditor/src/tracking.rs"
   - "crates/caditor/src/sketch_tools.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
@@ -338,11 +339,21 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
 - `Command::ProjectOutline` (no default key; palette, Modify group menu, Sketch › Modify geometry)
   projects the outer outline of the highlighted or hovered body, else the one body chosen in the
   tree (`projecting::body_to_project`), as seen square to the sketch, in one transaction
-  (`projecting::project_outline`, "Project the outline of <body>"): `body_outline` gives every curve
-  with its `ProjectionSource::BodyOutline`. It runs on the UI thread under `OUTLINE_BUDGET` (3 s)
-  through the kernel interrupt, and a body that takes longer is refused in words
-  (`OutlineTooLong`, asking for its edges); the recompute that keeps it following runs on the
-  worker with no budget. Curves already projected are left out with a notice, all of them refused
+  (`projecting::outline_request`, "Project the outline of <body>"): `body_outline` gives every curve
+  with its `ProjectionSource::BodyOutline`. The view only builds an `OutlineRequest` (sketch, body,
+  its name, the sketch plane and the `Arc<FeatureResult>` the sketch sees) and sends
+  `Action::Outline`; `Model` hands it to `outlining::Outlines`, which works the outline out on an
+  `outline` thread through the kernel interrupt (`interruptible`, a cancel flag), so the window
+  never waits and no body is refused for taking long. One outline runs at a time (the command is
+  unavailable with `STILL_OUTLINING`). The status bar's activity (`outlining::activity`) shows a
+  spinner, "Working out the outline of <body>…" and Cancel (`Command::CancelOutline`, palette and
+  View › Background work too); Escape in the view cancels it first of all but the pick list and a
+  queued action (`ViewportState::escape`). Cancelling, or a model switch, says "Stopped projecting
+  the outline. Nothing was added.". The result is built into the transaction at arrival
+  (`projecting::outline_projection`) and applied as one change, unless the revision moved meanwhile
+  (`OutlineOutdated`, asking to project again); a panic on the thread is `OutlineCrashed`. The
+  recompute that keeps it following, and the MCP server (`outline_projections`, no interrupt),
+  have no budget either. Curves already projected are left out with a notice, all of them refused
   (`OutlineProjected`), a body the plane sees no outline of `NoOutline`.
 - Intersect (`Tool::Intersect`, Alt+I; in Project's arrow menu, `sketch_toolbar::OFF_RIBBON`,
   `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch plane. It is a projecting tool

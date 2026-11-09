@@ -1,4 +1,4 @@
-use caditor_geometry::{Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -190,18 +190,18 @@ fn an_intersection_curve_edge_gets_pcurves_on_both_surfaces() {
 }
 
 fn wavy_loop(nodes: usize) -> IntersectionCurve {
-    let radius = |angle: f64| 20.0 + 2.0 * (7.0 * angle).sin();
+    let radius = |angle: f64| 20.0 + 2.0 * (7.0 * angle).sin_libm();
     let at = |index: usize| {
         let angle = TAU * (index % nodes) as f64 / nodes as f64;
         let point = Point3::new(
-            radius(angle) * angle.cos(),
-            radius(angle) * angle.sin(),
+            radius(angle) * angle.cos_libm(),
+            radius(angle) * angle.sin_libm(),
             0.0,
         );
-        let slope = 14.0 * (7.0 * angle).cos();
+        let slope = 14.0 * (7.0 * angle).cos_libm();
         let tangent = Vector3::new(
-            slope * angle.cos() - radius(angle) * angle.sin(),
-            slope * angle.sin() + radius(angle) * angle.cos(),
+            slope * angle.cos_libm() - radius(angle) * angle.sin_libm(),
+            slope * angle.sin_libm() + radius(angle) * angle.cos_libm(),
             0.0,
         );
         (point, tangent.normalize())

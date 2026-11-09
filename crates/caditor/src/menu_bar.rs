@@ -145,6 +145,7 @@ const VIEW_BACKGROUND_WORK: [&[Command]; 2] = [
         Command::CancelMassProperties,
         Command::CancelIsocurves,
         Command::CancelInterference,
+        Command::CancelOutline,
     ],
     &[
         Command::ShowRestOfBodies,

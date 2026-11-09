@@ -51,12 +51,14 @@ fn snorm32(value: f64) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use caditor_geometry::Maths;
+
     use super::*;
 
     const FINER_THAN_F32: f64 = 1e-8;
 
     fn angle(first: Vector3, second: Vector3) -> f64 {
-        first.cross(second).length().atan2(first.dot(second))
+        first.cross(second).length().atan2_libm(first.dot(second))
     }
 
     #[test]
@@ -74,9 +76,9 @@ mod tests {
                 let polar = std::f64::consts::PI * f64::from(latitude) / f64::from(steps);
                 let azimuth = std::f64::consts::PI * f64::from(longitude) / f64::from(steps);
                 let direction = Vector3::new(
-                    polar.sin() * azimuth.cos(),
-                    polar.sin() * azimuth.sin(),
-                    polar.cos(),
+                    polar.sin_libm() * azimuth.cos_libm(),
+                    polar.sin_libm() * azimuth.sin_libm(),
+                    polar.cos_libm(),
                 );
 
                 let back = MeshNormal::new(direction * 3.0).vector();

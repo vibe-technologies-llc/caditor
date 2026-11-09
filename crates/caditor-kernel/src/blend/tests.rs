@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
-use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Plane, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -427,7 +427,7 @@ fn every_edge_of_a_hexagonal_prism() {
     let hexagon: Vec<(f64, f64)> = (0..6)
         .map(|index| {
             let angle = PI / 3.0 * index as f64;
-            (5.0 * angle.cos(), 5.0 * angle.sin())
+            (5.0 * angle.cos_libm(), 5.0 * angle.sin_libm())
         })
         .collect();
 
@@ -1006,7 +1006,7 @@ fn a_convex_edge_rising_from_bevelled_concave_edges_carries_their_bevel_round_it
     ];
     let section = 0.5 * 0.5 * 0.5;
     let along_base = 3.5 + 3.5 + 0.5 * 2f64.sqrt();
-    let mitred_corner = section * 2.0 * (0.5 / 3.0) * (PI / 8.0).tan();
+    let mitred_corner = section * 2.0 * (0.5 / 3.0) * (PI / 8.0).tan_libm();
     let upright = section * 4.0;
 
     let chamfered = run(&boss, &corner, BlendShape::Chamfer { distance: 0.5 });
@@ -1199,7 +1199,7 @@ fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
         angle: angle.to_radians(),
         flipped: false,
     };
-    let across = 2.0 * 30f64.to_radians().tan();
+    let across = 2.0 * 30f64.to_radians().tan_libm();
     let l_shape = swept(
         Plane::XY,
         &polygon(&[
@@ -1240,7 +1240,7 @@ fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
     check(
         "inside",
         &filled,
-        320.0 + 5.0 * 0.5 * 30f64.to_radians().tan(),
+        320.0 + 5.0 * 0.5 * 30f64.to_radians().tan_libm(),
     );
     assert_eq!(
         blend(&solid, &[edge], angled(90.0), 50),

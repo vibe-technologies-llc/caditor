@@ -896,7 +896,7 @@ fn roots_between(coefficients: &[f64], low: f64, high: f64) -> Vec<f64> {
 
 #[cfg(test)]
 mod tests {
-    use caditor_geometry::Plane;
+    use caditor_geometry::{Maths, Plane};
 
     use super::*;
     use crate::surface::{Cylinder, PlaneSurface, Sphere};
@@ -953,7 +953,7 @@ mod tests {
         )
         .unwrap();
         assert!((fixed.uv[1].x - 0.5).abs() < 1e-12);
-        assert!((fixed.point.x - 0.5f64.cos()).abs() < 1e-12);
+        assert!((fixed.point.x - 0.5f64.cos_libm()).abs() < 1e-12);
         let (_, gap) = closest_approach(
             [
                 &plane,

@@ -1,6 +1,6 @@
 use std::f64::consts::PI;
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -175,7 +175,7 @@ fn bodies() -> Vec<(&'static str, Solid)> {
     let pentagon: Vec<(f64, f64)> = (0..5)
         .map(|index| {
             let angle = 2.0 * PI / 5.0 * index as f64;
-            (5.0 * angle.cos(), 5.0 * angle.sin())
+            (5.0 * angle.cos_libm(), 5.0 * angle.sin_libm())
         })
         .collect();
     let pentagon = swept(Plane::XY, &polygon(&pentagon), 3.0);

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point2, Point3};
+use caditor_geometry::{Maths, Point2, Point3};
 
 use super::{
     EdgeGeometry, Sweep,
@@ -27,7 +27,9 @@ impl Placed<'_> {
             Sweep::Around { .. } => {
                 let offset = point - frame.origin();
                 Point2::new(
-                    offset.dot(frame.x_axis()).hypot(offset.dot(frame.normal())),
+                    offset
+                        .dot(frame.x_axis())
+                        .hypot_libm(offset.dot(frame.normal())),
                     offset.dot(frame.y_axis()),
                 )
             }
@@ -44,7 +46,7 @@ impl Placed<'_> {
             Sweep::Around { angle, closed } => {
                 let offset = point - frame.origin();
                 let turned = (-offset.dot(frame.normal()))
-                    .atan2(offset.dot(frame.x_axis()))
+                    .atan2_libm(offset.dot(frame.x_axis()))
                     .rem_euclid(TAU);
                 closed || turned <= angle + CLEARANCE || turned >= TAU - CLEARANCE
             }

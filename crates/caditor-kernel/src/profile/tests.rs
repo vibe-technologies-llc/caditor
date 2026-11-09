@@ -3,7 +3,7 @@ use std::{
     f64::consts::PI,
 };
 
-use caditor_geometry::Point2;
+use caditor_geometry::{Maths, Point2};
 
 use super::*;
 use crate::{
@@ -80,7 +80,7 @@ fn assert_closed(region: &Region) {
 
 fn lens(radius: f64, distance: f64) -> f64 {
     let half = distance / 2.0;
-    2.0 * radius * radius * (half / radius).acos()
+    2.0 * radius * radius * (half / radius).acos_libm()
         - 2.0 * half * (radius * radius - half * half).sqrt()
 }
 
@@ -919,7 +919,7 @@ fn a_long_wiggly_spline_closed_by_a_line_is_divided() {
             let y = if index == 0 || index == 600 {
                 0.0
             } else {
-                5.0 + (x / 3.0).sin()
+                5.0 + (x / 3.0).sin_libm()
             };
             (x, y)
         })

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Point3, RigidTransform, Vector3};
+use caditor_geometry::{Maths, Point3, RigidTransform, Vector3};
 
 use super::*;
 use crate::{
@@ -230,7 +230,7 @@ fn second_moments_give_the_inertia_of_a_box_and_a_cylinder() {
 #[test]
 fn principal_moments_of_a_turned_tensor_are_its_eigenvalues() {
     let turn = 0.4f64;
-    let (sine, cosine) = turn.sin_cos();
+    let (sine, cosine) = turn.sin_cos_libm();
     let diagonal = [2.0, 5.0, 11.0];
     let rotation = [[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]];
     let mut turned = [[0.0; 3]; 3];
@@ -371,7 +371,8 @@ fn a_thin_round_whose_edge_ends_a_tenth_of_a_micrometre_off_its_corners_meshes()
 
     let radius = 0.012;
     let height = 2.0;
-    let at = |angle: f64, z: f64| Point3::new(radius * angle.cos(), radius * angle.sin(), z);
+    let at =
+        |angle: f64, z: f64| Point3::new(radius * angle.cos_libm(), radius * angle.sin_libm(), z);
     let into_face = Vector3::new(-1e-7, 0.0, 0.0);
     let past_end = Vector3::new(0.0, 0.0, 2e-8);
     let top = Plane::from_frame(Point3::new(0.0, 0.0, height), Vector3::Z, Vector3::X).unwrap();
@@ -619,7 +620,7 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     let post = [circle(1, (30.0, 0.0), 3.0)];
     let mut curves = post.to_vec();
     curves.push(circle(5, (0.0, 0.0), 10.0));
-    let (sin, cos) = 0.07_f64.sin_cos();
+    let (sin, cos) = 0.07_f64.sin_cos_libm();
     curves.push(circle(6, (8.999 * cos, 8.999 * sin), 1.0));
     let both = sweep(&curves);
     let tolerance = SamplingTolerance::new(0.05, 0.5).unwrap();
@@ -748,7 +749,7 @@ fn assert_circle_edges_follow(solid: &Solid, mesh: &Mesh, center: Point3, radius
         for pair in points.windows(2) {
             let (from, to) = ((pair[0] - center).truncate(), (pair[1] - center).truncate());
             let step = from.angle_to(to).abs();
-            let sagitta = radius * (1.0 - (step / 2.0).cos());
+            let sagitta = radius * (1.0 - (step / 2.0).cos_libm());
             assert!(step <= quality.angle() + 1e-9, "a {step} rad step");
             assert!(sagitta <= chord + 1e-12, "a sagitta of {sagitta}");
         }

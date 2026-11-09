@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector2, Vector3};
 
 use crate::{
     build::{
@@ -95,7 +95,7 @@ fn extreme_points(piece: &Piece, slope: Vector2) -> Vec<Point2> {
         Curve2::Circle(circle) => {
             let along = Vector2::new(slope.dot(circle.x_axis()), slope.dot(circle.y_axis()));
             if along != Vector2::ZERO {
-                let peak = along.y.atan2(along.x);
+                let peak = along.y.atan2_libm(along.x);
                 for angle in [peak, peak + PI] {
                     let unwrapped = range.start() + (angle - range.start()).rem_euclid(TAU);
                     if unwrapped <= range.end() {
@@ -235,8 +235,8 @@ impl Cap {
                 let second = at(middle + along_y) - center;
                 let turn = 0.5
                     * (2.0 * first.dot(second))
-                        .atan2(first.length_squared() - second.length_squared());
-                let (sin, cos) = turn.sin_cos();
+                        .atan2_libm(first.length_squared() - second.length_squared());
+                let (sin, cos) = turn.sin_cos_libm();
                 let major = first * cos + second * sin;
                 let minor = second * cos - first * sin;
                 let frame = Plane::with_x_axis(center, major.cross(minor), major)

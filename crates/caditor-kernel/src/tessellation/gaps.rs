@@ -231,6 +231,8 @@ fn relax_along<'a>(cells: impl Iterator<Item = &'a mut f64>) {
 mod tests {
     use std::f64::consts::TAU;
 
+    use caditor_geometry::Maths;
+
     use super::*;
     use crate::tessellation::constrained;
 
@@ -239,8 +241,8 @@ mod tests {
             .map(|step| {
                 let angle = TAU * step as f64 / samples as f64;
                 PlanePoint::new(
-                    centre.x + radius * angle.cos(),
-                    centre.y + radius * angle.sin(),
+                    centre.x + radius * angle.cos_libm(),
+                    centre.y + radius * angle.sin_libm(),
                 )
             })
             .collect()
@@ -259,10 +261,10 @@ mod tests {
     fn the_widest_gap_is_the_largest_empty_disc_within_the_face_give_or_take_a_cell() {
         let mut mapped = ring(PlanePoint::new(0.0, 0.0), 10.0, 400);
         let outer: Vec<usize> = (0..mapped.len()).collect();
-        mapped.extend(lattice(|at| (2.5..9.0).contains(&at.x.hypot(at.y)), 9));
+        mapped.extend(lattice(|at| (2.5..9.0).contains(&at.x.hypot_libm(at.y)), 9));
         let outline = constrained::outline(&mapped, &[outer]);
         let side = Grid::over(&mapped).unwrap().side;
-        let empty_radius = 2.0_f64.hypot(2.0);
+        let empty_radius = 2.0_f64.hypot_libm(2.0);
 
         let gap = widest(&mapped, &outline).unwrap().unwrap();
 
@@ -290,7 +292,10 @@ mod tests {
         let first = holed.len();
         holed.extend(ring(PlanePoint::new(0.0, 0.0), 12.0, 120).into_iter().rev());
         let inner: Vec<usize> = (first..holed.len()).collect();
-        holed.extend(lattice(|at| (12.5..19.5).contains(&at.x.hypot(at.y)), 20));
+        holed.extend(lattice(
+            |at| (12.5..19.5).contains(&at.x.hypot_libm(at.y)),
+            20,
+        ));
 
         let notched_gap = widest(&notched, &constrained::outline(&notched, &[notched_loop]));
         let holed_gap = widest(&holed, &constrained::outline(&holed, &[outer, inner]));

@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Aabb2, Point2};
+use caditor_geometry::{Aabb2, Maths, Point2};
 
 use crate::{
     bspline::BSpline,
@@ -62,7 +62,7 @@ impl Source {
                 let circle = Circle2::new(*center, center.distance(*start)).map_err(invalid)?;
                 let angle = |point: Point2| {
                     let offset = point - *center;
-                    offset.y.atan2(offset.x)
+                    offset.y.atan2_libm(offset.x)
                 };
                 let first = angle(*start);
                 let sweep = (angle(*end) - first).rem_euclid(TAU);
@@ -201,7 +201,7 @@ impl Source {
 
 fn circle_breaks(circle: &Circle2, range: Interval) -> Vec<f64> {
     let (x, y) = (circle.x_axis(), circle.y_axis());
-    let bases = [y.x.atan2(x.x), y.y.atan2(x.y)];
+    let bases = [y.x.atan2_libm(x.x), y.y.atan2_libm(x.y)];
     let mut breaks = Vec::new();
     for base in bases {
         let first = ((range.start() - base) / PI).ceil();

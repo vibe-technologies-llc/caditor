@@ -1,6 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, Vector3};
 
 use super::*;
 use crate::{
@@ -212,7 +212,7 @@ fn a_point_of_the_outlines_stands_on_the_surface_looking_away_from_the_axis() {
     let (point, outward) =
         wrapped_stand(&plane, &outline, &surface, Point2::new(15.0, 4.0)).unwrap();
 
-    assert!((point.x.hypot(point.y) - RADIUS).abs() < 1e-9);
+    assert!((point.x.hypot_libm(point.y) - RADIUS).abs() < 1e-9);
     assert!((outward - Vector3::new(point.x, point.y, 0.0) / RADIUS).length() < 1e-9);
     assert!((centre.x - RADIUS).abs() < 1e-9);
 }

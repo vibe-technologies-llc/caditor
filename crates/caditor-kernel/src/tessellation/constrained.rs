@@ -3,6 +3,7 @@ use std::{
     ops::Range,
 };
 
+use caditor_geometry::Maths;
 use spade::{
     ConstrainedDelaunayTriangulation, Point2 as PlanePoint, Triangulation,
     handles::{FixedFaceHandle, FixedVertexHandle, InnerTag},
@@ -143,7 +144,7 @@ fn hole(
     for (a, b) in corners.iter().zip(corners.iter().cycle().skip(1)) {
         let (along, towards) = ([b.x - a.x, b.y - a.y], [centre.x - a.x, centre.y - a.y]);
         let side = (along[0] * towards[1] - along[1] * towards[0]) * turning;
-        let scale = along[0].hypot(along[1]) * towards[0].hypot(towards[1]);
+        let scale = along[0].hypot_libm(along[1]) * towards[0].hypot_libm(towards[1]);
         if side <= HOLE_CLEARANCE * scale || !side.is_finite() {
             return None;
         }
@@ -362,8 +363,8 @@ mod tests {
             .map(|step| {
                 let angle = turn * TAU * f64::from(step) / 48.0;
                 (
-                    centre.0 + radius * angle.cos(),
-                    centre.1 + radius * angle.sin(),
+                    centre.0 + radius * angle.cos_libm(),
+                    centre.1 + radius * angle.sin_libm(),
                 )
             })
             .collect()

@@ -1,4 +1,5 @@
 mod aabb;
+mod maths;
 mod plane;
 mod ray;
 mod similarity;
@@ -10,6 +11,7 @@ pub use glam::{
 
 pub use crate::{
     aabb::{Aabb, Aabb2},
+    maths::Maths,
     plane::Plane,
     ray::Ray,
     similarity::Similarity,

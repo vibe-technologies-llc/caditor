@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector2, Vector3};
+use caditor_geometry::{Maths, Plane, Point2, Point3, RigidTransform, Rotation3, Vector2, Vector3};
 
 use super::{
     collapse::{coedge_faces, loop_edges},
@@ -271,7 +271,7 @@ fn convex_facets(planes: &[(Vector3, f64)]) -> (Point3, Vec<f64>) {
             let u = (on[0] - middle).normalize();
             let v = normal.cross(u);
             on.sort_by(|a, b| {
-                let angle = |p: &Point3| (*p - middle).dot(v).atan2((*p - middle).dot(u));
+                let angle = |p: &Point3| (*p - middle).dot(v).atan2_libm((*p - middle).dot(u));
                 angle(a).total_cmp(&angle(b))
             });
             let area: Vector3 = (0..on.len())
