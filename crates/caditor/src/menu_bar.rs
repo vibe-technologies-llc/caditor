@@ -1039,6 +1039,8 @@ impl Menus<'_> {
                                 Command::ReverseArc,
                                 Command::MoreSides,
                                 Command::FewerSides,
+                                Command::MoreDegree,
+                                Command::FewerDegree,
                             ],
                         );
                         ui.separator();

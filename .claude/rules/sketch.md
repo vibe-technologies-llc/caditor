@@ -107,6 +107,9 @@ paths:
     split, break and point insertion carry the degree through the same blossoming and Boehm
     insertion (`Part::kind` reads a part of another degree as `Graded`, or `OPEN` when it is
     the plain one). A degree-one spline is a polyline and refuses `Curvature`.
+    `SplineKind::drawn(degree, points)` is the kind the spline tool draws at a chosen degree: the
+    degree clamped to the range and to `points - 1`, through `graded`, so a spline drawn at a
+    degree its points cannot carry is the one they can (never a `Graded` with too few points).
   - A conic has exactly three points (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO`
     (`InvalidRho`): a rational quadratic with middle weight `rho / (1 - rho)`, passing the point
     rho of the way from the chord's middle to the apex (below 0.5 ellipse, 0.5 parabola, above

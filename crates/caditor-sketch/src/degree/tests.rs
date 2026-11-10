@@ -247,3 +247,57 @@ fn an_invalid_degree_or_span_list_is_refused_when_a_spline_is_added() {
     assert_eq!(insert(4, vec![0.5; 4]), Err(SketchError::GradedSpanCount));
     assert!(insert(4, vec![0.25, 0.25, 0.5]).is_ok());
 }
+
+#[test]
+fn a_spline_drawn_at_a_degree_has_that_degree_once_it_has_the_points_for_it() {
+    for degree in [1, 2, 4, 5, 6] {
+        let kind = SplineKind::drawn(degree, wave().len());
+        let curve = kind.curve(&wave()).unwrap();
+
+        assert_eq!(curve.degree(), degree);
+        assert_eq!(kind.degree_of(wave().len()), Some(degree));
+        assert_eq!(kind.fewest_points(), degree + 1);
+    }
+}
+
+#[test]
+fn a_spline_drawn_at_a_degree_its_points_cannot_carry_takes_the_most_they_can() {
+    assert_eq!(SplineKind::drawn(5, 4), SplineKind::OPEN);
+    assert_eq!(SplineKind::drawn(5, 2), SplineKind::OPEN);
+    assert_eq!(SplineKind::drawn(3, 7), SplineKind::OPEN);
+    assert_eq!(SplineKind::drawn(5, 1), SplineKind::OPEN);
+
+    let kind = SplineKind::drawn(5, 5);
+    assert_eq!(kind.degree_of(5), Some(4));
+    assert_eq!(kind, SplineKind::graded(4, 5).unwrap());
+}
+
+#[test]
+fn a_spline_drawn_at_a_degree_outside_the_range_is_clamped_into_it() {
+    let points: Vec<Point2> = (0..30)
+        .map(|index| Point2::new(index as f64, (index % 4) as f64))
+        .collect();
+
+    assert_eq!(
+        SplineKind::drawn(0, points.len()).degree_of(points.len()),
+        Some(1)
+    );
+    assert_eq!(
+        SplineKind::drawn(99, points.len()).degree_of(points.len()),
+        Some(MAX_DEGREE)
+    );
+    assert!(SplineKind::drawn(99, points.len()).curve(&points).is_some());
+}
+
+#[test]
+fn a_spline_added_at_a_drawn_degree_is_the_one_set_afterwards() {
+    let mut drawn = Sketch::new(Plane::XY);
+    let mut set = Sketch::new(Plane::XY);
+
+    let at_five = drawn.add_spline_of(&wave(), SplineKind::drawn(5, wave().len()));
+    let later = set.add_spline(&wave());
+    set.set_spline_degree(later, 5).unwrap();
+
+    assert_eq!(kind_of(&drawn, at_five), kind_of(&set, later));
+    assert_eq!(drawn.spline(at_five), set.spline(later));
+}

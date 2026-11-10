@@ -103,6 +103,8 @@ pub enum Command {
     CancelShape,
     MoreSides,
     FewerSides,
+    MoreDegree,
+    FewerDegree,
     Construction,
     ToggleConstraintActive,
     SplitCurve,
@@ -938,6 +940,8 @@ plain_commands! {
     CancelShape,
     MoreSides,
     FewerSides,
+    MoreDegree,
+    FewerDegree,
     Construction,
     ToggleConstraintActive,
     SplitCurve,
@@ -1114,6 +1118,8 @@ impl Command {
             Self::CancelShape => "sketch.cancel_shape",
             Self::MoreSides => "sketch.more_sides",
             Self::FewerSides => "sketch.fewer_sides",
+            Self::MoreDegree => "sketch.more_degree",
+            Self::FewerDegree => "sketch.fewer_degree",
             Self::Construction => "sketch.construction",
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::SplitCurve => "sketch.split_curve",
@@ -1482,6 +1488,8 @@ impl Command {
             Self::CancelShape => "Cancel the shape",
             Self::MoreSides => "Give the polygon another side",
             Self::FewerSides => "Give the polygon one side fewer",
+            Self::MoreDegree => "Draw the control-point spline one degree higher",
+            Self::FewerDegree => "Draw the control-point spline one degree lower",
             Self::Construction => "Switch to or from construction geometry",
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::SplitCurve => "Split the selected curve at the selected point",
@@ -2278,6 +2286,8 @@ impl Command {
             | Self::CancelShape
             | Self::MoreSides
             | Self::FewerSides
+            | Self::MoreDegree
+            | Self::FewerDegree
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
@@ -2326,6 +2336,8 @@ impl Command {
             | Self::CancelShape
             | Self::MoreSides
             | Self::FewerSides
+            | Self::MoreDegree
+            | Self::FewerDegree
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
@@ -2426,6 +2438,8 @@ impl Command {
             Self::ReverseArc => vec![plain(Key::X)],
             Self::MoreSides => vec![plain(Key::CloseBracket)],
             Self::FewerSides => vec![plain(Key::OpenBracket)],
+            Self::MoreDegree => vec![alt(Key::CloseBracket)],
+            Self::FewerDegree => vec![alt(Key::OpenBracket)],
             Self::Construction => vec![plain(Key::Q)],
             Self::MoveGeometry => vec![plain(Key::M)],
             Self::SelectAll => vec![command(Key::A)],

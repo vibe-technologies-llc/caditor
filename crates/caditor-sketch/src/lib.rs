@@ -44,7 +44,8 @@ pub use crate::{
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, conic_weight},
     degree::DegreeError,
     entity::{
-        Entity, FitSpacing, MAX_DEGREE, MAX_RHO, MIN_DEGREE, MIN_PIECE_POINTS, MIN_RHO, SplineKind,
+        CUBIC_DEGREE, Entity, FitSpacing, MAX_DEGREE, MAX_RHO, MIN_DEGREE, MIN_PIECE_POINTS,
+        MIN_RHO, SplineKind,
     },
     fillet::{Bevel, ChamferSize, Corner, CrossingPlan, FilletError, Pick, Rounding},
     fit::FittedSpline,

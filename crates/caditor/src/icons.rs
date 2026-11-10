@@ -185,6 +185,8 @@ pub fn command(command: Command) -> &'static str {
         Command::CancelShape => phosphor::X_CIRCLE,
         Command::MoreSides => ADD,
         Command::FewerSides => SUBTRACT,
+        Command::MoreDegree => phosphor::TREND_UP,
+        Command::FewerDegree => phosphor::TREND_DOWN,
         Command::ToggleConstraintActive => phosphor::PROHIBIT,
         Command::SplitCurve => phosphor::GIT_COMMIT,
         Command::BreakCurves => phosphor::GIT_FORK,
