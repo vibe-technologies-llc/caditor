@@ -7,8 +7,9 @@ use caditor_document::{
     FeatureKind, Finish, MeasuredItem, Measurement, ModelProperties, ModelProperty, NamedView,
     Outline, ParameterOwner, PieceStandIns, Pieces, PlaneReference, PointReference, PrincipalAxis,
     PrincipalGeometry, PrincipalPlane, PrincipalShowing, Projection, ProjectionSource, Reading,
-    Rgb, RollbackBar, SavedView, SavedViews, ScaleRatio, SelectionSet, SelectionSets, SetMember,
-    Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView, Transaction,
+    Rgb, RollbackBar, SECTION_LETTERS, SavedView, SavedViews, ScaleRatio, SectionPlace,
+    SectionPlane, SectionView, SelectionSet, SelectionSets, SetMember, Setting, SheetOrientation,
+    SheetSize, SketchAttachment, StandardView, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
@@ -841,6 +842,19 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
         drawing.bodies.push(scene.body(input)?);
     }
     drawing.hidden_lines = input.arbitrary()?;
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        drawing.sections.push(SectionView {
+            letter: *input.choose(&SECTION_LETTERS)?,
+            parent: *input.choose(&StandardView::ALL)?,
+            plane: *input.choose(&SectionPlane::ALL)?,
+            place: if input.arbitrary::<bool>()? {
+                SectionPlace::Centre
+            } else {
+                SectionPlace::Offset(f64::from(input.int_in_range(-60i32..=60)?))
+            },
+            reversed: input.arbitrary()?,
+        });
+    }
     Ok(drawing)
 }
 

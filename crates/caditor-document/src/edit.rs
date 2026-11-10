@@ -29,6 +29,7 @@ use crate::{
     },
     drawings::{
         Drawings, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SCALE_TERM,
+        MAX_SECTION_OFFSET, MAX_SECTION_VIEWS,
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
@@ -509,6 +510,28 @@ pub enum EditError {
     DrawingScaleOutOfRange { sheet: u32, model: u32 },
     #[error("That drawing no longer exists")]
     MissingDrawing,
+    #[error(
+        "A drawing holds at most {MAX_SECTION_VIEWS} section views, and '{name}' would have {sections}. Delete one first."
+    )]
+    DrawingTooManySections { name: String, sections: usize },
+    #[error(
+        "A section view cannot be lettered '{0}'; it takes a capital letter other than I, O and Q"
+    )]
+    SectionLetterUnusable(char),
+    #[error("Two section views of one drawing are both lettered '{0}'")]
+    SectionLetterRepeated(char),
+    #[error(
+        "Section {letter}\u{2013}{letter} cannot cut along the {plane}, since the {view} view sees that plane face on rather than as a line. Choose another plane or parent view."
+    )]
+    SectionPlaneFacesParent {
+        letter: char,
+        plane: &'static str,
+        view: &'static str,
+    },
+    #[error(
+        "The offset of section {letter}\u{2013}{letter} must be a number of at most {MAX_SECTION_OFFSET} mm either way"
+    )]
+    SectionOffsetOutOfRange { letter: char },
     #[error("A configuration needs a name")]
     ConfigurationNameEmpty,
     #[error(

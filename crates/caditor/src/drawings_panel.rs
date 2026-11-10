@@ -2,19 +2,21 @@ use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
     Document, Drawing, DrawingId, DrawingScale, DrawingViewError, FeatureId,
-    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, PlacedView, Projection, ScaleRatio, SheetMark,
-    SheetOrientation, SheetPlan, SheetSize, StandardView, TextAnchor, TitleFields, Transaction,
-    ViewLines, lay_out_sheet,
+    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, PlacedView, Projection, ScaleRatio, SectionPlace,
+    SectionPlane, SectionView, SheetMark, SheetOrientation, SheetPlan, SheetSize, StandardView,
+    TextAnchor, TitleFields, Transaction, ViewLines, hatch_lines, lay_out_sheet,
 };
+use caditor_expression::Dimension;
 use caditor_geometry::Point2;
 use caditor_kernel::{Curve2, ViewPiece, Visibility};
-use egui::{Align2, FontId, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2, vec2};
+use egui::{Align2, FontId, Id, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2, vec2};
 use thiserror::Error;
 
 use crate::{
     appearance::{self, SPACE_M, SPACE_S},
     commands::{Command, CommandFrame, Reason},
     feature_tree::count,
+    field::{self, ExpressionError},
     files::FileCommand,
     guide::Page,
     icons,
@@ -43,6 +45,17 @@ pub const USE_SELECTED: &str = "Use the selected bodies";
 pub const USE_EVERY_BODY: &str = "Draw every shown body";
 pub const HIDDEN_LINES: &str = "Hidden lines";
 pub const FIT_SCALE: &str = "Fit the sheet";
+pub const SECTION_VIEWS: &str = "Section views";
+pub const ADD_SECTION: &str = "Add a section view";
+pub const CUT_ON: &str = "Cut on";
+pub const CUT_PLANE: &str = "Plane";
+pub const THROUGH: &str = "Through";
+pub const CENTRE: &str = "Centre";
+pub const AT_OFFSET: &str = "Offset";
+pub const DISTANCE: &str = "Distance";
+pub const LOOK_BACK: &str = "Look the other way";
+pub const NO_SECTIONS: &str = "A section view cuts the bodies along a plane seen as a line in \
+                               one of the views, and shows the cut faces hatched.";
 const PANEL: RightPanel = RightPanel { id: "drawings" };
 const HEADER: PanelTitle<'static> = PanelTitle {
     glyph: icons::DRAWINGS,
@@ -62,6 +75,8 @@ const HIDDEN_DASH: f32 = 4.0;
 const HIDDEN_GAP: f32 = 3.0;
 const VISIBLE_WIDTH: f32 = 1.5;
 const THIN_WIDTH: f32 = 1.0;
+const CHAIN_DASHES: [f32; 2] = [12.0, 0.5];
+const CHAIN_GAPS: [f32; 2] = [3.0, 3.0];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SheetRefusal {
@@ -199,7 +214,7 @@ pub fn plan_of(
         .finished()
         .filter_map(|(view, lines)| Some((view, lines.bounds?)))
         .collect::<BTreeMap<_, _>>();
-    lay_out_sheet(drawing, &fields, &extents)
+    lay_out_sheet(drawing, &fields, &extents, &sheet.cuts())
 }
 
 fn apply_or_say(
@@ -506,6 +521,236 @@ fn settings(ui: &mut Ui, model: &Model, drawing: &Drawing, actions: &mut Vec<Act
     }
 }
 
+pub fn offset_field_id(drawing: DrawingId, letter: char) -> Id {
+    Id::unique(("drawing-section-offset", drawing.raw(), letter))
+}
+
+fn offset_text(model: &Model, offset: f64) -> String {
+    model
+        .document()
+        .expression_text(&model.units().measured(offset))
+}
+
+fn offset_row(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: DrawingId,
+    section: &SectionView,
+    offset: f64,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let parameters = model.parameters();
+    let units = model.units();
+    let letter = section.letter;
+    widgets::caption(ui, DISTANCE);
+    let field = field::value_field(
+        ui,
+        offset_field_id(drawing, letter),
+        &offset_text(model, offset),
+        widgets::FIELD_WIDTH,
+        false,
+        |text| -> Result<f64, ExpressionError> {
+            let parsed = field::parse_expression(
+                document,
+                parameters,
+                text,
+                field::Expected {
+                    dimension: Some(Dimension::LENGTH),
+                    non_negative: false,
+                },
+                units,
+            )?;
+            Ok(parameters
+                .evaluate_expression(&parsed)
+                .map_err(ExpressionError::Unevaluable)?
+                .value)
+        },
+    );
+    field.response.on_hover_text(format!(
+        "How far the plane stands from the origin along {}; units and parameters may be typed",
+        section.plane.axis_name()
+    ));
+    ui.end_row();
+    if let Some(error) = field.error {
+        widgets::error_row(ui, &error);
+    }
+    if let Some(value) = field.committed {
+        change(
+            model,
+            drawing,
+            "Move section plane",
+            |drawing| {
+                if let Some(section) = drawing.section_mut(letter) {
+                    section.place = SectionPlace::Offset(value);
+                }
+            },
+            actions,
+        );
+    }
+}
+
+fn section_settings(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: DrawingId,
+    section: &SectionView,
+    cut_at: Option<f64>,
+    actions: &mut Vec<Action>,
+) {
+    let letter = section.letter;
+    let edit = |label: &str, actions: &mut Vec<Action>, apply: &dyn Fn(&mut SectionView)| {
+        change(
+            model,
+            drawing,
+            label,
+            |drawing| {
+                if let Some(section) = drawing.section_mut(letter) {
+                    apply(section);
+                }
+            },
+            actions,
+        );
+    };
+    widgets::properties(ui, ("drawing-section", drawing.raw(), letter), |ui| {
+        widgets::property(ui, CUT_ON, |ui| {
+            let mut chosen = None;
+            widgets::combo(
+                ("drawing-section-parent", drawing.raw(), letter),
+                format!("{} view", section.parent.name()),
+            )
+            .hover("The view the cutting line is drawn on")
+            .show(ui, |ui| {
+                for view in StandardView::SECTIONED {
+                    let label = format!("{} view", view.name());
+                    if widgets::menu_option(ui, view == section.parent, &label).clicked() {
+                        chosen = Some(view);
+                    }
+                }
+            });
+            if let Some(parent) = chosen {
+                edit("Change section parent view", actions, &|section| {
+                    section.parent = parent;
+                    if !section.plane.is_edge_on_in(parent)
+                        && let Some(plane) = SectionPlane::edge_on_in(parent).next()
+                    {
+                        section.plane = plane;
+                    }
+                });
+            }
+        });
+        widgets::property(ui, CUT_PLANE, |ui| {
+            let planes: Vec<SectionPlane> = SectionPlane::edge_on_in(section.parent).collect();
+            let hovers: Vec<String> = planes
+                .iter()
+                .map(|plane| format!("Cut square to {}", plane.axis_name()))
+                .collect();
+            let choices: Vec<(&str, &str)> = planes
+                .iter()
+                .zip(&hovers)
+                .map(|(plane, hover)| (plane.name(), hover.as_str()))
+                .collect();
+            let selected = planes
+                .iter()
+                .position(|plane| *plane == section.plane)
+                .unwrap_or(usize::MAX);
+            if let Some(plane) = widgets::segmented(ui, &choices, selected)
+                .and_then(|index| planes.get(index).copied())
+            {
+                edit("Change section plane", actions, &|section| {
+                    section.plane = plane;
+                });
+            }
+        });
+        widgets::property(ui, THROUGH, |ui| {
+            let choices = [
+                (CENTRE, "Through the middle of the drawn bodies"),
+                (AT_OFFSET, "At a distance from the origin"),
+            ];
+            let selected = match section.place {
+                SectionPlace::Centre => 0,
+                SectionPlace::Offset(_) => 1,
+            };
+            match widgets::segmented(ui, &choices, selected) {
+                Some(0) => edit("Cut through the centre", actions, &|section| {
+                    section.place = SectionPlace::Centre;
+                }),
+                Some(1) => {
+                    let start = cut_at.unwrap_or(0.0);
+                    edit("Move section plane", actions, &|section| {
+                        section.place = SectionPlace::Offset(start);
+                    });
+                }
+                _ => {}
+            }
+        });
+        if let SectionPlace::Offset(offset) = section.place {
+            offset_row(ui, model, drawing, section, offset, actions);
+        }
+    });
+    let mut reversed = section.reversed;
+    if widgets::checkbox(ui, &mut reversed, LOOK_BACK)
+        .on_hover_text("Keep the other side of the plane and look at it from this side")
+        .changed()
+    {
+        edit("Turn section view", actions, &|section| {
+            section.reversed = reversed;
+        });
+    }
+}
+
+fn sections_rows(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: &Drawing,
+    sheet: &SheetViews,
+    actions: &mut Vec<Action>,
+) {
+    ui.add_space(SPACE_S);
+    ui.label(widgets::section_title(SECTION_VIEWS));
+    if drawing.sections.is_empty() {
+        ui.label(NO_SECTIONS);
+    }
+    let cuts = sheet.cuts();
+    for section in &drawing.sections {
+        let letter = section.letter;
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(ui, &format!("Section {}", section.label()), 1);
+            let delete = format!("Delete section {}", section.label());
+            if widgets::icon_button(ui, icons::DELETE, &delete).clicked() {
+                change(
+                    model,
+                    drawing.id,
+                    "Delete section view",
+                    |drawing| drawing.sections.retain(|kept| kept.letter != letter),
+                    actions,
+                );
+            }
+        });
+        let cut_at = cuts
+            .get(&letter)
+            .map(|cutting| cutting.origin().dot(section.plane.normal()));
+        section_settings(ui, model, drawing.id, section, cut_at, actions);
+    }
+    ui.add_space(SPACE_S);
+    let room = drawing.unused_section_letter().is_some();
+    let add = small_enabled(ui, room, icons::ADD, ADD_SECTION)
+        .on_hover_text(
+            "Cut the bodies along a principal plane and lay the section out beside the views",
+        )
+        .on_disabled_hover_text("A drawing holds a section view for each letter at most");
+    if add.clicked() {
+        apply_or_say(
+            model
+                .document()
+                .adding_section_view(drawing.id)
+                .map(|(transaction, _)| transaction),
+            actions,
+        );
+    }
+}
+
 fn bodies_row(
     ui: &mut Ui,
     model: &Model,
@@ -564,6 +809,10 @@ fn reason(error: &DrawingViewError) -> String {
         DrawingViewError::NoBodies => {
             "there is no body to draw: show a body, or choose bodies that are built".to_owned()
         }
+        DrawingViewError::PlaneMisses => "its cutting plane passes through none of the drawn \
+                                          bodies: cut through the centre, or choose an offset \
+                                          that crosses them"
+            .to_owned(),
         other => format!("{other}; change the model slightly or leave this view out"),
     }
 }
@@ -581,12 +830,21 @@ fn status(ui: &mut Ui, sheet: &SheetViews, plan: &SheetPlan) {
     for (view, error) in sheet.failed() {
         let response = widgets::callout(ui, Tone::Error, |ui| {
             ui.label(format!(
-                "The {} view could not be drawn: {}.",
-                view.name().to_lowercase(),
+                "The {} could not be drawn: {}.",
+                view.describe(),
                 reason(error)
             ))
         });
         widgets::announced(ui, &response, true);
+        ui.add_space(SPACE_S);
+    }
+    for letter in &plan.unmarked {
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.label(format!(
+                "The cutting line of section {letter}\u{2013}{letter} is not drawn, since the \
+                 view it is cut on is not on the sheet. Show that view, or cut on another."
+            ))
+        });
         ui.add_space(SPACE_S);
     }
     if sheet.is_ready() && !plan.fits && !plan.views.is_empty() {
@@ -639,6 +897,14 @@ fn view_lines(
     hidden_lines: bool,
     tokens: &appearance::Tokens,
 ) {
+    for region in lines.hatching() {
+        for (from, to) in hatch_lines(region, placed) {
+            painter.line_segment(
+                [mapping.screen(from), mapping.screen(to)],
+                Stroke::new(THIN_WIDTH, tokens.text_muted),
+            );
+        }
+    }
     for piece in lines.drawn_pieces(hidden_lines) {
         let points: Vec<Pos2> = sampled(piece)
             .into_iter()
@@ -763,6 +1029,24 @@ fn sheet_canvas(ui: &mut Ui, tool: &mut DrawingsTool, plan: &SheetPlan, hidden_l
             tokens.text,
         );
     }
+    for line in &plan.cutting {
+        let chain = [mapping.screen(line.chain.0), mapping.screen(line.chain.1)];
+        let dashes = CHAIN_DASHES.map(|length| (length * scale).max(1.0));
+        let gaps = CHAIN_GAPS.map(|length| (length * scale).max(1.0));
+        painter.extend(Shape::dashed_line_with_offset(
+            &chain,
+            Stroke::new(THIN_WIDTH, tokens.text),
+            &dashes,
+            &gaps,
+            0.0,
+        ));
+        for (from, to) in line.ends {
+            painter.line_segment(
+                [mapping.screen(from), mapping.screen(to)],
+                Stroke::new(VISIBLE_WIDTH, tokens.text),
+            );
+        }
+    }
     for placed in &plan.views {
         if let Some(lines) = tool
             .sheet
@@ -837,6 +1121,7 @@ pub fn show(
             renaming_row(ui, model, tool, drawing.id, actions);
             ui.add_space(SPACE_S);
             settings(ui, model, drawing, actions);
+            sections_rows(ui, model, drawing, &tool.sheet, actions);
             bodies_row(ui, model, drawing, context.selected, &tool.sheet, actions);
             ui.add_space(SPACE_M);
             status(ui, &tool.sheet, plan);

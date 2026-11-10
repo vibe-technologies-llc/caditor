@@ -193,21 +193,25 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Technical drawings
 
-- [medium · hard] Drawings have standard views only and nothing measured on them: a drawing
-  (`drawings.md`) lays out front, top, right, left and isometric views on an ISO sheet with a title
-  block and exports PDF, SVG or DXF, but has no section or detail views, no dimensions or notes
-  taken from the model (dimensions should refer to edges by `EdgeName`, so they survive edits as
-  features do), no views placed or moved by hand, and the sheet is previewed only inside the
-  Drawings panel rather than in a view of its own the size of the window.
+- [medium · hard] Drawings have nothing measured on them and no detail views: a drawing
+  (`drawings.md`) lays out front, top, right, left and isometric views and full section views on
+  principal planes on an ISO sheet with a title block and exports PDF, SVG or DXF, but has no
+  detail views (an enlarged circle of a view), no dimensions or notes taken from the model
+  (dimensions should refer to edges by `EdgeName`, so they survive edits as features do), no views
+  placed or moved by hand (section views always stand in a column right of the others), and the
+  sheet is previewed only inside the Drawings panel rather than in a view of its own the size of
+  the window.
+- [low · medium] Views and sheets beyond the standard ones and full principal sections: section
+  planes other than the principal ones (through a datum plane or a face, or offset along the
+  parent's own axes), stepped (offset) and aligned sections, half and broken-out sections,
+  auxiliary views square to an inclined face, broken views shortening a long part, cropped views,
+  several sheets per drawing, a revision table, a title block whose cells the user lays out, and
+  section hatching chosen per material (today one 45° pattern, alternating direction per cut body).
 - [medium · hard · blocked by: dimensions on drawings (above)] Annotations beyond plain dimensions
   and notes: centre marks and centrelines on holes and round edges, hole and thread callouts read
   from the hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus,
   limits, ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture
   symbols (ISO 21920) and weld symbols (ISO 2553).
-- [low · medium · blocked by: section views (above)] Views and sheets beyond the standard ones:
-  auxiliary views square to an inclined face, broken views shortening a long part, broken-out and
-  half sections, cropped views, several sheets per drawing, a revision table, a title block whose
-  cells the user lays out, and section hatching chosen per material.
 
 ## Application
 

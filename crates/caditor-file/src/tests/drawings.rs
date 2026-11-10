@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, fs};
 
 use caditor_document::{
-    Drawing, DrawingId, DrawingScale, Drawings, Projection, ScaleRatio, SheetOrientation,
-    SheetSize, StandardView,
+    Drawing, DrawingId, DrawingScale, Drawings, Projection, ScaleRatio, SectionPlace, SectionPlane,
+    SectionView, SheetOrientation, SheetSize, StandardView,
 };
 
 use super::*;
@@ -23,6 +23,40 @@ pub(super) fn drawings_of(base: FeatureId) -> Drawings {
         drawings: vec![workshop, overview],
         next_id: 5,
     }
+}
+
+pub(super) fn sectioned_drawings_of(base: FeatureId) -> Drawings {
+    let mut drawings = drawings_of(base);
+    if let Some(workshop) = drawings.drawings.first_mut() {
+        workshop.sections = vec![
+            SectionView {
+                letter: 'A',
+                parent: StandardView::Front,
+                plane: SectionPlane::Yz,
+                place: SectionPlace::Centre,
+                reversed: false,
+            },
+            SectionView {
+                letter: 'C',
+                parent: StandardView::Left,
+                plane: SectionPlane::Xy,
+                place: SectionPlace::Offset(-2.5),
+                reversed: true,
+            },
+        ];
+    }
+    drawings
+}
+
+pub(super) fn with_section_views() -> (Document, Transaction) {
+    let (document, base, _) = solid_model();
+    let change = Transaction::single(
+        "Section views",
+        Edit::SetDrawings {
+            drawings: Box::new(sectioned_drawings_of(base)),
+        },
+    );
+    (document, change)
 }
 
 pub(super) fn with_drawings() -> (Document, Transaction) {
@@ -133,4 +167,76 @@ fn drawings_that_cannot_be_read_are_repaired_and_reported() {
     assert!(issues_mention(&loaded, "The scale of the drawing “shop 2”"));
     assert!(issues_mention(&loaded, "A drawing had no name"));
     assert!(issues_mention(&loaded, "A drawing could not be read"));
+}
+
+#[test]
+fn section_views_survive_saving_and_the_journal() {
+    let (mut document, change) = with_section_views();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+
+    assert!(text.contains("\"sections\""), "{text}");
+    assert!(text.contains("\"offset\":-2.5"), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn drawings_saved_before_section_views_load_with_none() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/model-1");
+    let bytes = fs::read(folder.join("drawings.caditor")).unwrap();
+
+    let loaded = decode(&bytes).unwrap();
+
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document.drawings().drawings.len(), 2);
+    assert!(
+        loaded
+            .document
+            .drawings()
+            .drawings
+            .iter()
+            .all(|drawing| drawing.sections.is_empty())
+    );
+}
+
+#[test]
+fn section_views_that_cannot_be_read_are_repaired_and_reported() {
+    let (document, _, _) = solid_model();
+    let drawings = r#"{"drawings":{"drawings":[{"id":1,"name":"Shop","views":["front"],"sections":[{"letter":"A","parent":"front","plane":"xz","place":{"offset":3.0}},{"letter":"A","parent":"bottom","plane":"yz","place":"anywhere","reversed":true},{"letter":"Q","parent":"top","plane":"tilted","place":{"offset":1e300}},{"parent":"front"},7]}],"next_id":2}}"#;
+    let text = format!("{}\n{drawings}", encode(&document).unwrap());
+
+    let loaded = decode_text(&text);
+    let sections = &loaded.document.drawings().drawings[0].sections;
+    let letters: Vec<char> = sections.iter().map(|section| section.letter).collect();
+
+    assert_eq!(letters, ['A', 'B', 'C']);
+    assert_eq!(sections[0].plane, SectionPlane::Yz);
+    assert_eq!(sections[0].place, SectionPlace::Offset(3.0));
+    assert_eq!(sections[1].parent, StandardView::Front);
+    assert_eq!(sections[1].place, SectionPlace::Centre);
+    assert!(sections[1].reversed);
+    assert_eq!(sections[2].parent, StandardView::Top);
+    assert_eq!(sections[2].plane, SectionPlane::Yz);
+    assert_eq!(sections[2].place, SectionPlace::Centre);
+    assert!(issues_mention(&loaded, "The plane of section A\u{2013}A"));
+    assert!(issues_mention(&loaded, "so it is B\u{2013}B"));
+    assert!(issues_mention(
+        &loaded,
+        "The view section B\u{2013}B is cut on"
+    ));
+    assert!(issues_mention(&loaded, "Where section B\u{2013}B cuts"));
+    assert!(issues_mention(&loaded, "Where section C\u{2013}C cuts"));
+    assert!(issues_mention(
+        &loaded,
+        "A section view of the drawing “Shop” could not be read"
+    ));
 }

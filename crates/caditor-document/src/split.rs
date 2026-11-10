@@ -518,7 +518,7 @@ fn swept(
         .map_err(|error| context.swept_failure(sketch, error))
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum HalfSpaceError {
     #[error("the body has no extent")]
     NoExtent,

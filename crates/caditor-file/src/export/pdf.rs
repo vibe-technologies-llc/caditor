@@ -22,6 +22,8 @@ const HIDDEN_DASH: f64 = 3.0;
 const HIDDEN_GAP: f64 = 1.5;
 const CONSTRUCTION_DASH: f64 = 1.0;
 const CONSTRUCTION_GAP: f64 = 0.5;
+const THIN_WIDTH: f64 = 0.25;
+const CHAIN: [f64; 4] = [12.0, 3.0, 0.5, 3.0];
 const POINT_RADIUS: f64 = 0.25;
 const BEZIER_STEPS: usize = 8;
 const HEADER: &[u8] = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
@@ -190,14 +192,16 @@ fn stroked(text: &mut String, shape: &Shape) -> Result<(), ExportError> {
     }
 }
 
-fn layer_style(layer: Layer) -> (f64, Option<(f64, f64)>) {
+fn layer_style(layer: Layer) -> (f64, &'static [f64]) {
     match layer {
-        Layer::Visible => (VISIBLE_WIDTH, None),
-        Layer::Hidden => (HIDDEN_WIDTH, Some((HIDDEN_DASH, HIDDEN_GAP))),
-        Layer::Frame => (FRAME_WIDTH, None),
-        Layer::Construction => (HAIRLINE, Some((CONSTRUCTION_DASH, CONSTRUCTION_GAP))),
+        Layer::Visible => (VISIBLE_WIDTH, &[]),
+        Layer::Hidden => (HIDDEN_WIDTH, &[HIDDEN_DASH, HIDDEN_GAP]),
+        Layer::Hatching => (THIN_WIDTH, &[]),
+        Layer::Cutting => (THIN_WIDTH, &CHAIN),
+        Layer::Frame => (FRAME_WIDTH, &[]),
+        Layer::Construction => (HAIRLINE, &[CONSTRUCTION_DASH, CONSTRUCTION_GAP]),
         Layer::Sketch | Layer::Outline | Layer::Holes | Layer::Dimensions | Layer::Labels => {
-            (HAIRLINE, None)
+            (HAIRLINE, &[])
         }
     }
 }
@@ -215,16 +219,11 @@ fn content(figure: &Figure) -> Result<String, ExportError> {
     for layer in figure.layers() {
         let (width, dash) = layer_style(layer);
         let styled = |text: &mut String| -> std::fmt::Result {
-            match dash {
-                Some((on, off)) => writeln!(
-                    text,
-                    "{} w [{} {}] 0 d",
-                    Number(width),
-                    Number(on),
-                    Number(off)
-                ),
-                None => writeln!(text, "{} w [] 0 d", Number(width)),
-            }
+            let pattern: Vec<String> = dash
+                .iter()
+                .map(|length| Number(*length).to_string())
+                .collect();
+            writeln!(text, "{} w [{}] 0 d", Number(width), pattern.join(" "))
         };
         styled(&mut text).map_err(|_| ExportError::Encoding)?;
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {

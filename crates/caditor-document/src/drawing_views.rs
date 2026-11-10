@@ -3,17 +3,18 @@ use std::{
     sync::Arc,
 };
 
-use caditor_geometry::{Aabb, Aabb2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector3};
 use caditor_kernel::{
-    HiddenLineError, HiddenLineView, MeshQuality, Solid, ViewEdgeKind, ViewPiece, ViewSource,
-    Visibility, hidden_lines,
+    BooleanError, HiddenLineError, HiddenLineView, MeshQuality, Solid, ViewEdgeKind, ViewPiece,
+    ViewSource, Visibility, hidden_lines,
 };
 use thiserror::Error;
 
 use crate::{
     document::{Document, FeatureId},
-    drawings::{Drawing, StandardView},
+    drawings::{Drawing, DrawnView, StandardView},
     recompute::{Evaluation, FeatureResult},
+    split::HalfSpaceError,
 };
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -26,6 +27,12 @@ pub enum DrawingViewError {
     Lines(HiddenLineError),
     #[error("working out its lines failed unexpectedly")]
     Panicked,
+    #[error("the cutting plane passes through none of the bodies")]
+    PlaneMisses,
+    #[error("the cutting plane could not be placed across a body: {0}")]
+    CuttingSpace(HalfSpaceError),
+    #[error("a body could not be cut along the plane: {0}")]
+    Cut(BooleanError),
 }
 
 impl From<HiddenLineError> for DrawingViewError {
@@ -55,18 +62,38 @@ impl StandardView {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct HatchRegion {
+    pub edges: Vec<(Point2, Point2)>,
+    pub angle: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SectionLines {
+    pub cutting: Plane,
+    pub hatching: Vec<HatchRegion>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ViewLines {
-    pub view: StandardView,
+    pub view: DrawnView,
     pub pieces: Vec<ViewPiece>,
     pub bounds: Option<Aabb2>,
     pub undecided: usize,
+    pub section: Option<SectionLines>,
 }
 
 impl ViewLines {
     pub fn drawn_pieces(&self, hidden: bool) -> impl Iterator<Item = &ViewPiece> {
+        let hidden = hidden && self.section.is_none();
         self.pieces
             .iter()
             .filter(move |piece| hidden || piece.visibility == Visibility::Visible)
+    }
+
+    pub fn hatching(&self) -> &[HatchRegion] {
+        self.section
+            .as_ref()
+            .map_or(&[], |section| section.hatching.as_slice())
     }
 }
 
@@ -77,7 +104,7 @@ fn drawn(piece: &ViewPiece) -> bool {
     }
 }
 
-fn scene_extent(solids: &[&Solid]) -> f64 {
+pub(crate) fn scene_extent(solids: &[&Solid]) -> f64 {
     solids
         .iter()
         .filter_map(|solid| solid.bounding_box())
@@ -87,14 +114,14 @@ fn scene_extent(solids: &[&Solid]) -> f64 {
         .unwrap_or(0.0)
 }
 
-pub fn drawing_view(view: StandardView, solids: &[&Solid]) -> Result<ViewLines, DrawingViewError> {
-    if solids.is_empty() {
-        return Err(DrawingViewError::NoBodies);
-    }
+pub(crate) fn lines_seen(
+    view: DrawnView,
+    looking: &HiddenLineView,
+    solids: &[&Solid],
+) -> Result<ViewLines, DrawingViewError> {
     let tolerance = MeshQuality::SMOOTH.tolerance(scene_extent(solids));
-    let looking = view.hidden_line_view()?;
     let lines = panic::catch_unwind(AssertUnwindSafe(|| {
-        hidden_lines(solids, &looking, &tolerance)
+        hidden_lines(solids, looking, &tolerance)
     }))
     .map_err(|_| DrawingViewError::Panicked)??;
     let pieces: Vec<ViewPiece> = lines.pieces.into_iter().filter(drawn).collect();
@@ -107,7 +134,16 @@ pub fn drawing_view(view: StandardView, solids: &[&Solid]) -> Result<ViewLines, 
         pieces,
         bounds,
         undecided: lines.undecided,
+        section: None,
     })
+}
+
+pub fn drawing_view(view: StandardView, solids: &[&Solid]) -> Result<ViewLines, DrawingViewError> {
+    if solids.is_empty() {
+        return Err(DrawingViewError::NoBodies);
+    }
+    let looking = view.hidden_line_view()?;
+    lines_seen(DrawnView::Standard(view), &looking, solids)
 }
 
 #[derive(Debug, Clone, Default)]

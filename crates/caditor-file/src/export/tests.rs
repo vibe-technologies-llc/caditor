@@ -2623,6 +2623,12 @@ fn sheet_lines(
         .views
         .iter()
         .map(|view| caditor_document::drawing_view(*view, solids).unwrap())
+        .chain(
+            drawing
+                .sections
+                .iter()
+                .map(|section| caditor_document::section_view(section, solids).unwrap()),
+        )
         .collect()
 }
 
@@ -2642,7 +2648,7 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
         title: "Bracket".to_owned(),
         ..caditor_document::TitleFields::default()
     };
-    let plan = caditor_document::lay_out_sheet(&drawing, &fields, &extents);
+    let plan = caditor_document::lay_out_sheet(&drawing, &fields, &extents, &BTreeMap::new());
     let views: Vec<SheetView<'_>> = plan
         .views
         .iter()
@@ -2711,4 +2717,86 @@ fn a_drawing_sheet_writes_its_views_and_title_block_as_pdf_svg_and_dxf() {
     assert!(read_back.layers.iter().any(|layer| layer == "Visible"));
     assert!(read_back.layers.iter().any(|layer| layer == "Frame"));
     assert!(!read_back.construction.is_empty());
+}
+
+#[test]
+fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
+    let (block, pin) = (block(), pin());
+    let mut drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Sections".to_owned(),
+    );
+    drawing.sections = vec![caditor_document::SectionView {
+        letter: 'A',
+        parent: caditor_document::StandardView::Front,
+        plane: caditor_document::SectionPlane::Yz,
+        place: caditor_document::SectionPlace::Offset(20.0),
+        reversed: false,
+    }];
+    let lines = sheet_lines(&drawing, &[&block, &pin]);
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let cuts = lines
+        .iter()
+        .filter_map(|lines| match (lines.view, &lines.section) {
+            (caditor_document::DrawnView::Section(letter), Some(section)) => {
+                Some((letter, section.cutting))
+            }
+            _ => None,
+        })
+        .collect();
+    let plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &cuts,
+    );
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .filter_map(|placed| {
+            Some(SheetView {
+                placed: *placed,
+                lines: lines.iter().find(|lines| lines.view == placed.view)?,
+            })
+        })
+        .collect();
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("sheet.{}", format.extension()));
+
+    let written: Vec<SheetExported> = SheetFormat::ALL
+        .into_iter()
+        .map(|format| {
+            export_sheet(
+                &path(format),
+                &plan,
+                &views,
+                true,
+                format,
+                &CancelToken::never(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+    let dxf = std::fs::read(path(SheetFormat::Dxf)).unwrap();
+    let dxf_text = String::from_utf8_lossy(&dxf);
+    let pdf = std::fs::read(path(SheetFormat::Pdf)).unwrap();
+    let pdf_text = String::from_utf8_lossy(&pdf);
+    let read_back = crate::parse_dxf(&dxf).unwrap();
+
+    assert_eq!(plan.cutting.len(), 1);
+    assert!(plan.unmarked.is_empty());
+    assert_eq!(written[0].views, 5);
+    assert!(written[0].hatching > 0);
+    assert!(written.iter().all(|exported| *exported == written[0]));
+    assert!(svg.contains(r#"<g id="Hatching""#));
+    assert!(svg.contains(r#"<g id="Cutting""#));
+    assert!(svg.contains(">A\u{2013}A</text>"));
+    assert!(dxf_text.contains("DASHDOT"));
+    assert!(read_back.layers.iter().any(|layer| layer == "Hatching"));
+    assert!(read_back.layers.iter().any(|layer| layer == "Cutting"));
+    assert!(pdf_text.contains("[12 3 0.5 3] 0 d"));
 }
