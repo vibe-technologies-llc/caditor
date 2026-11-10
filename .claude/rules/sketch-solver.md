@@ -115,8 +115,18 @@ paths:
   4.2 million, settling 0.4 million, reaching 0.9 million), a 2,000-line one in about 82 million
   (`FROZEN` 55 million, settling 3.4 million, reaching 23 million; an ignored test in
   `reach_tests.rs`, run nightly). Each further frame of such a drag, from the last frame's
-  stretched pose, takes about 2.7 million units on 500 lines (`FROZEN` 1.7 million) and 19 million
-  on 2,000 (`FROZEN` 10 million).
+  stretched pose, is reaching alone: about 0.9 million units on 500 lines and 5 million on 2,000
+  (2.7 and 18 million when it went through `FROZEN` and settling again).
+- A drag's memo remembers a part that ended a frame beyond reach (`SolveMemo::beyond_reach`): one
+  above `DENSE_LIMIT` held only by dragged variables whose targets it did not meet within the
+  tolerance, keyed by the dragged variables' names and the part's memo `Key` taken at the pose it
+  ended on, with the targets it was aiming at. The next frame, starting from exactly that pose
+  (the app solves each frame from the last one's sketch and memo), skips `FROZEN`, settling and
+  `STIFF` for it and reaches from the drawn pose, as long as the new targets lie on the far side of
+  the last miss (`(new target − drawn) · (last target − drawn) > 0`, the supporting half-plane of a
+  convex reach), since a pointer pulled back within reach gets `FROZEN`'s nearer pose. Any change
+  to the part's entities, constraints, dimensions, scale or pose, or another dragged point, misses
+  the key; a frame meeting its targets remembers nothing.
 - `drag_solver.rs` runs it on its own worker thread through `solve_geometry_from`: the same solve
   without rank and degrees-of-freedom analysis, returning a memo whose parts are marked not
   analysed, so they warm-start a later solve but never stand in for its analysis.

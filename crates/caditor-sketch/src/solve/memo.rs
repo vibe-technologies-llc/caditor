@@ -39,10 +39,17 @@ struct Outcome {
     contributions: Vec<(ConstraintId, bool, Vec<ConstraintId>)>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct BeyondReach {
+    dragged: Vec<Variable>,
+    from: Key,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SolveMemo {
     anchors: Vec<u64>,
     outcomes: BTreeMap<Key, Outcome>,
+    beyond_reach: BTreeMap<BeyondReach, Vec<f64>>,
     recalled: usize,
 }
 
@@ -54,9 +61,17 @@ impl SolveMemo {
     pub fn recalled(&self) -> usize {
         self.recalled
     }
+
+    pub fn beyond_reach(&self) -> usize {
+        self.beyond_reach.len()
+    }
 }
 
 pub(crate) struct Recall<'a> {
+    system: &'a System,
+    dimensions: &'a DimensionValues,
+    names: Names,
+    targets: &'a [(usize, f64)],
     parts: &'a [Component],
     keys: Vec<Option<Key>>,
     part_from_first_equation: Vec<Option<usize>>,
@@ -64,14 +79,26 @@ pub(crate) struct Recall<'a> {
     next: SolveMemo,
 }
 
+pub(crate) struct Held<'a> {
+    pub stiff: &'a BTreeSet<usize>,
+    pub targets: &'a [(usize, f64)],
+}
+
+struct Aimed {
+    beyond: BeyondReach,
+    variables: Vec<usize>,
+    aims: Vec<f64>,
+}
+
 impl<'a> Recall<'a> {
     pub fn new(
-        system: &System,
-        dimensions: &DimensionValues,
+        system: &'a System,
+        dimensions: &'a DimensionValues,
         parts: &'a [Component],
-        stiff: &BTreeSet<usize>,
+        held: Held<'a>,
         previous: Option<&'a SolveMemo>,
     ) -> Self {
+        let Held { stiff, targets } = held;
         let names = Names::of(system);
         let anchors = system.anchor_bits();
         let keys = parts
@@ -83,7 +110,10 @@ impl<'a> Recall<'a> {
                         .iter()
                         .any(|variable| stiff.contains(variable));
                 remembered
-                    .then(|| Key::of(system, dimensions, component, &names))
+                    .then(|| {
+                        let scale = system.context_of(component).scale;
+                        Key::of(system, &system.values, scale, dimensions, component, &names)
+                    })
                     .flatten()
             })
             .collect();
@@ -98,6 +128,10 @@ impl<'a> Recall<'a> {
             }
         }
         Self {
+            system,
+            dimensions,
+            names,
+            targets,
             parts,
             keys,
             part_from_first_equation,
@@ -163,6 +197,69 @@ impl<'a> Recall<'a> {
             contributions: Vec::new(),
         };
         self.remember(key, outcome);
+    }
+
+    pub fn ended_beyond_reach(&self, component: &Component, drawn: &[f64]) -> bool {
+        let Some(previous) = self.previous else {
+            return false;
+        };
+        let Some(aimed) = self.aimed_from(component, drawn) else {
+            return false;
+        };
+        let Some(aimed_before) = previous.beyond_reach.get(&aimed.beyond) else {
+            return false;
+        };
+        let along_the_last_miss: f64 = aimed
+            .variables
+            .iter()
+            .zip(&aimed.aims)
+            .zip(aimed_before)
+            .map(|((variable, aim), before)| {
+                let at = value(drawn, *variable);
+                (aim - at) * (before - at)
+            })
+            .sum();
+        along_the_last_miss > 0.0
+    }
+
+    pub fn remember_beyond_reach(&mut self, component: &Component, ended: &[f64]) {
+        if let Some(Aimed { beyond, aims, .. }) = self.aimed_from(component, ended) {
+            self.next.beyond_reach.insert(beyond, aims);
+        }
+    }
+
+    fn aimed_from(&self, component: &Component, values: &[f64]) -> Option<Aimed> {
+        let (variables, aims): (Vec<usize>, Vec<f64>) = component
+            .variables
+            .iter()
+            .filter_map(|variable| {
+                self.targets
+                    .iter()
+                    .find(|(aimed, _)| aimed == variable)
+                    .map(|(_, to)| (*variable, *to))
+            })
+            .unzip();
+        if variables.is_empty() {
+            return None;
+        }
+        let dragged = variables
+            .iter()
+            .map(|variable| self.names.variables.get(*variable).copied().flatten())
+            .collect::<Option<Vec<_>>>()?;
+        let scale = self.system.context_at(component, values).scale;
+        let from = Key::of(
+            self.system,
+            values,
+            scale,
+            self.dimensions,
+            component,
+            &self.names,
+        )?;
+        Some(Aimed {
+            beyond: BeyondReach { dragged, from },
+            variables,
+            aims,
+        })
     }
 
     pub fn finish(self) -> SolveMemo {
@@ -330,6 +427,8 @@ impl Key {
 
     fn of(
         system: &System,
+        start: &[f64],
+        scale: f64,
         dimensions: &DimensionValues,
         component: &Component,
         names: &Names,
@@ -354,7 +453,7 @@ impl Key {
             .iter()
             .map(|index| {
                 let name = names.variables.get(*index).copied().flatten()?;
-                Some((name, value(&system.values, *index).to_bits()))
+                Some((name, value(start, *index).to_bits()))
             })
             .collect::<Option<Vec<_>>>()?;
         let weights = entities
@@ -383,7 +482,7 @@ impl Key {
             })
             .collect();
         Some(Self {
-            scale: system.context_of(component).scale.to_bits(),
+            scale: scale.to_bits(),
             weights,
             meshes,
             entities,
