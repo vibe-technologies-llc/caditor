@@ -192,3 +192,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   multisampled texture as `TEXTURE_2D` (`gles::Texture::get_info_from_desc` never chooses
   `TEXTURE_2D_MULTISAMPLE`), so every sample reads as zero there and the frame comes out black. It
   needs that fixed in wgpu, or a GL-only blit resolve into an sRGB texture.
+
+## MCP server
+
+- [medium · easy] `add_extrusion` drops an asked `reversed` when no `operation` is given: the
+  `(None, None)` branch of `mcp::solids` takes `extrusion_detection::extrusion`'s extent, and
+  detection sets the side itself (`directed(template, false)` for a new body), so a profile on XZ
+  extruded with `reversed: true` still goes toward -Y. The `operation` branch keeps the asked side.
+  An `edit_feature` with `reversed` applies it, so the edit seems to flip a flag the answer said was
+  already set. Detection should keep the asked side and only choose the operation; pin it with a
+  test in `mcp/edit_tests.rs` extruding an XZ sketch with `reversed: true` and checking +Y.
