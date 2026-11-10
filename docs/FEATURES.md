@@ -122,8 +122,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
 - [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
-  point has no curvature handle (a second-derivative row would join `HandledLayout`'s derivative rows, but a handle line carries only direction and pull, so the curvature needs its own dimension or vector, a new constraint kind with file record and glyph); the degree is chosen only after drawing and only for open
-  control-point splines (a closed spline stays cubic, and the spline tool draws cubic ones); a
+  point has no curvature handle (a second-derivative row would join `HandledLayout`'s derivative rows, but a handle line carries only direction and pull, so the curvature needs its own dimension or vector, a new constraint kind with file record and glyph); the degree is chosen only for open
+  control-point splines, not closed ones (a closed spline stays cubic: a degree-carrying closed kind
+  would need the periodic knots of `curve::looped_knots`, the solver's `periodic_handle`, trim's
+  `Knotted::periodic` and point insertion's `Plan::looped` to take a degree instead of the cubic
+  `MAX_SPLINE_DEGREE`, and a file record for it); a
   point cannot be removed while keeping the shape (only approximately possible); and a point cannot be inserted into a conic
   keeping the shape (its two halves would be rational arcs with weights of their own, which no
   spline kind but the conic holds).

@@ -216,6 +216,8 @@ const DRAW_MENU: &[&[Command]] = &[
         Command::ReverseArc,
         Command::MoreSides,
         Command::FewerSides,
+        Command::MoreDegree,
+        Command::FewerDegree,
     ],
     &[
         Command::TypeValue,

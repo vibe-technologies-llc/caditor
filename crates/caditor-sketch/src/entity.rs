@@ -208,7 +208,7 @@ pub const MAX_RHO: f64 = 0.99;
 pub const MIN_PIECE_POINTS: usize = 5;
 pub const MIN_DEGREE: usize = 1;
 pub const MAX_DEGREE: usize = 25;
-const CUBIC_DEGREE: usize = 3;
+pub const CUBIC_DEGREE: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FitSpacing {
@@ -318,6 +318,12 @@ impl SplineKind {
             degree,
             spans: vec![1.0 / spans as f64; spans],
         })
+    }
+
+    pub fn drawn(degree: usize, points: usize) -> Self {
+        let reachable = points.saturating_sub(1).max(MIN_DEGREE);
+        let degree = degree.clamp(MIN_DEGREE, MAX_DEGREE).min(reachable);
+        Self::graded(degree, points).unwrap_or(Self::OPEN)
     }
 
     pub fn degree_is_valid(degree: usize) -> bool {
