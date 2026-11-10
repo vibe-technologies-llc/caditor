@@ -25,7 +25,10 @@ pub fn extrusion(
     template: &Extrude,
     standing_on: Option<FeatureId>,
     chosen: Option<FeatureId>,
+    asked_side: Option<bool>,
 ) -> Detected {
+    let into_face = asked_side.unwrap_or(true);
+    let away_from_face = asked_side.unwrap_or(false);
     let deadline = Instant::now() + REACH_BUDGET;
     let footprint_of = standing_on.filter(|body| chosen.is_none_or(|chosen| chosen == *body));
     let sweep = |reversed: bool| {
@@ -50,7 +53,7 @@ pub fn extrusion(
     if let Some(body) = cutting {
         let cut = |through: bool, told: Option<String>| Detected {
             operation: BodyOperation::Remove(body),
-            extent: cut_extent(template, through),
+            extent: cut_extent(template, through, into_face),
             told,
         };
         let unsure = || {
@@ -59,7 +62,7 @@ pub fn extrusion(
                 label(body)
             ))
         };
-        match sweep(true) {
+        match sweep(into_face) {
             None => return cut(false, unsure()),
             Some(reaches) => match reaches.verdict(body) {
                 Verdict::Overlaps(reached) if reached.spans_footprint == Some(true) => {
@@ -94,7 +97,7 @@ pub fn extrusion(
         let reached = found.reaching(chosen)?;
         Some((reached.body, found.meeting(reach.evaluation, reached)))
     };
-    let forward = sweep(false);
+    let forward = sweep(away_from_face);
     let edgewise = match joining(&forward) {
         Some((body, meeting @ (Meeting::Joins | Meeting::Unchecked))) => {
             let note = match meeting {
@@ -110,7 +113,7 @@ pub fn extrusion(
             };
             return Detected {
                 operation: BodyOperation::Add(body),
-                extent: directed(template, false).extent,
+                extent: directed(template, away_from_face).extent,
                 told: [told, note]
                     .into_iter()
                     .flatten()
@@ -120,7 +123,8 @@ pub fn extrusion(
         Some((body, Meeting::OnlyAlongAnEdge)) => Some(body),
         None => None,
     };
-    if forward.is_some()
+    if asked_side.is_none()
+        && forward.is_some()
         && let Some((body, Meeting::Joins | Meeting::Unchecked)) = joining(&sweep(true))
     {
         let other_way = if edgewise == Some(body) {
@@ -146,7 +150,7 @@ pub fn extrusion(
     }
     Detected {
         operation,
-        extent: directed(template, false).extent,
+        extent: directed(template, away_from_face).extent,
         told,
     }
 }
@@ -162,8 +166,8 @@ fn directed(template: &Extrude, reversed: bool) -> Extrude {
     directed
 }
 
-fn cut_extent(template: &Extrude, through: bool) -> ExtrudeExtent {
-    let mut extent = directed(template, true).extent;
+fn cut_extent(template: &Extrude, through: bool, reversed: bool) -> ExtrudeExtent {
+    let mut extent = directed(template, reversed).extent;
     if let (true, ExtrudeExtent::OneSide { end, .. }) = (through, &mut extent) {
         *end = ExtrudeEnd::ThroughAll;
     }
@@ -199,6 +203,7 @@ mod tests {
             },
             &template,
             Some(plate),
+            None,
             None,
         );
 
