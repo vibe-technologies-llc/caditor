@@ -63,11 +63,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
 
-- [low · medium] Building the tracks of `hidden_lines` and `outer_outline` (`tracks_of_scene`:
-  flattening, silhouettes, crossings and splits) still runs on one thread and is about half of the
-  one-thread time of a 200-face plate (22 of 42 ms in release), which bounds the gain of fanning
-  out the rays to about two.
-
 ## STEP import
 
 - [high · hard] Reading a large STEP file is bound by single parts: the VZ330's lead screw (406

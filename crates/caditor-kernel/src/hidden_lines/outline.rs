@@ -473,7 +473,7 @@ pub(super) fn outer_outline_on(
 ) -> Result<Vec<OutlinePiece>, HiddenLineError> {
     let plane = view.frame();
     let scene = Scene::of(&[solid]);
-    let (tracks, _) = tracks_of_scene(&scene, plane, tolerance)?;
+    let (tracks, _) = tracks_of_scene(&scene, plane, tolerance, threads)?;
     let runs = boundary_runs(&tracks, &scene, plane, threads)?;
     let runs = without_coincident(runs, &tracks, plane, tolerance.chord())?;
     let runs = joined_runs(runs, &tracks);

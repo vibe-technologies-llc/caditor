@@ -1,12 +1,17 @@
+use std::ops::Range;
+
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector2};
 
 use super::{HiddenLineError, Track, flatten::flat_vector};
-use crate::{box_tree::BoxTree, interrupt, interval::Interval, tally};
+use crate::{box_tree::BoxTree, fan_out, interrupt, interval::Interval, tally};
 
 const PARALLEL_SINE: f64 = 1e-12;
 const CROSSING_SLACK: f64 = 1e-9;
 const NEWTON_STEPS: usize = 6;
 const POLL_EVERY: usize = 64;
+const SEGMENTS_PER_CHUNK: usize = 4 * POLL_EVERY;
+const CHUNKS_PER_THREAD: usize = 2;
+const TRACKS_PER_CHUNK: usize = 16;
 const SINGULAR: f64 = 1e-18;
 
 #[derive(Debug, Clone, Copy)]
@@ -93,9 +98,30 @@ fn refined_crossing(
     }
 }
 
+#[derive(Default)]
+struct Splits(Vec<(usize, f64)>);
+
+impl Splits {
+    fn push(&mut self, track: usize, parameter: f64) {
+        self.0.push((track, parameter));
+    }
+
+    fn extend(&mut self, other: Splits) {
+        self.0.extend(other.0);
+    }
+
+    fn apply(self, tracks: &mut [Track]) {
+        for (track, parameter) in self.0 {
+            if let Some(track) = tracks.get_mut(track) {
+                track.splits.push(parameter);
+            }
+        }
+    }
+}
+
 fn add_crossing(
     tracks: &[Track],
-    splits: &mut [Vec<f64>],
+    splits: &mut Splits,
     first: &Segment,
     second: &Segment,
     view: &Plane,
@@ -120,12 +146,8 @@ fn add_crossing(
         (track_b, second, second.parameter_at(at_b.clamp(0.0, 1.0))),
         view,
     );
-    if let Some(split) = splits.get_mut(first.track) {
-        split.push(a);
-    }
-    if let Some(split) = splits.get_mut(second.track) {
-        split.push(b);
-    }
+    splits.push(first.track, a);
+    splits.push(second.track, b);
 }
 
 fn nearest_on(track: &Track, segment: &Segment, end: Point2, view: &Plane) -> Option<(f64, f64)> {
@@ -150,59 +172,108 @@ fn nearest_on(track: &Track, segment: &Segment, end: Point2, view: &Plane) -> Op
     Some((parameter, distance))
 }
 
-fn add_track_ends(
-    tracks: &[Track],
-    splits: &mut [Vec<f64>],
-    segments: &[Segment],
-    tree: &BoxTree,
+struct Reach<'a> {
+    tracks: &'a [Track],
+    segments: &'a [Segment],
+    tree: &'a BoxTree,
     reach: f64,
-    view: &Plane,
-) -> Result<(), HiddenLineError> {
-    for (index, track) in tracks.iter().enumerate() {
-        interrupt::check()?;
-        if track.closed {
-            continue;
-        }
-        for (parameter, end) in [track.samples.first(), track.samples.last()]
-            .into_iter()
-            .flatten()
-        {
-            let lifted = Aabb::from_point(Point3::new(end.x, end.y, 0.0));
-            for found in tree.overlapping(&lifted, reach) {
-                tally::add(1);
-                let Some(segment) = segments.get(found) else {
-                    continue;
-                };
-                let holds_this_end = segment.track == index
-                    && (segment.start.0 == *parameter || segment.end.0 == *parameter);
-                if holds_this_end {
+    view: &'a Plane,
+}
+
+impl Reach<'_> {
+    fn crossings_from(&self, indices: Range<usize>) -> Result<Splits, HiddenLineError> {
+        let mut splits = Splits::default();
+        for index in indices {
+            if index % POLL_EVERY == 0 {
+                interrupt::check()?;
+            }
+            let Some(segment) = self.segments.get(index) else {
+                continue;
+            };
+            for found in self.tree.overlapping(&segment.bounds(), self.reach) {
+                if found <= index {
                     continue;
                 }
-                let Some(other) = tracks.get(segment.track) else {
+                tally::add(1);
+                let Some(other) = self.segments.get(found) else {
                     continue;
                 };
-                let Some((on_other, distance)) = nearest_on(other, segment, *end, view) else {
+                if other.track == segment.track && other.index <= segment.index + 1 {
                     continue;
-                };
-                if distance <= reach
-                    && let Some(split) = splits.get_mut(segment.track)
-                {
-                    split.push(on_other);
+                }
+                add_crossing(self.tracks, &mut splits, segment, other, self.view);
+            }
+        }
+        Ok(splits)
+    }
+
+    fn track_ends_of(&self, indices: Range<usize>) -> Result<Splits, HiddenLineError> {
+        let mut splits = Splits::default();
+        for index in indices {
+            interrupt::check()?;
+            let Some(track) = self.tracks.get(index) else {
+                continue;
+            };
+            if track.closed {
+                continue;
+            }
+            for (parameter, end) in [track.samples.first(), track.samples.last()]
+                .into_iter()
+                .flatten()
+            {
+                let lifted = Aabb::from_point(Point3::new(end.x, end.y, 0.0));
+                for found in self.tree.overlapping(&lifted, self.reach) {
+                    tally::add(1);
+                    let Some(segment) = self.segments.get(found) else {
+                        continue;
+                    };
+                    let holds_this_end = segment.track == index
+                        && (segment.start.0 == *parameter || segment.end.0 == *parameter);
+                    if holds_this_end {
+                        continue;
+                    }
+                    let Some(other) = self.tracks.get(segment.track) else {
+                        continue;
+                    };
+                    let Some((on_other, distance)) = nearest_on(other, segment, *end, self.view)
+                    else {
+                        continue;
+                    };
+                    if distance <= self.reach {
+                        splits.push(segment.track, on_other);
+                    }
                 }
             }
         }
+        Ok(splits)
     }
-    Ok(())
 }
 
-fn add_turn_backs(tracks: &[Track], splits: &mut [Vec<f64>]) {
-    for (track, split) in tracks.iter().zip(splits.iter_mut()) {
+fn chunked(
+    count: usize,
+    chunk: usize,
+    threads: usize,
+    work: impl Fn(Range<usize>) -> Result<Splits, HiddenLineError> + Sync,
+) -> Result<Splits, HiddenLineError> {
+    let chunks = count.div_ceil(chunk);
+    let made = fan_out::each_in_order(chunks, threads, CHUNKS_PER_THREAD, |at| {
+        work(at * chunk..((at + 1) * chunk).min(count))
+    });
+    let mut splits = Splits::default();
+    for found in made {
+        splits.extend(found?);
+    }
+    Ok(splits)
+}
+
+fn add_turn_backs(tracks: &[Track], splits: &mut Splits) {
+    for (index, track) in tracks.iter().enumerate() {
         for triple in track.samples.windows(3) {
             let [(_, first), (middle_parameter, middle), (_, last)] = triple else {
                 continue;
             };
             if (*middle - *first).dot(*last - *middle) < 0.0 {
-                split.push(*middle_parameter);
+                splits.push(index, *middle_parameter);
             }
         }
     }
@@ -212,33 +283,27 @@ pub(super) fn add_crossings(
     tracks: &mut [Track],
     view: &Plane,
     chord: f64,
+    threads: usize,
 ) -> Result<(), HiddenLineError> {
     let segments = segments_of(tracks);
     let tree = BoxTree::new(segments.iter().map(Segment::bounds));
-    let mut splits: Vec<Vec<f64>> = vec![Vec::new(); tracks.len()];
-    let reach = 2.0 * chord;
-    for (index, segment) in segments.iter().enumerate() {
-        if index % POLL_EVERY == 0 {
-            interrupt::check()?;
-        }
-        for found in tree.overlapping(&segment.bounds(), reach) {
-            if found <= index {
-                continue;
-            }
-            tally::add(1);
-            let Some(other) = segments.get(found) else {
-                continue;
-            };
-            if other.track == segment.track && other.index <= segment.index + 1 {
-                continue;
-            }
-            add_crossing(tracks, &mut splits, segment, other, view);
-        }
-    }
-    add_track_ends(tracks, &mut splits, &segments, &tree, reach, view)?;
+    let reaching = Reach {
+        tracks,
+        segments: &segments,
+        tree: &tree,
+        reach: 2.0 * chord,
+        view,
+    };
+    let mut splits = chunked(segments.len(), SEGMENTS_PER_CHUNK, threads, |indices| {
+        reaching.crossings_from(indices)
+    })?;
+    splits.extend(chunked(
+        tracks.len(),
+        TRACKS_PER_CHUNK,
+        threads,
+        |indices| reaching.track_ends_of(indices),
+    )?);
     add_turn_backs(tracks, &mut splits);
-    for (track, found) in tracks.iter_mut().zip(splits) {
-        track.splits.extend(found);
-    }
+    splits.apply(tracks);
     Ok(())
 }
