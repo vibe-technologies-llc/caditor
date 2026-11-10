@@ -115,6 +115,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
+- [high · hard] A small fillet round a rounded-rectangle opening in a thin plate never returns: on a
+  166 mm square, 3 mm plate (a 15 mm rim round its other face), a 110×120 mm opening cut through
+  the plate with its four 3 mm corner edges filleted 12 mm, a 1.5 mm fillet of the eight edges
+  (four lines, four arcs) where the opening meets the plate's bare face keeps the recompute worker
+  busy on one core for minutes (stopped after three) with no answer, so the MCP `add_fillet` call
+  never replies. The same fillet round a 75 mm round opening in the same plate finishes at once.
+  It should finish or fail as the feature's error; whether cancelling the call stops it was not
+  checked.
+
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when
