@@ -773,6 +773,7 @@ pub fn create(
                 &template,
                 standing_on,
                 source.body,
+                None,
             );
             told = detected.told;
             SolidFeature::Extrude(Extrude {

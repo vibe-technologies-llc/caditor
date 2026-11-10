@@ -614,6 +614,7 @@ pub fn extrude_built(
                 &template,
                 standing_on,
                 chosen,
+                asked.reversed,
             );
             (
                 Extrude {

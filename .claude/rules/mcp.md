@@ -87,7 +87,8 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
   sketch makes them (`sketch_placement::attachment_in` on a face), geometry and constraints after
   settling the sketch to its last result as sketch tools do, constraints tried first with
   `constraint_trial::conflict`, extrusions through `extrusion_detection::extrusion` unless an
-  operation is given (a cut from a sketch on the cut body's face runs into it), holes from
+  operation is given (a cut from a sketch on the cut body's face runs into it; an asked `reversed`
+  is the side detection probes and keeps, it only chooses the operation), holes from
   `hole_tools::new_hole`, the swept sketch hidden as the tools hide it. Values are parsed by
   `field::parse_expression` in millimetres and degrees. A write answers with its change's label
   and every failing feature with the tree's reason and remedy, marked `new` when the change made it

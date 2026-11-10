@@ -22,6 +22,45 @@ fn square_sketch(client: &mut Client, corner: [f64; 2], side: f64) -> Value {
     sketch
 }
 
+fn extruded_y_range(client: &mut Client, arguments: Value) -> (f64, f64) {
+    let sketch = client.tool("add_sketch", json!({ "plane": "XZ" }))["sketch"]["id"].clone();
+    client.tool(
+        "add_sketch_geometry",
+        json!({
+            "sketch": sketch,
+            "items": [{ "kind": "rectangle", "corner": [0, 0], "opposite": [10, 10] }]
+        }),
+    );
+    let mut arguments = arguments;
+    arguments["sketch"] = sketch;
+    added(client, "add_extrusion", arguments);
+    let bodies = client.tool("list_bodies", json!({}));
+    let bounds = &bodies["bodies"][0]["bounding_box"];
+    (number(&bounds["min"][1]), number(&bounds["max"][1]))
+}
+
+#[test]
+fn an_extrusion_without_an_operation_keeps_the_side_it_was_asked_for() {
+    let folder = TempDir::new().unwrap();
+
+    let mut client = started(&folder);
+    let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5, "reversed": true }));
+    assert!(close(low, 0.0) && close(high, 5.0), "{low} {high}");
+    client.finish();
+
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5, "reversed": false }));
+    assert!(close(low, -5.0) && close(high, 0.0), "{low} {high}");
+    client.finish();
+
+    let folder = TempDir::new().unwrap();
+    let mut client = started(&folder);
+    let (low, high) = extruded_y_range(&mut client, json!({ "distance": 5 }));
+    assert!(close(low, -5.0) && close(high, 0.0), "{low} {high}");
+    client.finish();
+}
+
 #[test]
 fn features_are_edited_in_place_as_one_undo_step() {
     let folder = TempDir::new().unwrap();
