@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     Document, Drawing, DrawingId, DrawingScale, Drawings, FIRST_UNSTORABLE_ID, FeatureId,
-    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, Projection, ScaleRatio,
-    SheetOrientation, SheetSize, StandardView, drawing_name,
+    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET,
+    MAX_SECTION_VIEWS, Projection, SECTION_LETTERS, ScaleRatio, SectionPlace, SectionPlane,
+    SectionView, SheetOrientation, SheetSize, StandardView, drawing_name,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,45 @@ pub(crate) struct DrawingRecord {
     pub bodies: Vec<u64>,
     #[serde(default = "shown")]
     pub hidden_lines: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<Lenient<SectionRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SectionRecord {
+    pub letter: String,
+    #[serde(default)]
+    pub parent: String,
+    #[serde(default)]
+    pub plane: String,
+    #[serde(default = "centre")]
+    pub place: Lenient<PlaceRecord>,
+    #[serde(default)]
+    pub reversed: bool,
+}
+
+fn centre() -> Lenient<PlaceRecord> {
+    Lenient::Read(PlaceRecord::Centre)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlaceRecord {
+    Centre,
+    Offset(f64),
+}
+
+fn section_record(section: &SectionView) -> SectionRecord {
+    SectionRecord {
+        letter: section.letter.to_string(),
+        parent: section.parent.key().to_owned(),
+        plane: section.plane.key().to_owned(),
+        place: Lenient::Read(match section.place {
+            SectionPlace::Centre => PlaceRecord::Centre,
+            SectionPlace::Offset(offset) => PlaceRecord::Offset(offset),
+        }),
+        reversed: section.reversed,
+    }
 }
 
 fn fit() -> Lenient<ScaleRecord> {
@@ -74,6 +114,11 @@ fn drawing_record(drawing: &Drawing) -> DrawingRecord {
             .collect(),
         bodies: drawing.bodies.iter().map(|body| body.raw()).collect(),
         hidden_lines: drawing.hidden_lines,
+        sections: drawing
+            .sections
+            .iter()
+            .map(|section| Lenient::Read(section_record(section)))
+            .collect(),
     }
 }
 
@@ -210,6 +255,112 @@ fn restored_bodies(raws: &[u64], name: &str, issues: &mut Vec<String>) -> Vec<Fe
     bodies
 }
 
+fn section_letter(record: &str, taken: &[SectionView]) -> Option<char> {
+    let mut characters = record.chars();
+    let letter = characters
+        .next()
+        .filter(|_| characters.next().is_none())
+        .filter(|letter| SECTION_LETTERS.contains(letter))
+        .filter(|letter| taken.iter().all(|section| section.letter != *letter));
+    letter.or_else(|| {
+        SECTION_LETTERS
+            .into_iter()
+            .find(|letter| taken.iter().all(|section| section.letter != *letter))
+    })
+}
+
+fn restored_place(
+    record: &Lenient<PlaceRecord>,
+    label: &str,
+    issues: &mut Vec<String>,
+) -> SectionPlace {
+    match record {
+        Lenient::Read(PlaceRecord::Centre) => SectionPlace::Centre,
+        Lenient::Read(PlaceRecord::Offset(offset))
+            if offset.is_finite() && offset.abs() <= MAX_SECTION_OFFSET =>
+        {
+            SectionPlace::Offset(*offset)
+        }
+        _ => {
+            issues.push(format!(
+                "Where section {label} cuts was not understood, so it cuts through the middle of \
+                 the bodies."
+            ));
+            SectionPlace::Centre
+        }
+    }
+}
+
+fn restored_section(
+    record: &SectionRecord,
+    taken: &[SectionView],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Option<SectionView> {
+    let letter = section_letter(&record.letter, taken)?;
+    let label = format!("{letter}\u{2013}{letter}");
+    if record.letter != letter.to_string() {
+        issues.push(format!(
+            "A section view of the drawing “{name}” had no letter of its own, so it is {label}."
+        ));
+    }
+    let parent = StandardView::from_key(&record.parent)
+        .filter(|view| StandardView::SECTIONED.contains(view))
+        .unwrap_or_else(|| {
+            issues.push(format!(
+                "The view section {label} is cut on was not understood, so it is the front view."
+            ));
+            StandardView::Front
+        });
+    let plane = SectionPlane::from_key(&record.plane)
+        .filter(|plane| plane.is_edge_on_in(parent))
+        .or_else(|| {
+            let fallback = SectionPlane::edge_on_in(parent).next();
+            if let Some(fallback) = fallback {
+                issues.push(format!(
+                    "The plane of section {label} was not understood or cannot be cut on its \
+                     view, so it is the {}.",
+                    fallback.name()
+                ));
+            }
+            fallback
+        })?;
+    Some(SectionView {
+        letter,
+        parent,
+        plane,
+        place: restored_place(&record.place, &label, issues),
+        reversed: record.reversed,
+    })
+}
+
+fn restored_sections(
+    records: &[Lenient<SectionRecord>],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Vec<SectionView> {
+    let mut sections = Vec::new();
+    for record in records {
+        let Lenient::Read(record) = record else {
+            issues.push(format!(
+                "A section view of the drawing “{name}” could not be read, so it was left out."
+            ));
+            continue;
+        };
+        if sections.len() >= MAX_SECTION_VIEWS {
+            issues.push(format!(
+                "A drawing holds at most {MAX_SECTION_VIEWS} section views, so the rest of \
+                 those of “{name}” were left out."
+            ));
+            break;
+        }
+        if let Some(section) = restored_section(record, &sections, name, issues) {
+            sections.push(section);
+        }
+    }
+    sections
+}
+
 pub(crate) fn restore_drawings(record: DrawingsRecord, issues: &mut Vec<String>) -> Drawings {
     let mut drawings = Drawings {
         drawings: Vec::new(),
@@ -265,6 +416,7 @@ pub(crate) fn restore_drawings(record: DrawingsRecord, issues: &mut Vec<String>)
             views: restored_views(&drawing.views, &name, issues),
             bodies: restored_bodies(&drawing.bodies, &name, issues),
             hidden_lines: drawing.hidden_lines,
+            sections: restored_sections(&drawing.sections, &name, issues),
             name,
         };
         drawings.drawings.push(restored);

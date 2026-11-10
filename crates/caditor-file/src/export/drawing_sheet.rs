@@ -1,6 +1,8 @@
 use std::{f64::consts::TAU, path::Path};
 
-use caditor_document::{CancelToken, PlacedView, SheetMark, SheetPlan, TextAnchor, ViewLines};
+use caditor_document::{
+    CancelToken, PlacedView, SheetMark, SheetPlan, TextAnchor, ViewLines, hatch_lines,
+};
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::{
     Curve2, Interval, LINEAR_RESOLUTION, SamplingTolerance, ViewPiece, Visibility,
@@ -62,6 +64,7 @@ pub struct SheetExported {
     pub views: usize,
     pub visible: usize,
     pub hidden: usize,
+    pub hatching: usize,
     pub approximated: usize,
 }
 
@@ -206,8 +209,20 @@ pub(super) fn sheet_figure(
             }),
         );
     }
+    for line in &plan.cutting {
+        figure.push(Layer::Cutting, Shape::Line(line.chain.0, line.chain.1));
+        for (from, to) in line.ends {
+            figure.push(Layer::Visible, Shape::Line(from, to));
+        }
+    }
     for view in views {
         exported.views += 1;
+        for region in view.lines.hatching() {
+            for (from, to) in hatch_lines(region, &view.placed) {
+                exported.hatching += 1;
+                figure.push(Layer::Hatching, Shape::Line(from, to));
+            }
+        }
         for piece in view.lines.drawn_pieces(hidden_lines) {
             let (shape, exact) = piece_shape(piece, &view.placed);
             let layer = match piece.visibility {

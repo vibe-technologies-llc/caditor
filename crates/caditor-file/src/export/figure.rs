@@ -24,6 +24,8 @@ pub(super) enum Layer {
     Labels,
     Visible,
     Hidden,
+    Hatching,
+    Cutting,
     Frame,
 }
 
@@ -33,7 +35,10 @@ impl Layer {
     }
 
     pub(super) fn is_on_sheet(self) -> bool {
-        matches!(self, Self::Visible | Self::Hidden | Self::Frame)
+        matches!(
+            self,
+            Self::Visible | Self::Hidden | Self::Hatching | Self::Cutting | Self::Frame
+        )
     }
 
     pub(super) fn name(self) -> &'static str {
@@ -46,6 +51,8 @@ impl Layer {
             Self::Labels => "Labels",
             Self::Visible => "Visible",
             Self::Hidden => "Hidden",
+            Self::Hatching => "Hatching",
+            Self::Cutting => "Cutting",
             Self::Frame => "Frame",
         }
     }

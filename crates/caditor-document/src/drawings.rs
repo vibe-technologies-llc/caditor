@@ -1,5 +1,8 @@
 use std::collections::BTreeSet;
 
+use caditor_geometry::Vector3;
+use caditor_kernel::MAX_SIZE;
+
 use crate::{
     document::{Document, FeatureId},
     edit::{Edit, EditError, Transaction},
@@ -10,6 +13,12 @@ pub const MAX_DRAWINGS: usize = 32;
 pub const MAX_DRAWING_NAME_CHARS: usize = 60;
 pub const MAX_DRAWING_BODIES: usize = 4096;
 pub const MAX_SCALE_TERM: u32 = 1000;
+pub const SECTION_LETTERS: [char; 23] = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'R', 'S', 'T', 'U', 'V',
+    'W', 'X', 'Y', 'Z',
+];
+pub const MAX_SECTION_VIEWS: usize = SECTION_LETTERS.len();
+pub const MAX_SECTION_OFFSET: f64 = MAX_SIZE;
 const NUMBERED_NAME: &str = "Drawing";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -178,6 +187,126 @@ impl StandardView {
     }
 }
 
+impl StandardView {
+    pub const SECTIONED: [Self; 4] = [Self::Front, Self::Top, Self::Right, Self::Left];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SectionPlane {
+    Yz,
+    Xz,
+    Xy,
+}
+
+impl SectionPlane {
+    pub const ALL: [Self; 3] = [Self::Yz, Self::Xz, Self::Xy];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Yz => "YZ plane",
+            Self::Xz => "XZ plane",
+            Self::Xy => "XY plane",
+        }
+    }
+
+    pub fn axis_name(self) -> &'static str {
+        match self {
+            Self::Yz => "X",
+            Self::Xz => "Y",
+            Self::Xy => "Z",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Yz => "yz",
+            Self::Xz => "xz",
+            Self::Xy => "xy",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|plane| plane.key() == key)
+    }
+
+    pub fn normal(self) -> Vector3 {
+        match self {
+            Self::Yz => Vector3::X,
+            Self::Xz => Vector3::Y,
+            Self::Xy => Vector3::Z,
+        }
+    }
+
+    pub fn is_edge_on_in(self, view: StandardView) -> bool {
+        match view {
+            StandardView::Front => self != Self::Xz,
+            StandardView::Top => self != Self::Xy,
+            StandardView::Right | StandardView::Left => self != Self::Yz,
+            StandardView::Isometric => false,
+        }
+    }
+
+    pub fn edge_on_in(view: StandardView) -> impl Iterator<Item = Self> {
+        Self::ALL
+            .into_iter()
+            .filter(move |plane| plane.is_edge_on_in(view))
+    }
+
+    fn look_and_up(self) -> (Vector3, Vector3) {
+        match self {
+            Self::Yz => (-Vector3::X, Vector3::Z),
+            Self::Xz => (Vector3::Y, Vector3::Z),
+            Self::Xy => (-Vector3::Z, Vector3::Y),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SectionPlace {
+    #[default]
+    Centre,
+    Offset(f64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SectionView {
+    pub letter: char,
+    pub parent: StandardView,
+    pub plane: SectionPlane,
+    pub place: SectionPlace,
+    pub reversed: bool,
+}
+
+impl SectionView {
+    pub fn label(&self) -> String {
+        format!("{0}\u{2013}{0}", self.letter)
+    }
+
+    pub fn look_and_up(&self) -> (Vector3, Vector3) {
+        let (look, up) = self.plane.look_and_up();
+        if self.reversed {
+            (-look, up)
+        } else {
+            (look, up)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DrawnView {
+    Standard(StandardView),
+    Section(char),
+}
+
+impl DrawnView {
+    pub fn describe(self) -> String {
+        match self {
+            Self::Standard(view) => format!("{} view", view.name().to_lowercase()),
+            Self::Section(letter) => format!("section view {letter}\u{2013}{letter}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScaleRatio {
     pub sheet: u32,
@@ -236,7 +365,7 @@ impl DrawingScale {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Drawing {
     pub id: DrawingId,
     pub name: String,
@@ -247,6 +376,7 @@ pub struct Drawing {
     pub views: BTreeSet<StandardView>,
     pub bodies: Vec<FeatureId>,
     pub hidden_lines: bool,
+    pub sections: Vec<SectionView>,
 }
 
 impl Drawing {
@@ -268,6 +398,7 @@ impl Drawing {
             .collect(),
             bodies: Vec::new(),
             hidden_lines: true,
+            sections: Vec::new(),
         }
     }
 
@@ -275,10 +406,81 @@ impl Drawing {
         self.name.len()
             + self.views.len() * size_of::<StandardView>()
             + size_of_val(self.bodies.as_slice())
+            + size_of_val(self.sections.as_slice())
+    }
+
+    pub fn section(&self, letter: char) -> Option<&SectionView> {
+        self.sections
+            .iter()
+            .find(|section| section.letter == letter)
+    }
+
+    pub fn section_mut(&mut self, letter: char) -> Option<&mut SectionView> {
+        self.sections
+            .iter_mut()
+            .find(|section| section.letter == letter)
+    }
+
+    pub fn unused_section_letter(&self) -> Option<char> {
+        SECTION_LETTERS
+            .into_iter()
+            .find(|letter| self.section(*letter).is_none())
+    }
+
+    pub fn new_section(&self) -> Option<SectionView> {
+        let letter = self.unused_section_letter()?;
+        let parent = StandardView::SECTIONED
+            .into_iter()
+            .find(|view| self.views.contains(view))
+            .unwrap_or(StandardView::Front);
+        let plane = SectionPlane::edge_on_in(parent).next()?;
+        Some(SectionView {
+            letter,
+            parent,
+            plane,
+            place: SectionPlace::Centre,
+            reversed: false,
+        })
+    }
+
+    fn checked_sections(&self) -> Result<(), EditError> {
+        if self.sections.len() > MAX_SECTION_VIEWS {
+            return Err(EditError::DrawingTooManySections {
+                name: self.name.clone(),
+                sections: self.sections.len(),
+            });
+        }
+        for (index, section) in self.sections.iter().enumerate() {
+            let letter = section.letter;
+            if !SECTION_LETTERS.contains(&letter) {
+                return Err(EditError::SectionLetterUnusable(letter));
+            }
+            if self
+                .sections
+                .iter()
+                .take(index)
+                .any(|other| other.letter == letter)
+            {
+                return Err(EditError::SectionLetterRepeated(letter));
+            }
+            if !section.plane.is_edge_on_in(section.parent) {
+                return Err(EditError::SectionPlaneFacesParent {
+                    letter,
+                    plane: section.plane.name(),
+                    view: section.parent.name(),
+                });
+            }
+            if let SectionPlace::Offset(offset) = section.place
+                && !(offset.is_finite() && offset.abs() <= MAX_SECTION_OFFSET)
+            {
+                return Err(EditError::SectionOffsetOutOfRange { letter });
+            }
+        }
+        Ok(())
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Drawings {
     pub drawings: Vec<Drawing>,
     pub next_id: u64,
@@ -396,6 +598,7 @@ impl Drawings {
                     model: ratio.model,
                 });
             }
+            drawing.checked_sections()?;
         }
         Ok(drawings)
     }
@@ -445,6 +648,20 @@ impl Document {
         let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
         change(drawing);
         self.drawings_changed(label, drawings)
+    }
+
+    pub fn adding_section_view(&self, id: DrawingId) -> Result<(Transaction, char), EditError> {
+        let mut drawings = self.drawings().clone();
+        let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
+        let section = drawing
+            .new_section()
+            .ok_or_else(|| EditError::DrawingTooManySections {
+                name: drawing.name.clone(),
+                sections: drawing.sections.len().saturating_add(1),
+            })?;
+        drawing.sections.push(section);
+        let transaction = self.drawings_changed("New section view", drawings)?;
+        Ok((transaction, section.letter))
     }
 
     pub fn deleting_drawing(&self, id: DrawingId) -> Result<Transaction, EditError> {
