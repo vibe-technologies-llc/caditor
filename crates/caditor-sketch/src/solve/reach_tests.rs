@@ -109,7 +109,7 @@ fn a_chain_of_500_lines_dragged_past_its_reach_follows_the_pointer() {
 
 #[test]
 fn a_chain_held_past_its_reach_follows_the_pointer_frame_by_frame() {
-    const NEXT_FRAME_WORK: usize = 4_000_000;
+    const NEXT_FRAME_WORK: usize = 1_500_000;
     let arm = zigzag_arm(500);
     let first = Point2::new(600.0, 250.0);
     let next = Point2::new(600.0, 260.0);
@@ -118,6 +118,8 @@ fn a_chain_held_past_its_reach_follows_the_pointer_frame_by_frame() {
     let followed = frame(&reached.sketch, arm.hand, next, Some(&reached.memo));
     let stretched = next.normalize() * 500.0;
 
+    assert_eq!(reached.memo.beyond_reach(), 1);
+    assert_eq!(followed.memo.beyond_reach(), 1);
     assert!(
         followed.hand.distance(stretched) < ON_THE_RAY * 500.0,
         "{} is not {stretched}",
@@ -134,6 +136,8 @@ fn a_stretched_chain_pulled_back_within_its_reach_lands_on_the_pointer() {
     let stretched = frame(&arm.sketch, arm.hand, Point2::new(240.0, 100.0), None);
     let pulled = frame(&stretched.sketch, arm.hand, pointer, Some(&stretched.memo));
 
+    assert_eq!(stretched.memo.beyond_reach(), 1);
+    assert_eq!(pulled.memo.beyond_reach(), 0);
     assert!(
         pulled.hand.distance(pointer) < ON_THE_RAY,
         "{} is not {pointer}",
@@ -191,4 +195,25 @@ fn a_chain_of_2000_lines_dragged_past_its_reach_follows_the_pointer() {
         "{hand} is not {stretched}"
     );
     assert!(work < FRAME_WORK, "{work}");
+}
+
+#[test]
+#[ignore = "drags a chain of thousands of points through two frames, best run in release"]
+fn a_chain_of_2000_lines_held_past_its_reach_follows_the_pointer_frame_by_frame() {
+    const NEXT_FRAME_WORK: usize = 7_000_000;
+    let arm = zigzag_arm(2_000);
+    let first = Point2::new(2_400.0, 1_000.0);
+    let next = Point2::new(2_400.0, 1_010.0);
+
+    let reached = frame(&arm.sketch, arm.hand, first, None);
+    let followed = frame(&reached.sketch, arm.hand, next, Some(&reached.memo));
+    let stretched = next.normalize() * 2_000.0;
+
+    assert_eq!(reached.memo.beyond_reach(), 1);
+    assert!(
+        followed.hand.distance(stretched) < ON_THE_RAY * 2_000.0,
+        "{} is not {stretched}",
+        followed.hand
+    );
+    assert!(followed.work < NEXT_FRAME_WORK, "{}", followed.work);
 }

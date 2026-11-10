@@ -121,11 +121,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketch solver
 
-- [medium · hard] A frame dragging a long chain past its reach is still mostly its failing `FROZEN`
-  attempt: dragging an end of a 2,000-line zig-zag chain from where it was drawn, its Newton steps
-  crawl, a hundred of them each lowering the cost 1 to 2 % (the Levenberg-Marquardt shift settles
-  near 1e-4 of the typical diagonal, the cost falling half as far as the model predicts), 55
-  million of the frame's 82 million work units; each further frame from the stretched pose takes
-  about 19 million (`FROZEN` 10 million, settling 2.4 million, reaching 6.4 million;
-  `reach_tests.rs`). The dragged part is never memoised, so a frame cannot know the last one ended
-  beyond reach and go straight to settling and reaching.
+- [medium · hard] The first frame dragging a long chain past its reach is still mostly its failing
+  `FROZEN` attempt: dragging an end of a 2,000-line zig-zag chain from where it was drawn, its
+  Newton steps crawl, a hundred of them each lowering the cost 1 to 2 % (the Levenberg-Marquardt
+  shift settles near 1e-4 of the typical diagonal, the cost falling half as far as the model
+  predicts), 55 million of the frame's 82 million work units (`reach_tests.rs`; further frames
+  skip it through the drag's memo). Stopping the crawl early does not help as it stands: cut after
+  five steps each keeping over 90 % of the cost at under 0.75 of the predicted fall, `FROZEN` ends
+  at a cost of 2,000 instead of 100, from which the settling restoration diverges (2,005, 1,599,
+  2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
+  that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
+  chain's slow modes.

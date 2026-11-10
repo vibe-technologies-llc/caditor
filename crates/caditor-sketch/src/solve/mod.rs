@@ -53,7 +53,7 @@ use crate::{
     solve::{
         diagnosis::{DIAGNOSIS_STEPS, DIAGNOSIS_WORK, diagnose_failure, owners_newest_first},
         equation::value,
-        memo::Recall,
+        memo::{Held, Recall},
         numeric::{
             Analysis, Cancelled, Component, DENSE_LIMIT, Descent, FROZEN, Failure, Parts,
             REACH_WORK, ReachWork, STIFF, Solver,
@@ -278,6 +278,19 @@ fn pressed_toward_its_targets(
     component.variables.len() > DENSE_LIMIT
         && held.peek().is_some()
         && held.all(|variable| dragged.contains(variable))
+}
+
+fn meets_its_targets(
+    solver: &Solver<'_>,
+    component: &Component,
+    targets: &[(usize, f64)],
+    values: &[f64],
+) -> bool {
+    let tolerance = solver.tolerance(component);
+    targets
+        .iter()
+        .filter(|(variable, _)| component.variables.binary_search(variable).is_ok())
+        .all(|(variable, to)| (value(values, *variable) - to).abs() <= tolerance)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -526,7 +539,11 @@ impl Sketch {
             }
 
             let parts = Parts::of(&system);
-            let recall = Recall::new(&system, &dimensions, parts.drawn(), &stiff, previous);
+            let fixed = Held {
+                stiff: &stiff,
+                targets: &targets,
+            };
+            let mut recall = Recall::new(&system, &dimensions, parts.drawn(), fixed, previous);
             let mut start = system.values.clone();
             recall.start_from(&mut start);
 
@@ -538,13 +555,23 @@ impl Sketch {
                 retrying: targets.is_empty(),
             };
             let starting = parts.at(&system, &start);
+            let beyond: Vec<&Component> = starting
+                .iter()
+                .filter(|component| {
+                    pressed_toward_its_targets(&frozen, component, &dragged)
+                        && recall.ended_beyond_reach(component, &drawn)
+                })
+                .collect();
             let mut values = start.clone();
             let frozen_failed = if stiff.is_empty() {
                 None
             } else {
-                Some(frozen.solve_parts(starting.iter(), &mut values)?)
+                let tried = starting
+                    .iter()
+                    .filter(|component| !beyond.contains(component));
+                Some(frozen.solve_parts(tried, &mut values)?)
             };
-            let held = frozen_failed.as_ref().is_some_and(Vec::is_empty);
+            let held = beyond.is_empty() && frozen_failed.as_ref().is_some_and(Vec::is_empty);
             let solver = Solver {
                 stiffness: STIFF,
                 retrying: true,
@@ -561,9 +588,9 @@ impl Sketch {
                     &mut values,
                     &mut work,
                 )?;
-                let stiffened = starting
-                    .iter()
-                    .filter(|component| !pressed.contains(component));
+                let stiffened = starting.iter().filter(|component| {
+                    !pressed.contains(component) && !beyond.contains(component)
+                });
                 let failed = solver.solve_parts(stiffened, &mut values)?;
                 let failed = solve_from_drawn(&solver, failed, &stiff, &drawn, &mut values)?;
                 let failed = if round > 0 {
@@ -631,8 +658,15 @@ impl Sketch {
                 reparameterised += 1;
                 continue;
             }
+            for component in parts.at(&system, &values).iter() {
+                if pressed_toward_its_targets(&solver, component, &dragged)
+                    && !meets_its_targets(&solver, component, &targets, &values)
+                {
+                    recall.remember_beyond_reach(component, &values);
+                }
+            }
             return Ok(finish(Finished {
-                dimensions,
+                dimensions: dimensions.clone(),
                 system: &system,
                 solver: &solver,
                 parts: parts.at(&system, &values),
