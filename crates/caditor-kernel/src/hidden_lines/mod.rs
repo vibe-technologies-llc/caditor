@@ -33,12 +33,14 @@ use crate::{
     surface::Surface,
     tally,
     tolerance::SamplingTolerance,
-    topology::{EdgeId, FaceContainment, FaceId, Solid, SolidClassifier},
+    topology::{Edge, EdgeId, Face, FaceContainment, FaceId, Solid, SolidClassifier},
 };
 
 const SAME_SPLIT: f64 = 1e-7;
 const PROBES: [f64; 3] = [0.5, 0.25, 0.75];
 const TRACKS_PER_THREAD: usize = 8;
+const EDGES_PER_THREAD: usize = 8;
+const FACES_PER_THREAD: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum HiddenLineError {
@@ -188,19 +190,21 @@ fn tracks_of_scene(
     scene: &Scene<'_>,
     plane: &Plane,
     tolerance: &SamplingTolerance,
+    threads: usize,
 ) -> Result<(Vec<Track>, usize), HiddenLineError> {
     let build = Build {
         view: plane,
         tolerance,
+        threads,
     };
     let mut tracks = Vec::new();
     for (index, solid_view) in scene.views.iter().enumerate() {
-        let mut boundary = BTreeMap::new();
-        tracks.extend(build.edge_tracks(solid_view.solid, index, &mut boundary)?);
+        let (edge_tracks, boundary) = build.edge_tracks(solid_view.solid, index)?;
+        tracks.extend(edge_tracks);
         tracks.extend(build.contour_tracks(solid_view, index, &boundary)?);
     }
-    add_crossings(&mut tracks, plane, tolerance.chord())?;
-    let failed = add_piercings(&mut tracks, scene)?;
+    add_crossings(&mut tracks, plane, tolerance.chord(), threads)?;
+    let failed = add_piercings(&mut tracks, scene, threads)?;
     Ok((tracks, failed))
 }
 
@@ -289,6 +293,14 @@ fn is_curved(surface: &Surface) -> bool {
 struct Build<'a> {
     view: &'a Plane,
     tolerance: &'a SamplingTolerance,
+    threads: usize,
+}
+
+type Boundary = BTreeMap<FaceId, Vec<Point3>>;
+
+struct EdgeTracks {
+    tracks: Vec<Track>,
+    boundary: Vec<(FaceId, Vec<Point3>)>,
 }
 
 impl Build<'_> {
@@ -296,87 +308,141 @@ impl Build<'_> {
         &self,
         solid: &Solid,
         index: usize,
-        boundary: &mut BTreeMap<FaceId, Vec<Point3>>,
-    ) -> Result<Vec<Track>, HiddenLineError> {
-        let toward = self.view.normal();
-        let mut tracks = Vec::new();
-        for (id, edge) in solid.edges() {
-            interrupt::check()?;
-            let faces: Vec<FaceId> = edge
-                .coedges()
-                .iter()
-                .filter_map(|coedge| solid.coedge_face(*coedge))
-                .collect();
-            let mut splits = Vec::new();
-            let mut done: Vec<FaceId> = Vec::with_capacity(2);
-            for coedge in edge.coedges() {
-                let (Some(data), Some(face_id)) =
-                    (solid.coedge(*coedge), solid.coedge_face(*coedge))
-                else {
-                    continue;
-                };
-                let Some(face) = solid.face(face_id) else {
-                    continue;
-                };
-                if done.contains(&face_id) || !is_curved(face.surface()) {
-                    continue;
-                }
-                done.push(face_id);
-                let surface = face.surface();
-                let parameters = sample_parameters(edge.curve(), edge.interval(), self.tolerance);
-                let roots = roots_among(&parameters, |parameter| {
-                    let hint = data.pcurve().uv_at(parameter);
-                    let uv = surface.project(edge.curve().point(parameter), Some(hint));
-                    facing(surface, uv, toward)
-                });
-                boundary
-                    .entry(face_id)
-                    .or_default()
-                    .extend(roots.iter().map(|root| edge.curve().point(*root)));
-                splits.extend(roots);
-            }
-            let plan = TrackPlan {
-                closed: edge.is_closed(),
-                sampled: false,
-                source: ViewSource::Edge {
-                    solid: index,
-                    edge: id,
-                    name: edge.name(),
-                    kind: edge_kind(solid, id, &faces),
+    ) -> Result<(Vec<Track>, Boundary), HiddenLineError> {
+        let edges: Vec<_> = solid.edges().collect();
+        let made =
+            fan_out::each_in_order(
+                edges.len(),
+                self.threads,
+                EDGES_PER_THREAD,
+                |at| match edges.get(at) {
+                    Some((id, edge)) => self.edge_track(solid, index, *id, edge),
+                    None => Ok(EdgeTracks {
+                        tracks: Vec::new(),
+                        boundary: Vec::new(),
+                    }),
                 },
-                own: Own::Edge(id),
-                solid: index,
-                faces,
-                splits,
-            };
-            tracks.extend(tracks_of(
-                edge.curve(),
-                edge.interval(),
-                &plan,
-                self.view,
-                self.tolerance,
-            )?);
+            );
+        let mut tracks = Vec::new();
+        let mut boundary = Boundary::new();
+        for found in made {
+            let found = found?;
+            tracks.extend(found.tracks);
+            for (face, points) in found.boundary {
+                boundary.entry(face).or_default().extend(points);
+            }
         }
-        Ok(tracks)
+        Ok((tracks, boundary))
+    }
+
+    fn edge_track(
+        &self,
+        solid: &Solid,
+        index: usize,
+        id: EdgeId,
+        edge: &Edge,
+    ) -> Result<EdgeTracks, HiddenLineError> {
+        interrupt::check()?;
+        let toward = self.view.normal();
+        let faces: Vec<FaceId> = edge
+            .coedges()
+            .iter()
+            .filter_map(|coedge| solid.coedge_face(*coedge))
+            .collect();
+        let mut splits = Vec::new();
+        let mut boundary = Vec::new();
+        let mut done: Vec<FaceId> = Vec::with_capacity(2);
+        for coedge in edge.coedges() {
+            let (Some(data), Some(face_id)) = (solid.coedge(*coedge), solid.coedge_face(*coedge))
+            else {
+                continue;
+            };
+            let Some(face) = solid.face(face_id) else {
+                continue;
+            };
+            if done.contains(&face_id) || !is_curved(face.surface()) {
+                continue;
+            }
+            done.push(face_id);
+            let surface = face.surface();
+            let parameters = sample_parameters(edge.curve(), edge.interval(), self.tolerance);
+            let roots = roots_among(&parameters, |parameter| {
+                let hint = data.pcurve().uv_at(parameter);
+                let uv = surface.project(edge.curve().point(parameter), Some(hint));
+                facing(surface, uv, toward)
+            });
+            boundary.push((
+                face_id,
+                roots.iter().map(|root| edge.curve().point(*root)).collect(),
+            ));
+            splits.extend(roots);
+        }
+        let plan = TrackPlan {
+            closed: edge.is_closed(),
+            sampled: false,
+            source: ViewSource::Edge {
+                solid: index,
+                edge: id,
+                name: edge.name(),
+                kind: edge_kind(solid, id, &faces),
+            },
+            own: Own::Edge(id),
+            solid: index,
+            faces,
+            splits,
+        };
+        let tracks = tracks_of(
+            edge.curve(),
+            edge.interval(),
+            &plan,
+            self.view,
+            self.tolerance,
+        )?;
+        Ok(EdgeTracks { tracks, boundary })
     }
 
     fn contour_tracks(
         &self,
         view: &SolidView<'_>,
         index: usize,
-        boundary: &BTreeMap<FaceId, Vec<Point3>>,
+        boundary: &Boundary,
     ) -> Result<Vec<Track>, HiddenLineError> {
+        let faces: Vec<_> = view.solid.faces().collect();
+        let made =
+            fan_out::each_in_order(
+                faces.len(),
+                self.threads,
+                FACES_PER_THREAD,
+                |at| match faces.get(at) {
+                    Some((id, face)) => {
+                        let points: &[Point3] = boundary.get(id).map_or(&[], Vec::as_slice);
+                        self.face_contour_tracks(view, index, *id, face, points)
+                    }
+                    None => Ok(Vec::new()),
+                },
+            );
         let mut tracks = Vec::new();
-        for (id, face) in view.solid.faces() {
-            interrupt::check()?;
-            let surface = face.surface();
-            let Some(uv_box) = view.classifier.face_uv_box(id) else {
-                continue;
-            };
-            let points: &[Point3] = boundary.get(&id).map_or(&[], Vec::as_slice);
-            for found in contours(surface, uv_box, self.view, self.tolerance)? {
-                tracks.extend(self.contour_pieces(view, index, id, &found, points)?);
-            }
+        for found in made {
+            tracks.extend(found?);
+        }
+        Ok(tracks)
+    }
+
+    fn face_contour_tracks(
+        &self,
+        view: &SolidView<'_>,
+        index: usize,
+        id: FaceId,
+        face: &Face,
+        points: &[Point3],
+    ) -> Result<Vec<Track>, HiddenLineError> {
+        interrupt::check()?;
+        let Some(uv_box) = view.classifier.face_uv_box(id) else {
+            return Ok(Vec::new());
+        };
+        let mut tracks = Vec::new();
+        for found in contours(face.surface(), uv_box, self.view, self.tolerance)? {
+            tracks.extend(self.contour_pieces(view, index, id, &found, points)?);
         }
         Ok(tracks)
     }
@@ -427,48 +493,81 @@ impl Build<'_> {
     }
 }
 
-fn add_piercings(tracks: &mut [Track], scene: &Scene<'_>) -> Result<usize, HiddenLineError> {
-    let mut failed = 0;
+struct Piercings {
+    splits: Vec<f64>,
+    failed: usize,
+}
+
+fn add_piercings(
+    tracks: &mut [Track],
+    scene: &Scene<'_>,
+    threads: usize,
+) -> Result<usize, HiddenLineError> {
     if scene.views.len() < 2 {
-        return Ok(failed);
+        return Ok(0);
     }
-    for track in tracks.iter_mut() {
-        interrupt::check()?;
-        let box_of_track = track.curve.bounding_box(track.flat.range);
-        for index in scene.tree.overlapping(&box_of_track, 0.0) {
-            let Some(view) = scene.views.get(index).filter(|_| index != track.solid) else {
+    let found =
+        fan_out::each_in_order(
+            tracks.len(),
+            threads,
+            TRACKS_PER_THREAD,
+            |index| match tracks.get(index) {
+                Some(track) => piercings_of(track, scene),
+                None => Ok(Piercings {
+                    splits: Vec::new(),
+                    failed: 0,
+                }),
+            },
+        );
+    let mut failed = 0;
+    for (track, piercings) in tracks.iter_mut().zip(found) {
+        let piercings = piercings?;
+        track.splits.extend(piercings.splits);
+        failed += piercings.failed;
+    }
+    Ok(failed)
+}
+
+fn piercings_of(track: &Track, scene: &Scene<'_>) -> Result<Piercings, HiddenLineError> {
+    interrupt::check()?;
+    let mut piercings = Piercings {
+        splits: Vec::new(),
+        failed: 0,
+    };
+    let box_of_track = track.curve.bounding_box(track.flat.range);
+    for index in scene.tree.overlapping(&box_of_track, 0.0) {
+        let Some(view) = scene.views.get(index).filter(|_| index != track.solid) else {
+            continue;
+        };
+        for (face, uv_box) in view.classifier.faces_overlapping(&box_of_track) {
+            let Some(definition) = view.solid.face(face) else {
                 continue;
             };
-            for (face, uv_box) in view.classifier.faces_overlapping(&box_of_track) {
-                let Some(definition) = view.solid.face(face) else {
+            tally::add(1);
+            let found = match intersect_curve_surface(
+                &track.curve,
+                track.flat.range,
+                definition.surface(),
+                Some(uv_box),
+            ) {
+                Ok(found) => found,
+                Err(IntersectionError::Cancelled(interrupted)) => {
+                    return Err(interrupted.into());
+                }
+                Err(_) => {
+                    piercings.failed += 1;
                     continue;
-                };
-                tally::add(1);
-                let found = match intersect_curve_surface(
-                    &track.curve,
-                    track.flat.range,
-                    definition.surface(),
-                    Some(uv_box),
-                ) {
-                    Ok(found) => found,
-                    Err(IntersectionError::Cancelled(interrupted)) => {
-                        return Err(interrupted.into());
-                    }
-                    Err(_) => {
-                        failed += 1;
-                        continue;
-                    }
-                };
-                for hit in found.points {
-                    let contained = view.classifier.point_in_face(face, hit.uv);
-                    if contained.is_some_and(|class| class != FaceContainment::Outside) {
-                        track.splits.push(hit.parameter);
-                    }
+                }
+            };
+            for hit in found.points {
+                let contained = view.classifier.point_in_face(face, hit.uv);
+                if contained.is_some_and(|class| class != FaceContainment::Outside) {
+                    piercings.splits.push(hit.parameter);
                 }
             }
         }
     }
-    Ok(failed)
+    Ok(piercings)
 }
 
 fn piece_ends(track: &Track, view: &Plane) -> Vec<f64> {
@@ -600,7 +699,7 @@ fn hidden_lines_on(
 ) -> Result<HiddenLines, HiddenLineError> {
     let plane = view.frame();
     let scene = Scene::of(solids);
-    let (tracks, mut undecided) = tracks_of_scene(&scene, plane, tolerance)?;
+    let (tracks, mut undecided) = tracks_of_scene(&scene, plane, tolerance, threads)?;
     let classified = fan_out::each_in_order(tracks.len(), threads, TRACKS_PER_THREAD, |index| {
         let Some(track) = tracks.get(index) else {
             return Ok((Vec::new(), 0));

@@ -860,7 +860,7 @@ fn passes_close_to_a_face(
 fn track_verdicts_agree_with_a_fine_mesh(name: &str, solid: &Solid, view: &HiddenLineView) {
     let plane = view.frame();
     let scene = Scene::of(&[solid]);
-    let (tracks, _) = tracks_of_scene(&scene, plane, &tolerance()).unwrap();
+    let (tracks, _) = tracks_of_scene(&scene, plane, &tolerance(), 1).unwrap();
     let mesh = solid
         .tessellate(&SamplingTolerance::new(1e-3, 0.02).unwrap())
         .unwrap();
@@ -1044,6 +1044,21 @@ fn lines_found_on_many_threads_are_those_of_one_thread() {
 }
 
 #[test]
+fn solids_piercing_one_another_are_found_on_many_threads_as_on_one() {
+    let plate = perforated_plate(3, 0);
+    let pin = cylinder(4.0, 30.0)
+        .transformed(&RigidTransform::translation(Vector3::new(22.0, 22.0, -10.0)).unwrap())
+        .unwrap();
+    let view = oblique_over_a_plate();
+
+    let alone = hidden_lines_on(&[&plate, &pin], &view, &tolerance(), 1).unwrap();
+    let shared = hidden_lines_on(&[&plate, &pin], &view, &tolerance(), 6).unwrap();
+
+    assert_eq!(alone, shared);
+    assert!(alone.pieces.len() > 3 * TRACKS_PER_THREAD);
+}
+
+#[test]
 fn it_can_be_cancelled_anywhere_on_many_threads() {
     let plate = perforated_plate(2, 0);
     let view = oblique_over_a_plate();
@@ -1094,13 +1109,17 @@ fn hidden_line_costs() {
             })
         };
         let scene = Scene::of(&[&plate]);
-        let setup = median(&|| {
-            tracks_of_scene(&scene, view.frame(), &tolerance()).unwrap();
-        });
+        let setup = |threads: usize| {
+            median(&|| {
+                tracks_of_scene(&scene, view.frame(), &tolerance(), threads).unwrap();
+            })
+        };
 
         println!(
-            "{faces} faces: tracks {setup:?}; hidden lines one thread {:?}, {threads} threads \
+            "{faces} faces: tracks one thread {:?}, {threads} threads {:?}; hidden lines one thread {:?}, {threads} threads \
              {:?}; outline one thread {:?}, {threads} threads {:?}",
+            setup(1),
+            setup(threads),
             lines(1),
             lines(threads),
             outline(1),

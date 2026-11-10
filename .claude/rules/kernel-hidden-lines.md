@@ -18,19 +18,23 @@ paths:
   between splits judged at its middle (`visibility::verdict`), neighbours of one class merged, a
   closed conic's last and first pieces joined round its seam so a whole circle is one piece. Every
   piece of a curve keeps one `Curve2`; a fold makes separate tracks, so nothing merges across one.
-- The judging of tracks, the part that casts rays, is fanned out over the tracks
-  (`fan_out::each_in_order`: scoped threads up to the available parallelism, at least
-  `TRACKS_PER_THREAD` tracks each, each worker taking the next track, the caller's interrupt
-  installed on every one). Each track's result is its own, kept in track order and joined after,
-  so the pieces, the `undecided` count and the first error (a cancel from any thread) are those of
-  one thread whatever the thread count; `hidden_lines_on` and `outer_outline_on` take the count for
-  the tests. Building the tracks (`tracks_of_scene`: flattening, silhouettes, splits) stays on the
-  calling thread. A perforated plate (`fixtures::perforated_plate`, release, a machine at twice its
-  cores in load, 16 threads, median of 15, `hidden_line_costs` ignored) took, building tracks
-  apart: 22 faces 1.8 ms with `hidden_lines` 3.6 ms on one thread against 6.1 ms on 16; 70 faces
-  7.9 ms, 15.1 against 11.3; 202 faces 22.5 ms, 42.2 against 32.6, and `outer_outline` 47.6 against
-  35.5. So small bodies lose to the cost of spawning and a large one gains a quarter, with the
-  serial tracks about half the one-thread time bounding it near two.
+- Both halves of the work are fanned out with `fan_out::each_in_order` (scoped threads up to the
+  available parallelism, at least a few items each, each worker taking the next item, the caller's
+  interrupt installed on every one); each item's result is its own, kept in item order and joined
+  after, so the pieces, the `undecided` count and the first error (a cancel from any thread) are
+  those of one thread whatever the thread count; `hidden_lines_on` and `outer_outline_on` take the
+  count for the tests. Building the tracks (`tracks_of_scene`) fans out over the edges (flattening,
+  roots on curved faces, each returning its tracks and the boundary points it found, merged in edge
+  order), over the faces (contours), over chunks of the sampled segments (crossings) and of the
+  tracks (track ends, piercings); a chunk returns its splits as `(track, parameter)` pairs applied
+  in chunk order, so every track's splits come in the order of the serial run. Only the
+  segment tree, turn-backs and the merges are serial. The judging of tracks, the part that casts
+  rays, fans out over the tracks (`TRACKS_PER_THREAD` each). A perforated plate
+  (`fixtures::perforated_plate`, release, a machine at about twice its cores in load, 16 threads,
+  median of 15, `hidden_line_costs` ignored) took, 202 faces: building tracks 16.5 ms on one
+  thread against 5.2 on 16, `hidden_lines` 30.3 against 12.4 and `outer_outline` 33.6 against
+  12.8; 70 faces 10.3 against 4.3 and 10.8 against 4.8; 22 faces 2.2 against 1.3 and 2.4 against
+  1.6.
 
 ## Projecting (`flatten.rs`)
 
