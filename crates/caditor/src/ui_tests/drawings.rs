@@ -1,5 +1,6 @@
 use caditor_document::{
-    DrawnView, Projection, ResolvedPlace, SectionPlace, SectionPlane, StandardView,
+    DetailParent, DetailScale, DrawnView, Projection, ResolvedPlace, ScaleRatio, SectionPlace,
+    SectionPlane, StandardView,
 };
 use caditor_expression::Expression;
 use egui::{Key, Modifiers};
@@ -8,8 +9,8 @@ use tempfile::TempDir;
 use super::{Harness, extruded_plate, run_from_palette};
 use crate::{
     drawings_panel::{
-        ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_SECTIONS, NONE_YET, WORKING, ZOOM_IN,
-        offset_field_id,
+        ADD_DETAIL, ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_DETAILS, NO_SECTIONS,
+        NONE_YET, WORKING, ZOOM_IN, detail_field_id, offset_field_id,
     },
     model::Action,
 };
@@ -225,4 +226,85 @@ fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
     harness.wait_until("the section follows the parameter", |harness| {
         cut_at(harness).is_some_and(|x| (x - 15.0).abs() < 1e-6)
     });
+}
+
+#[test]
+fn a_detail_view_is_added_in_the_panel_edited_undoably_clipped_to_its_circle_and_exported() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    let drawing = harness.document().drawings().drawings[0].id;
+    wait_for_views(&mut harness);
+    assert!(harness.shows(NO_DETAILS));
+
+    harness.click(ADD_DETAIL);
+    harness.frame();
+    let details = |harness: &Harness| harness.document().drawing(drawing).unwrap().details.clone();
+    assert_eq!(details(&harness).len(), 1);
+    let detail = details(&harness)[0];
+    assert_eq!(detail.letter, 'A');
+    assert_eq!(detail.parent, DetailParent::Standard(StandardView::Front));
+    assert_eq!(detail.scale, DetailScale::Enlarged);
+    wait_for_views(&mut harness);
+    assert!(harness.shows("Detail A"));
+
+    let job = harness.workspace.drawings.job(&harness.model).unwrap();
+    assert_eq!(job.views.len(), 5);
+    let label = detail.label_at(job.plan.scale.factor());
+    assert!(job.plan.texts.iter().any(|text| text.content == label));
+    assert!(job.plan.texts.iter().any(|text| text.content == "A"));
+    let (placed, outcome) = job
+        .views
+        .iter()
+        .find(|(placed, _)| placed.view == DrawnView::Detail('A'))
+        .unwrap();
+    let lines = outcome.as_ref().as_ref().unwrap();
+    let disc = lines.clip.unwrap();
+    assert!(!lines.pieces.is_empty());
+    assert!((placed.scale - detail.scale.ratio_at(job.plan.scale.factor()).factor()).abs() < 1e-9);
+    for piece in &lines.pieces {
+        for at in [piece.range.start(), piece.range.end()] {
+            assert!((piece.curve.point(at) - disc.centre).length() <= disc.radius + 1e-6);
+        }
+    }
+
+    harness.type_into_field(detail_field_id(drawing, 'A', "radius"), "2 mm");
+    assert_eq!(details(&harness)[0].radius, 2.0);
+    wait_for_views(&mut harness);
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(details(&harness)[0].radius, detail.radius);
+    harness.key(Key::Y, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(details(&harness)[0].radius, 2.0);
+    wait_for_views(&mut harness);
+
+    harness.click(&DetailScale::Enlarged.label());
+    harness.frame();
+    harness.click(&ScaleRatio::new(10, 1).label());
+    harness.frame();
+    assert_eq!(
+        details(&harness)[0].scale,
+        DetailScale::Ratio(ScaleRatio::new(10, 1))
+    );
+    wait_for_views(&mut harness);
+
+    harness.answer_dialog(Some(dir.path().join("detail")));
+    harness.click(EXPORT);
+    harness.wait_until("the sheet is written", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice
+                .text
+                .starts_with("Exported the drawing “Drawing 1” with 5 views to “detail.pdf”")
+        })
+    });
+
+    harness.click_button("Delete detail A");
+    harness.frame();
+    assert!(details(&harness).is_empty());
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(details(&harness).len(), 1);
 }

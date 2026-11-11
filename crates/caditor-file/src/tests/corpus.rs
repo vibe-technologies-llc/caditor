@@ -36,7 +36,7 @@ use serde_json::Value;
 
 use super::{
     configurations::configured_model,
-    drawings::{parameter_offset_document, with_drawings, with_section_views},
+    drawings::{parameter_offset_document, with_detail_views, with_drawings, with_section_views},
     seeds::seed_journal_by_reference,
     selection_sets::sets_of,
     *,
@@ -60,7 +60,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 86] = [
+const KEPT: [(&str, &str); 88] = [
+    (
+        "journal-1/detail-views.journal",
+        "efe6e29340af29198f3425feb62810b57e4cc449f5649790e6ca3021640a3060",
+    ),
+    (
+        "model-1/detail-views.caditor",
+        "4fc4b63934c2b017fc0011572d8ff74d2bdb9ce2d1a0720f0048f244b8ca2ccb",
+    ),
     (
         "model-1/section-parameter-offsets.caditor",
         "52c762639902bc4c43c1f340a6a768f0a9fcf7187d2ce958292486c11faf2684",
@@ -1132,6 +1140,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         ),
         (journal("section-views"), section_views_journal()),
         (
+            model("detail-views"),
+            saved(&detailed_model(), "Detail views"),
+        ),
+        (journal("detail-views"), detail_views_journal()),
+        (
             model("section-parameter-offsets"),
             saved(&parameter_offset_sections(), "Section parameter offsets"),
         ),
@@ -1935,6 +1948,30 @@ fn sectioned_model() -> Document {
     let (mut document, change) = with_section_views();
     document.apply(change).unwrap();
     document
+}
+
+fn detailed_model() -> Document {
+    let (mut document, change) = with_detail_views();
+    document.apply(change).unwrap();
+    document
+}
+
+fn detail_views_journal() -> Vec<u8> {
+    let (base, change) = with_detail_views();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(change);
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Detail views")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/detail-views.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
 }
 
 fn parameter_offset_sections() -> Document {

@@ -5,8 +5,8 @@ use caditor_lettering::{Alignment, Style, lettered};
 
 use crate::{
     drawings::{
-        Drawing, DrawingScale, DrawnView, Projection, ScaleRatio, SectionView, SheetOrientation,
-        SheetSize, StandardView,
+        DetailView, Drawing, DrawingScale, DrawnView, Projection, ScaleRatio, SectionView,
+        SheetOrientation, SheetSize, StandardView,
     },
     properties::ModelProperties,
 };
@@ -451,44 +451,93 @@ impl Span {
     }
 }
 
-struct SectionColumn {
-    views: Vec<(char, Aabb2)>,
-    width: f64,
-    height: f64,
+#[derive(Debug, Clone, Copy)]
+enum SideKind {
+    Section(char),
+    Detail(DetailView),
 }
 
-impl SectionColumn {
-    fn of(drawing: &Drawing, extents: &BTreeMap<DrawnView, Aabb2>) -> Self {
-        let views: Vec<(char, Aabb2)> = drawing
-            .sections
-            .iter()
-            .filter_map(|section| {
-                let bounds = extents.get(&DrawnView::Section(section.letter))?;
-                Some((section.letter, *bounds))
-            })
-            .collect();
-        let width = views
-            .iter()
-            .map(|(_, bounds)| bounds.size().x)
-            .fold(0.0, f64::max);
-        let height = views.iter().map(|(_, bounds)| bounds.size().y).sum();
-        Self {
-            views,
-            width,
-            height,
+struct SideView {
+    kind: SideKind,
+    bounds: Aabb2,
+}
+
+impl SideView {
+    fn view(&self) -> DrawnView {
+        match self.kind {
+            SideKind::Section(letter) => DrawnView::Section(letter),
+            SideKind::Detail(detail) => DrawnView::Detail(detail.letter),
         }
+    }
+
+    fn scale(&self, sheet: f64) -> f64 {
+        match self.kind {
+            SideKind::Section(_) => sheet,
+            SideKind::Detail(detail) => detail.scale.ratio_at(sheet).factor(),
+        }
+    }
+
+    fn label(&self, sheet: f64) -> String {
+        match self.kind {
+            SideKind::Section(letter) => format!("{letter}\u{2013}{letter}"),
+            SideKind::Detail(detail) => detail.label_at(sheet),
+        }
+    }
+}
+
+struct SideColumn {
+    views: Vec<SideView>,
+}
+
+impl SideColumn {
+    fn of(drawing: &Drawing, extents: &BTreeMap<DrawnView, Aabb2>) -> Self {
+        let sections = drawing.sections.iter().filter_map(|section| {
+            let bounds = *extents.get(&DrawnView::Section(section.letter))?;
+            Some(SideView {
+                kind: SideKind::Section(section.letter),
+                bounds,
+            })
+        });
+        let details = drawing.details.iter().filter_map(|detail| {
+            let bounds = *extents.get(&DrawnView::Detail(detail.letter))?;
+            Some(SideView {
+                kind: SideKind::Detail(*detail),
+                bounds,
+            })
+        });
+        Self {
+            views: sections.chain(details).collect(),
+        }
+    }
+
+    fn width(&self, sheet: f64) -> f64 {
+        self.views
+            .iter()
+            .map(|view| view.bounds.size().x * view.scale(sheet))
+            .fold(0.0, f64::max)
+    }
+
+    fn height(&self, sheet: f64) -> f64 {
+        self.views
+            .iter()
+            .map(|view| view.bounds.size().y * view.scale(sheet))
+            .sum()
     }
 
     fn fixed_height(&self) -> f64 {
         let count = self.views.len() as f64;
         count * SECTION_LABEL_ROOM + VIEW_GAP * (count - 1.0).max(0.0)
     }
+
+    fn total_height(&self, sheet: f64) -> f64 {
+        self.height(sheet) + self.fixed_height()
+    }
 }
 
 struct Grid {
     columns: BTreeMap<Column, Span>,
     rows: BTreeMap<Row, Span>,
-    sections: SectionColumn,
+    side: SideColumn,
 }
 
 impl Grid {
@@ -496,7 +545,7 @@ impl Grid {
         let mut grid = Self {
             columns: BTreeMap::new(),
             rows: BTreeMap::new(),
-            sections: SectionColumn::of(drawing, extents),
+            side: SideColumn::of(drawing, extents),
         };
         for view in &drawing.views {
             let Some(bounds) = extents.get(&DrawnView::Standard(*view)) else {
@@ -523,43 +572,27 @@ impl Grid {
         (total, gaps)
     }
 
+    fn is_empty(&self) -> bool {
+        self.columns.is_empty() && self.rows.is_empty() && self.side.views.is_empty()
+    }
+
     fn joining_gap(&self) -> f64 {
-        if self.columns.is_empty() || self.sections.views.is_empty() {
+        if self.columns.is_empty() || self.side.views.is_empty() {
             0.0
         } else {
             VIEW_GAP
         }
     }
 
-    fn across(&self) -> (f64, f64) {
-        let (across, gaps) = Self::lengths(&self.columns);
-        (across + self.sections.width, gaps + self.joining_gap())
-    }
-
-    fn largest_scale(&self, area: Aabb2) -> Option<f64> {
-        let size = area.size();
-        let (across, across_gaps) = self.across();
-        let (down, down_gaps) = Self::lengths(&self.rows);
-        let sections = &self.sections;
-        [
-            (across > 0.0).then(|| (size.x - across_gaps) / across),
-            (down > 0.0).then(|| (size.y - down_gaps) / down),
-            (sections.height > 0.0).then(|| (size.y - sections.fixed_height()) / sections.height),
-        ]
-        .into_iter()
-        .flatten()
-        .reduce(f64::min)
-    }
-
     fn fits(&self, area: Aabb2, scale: f64) -> bool {
-        let (across, across_gaps) = self.across();
+        let (across, across_gaps) = Self::lengths(&self.columns);
         let (down, down_gaps) = Self::lengths(&self.rows);
         let size = area.size();
         let slack = 1e-9 * (1.0 + size.x.max(size.y));
-        let sections = self.sections.height * scale + self.sections.fixed_height();
-        across * scale + across_gaps <= size.x + slack
+        let wide = across * scale + self.side.width(scale) + across_gaps + self.joining_gap();
+        wide <= size.x + slack
             && down * scale + down_gaps <= size.y + slack
-            && sections <= size.y + slack
+            && self.side.total_height(scale) <= size.y + slack
     }
 }
 
@@ -567,12 +600,12 @@ fn chosen_scale(drawing: &Drawing, grid: &Grid, area: Aabb2) -> (ScaleRatio, boo
     match drawing.scale {
         DrawingScale::Ratio(ratio) => (ratio, grid.fits(area, ratio.factor())),
         DrawingScale::Fit => {
-            let Some(largest) = grid.largest_scale(area) else {
+            if grid.is_empty() {
                 return (ScaleRatio::new(1, 1), true);
-            };
+            }
             let fitting = ScaleRatio::PREFERRED
                 .into_iter()
-                .find(|ratio| ratio.factor() <= largest * (1.0 + 1e-9));
+                .find(|ratio| grid.fits(area, ratio.factor()));
             match fitting {
                 Some(ratio) => (ratio, true),
                 None => {
@@ -601,34 +634,42 @@ fn starts<Key: Copy + Ord>(
     placed
 }
 
-fn placed_sections(
-    column: &SectionColumn,
+fn placed_side(
+    column: &SideColumn,
     left: f64,
     center_y: f64,
-    scale: f64,
-    texts: &mut Vec<SheetText>,
+    sheet_scale: f64,
+    marking: &mut Marking<'_>,
 ) -> Vec<PlacedView> {
-    let width = column.width * scale;
-    let mut top = center_y + (column.height * scale + column.fixed_height()) / 2.0;
+    let width = column.width(sheet_scale);
+    let mut top = center_y + column.total_height(sheet_scale) / 2.0;
     let mut views = Vec::new();
-    for (letter, bounds) in &column.views {
-        let size = bounds.size() * scale;
+    for side in &column.views {
+        let scale = side.scale(sheet_scale);
+        let size = side.bounds.size() * scale;
         let middle = left + width / 2.0;
-        texts.push(SheetText {
+        marking.texts.push(SheetText {
             at: Point2::new(middle, top - SECTION_LETTER_HEIGHT / 2.0),
             height: SECTION_LETTER_HEIGHT,
-            content: format!("{letter}\u{2013}{letter}"),
+            content: side.label(sheet_scale),
             anchor: TextAnchor::Middle,
         });
         let view_top = top - SECTION_LABEL_ROOM;
-        views.push(PlacedView {
-            view: DrawnView::Section(*letter),
+        let placed = PlacedView {
+            view: side.view(),
             origin: Point2::new(
-                middle - size.x / 2.0 - bounds.min().x * scale,
-                view_top - size.y - bounds.min().y * scale,
+                middle - size.x / 2.0 - side.bounds.min().x * scale,
+                view_top - size.y - side.bounds.min().y * scale,
             ),
             scale,
-        });
+        };
+        if let SideKind::Detail(detail) = side.kind {
+            marking.marks.push(SheetMark::Circle {
+                center: placed.on_sheet(detail.centre),
+                radius: detail.radius * scale,
+            });
+        }
+        views.push(placed);
         top = view_top - size.y - VIEW_GAP;
     }
     views
@@ -640,13 +681,13 @@ fn placed_views(
     grid: &Grid,
     area: Aabb2,
     scale: f64,
-    texts: &mut Vec<SheetText>,
+    marking: &mut Marking<'_>,
 ) -> Vec<PlacedView> {
     let (across, across_gaps) = Grid::lengths(&grid.columns);
     let (down, down_gaps) = Grid::lengths(&grid.rows);
     let width = across * scale + across_gaps;
     let height = down * scale + down_gaps;
-    let total = width + grid.joining_gap() + grid.sections.width * scale;
+    let total = width + grid.joining_gap() + grid.side.width(scale);
     let center = area.center();
     let grid_left = center.x - total / 2.0;
     let lefts = starts(&grid.columns, scale, grid_left);
@@ -686,12 +727,12 @@ fn placed_views(
             scale,
         });
     }
-    views.extend(placed_sections(
-        &grid.sections,
+    views.extend(placed_side(
+        &grid.side,
         grid_left + width + grid.joining_gap(),
         center.y,
         scale,
-        texts,
+        marking,
     ));
     views
 }
@@ -795,6 +836,31 @@ fn cutting_lines(
     (lines, unmarked)
 }
 
+fn detail_circles(drawing: &Drawing, views: &[PlacedView], marking: &mut Marking<'_>) {
+    let outward = Vector2::new(1.0, 1.0).normalize();
+    for detail in &drawing.details {
+        let drawn = DrawnView::Detail(detail.letter);
+        let Some(parent) = views
+            .iter()
+            .find(|placed| placed.view == detail.parent.drawn())
+        else {
+            continue;
+        };
+        if !views.iter().any(|placed| placed.view == drawn) {
+            continue;
+        }
+        let center = parent.on_sheet(detail.centre);
+        let radius = detail.radius * parent.scale;
+        marking.marks.push(SheetMark::Circle { center, radius });
+        marking.texts.push(SheetText {
+            at: center + outward * (radius + LETTER_GAP + SECTION_LETTER_HEIGHT / 2.0),
+            height: SECTION_LETTER_HEIGHT,
+            content: detail.letter.to_string(),
+            anchor: TextAnchor::Middle,
+        });
+    }
+}
+
 pub fn lay_out_sheet(
     drawing: &Drawing,
     fields: &TitleFields,
@@ -814,13 +880,17 @@ pub fn lay_out_sheet(
     rectangle(&mut marks, frame);
     centring_marks(&mut marks, width, height, frame);
     title_block(&mut marks, &mut texts, frame, fields, drawing, scale);
+    let mut marking = Marking {
+        marks: &mut marks,
+        texts: &mut texts,
+    };
     let views = placed_views(
         drawing,
         extents,
         &grid,
         view_area,
         scale.factor(),
-        &mut texts,
+        &mut marking,
     );
     let (cutting, unmarked) = cutting_lines(
         drawing,
@@ -829,11 +899,9 @@ pub fn lay_out_sheet(
             extents,
         },
         &views,
-        &mut Marking {
-            marks: &mut marks,
-            texts: &mut texts,
-        },
+        &mut marking,
     );
+    detail_circles(drawing, &views, &mut marking);
     SheetPlan {
         width,
         height,

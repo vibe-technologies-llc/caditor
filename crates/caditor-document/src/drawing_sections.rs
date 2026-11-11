@@ -237,3 +237,16 @@ pub fn hatch_lines(region: &HatchRegion, placed: &PlacedView) -> Vec<(Point2, Po
     }
     lines
 }
+
+pub fn drawn_hatching(lines: &ViewLines, placed: &PlacedView) -> Vec<(Point2, Point2)> {
+    let clip = lines.clip.map(|disc| disc.scaled_onto(placed));
+    lines
+        .hatching()
+        .iter()
+        .flat_map(|region| hatch_lines(region, placed))
+        .filter_map(|(from, to)| match clip {
+            Some(disc) => disc.clip_segment(from, to),
+            None => Some((from, to)),
+        })
+        .collect()
+}

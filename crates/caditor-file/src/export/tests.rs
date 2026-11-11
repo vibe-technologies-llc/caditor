@@ -2798,3 +2798,130 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
     assert!(read_back.layers.iter().any(|layer| layer == "Cutting"));
     assert!(pdf_text.contains("[12 3 0.5 3] 0 d"));
 }
+
+#[test]
+fn detail_views_are_written_clipped_with_their_circles_and_labels() {
+    let (block, pin) = (block(), pin());
+    let solids = [&block, &pin];
+    let mut drawing = caditor_document::Drawing::new(
+        caditor_document::DrawingId::from_raw(0),
+        "Details".to_owned(),
+    );
+    drawing.sections = vec![caditor_document::SectionView {
+        letter: 'A',
+        parent: caditor_document::StandardView::Front,
+        plane: caditor_document::SectionPlane::Yz,
+        place: caditor_document::SectionPlace::offset(20.0),
+        reversed: false,
+    }];
+    let mut lines = sheet_lines(&drawing, &solids);
+    let circle_in = |view: caditor_document::DrawnView| {
+        let bounds = lines
+            .iter()
+            .find(|lines| lines.view == view)
+            .and_then(|lines| lines.bounds)
+            .unwrap();
+        (bounds.center(), bounds.size().min_element() / 4.0)
+    };
+    let (front_centre, front_radius) = circle_in(caditor_document::DrawnView::Standard(
+        caditor_document::StandardView::Front,
+    ));
+    let (section_centre, section_radius) = circle_in(caditor_document::DrawnView::Section('A'));
+    drawing.details = vec![
+        caditor_document::DetailView {
+            letter: 'B',
+            parent: caditor_document::DetailParent::Standard(caditor_document::StandardView::Front),
+            centre: front_centre,
+            radius: front_radius,
+            scale: caditor_document::DetailScale::Enlarged,
+        },
+        caditor_document::DetailView {
+            letter: 'C',
+            parent: caditor_document::DetailParent::Section('A'),
+            centre: section_centre,
+            radius: section_radius,
+            scale: caditor_document::DetailScale::Ratio(caditor_document::ScaleRatio::new(5, 1)),
+        },
+    ];
+    for detail in &drawing.details {
+        let parent = lines
+            .iter()
+            .find(|lines| lines.view == detail.parent.drawn())
+            .unwrap();
+        let enlarged = caditor_document::detail_view(detail, parent).unwrap();
+        lines.push(enlarged);
+    }
+    let extents = lines
+        .iter()
+        .filter_map(|lines| Some((lines.view, lines.bounds?)))
+        .collect();
+    let cuts = lines
+        .iter()
+        .filter_map(|lines| match (lines.view, &lines.section) {
+            (caditor_document::DrawnView::Section(letter), Some(section)) => {
+                Some((letter, section.cutting))
+            }
+            _ => None,
+        })
+        .collect();
+    let plan = caditor_document::lay_out_sheet(
+        &drawing,
+        &caditor_document::TitleFields::default(),
+        &extents,
+        &cuts,
+    );
+    let views: Vec<SheetView<'_>> = plan
+        .views
+        .iter()
+        .filter_map(|placed| {
+            Some(SheetView {
+                placed: *placed,
+                lines: lines.iter().find(|lines| lines.view == placed.view)?,
+            })
+        })
+        .collect();
+    let folder = TempDir::new().unwrap();
+    let path = |format: SheetFormat| folder.path().join(format!("sheet.{}", format.extension()));
+
+    let written: Vec<SheetExported> = SheetFormat::ALL
+        .into_iter()
+        .map(|format| {
+            export_sheet(
+                &path(format),
+                &plan,
+                &views,
+                true,
+                format,
+                &CancelToken::never(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let svg = std::fs::read_to_string(path(SheetFormat::Svg)).unwrap();
+    let dxf = std::fs::read(path(SheetFormat::Dxf)).unwrap();
+    let pdf = std::fs::read(path(SheetFormat::Pdf)).unwrap();
+    let read_back = crate::parse_dxf(&dxf).unwrap();
+    let section_hatching = {
+        let placed = plan
+            .views
+            .iter()
+            .find(|placed| placed.view == caditor_document::DrawnView::Section('A'))
+            .unwrap();
+        let section = lines
+            .iter()
+            .find(|lines| lines.view == placed.view)
+            .unwrap();
+        caditor_document::drawn_hatching(section, placed).len()
+    };
+    let label = drawing.details[0].label_at(plan.scale.factor());
+
+    assert_eq!(written[0].views, 7);
+    assert!(written.iter().all(|exported| *exported == written[0]));
+    assert!(written[0].hatching > section_hatching);
+    assert!(svg.contains(&format!(">{label}</text>")), "{svg}");
+    assert!(svg.contains(">C (5:1)</text>"));
+    assert!(svg.contains(">B</text>"));
+    assert!(svg.matches("<circle").count() >= 4);
+    assert!(pdf.starts_with(b"%PDF-1.4"));
+    assert!(read_back.layers.iter().any(|layer| layer == "Hatching"));
+}

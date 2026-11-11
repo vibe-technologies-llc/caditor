@@ -1,10 +1,11 @@
 use std::{borrow::Cow, collections::BTreeMap};
 
 use caditor_document::{
-    Document, Drawing, DrawingId, DrawingScale, DrawingViewError, FeatureId,
-    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, PlacedView, Projection, ScaleRatio, SectionPlace,
-    SectionPlane, SectionView, SheetMark, SheetOrientation, SheetPlan, SheetSize, StandardView,
-    TextAnchor, TitleFields, Transaction, ViewLines, hatch_lines, lay_out_sheet,
+    DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale,
+    DrawingViewError, FeatureId, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MIN_DETAIL_RADIUS,
+    PlacedView, Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetMark,
+    SheetOrientation, SheetPlan, SheetSize, StandardView, TextAnchor, TitleFields, Transaction,
+    ViewLines, drawn_hatching, lay_out_sheet,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -56,6 +57,16 @@ pub const DISTANCE: &str = "Distance";
 pub const LOOK_BACK: &str = "Look the other way";
 pub const NO_SECTIONS: &str = "A section view cuts the bodies along a plane seen as a line in \
                                one of the views, and shows the cut faces hatched.";
+pub const DETAIL_VIEWS: &str = "Detail views";
+pub const ADD_DETAIL: &str = "Add a detail view";
+pub const ENLARGES: &str = "Enlarges";
+pub const CENTRE_X: &str = "Centre across";
+pub const CENTRE_Y: &str = "Centre up";
+pub const RADIUS: &str = "Radius";
+pub const DETAIL_SCALE: &str = "Scale";
+pub const NO_DETAILS: &str = "A detail view enlarges a circle of one of the other views, drawn \
+                              thin on that view and lettered, with the lines inside it clipped \
+                              exactly to the circle.";
 const PANEL: RightPanel = RightPanel { id: "drawings" };
 const HEADER: PanelTitle<'static> = PanelTitle {
     glyph: icons::DRAWINGS,
@@ -63,6 +74,8 @@ const HEADER: PanelTitle<'static> = PanelTitle {
     close: CLOSE,
     help: Some(Page::Drawings),
 };
+const DEFAULT_DETAIL_RADIUS: f64 = 10.0;
+const DETAIL_RADIUS_SHARE: f64 = 0.25;
 const CAP_HEIGHT: f32 = 0.727;
 const SMALLEST_TEXT: f32 = 4.0;
 const DESCENT: f32 = 0.21;
@@ -717,7 +730,12 @@ fn sections_rows(
                     model,
                     drawing.id,
                     "Delete section view",
-                    |drawing| drawing.sections.retain(|kept| kept.letter != letter),
+                    |drawing| {
+                        drawing.sections.retain(|kept| kept.letter != letter);
+                        drawing
+                            .details
+                            .retain(|kept| kept.parent != DetailParent::Section(letter));
+                    },
                     actions,
                 );
             }
@@ -728,7 +746,7 @@ fn sections_rows(
         section_settings(ui, model, drawing.id, section, cut_at, actions);
     }
     ui.add_space(SPACE_S);
-    let room = drawing.unused_section_letter().is_some();
+    let room = drawing.unused_letter().is_some();
     let add = small_enabled(ui, room, icons::ADD, ADD_SECTION)
         .on_hover_text(
             "Cut the bodies along a principal plane and lay the section out beside the views",
@@ -739,6 +757,260 @@ fn sections_rows(
             model
                 .document()
                 .adding_section_view(drawing.id)
+                .map(|(transaction, _)| transaction),
+            actions,
+        );
+    }
+}
+
+pub fn detail_field_id(drawing: DrawingId, letter: char, field: &'static str) -> Id {
+    Id::unique(("drawing-detail", drawing.raw(), letter, field))
+}
+
+fn length_row(
+    ui: &mut Ui,
+    model: &Model,
+    id: Id,
+    caption: &str,
+    millimetres: f64,
+    non_negative: bool,
+    hover: &str,
+) -> Option<f64> {
+    let document = model.document();
+    let parameters = model.parameters();
+    let units = model.units();
+    widgets::caption(ui, caption);
+    let field = field::value_field(
+        ui,
+        id,
+        &model
+            .document()
+            .expression_text(&units.measured(millimetres)),
+        widgets::FIELD_WIDTH,
+        false,
+        |text| -> Result<f64, ExpressionError> {
+            let expression = field::parse_expression(
+                document,
+                parameters,
+                text,
+                field::Expected {
+                    dimension: Some(Dimension::LENGTH),
+                    non_negative,
+                },
+                units,
+            )?;
+            expression
+                .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
+                .map_err(ExpressionError::Unevaluable)
+        },
+    );
+    field.response.on_hover_text(hover);
+    ui.end_row();
+    if let Some(error) = field.error {
+        widgets::error_row(ui, &error);
+    }
+    field.committed
+}
+
+fn parent_label(parent: DetailParent) -> String {
+    match parent {
+        DetailParent::Standard(view) => format!("{} view", view.name()),
+        DetailParent::Section(letter) => format!("Section {letter}\u{2013}{letter}"),
+    }
+}
+
+fn detail_parents(drawing: &Drawing) -> Vec<DetailParent> {
+    StandardView::ALL
+        .into_iter()
+        .filter(|view| drawing.views.contains(view))
+        .map(DetailParent::Standard)
+        .chain(
+            drawing
+                .sections
+                .iter()
+                .map(|section| DetailParent::Section(section.letter)),
+        )
+        .collect()
+}
+
+fn detail_settings(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: &Drawing,
+    detail: &DetailView,
+    actions: &mut Vec<Action>,
+) {
+    let letter = detail.letter;
+    let id = drawing.id;
+    let edit = |label: &str, actions: &mut Vec<Action>, apply: &dyn Fn(&mut DetailView)| {
+        change(
+            model,
+            id,
+            label,
+            |drawing| {
+                if let Some(detail) = drawing.detail_mut(letter) {
+                    apply(detail);
+                }
+            },
+            actions,
+        );
+    };
+    widgets::properties(ui, ("drawing-detail", id.raw(), letter), |ui| {
+        widgets::property(ui, ENLARGES, |ui| {
+            let mut chosen = None;
+            widgets::combo(
+                ("drawing-detail-parent", id.raw(), letter),
+                parent_label(detail.parent),
+            )
+            .hover("The view whose circle is enlarged")
+            .show(ui, |ui| {
+                for parent in detail_parents(drawing) {
+                    if widgets::menu_option(ui, parent == detail.parent, &parent_label(parent))
+                        .clicked()
+                    {
+                        chosen = Some(parent);
+                    }
+                }
+            });
+            if let Some(parent) = chosen {
+                edit("Change detail parent view", actions, &|detail| {
+                    detail.parent = parent;
+                });
+            }
+        });
+        let across = length_row(
+            ui,
+            model,
+            detail_field_id(id, letter, "centre-across"),
+            CENTRE_X,
+            detail.centre.x,
+            false,
+            "Where the circle's centre stands across the view, in model lengths; units and \
+             parameters may be typed",
+        );
+        if let Some(x) = across {
+            edit("Move detail circle", actions, &|detail| {
+                detail.centre.x = x;
+            });
+        }
+        let up = length_row(
+            ui,
+            model,
+            detail_field_id(id, letter, "centre-up"),
+            CENTRE_Y,
+            detail.centre.y,
+            false,
+            "Where the circle's centre stands up the view, in model lengths; units and \
+             parameters may be typed",
+        );
+        if let Some(y) = up {
+            edit("Move detail circle", actions, &|detail| {
+                detail.centre.y = y;
+            });
+        }
+        let radius = length_row(
+            ui,
+            model,
+            detail_field_id(id, letter, "radius"),
+            RADIUS,
+            detail.radius,
+            true,
+            "The circle's radius, in model lengths; units and parameters may be typed",
+        );
+        if let Some(radius) = radius {
+            edit("Resize detail circle", actions, &|detail| {
+                detail.radius = radius;
+            });
+        }
+        widgets::property(ui, DETAIL_SCALE, |ui| {
+            let mut chosen = None;
+            widgets::combo(
+                ("drawing-detail-scale", id.raw(), letter),
+                detail.scale.label(),
+            )
+            .hover("Sheet length to model length of the enlarged circle")
+            .show(ui, |ui| {
+                if widgets::menu_option(
+                    ui,
+                    detail.scale == DetailScale::Enlarged,
+                    &DetailScale::Enlarged.label(),
+                )
+                .clicked()
+                {
+                    chosen = Some(DetailScale::Enlarged);
+                }
+                for ratio in ScaleRatio::PREFERRED {
+                    let scale = DetailScale::Ratio(ratio);
+                    if widgets::menu_option(ui, detail.scale == scale, &ratio.label()).clicked() {
+                        chosen = Some(scale);
+                    }
+                }
+            });
+            if let Some(scale) = chosen {
+                edit("Change detail scale", actions, &|detail| {
+                    detail.scale = scale;
+                });
+            }
+        });
+    });
+}
+
+fn default_circle(sheet: &SheetViews, parent: DetailParent) -> (Point2, f64) {
+    sheet
+        .finished()
+        .find(|(view, _)| *view == parent.drawn())
+        .and_then(|(_, lines)| lines.bounds)
+        .map_or((Point2::ZERO, DEFAULT_DETAIL_RADIUS), |bounds| {
+            let size = bounds.size();
+            (
+                bounds.min(),
+                (size.x.min(size.y) * DETAIL_RADIUS_SHARE).max(MIN_DETAIL_RADIUS),
+            )
+        })
+}
+
+fn details_rows(
+    ui: &mut Ui,
+    model: &Model,
+    drawing: &Drawing,
+    sheet: &SheetViews,
+    actions: &mut Vec<Action>,
+) {
+    ui.add_space(SPACE_S);
+    ui.label(widgets::section_title(DETAIL_VIEWS));
+    if drawing.details.is_empty() {
+        ui.label(NO_DETAILS);
+    }
+    for detail in &drawing.details {
+        let letter = detail.letter;
+        ui.add_space(SPACE_S);
+        ui.horizontal(|ui| {
+            widgets::label_before_icon_buttons(ui, &format!("Detail {letter}"), 1);
+            let delete = format!("Delete detail {letter}");
+            if widgets::icon_button(ui, icons::DELETE, &delete).clicked() {
+                change(
+                    model,
+                    drawing.id,
+                    "Delete detail view",
+                    |drawing| drawing.details.retain(|kept| kept.letter != letter),
+                    actions,
+                );
+            }
+        });
+        detail_settings(ui, model, drawing, detail, actions);
+    }
+    ui.add_space(SPACE_S);
+    let room = drawing.unused_letter().is_some();
+    let add = small_enabled(ui, room, icons::ADD, ADD_DETAIL)
+        .on_hover_text("Enlarge a circle of one of the views and lay it out beside the views")
+        .on_disabled_hover_text("A drawing holds a section or detail view for each letter at most");
+    if add.clicked() {
+        let parent = drawing.default_detail_parent();
+        let (centre, radius) = default_circle(sheet, parent);
+        apply_or_say(
+            model
+                .document()
+                .adding_detail_view(drawing.id, parent, centre, radius)
                 .map(|(transaction, _)| transaction),
             actions,
         );
@@ -809,6 +1081,12 @@ fn reason(error: &DrawingViewError) -> String {
             .to_owned(),
         DrawingViewError::Offset(_) | DrawingViewError::OffsetOutOfRange => {
             format!("{error}; correct the Distance or the parameters it uses")
+        }
+        DrawingViewError::ParentFailed => {
+            format!("{error}; correct that view first, or enlarge another")
+        }
+        DrawingViewError::ParentNotDrawn => {
+            format!("{error}; show that view in the drawing, or enlarge another")
         }
         other => format!("{other}; change the model slightly or leave this view out"),
     }
@@ -894,13 +1172,11 @@ fn view_lines(
     hidden_lines: bool,
     tokens: &appearance::Tokens,
 ) {
-    for region in lines.hatching() {
-        for (from, to) in hatch_lines(region, placed) {
-            painter.line_segment(
-                [mapping.screen(from), mapping.screen(to)],
-                Stroke::new(THIN_WIDTH, tokens.text_muted),
-            );
-        }
+    for (from, to) in drawn_hatching(lines, placed) {
+        painter.line_segment(
+            [mapping.screen(from), mapping.screen(to)],
+            Stroke::new(THIN_WIDTH, tokens.text_muted),
+        );
     }
     for piece in lines.drawn_pieces(hidden_lines) {
         let points: Vec<Pos2> = sampled(piece)
@@ -1119,6 +1395,7 @@ pub fn show(
             ui.add_space(SPACE_S);
             settings(ui, model, drawing, actions);
             sections_rows(ui, model, drawing, &tool.sheet, actions);
+            details_rows(ui, model, drawing, &tool.sheet, actions);
             bodies_row(ui, model, drawing, context.selected, &tool.sheet, actions);
             ui.add_space(SPACE_M);
             status(ui, &tool.sheet, plan);

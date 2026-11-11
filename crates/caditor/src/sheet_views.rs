@@ -10,9 +10,9 @@ use std::{
 };
 
 use caditor_document::{
-    Drawing, DrawingId, DrawingViewError, DrawnBodies, DrawnView, FeatureId, FeatureResult,
-    ParameterValues, ResolvedPlace, SectionView, StandardView, ViewLines, drawing_view,
-    drawn_bodies, section_view,
+    DetailView, Drawing, DrawingId, DrawingViewError, DrawnBodies, DrawnView, FeatureId,
+    FeatureResult, ParameterValues, ResolvedPlace, SectionView, StandardView, ViewLines,
+    detail_view, drawing_view, drawn_bodies, section_view,
 };
 use caditor_geometry::Plane;
 use caditor_kernel::interruptible;
@@ -21,12 +21,32 @@ use crate::model::{Model, Waker};
 
 pub type ViewOutcome = Arc<Result<ViewLines, DrawingViewError>>;
 
+#[derive(Debug, Clone)]
+enum ParentLines {
+    Done(ViewOutcome),
+    NotDrawn,
+}
+
+impl PartialEq for ParentLines {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Done(one), Self::Done(other)) => Arc::ptr_eq(one, other),
+            (Self::NotDrawn, Self::NotDrawn) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum ViewJob {
     Standard(StandardView),
     Section {
         section: SectionView,
         place: Result<ResolvedPlace, DrawingViewError>,
+    },
+    Detail {
+        detail: DetailView,
+        parent: ParentLines,
     },
 }
 
@@ -35,7 +55,22 @@ impl ViewJob {
         match self {
             Self::Standard(view) => DrawnView::Standard(*view),
             Self::Section { section, .. } => DrawnView::Section(section.letter),
+            Self::Detail { detail, .. } => DrawnView::Detail(detail.letter),
         }
+    }
+
+    fn is_detail(&self) -> bool {
+        matches!(self, Self::Detail { .. })
+    }
+}
+
+fn enlarged(detail: &DetailView, parent: &ParentLines) -> Result<ViewLines, DrawingViewError> {
+    match parent {
+        ParentLines::Done(outcome) => match outcome.as_ref() {
+            Ok(lines) => detail_view(detail, lines),
+            Err(_) => Err(DrawingViewError::ParentFailed),
+        },
+        ParentLines::NotDrawn => Err(DrawingViewError::ParentNotDrawn),
     }
 }
 
@@ -85,6 +120,7 @@ fn work_out(key: &ViewKey) -> Result<ViewLines, DrawingViewError> {
             Ok(place) => section_view(section, *place, &solids),
             Err(error) => Err(error.clone()),
         },
+        ViewJob::Detail { detail, parent } => enlarged(detail, parent),
     }))
     .unwrap_or_else(|_| {
         log::error!("working out a drawing view panicked");
@@ -215,7 +251,8 @@ impl DrawingViews {
     pub fn refresh(&mut self, model: &Model, drawing: &Drawing) -> SheetViews {
         self.poll();
         let bodies = drawn_bodies(model.document(), model.evaluation(), drawing);
-        let wanted = keys_of(drawing, &bodies, model.parameters());
+        let mut wanted = keys_of(drawing, &bodies, model.parameters());
+        let waiting = self.add_details(drawing, &bodies, &mut wanted);
         if wanted != self.wanted {
             if self.in_flight.iter().any(|key| !wanted.contains(key)) {
                 self.ticket = self.ticket.wrapping_add(1);
@@ -230,7 +267,9 @@ impl DrawingViews {
                     } == *key
                 })
             };
-            self.done.retain(|(key, _)| same_bodies(key));
+            self.done.retain(|(key, _)| {
+                same_bodies(key) && (!key.job.is_detail() || wanted.contains(key))
+            });
             self.wanted = wanted;
         }
         let missing: Vec<ViewKey> = self
@@ -256,12 +295,44 @@ impl DrawingViews {
                     });
                 (key.job.view(), state)
             })
+            .chain(waiting.into_iter().map(|view| (view, ViewState::Working)))
             .collect();
         SheetViews {
             drawing: Some(drawing.id),
             views,
             missing: bodies.missing,
         }
+    }
+
+    fn add_details(
+        &self,
+        drawing: &Drawing,
+        bodies: &DrawnBodies,
+        wanted: &mut Vec<ViewKey>,
+    ) -> Vec<DrawnView> {
+        let mut waiting = Vec::new();
+        let mut details = Vec::new();
+        for detail in &drawing.details {
+            let parent = detail.parent.drawn();
+            let Some(parent_key) = wanted.iter().find(|key| key.job.view() == parent) else {
+                details.push((detail, ParentLines::NotDrawn));
+                continue;
+            };
+            match self.done.iter().find(|(done, _)| done == parent_key) {
+                Some((_, outcome)) => {
+                    details.push((detail, ParentLines::Done(Arc::clone(outcome))));
+                }
+                None => waiting.push(DrawnView::Detail(detail.letter)),
+            }
+        }
+        wanted.extend(details.into_iter().map(|(detail, parent)| ViewKey {
+            job: ViewJob::Detail {
+                detail: *detail,
+                parent,
+            },
+            bodies: bodies.results.clone(),
+        }));
+        waiting
     }
 
     fn submit(&mut self, model: &Model, key: ViewKey) {

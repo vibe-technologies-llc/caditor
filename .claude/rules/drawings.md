@@ -4,6 +4,7 @@ paths:
   - "crates/caditor-document/src/drawings_tests.rs"
   - "crates/caditor-document/src/drawing_views.rs"
   - "crates/caditor-document/src/drawing_sections.rs"
+  - "crates/caditor-document/src/drawing_details.rs"
   - "crates/caditor-document/src/drawing_sheet.rs"
   - "crates/caditor-file/src/drawings.rs"
   - "crates/caditor-file/src/tests/drawings.rs"
@@ -18,7 +19,7 @@ paths:
 
 # Technical drawings
 
-A drawing lays out standard views and section views of the model's bodies on an ISO sheet with a
+A drawing lays out standard views, section views and detail views of the model's bodies on an ISO sheet with a
 frame and a title block, and exports it as PDF, SVG or DXF. It is model content, worked out from the kernel's hidden
 lines, never a picture of the 3D view.
 
@@ -35,7 +36,7 @@ lines, never a picture of the 3D view.
   `projection` (`Projection::FirstAngle` by default, or `ThirdAngle`), `scale` (`DrawingScale::Fit`
   or a `ScaleRatio` of whole terms up to `MAX_SCALE_TERM`; `ScaleRatio::PREFERRED` are ISO 5455's
   ratios from 50:1 to 1:1000), `views` (a set of `StandardView`s), `bodies` (empty draws every
-  shown body; at most `MAX_DRAWING_BODIES`), `hidden_lines` and `sections` (`SectionView`s, below).
+  shown body; at most `MAX_DRAWING_BODIES`), `hidden_lines`, `sections` (`SectionView`s, below) and `details` (`DetailView`s, below).
   At most `MAX_DRAWINGS` per model. `checked` (given the document) refuses the rest in words
   (`EditError::Drawing*`), and an offset naming a parameter the model lacks (`MissingParameter`); a
   body id is stored like any (its maker storable) and raises the feature counter like a selection
@@ -48,9 +49,10 @@ lines, never a picture of the 3D view.
 - Builders, each one checked transaction: `adding_drawing(bodies)` ("Drawing N", returns its id),
   `changing_drawing(id, label, change)`, `deleting_drawing(id)`, `adding_section_view(id)` (returns
   its letter); the app changes and deletes a section through `changing_drawing`.
-- A `SectionView` is a `letter` (one of `SECTION_LETTERS`, A to Z without I, O and Q as ISO 128
-  advises, unique in its drawing, so at most `MAX_SECTION_VIEWS`; `Drawing::new_section` takes the
-  first free one and is the drawing's key for the view), its `parent` (`StandardView::SECTIONED`:
+- A `SectionView` is a `letter` (one of `VIEW_LETTERS`, A to Z without I, O and Q as ISO 128
+  advises, unique among the drawing's sections and details together, so at most
+  `MAX_SECTION_VIEWS`; `Drawing::new_section` takes the first free one, `unused_letter`, and is the
+  drawing's key for the view), its `parent` (`StandardView::SECTIONED`:
   front, top, right or left), a `plane` (`SectionPlane`: YZ, XZ or XY through a point on its
   axis), a `place` (`SectionPlace::Centre` of the drawn bodies' box, or `Offset`, the plane's
   distance from the origin along its axis, an `Expression` of length kept as typed so it follows
@@ -61,7 +63,21 @@ lines, never a picture of the 3D view.
   The plane must be seen as a line in the parent (`SectionPlane::is_edge_on_in`), else
   `SectionPlaneFacesParent`. It looks like the standard view along the plane's axis (YZ as the right
   view, XZ as the front, XY as the top), the other way when `reversed`; the kept bodies are on the
-  side it looks toward. `DrawnView` (`Standard` or `Section(letter)`) keys every drawn view.
+  side it looks toward. `DrawnView` (`Standard`, `Section(letter)` or `Detail(letter)`) keys every drawn view.
+- A `DetailView` is a `letter` (the same `VIEW_LETTERS` pool, so a letter is a section or a detail,
+  never both: `ViewLetterRepeated`; at most `MAX_DETAIL_VIEWS`), its `parent` (`DetailParent`: a
+  `StandardView`, drawn or not, or a section's letter, which the drawing must have:
+  `DetailParentMissing`), a `centre` and `radius` in the parent view's own model coordinates
+  (millimetres in the view's frame, `HiddenLineView::frame`, never sheet lengths, so a change of
+  sheet scale leaves the circle on the same part; `DetailOutOfRange` past `MAX_DETAIL_EXTENT`, not
+  finite or under `MIN_DETAIL_RADIUS`) and a `scale` (`DetailScale::Enlarged`, the default, is
+  `ScaleRatio::enlarging` of twice the sheet scale: the smallest ISO 5455 ratio at least that,
+  50:1 at most; or a chosen `ScaleRatio`, checked as the drawing's is). The values are plain
+  numbers, not expressions, so a detail names no parameter. `adding_detail_view` (returns its
+  letter) builds the transaction; the app changes and deletes through `changing_drawing`, deleting
+  a section's details with it since a detail of a missing section is refused. `Document::scaled`
+  multiplies the circle by the factor and shifts its centre by the model shift along the parent's
+  view axes (`Rescaler::view_shift`).
 
 ## Views (`drawing_views.rs`)
 
@@ -73,6 +89,19 @@ lines, never a picture of the 3D view.
   interruptible (`Cancelled`); no solid is `NoBodies`. `ViewLines::bounds` sizes the view on the
   sheet. `drawn_bodies` resolves which bodies a drawing draws in an `Evaluation` (with every body
   standing that is not hidden when none are chosen) and names the chosen ones missing.
+
+## Details (`drawing_details.rs`)
+
+- `detail_view(detail, parent)` takes the parent's finished `ViewLines` and keeps its pieces
+  inside the `Disc` of the circle: a line by exact segment-circle clipping (`Disc::clip_segment`),
+  any other curve by sampling at a thousandth of the radius and bisecting each crossing of the
+  circle to full precision (`BISECTIONS`), so a kept piece's ends lie on the circle, and a periodic
+  curve crossing its seam comes out as two pieces. Pieces whose box misses the circle are skipped
+  first. The result is a `ViewLines` of view `Detail(letter)` with `bounds` the circle's box, the
+  parent's `section` (so hatching and the no-hidden-lines rule carry over) and `clip` the disc,
+  which `drawn_hatching` uses to clip a section's hatch lines on the sheet. It polls
+  `interrupt::check` per piece and runs under `catch_unwind`. The parent being unavailable is
+  `DrawingViewError::ParentFailed` or `ParentNotDrawn`.
 
 ## Sections (`drawing_sections.rs`)
 
@@ -106,10 +135,12 @@ lines, never a picture of the 3D view.
 - Views sit in a 3 by 3 grid of the view area: the front in the middle, the others lined up with it
   by projection (first angle: top below, right view on the left; third angle the opposite), the
   isometric top right; each row and column as wide as its largest view, `VIEW_GAP` between. Section
-  views stand in a column right of the grid (`SectionColumn`), as wide as the widest, stacked in the
-  drawing's order under their "A–A" label (`SECTION_LETTER_HEIGHT`), the column centred down the
-  view area; the label rows and gaps are fixed sheet lengths the scale fit takes off first. `Fit`
-  takes the largest preferred ratio at which the grid and the column fit; a chosen ratio that does
+  and detail views stand in a column right of the grid (`SideColumn`), as wide as the widest,
+  sections first and then details in the drawing's order, each under its label ("A–A" or
+  "B (2:1)", `SECTION_LETTER_HEIGHT`), the column centred down the view area. A detail is placed at
+  its own scale (`DetailScale::ratio_at` the sheet's), so the column's size depends on the sheet
+  scale; the label rows and gaps are fixed sheet lengths. `Fit` takes the largest preferred ratio
+  at which the grid and the column fit (`Grid::fits`, tried from 50:1 down); a chosen ratio that does
   not fit still lays out, with `SheetPlan::fits` false for the app to say so.
 - `lay_out_sheet(drawing, fields, extents, cuts)` takes each finished section's cutting plane by
   letter. Its `CuttingLine` on the parent view (ISO 128-44) runs across the parent's extent
@@ -117,6 +148,9 @@ lines, never a picture of the 3D view.
   (`SheetMark` lines) touch each end pointing the way the section looks and the letter stands
   beyond each tail. A section whose parent is not on the sheet (or not yet worked out) is in
   `SheetPlan::unmarked`.
+- A detail's circle is a `SheetMark::Circle` on its parent's placed view (the circle scaled by the
+  parent's scale) with the letter outside it up and to the right, and again round the detail view
+  in the column; a detail whose parent is not placed has no circle on a parent.
 
 ## File (`caditor-file/src/drawings.rs`)
 
@@ -132,6 +166,14 @@ lines, never a picture of the 3D view.
   older readers still read, else `expression` in stored text; loading repairs an expression that
   does not read or names a missing parameter (`restore_drawings` is given what exists) to the
   centre, with a report. The corpus holds `model-1/section-parameter-offsets.caditor`.
+- Each drawing's `details` is a field written only when it has any, each detail `Lenient`, so older
+  drawings read with none and an older reader drops them (nothing computed depends on them). A
+  detail is `letter`, `parent` (`standard` with a view key, or `section` with a letter), `centre`
+  as two numbers, `radius` and `scale` (`enlarged` or `ratio`). Loading takes the letters the
+  sections left (a repeated or unusable letter takes the next free one), leaves out with a report a
+  detail that is unreadable, past `MAX_DETAIL_VIEWS`, whose parent is unknown or a section the
+  drawing lacks, or whose circle cannot be used, and gives an unusable scale `Enlarged`. The
+  corpus holds `model-1/detail-views.caditor` and `journal-1/detail-views.journal`.
 - Each drawing's `sections` is a field written only when it has any, each section `Lenient`, so
   drawings stored before section views read with none and an older reader drops them (losing only
   the section views; nothing computed depends on them). Loading repairs a section as
@@ -141,8 +183,8 @@ lines, never a picture of the 3D view.
 ## Export (`export/drawing_sheet.rs`, `export/pdf.rs`)
 
 - `export_sheet(path, plan, views, hidden_lines, format, cancel)` builds one `Figure` at the
-  sheet's real size: view pieces on `Layer::Visible` and `Layer::Hidden`, hatch lines on
-  `Layer::Hatching`, cutting chain lines on `Layer::Cutting` with their thick ends on `Visible`,
+  sheet's real size: view pieces on `Layer::Visible` and `Layer::Hidden`, hatch lines
+  (`drawn_hatching`, clipped to a detail's circle) on `Layer::Hatching`, cutting chain lines on `Layer::Cutting` with their thick ends on `Visible`,
   frame, marks (arrows included) and title block on `Layer::Frame`. Lines, circles, arcs and ellipses stay exact; other curves become
   polylines within the sheet chord and are counted in `SheetExported::approximated`. Written
   atomically. `SheetFormat::of` picks by extension (PDF by default).
@@ -162,11 +204,14 @@ lines, never a picture of the 3D view.
   selected in the view or chosen in the tree, else every shown body; opens it) and Export drawing
   sheet… (opens the panel and exports once the views are ready). Every setting in the panel is one
   undoable `changing_drawing`; Delete is undoable.
-- `DrawingViews` works out each wanted view (standard and section) on its own `drawing views`
+- `DrawingViews` works out each wanted view (standard, section and detail) on its own `drawing views`
   thread, keyed by the view (a section by its whole `SectionView` and its resolved place, so a
   parameter edit redoes it and a failing offset is its outcome) and the drawn bodies' result
   `Arc`s, so a view is redone only when a body it draws or its section settings change; a newer
   basis bumps a shared ticket that interrupts the view in flight. A panic becomes `Panicked`. A
+  detail is keyed by its `DetailView` and its parent's outcome `Arc` (by pointer), so it is redone
+  when either changes, and is `Working` until the parent is done; a parent that failed or is not
+  among the drawing's views gives `ParentFailed` or `ParentNotDrawn`. A
   failing view is a callout naming it and why; the others draw as usual. Closing the panel or a
   new session forgets everything.
 - The panel's Section views rows set each section's parent view (combo), plane (the two the
@@ -174,6 +219,12 @@ lines, never a picture of the 3D view.
   a Distance value field (units and parameters, the value kept), Look the other way and Delete;
   Add a section view adds one. A section whose cutting line is not drawn (`unmarked`) is a
   warning callout.
+- The panel's Detail views rows set each detail's parent (the drawing's views and its sections,
+  combo), centre across and up and radius (value fields: units and parameters, evaluated to a
+  length when committed), and scale (twice the sheet's, or an ISO 5455 ratio), with Delete; Add a
+  detail view puts a circle of a quarter of the parent's smaller side on the lower left
+  corner of its box (where lines meet), on the first drawn view. Deleting a section deletes the details enlarging it in the same
+  transaction.
 - The sheet preview paints the plan in theme tokens (paper `raised`, lines `text`, hidden lines
   and hatching `text_muted`, hidden dashed, cutting lines chained with thick ends): drag pans, `zoom_delta` (pinch, Ctrl and scroll) and the Zoom in, Zoom out
   and Fit buttons zoom, arrow keys pan the focused sheet.

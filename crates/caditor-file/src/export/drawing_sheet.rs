@@ -1,7 +1,7 @@
 use std::{f64::consts::TAU, path::Path};
 
 use caditor_document::{
-    CancelToken, PlacedView, SheetMark, SheetPlan, TextAnchor, ViewLines, hatch_lines,
+    CancelToken, PlacedView, SheetMark, SheetPlan, TextAnchor, ViewLines, drawn_hatching,
 };
 use caditor_geometry::{Point2, Vector2};
 use caditor_kernel::{
@@ -217,11 +217,9 @@ pub(super) fn sheet_figure(
     }
     for view in views {
         exported.views += 1;
-        for region in view.lines.hatching() {
-            for (from, to) in hatch_lines(region, &view.placed) {
-                exported.hatching += 1;
-                figure.push(Layer::Hatching, Shape::Line(from, to));
-            }
+        for (from, to) in drawn_hatching(view.lines, &view.placed) {
+            exported.hatching += 1;
+            figure.push(Layer::Hatching, Shape::Line(from, to));
         }
         for piece in view.lines.drawn_pieces(hidden_lines) {
             let (shape, exact) = piece_shape(piece, &view.placed);
