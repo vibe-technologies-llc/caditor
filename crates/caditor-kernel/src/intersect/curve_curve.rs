@@ -28,6 +28,7 @@ const OVERLAP_SAMPLES: usize = 8;
 const CLIP_SAMPLES: usize = 32;
 const PARALLEL_CROSS: f64 = 1e-12;
 const EXTENSION_BISECTIONS: usize = 60;
+const POLL_EVERY: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CurveCurvePoint<P> {
@@ -385,7 +386,7 @@ fn intersect<C: Traceable>(
         Some(candidates) => candidates,
         None => general(&pair)?,
     };
-    Ok(finish(&pair, candidates))
+    finish(&pair, candidates)
 }
 
 fn turn<C: Traceable>(curve: &C, range: Interval) -> f64 {
@@ -673,17 +674,25 @@ fn exact_ends<C: Traceable>(
         })
 }
 
+fn poll_now_and_then(index: usize) -> Result<(), IntersectionError> {
+    if (index + 1).is_multiple_of(POLL_EVERY) {
+        interrupt::check()?;
+    }
+    Ok(())
+}
+
 fn finish<C: Traceable>(
     pair: &Pair<C>,
     mut candidates: Vec<Candidate>,
-) -> CurveCurveIntersection<C::Point> {
+) -> Result<CurveCurveIntersection<C::Point>, IntersectionError> {
     candidates.extend(end_candidates(pair));
     candidates.retain(|candidate| {
         candidate.low() >= pair.first_range.start() && candidate.high() <= pair.first_range.end()
     });
     candidates.sort_by(|a, b| a.low().total_cmp(&b.low()));
     let mut clusters: Vec<Vec<Candidate>> = Vec::new();
-    for candidate in candidates {
+    for (index, candidate) in candidates.into_iter().enumerate() {
+        poll_now_and_then(index)?;
         match clusters.last_mut() {
             Some(cluster)
                 if cluster_high(cluster) >= candidate.low()
@@ -696,6 +705,7 @@ fn finish<C: Traceable>(
     }
     let mut result = CurveCurveIntersection::default();
     for (index, cluster) in clusters.iter().enumerate() {
+        poll_now_and_then(index)?;
         let (low, high) = (cluster_low(cluster), cluster_high(cluster));
         let along = cluster
             .iter()
@@ -824,7 +834,7 @@ fn finish<C: Traceable>(
     {
         result.points.pop();
     }
-    result
+    Ok(result)
 }
 
 fn range_end_seeds<C: Traceable>(pair: &Pair<C>, extent: Interval) -> Vec<f64> {

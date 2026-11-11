@@ -6,9 +6,9 @@ use crate::{
     bspline::BSpline,
     curve::{Circle, Curve, Line},
     curve2::{Circle2, Curve2, Line2},
-    intersect::{CurveCurveIntersection, intersect_curves, intersect_curves2},
+    intersect::{CurveCurveIntersection, IntersectionError, intersect_curves, intersect_curves2},
     interval::Interval,
-    test_support::Random,
+    test_support::{Random, assert_cancelled_anywhere},
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -292,4 +292,17 @@ fn circles_crossing_at_a_grazing_angle_meet_where_they_cross() {
     for point in &found.points {
         assert!((point.point.x - 0.5 * offset).abs() < 1e-9, "{point:?}");
     }
+}
+
+#[test]
+fn a_curve_overlapping_itself_stops_when_interrupted_while_its_meetings_are_sorted() {
+    let wave = spline2(&[(0.0, 0.0), (1.0, 1.0), (2.0, -1.0), (3.0, 1.0), (4.0, 0.0)]);
+
+    let polls = assert_cancelled_anywhere(
+        "a wave against itself",
+        || intersect_curves2(&wave, Interval::UNIT, &wave, Interval::UNIT),
+        |error| matches!(error, IntersectionError::Cancelled(_)),
+    );
+
+    assert!(polls > 0);
 }

@@ -36,7 +36,9 @@ paths:
   (a circle running within the resolution of a wall from its seam to where it crosses it) reports
   both, the end as a touch. Branches shorter than `MIN_BRANCH_LENGTH`
   are dropped.
-- Every search is budgeted; exhausting one is `IntersectionError::TooComplex`.
+- Every search is budgeted; exhausting one is `IntersectionError::TooComplex`. Sorting a curve
+  pair's candidates into points and overlaps polls `interrupt::check` every `POLL_EVERY`
+  candidates and clusters, since each costs projections onto the other curve.
 
 ## Curves
 
@@ -85,7 +87,13 @@ paths:
 - A plane cuts a cone in the exact ellipse (or circle) only when `|n·axis| > sin α`; crossing the
   axis behind the apex means it misses. Planes at `|n·axis| <= sin α` (parabolas and hyperbolas)
   are marched; through the apex they are rulings or the apex alone.
-- Two cylinders of different radii whose axes cross at a distance equal to the sum or difference of
+- Two cylinders whose crossed axes lie farther apart than the sum of their radii miss, and at the
+  sum (within the resolution) touch at the one point dividing the axes' common perpendicular in
+  the ratio of the radii, with nothing else in common: both are answered analytically. Marched,
+  the surfaces lying within the resolution over a patch round that point gave scribbled branches
+  crossing each other some two thousand times, whose crossings the boolean sorted for minutes (a
+  rim fillet's cylinder along a plate's opening rolling into the opening's rounded corner).
+- Two cylinders of different radii whose axes cross at a distance equal to the difference of
   the radii touch at a point on the axes' common perpendicular (`analytic::touches`), where the
   intersection crosses itself (two holes flush at the top or bottom). It is handed to the marcher,
   which ends a branch exactly there when a step's chord passes within `TOUCH_SLACK` of its length,

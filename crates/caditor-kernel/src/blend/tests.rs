@@ -14,7 +14,7 @@ use crate::{
     tolerance::SamplingTolerance,
 };
 
-const SPANDREL_CENTROID: f64 = (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
+pub(super) const SPANDREL_CENTROID: f64 = (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
 
 pub(super) fn spandrel(radius: f64) -> f64 {
     (1.0 - PI / 4.0) * radius * radius
