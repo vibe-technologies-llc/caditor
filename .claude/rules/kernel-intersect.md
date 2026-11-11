@@ -125,6 +125,22 @@ paths:
     and do not meet there, and marching from it collapsed on its first step (`Unfollowable`), as
     4.7e-7 apart, sine 8.6e-5, beside the lobes a sphere 1.6e-4 off centre leaves along a torus's
     inner equator.
+  - Surfaces touching at an isolated point (elliptic contact: a ball on a cylinder, in a bore or on
+    a torus, a torus against a cylinder, a spline bump under a plane) lie within the resolution
+    over a patch round it, where seeds have sines near 1e-4, far above `TOUCH_SINE`; marched, they
+    scribbled branches crossing each other thousands of times or failed `Unfollowable`. Before
+    tracing, every seed (and arrangement hint) with a sine at most `TOUCH_SEARCH_SINE` is tried as
+    one (`isolated.rs`): the difference of the two surfaces' second fundamental forms must be
+    definite (`SeparationForm::definite`), first at the seed and then where `parallel_normals`
+    from it lands within the resolution of both surfaces; the ring at `reach` (where that form
+    parts them by four times the resolution along its weakest bend) must turn at most
+    `MAX_RING_BEND` on either surface (twice that at the seed, a cheap test that keeps
+    near-coincident surfaces, which bend apart too weakly, off the Newton solve) and hold the
+    seed; and the surfaces, sampled round that ring, must lie apart beyond twice the resolution
+    on one side all round (`closes_round`). The polished point is then one tangent point
+    (reported only inside both patches), and every seed or hint within its reach is set aside.
+    Surfaces apart or overlapping by less than the resolution there touch the same way, so a leaf
+    whose closest approach cannot be refined onto both surfaces seeds when it is such a touch.
   - Arrangement points lying on both surfaces (an edge of one solid piercing a face of the other)
     are also seeds (`intersect_surfaces_through`), so a short branch near a patch corner is found
     when no subdivision leaf seeds it; a failing hint is ignored.
