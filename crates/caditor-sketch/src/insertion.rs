@@ -51,7 +51,7 @@ enum Form {
     Straight,
     Quadratic,
     Knotted(Knotted),
-    Looped(Vec<f64>),
+    Looped { degree: usize, spans: Vec<f64> },
 }
 
 struct Source {
@@ -141,14 +141,13 @@ impl Plan {
     fn looped(
         points: &[EntityId],
         positions: &[Point2],
-        spans: &[f64],
+        (degree, spans): (usize, &[f64]),
         span: usize,
         parameter: f64,
     ) -> Option<Self> {
         let count = points.len();
-        let knots = looped_knots(spans)?;
+        let knots = looped_knots(degree, spans)?;
         let knot = |index: usize| knots.get(index).copied();
-        let degree = MAX_SPLINE_DEGREE;
         let start = span + degree;
         let blended = |index: usize| {
             let low = knot(index)?;
@@ -158,12 +157,14 @@ impl Plan {
             share.is_finite().then(|| previous.lerp(current, share))
         };
         let point = |index: usize| points.get(index % count).copied();
-        let mut slots = vec![
-            Slot::Kept(point(span)?),
-            Slot::Moved(point(span + 1)?, blended(start - 2)?),
-            Slot::Moved(point(span + 2)?, blended(start - 1)?),
-            Slot::Added(blended(start)?),
-        ];
+        let mut slots = vec![Slot::Kept(point(span)?)];
+        for offset in 1..degree {
+            slots.push(Slot::Moved(
+                point(span + offset)?,
+                blended(start - (degree - offset))?,
+            ));
+        }
+        slots.push(Slot::Added(blended(start)?));
         for index in span + degree..span + count {
             slots.push(Slot::Kept(point(index)?));
         }
@@ -177,11 +178,8 @@ impl Plan {
         widths.rotate_left(turn);
         let total: f64 = widths.iter().sum();
         let spans: Vec<f64> = widths.iter().map(|width| width / total).collect();
-        SplineKind::spans_are_valid(&spans).then_some(Self {
-            kind: SplineKind::Knotted {
-                spans,
-                closed: true,
-            },
+        Some(Self {
+            kind: SplineKind::looped(degree, spans)?,
             slots,
         })
     }
@@ -241,15 +239,29 @@ impl Sketch {
             SplineKind::Control { closed: false } if count == 3 => Form::Quadratic,
             SplineKind::Control { closed: false }
             | SplineKind::Piece { .. }
-            | SplineKind::Graded { .. }
+            | SplineKind::Graded { closed: false, .. }
             | SplineKind::Knotted { closed: false, .. } => {
                 Form::Knotted(self.spline_source(curve).ok_or_else(no_length)?.knotted)
             }
-            SplineKind::Control { closed: true } => Form::Looped(vec![1.0; count]),
+            SplineKind::Control { closed: true } => Form::Looped {
+                degree: MAX_SPLINE_DEGREE,
+                spans: vec![1.0; count],
+            },
             SplineKind::Knotted {
                 spans,
                 closed: true,
-            } => Form::Looped(spans.clone()),
+            } => Form::Looped {
+                degree: MAX_SPLINE_DEGREE,
+                spans: spans.clone(),
+            },
+            SplineKind::Graded {
+                degree,
+                spans,
+                closed: true,
+            } => Form::Looped {
+                degree: *degree,
+                spans: spans.clone(),
+            },
         };
         let positions = points
             .iter()
@@ -372,9 +384,13 @@ fn planned(source: &Source, span: usize, parameter: f64) -> Option<Plan> {
         Form::Straight => Plan::straight(&source.points, &source.positions, parameter),
         Form::Quadratic => Plan::elevated(&source.points, &source.positions, parameter),
         Form::Knotted(knotted) => Plan::of_inserted(&source.points, knotted.inserted(parameter)?),
-        Form::Looped(spans) => {
-            Plan::looped(&source.points, &source.positions, spans, span, parameter)
-        }
+        Form::Looped { degree, spans } => Plan::looped(
+            &source.points,
+            &source.positions,
+            (*degree, spans),
+            span,
+            parameter,
+        ),
     }
 }
 

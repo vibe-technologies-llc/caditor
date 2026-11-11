@@ -2087,6 +2087,39 @@ fn a_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
 }
 
 #[test]
+fn a_closed_spline_of_a_chosen_degree_round_trips_and_older_readers_report_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline_of(
+        &[
+            Point2::new(0.0, 0.0),
+            Point2::new(30.0, -6.0),
+            Point2::new(60.0, 10.0),
+            Point2::new(72.0, 40.0),
+            Point2::new(50.0, 70.0),
+            Point2::new(16.0, 64.0),
+        ],
+        SplineKind::Control { closed: true },
+    );
+    sketch.set_spline_degree(spline, 5).unwrap();
+    sketch
+        .insert_control_point(spline, Some(Point2::new(60.0, 25.0)))
+        .unwrap();
+    transaction.add_feature("Curves", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("\"closed_spline_degree\"", "\"closed_spline_degreex\""));
+
+    assert!(text.contains("\"closed_spline_degree\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.issues.join(" ").contains("(closed_spline_degreex)"));
+}
+
+#[test]
 fn sketch_texts_round_trip_and_older_readers_report_them() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Texts");

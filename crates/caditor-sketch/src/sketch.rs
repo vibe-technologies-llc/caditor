@@ -69,10 +69,23 @@ pub(crate) fn spline_through(positions: &[Point2], kind: &SplineKind) -> Option<
                 closed: true,
             },
             _,
-        ) => BSpline::looped(positions, spans),
-        (SplineKind::Graded { degree, spans }, _) => {
-            BSpline::graded(positions.to_vec(), *degree, spans)
-        }
+        ) => BSpline::looped(positions, MAX_SPLINE_DEGREE, spans),
+        (
+            SplineKind::Graded {
+                degree,
+                spans,
+                closed: false,
+            },
+            _,
+        ) => BSpline::graded(positions.to_vec(), *degree, spans),
+        (
+            SplineKind::Graded {
+                degree,
+                spans,
+                closed: true,
+            },
+            _,
+        ) => BSpline::looped(positions, *degree, spans),
     }
 }
 
@@ -112,7 +125,10 @@ pub enum SketchError {
     TooFewControlPoints,
     #[error("a conic's rho must lie between 0.01 and 0.99")]
     InvalidRho,
-    #[error("a closed spline needs at least three points")]
+    #[error(
+        "a closed spline needs at least three points, and above degree three one more than its \
+         degree"
+    )]
     TooFewClosedPoints,
     #[error("a conic needs exactly its start, apex and end")]
     ConicPoints,
@@ -510,9 +526,11 @@ impl Sketch {
             SplineKind::Control { closed: false }
             | SplineKind::Conic { .. }
             | SplineKind::Piece { .. }
-            | SplineKind::Graded { .. }
+            | SplineKind::Graded { closed: false, .. }
             | SplineKind::Knotted { closed: false, .. } => Some(positions),
-            SplineKind::Control { closed: true } | SplineKind::Knotted { closed: true, .. } => {
+            SplineKind::Control { closed: true }
+            | SplineKind::Knotted { closed: true, .. }
+            | SplineKind::Graded { closed: true, .. } => {
                 Some(positions.iter().chain(positions.first()).copied().collect())
             }
             SplineKind::Fit { .. } => self
@@ -2212,9 +2230,25 @@ impl Sketch {
             }
             Entity::Spline {
                 ref points,
-                kind: SplineKind::Graded { degree, ref spans },
+                kind:
+                    SplineKind::Graded {
+                        degree,
+                        ref spans,
+                        closed: false,
+                    },
             } if points.len() != spans.len() + degree => {
                 return Err(SketchError::GradedSpanCount);
+            }
+            Entity::Spline {
+                ref points,
+                kind:
+                    SplineKind::Graded {
+                        ref spans,
+                        closed: true,
+                        ..
+                    },
+            } if points.len() != spans.len() => {
+                return Err(SketchError::LoopedKnotSpanCount);
             }
             Entity::Spline {
                 ref points,

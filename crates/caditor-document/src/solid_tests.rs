@@ -1474,3 +1474,45 @@ fn a_spline_of_a_chosen_degree_closed_by_its_chord_extrudes_into_a_body() {
         assert!(volume(&evaluation, body) > 100.0, "degree {degree}");
     }
 }
+
+#[test]
+fn a_closed_spline_of_a_chosen_degree_extrudes_into_a_body_the_polygon_bounds() {
+    let ring = [
+        Point2::new(0.0, 0.0),
+        Point2::new(20.0, -6.0),
+        Point2::new(40.0, 0.0),
+        Point2::new(46.0, 20.0),
+        Point2::new(40.0, 40.0),
+        Point2::new(20.0, 46.0),
+        Point2::new(0.0, 40.0),
+        Point2::new(-6.0, 20.0),
+    ];
+    let polygon_area: f64 = ring
+        .iter()
+        .zip(ring.iter().cycle().skip(1))
+        .map(|(a, b)| a.x * b.y - b.x * a.y)
+        .sum::<f64>()
+        / 2.0;
+    let mut volumes = Vec::new();
+    for degree in [1, 2, 5] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline_of(&ring, SplineKind::Control { closed: true });
+        sketch.set_spline_degree(spline, degree).unwrap();
+        let (document, body) = single_body(
+            extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
+            sketch,
+        );
+
+        let evaluation = evaluate(&document, &mut Recompute::default());
+
+        volumes.push(volume(&evaluation, body));
+    }
+
+    assert!((volumes[0] - 5.0 * polygon_area).abs() < 1e-6 * volumes[0]);
+    for volume in &volumes[1..] {
+        assert!(
+            *volume > 0.5 * volumes[0] && *volume < volumes[0],
+            "{volumes:?}"
+        );
+    }
+}

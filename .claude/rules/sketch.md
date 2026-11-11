@@ -77,7 +77,7 @@ paths:
   keeping its points. `Sketch::spline` gives any kind as a clamped `BSpline`
   (`sketch::spline_through`), so drawing, intersections, profiles and exports ignore the kind.
   - A closed spline is periodic (`Entity::spline_ends` is none: no open ends, joins nothing at an
-    end) and needs three points (`TooFewClosedPoints`).
+    end) and needs three points (`TooFewClosedPoints`; more above degree three, below).
   - A piece (`SplineKind::Piece { lead, trail }`, named "Spline") is an open cubic control spline
     whose inner spans are uniform and whose first and last spans are `lead` and `trail` times as
     long (`curve::piece_knots`): what trim and extend leave of a control spline, so the curve keeps
@@ -96,20 +96,34 @@ paths:
     `Copy` because of it, so `Entity::spline_kind` returns a clone. Trim and extend read the result
     as a `Piece` when its inner spans are all equal (always with up to six points), else as a
     `Knotted` of the spans of the part's knots (`Part::kind`).
-  - Graded (`SplineKind::Graded { degree, spans }`, named "Spline", saved as `spline_degree`) is an
-    open control spline of a chosen degree, `MIN_DEGREE` to `MAX_DEGREE` (25, the kernel's
-    `MAX_SPLINE_DEGREE`, held equal by a check in `caditor-checks`; `InvalidDegree`), with one span
-    between knots per control point beyond its degree (`GradedSpanCount`), each finite and above
-    zero (`InvalidGradedSpans`); `curve::graded_knots` builds the clamped knots that `BSpline::graded`
-    and the solver share. It holds only what the cubic kinds cannot: `SplineKind::graded(degree,
+  - Graded (`SplineKind::Graded { degree, spans, closed }`, named "Spline" open and "Closed spline"
+    closed, saved as `spline_degree` and `closed_spline_degree`) is a control spline of a chosen
+    degree, `MIN_DEGREE` to `MAX_DEGREE` (25, the kernel's `MAX_SPLINE_DEGREE`, held equal by a
+    check in `caditor-checks`; `InvalidDegree`), each span finite and above zero
+    (`InvalidGradedSpans`). Open, it has one span between knots per control point beyond its degree
+    (`GradedSpanCount`) and `curve::graded_knots` builds the clamped knots that `BSpline::graded`
+    and the solver share. Closed, it is periodic like a closed control spline, one span per point
+    (`LoopedKnotSpanCount`), and `curve::looped_knots(degree, spans)` builds the periodic knots
+    that `BSpline::looped`, the solver (`periodic_handle`) and trim (`Knotted::periodic`) share
+    with the closed `Knotted`, its cubic counterpart. A closed spline of degree three is
+    never a `Graded`: it is `Control { closed: true }` or a closed `Knotted`. A closed spline
+    needs `SplineKind::fewest_looped_points(degree)` points, three up to degree three and one more
+    than the degree above it, so no point is wrapped onto itself within a span (a legacy closed
+    cubic may have three), and `most_looped_degree(points)` is the highest degree its points carry
+    (`TooFewClosedPoints`). It holds only what the cubic kinds cannot: `SplineKind::graded(degree,
     points)` gives `OPEN` for the degree a plain control spline of that many points already has
-    (`min(3, points - 1)`), so a curve has one form, and uniform spans otherwise. Trim, extend,
-    split, break and point insertion carry the degree through the same blossoming and Boehm
-    insertion (`Part::kind` reads a part of another degree as `Graded`, or `OPEN` when it is
-    the plain one). A degree-one spline is a polyline and refuses `Curvature`.
-    `SplineKind::drawn(degree, points)` is the kind the spline tool draws at a chosen degree: the
-    degree clamped to the range and to `points - 1`, through `graded`, so a spline drawn at a
-    degree its points cannot carry is the one they can (never a `Graded` with too few points).
+    (`min(3, points - 1)`) and `graded_loop(degree, points)` gives `Control { closed: true }` for
+    degree three, so a curve has one form, and uniform spans otherwise. Trim, extend, split, break
+    and point insertion carry the degree through the same blossoming and Boehm insertion
+    (`Part::kind` reads a part of another degree as `Graded`, or `OPEN` when it is the plain one;
+    a closed spline trimmed opens into an open one of its degree; `Plan::looped` inserts round the
+    loop at the degree, moving the `degree - 1` points before the new one). A degree-one spline is
+    a polyline (a closed one a polygon) and refuses `Curvature`. `SplineKind::drawn(degree,
+    points)` and `drawn_loop(degree, points)` are the kinds the spline tool draws at a chosen
+    degree: the degree clamped to the range and to what the points carry (`points - 1`; for a
+    closed one `most_looped_degree`), so a spline drawn at a degree its points cannot carry is the
+    one they can (never a `Graded` with too few points). `degree_of` gives a closed control or
+    knotted spline three; only a closed fit spline has no degree.
   - A conic has exactly three points (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO`
     (`InvalidRho`): a rational quadratic with middle weight `rho / (1 - rho)`, passing the point
     rho of the way from the chord's middle to the apex (below 0.5 ellipse, 0.5 parabola, above
@@ -376,7 +390,7 @@ relative to the extent.
     point and the old ones no curve uses go with their constraints. An open control spline or piece
     becomes a plain control spline when the stretch lies within one span or both its end spans
     are whole, else a `Piece` (a `Knotted` when its inner spans are uneven); a closed
-    one is unrolled over two turns (`Knotted::periodic`) and opens into one; a conic stays a conic
+    one is unrolled over two turns (`Knotted::periodic`, at its degree) and opens into one; a conic stays a conic
     (normalised middle weight gives the new rho; its `Rho` dimension is dropped). A fit-point
     spline's piece is cut out of its drawn curve the same way (`exact_fit_piece`: handles included,
     since the drawn curve reads them) and becomes a control spline, its first or last fit point
@@ -631,7 +645,8 @@ relative to the extent.
     by three, so those two keep their IDs and move along the polygon, the third is new and gets the
     next place in the list, and the result is `Part::kind` (a `Piece` or `Knotted`).
   - Closed (`Plan::looped`): the same insertion round the loop on the periodic knots
-    (`curve::looped_knots`), giving a closed `Knotted` of one more span. The lists are rotated so
+    (`curve::looped_knots`, at the spline's degree), giving a closed `Knotted` (cubic) or closed
+    `Graded` of one more span. The lists are rotated so
     the first span still starts at parameter zero, so the curve keeps its parameter as well as its
     shape; a point inserted in the last two spans moves the first points, and the new point may
     head the list.
@@ -646,13 +661,14 @@ relative to the extent.
   change. Refused with `FitSpline`, `Conic` (its halves would be rational arcs needing weights no
   kind but the conic holds), `Projected`, `NotASpline`. It works on a clone, so a refusal changes
   nothing.
-- Degree (`degree.rs`): `set_spline_degree(spline, degree)` gives an open control spline (plain,
-  piece, knotted or graded) a degree up to one less than its points, keeping the points and
-  resetting the knots to even spans, so the curve changes shape and the solver holds every
-  constraint on it as before (`Curvature` goes when the degree becomes one). `DegreeError` refuses
-  a fit spline (it has no degree to choose), a conic, a closed spline, a projected one, a degree
-  out of range or past what the points carry, and a degree it already has. `spline_degree` gives
-  a spline's degree (`SplineKind::degree_of`).
+- Degree (`degree.rs`): `set_spline_degree(spline, degree)` gives a control spline, open or closed
+  (plain, piece, knotted or graded), a degree up to one less than its points (a closed one at
+  most `most_looped_degree`, never below three for a closed spline of three or four points),
+  keeping the points and resetting the knots to even spans, so the curve changes shape and the
+  solver holds every constraint on it as before (`Curvature` goes when the degree becomes one; a
+  closed spline of degree one is a polygon). `DegreeError` refuses a fit spline (it has no degree
+  to choose), a conic, a projected one, a degree out of range or past what the points carry, and a
+  degree it already has. `spline_degree` gives a spline's degree (`SplineKind::degree_of`).
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point on it between its ends
   (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve dropped.
   A line's pieces are `Collinear` or each keeps horizontal or vertical; a point that was the line's

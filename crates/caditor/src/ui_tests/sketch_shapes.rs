@@ -1441,6 +1441,87 @@ fn only_the_control_point_way_has_a_degree_to_choose() {
 }
 
 #[test]
+fn clicking_the_first_point_closes_a_control_point_spline_at_the_degree_chosen() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
+    type_point(&mut harness, "5 degree");
+
+    let clicked = wave_points(7);
+    click_all(&mut harness, &clicked);
+    harness.click_at(clicked[0]);
+
+    let sketch = harness.sketch(feature);
+    let [spline] = entities_of_kind(sketch, "Closed spline")[..] else {
+        panic!("one closed spline should be drawn");
+    };
+    assert_eq!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        SplineKind::graded_loop(5, 7)
+    );
+    assert_eq!(sketch.spline(spline).unwrap().degree(), 5);
+    assert_eq!(sketch.spline_degree(spline), Some(5));
+
+    click_all(&mut harness, &clicked[..4]);
+    harness.click_at(clicked[0]);
+
+    let sketch = harness.sketch(feature);
+    let drawn = entities_of_kind(sketch, "Closed spline");
+    assert_eq!(drawn.len(), 2);
+    assert_eq!(
+        sketch.entity(drawn[1]).and_then(Entity::spline_kind),
+        Some(SplineKind::Control { closed: true })
+    );
+}
+
+#[test]
+fn the_closed_control_point_way_draws_at_the_degree_chosen_and_it_changes_afterwards() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    for _ in 0..3 {
+        harness.use_tool(Key::S);
+    }
+    harness.frame();
+    assert!(offer(&harness, Command::MoreDegree).availability.is_ok());
+    type_point(&mut harness, "4 degree");
+    harness.frame();
+    assert!(harness.shows_containing("(degree 4, which needs 5 points)"));
+
+    let clicked = wave_points(6);
+    click_all(&mut harness, &clicked);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let [spline] = entities_of_kind(sketch, "Closed spline")[..] else {
+        panic!("one closed spline should be drawn");
+    };
+    assert_eq!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        SplineKind::graded_loop(4, 6)
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: spline,
+    }]);
+    run_from_palette(
+        &mut harness,
+        "Raise the degree of the selected control-point splines by one, keeping their points",
+    );
+    harness.settle();
+
+    assert_eq!(harness.sketch(feature).spline_degree(spline), Some(5));
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(harness.sketch(feature).spline_degree(spline), Some(4));
+}
+
+#[test]
 fn a_fit_point_spline_closes_on_its_first_point_and_passes_every_point() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

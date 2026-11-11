@@ -146,7 +146,7 @@ impl BSpline {
     pub fn interpolate_closed_centripetal(points: &[Point2]) -> Option<BSpline> {
         let layout = FitLayout::closed(points, FitSpacing::Centripetal)?;
         let control_points = fit_controls(points, true, FitSpacing::Centripetal, &layout)?;
-        BSpline::periodic_on(&control_points, layout.knots)
+        BSpline::periodic_on(&control_points, MAX_SPLINE_DEGREE, layout.knots)
     }
 }
 

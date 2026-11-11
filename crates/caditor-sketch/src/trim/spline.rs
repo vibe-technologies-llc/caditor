@@ -113,9 +113,9 @@ impl Knotted {
         }
     }
 
-    fn periodic(points: &[Point2], spans: &[f64], turns: usize) -> Option<Self> {
+    fn periodic(points: &[Point2], degree: usize, spans: &[f64], turns: usize) -> Option<Self> {
         let count = points.len();
-        if count < MIN_CLOSED_POINTS || spans.len() != count {
+        if count < MIN_CLOSED_POINTS || spans.len() != count || count < degree {
             return None;
         }
         let total_span: f64 = spans.iter().sum();
@@ -127,7 +127,6 @@ impl Knotted {
                 Some(start)
             })
             .collect();
-        let degree = MAX_SPLINE_DEGREE;
         let total = count * turns + degree;
         let wrapped = (0..total)
             .map(|index| points.get(index % count).map(|point| point.extend(1.0)))
@@ -361,6 +360,7 @@ impl Part {
         .then_some(SplineKind::Graded {
             degree: self.degree,
             spans,
+            closed: false,
         })
     }
 
@@ -499,13 +499,29 @@ impl Sketch {
         let count = positions.len();
         let (knotted, width) = match kind {
             SplineKind::Control { closed: true } => (
-                Knotted::periodic(&positions, &vec![1.0; count], CLOSED_TURNS)?,
+                Knotted::periodic(
+                    &positions,
+                    MAX_SPLINE_DEGREE,
+                    &vec![1.0; count],
+                    CLOSED_TURNS,
+                )?,
                 Some(1.0 / count as f64),
             ),
             SplineKind::Knotted {
                 ref spans,
                 closed: true,
-            } => (Knotted::periodic(&positions, spans, CLOSED_TURNS)?, None),
+            } => (
+                Knotted::periodic(&positions, MAX_SPLINE_DEGREE, spans, CLOSED_TURNS)?,
+                None,
+            ),
+            SplineKind::Graded {
+                degree,
+                ref spans,
+                closed: true,
+            } => (
+                Knotted::periodic(&positions, degree, spans, CLOSED_TURNS)?,
+                None,
+            ),
             SplineKind::Control { closed: false } => {
                 let spline = BSpline::clamped(positions)?;
                 let spans = count.saturating_sub(spline.degree()).max(1);
@@ -519,7 +535,7 @@ impl Sketch {
                 )
             }
             SplineKind::Knotted { closed: false, .. }
-            | SplineKind::Graded { .. }
+            | SplineKind::Graded { closed: false, .. }
             | SplineKind::Conic { .. }
             | SplineKind::Fit { .. } => (Knotted::of(&self.spline(curve)?), None),
         };

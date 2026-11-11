@@ -307,12 +307,15 @@ impl BSpline {
         Self::clamped(kept)
     }
 
-    pub(crate) fn periodic_on(control_points: &[Point2], knots: Vec<f64>) -> Option<Self> {
+    pub(crate) fn periodic_on(
+        control_points: &[Point2],
+        degree: usize,
+        knots: Vec<f64>,
+    ) -> Option<Self> {
         let count = control_points.len();
         if count < MIN_CLOSED_POINTS {
             return None;
         }
-        let degree = MAX_SPLINE_DEGREE;
         let wrapped: Vec<Point2> = (0..count + degree)
             .filter_map(|index| control_points.get(index % count).copied())
             .collect();
@@ -390,11 +393,11 @@ impl BSpline {
         })
     }
 
-    pub fn looped(control_points: &[Point2], spans: &[f64]) -> Option<Self> {
+    pub fn looped(control_points: &[Point2], degree: usize, spans: &[f64]) -> Option<Self> {
         if control_points.len() != spans.len() {
             return None;
         }
-        Self::periodic_on(control_points, looped_knots(spans)?)
+        Self::periodic_on(control_points, degree, looped_knots(degree, spans)?)
     }
 
     pub fn interpolate_closed(points: &[Point2]) -> Option<Self> {
@@ -844,9 +847,12 @@ pub(crate) fn graded_knots(degree: usize, spans: &[f64]) -> Option<Vec<f64>> {
     )
 }
 
-pub(crate) fn looped_knots(spans: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn looped_knots(degree: usize, spans: &[f64]) -> Option<Vec<f64>> {
     let count = spans.len();
-    if count < MIN_CLOSED_POINTS || !SplineKind::spans_are_valid(spans) {
+    if count < MIN_CLOSED_POINTS
+        || !SplineKind::degree_is_valid(degree)
+        || !SplineKind::spans_are_valid(spans)
+    {
         return None;
     }
     let total: f64 = spans.iter().sum();
@@ -858,7 +864,7 @@ pub(crate) fn looped_knots(spans: &[f64]) -> Option<Vec<f64>> {
             Some(start)
         })
         .collect();
-    let degree = MAX_SPLINE_DEGREE as isize;
+    let degree = isize::try_from(degree).ok()?;
     let looped = isize::try_from(count).ok()?;
     (-degree..=looped + degree)
         .map(|index| {

@@ -2253,6 +2253,11 @@ pub(crate) enum EntityKindRecord {
         degree: u64,
         spans: Vec<f64>,
     },
+    ClosedSplineDegree {
+        control_points: Vec<u64>,
+        degree: u64,
+        spans: Vec<f64>,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -2357,7 +2362,7 @@ const DEFAULT_GEAR_TEETH: f64 = 20.0;
 const DEFAULT_SPROCKET_TEETH: f64 = 17.0;
 const DEFAULT_PRESSURE_ANGLE: f64 = 20.0;
 
-const ENTITY_KINDS: [&str; 21] = [
+const ENTITY_KINDS: [&str; 22] = [
     "point",
     "line",
     "circle",
@@ -2373,6 +2378,7 @@ const ENTITY_KINDS: [&str; 21] = [
     "spline_knots",
     "closed_spline_knots",
     "spline_degree",
+    "closed_spline_degree",
     "ellipse",
     "elliptical_arc",
     "text",
@@ -6110,7 +6116,26 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
                     control_points: raw,
                     spans: spans.clone(),
                 },
-                (SplineKind::Graded { degree, spans }, _) => EntityKindRecord::SplineDegree {
+                (
+                    SplineKind::Graded {
+                        degree,
+                        spans,
+                        closed: false,
+                    },
+                    _,
+                ) => EntityKindRecord::SplineDegree {
+                    control_points: raw,
+                    degree: *degree as u64,
+                    spans: spans.clone(),
+                },
+                (
+                    SplineKind::Graded {
+                        degree,
+                        spans,
+                        closed: true,
+                    },
+                    _,
+                ) => EntityKindRecord::ClosedSplineDegree {
                     control_points: raw,
                     degree: *degree as u64,
                     spans: spans.clone(),
@@ -10987,6 +11012,19 @@ fn restore_entity(record: &EntityKindRecord) -> Option<Entity> {
             kind: SplineKind::Graded {
                 degree: usize::try_from(*degree).unwrap_or(usize::MAX),
                 spans: spans.clone(),
+                closed: false,
+            },
+        },
+        EntityKindRecord::ClosedSplineDegree {
+            control_points,
+            degree,
+            spans,
+        } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Graded {
+                degree: usize::try_from(*degree).unwrap_or(usize::MAX),
+                spans: spans.clone(),
+                closed: true,
             },
         },
         EntityKindRecord::Ellipse {

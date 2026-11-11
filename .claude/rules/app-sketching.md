@@ -295,13 +295,16 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   kept like the side count, and chosen before or while drawing: Raise and Lower the drawn degree
   (`Command::MoreDegree`, `FewerDegree`, Alt+`]` and Alt+`[`, in the Drawing aids menu and the
   palette; `Drawing::more_degree`, `fewer_degree`) or typing `N degree` (`typed_point::degree`,
-  `Drawing::set_degree`) work only in the open control-point way (`DrawnDegreeError::NotAControlSpline`
-  elsewhere) and refuse a degree outside the range in words. The prompt names the degree, and the
-  points it still needs when it is not cubic. The spline is `SplineKind::drawn(degree, points)`,
-  which takes the most the placed points carry (Enter with three points at degree 5 draws a
-  quadratic), so the preview rises through the degrees as points are placed. A closed
-  control-point spline, drawn by its own way or by clicking the first point of an open one, is
-  always cubic. Raise and Lower spline degree (above) change drawn splines afterwards.
+  `Drawing::set_degree`) work only in the two control-point ways, open and closed
+  (`DrawnDegreeError::NotAControlSpline` elsewhere) and refuse a degree outside the range in words.
+  The prompt names the degree, and the points it still needs when it is not cubic. An open spline
+  is `SplineKind::drawn(degree, points)`, which takes the most the placed points carry (Enter with
+  three points at degree 5 draws a quadratic), so the preview rises through the degrees as points
+  are placed; a closed one, drawn by its own way or by clicking the first point of an open one, is
+  `SplineKind::drawn_loop(degree, points)` (`Drawing::spline_kind`), a closed spline needing one
+  more point than its degree above degree three and otherwise taking the most its points carry
+  (four points at degree 5 close as a cubic). Raise and Lower spline degree (above) change drawn
+  splines afterwards, closed ones included.
 
 ## Ways of drawing a shape
 

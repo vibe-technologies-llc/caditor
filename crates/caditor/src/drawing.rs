@@ -1869,7 +1869,7 @@ impl Drawing {
 
     fn control_spline(&self) -> Result<(), DrawnDegreeError> {
         match self.context {
-            Some((_, Shape::Spline(SplineMode::Control))) => Ok(()),
+            Some((_, Shape::Spline(SplineMode::Control | SplineMode::ClosedControl))) => Ok(()),
             _ => Err(DrawnDegreeError::NotAControlSpline),
         }
     }
@@ -1881,6 +1881,16 @@ impl Drawing {
                 format!(" (degree {degree}, which needs {} points)", degree + 1)
             }
             SplineMode::Control if degree != CUBIC_DEGREE => format!(" (degree {degree})"),
+            SplineMode::ClosedControl
+                if degree != CUBIC_DEGREE
+                    && self.placed.len() < SplineKind::fewest_looped_points(degree) =>
+            {
+                format!(
+                    " (degree {degree}, which needs {} points)",
+                    SplineKind::fewest_looped_points(degree)
+                )
+            }
+            SplineMode::ClosedControl if degree != CUBIC_DEGREE => format!(" (degree {degree})"),
             SplineMode::Control
             | SplineMode::Fit
             | SplineMode::ClosedFit
@@ -1891,7 +1901,10 @@ impl Drawing {
     fn spline_kind(&self, mode: SplineMode, closing: bool, points: usize) -> SplineKind {
         match mode {
             SplineMode::Control if !closing => SplineKind::drawn(self.degree.0, points),
-            _ => mode.kind(closing),
+            SplineMode::Control | SplineMode::ClosedControl => {
+                SplineKind::drawn_loop(self.degree.0, points)
+            }
+            SplineMode::Fit | SplineMode::ClosedFit => mode.kind(closing),
         }
     }
 
@@ -2743,9 +2756,12 @@ impl Drawing {
                     Some(Snap::Target(Target::Pending(index))) if self.closes_at(index)
                 );
                 let (points, kind) = if closing {
-                    (placed.clone(), mode.kind(true))
+                    (placed.clone(), self.spline_kind(mode, true, placed.len()))
                 } else if mode.closes() && preview.points.len() >= MIN_CLOSED_SPLINE_POINTS {
-                    (preview.points.clone(), mode.kind(false))
+                    (
+                        preview.points.clone(),
+                        self.spline_kind(mode, false, preview.points.len()),
+                    )
                 } else {
                     let kind = self.spline_kind(mode, false, preview.points.len());
                     (preview.points.clone(), kind.opened())

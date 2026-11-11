@@ -2761,6 +2761,25 @@ mod degree_tests {
     }
 
     #[test]
+    fn a_closed_spline_takes_a_degree_step_while_its_points_carry_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let ring: Vec<Point2> = (0..5)
+            .map(|index| {
+                let angle = index as f64 * std::f64::consts::TAU / 5.0;
+                Point2::new(10.0 * angle.cos(), 10.0 * angle.sin())
+            })
+            .collect();
+        let cubic = sketch.add_spline_of(&ring, SplineKind::Control { closed: true });
+        let triangle = sketch.add_spline_of(&ring[..3], SplineKind::Control { closed: true });
+
+        let raising = DegreeChange::of(&sketch, &[cubic, triangle], DegreeStep::Raise);
+        let lowering = DegreeChange::of(&sketch, &[cubic, triangle], DegreeStep::Lower);
+
+        assert_eq!(raising.unwrap().splines, vec![(cubic, 4)]);
+        assert_eq!(lowering.unwrap().splines, vec![(cubic, 2), (triangle, 2)]);
+    }
+
+    #[test]
     fn nothing_selected_that_can_change_degree_says_so() {
         let mut sketch = Sketch::new(Plane::XY);
         let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));

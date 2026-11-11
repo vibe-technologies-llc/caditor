@@ -773,7 +773,7 @@ impl Tool {
                                 "sides": { "type": "integer", "minimum": 3, "maximum": 64, "description": "polygon: the number of sides, 6 by default" },
                                 "side_middle": point("polygon: the middle of its first side, instead of corner"),
                                 "form": { "type": "string", "enum": ["fit", "control"], "description": "spline: through its points (fit, the default) or shaped by them as control points" },
-                                "degree": { "type": "integer", "minimum": 1, "maximum": 25, "description": "spline with form control, open: its degree (cubic, 3, by default), at most one less than its points" },
+                                "degree": { "type": "integer", "minimum": 1, "maximum": 25, "description": "spline with form control, open or closed: its degree (cubic, 3, by default), at most one less than its points" },
                                 "major_end": point("ellipse, elliptical_arc: the end of its major axis"),
                                 "minor_radius": { "type": "number", "exclusiveMinimum": 0, "description": "ellipse, elliptical_arc: half its width across the minor axis" }
                             },
