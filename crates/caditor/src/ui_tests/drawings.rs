@@ -1,11 +1,17 @@
-use caditor_document::{DrawnView, Projection, SectionPlace, SectionPlane, StandardView};
+use caditor_document::{
+    DrawnView, Projection, ResolvedPlace, SectionPlace, SectionPlane, StandardView,
+};
+use caditor_expression::Expression;
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
 
 use super::{Harness, extruded_plate, run_from_palette};
-use crate::drawings_panel::{
-    ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_SECTIONS, NONE_YET, WORKING, ZOOM_IN,
-    offset_field_id,
+use crate::{
+    drawings_panel::{
+        ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_SECTIONS, NONE_YET, WORKING, ZOOM_IN,
+        offset_field_id,
+    },
+    model::Action,
 };
 
 fn wait_for_views(harness: &mut Harness) {
@@ -94,6 +100,11 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
             .sections
             .clone()
     };
+    let place = |harness: &Harness| {
+        sections(harness)[0]
+            .place
+            .resolve(harness.model.parameters())
+    };
     assert_eq!(sections(&harness).len(), 1);
     assert_eq!(sections(&harness)[0].letter, 'A');
     wait_for_views(&mut harness);
@@ -125,13 +136,13 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
 
     harness.click(AT_OFFSET);
     harness.frame();
-    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(20.0));
+    assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(20.0)));
     assert!(harness.shows(DISTANCE));
     harness.type_into_field(offset_field_id(drawing, 'A'), "10 mm");
-    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(10.0));
+    assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(10.0)));
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
-    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(20.0));
+    assert_eq!(place(&harness), Ok(ResolvedPlace::Offset(20.0)));
     harness.click(SectionPlane::Xy.name());
     harness.frame();
     assert_eq!(sections(&harness)[0].plane, SectionPlane::Xy);
@@ -160,4 +171,58 @@ fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_she
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     assert_eq!(sections(&harness).len(), 1);
+}
+
+#[test]
+fn a_section_offset_typed_as_a_parameter_follows_it_when_it_changes() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    let drawing = harness.document().drawings().drawings[0].id;
+    wait_for_views(&mut harness);
+    harness.click(ADD_SECTION);
+    harness.frame();
+    harness.click(AT_OFFSET);
+    harness.frame();
+
+    let document = harness.document();
+    let mut transaction = document.transaction("Add cut");
+    let cut = transaction.add_parameter("cut", Expression::number(12.0));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.type_into_field(offset_field_id(drawing, 'A'), "cut");
+    let cut_at = |harness: &Harness| {
+        let job = harness.workspace.drawings.job(&harness.model).ok()?;
+        job.plan
+            .views
+            .iter()
+            .find(|placed| placed.view == DrawnView::Section('A'))
+            .and_then(|placed| job.views.iter().find(|(view, _)| view == placed))
+            .and_then(|(_, outcome)| outcome.as_ref().as_ref().ok()?.section.clone())
+            .map(|section| section.cutting.origin().x)
+    };
+
+    assert!(matches!(
+        harness.document().drawing(drawing).unwrap().sections[0].place,
+        SectionPlace::Offset(Expression::Parameter(id)) if id == cut
+    ));
+    harness.wait_until("the section is cut at the parameter", |harness| {
+        cut_at(harness).is_some_and(|x| (x - 12.0).abs() < 1e-6)
+    });
+
+    let document = harness.document();
+    let expression = document.parse("15 mm").unwrap();
+    harness.perform(Action::Apply(caditor_document::Transaction::single(
+        "Move cut",
+        caditor_document::Edit::SetParameterExpression {
+            id: cut,
+            expression,
+        },
+    )));
+    harness.settle();
+
+    harness.wait_until("the section follows the parameter", |harness| {
+        cut_at(harness).is_some_and(|x| (x - 15.0).abs() < 1e-6)
+    });
 }

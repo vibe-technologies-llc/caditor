@@ -881,6 +881,10 @@ fn users_menu(
                     None => continue,
                 }
             }
+            ParameterUser::Drawing(_) => match document.drawing_user_name(*user) {
+                Some(name) => (icons::command(Command::Drawings), name, None),
+                None => continue,
+            },
         };
         let response = widgets::menu_item(ui, glyph, &name, None)
             .on_hover_text(format!("Go to {name}, which uses {}", parameter.name));
@@ -893,6 +897,7 @@ fn users_menu(
                     }
                     state.request_focus(focus);
                 }
+                None if matches!(user, ParameterUser::Drawing(_)) => {}
                 None => actions.push(Action::Preferences(PreferencesCommand::ShowConfigurations)),
             }
             ui.close();

@@ -2623,12 +2623,10 @@ fn sheet_lines(
         .views
         .iter()
         .map(|view| caditor_document::drawing_view(*view, solids).unwrap())
-        .chain(
-            drawing
-                .sections
-                .iter()
-                .map(|section| caditor_document::section_view(section, solids).unwrap()),
-        )
+        .chain(drawing.sections.iter().map(|section| {
+            let place = caditor_document::ResolvedPlace::Offset(20.0);
+            caditor_document::section_view(section, place, solids).unwrap()
+        }))
         .collect()
 }
 
@@ -2730,7 +2728,7 @@ fn a_section_view_is_written_hatched_with_its_cutting_line_on_its_parent() {
         letter: 'A',
         parent: caditor_document::StandardView::Front,
         plane: caditor_document::SectionPlane::Yz,
-        place: caditor_document::SectionPlace::Offset(20.0),
+        place: caditor_document::SectionPlace::offset(20.0),
         reversed: false,
     }];
     let lines = sheet_lines(&drawing, &[&block, &pin]);

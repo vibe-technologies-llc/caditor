@@ -6,6 +6,7 @@ use caditor_document::{
     MAX_SECTION_VIEWS, Projection, SECTION_LETTERS, ScaleRatio, SectionPlace, SectionPlane,
     SectionView, SheetOrientation, SheetSize, StandardView, drawing_name,
 };
+use caditor_expression::{EvalError, Expression, ParameterId};
 use serde::{Deserialize, Serialize};
 
 use crate::format::Lenient;
@@ -67,6 +68,19 @@ fn centre() -> Lenient<PlaceRecord> {
 pub(crate) enum PlaceRecord {
     Centre,
     Offset(f64),
+    Expression(String),
+}
+
+fn place_record(offset: &Expression) -> PlaceRecord {
+    let plain = offset
+        .evaluate(&|_| Err(EvalError::ParameterMissing))
+        .ok()
+        .map(|quantity| quantity.value)
+        .filter(|value| *offset == Expression::number(*value));
+    match plain {
+        Some(value) => PlaceRecord::Offset(value),
+        None => PlaceRecord::Expression(offset.to_stored_text()),
+    }
 }
 
 fn section_record(section: &SectionView) -> SectionRecord {
@@ -74,9 +88,9 @@ fn section_record(section: &SectionView) -> SectionRecord {
         letter: section.letter.to_string(),
         parent: section.parent.key().to_owned(),
         plane: section.plane.key().to_owned(),
-        place: Lenient::Read(match section.place {
+        place: Lenient::Read(match &section.place {
             SectionPlace::Centre => PlaceRecord::Centre,
-            SectionPlace::Offset(offset) => PlaceRecord::Offset(offset),
+            SectionPlace::Offset(offset) => place_record(offset),
         }),
         reversed: section.reversed,
     }
@@ -272,6 +286,7 @@ fn section_letter(record: &str, taken: &[SectionView]) -> Option<char> {
 fn restored_place(
     record: &Lenient<PlaceRecord>,
     label: &str,
+    exists: &dyn Fn(ParameterId) -> bool,
     issues: &mut Vec<String>,
 ) -> SectionPlace {
     match record {
@@ -279,7 +294,22 @@ fn restored_place(
         Lenient::Read(PlaceRecord::Offset(offset))
             if offset.is_finite() && offset.abs() <= MAX_SECTION_OFFSET =>
         {
-            SectionPlace::Offset(*offset)
+            SectionPlace::offset(*offset)
+        }
+        Lenient::Read(PlaceRecord::Expression(text)) => {
+            match Expression::parse_stored(text)
+                .ok()
+                .filter(|offset| offset.parameters().into_iter().all(exists))
+            {
+                Some(offset) => SectionPlace::Offset(offset),
+                None => {
+                    issues.push(format!(
+                        "Where section {label} cuts could not be read or names a parameter the \
+                         model no longer has, so it cuts through the middle of the bodies."
+                    ));
+                    SectionPlace::Centre
+                }
+            }
         }
         _ => {
             issues.push(format!(
@@ -295,6 +325,7 @@ fn restored_section(
     record: &SectionRecord,
     taken: &[SectionView],
     name: &str,
+    exists: &dyn Fn(ParameterId) -> bool,
     issues: &mut Vec<String>,
 ) -> Option<SectionView> {
     let letter = section_letter(&record.letter, taken)?;
@@ -329,7 +360,7 @@ fn restored_section(
         letter,
         parent,
         plane,
-        place: restored_place(&record.place, &label, issues),
+        place: restored_place(&record.place, &label, exists, issues),
         reversed: record.reversed,
     })
 }
@@ -337,6 +368,7 @@ fn restored_section(
 fn restored_sections(
     records: &[Lenient<SectionRecord>],
     name: &str,
+    exists: &dyn Fn(ParameterId) -> bool,
     issues: &mut Vec<String>,
 ) -> Vec<SectionView> {
     let mut sections = Vec::new();
@@ -354,14 +386,18 @@ fn restored_sections(
             ));
             break;
         }
-        if let Some(section) = restored_section(record, &sections, name, issues) {
+        if let Some(section) = restored_section(record, &sections, name, exists, issues) {
             sections.push(section);
         }
     }
     sections
 }
 
-pub(crate) fn restore_drawings(record: DrawingsRecord, issues: &mut Vec<String>) -> Drawings {
+pub(crate) fn restore_drawings(
+    record: DrawingsRecord,
+    exists: &dyn Fn(ParameterId) -> bool,
+    issues: &mut Vec<String>,
+) -> Drawings {
     let mut drawings = Drawings {
         drawings: Vec::new(),
         next_id: record.next_id,
@@ -416,7 +452,7 @@ pub(crate) fn restore_drawings(record: DrawingsRecord, issues: &mut Vec<String>)
             views: restored_views(&drawing.views, &name, issues),
             bodies: restored_bodies(&drawing.bodies, &name, issues),
             hidden_lines: drawing.hidden_lines,
-            sections: restored_sections(&drawing.sections, &name, issues),
+            sections: restored_sections(&drawing.sections, &name, exists, issues),
             name,
         };
         drawings.drawings.push(restored);

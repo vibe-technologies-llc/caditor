@@ -3,6 +3,7 @@ use std::{
     panic::{self, AssertUnwindSafe},
 };
 
+use caditor_expression::Dimension;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Vector2};
 use caditor_kernel::{
     BooleanError, BooleanOperation, HiddenLineError, HiddenLineView, LINEAR_RESOLUTION,
@@ -15,15 +16,38 @@ use crate::{
     drawing_views::{
         DrawingViewError, HatchRegion, SectionLines, ViewLines, lines_seen, scene_extent,
     },
-    drawings::{DrawnView, SectionPlace, SectionView},
+    drawings::{DrawnView, MAX_SECTION_OFFSET, SectionPlace, SectionView},
     section::is_cut_face,
     split::{HalfSpaceError, half_space_solid, heights},
+    values::ParameterValues,
 };
 
 pub const HATCH_SPACING: f64 = 2.5;
 pub const HATCH_ANGLES: [f64; 2] = [FRAC_PI_4, 3.0 * FRAC_PI_4];
 const MOST_HATCH_LINES: f64 = 2000.0;
 const SECTION_CUT: FeatureId = FeatureId::from_raw(u64::MAX - 64);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ResolvedPlace {
+    Centre,
+    Offset(f64),
+}
+
+impl SectionPlace {
+    pub fn resolve(&self, values: &ParameterValues) -> Result<ResolvedPlace, DrawingViewError> {
+        let Self::Offset(offset) = self else {
+            return Ok(ResolvedPlace::Centre);
+        };
+        let millimetres = offset
+            .evaluate_as(Dimension::LENGTH, &|id| values.value(id))
+            .map_err(DrawingViewError::Offset)?;
+        if millimetres.is_finite() && millimetres.abs() <= MAX_SECTION_OFFSET {
+            Ok(ResolvedPlace::Offset(millimetres))
+        } else {
+            Err(DrawingViewError::OffsetOutOfRange)
+        }
+    }
+}
 
 enum Side {
     Removed,
@@ -40,12 +64,16 @@ fn bodies_centre(solids: &[&Solid]) -> Option<Point3> {
         .filter(|centre| centre.is_finite())
 }
 
-pub fn cutting_plane(section: &SectionView, solids: &[&Solid]) -> Result<Plane, DrawingViewError> {
+pub fn cutting_plane(
+    section: &SectionView,
+    place: ResolvedPlace,
+    solids: &[&Solid],
+) -> Result<Plane, DrawingViewError> {
     let (look, _) = section.look_and_up();
     let axis = section.plane.normal();
-    let position = match section.place {
-        SectionPlace::Centre => bodies_centre(solids).map_or(0.0, |centre| centre.dot(axis)),
-        SectionPlace::Offset(offset) => offset,
+    let position = match place {
+        ResolvedPlace::Centre => bodies_centre(solids).map_or(0.0, |centre| centre.dot(axis)),
+        ResolvedPlace::Offset(offset) => offset,
     };
     Plane::new(axis * position, look)
         .ok_or(DrawingViewError::Lines(HiddenLineError::NoLookDirection))
@@ -105,10 +133,14 @@ fn cut_face_edges(
     edges
 }
 
-fn sectioned(section: &SectionView, solids: &[&Solid]) -> Result<ViewLines, DrawingViewError> {
+fn sectioned(
+    section: &SectionView,
+    place: ResolvedPlace,
+    solids: &[&Solid],
+) -> Result<ViewLines, DrawingViewError> {
     let (look, up) = section.look_and_up();
     let looking = HiddenLineView::new(look, up)?;
-    let cutting = cutting_plane(section, solids)?;
+    let cutting = cutting_plane(section, place, solids)?;
     let mut whole = Vec::new();
     let mut cut_solids = Vec::new();
     for solid in solids {
@@ -140,12 +172,13 @@ fn sectioned(section: &SectionView, solids: &[&Solid]) -> Result<ViewLines, Draw
 
 pub fn section_view(
     section: &SectionView,
+    place: ResolvedPlace,
     solids: &[&Solid],
 ) -> Result<ViewLines, DrawingViewError> {
     if solids.is_empty() {
         return Err(DrawingViewError::NoBodies);
     }
-    panic::catch_unwind(AssertUnwindSafe(|| sectioned(section, solids)))
+    panic::catch_unwind(AssertUnwindSafe(|| sectioned(section, place, solids)))
         .map_err(|_| DrawingViewError::Panicked)?
 }
 

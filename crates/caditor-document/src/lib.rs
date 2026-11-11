@@ -139,7 +139,9 @@ pub use crate::{
         RollbackBar, TreeRow,
     },
     draft::{Draft, FaceAngle, default_neutral, flipped_toward},
-    drawing_sections::{HATCH_ANGLES, HATCH_SPACING, cutting_plane, hatch_lines, section_view},
+    drawing_sections::{
+        HATCH_ANGLES, HATCH_SPACING, ResolvedPlace, cutting_plane, hatch_lines, section_view,
+    },
     drawing_sheet::{
         PlacedView, SheetMark, SheetPlan, SheetText, TITLE_BLOCK_HEIGHT, TITLE_BLOCK_WIDTH,
         TextAnchor, TitleFields, VIEW_GAP, lay_out_sheet, sheet_size, text_width,

@@ -305,7 +305,9 @@ impl Document {
                 .row(id)
                 .map(|row| format!("{} configuration", row.name)),
             ParameterUser::Configurations => Some(COLUMN_USER.to_owned()),
-            ParameterUser::Parameter(_) | ParameterUser::Feature(_) => None,
+            ParameterUser::Parameter(_) | ParameterUser::Feature(_) | ParameterUser::Drawing(_) => {
+                None
+            }
         }
     }
 

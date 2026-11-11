@@ -196,13 +196,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [medium · hard] Drawings have nothing measured on them and no detail views: a drawing
   (`drawings.md`) lays out front, top, right, left and isometric views and full section views on
   principal planes on an ISO sheet with a title block and exports PDF, SVG or DXF, but has no
-  detail views (an enlarged circle of a view), no dimensions or notes taken from the model
+  detail views (an enlarged circle of a standard or section view, lettered from the section
+  letters, its centre and radius kept in the parent's own model coordinates so they survive scale
+  changes, its lines clipped exactly to the circle and labelled "B (2:1)" in the column the
+  sections stand in), no dimensions or notes taken from the model
   (dimensions should refer to edges by `EdgeName`, so they survive edits as features do), no views
   placed or moved by hand (section views always stand in a column right of the others), and the
   sheet is previewed only inside the Drawings panel rather than in a view of its own the size of
-  the window. A section's offset takes units and parameters as it is typed but is stored as a
-  number, so the plane does not follow a parameter edited later; it should be kept as an
-  `Expression` like a feature's dimensions.
+  the window.
 - [low · medium] Views and sheets beyond the standard ones and full principal sections: section
   planes other than the principal ones (through a datum plane or a face, or offset along the
   parent's own axes), stepped (offset) and aligned sections, half and broken-out sections,

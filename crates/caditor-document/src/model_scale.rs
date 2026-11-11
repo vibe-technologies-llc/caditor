@@ -18,6 +18,7 @@ use crate::{
         PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     },
     document::{Document, Feature, FeatureId, FeatureKind},
+    drawings::SectionPlace,
     edit::{Edit, Transaction},
     hole::{HoleDepth, HoleShape, HoleStyle},
     mate::{AngleSides, AxisMate, FaceAxisMate, Mate, MatePair, PointMate, PointTarget},
@@ -160,6 +161,7 @@ impl Document {
             edits.extend(changed);
         }
         edits.extend(rescaler.views(self));
+        edits.extend(rescaler.drawings(self)?);
         edits.extend(rescaler.configurations(self)?);
         rescaler.summary.moved = displaced;
         rescaler.summary.datums = placed.names;
@@ -825,6 +827,24 @@ impl Rescaler {
             | Datum::PointBy(PointBy::Along(station)) => self.length(&mut station.distance, name),
             Datum::PlaneThrough(_) | Datum::Axis(_) | Datum::PointBy(_) | Datum::Frame(_) => Ok(()),
         }
+    }
+
+    fn drawings(&mut self, document: &Document) -> Result<Option<Edit>, ModelScaleError> {
+        let mut scaled = document.drawings().clone();
+        let mut changed = false;
+        for drawing in &mut scaled.drawings {
+            let name = drawing.name.clone();
+            for section in &mut drawing.sections {
+                if let SectionPlace::Offset(offset) = &mut section.place {
+                    let before = offset.clone();
+                    self.placed(offset, self.shift.dot(section.plane.normal()), &name)?;
+                    changed |= *offset != before;
+                }
+            }
+        }
+        Ok(changed.then(|| Edit::SetDrawings {
+            drawings: Box::new(scaled),
+        }))
     }
 
     fn views(&self, document: &Document) -> Option<Edit> {
