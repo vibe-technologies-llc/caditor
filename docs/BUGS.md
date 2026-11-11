@@ -115,16 +115,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
-- [medium · hard] Where two surfaces touch at an isolated point from outside each other (elliptic
-  contact: a ball resting on a cylinder or torus, a torus rolling against a cylinder) and no
-  analytic case takes the pair, the marcher seeds inside the patch round the point where the
-  surfaces lie within the resolution (sines about 1e-4, far above `TOUCH_SINE`) and traces
-  scribbled branches there instead of one tangent point: crossed cylinders whose axes lie the sum
-  of their radii apart gave two such branches 0.76 and 0.15 long inside a 1.2e-4 box, crossing
-  each other 1,850 times, and the boolean sorted their crossings for minutes before they became an
-  analytic touch. Other pairs may still do it, slow and with spurious vertices; the marcher
-  should recognise a seed whose neighbourhood closes round it as a touch.
-
 ## Sketch solver
 
 - [medium · hard] A sketch with a closed centripetal spline through one point twice moves when

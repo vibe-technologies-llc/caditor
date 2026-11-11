@@ -443,12 +443,14 @@ pub(crate) fn closest_approach(surfaces: [&Surface; 2], start: [Point2; 2]) -> (
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Touch {
     pub point: Point3,
+    pub uv: [Point2; 2],
     pub gap: f64,
 }
 
 struct Parallel {
     rows: [[f64; 4]; 4],
     values: [f64; 4],
+    state: [f64; 4],
     first: SurfaceDerivatives,
     second: SurfaceDerivatives,
 }
@@ -461,6 +463,7 @@ impl Parallel {
     fn touch(&self) -> Touch {
         Touch {
             point: self.first.point.lerp(self.second.point, 0.5),
+            uv: uv_of(self.state),
             gap: self.first.point.distance(self.second.point),
         }
     }
@@ -510,6 +513,7 @@ fn parallel_system(surfaces: [&Surface; 2], state: [f64; 4]) -> Parallel {
     Parallel {
         rows,
         values,
+        state,
         first,
         second,
     }
@@ -583,43 +587,101 @@ pub(crate) fn contact_direction(
     across.try_normalize().map(|direction| (direction, sine))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SeparationForm {
+    across: Vector3,
+    up: Vector3,
+    along_across: f64,
+    along_up: f64,
+    mixed: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DefiniteBends {
+    pub least: f64,
+    pub most: f64,
+}
+
+impl SeparationForm {
+    pub(crate) fn at(surfaces: [&Surface; 2], contact: &Contact) -> Option<Self> {
+        let [a, b] = surfaces;
+        let [first_uv, second_uv] = contact.uv;
+        let derivatives = [
+            a.evaluate(first_uv.x, first_uv.y),
+            b.evaluate(second_uv.x, second_uv.y),
+        ];
+        let [first, second] = &derivatives;
+        let normal = first.normal()?;
+        let across = first.du.reject_from_normalized(normal).try_normalize()?;
+        let up = normal.cross(across);
+        let bend = |derivatives: &SurfaceDerivatives, direction: Vector3| {
+            let step = uv_direction(derivatives, direction);
+            normal.dot(
+                derivatives.duu * (step.x * step.x)
+                    + derivatives.duv * (2.0 * step.x * step.y)
+                    + derivatives.dvv * (step.y * step.y),
+            )
+        };
+        let gap = |direction: Vector3| bend(first, direction) - bend(second, direction);
+        let (along_across, along_up) = (gap(across), gap(up));
+        let mixed = 0.5 * (gap(across + up) - along_across - along_up);
+        let form = Self {
+            across,
+            up,
+            along_across,
+            along_up,
+            mixed,
+        };
+        [along_across, along_up, mixed]
+            .iter()
+            .all(|value| value.is_finite())
+            .then_some(form)
+    }
+
+    fn discriminant(&self) -> f64 {
+        self.mixed * self.mixed - self.along_across * self.along_up
+    }
+
+    pub(crate) fn definite(&self) -> Option<DefiniteBends> {
+        if self.discriminant() >= 0.0 {
+            return None;
+        }
+        let half_trace = 0.5 * (self.along_across + self.along_up);
+        let spread =
+            (0.25 * (self.along_across - self.along_up).powi(2) + self.mixed * self.mixed).sqrt();
+        let (least, most) = (
+            (half_trace.abs() - spread).max(0.0),
+            half_trace.abs() + spread,
+        );
+        (least > 0.0).then_some(DefiniteBends { least, most })
+    }
+
+    pub(crate) fn tangent_frame(&self) -> [Vector3; 2] {
+        [self.across, self.up]
+    }
+
+    fn null_directions(&self) -> Option<[Vector3; 2]> {
+        let discriminant = self.discriminant();
+        if !discriminant.is_finite() || discriminant <= 0.0 {
+            return None;
+        }
+        let root = discriminant.sqrt();
+        let (across, up, mixed) = (self.across, self.up, self.mixed);
+        let directions = if self.along_across.abs() >= self.along_up.abs() {
+            [-mixed + root, -mixed - root].map(|x| across * x + up * self.along_across)
+        } else {
+            [-mixed + root, -mixed - root].map(|y| across * self.along_up + up * y)
+        };
+        let [first_direction, second_direction] = directions.map(Vector3::try_normalize);
+        Some([first_direction?, second_direction?])
+    }
+}
+
 pub(crate) fn crossing_directions(
     surfaces: [&Surface; 2],
     contact: &Contact,
 ) -> Option<[Vector3; 2]> {
-    let [a, b] = surfaces;
-    let [first_uv, second_uv] = contact.uv;
-    let derivatives = [
-        a.evaluate(first_uv.x, first_uv.y),
-        b.evaluate(second_uv.x, second_uv.y),
-    ];
-    let [first, second] = &derivatives;
-    let normal = first.normal()?;
-    let across = first.du.reject_from_normalized(normal).try_normalize()?;
-    let up = normal.cross(across);
-    let bend = |derivatives: &SurfaceDerivatives, direction: Vector3| {
-        let step = uv_direction(derivatives, direction);
-        normal.dot(
-            derivatives.duu * (step.x * step.x)
-                + derivatives.duv * (2.0 * step.x * step.y)
-                + derivatives.dvv * (step.y * step.y),
-        )
-    };
-    let gap = |direction: Vector3| bend(first, direction) - bend(second, direction);
-    let (along_across, along_up) = (gap(across), gap(up));
-    let mixed = 0.5 * (gap(across + up) - along_across - along_up);
-    let discriminant = mixed * mixed - along_across * along_up;
-    if !discriminant.is_finite() || discriminant <= 0.0 {
-        return None;
-    }
-    let root = discriminant.sqrt();
-    let directions = if along_across.abs() >= along_up.abs() {
-        [-mixed + root, -mixed - root].map(|x| across * x + up * along_across)
-    } else {
-        [-mixed + root, -mixed - root].map(|y| across * along_up + up * y)
-    };
-    let [first_direction, second_direction] = directions.map(Vector3::try_normalize);
-    Some([first_direction?, second_direction?])
+    SeparationForm::at(surfaces, contact)?.null_directions()
 }
 
 pub(crate) fn uv_direction(derivatives: &SurfaceDerivatives, direction: Vector3) -> Vector2 {

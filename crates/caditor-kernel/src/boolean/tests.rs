@@ -176,6 +176,46 @@ fn a_block_whose_two_bores_touch_takes_a_hole_beside_them() {
     check_pinched("blind beside", &pocketed, bores - PI * 0.25 * 5.0);
 }
 
+fn touching_at_a_point() -> Vec<(&'static str, Solid, Solid)> {
+    let sheet = crate::fixtures::bumped_sheet(4.0, 1.0, 7, 0.5);
+    let peak = Surface::from(sheet).point_at(Point2::new(0.5, 0.5));
+    vec![
+        (
+            "a ball on a post",
+            moved(cylinder(12.0, 3.0), (0.0, 0.0, -1.5)),
+            moved(sphere(1.5), (13.5, 0.0, 0.4)),
+        ),
+        (
+            "a ball on a torus",
+            crate::fixtures::torus(5.0, 1.0),
+            moved(sphere(1.0), (7.0, 0.0, 0.0)),
+        ),
+        (
+            "a block on a bump",
+            crate::fixtures::bumped_block(4.0, 1.0, 7, 0.5),
+            moved(cuboid(Vector3::new(4.0, 4.0, 1.0)), (0.0, 0.0, peak.z)),
+        ),
+    ]
+}
+
+#[test]
+fn solids_touching_at_a_point_stay_two_solids() {
+    for (name, first, second) in touching_at_a_point() {
+        let (a, b) = (volume(&first), volume(&second));
+
+        let union = run(&first, &second, BooleanOperation::Union);
+        let difference = run(&first, &second, BooleanOperation::Difference);
+        let common = boolean(&first, &second, BooleanOperation::Intersection);
+
+        assert_eq!(union.validate(), Ok(()), "{name}");
+        assert_eq!(difference.validate(), Ok(()), "{name}");
+        assert_eq!(union.shells().count(), 2, "{name}");
+        assert!((volume(&union) - a - b).abs() <= 1e-3 * a, "{name}");
+        assert!((volume(&difference) - a).abs() <= 1e-3 * a, "{name}");
+        assert!(matches!(common, Err(BooleanError::Empty)), "{name}");
+    }
+}
+
 #[test]
 fn blocks_side_by_side_merge_into_one_box() {
     let left = block((0.0, 0.0, 0.0), (2.0, 2.0, 2.0));

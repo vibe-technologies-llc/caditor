@@ -3,6 +3,7 @@ mod curve_curve;
 mod curve_surface;
 mod stress;
 mod surface_surface;
+mod touching;
 
 use std::f64::consts::TAU;
 

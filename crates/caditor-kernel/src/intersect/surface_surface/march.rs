@@ -10,7 +10,11 @@ use crate::{
             Constraint, Contact, Coordinate, carried_on_plane, closest_approach, contact_direction,
             nearest_turn, parallel_normals, refine_contact, refine_on_plane, uv_direction,
         },
-        surface_surface::{Raw, RawCurve, RawPoint, recognize::recognize},
+        surface_surface::{
+            Raw, RawCurve, RawPoint,
+            isolated::{IsolatedTouch, isolated_touch},
+            recognize::recognize,
+        },
         wrap_into,
     },
     interval::Interval,
@@ -26,6 +30,7 @@ const MIN_LEAF_FRACTION: f64 = 1.0 / 512.0;
 const MAX_LEAF_FRACTION: f64 = 0.25;
 const MIN_LEAF: f64 = 1e3 * LINEAR_RESOLUTION;
 const TOUCH_SINE: f64 = STOP_SINE;
+const TOUCH_SEARCH_SINE: f64 = 0.05;
 const STOP_SINE: f64 = 1e-6;
 const FAR_STOP_SINE: f64 = 1e-8;
 const PASSING_GAP: f64 = STOP_SINE * STOP_SINE;
@@ -115,7 +120,7 @@ fn apart(other: &Surface, patch: &SurfacePatch, bounds: &Aabb) -> bool {
     }
 }
 
-fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
+pub(super) fn curvature_bound(surface: &Surface, uv: Point2) -> Option<f64> {
     let derivatives = surface.evaluate(uv.x, uv.y);
     let normal = surface.normal(uv.x, uv.y)?;
     let (su, sv) = (derivatives.du.length(), derivatives.dv.length());
@@ -332,7 +337,7 @@ impl<'a> Tracer<'a> {
                 Some(contact) => self.seed_at(contact),
                 None => self
                     .seed_at(fallback)
-                    .filter(|seed| seed.sine <= TOUCH_SINE),
+                    .filter(|seed| seed.sine <= TOUCH_SINE || self.isolated_touch(seed).is_some()),
             };
             if seed.is_some() {
                 return seed;
@@ -449,6 +454,25 @@ impl<'a> Tracer<'a> {
             }
         }
         Ok(seeds)
+    }
+
+    fn isolated_touch(&self, seed: &Seed) -> Option<IsolatedTouch> {
+        if seed.sine > TOUCH_SEARCH_SINE {
+            return None;
+        }
+        isolated_touch(self.surfaces(), &seed.contact)
+    }
+
+    fn isolated_touches(&self, seeds: &[Seed]) -> Result<Vec<IsolatedTouch>, IntersectionError> {
+        let mut found: Vec<IsolatedTouch> = Vec::new();
+        for seed in seeds {
+            if seed.sine > TOUCH_SEARCH_SINE || set_aside(&found, seed.contact.point) {
+                continue;
+            }
+            interrupt::check()?;
+            found.extend(self.isolated_touch(seed));
+        }
+        Ok(found)
     }
 
     fn touch_contact(&self, from: &Contact, touch: Point3) -> Contact {
@@ -1094,6 +1118,10 @@ impl<'a> Tracer<'a> {
     }
 }
 
+fn set_aside(isolated: &[IsolatedTouch], point: Point3) -> bool {
+    isolated.iter().any(|touch| touch.holds(point))
+}
+
 fn within_a_turn(surface: &Surface, step: Vector2) -> Vector2 {
     Vector2::new(
         nearest_turn(step.x, 0.0, surface.u_period()),
@@ -1189,10 +1217,18 @@ pub(crate) fn intersect(
         touches,
     };
     let seeds = tracer.seeds()?;
+    let mut isolated = tracer.isolated_touches(&seeds)?;
     for hint in hints {
         let Some(seed) = tracer.hint_seed(*hint) else {
             continue;
         };
+        if set_aside(&isolated, seed.contact.point) {
+            continue;
+        }
+        if let Some(touch) = tracer.isolated_touch(&seed) {
+            isolated.push(touch);
+            continue;
+        }
         if seed.sine > TOUCH_SINE
             && tracer.distance_to_branches(seed.contact.point) > ON_BRANCH
             && let Err(IntersectionError::Cancelled(interrupted)) = tracer.trace(&seed)
@@ -1203,6 +1239,9 @@ pub(crate) fn intersect(
     let touch_merge = 0.5 * leaf_size(first).min(leaf_size(second));
     let mut touches: Vec<Seed> = Vec::new();
     for seed in &seeds {
+        if set_aside(&isolated, seed.contact.point) {
+            continue;
+        }
         if seed.sine <= TOUCH_SINE {
             touches.push(*seed);
             continue;
@@ -1213,6 +1252,15 @@ pub(crate) fn intersect(
         tracer.trace(seed)?;
     }
     let mut raw = Raw::default();
+    raw.points.extend(
+        isolated
+            .iter()
+            .filter(|touch| tracer.inside(&touch.contact))
+            .map(|touch| RawPoint {
+                point: touch.contact.point,
+                tangent: true,
+            }),
+    );
     for touch in touches {
         let point = touch.contact.point;
         let known = tracer
@@ -1254,7 +1302,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        intersect::tests::{patch, plane},
+        intersect::tests::{around, patch, plane},
         surface::{Cylinder, Sphere},
     };
 
@@ -1331,5 +1379,31 @@ mod tests {
 
         assert_eq!(floor_uv, Point2::new(0.5, 1.0));
         assert!(boundary.is_some_and(|contact| contact.point.distance(corner) < TOLERANCE));
+    }
+
+    #[test]
+    fn crossed_cylinders_their_radii_apart_marched_touch_at_one_point() {
+        let corner: Surface = Cylinder::new(Plane::XY, 12.0).unwrap().into();
+        let corner_patch = around(&corner, (0.0, 3.0));
+        for (height, gap) in [(1.5, 0.0), (1.5, 3e-7), (1.5, -3e-7), (2.2, 0.0)] {
+            let axis = Plane::new(Point3::new(13.5 + gap, 0.0, height), -Vector3::Y).unwrap();
+            let rolling: Surface = Cylinder::new(axis, 1.5).unwrap().into();
+            let expected = Point3::new(12.0 + 0.5 * gap, 0.0, height);
+
+            let raw = intersect(
+                &corner_patch,
+                &around(&rolling, (-20.0, 20.0)),
+                &[],
+                Vec::new(),
+            )
+            .unwrap();
+
+            assert!(raw.curves.is_empty(), "{raw:?}");
+            let [touch] = raw.points.as_slice() else {
+                panic!("{raw:?}");
+            };
+            assert!(touch.tangent);
+            assert!(touch.point.distance(expected) <= 1e-9, "{touch:?}");
+        }
     }
 }
