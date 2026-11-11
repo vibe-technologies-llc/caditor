@@ -439,15 +439,23 @@ fn cylinder_cylinder(first: &Cylinder, second: &Cylinder, window: &Aabb) -> Opti
         }
         return Some(raw);
     }
-    if (r1 - r2).abs() > TOLERANCE {
-        return None;
-    }
     let offset = c2 - c1;
     let squared = cross.length_squared();
     let s = offset.cross(a2).dot(cross) / squared;
     let t = offset.cross(a1).dot(cross) / squared;
     let (p1, p2) = (c1 + a1 * s, c2 + a2 * t);
-    if p1.distance(p2) > TOLERANCE {
+    let axes_apart = p1.distance(p2);
+    if axes_apart > r1 + r2 + TOLERANCE {
+        return Some(raw);
+    }
+    if axes_apart >= r1 + r2 - TOLERANCE {
+        raw.points.push(RawPoint {
+            point: p1.lerp(p2, r1 / (r1 + r2)),
+            tangent: true,
+        });
+        return Some(raw);
+    }
+    if (r1 - r2).abs() > TOLERANCE || axes_apart > TOLERANCE {
         return None;
     }
     let center = p1.lerp(p2, 0.5);
