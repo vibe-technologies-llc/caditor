@@ -3129,6 +3129,8 @@ fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> 
     Some((curve, centre))
 }
 
+const BOX_BOUND_SLACK: f64 = 1e-9;
+
 fn nearest_lines(
     sketch: &Sketch,
     screen: &impl Screen,
@@ -3151,8 +3153,20 @@ fn nearest_lines(
         let (Some(from), Some(to)) = (screen.to_screen(begin), screen.to_screen(finish)) else {
             continue;
         };
-        let distance = std::iter::once(pointer)
-            .chain(start)
+        let probes = std::iter::once(pointer).chain(start);
+        if nearest.len() == NEARBY_LINES
+            && let Some(farthest) = nearest.last().map(|kept| kept.distance)
+        {
+            let (low, high) = (from.min(to), from.max(to));
+            let closest_possible = probes
+                .clone()
+                .map(|at| at.distance(at.clamp(low, high)))
+                .fold(f64::INFINITY, f64::min);
+            if closest_possible > farthest * (1.0 + BOX_BOUND_SLACK) + BOX_BOUND_SLACK {
+                continue;
+            }
+        }
+        let distance = probes
             .map(|at| at.distance(snap::closest_on_segment(from, to, at)))
             .fold(f64::INFINITY, f64::min);
         let place = nearest.partition_point(|kept| kept.distance.total_cmp(&distance).is_le());
@@ -4175,6 +4189,21 @@ mod tests {
             );
             assert_eq!(kept.len(), NEARBY_LINES);
         }
+    }
+
+    #[test]
+    #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
+    fn snap_costs_of_the_nearest_lines_on_a_large_sketch() {
+        const REPEATS: u32 = 50;
+        let sketch = crate::viewport::timing::large_sketch();
+        let screen = Scaled(1.0);
+        let pointer = screen.to_screen(Point2::new(500.0, 250.0)).unwrap();
+
+        let started = std::time::Instant::now();
+        for _ in 0..REPEATS {
+            nearest_lines(&sketch, &screen, pointer, None, None);
+        }
+        eprintln!("nearest_lines: {:?} per call", started.elapsed() / REPEATS);
     }
 
     #[test]

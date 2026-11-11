@@ -147,8 +147,10 @@ paths:
 - Sketch curves, previews and trim pieces are faceted to a chord tolerance (`faceting.rs`): a
   fraction of a pixel at the view's target distance, rounded down to a power of two of millimetres
   (`FacetLevel`), kept while the wanted chord stays within a band above it (never coarser than
-  wanted), so zooming back and forth never refacets. `scene::drawn_faceting` coarsens the chord
-  while the curves would need more than `SKETCH_SEGMENT_BUDGET` segments.
+  wanted), so zooming back and forth never refacets. `SketchShapes::drawn_faceting` coarsens the chord
+  while the curves would need more than `SKETCH_SEGMENT_BUDGET` segments; it keeps each drawn
+  sketch's segment count per faceting beside the kept shapes, valid while the sketch's source is the
+  same, so a content change counts only the sketches that changed.
 - Picks, hover highlights and box selection (`sketch_drag::within`) use the drawn polylines;
   snapping stays exact on the curves. Bounds and fitting use the sketch crate's default segment
   angle, not the view's faceting.

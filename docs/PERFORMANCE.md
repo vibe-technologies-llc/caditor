@@ -76,8 +76,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
   change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
   `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each
-  drag solution refacets the dragged sketch whole; every content change also counts the segments
-  of every drawn sketch to choose the faceting (`scene::drawn_faceting`). Hovered and selected
+  drag solution refacets the dragged sketch whole. Hovered and selected
   entities drawn as a small batch over the kept one would limit a hover to what it lights, once
   lines of equal depth drawn twice are settled.
 - [medium · hard] A still frame of a large assembly is bound by its draws: on the VZ330 (3,894
@@ -94,9 +93,9 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   mostly walking the entities, and a line or slot end walks every line once more to find the nearest
   for parallel and perpendicular inference (`drawing::nearest_lines`: one allocation-free pass, but
   still 4.6 ms for 30,000 lines in release, against 5.2 ms before); a drag of several points still
-  enumerates every point-like target for the moving point nearest one (`snap::nearest_moved`),
-  dropping those off screen of the moved points before its cell lookups but not the walks that
-  build them. The body items are bounded (`body_snap.rs` `Bounds`, 83 µs against 677 µs for 200
+  walks every entity for the moving point nearest one (`snap::nearest_moved`), which builds no
+  target off screen of the moved points (centres aside) but cannot skip an entity without a
+  screen-space index. The body items are bounded (`body_snap.rs` `Bounds`, 83 µs against 677 µs for 200
   bodies of 100 edges each) but a body or arc edge crossing the camera's near plane is scanned
   whole. A screen-space index of the sketch would need the preimage of the snap radius on the
   sketch plane, unbounded near the horizon.

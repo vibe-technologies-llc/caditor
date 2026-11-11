@@ -114,7 +114,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   land instead (`Grab::snapper_landing`): `snap::nearest_moved` buckets the moved points by screen
   cells of the snap radius and walks the sketch's point, middle, centre, quadrant and axis end
   targets once (not crossings, tracks or body items), dropping a target outside the moved points'
-  screen box widened by the radius before any cell is looked up, so a frame stays linear in the
+  screen box widened by the radius as the walks build the targets (centres aside) and before any cell is looked up, so a frame stays linear in the
   sketch and the selection; the moving point nearest one, when nearer than the handle's own point-like or grid
   landing (else within `POINT_TOLERANCE`, `HELD_POINT_PULL` with Alt), lands through
   `tracking::land` with no acquired anchors and takes the drag and the joins when it finds a
@@ -596,7 +596,7 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   start takes it exactly (`Snap::Aligned`). Horizontal and vertical win whenever either applies;
   otherwise parallel or perpendicular to one of the `NEARBY_LINES` lines nearest on screen
   (construction included, `drawing::guides`, which keeps them in one pass over the sketch's lines
-  through a sorted list of that many, a tie kept to the earlier line, `drawing::nearest_lines`). A line is never inferred parallel to a line through its
+  through a sorted list of that many, a tie kept to the earlier line, a line skipped once its screen box lies clearly farther than the last kept, `drawing::nearest_lines`). A line is never inferred parallel to a line through its
   start point; perpendicular is offered. An arc's start (and an arc slot's ends), a polygon's corner
   from its centre and each spline control point from the one before take horizontal or vertical the
   same way (`Drawing::levelled_from`, `LEVEL_AND_UPRIGHT` only, `Direction::between`).

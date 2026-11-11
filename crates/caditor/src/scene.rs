@@ -755,6 +755,7 @@ struct SketchShape {
 pub struct SketchShapes {
     faceting: Faceting,
     sketches: BTreeMap<FeatureId, KeptShapes>,
+    counted: BTreeMap<FeatureId, CountedSketch>,
     #[cfg(test)]
     facetings: usize,
 }
@@ -770,6 +771,7 @@ impl SketchShapes {
         Self {
             faceting,
             sketches: BTreeMap::new(),
+            counted: BTreeMap::new(),
             #[cfg(test)]
             facetings: 0,
         }
@@ -784,6 +786,49 @@ impl SketchShapes {
             self.faceting = faceting;
             self.sketches.clear();
         }
+    }
+
+    pub fn drawn_faceting(
+        &mut self,
+        sources: &Sources<'_>,
+        context: Context,
+        wanted: Faceting,
+    ) -> Faceting {
+        let mut previous = std::mem::take(&mut self.counted);
+        let mut drawn: Vec<(&Feature, CountedSketch)> =
+            drawn_sketches(sources.document, context.sketch, context.projecting)
+                .filter_map(|(feature, _)| {
+                    let source = SketchSource::of(sources, feature.id())?;
+                    let counted = match previous.remove(&feature.id()) {
+                        Some(counted) if counted.source == source => counted,
+                        Some(_) | None => CountedSketch {
+                            source,
+                            counts: Vec::new(),
+                        },
+                    };
+                    Some((feature, counted))
+                })
+                .collect();
+        let mut faceting = wanted;
+        for _ in 0..MAX_COARSENINGS {
+            let within = drawn
+                .iter_mut()
+                .try_fold(0usize, |total, (feature, counted)| {
+                    total
+                        .checked_add(counted.segments(sources, feature, faceting))
+                        .filter(|total| *total <= SKETCH_SEGMENT_BUDGET)
+                })
+                .is_some();
+            if within {
+                break;
+            }
+            faceting = Faceting::within(faceting.chord() * 2.0);
+        }
+        self.counted = drawn
+            .into_iter()
+            .map(|(feature, counted)| (feature.id(), counted))
+            .collect();
+        faceting
     }
 
     pub fn faceted_at(&self, faceting: Faceting) -> Self {
@@ -1424,39 +1469,39 @@ fn drawn_sketches(
 }
 
 pub fn drawn_faceting(sources: &Sources<'_>, context: Context, wanted: Faceting) -> Faceting {
-    let mut faceting = wanted;
-    for _ in 0..MAX_COARSENINGS {
-        if sketch_segments_within(sources, context, faceting, SKETCH_SEGMENT_BUDGET) {
-            return faceting;
-        }
-        faceting = Faceting::within(faceting.chord() * 2.0);
-    }
-    faceting
+    SketchShapes::new(wanted).drawn_faceting(sources, context, wanted)
 }
 
-fn sketch_segments_within(
-    sources: &Sources<'_>,
-    context: Context,
-    faceting: Faceting,
-    budget: usize,
-) -> bool {
-    let Sources {
-        document,
-        evaluation,
-        sketches,
-        ..
-    } = *sources;
-    drawn_sketches(document, context.sketch, context.projecting)
-        .filter_map(|(feature, _)| sketches.get(evaluation, feature))
-        .try_fold(0usize, |total, sketch| {
-            sketch
-                .entities()
-                .filter_map(|(entity, _)| sketch.facet_segments(entity, faceting))
-                .try_fold(total, |sum, segments| {
-                    sum.checked_add(segments).filter(|sum| *sum <= budget)
-                })
+#[derive(Clone)]
+struct CountedSketch {
+    source: SketchSource,
+    counts: Vec<(Faceting, usize)>,
+}
+
+impl CountedSketch {
+    fn segments(&mut self, sources: &Sources<'_>, feature: &Feature, faceting: Faceting) -> usize {
+        if let Some((_, count)) = self.counts.iter().find(|(counted, _)| *counted == faceting) {
+            return *count;
+        }
+        let count = sources
+            .sketches
+            .get(sources.evaluation, feature)
+            .map_or(0, |sketch| segments_within_budget(&sketch, faceting));
+        self.counts.push((faceting, count));
+        count
+    }
+}
+
+fn segments_within_budget(sketch: &Sketch, faceting: Faceting) -> usize {
+    sketch
+        .entities()
+        .filter_map(|(entity, _)| sketch.facet_segments(entity, faceting))
+        .try_fold(0usize, |total, segments| {
+            total
+                .checked_add(segments)
+                .filter(|total| *total <= SKETCH_SEGMENT_BUDGET)
         })
-        .is_some()
+        .unwrap_or(SKETCH_SEGMENT_BUDGET + 1)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4778,6 +4823,71 @@ mod tests {
         assert!(segments_of(&coarse, large) > segments_of(&coarse, small));
         assert!(segments_of(&fine, small) > segments_of(&coarse, small));
         assert!(segments_of(&fine, large) > segments_of(&coarse, large) * 9);
+    }
+
+    #[test]
+    fn a_kept_count_of_segments_follows_the_sketches_it_was_counted_for() {
+        let (document, _, _) = circles(std::iter::repeat_n(50.0, 700));
+        let (few, _, _) = circles([50.0]);
+        let evaluation = Evaluation::default();
+        let bodies = BodyMeshes::default();
+        let sketches = DisplayedSketches::default();
+        let analyses = Analyses::default();
+        let sources = |document| Sources {
+            document,
+            evaluation: &evaluation,
+            bodies: &bodies,
+            sketches: &sketches,
+            style: DisplayStyle::default(),
+            aids: ViewAids::default(),
+            analyses: &analyses,
+            contrast: Contrast::default(),
+            canvas: Canvas::default(),
+            draft: None,
+            pictures: None,
+        };
+        let wanted = Faceting::within(1e-9);
+        let mut shapes = SketchShapes::new(wanted);
+
+        let crowded = shapes.drawn_faceting(&sources(&document), Context::default(), wanted);
+        let again = shapes.drawn_faceting(&sources(&document), Context::default(), wanted);
+        let alone = shapes.drawn_faceting(&sources(&few), Context::default(), wanted);
+
+        assert!(crowded.chord() > wanted.chord());
+        assert_eq!(again, crowded);
+        assert_eq!(alone, wanted);
+    }
+
+    #[test]
+    #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
+    fn snap_costs_of_choosing_the_faceting_beside_a_large_sketch() {
+        const REPEATS: u32 = 50;
+        let (document, _) =
+            crate::viewport::timing::sketch_document(crate::viewport::timing::large_sketch());
+        let evaluation = Evaluation::default();
+        let bodies = BodyMeshes::default();
+        let sketches = DisplayedSketches::default();
+        let analyses = Analyses::default();
+        let sources = Sources {
+            document: &document,
+            evaluation: &evaluation,
+            bodies: &bodies,
+            sketches: &sketches,
+            style: DisplayStyle::default(),
+            aids: ViewAids::default(),
+            analyses: &analyses,
+            contrast: Contrast::default(),
+            canvas: Canvas::default(),
+            draft: None,
+            pictures: None,
+        };
+        let mut shapes = SketchShapes::new(Faceting::within(0.1));
+
+        let started = std::time::Instant::now();
+        for _ in 0..REPEATS {
+            shapes.drawn_faceting(&sources, Context::default(), Faceting::within(0.1));
+        }
+        eprintln!("drawn_faceting: {:?} per call", started.elapsed() / REPEATS);
     }
 
     #[test]
