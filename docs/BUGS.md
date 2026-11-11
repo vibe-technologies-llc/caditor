@@ -139,6 +139,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   ends on whichever bulge the last round held, sliding the whole sketch up to 0.3 mm along the
   directions the dimension leaves free. `a_solved_sketch_does_not_move_when_solved_again` skips
   these splines.
+- [low · hard] A sketch with a closed degree-one spline (a polygon of its control points) and a
+  `Distance` dimension from it to another curve moves by 0.4 mm when solved again from its own
+  result (seed 1555 of `a_solved_sketch_of_splines_of_chosen_degrees_does_not_move_when_solved_again`
+  with `regraded` allowed degree one for closed splines, which it no longer does: `regraded`
+  gives a closed spline at least degree two). The cause was not worked out.
 - [medium · hard] An open fit spline through three coincident points and a fourth, held a distance
   from a line (`a_spline_with_three_of_four_points_coincident_solves_again_from_its_own_result`),
   moves by 0.05 mm when solved again from its own result for about one rounding in ten of an

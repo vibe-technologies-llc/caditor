@@ -145,8 +145,8 @@ paths:
 - `System::add_splines` builds every spline's `SplineHandle` once, before the constraints (control
   point handles, degree, knots, weights); the forms read only the handle, so each constraint works
   on every kind. Open control spline: its points; closed: its points taken round again (`points +
-  3` handles on `periodic_knots`, gradients arriving at each copy); a piece (`SplineKind::Piece`)
-  its points on `piece_knots`; a knotted spline (`SplineKind::Knotted`) on `span_knots`; a graded one (`SplineKind::Graded`) on `graded_knots` at its own degree; conic: three points with
+  degree` handles on `periodic_knots`, gradients arriving at each copy); a piece (`SplineKind::Piece`)
+  its points on `piece_knots`; a knotted spline (`SplineKind::Knotted`) on `span_knots`; a graded one (`SplineKind::Graded`) on `graded_knots` at its own degree, or closed on `looped_knots` at its own degree (`looped_handle`, as a closed `Knotted` is at degree 3); conic: three points with
   rational weights, from the active `Rho` dimension else the stored rho, and `Key::weights` holds
   them in the memo key since rho is no variable.
 - A fit-point spline's control points are variables of their own (`System::hidden`, `Variable::Control`

@@ -12,6 +12,7 @@ const MOST_SHAPES: usize = 8;
 const MOST_CONSTRAINTS: usize = 12;
 const MOST_SPLINE_POINTS: usize = 5;
 const MOST_CORNERS: usize = 5;
+const CLOSED_FEWEST_DEGREE: usize = 2;
 const STRANGE_LENGTHS: [f64; 4] = [0.0, -1.0, 1e-9, 2e6];
 
 pub fn no_parameters(_: ParameterId) -> std::result::Result<Quantity, EvalError> {
@@ -272,18 +273,26 @@ pub fn sketch(input: &mut Unstructured, plane: Plane) -> Result<Sketch> {
 
 pub fn regraded(input: &mut Unstructured, sketch: &Sketch) -> Result<Sketch> {
     let mut graded = sketch.clone();
-    let splines: Vec<(EntityId, usize)> = sketch
+    let splines: Vec<(EntityId, usize, usize)> = sketch
         .entities()
         .filter_map(|(id, entity)| match entity {
             Entity::Spline {
                 points,
                 kind: SplineKind::Control { closed: false },
-            } if points.len() > 2 => Some((id, points.len())),
+            } if points.len() > 2 => Some((id, 1, points.len() - 1)),
+            Entity::Spline {
+                points,
+                kind: SplineKind::Control { closed: true },
+            } => Some((
+                id,
+                CLOSED_FEWEST_DEGREE,
+                SplineKind::most_looped_degree(points.len()),
+            )),
             _ => None,
         })
         .collect();
-    for (spline, count) in splines {
-        let degree = input.int_in_range(1..=count - 1)?;
+    for (spline, fewest, most) in splines {
+        let degree = input.int_in_range(fewest..=most)?;
         let _ = graded.set_spline_degree(spline, degree);
     }
     Ok(graded)

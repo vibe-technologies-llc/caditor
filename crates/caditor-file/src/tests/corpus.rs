@@ -60,7 +60,7 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 85] = [
+const KEPT: [(&str, &str); 86] = [
     (
         "model-1/section-parameter-offsets.caditor",
         "52c762639902bc4c43c1f340a6a768f0a9fcf7187d2ce958292486c11faf2684",
@@ -140,6 +140,10 @@ const KEPT: [(&str, &str); 85] = [
     (
         "model-1/chord-fillets.caditor",
         "a7c8a8af9e3d87df5e6a1265553551b9814f8114e908a3746143596d9380f1fc",
+    ),
+    (
+        "model-1/closed-spline-degrees.caditor",
+        "46a72986d559b7824fc6c1275b5f595288fef84b586904e9401f5e38da60cab3",
     ),
     (
         "model-1/closed-spline-knots.caditor",
@@ -945,6 +949,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&spline_degrees(), "Spline degrees"),
         ),
         (
+            model("closed-spline-degrees"),
+            saved(&closed_spline_degrees(), "Closed spline degrees"),
+        ),
+        (
             model("spline-handles"),
             saved(&spline_handles(), "Spline handles"),
         ),
@@ -1288,6 +1296,34 @@ fn spline_degrees() -> Document {
     let mut document = Document::default();
     let mut transaction = document.transaction("Spline degrees");
     transaction.add_feature("Chosen degrees", FeatureKind::from(drawn));
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+fn closed_spline_degrees() -> Document {
+    let mut drawn = Sketch::new(Plane::XY);
+    let ring = [
+        Point2::new(100.0, 100.0),
+        Point2::new(130.0, 94.0),
+        Point2::new(160.0, 110.0),
+        Point2::new(172.0, 140.0),
+        Point2::new(150.0, 170.0),
+        Point2::new(116.0, 164.0),
+        Point2::new(96.0, 142.0),
+        Point2::new(88.0, 118.0),
+    ];
+    let even = drawn.add_spline_of(&ring, SplineKind::Control { closed: true });
+    drawn.set_spline_degree(even, 5).unwrap();
+    let uneven = drawn.add_spline_of(&ring, SplineKind::Control { closed: true });
+    drawn.set_spline_degree(uneven, 4).unwrap();
+    drawn
+        .insert_control_point(uneven, Some(Point2::new(160.0, 125.0)))
+        .unwrap();
+    let polygon = drawn.add_spline_of(&ring[..5], SplineKind::Control { closed: true });
+    drawn.set_spline_degree(polygon, 1).unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Closed spline degrees");
+    transaction.add_feature("Closed degrees", FeatureKind::from(drawn));
     document.apply(transaction.finish()).unwrap();
     document
 }

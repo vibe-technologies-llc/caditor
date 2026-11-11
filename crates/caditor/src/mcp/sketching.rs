@@ -69,8 +69,9 @@ pub enum SketchToolError {
     )]
     SplinePoints { form: &'static str, needed: usize },
     #[error(
-        "a spline of degree {degree} takes the form control, left open, with at least {} points; a degree runs from 1 to 25",
-        degree + 1
+        "a spline of degree {degree} takes the form control, with at least {} points when open and {} when closed; a degree runs from 1 to 25",
+        degree + 1,
+        SplineKind::fewest_looped_points(*degree)
     )]
     SplineDegree { degree: usize },
     #[error(
@@ -559,9 +560,13 @@ impl SplineShape {
         };
         let kind = match self.degree {
             None => kind,
-            Some(degree) if form == "control" && !self.closed => {
-                SplineKind::graded(degree, self.points.len())
-                    .ok_or(SketchToolError::SplineDegree { degree })?
+            Some(degree) if form == "control" => {
+                let chosen = if self.closed {
+                    SplineKind::graded_loop(degree, self.points.len())
+                } else {
+                    SplineKind::graded(degree, self.points.len())
+                };
+                chosen.ok_or(SketchToolError::SplineDegree { degree })?
             }
             Some(degree) => return Err(SketchToolError::SplineDegree { degree }.into()),
         };

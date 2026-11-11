@@ -75,7 +75,7 @@ fn a_degree_the_points_cannot_carry_or_a_spline_without_one_is_refused_in_words(
     let mut sketch = Sketch::new(Plane::XY);
     let spline = sketch.add_spline(&wave()[..4]);
     let fit = sketch.add_spline_of(&wave(), SplineKind::fit(false));
-    let closed = sketch.add_spline_of(&wave(), SplineKind::Control { closed: true });
+    let closed = sketch.add_spline_of(&wave()[..4], SplineKind::Control { closed: true });
     let conic = sketch.add_spline_of(&wave()[..3], SplineKind::Conic { rho: 0.4 });
     let before = sketch.clone();
 
@@ -101,7 +101,7 @@ fn a_degree_the_points_cannot_carry_or_a_spline_without_one_is_refused_in_words(
     ));
     assert!(matches!(
         sketch.set_spline_degree(closed, 5),
-        Err(DegreeError::ClosedSpline { .. })
+        Err(DegreeError::TooFewPoints { most: 3, .. })
     ));
     assert!(matches!(
         sketch.set_spline_degree(conic, 5),
@@ -230,7 +230,11 @@ fn an_invalid_degree_or_span_list_is_refused_when_a_spline_is_added() {
             EntityId::from_raw(next),
             Entity::Spline {
                 points: points.clone(),
-                kind: SplineKind::Graded { degree, spans },
+                kind: SplineKind::Graded {
+                    degree,
+                    spans,
+                    closed: false,
+                },
             },
         )
     };

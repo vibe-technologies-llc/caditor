@@ -380,7 +380,7 @@ impl System {
             let handle = match kind {
                 SplineKind::Control { closed: false } => clamped_handle(handles),
                 SplineKind::Control { closed: true } => {
-                    periodic_handle(&handles, periodic_knots(handles.len()).1)
+                    periodic_handle(&handles, MAX_SPLINE_DEGREE, periodic_knots(handles.len()).1)
                 }
                 SplineKind::Conic { rho } => {
                     let driven = self.rhos.get(&id).copied().unwrap_or(*rho);
@@ -405,14 +405,20 @@ impl System {
                     spans,
                     closed: false,
                 } => knotted_handle(handles, spans),
-                SplineKind::Graded { degree, spans } => graded_handle(handles, *degree, spans),
+                SplineKind::Graded {
+                    degree,
+                    spans,
+                    closed: false,
+                } => graded_handle(handles, *degree, spans),
                 SplineKind::Knotted {
                     spans,
                     closed: true,
-                } => periodic_handle(
-                    &handles,
-                    looped_knots(spans).unwrap_or_else(|| periodic_knots(handles.len()).1),
-                ),
+                } => looped_handle(&handles, MAX_SPLINE_DEGREE, spans),
+                SplineKind::Graded {
+                    degree,
+                    spans,
+                    closed: true,
+                } => looped_handle(&handles, *degree, spans),
             };
             self.splines.insert(id, Arc::new(handle));
         }
@@ -460,7 +466,7 @@ impl System {
         }
         self.hidden.insert(id, hidden);
         let handle = if closed {
-            periodic_handle(&controls, layout.knots)
+            periodic_handle(&controls, MAX_SPLINE_DEGREE, layout.knots)
         } else {
             SplineHandle {
                 points: controls,
@@ -661,9 +667,15 @@ fn graded_handle(points: Vec<PointHandle>, degree: usize, spans: &[f64]) -> Spli
     }
 }
 
-fn periodic_handle(points: &[PointHandle], knots: Vec<f64>) -> SplineHandle {
+fn looped_handle(points: &[PointHandle], degree: usize, spans: &[f64]) -> SplineHandle {
+    match looped_knots(degree, spans) {
+        Some(knots) => periodic_handle(points, degree, knots),
+        None => clamped_handle(points.to_vec()),
+    }
+}
+
+fn periodic_handle(points: &[PointHandle], degree: usize, knots: Vec<f64>) -> SplineHandle {
     let count = points.len();
-    let degree = MAX_SPLINE_DEGREE;
     SplineHandle {
         points: (0..count + degree)
             .filter_map(|index| points.get(index % count.max(1)).copied())

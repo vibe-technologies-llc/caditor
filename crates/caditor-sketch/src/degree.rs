@@ -16,8 +16,6 @@ pub enum DegreeError {
     FitSpline { entity: EntityId, label: String },
     #[error("{label} is a conic, which is always of degree two")]
     Conic { entity: EntityId, label: String },
-    #[error("{label} is closed, and a closed spline is always of degree three")]
-    ClosedSpline { entity: EntityId, label: String },
     #[error("{label} follows the geometry it was projected from, so it cannot be changed")]
     Projected { entity: EntityId, label: String },
     #[error("a spline's degree is a whole number from {MIN_DEGREE} to {MAX_DEGREE}")]
@@ -96,21 +94,20 @@ impl Sketch {
                     label: label(),
                 });
             }
-            SplineKind::Control { closed: true } | SplineKind::Knotted { closed: true, .. } => {
-                return Err(DegreeError::ClosedSpline {
-                    entity: curve,
-                    label: label(),
-                });
-            }
-            SplineKind::Control { closed: false }
+            SplineKind::Control { .. }
             | SplineKind::Piece { .. }
-            | SplineKind::Knotted { closed: false, .. }
+            | SplineKind::Knotted { .. }
             | SplineKind::Graded { .. } => {}
         }
         if !SplineKind::degree_is_valid(degree) {
             return Err(DegreeError::OutOfRange { degree });
         }
-        let most = points.len().saturating_sub(1).min(MAX_DEGREE);
+        let closed = kind.is_closed();
+        let most = if closed {
+            SplineKind::most_looped_degree(points.len())
+        } else {
+            points.len().saturating_sub(1).min(MAX_DEGREE)
+        };
         if degree > most {
             return Err(DegreeError::TooFewPoints {
                 entity: curve,
@@ -126,9 +123,16 @@ impl Sketch {
                 degree,
             });
         }
-        SplineKind::graded(degree, points.len()).ok_or(DegreeError::OutOfRange { degree })
+        let chosen = if closed {
+            SplineKind::graded_loop(degree, points.len())
+        } else {
+            SplineKind::graded(degree, points.len())
+        };
+        chosen.ok_or(DegreeError::OutOfRange { degree })
     }
 }
 
+#[cfg(test)]
+mod closed_tests;
 #[cfg(test)]
 mod tests;

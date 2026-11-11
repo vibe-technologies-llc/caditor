@@ -1,6 +1,9 @@
 use caditor_geometry::Point2;
 
-use crate::{curve::CONIC_DEGREE, id::EntityId};
+use crate::{
+    curve::{CONIC_DEGREE, MIN_CLOSED_POINTS},
+    id::EntityId,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entity {
@@ -218,12 +221,29 @@ pub enum FitSpacing {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SplineKind {
-    Control { closed: bool },
-    Fit { closed: bool, spacing: FitSpacing },
-    Conic { rho: f64 },
-    Piece { lead: f64, trail: f64 },
-    Knotted { spans: Vec<f64>, closed: bool },
-    Graded { degree: usize, spans: Vec<f64> },
+    Control {
+        closed: bool,
+    },
+    Fit {
+        closed: bool,
+        spacing: FitSpacing,
+    },
+    Conic {
+        rho: f64,
+    },
+    Piece {
+        lead: f64,
+        trail: f64,
+    },
+    Knotted {
+        spans: Vec<f64>,
+        closed: bool,
+    },
+    Graded {
+        degree: usize,
+        spans: Vec<f64>,
+        closed: bool,
+    },
 }
 
 impl SplineKind {
@@ -238,10 +258,11 @@ impl SplineKind {
 
     pub fn is_closed(&self) -> bool {
         match self {
-            Self::Control { closed } | Self::Fit { closed, .. } | Self::Knotted { closed, .. } => {
-                *closed
-            }
-            Self::Conic { .. } | Self::Piece { .. } | Self::Graded { .. } => false,
+            Self::Control { closed }
+            | Self::Fit { closed, .. }
+            | Self::Knotted { closed, .. }
+            | Self::Graded { closed, .. } => *closed,
+            Self::Conic { .. } | Self::Piece { .. } => false,
         }
     }
 
@@ -252,10 +273,15 @@ impl SplineKind {
                 closed: false,
                 spacing: *spacing,
             },
+            Self::Graded {
+                degree,
+                spans,
+                closed: true,
+            } => Self::graded(*degree, spans.len()).unwrap_or(Self::OPEN),
             Self::Conic { .. }
             | Self::Piece { .. }
             | Self::Knotted { .. }
-            | Self::Graded { .. } => self.clone(),
+            | Self::Graded { closed: false, .. } => self.clone(),
         }
     }
 
@@ -288,8 +314,29 @@ impl SplineKind {
             | Self::Knotted { closed: true, .. }
             | Self::Conic { .. } => 3,
             Self::Piece { .. } | Self::Knotted { closed: false, .. } => MIN_PIECE_POINTS,
-            Self::Graded { degree, .. } => degree + 1,
+            Self::Graded {
+                degree,
+                closed: false,
+                ..
+            } => degree + 1,
+            Self::Graded {
+                degree,
+                closed: true,
+                ..
+            } => Self::fewest_looped_points(*degree),
         }
+    }
+
+    pub fn fewest_looped_points(degree: usize) -> usize {
+        if degree <= CUBIC_DEGREE {
+            MIN_CLOSED_POINTS
+        } else {
+            degree + 1
+        }
+    }
+
+    pub fn most_looped_degree(points: usize) -> usize {
+        points.saturating_sub(1).clamp(CUBIC_DEGREE, MAX_DEGREE)
     }
 
     pub fn degree_of(&self, points: usize) -> Option<usize> {
@@ -297,12 +344,12 @@ impl SplineKind {
             Self::Control { closed: false } | Self::Fit { closed: false, .. } => {
                 Some(points.saturating_sub(1).min(CUBIC_DEGREE))
             }
-            Self::Piece { .. } | Self::Knotted { closed: false, .. } => Some(CUBIC_DEGREE),
+            Self::Piece { .. } | Self::Knotted { .. } | Self::Control { closed: true } => {
+                Some(CUBIC_DEGREE)
+            }
             Self::Conic { .. } => Some(CONIC_DEGREE),
             Self::Graded { degree, .. } => Some(*degree),
-            Self::Control { closed: true }
-            | Self::Fit { closed: true, .. }
-            | Self::Knotted { closed: true, .. } => None,
+            Self::Fit { closed: true, .. } => None,
         }
     }
 
@@ -317,6 +364,42 @@ impl SplineKind {
         Some(Self::Graded {
             degree,
             spans: vec![1.0 / spans as f64; spans],
+            closed: false,
+        })
+    }
+
+    pub fn graded_loop(degree: usize, points: usize) -> Option<Self> {
+        if !Self::degree_is_valid(degree) || points < Self::fewest_looped_points(degree) {
+            return None;
+        }
+        if degree == CUBIC_DEGREE {
+            return Some(Self::Control { closed: true });
+        }
+        Some(Self::Graded {
+            degree,
+            spans: vec![1.0 / points as f64; points],
+            closed: true,
+        })
+    }
+
+    pub fn looped(degree: usize, spans: Vec<f64>) -> Option<Self> {
+        if !Self::degree_is_valid(degree)
+            || spans.len() < Self::fewest_looped_points(degree)
+            || !Self::spans_are_valid(&spans)
+        {
+            return None;
+        }
+        Some(if degree == CUBIC_DEGREE {
+            Self::Knotted {
+                spans,
+                closed: true,
+            }
+        } else {
+            Self::Graded {
+                degree,
+                spans,
+                closed: true,
+            }
         })
     }
 
@@ -324,6 +407,13 @@ impl SplineKind {
         let reachable = points.saturating_sub(1).max(MIN_DEGREE);
         let degree = degree.clamp(MIN_DEGREE, MAX_DEGREE).min(reachable);
         Self::graded(degree, points).unwrap_or(Self::OPEN)
+    }
+
+    pub fn drawn_loop(degree: usize, points: usize) -> Self {
+        let degree = degree
+            .clamp(MIN_DEGREE, MAX_DEGREE)
+            .min(Self::most_looped_degree(points));
+        Self::graded_loop(degree, points).unwrap_or(Self::Control { closed: true })
     }
 
     pub fn degree_is_valid(degree: usize) -> bool {
@@ -334,9 +424,11 @@ impl SplineKind {
         match self {
             Self::Control { closed: false }
             | Self::Piece { .. }
-            | Self::Graded { .. }
+            | Self::Graded { closed: false, .. }
             | Self::Knotted { closed: false, .. } => "Spline",
-            Self::Control { closed: true } | Self::Knotted { closed: true, .. } => "Closed spline",
+            Self::Control { closed: true }
+            | Self::Knotted { closed: true, .. }
+            | Self::Graded { closed: true, .. } => "Closed spline",
             Self::Fit { closed: false, .. } => "Fit-point spline",
             Self::Fit { closed: true, .. } => "Closed fit-point spline",
             Self::Conic { .. } => "Conic",

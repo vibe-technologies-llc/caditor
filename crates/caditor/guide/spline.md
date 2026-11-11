@@ -73,17 +73,20 @@ four neighbouring points. You can choose another degree before you start or whil
 raise and lower it, or type it in the point field, such as `5 degree`. The prompt names the degree
 the spline will have, and how many points it still needs. A spline that gets fewer points than its
 degree needs takes the highest degree they carry, so five points drawn at degree 8 give a degree
-four spline; the choice is kept for the next spline. Only the control-point way has a degree to
-choose: a spline closed by clicking its first point, or drawn with the closed control-point way,
-is always cubic. After drawing, {command:sketch.raise_spline_degree} and
-{command:sketch.lower_spline_degree} (Modify menu and palette) change the degree of the selected
-splines by one, keeping their control points: a higher degree lets each point shape a longer
-stretch and smooths the curve more, a degree of one gives straight segments between the points.
-The curve changes shape, since the points stay where they are, and constraints on it hold as they
-did. A spline needs at least one more point than its degree, up to degree 25; splines through fit
-points, conics and closed splines have no degree to choose and the command says so. An
-assistant over [MCP](mcp) draws a spline of any degree or sets one with `spline_degree`. Trimming,
-extending, splitting and adding control points keep the degree.
+four spline; the choice is kept for the next spline. Both control-point ways have a degree to
+choose, the open one and the closed one, and a spline closed by clicking its first point keeps the
+degree chosen. A closed spline of a degree above three needs one more point than its degree, and
+with fewer, such as four points at degree 5, takes the highest degree they carry. After drawing,
+{command:sketch.raise_spline_degree} and {command:sketch.lower_spline_degree} (Modify menu and
+palette) change the degree of the selected splines by one, keeping their control points: a higher
+degree lets each point shape a longer stretch and smooths the curve more, a degree of one gives
+straight segments between the points, so a closed spline of degree one is a polygon. The curve
+changes shape, since the points stay where they are, and constraints on it hold as they did. An
+open spline needs at least one more point than its degree and a closed one at least three (and one
+more than its degree above three), up to degree 25; splines through fit points and conics have no
+degree to choose and the command says so. An assistant over [MCP](mcp) draws a spline of any degree,
+open or closed, or sets one with `spline_degree`. Trimming, extending, adding control points and
+extruding keep the degree, and trimming a closed spline opens it into a spline of the same degree.
 
 A spline drawn by control points shows its control polygon dashed while its sketch is edited;
 {command:view.toggle_control_polygons} hides or shows it. A spline through fit points shows none,
