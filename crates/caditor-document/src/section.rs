@@ -52,7 +52,7 @@ fn made_by_cut(origin: &FaceOrigin, sketch: FeatureId) -> bool {
     )
 }
 
-fn is_cut_face(face: &Face, sketch: FeatureId) -> bool {
+pub(crate) fn is_cut_face(face: &Face, sketch: FeatureId) -> bool {
     face.origin()
         .is_some_and(|origin| made_by_cut(&origin, sketch))
 }

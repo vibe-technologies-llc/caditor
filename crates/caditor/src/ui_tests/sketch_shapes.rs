@@ -1,6 +1,6 @@
 use std::f64::consts::{FRAC_PI_2, PI};
 
-use caditor_document::Feature;
+use caditor_document::{Feature, FeatureId};
 use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, FitSpacing, Sketch, SplineKind};
 use egui::{Event, Key, Modifiers};
@@ -1263,6 +1263,181 @@ fn a_spline_takes_clicked_control_points_until_enter() {
     }
     assert_eq!(harness.model.undo_label(), Some("Draw spline"));
     assert!(harness.shows("Click the spline's first control point"));
+}
+
+fn click_all(harness: &mut Harness, points: &[Point2]) {
+    for point in points {
+        harness.click_at(*point);
+    }
+}
+
+fn wave_points(count: usize) -> Vec<Point2> {
+    let step = (60.0 / count as f64).min(10.0);
+    (0..count)
+        .map(|index| {
+            Point2::new(
+                10.0 + step * index as f64,
+                if index % 2 == 0 { 10.0 } else { 30.0 },
+            )
+        })
+        .collect()
+}
+
+fn drawn_splines(harness: &Harness, feature: FeatureId) -> Vec<(EntityId, usize)> {
+    let sketch = harness.sketch(feature);
+    entities_of_kind(sketch, "Spline")
+        .into_iter()
+        .filter_map(|spline| Some((spline, sketch.spline_degree(spline)?)))
+        .collect()
+}
+
+#[test]
+fn a_control_point_spline_is_drawn_at_the_degree_chosen_before_drawing() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    assert!(offer(&harness, Command::MoreDegree).availability.is_err());
+    assert!(offer(&harness, Command::FewerDegree).availability.is_err());
+
+    harness.use_tool(Key::S);
+    harness.frame();
+    assert!(offer(&harness, Command::MoreDegree).availability.is_ok());
+    assert!(harness.shows("Click the spline's first control point"));
+    for _ in 0..2 {
+        harness.key(Key::CloseBracket, Modifiers::ALT);
+        harness.frame();
+    }
+    harness.frame();
+    assert!(harness.shows_containing("(degree 5, which needs 6 points)"));
+
+    let clicked = wave_points(7);
+    click_all(&mut harness, &clicked);
+    assert!(harness.shows("Click the next control point (degree 5)"));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let [(spline, degree)] = drawn_splines(&harness, feature)[..] else {
+        panic!("one spline should be drawn");
+    };
+    assert_eq!(degree, 5);
+    assert_eq!(sketch.spline(spline).unwrap().degree(), 5);
+    assert_eq!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        SplineKind::graded(5, 7)
+    );
+    for (id, expected) in sketch.entity(spline).unwrap().points().iter().zip(&clicked) {
+        assert!(near(sketch.point(*id).unwrap(), *expected));
+    }
+    assert_eq!(harness.model.undo_label(), Some("Draw spline"));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(drawn_splines(&harness, feature).is_empty());
+}
+
+#[test]
+fn the_degree_changes_while_drawing_by_key_palette_or_typing_and_is_kept_for_the_next_spline() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
+
+    type_point(&mut harness, "4 degree");
+    harness.frame();
+    assert!(harness.shows_containing("(degree 4, which needs 5 points)"));
+    click_all(&mut harness, &wave_points(3));
+    harness.key(Key::OpenBracket, Modifiers::ALT);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Click the next control point"));
+    run_from_palette(&mut harness, "one degree lower");
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows_containing("(degree 2)"));
+    click_all(&mut harness, &[Point2::new(50.0, 30.0)]);
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    assert_eq!(
+        drawn_splines(&harness, feature)
+            .iter()
+            .map(|(_, degree)| *degree)
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
+
+    click_all(&mut harness, &wave_points(4));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    let degrees: Vec<usize> = drawn_splines(&harness, feature)
+        .iter()
+        .map(|(_, degree)| *degree)
+        .collect();
+    assert_eq!(degrees, vec![2, 2]);
+}
+
+#[test]
+fn a_spline_with_too_few_points_for_the_degree_takes_the_most_they_carry_and_the_degree_has_limits()
+{
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
+
+    type_point(&mut harness, "30 degrees");
+    assert!(harness.shows("A spline's degree is at most 25"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    type_point(&mut harness, "0 degrees");
+    assert!(harness.shows("A spline's degree is at least 1"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+
+    type_point(&mut harness, "8 degrees");
+    click_all(&mut harness, &wave_points(3));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    assert_eq!(drawn_splines(&harness, feature).len(), 1);
+    assert_eq!(drawn_splines(&harness, feature)[0].1, 2);
+
+    type_point(&mut harness, "25 degrees");
+    click_all(&mut harness, &wave_points(26));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(drawn_splines(&harness, feature)[1].1, 25);
+}
+
+#[test]
+fn only_the_control_point_way_has_a_degree_to_choose() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+
+    type_point(&mut harness, "5 degrees");
+    assert!(harness.shows_containing("Choose the Spline tool's control-point way first"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.show_new_windows();
+    assert!(offer(&harness, Command::MoreDegree).availability.is_err());
+
+    click_all(&mut harness, &wave_points(6));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    let sketch = harness.sketch(feature);
+    let spline = entities_of_kind(sketch, "Fit-point spline")[0];
+    assert_eq!(
+        sketch.entity(spline).and_then(Entity::spline_kind),
+        Some(SplineKind::fit(false))
+    );
+
+    harness.use_tool(Key::S);
+    harness.frame();
+    assert!(harness.shows("Click the spline's first control point"));
+    assert!(offer(&harness, Command::MoreDegree).availability.is_ok());
+    harness.use_tool(Key::S);
+    harness.frame();
+    assert!(offer(&harness, Command::MoreDegree).availability.is_err());
 }
 
 #[test]

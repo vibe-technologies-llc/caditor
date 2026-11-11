@@ -40,6 +40,7 @@ const ANGLE: Expected = Expected {
     non_negative: false,
 };
 const SIDES_WORDS: [&str; 2] = ["sides", "side"];
+const DEGREE_WORDS: [&str; 2] = ["degrees", "degree"];
 const RHO_WORD: &str = "rho";
 const RHO: Part = Part {
     label: "rho",
@@ -158,8 +159,16 @@ fn magnitude(expression: Expression, value: f64) -> Expression {
 }
 
 pub fn sides(text: &str) -> Option<usize> {
+    counted(text, &SIDES_WORDS)
+}
+
+pub fn degree(text: &str) -> Option<usize> {
+    counted(text, &DEGREE_WORDS)
+}
+
+fn counted(text: &str, words: &[&str]) -> Option<usize> {
     let text = text.trim().to_lowercase();
-    let count = SIDES_WORDS
+    let count = words
         .iter()
         .find_map(|word| text.strip_suffix(word))?
         .trim_end();
@@ -796,6 +805,24 @@ mod tests {
         assert_eq!(zero, Some(Err(TypedPointError::LengthLockNotPositive)));
         for text in ["<30", "10 < 30", "10, 20", "5", "1, 2 <"] {
             assert!(length_lock(&model, text, from).is_none(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_count_followed_by_degree_is_a_degree_and_nothing_else_is() {
+        assert_eq!(degree("5 degree"), Some(5));
+        assert_eq!(degree(" 12Degrees "), Some(12));
+        assert_eq!(degree("99999999999999999999999 degrees"), Some(usize::MAX));
+        for text in [
+            "5",
+            "degree",
+            "-5 degrees",
+            "2.5 degrees",
+            "5 deg",
+            "5 sides",
+            "2 + 3 degrees",
+        ] {
+            assert_eq!(degree(text), None, "{text}");
         }
     }
 

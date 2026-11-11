@@ -22,6 +22,8 @@ const HIDDEN_WIDTH: f64 = 0.25;
 const HIDDEN_DASH: f64 = 3.0;
 const HIDDEN_GAP: f64 = 1.5;
 const FRAME_WIDTH: f64 = 0.35;
+const THIN_WIDTH: f64 = 0.25;
+const CHAIN: &str = "12 3 0.5 3";
 const CAP_HEIGHT_PER_FONT_SIZE: f64 = 0.727;
 
 #[derive(Debug, Clone, Copy)]
@@ -115,6 +117,18 @@ fn write_document(text: &mut String, figure: &Figure, page: Page) -> std::fmt::R
                 Real(HIDDEN_WIDTH),
                 Real(HIDDEN_DASH),
                 Real(HIDDEN_GAP)
+            )?,
+            Layer::Hatching => writeln!(
+                text,
+                r#"<g id="{}" stroke-width="{}">"#,
+                layer.name(),
+                Real(THIN_WIDTH)
+            )?,
+            Layer::Cutting => writeln!(
+                text,
+                r#"<g id="{}" stroke-width="{}" stroke-dasharray="{CHAIN}" stroke-linecap="butt">"#,
+                layer.name(),
+                Real(THIN_WIDTH)
             )?,
             Layer::Frame => writeln!(
                 text,

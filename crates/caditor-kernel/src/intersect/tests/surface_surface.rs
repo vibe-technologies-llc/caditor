@@ -442,6 +442,43 @@ fn crossing_cylinders_of_equal_and_unequal_radius() {
 }
 
 #[test]
+fn cylinders_whose_crossed_axes_lie_their_radii_apart_touch_at_one_point() {
+    let corner = cylinder(
+        Point3::new(126.133_333_5, 131.133_333_5, 0.0),
+        Vector3::Z,
+        12.0,
+    );
+    let rolling = cylinder(
+        Point3::new(139.633_333_5, 131.133_333_5, 1.5),
+        -Vector3::Y,
+        1.5,
+    );
+    let beyond = cylinder(Point3::new(139.7, 131.133_333_5, 1.5), -Vector3::Y, 1.5);
+
+    let touching = intersect_surfaces(
+        &around(&corner, (0.0, 3.0)),
+        &around(&rolling, (-20.0, 20.0)),
+    )
+    .unwrap();
+    let apart = intersect_surfaces(
+        &around(&corner, (0.0, 3.0)),
+        &around(&beyond, (-20.0, 20.0)),
+    )
+    .unwrap();
+
+    assert!(touching.branches().is_empty(), "{touching:?}");
+    assert_eq!(touching.points().len(), 1, "{touching:?}");
+    assert!(touching.points()[0].tangent);
+    assert!(
+        touching.points()[0]
+            .point
+            .distance(Point3::new(138.133_333_5, 131.133_333_5, 1.5))
+            <= 1e-9
+    );
+    assert!(apart.is_empty(), "{apart:?}");
+}
+
+#[test]
 fn a_sphere_off_a_cylinder_axis_is_marched() {
     let tube = cylinder(Point3::new(1.0, 0.0, 0.0), Vector3::Z, 1.0);
     let ball = sphere(Point3::ZERO, 2.0);

@@ -115,14 +115,15 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   folding in the gap between two samples of a bounding edge can run past the edge there
   (`roots_among` brackets by sign changes at sampled points).
 
-- [high · hard] A small fillet round a rounded-rectangle opening in a thin plate never returns: on a
-  166 mm square, 3 mm plate (a 15 mm rim round its other face), a 110×120 mm opening cut through
-  the plate with its four 3 mm corner edges filleted 12 mm, a 1.5 mm fillet of the eight edges
-  (four lines, four arcs) where the opening meets the plate's bare face keeps the recompute worker
-  busy on one core for minutes (stopped after three) with no answer, so the MCP `add_fillet` call
-  never replies. The same fillet round a 75 mm round opening in the same plate finishes at once.
-  It should finish or fail as the feature's error; whether cancelling the call stops it was not
-  checked.
+- [medium · hard] Where two surfaces touch at an isolated point from outside each other (elliptic
+  contact: a ball resting on a cylinder or torus, a torus rolling against a cylinder) and no
+  analytic case takes the pair, the marcher seeds inside the patch round the point where the
+  surfaces lie within the resolution (sines about 1e-4, far above `TOUCH_SINE`) and traces
+  scribbled branches there instead of one tangent point: crossed cylinders whose axes lie the sum
+  of their radii apart gave two such branches 0.76 and 0.15 long inside a 1.2e-4 box, crossing
+  each other 1,850 times, and the boolean sorted their crossings for minutes before they became an
+  analytic touch. Other pairs may still do it, slow and with spurious vertices; the marcher
+  should recognise a seed whose neighbourhood closes round it as a touch.
 
 ## Sketch solver
 

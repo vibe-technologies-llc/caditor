@@ -14,6 +14,9 @@ const PLANAR_SPLINE: u32 = 8;
 const RATIONAL_SPLINE: u32 = 4;
 const OPEN_POLYLINE: u32 = 0;
 const DASHED: &str = "DASHED";
+const DASH_DOT: &str = "DASHDOT";
+const CHAIN: [f64; 4] = [12.0, -3.0, 0.0, -3.0];
+const THIN_WEIGHT: u32 = 25;
 const CONTINUOUS: &str = "CONTINUOUS";
 const DASH: f64 = 1.0;
 const GAP: f64 = 0.5;
@@ -101,13 +104,15 @@ impl Writer {
     fn sheet_tables(&mut self, layers: &BTreeSet<Layer>) {
         self.pair(0, "SECTION");
         self.pair(2, "TABLES");
-        self.linetypes(HIDDEN_DASH, HIDDEN_GAP);
+        self.linetypes(HIDDEN_DASH, HIDDEN_GAP, true);
         let described: Vec<(Layer, u32, &str, Option<u32>)> = layers
             .iter()
             .filter_map(|layer| match layer {
                 Layer::Construction => Some((*layer, GREY, DASHED, None)),
                 Layer::Visible => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(VISIBLE_WEIGHT))),
                 Layer::Hidden => Some((*layer, BY_INDEX_BLACK, DASHED, Some(HIDDEN_WEIGHT))),
+                Layer::Hatching => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(THIN_WEIGHT))),
+                Layer::Cutting => Some((*layer, BY_INDEX_BLACK, DASH_DOT, Some(THIN_WEIGHT))),
                 Layer::Frame => Some((*layer, BY_INDEX_BLACK, CONTINUOUS, Some(FRAME_WEIGHT))),
                 _ => None,
             })
@@ -129,10 +134,10 @@ impl Writer {
         self.pair(0, "ENDSEC");
     }
 
-    fn linetypes(&mut self, dash: f64, gap: f64) {
+    fn linetypes(&mut self, dash: f64, gap: f64, chain: bool) {
         self.pair(0, "TABLE");
         self.pair(2, "LTYPE");
-        self.pair(70, 2);
+        self.pair(70, if chain { 3 } else { 2 });
         self.pair(0, "LTYPE");
         self.pair(2, CONTINUOUS);
         self.pair(70, 0);
@@ -149,13 +154,25 @@ impl Writer {
         self.real(40, dash + gap);
         self.real(49, dash);
         self.real(49, -gap);
+        if chain {
+            self.pair(0, "LTYPE");
+            self.pair(2, DASH_DOT);
+            self.pair(70, 0);
+            self.pair(3, "Dash dot __ . __ .");
+            self.pair(72, ALIGNED_PATTERN);
+            self.pair(73, CHAIN.len());
+            self.real(40, CHAIN.iter().map(|length| length.abs()).sum());
+            for length in CHAIN {
+                self.real(49, length);
+            }
+        }
         self.pair(0, "ENDTAB");
     }
 
     fn dashed_tables(&mut self) {
         self.pair(0, "SECTION");
         self.pair(2, "TABLES");
-        self.linetypes(DASH, GAP);
+        self.linetypes(DASH, GAP, false);
         self.pair(0, "TABLE");
         self.pair(2, "LAYER");
         self.pair(70, 1);
@@ -178,6 +195,8 @@ impl Writer {
         self.pair(8, layer.name());
         if layer.is_dashed() {
             self.pair(6, DASHED);
+        } else if layer == Layer::Cutting {
+            self.pair(6, DASH_DOT);
         }
     }
 

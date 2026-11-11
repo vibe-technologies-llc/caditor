@@ -35,8 +35,11 @@ use serde::{
 use serde_json::Value;
 
 use super::{
-    configurations::configured_model, drawings::with_drawings, seeds::seed_journal_by_reference,
-    selection_sets::sets_of, *,
+    configurations::configured_model,
+    drawings::{with_drawings, with_section_views},
+    seeds::seed_journal_by_reference,
+    selection_sets::sets_of,
+    *,
 };
 use crate::{
     binary::{
@@ -57,7 +60,15 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 82] = [
+const KEPT: [(&str, &str); 84] = [
+    (
+        "journal-1/section-views.journal",
+        "3f7fd2af7cf0adfc7f2fb4e8dc71993e4831e6368be5c3611541664de5c86ab6",
+    ),
+    (
+        "model-1/section-views.caditor",
+        "117cc6e08f8fdc97ac27d21482f70556fc9e440dd15fd0ae8166f7d7969d2254",
+    ),
     (
         "journal-1/drawings.journal",
         "b5bfeb9e056a48adce246d4ec4690a25f7918674fe0e86deb60fa5885a64ee86",
@@ -1103,6 +1114,11 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
         (journal("principal-showing"), principal_showing_journal()),
         (model("drawings"), saved(&drawn_model(), "Drawings")),
         (journal("drawings"), drawings_journal()),
+        (
+            model("section-views"),
+            saved(&sectioned_model(), "Section views"),
+        ),
+        (journal("section-views"), section_views_journal()),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1864,6 +1880,30 @@ fn drawings_journal() -> Vec<u8> {
     let on_disk = decode(&model).unwrap().digest.unwrap();
     let head = JournalHead {
         file: Some(Path::new("/models/drawings.caditor")),
+        on_disk: Some(&on_disk),
+        loaded_with_problems: false,
+        folded: 0,
+    };
+    encode_journal(&head, &base, &session.entries).unwrap()
+}
+
+fn sectioned_model() -> Document {
+    let (mut document, change) = with_section_views();
+    document.apply(change).unwrap();
+    document
+}
+
+fn section_views_journal() -> Vec<u8> {
+    let (base, change) = with_section_views();
+    let mut session = Session {
+        editor: Editor::new(base.clone()),
+        entries: Vec::new(),
+    };
+    session.apply(change);
+    let model = save_bytes(&base, None, at(1_700_000_000), Some("Section views")).unwrap();
+    let on_disk = decode(&model).unwrap().digest.unwrap();
+    let head = JournalHead {
+        file: Some(Path::new("/models/section-views.caditor")),
         on_disk: Some(&on_disk),
         loaded_with_problems: false,
         folded: 0,

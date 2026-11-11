@@ -68,7 +68,14 @@ says which. Taking a control point away while keeping the shape is not possible 
 ## Choosing the degree
 
 A spline drawn from control points is cubic by default: each stretch of the curve is shaped by
-four neighbouring points. {command:sketch.raise_spline_degree} and
+four neighbouring points. You can choose another degree before you start or while drawing:
+{command:sketch.more_degree} and {command:sketch.fewer_degree} (Drawing aids menu and palette)
+raise and lower it, or type it in the point field, such as `5 degree`. The prompt names the degree
+the spline will have, and how many points it still needs. A spline that gets fewer points than its
+degree needs takes the highest degree they carry, so five points drawn at degree 8 give a degree
+four spline; the choice is kept for the next spline. Only the control-point way has a degree to
+choose: a spline closed by clicking its first point, or drawn with the closed control-point way,
+is always cubic. After drawing, {command:sketch.raise_spline_degree} and
 {command:sketch.lower_spline_degree} (Modify menu and palette) change the degree of the selected
 splines by one, keeping their control points: a higher degree lets each point shape a longer
 stretch and smooths the curve more, a degree of one gives straight segments between the points.

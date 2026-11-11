@@ -10,24 +10,40 @@ use std::{
 };
 
 use caditor_document::{
-    Drawing, DrawingId, DrawingViewError, DrawnBodies, FeatureId, FeatureResult, StandardView,
-    ViewLines, drawing_view, drawn_bodies,
+    Drawing, DrawingId, DrawingViewError, DrawnBodies, DrawnView, FeatureId, FeatureResult,
+    SectionView, StandardView, ViewLines, drawing_view, drawn_bodies, section_view,
 };
+use caditor_geometry::Plane;
 use caditor_kernel::interruptible;
 
 use crate::model::{Model, Waker};
 
 pub type ViewOutcome = Arc<Result<ViewLines, DrawingViewError>>;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ViewJob {
+    Standard(StandardView),
+    Section(SectionView),
+}
+
+impl ViewJob {
+    fn view(self) -> DrawnView {
+        match self {
+            Self::Standard(view) => DrawnView::Standard(view),
+            Self::Section(section) => DrawnView::Section(section.letter),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ViewKey {
-    view: StandardView,
+    job: ViewJob,
     bodies: Vec<(FeatureId, Arc<FeatureResult>)>,
 }
 
 impl PartialEq for ViewKey {
     fn eq(&self, other: &Self) -> bool {
-        self.view == other.view
+        self.job == other.job
             && self.bodies.len() == other.bodies.len()
             && self
                 .bodies
@@ -59,7 +75,11 @@ fn work_out(key: &ViewKey) -> Result<ViewLines, DrawingViewError> {
         .filter_map(|(_, result)| result.solid())
         .map(|result| &result.solid)
         .collect();
-    panic::catch_unwind(AssertUnwindSafe(|| drawing_view(key.view, &solids))).unwrap_or_else(|_| {
+    panic::catch_unwind(AssertUnwindSafe(|| match &key.job {
+        ViewJob::Standard(view) => drawing_view(*view, &solids),
+        ViewJob::Section(section) => section_view(section, &solids),
+    }))
+    .unwrap_or_else(|_| {
         log::error!("working out a drawing view panicked");
         Err(DrawingViewError::Panicked)
     })
@@ -111,7 +131,7 @@ pub enum ViewState {
 #[derive(Debug, Clone, Default)]
 pub struct SheetViews {
     pub drawing: Option<DrawingId>,
-    pub views: BTreeMap<StandardView, ViewState>,
+    pub views: BTreeMap<DrawnView, ViewState>,
     pub missing: Vec<FeatureId>,
 }
 
@@ -123,21 +143,30 @@ impl SheetViews {
             .count()
     }
 
-    pub fn finished(&self) -> impl Iterator<Item = (StandardView, &ViewLines)> {
+    pub fn finished(&self) -> impl Iterator<Item = (DrawnView, &ViewLines)> {
         self.views.iter().filter_map(|(view, state)| match state {
             ViewState::Done(outcome) => outcome.as_ref().as_ref().ok().map(|lines| (*view, lines)),
             ViewState::Working => None,
         })
     }
 
-    pub fn failed(&self) -> impl Iterator<Item = (StandardView, &DrawingViewError)> {
+    pub fn failed(&self) -> impl Iterator<Item = (DrawnView, &DrawingViewError)> {
         self.views.iter().filter_map(|(view, state)| match state {
             ViewState::Done(outcome) => outcome.as_ref().as_ref().err().map(|error| (*view, error)),
             ViewState::Working => None,
         })
     }
 
-    pub fn outcome(&self, view: StandardView) -> Option<ViewOutcome> {
+    pub fn cuts(&self) -> BTreeMap<char, Plane> {
+        self.finished()
+            .filter_map(|(view, lines)| match (view, &lines.section) {
+                (DrawnView::Section(letter), Some(section)) => Some((letter, section.cutting)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn outcome(&self, view: DrawnView) -> Option<ViewOutcome> {
         match self.views.get(&view)? {
             ViewState::Done(outcome) => Some(Arc::clone(outcome)),
             ViewState::Working => None,
@@ -163,8 +192,10 @@ fn keys_of(drawing: &Drawing, bodies: &DrawnBodies) -> Vec<ViewKey> {
     drawing
         .views
         .iter()
-        .map(|view| ViewKey {
-            view: *view,
+        .map(|view| ViewJob::Standard(*view))
+        .chain(drawing.sections.iter().copied().map(ViewJob::Section))
+        .map(|job| ViewKey {
+            job,
             bodies: bodies.results.clone(),
         })
         .collect()
@@ -184,7 +215,7 @@ impl DrawingViews {
             let same_bodies = |key: &ViewKey| {
                 wanted.iter().any(|kept| {
                     ViewKey {
-                        view: key.view,
+                        job: key.job,
                         bodies: kept.bodies.clone(),
                     } == *key
                 })
@@ -213,7 +244,7 @@ impl DrawingViews {
                     .map_or(ViewState::Working, |(_, outcome)| {
                         ViewState::Done(Arc::clone(outcome))
                     });
-                (key.view, state)
+                (key.job.view(), state)
             })
             .collect();
         SheetViews {

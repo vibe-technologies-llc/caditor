@@ -122,8 +122,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   would need the layout to follow the solved curve and a placement along it the solver can hold.
   Text is also set in Inter alone: no other typeface.
 - [medium · hard] A spline's points take only tangent handles, and only on fit-point splines: a
-  point has no curvature handle (a second-derivative row would join `HandledLayout`'s derivative rows, but a handle line carries only direction and pull, so the curvature needs its own dimension or vector, a new constraint kind with file record and glyph); the degree is chosen only after drawing and only for open
-  control-point splines (a closed spline stays cubic, and the spline tool draws cubic ones); a
+  point has no curvature handle (a second-derivative row would join `HandledLayout`'s derivative rows, but a handle line carries only direction and pull, so the curvature needs its own dimension or vector, a new constraint kind with file record and glyph); the degree is chosen only for open
+  control-point splines, not closed ones (a closed spline stays cubic: a degree-carrying closed kind
+  would need the periodic knots of `curve::looped_knots`, the solver's `periodic_handle`, trim's
+  `Knotted::periodic` and point insertion's `Plan::looped` to take a degree instead of the cubic
+  `MAX_SPLINE_DEGREE`, and a file record for it); a
   point cannot be removed while keeping the shape (only approximately possible); and a point cannot be inserted into a conic
   keeping the shape (its two halves would be rational arcs with weights of their own, which no
   spline kind but the conic holds).
@@ -190,21 +193,27 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Technical drawings
 
-- [medium · hard] Drawings have standard views only and nothing measured on them: a drawing
-  (`drawings.md`) lays out front, top, right, left and isometric views on an ISO sheet with a title
-  block and exports PDF, SVG or DXF, but has no section or detail views, no dimensions or notes
-  taken from the model (dimensions should refer to edges by `EdgeName`, so they survive edits as
-  features do), no views placed or moved by hand, and the sheet is previewed only inside the
-  Drawings panel rather than in a view of its own the size of the window.
+- [medium · hard] Drawings have nothing measured on them and no detail views: a drawing
+  (`drawings.md`) lays out front, top, right, left and isometric views and full section views on
+  principal planes on an ISO sheet with a title block and exports PDF, SVG or DXF, but has no
+  detail views (an enlarged circle of a view), no dimensions or notes taken from the model
+  (dimensions should refer to edges by `EdgeName`, so they survive edits as features do), no views
+  placed or moved by hand (section views always stand in a column right of the others), and the
+  sheet is previewed only inside the Drawings panel rather than in a view of its own the size of
+  the window. A section's offset takes units and parameters as it is typed but is stored as a
+  number, so the plane does not follow a parameter edited later; it should be kept as an
+  `Expression` like a feature's dimensions.
+- [low · medium] Views and sheets beyond the standard ones and full principal sections: section
+  planes other than the principal ones (through a datum plane or a face, or offset along the
+  parent's own axes), stepped (offset) and aligned sections, half and broken-out sections,
+  auxiliary views square to an inclined face, broken views shortening a long part, cropped views,
+  several sheets per drawing, a revision table, a title block whose cells the user lays out, and
+  section hatching chosen per material (today one 45° pattern, alternating direction per cut body).
 - [medium · hard · blocked by: dimensions on drawings (above)] Annotations beyond plain dimensions
   and notes: centre marks and centrelines on holes and round edges, hole and thread callouts read
   from the hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus,
   limits, ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture
   symbols (ISO 21920) and weld symbols (ISO 2553).
-- [low · medium · blocked by: section views (above)] Views and sheets beyond the standard ones:
-  auxiliary views square to an inclined face, broken views shortening a long part, broken-out and
-  half sections, cropped views, several sheets per drawing, a revision table, a title block whose
-  cells the user lays out, and section hatching chosen per material.
 
 ## Application
 

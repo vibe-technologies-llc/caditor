@@ -151,6 +151,7 @@ const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes tow
 pub const TYPE_VALUE_UNAVAILABLE: &str = "Choose a drawing tool, or Offset, Sketch fillet, a \
                                           pattern or Tangent circle, to type an exact value";
 const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
+const TYPED_DEGREE_HINT: &str = "4 degree: set the degree";
 const TYPED_RHO_HINT: &str = "0.3 rho: set its shape";
 const SCRUB_HINT: &str = "Shift: move sideways to set the sides";
 const MOVE_HINT: &str = "@: by an offset   Enter: move   Esc: cancel";
@@ -3931,6 +3932,15 @@ impl ViewportState {
                     self.drawing.add_sides(change);
                 }
             }
+            let degrees = [
+                (Command::MoreDegree, self.drawing.more_degree(), 1),
+                (Command::FewerDegree, self.drawing.fewer_degree(), -1),
+            ];
+            for (command, availability, change) in degrees {
+                if commands.invoke(command, &availability) {
+                    self.drawing.add_degree(change);
+                }
+            }
             self.sketch_commands(
                 model,
                 active.feature,
@@ -4806,6 +4816,8 @@ impl ViewportState {
         }
         let sides = if self.drawing.can_type_sides() {
             format!("   {TYPED_SIDES_HINT}")
+        } else if self.drawing.can_type_degree() {
+            format!("   {TYPED_DEGREE_HINT}")
         } else if self.drawing.can_type_rho() {
             format!("   {TYPED_RHO_HINT}")
         } else {
@@ -4833,6 +4845,13 @@ impl ViewportState {
         };
         if let Some(count) = typed_point::sides(&typed.text) {
             if let Err(reason) = self.drawing.set_sides(count) {
+                self.typed_point
+                    .open_with(typed.entered, reason.to_string());
+            }
+            return;
+        }
+        if let Some(degree) = typed_point::degree(&typed.text) {
+            if let Err(reason) = self.drawing.set_degree(degree) {
                 self.typed_point
                     .open_with(typed.entered, reason.to_string());
             }
@@ -6363,6 +6382,13 @@ impl ViewportState {
             keys.push(sides.clone());
             keys = keys.and(HintList::parsed_as(SCRUB_HINT, Rank::Extra));
         }
+        if let Some(degree) = key_hints
+            .degree
+            .as_ref()
+            .filter(|_| self.drawing.more_degree().is_ok() || self.drawing.fewer_degree().is_ok())
+        {
+            keys.push(degree.clone());
+        }
         keys = keys.and(prompt.hints());
         if self.drawing.in_progress() {
             keys = keys.and(HintList::parsed(TAKE_BACK_HINT));
@@ -6376,6 +6402,8 @@ impl ViewportState {
         keys = keys.and(HintList::parsed_as(TYPE_POINT_HINT, Rank::Useful));
         if self.drawing.can_type_sides() {
             keys = keys.and(HintList::parsed_as(TYPED_SIDES_HINT, Rank::Extra));
+        } else if self.drawing.can_type_degree() {
+            keys = keys.and(HintList::parsed_as(TYPED_DEGREE_HINT, Rank::Extra));
         } else if self.drawing.can_type_rho() {
             keys = keys.and(HintList::parsed_as(TYPED_RHO_HINT, Rank::Extra));
         }
@@ -7103,6 +7131,7 @@ struct KeyHints {
     reverse: Option<KeyHint>,
     chain_arc: Option<String>,
     sides: Option<KeyHint>,
+    degree: Option<KeyHint>,
     targets: HintList,
     whole_body: HintList,
     select_through_on: HintList,
@@ -7178,6 +7207,12 @@ impl KeyHints {
                 .zip(commands.keys(Command::FewerSides))
                 .map(|(more, fewer)| {
                     KeyHint::new(&format!("{more} or {fewer}"), "more or fewer sides")
+                }),
+            degree: commands
+                .keys(Command::MoreDegree)
+                .zip(commands.keys(Command::FewerDegree))
+                .map(|(more, fewer)| {
+                    KeyHint::new(&format!("{more} or {fewer}"), "higher or lower degree")
                 }),
             finish: commands.keys(Command::FinishSketch),
             tools: Tool::ALL

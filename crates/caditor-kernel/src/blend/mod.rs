@@ -11,6 +11,8 @@ mod general;
 mod loft;
 #[cfg(test)]
 mod lofted_tests;
+#[cfg(test)]
+mod opening_tests;
 mod round_end;
 mod rounding;
 mod section;

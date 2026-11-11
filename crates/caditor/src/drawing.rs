@@ -9,8 +9,8 @@ use caditor_document::{FeatureId, FeatureKind, Transaction, TransactionBuilder, 
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    ArcGeometry, BSpline, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch,
-    SplineKind,
+    ArcGeometry, BSpline, CUBIC_DEGREE, Constraint, EllipseGeometry, Entity, EntityId, Faceting,
+    MAX_DEGREE, MIN_DEGREE, Sketch, SplineKind,
 };
 
 use crate::{
@@ -162,6 +162,22 @@ pub enum SidesError {
 }
 
 impl Reason for SidesError {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DrawnDegreeError {
+    #[error("Choose the Spline tool's control-point way first: only it has a degree to choose")]
+    NotAControlSpline,
+    #[error("A spline's degree is at least {MIN_DEGREE}")]
+    TooLow,
+    #[error("A spline's degree is at most {MAX_DEGREE}")]
+    TooHigh,
+}
+
+impl Reason for DrawnDegreeError {
     fn reason(&self) -> Cow<'static, str> {
         Cow::Owned(self.to_string())
     }
@@ -552,6 +568,15 @@ impl Default for Sides {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DrawnDegree(usize);
+
+impl Default for DrawnDegree {
+    fn default() -> Self {
+        Self(CUBIC_DEGREE)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Horizontal,
     Vertical,
@@ -850,6 +875,7 @@ pub struct Drawing {
     chain_start: Vec<EntityId>,
     resting: Option<Resting>,
     sides: Sides,
+    degree: DrawnDegree,
     rho: Rho,
     scrub: Option<Scrub>,
     free: bool,
@@ -1069,6 +1095,7 @@ impl Drawing {
             *self = Self {
                 context,
                 sides: self.sides,
+                degree: self.degree,
                 rho: self.rho.clone(),
                 acquired,
                 bodies: Arc::clone(&self.bodies),
@@ -1799,6 +1826,75 @@ impl Drawing {
         Ok(())
     }
 
+    pub fn more_degree(&self) -> Result<(), DrawnDegreeError> {
+        self.control_spline()?;
+        if self.degree.0 >= MAX_DEGREE {
+            return Err(DrawnDegreeError::TooHigh);
+        }
+        Ok(())
+    }
+
+    pub fn fewer_degree(&self) -> Result<(), DrawnDegreeError> {
+        self.control_spline()?;
+        if self.degree.0 <= MIN_DEGREE {
+            return Err(DrawnDegreeError::TooLow);
+        }
+        Ok(())
+    }
+
+    pub fn set_degree(&mut self, degree: usize) -> Result<(), DrawnDegreeError> {
+        self.control_spline()?;
+        if degree < MIN_DEGREE {
+            return Err(DrawnDegreeError::TooLow);
+        }
+        if degree > MAX_DEGREE {
+            return Err(DrawnDegreeError::TooHigh);
+        }
+        self.degree = DrawnDegree(degree);
+        Ok(())
+    }
+
+    pub fn add_degree(&mut self, change: isize) {
+        self.degree = DrawnDegree(
+            self.degree
+                .0
+                .saturating_add_signed(change)
+                .clamp(MIN_DEGREE, MAX_DEGREE),
+        );
+    }
+
+    pub fn can_type_degree(&self) -> bool {
+        self.control_spline().is_ok()
+    }
+
+    fn control_spline(&self) -> Result<(), DrawnDegreeError> {
+        match self.context {
+            Some((_, Shape::Spline(SplineMode::Control))) => Ok(()),
+            _ => Err(DrawnDegreeError::NotAControlSpline),
+        }
+    }
+
+    fn degree_note(&self, mode: SplineMode) -> String {
+        let degree = self.degree.0;
+        match mode {
+            SplineMode::Control if degree != CUBIC_DEGREE && self.placed.len() <= degree => {
+                format!(" (degree {degree}, which needs {} points)", degree + 1)
+            }
+            SplineMode::Control if degree != CUBIC_DEGREE => format!(" (degree {degree})"),
+            SplineMode::Control
+            | SplineMode::Fit
+            | SplineMode::ClosedFit
+            | SplineMode::ClosedControl => String::new(),
+        }
+    }
+
+    fn spline_kind(&self, mode: SplineMode, closing: bool, points: usize) -> SplineKind {
+        match mode {
+            SplineMode::Control if !closing => SplineKind::drawn(self.degree.0, points),
+            _ => mode.kind(closing),
+        }
+    }
+
     pub fn can_type_rho(&self) -> bool {
         matches!(self.context, Some((_, Shape::Conic)))
     }
@@ -2377,7 +2473,7 @@ impl Drawing {
                 Some(Ended::Stopped)
             }
             Shape::Spline(mode) => {
-                let kind = mode.kind(false);
+                let kind = self.spline_kind(mode, false, self.placed.len());
                 if self.placed.len() < kind.fewest_points() {
                     return Some(Ended::Refused(if kind.is_closed() {
                         Refusal::ClosedSplinePoints
@@ -2410,7 +2506,7 @@ impl Drawing {
         let Shape::Spline(mode) = shape else {
             return None;
         };
-        let kind = mode.kind(closing);
+        let kind = self.spline_kind(mode, closing, self.placed.len());
         if self.placed.len() < kind.fewest_points() {
             if !kind.is_closed() {
                 self.placed.clear();
@@ -2651,7 +2747,8 @@ impl Drawing {
                 } else if mode.closes() && preview.points.len() >= MIN_CLOSED_SPLINE_POINTS {
                     (preview.points.clone(), mode.kind(false))
                 } else {
-                    (preview.points.clone(), mode.kind(false).opened())
+                    let kind = self.spline_kind(mode, false, preview.points.len());
+                    (preview.points.clone(), kind.opened())
                 };
                 if let Some(spline) = kind.curve(&points) {
                     preview.curves.push(spline.faceted(faceting));
@@ -2880,14 +2977,18 @@ impl Drawing {
             (Shape::Spline(mode), 0) if mode.passes_its_points() => {
                 prompt("Click the first point the spline passes", BACK_TO_SELECT)
             }
-            (Shape::Spline(_), 0) => {
-                prompt("Click the spline's first control point", BACK_TO_SELECT)
-            }
-            (Shape::Spline(mode), _) => prompt(
+            (Shape::Spline(mode), 0) => polygon_prompt(
+                format!(
+                    "Click the spline's first control point{}",
+                    self.degree_note(mode)
+                ),
+                BACK_TO_SELECT,
+            ),
+            (Shape::Spline(mode), _) => polygon_prompt(
                 if mode.passes_its_points() {
-                    "Click the next point the spline passes"
+                    "Click the next point the spline passes".to_owned()
                 } else {
-                    "Click the next control point"
+                    format!("Click the next control point{}", self.degree_note(mode))
                 },
                 if mode.closes() {
                     CLOSED_SPLINE_KEYS

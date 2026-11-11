@@ -1,9 +1,12 @@
-use caditor_document::{Projection, StandardView};
+use caditor_document::{DrawnView, Projection, SectionPlace, SectionPlane, StandardView};
 use egui::{Key, Modifiers};
 use tempfile::TempDir;
 
 use super::{Harness, extruded_plate, run_from_palette};
-use crate::drawings_panel::{EXPORT, NONE_YET, WORKING, ZOOM_IN};
+use crate::drawings_panel::{
+    ADD_SECTION, AT_OFFSET, CENTRE, DISTANCE, EXPORT, NO_SECTIONS, NONE_YET, WORKING, ZOOM_IN,
+    offset_field_id,
+};
 
 fn wait_for_views(harness: &mut Harness) {
     harness.wait_until("the drawing's views are worked out", |harness| {
@@ -68,4 +71,93 @@ fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_she
     harness.frame();
     assert!(harness.document().drawings().is_empty());
     assert!(harness.shows(NONE_YET));
+}
+
+#[test]
+fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_sheet() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    let drawing = harness.document().drawings().drawings[0].id;
+    wait_for_views(&mut harness);
+    assert!(harness.shows(NO_SECTIONS));
+
+    harness.click(ADD_SECTION);
+    harness.frame();
+    let sections = |harness: &Harness| {
+        harness
+            .document()
+            .drawing(drawing)
+            .unwrap()
+            .sections
+            .clone()
+    };
+    assert_eq!(sections(&harness).len(), 1);
+    assert_eq!(sections(&harness)[0].letter, 'A');
+    wait_for_views(&mut harness);
+    assert!(harness.shows("Section A\u{2013}A"));
+    let job = harness.workspace.drawings.job(&harness.model).unwrap();
+    assert_eq!(job.views.len(), 5);
+    assert_eq!(job.plan.cutting.len(), 1);
+    assert!(
+        job.plan
+            .texts
+            .iter()
+            .any(|text| text.content == "A\u{2013}A")
+    );
+    let section = job
+        .views
+        .iter()
+        .find(|(placed, _)| placed.view == DrawnView::Section('A'))
+        .unwrap();
+    let cutting = section
+        .1
+        .as_ref()
+        .as_ref()
+        .unwrap()
+        .section
+        .clone()
+        .unwrap();
+    assert!((cutting.cutting.origin().x - 20.0).abs() < 1e-6);
+    assert!(!cutting.hatching.is_empty());
+
+    harness.click(AT_OFFSET);
+    harness.frame();
+    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(20.0));
+    assert!(harness.shows(DISTANCE));
+    harness.type_into_field(offset_field_id(drawing, 'A'), "10 mm");
+    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(10.0));
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(sections(&harness)[0].place, SectionPlace::Offset(20.0));
+    harness.click(SectionPlane::Xy.name());
+    harness.frame();
+    assert_eq!(sections(&harness)[0].plane, SectionPlane::Xy);
+    wait_for_views(&mut harness);
+    assert!(harness.shows_containing(
+        "The section view A\u{2013}A could not be drawn: its cutting plane passes through none"
+    ));
+    harness.click(CENTRE);
+    harness.frame();
+    assert_eq!(sections(&harness)[0].place, SectionPlace::Centre);
+    wait_for_views(&mut harness);
+
+    harness.answer_dialog(Some(dir.path().join("cut")));
+    harness.click(EXPORT);
+    harness.wait_until("the sheet is written", |harness| {
+        harness.model.notice().is_some_and(|notice| {
+            notice
+                .text
+                .starts_with("Exported the drawing “Drawing 1” with 5 views to “cut.pdf”")
+        })
+    });
+
+    harness.click_button("Delete section A\u{2013}A");
+    harness.frame();
+    assert!(sections(&harness).is_empty());
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert_eq!(sections(&harness).len(), 1);
 }

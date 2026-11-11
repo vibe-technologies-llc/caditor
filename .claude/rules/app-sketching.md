@@ -291,6 +291,17 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   (`ViewportState::forget_document`); More sides and Fewer sides show only with Polygon. Typing
   `N sides` (`typed_point::sides`) sets it. Holding Shift with a polygon started freezes the preview
   and scrubs the count by one per `SCRUB_POINTS_PER_SIDE` of sideways travel (`Drawing::scrub_sides`).
+- The degree of a control-point spline (`DrawnDegree`, `MIN_DEGREE` to `MAX_DEGREE`, cubic at start) is
+  kept like the side count, and chosen before or while drawing: Raise and Lower the drawn degree
+  (`Command::MoreDegree`, `FewerDegree`, Alt+`]` and Alt+`[`, in the Drawing aids menu and the
+  palette; `Drawing::more_degree`, `fewer_degree`) or typing `N degree` (`typed_point::degree`,
+  `Drawing::set_degree`) work only in the open control-point way (`DrawnDegreeError::NotAControlSpline`
+  elsewhere) and refuse a degree outside the range in words. The prompt names the degree, and the
+  points it still needs when it is not cubic. The spline is `SplineKind::drawn(degree, points)`,
+  which takes the most the placed points carry (Enter with three points at degree 5 draws a
+  quadratic), so the preview rises through the degrees as points are placed. A closed
+  control-point spline, drawn by its own way or by clicking the first point of an open one, is
+  always cubic. Raise and Lower spline degree (above) change drawn splines afterwards.
 
 ## Ways of drawing a shape
 
