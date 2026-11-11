@@ -179,11 +179,10 @@ impl SceneCache {
         };
         let new_content = self.content.as_ref() != Some(&content);
         if new_content {
-            self.shapes.facet_at(scene::drawn_faceting(
-                inputs.sources,
-                inputs.context,
-                level.faceting(),
-            ));
+            let faceting =
+                self.shapes
+                    .drawn_faceting(inputs.sources, inputs.context, level.faceting());
+            self.shapes.facet_at(faceting);
             self.content = Some(content);
         }
         let highlighted = self

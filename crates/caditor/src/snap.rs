@@ -659,6 +659,10 @@ pub fn on_circle(center: Point2, radius: f64, point: Point2) -> bool {
 }
 
 pub fn points(sketch: &Sketch) -> Vec<Snapped> {
+    points_where(sketch, &|_| true)
+}
+
+fn points_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Snapped> {
     let origin = Snapped {
         position: Point2::ZERO,
         target: Target::Point(EntityId::ORIGIN),
@@ -675,7 +679,10 @@ pub fn points(sketch: &Sketch) -> Vec<Snapped> {
         | Entity::Ellipse { .. }
         | Entity::EllipticalArc { .. } => None,
     });
-    std::iter::once(origin).chain(drawn).collect()
+    std::iter::once(origin)
+        .chain(drawn)
+        .filter(|snapped| wanted(snapped.position))
+        .collect()
 }
 
 const NEAR_CURVE_PIXELS: f64 = 4.0 * POINT_TOLERANCE;
@@ -843,11 +850,16 @@ fn middle(sketch: &Sketch, id: EntityId, entity: &Entity) -> Option<Point2> {
 }
 
 fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
+    midpoints_where(sketch, &|_| true)
+}
+
+fn midpoints_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Snapped> {
     sketch
         .entities()
         .filter_map(|(id, entity)| {
+            let position = middle(sketch, id, entity).filter(|position| wanted(*position))?;
             Some(Snapped {
-                position: middle(sketch, id, entity)?,
+                position,
                 target: Target::Midpoint(id),
             })
         })
@@ -878,6 +890,10 @@ fn quadrant_points(sketch: &Sketch, curve: EntityId) -> Vec<(Side, Point2)> {
 }
 
 fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
+    quadrants_where(sketch, &|_| true)
+}
+
+fn quadrants_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Snapped> {
     sketch
         .entities()
         .flat_map(|(curve, entity)| {
@@ -886,6 +902,7 @@ fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
             };
             quadrant_points(sketch, curve)
                 .into_iter()
+                .filter(|(_, at)| wanted(*at))
                 .map(|(side, at)| Snapped {
                     position: at,
                     target: Target::Quadrant {
@@ -923,6 +940,10 @@ fn axis_end_points(sketch: &Sketch, curve: EntityId) -> Vec<(AxisEnd, Point2)> {
 }
 
 fn axis_ends(sketch: &Sketch) -> Vec<Snapped> {
+    axis_ends_where(sketch, &|_| true)
+}
+
+fn axis_ends_where(sketch: &Sketch, wanted: &impl Fn(Point2) -> bool) -> Vec<Snapped> {
     sketch
         .entities()
         .flat_map(|(curve, entity)| {
@@ -933,6 +954,7 @@ fn axis_ends(sketch: &Sketch) -> Vec<Snapped> {
             };
             axis_end_points(sketch, curve)
                 .into_iter()
+                .filter(|(_, position)| wanted(*position))
                 .map(|(end, position)| Snapped {
                     position,
                     target: Target::AxisEnd {
@@ -1252,12 +1274,17 @@ pub fn nearest_moved(
         window = (window.0.min(*at - reach), window.1.max(*at + reach));
     }
     let is_moving = |id: EntityId| moving.contains(&id);
-    let targets = points(sketch)
+    let on_screen = |position: Point2| {
+        screen
+            .to_screen(position)
+            .is_some_and(|at| !at.cmplt(window.0).any() && !at.cmpgt(window.1).any())
+    };
+    let targets = points_where(sketch, &on_screen)
         .into_iter()
-        .chain(midpoints(sketch))
+        .chain(midpoints_where(sketch, &on_screen))
         .chain(centres(sketch, &is_moving))
-        .chain(quadrants(sketch))
-        .chain(axis_ends(sketch))
+        .chain(quadrants_where(sketch, &on_screen))
+        .chain(axis_ends_where(sketch, &on_screen))
         .filter(|candidate| inferred.allows_target(candidate.target));
     let mut nearest: Option<(f64, EntityId)> = None;
     for target in targets {
@@ -2936,5 +2963,64 @@ pub mod tests {
             Target::Intersection(first, second).min_ordered()
         );
         assert!(at.position.distance(crossing) < 1e-9);
+    }
+
+    #[test]
+    #[ignore = "a timing benchmark: cargo test --release -p caditor snap_costs -- --ignored --nocapture"]
+    fn snap_costs_of_a_drag_of_several_points_on_a_large_sketch() {
+        const REPEATS: u32 = 50;
+        let sketch = crate::viewport::timing::large_sketch();
+        let screen = Scaled(1.0);
+        let moving = BTreeSet::new();
+        let ends: Vec<(EntityId, Point2)> = sketch
+            .entities()
+            .filter_map(|(id, entity)| match entity {
+                Entity::Point(at) => Some((id, *at)),
+                _ => None,
+            })
+            .take(40)
+            .collect();
+        let moved: Vec<(EntityId, Vector2)> = ends
+            .iter()
+            .filter_map(|(id, at)| Some((*id, screen.to_screen(*at + Vector2::new(0.2, 0.1))?)))
+            .collect();
+
+        let started = std::time::Instant::now();
+        let mut found = 0;
+        for _ in 0..REPEATS {
+            found += usize::from(
+                nearest_moved(
+                    &sketch,
+                    &screen,
+                    &moved,
+                    &moving,
+                    POINT_TOLERANCE,
+                    Inferences::default(),
+                )
+                .is_some(),
+            );
+        }
+        eprintln!(
+            "nearest_moved, {} moved points: {:?} per call ({found} found)",
+            moved.len(),
+            started.elapsed() / REPEATS
+        );
+
+        let few = &moved[..3];
+        let started = std::time::Instant::now();
+        for _ in 0..REPEATS {
+            nearest_moved(
+                &sketch,
+                &screen,
+                few,
+                &moving,
+                POINT_TOLERANCE,
+                Inferences::default(),
+            );
+        }
+        eprintln!(
+            "nearest_moved, 3 moved points: {:?} per call",
+            started.elapsed() / REPEATS
+        );
     }
 }
