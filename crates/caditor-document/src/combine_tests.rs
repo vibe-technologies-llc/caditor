@@ -299,10 +299,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
         })),
     );
     let mut round = Sketch::new(Plane::XY);
-    round.add_circle(
-        Point2::new(10.0000079169858, 5.000001340737086),
-        2.5000077585717273,
-    );
+    round.add_circle(Point2::new(9.99999942597485, 5.000001385819298), 2.500001);
     let outline = transaction.add_feature("Peg outline", FeatureKind::from(round));
     let peg = transaction.add_feature(
         "Peg",
@@ -320,7 +317,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     );
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Join)),
+        FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Cut)),
     );
     document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();

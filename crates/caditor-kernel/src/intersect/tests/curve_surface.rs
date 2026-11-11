@@ -525,3 +525,25 @@ fn a_line_into_an_arched_wall_is_met_where_it_crosses_after_sampling_past_the_ar
     assert!(wall.distance(found.points[0].point) < 1e-9, "{found:?}");
     assert!(found.points[0].point.x.abs() < 0.5, "{found:?}");
 }
+
+#[test]
+fn a_circle_poking_out_of_a_torus_by_less_than_the_resolution_is_met_at_both_crossings() {
+    let ring: Surface = Torus::new(Plane::XY, 6.0, 2.0).unwrap().into();
+    let (shift, poke) = (0.1, 5e-7);
+    let centre = Point3::new(shift, 0.0, 0.0);
+    let circle: Curve = Circle::new(
+        Plane::from_frame(centre, Vector3::Z, Vector3::Y).unwrap(),
+        8.0 - shift + poke,
+    )
+    .unwrap()
+    .into();
+
+    let found = intersect_curve_surface(&circle, Interval::FULL_TURN, &ring, None).unwrap();
+
+    assert_eq!(found.points.len(), 2, "{found:?}");
+    for point in &found.points {
+        assert!(!point.tangent, "{point:?}");
+        assert!(ring.distance(point.point) < 1e-9, "{point:?}");
+        assert!(point.point.y.abs() > 1e-2, "{point:?}");
+    }
+}
