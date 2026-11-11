@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::Vector3;
 use caditor_kernel::MAX_SIZE;
 
 use crate::{
-    document::{Document, FeatureId},
+    document::{Document, FeatureId, ParameterUser},
     edit::{Edit, EditError, Transaction},
     views::view_name,
 };
@@ -261,14 +262,27 @@ impl SectionPlane {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum SectionPlace {
     #[default]
     Centre,
-    Offset(f64),
+    Offset(Expression),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+impl SectionPlace {
+    pub fn offset(millimetres: f64) -> Self {
+        Self::Offset(Expression::number(millimetres))
+    }
+
+    pub fn heap_size(&self) -> usize {
+        match self {
+            Self::Centre => 0,
+            Self::Offset(offset) => offset.heap_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SectionView {
     pub letter: char,
     pub parent: StandardView,
@@ -407,6 +421,11 @@ impl Drawing {
             + self.views.len() * size_of::<StandardView>()
             + size_of_val(self.bodies.as_slice())
             + size_of_val(self.sections.as_slice())
+            + self
+                .sections
+                .iter()
+                .map(|section| section.place.heap_size())
+                .sum::<usize>()
     }
 
     pub fn section(&self, letter: char) -> Option<&SectionView> {
@@ -443,26 +462,28 @@ impl Drawing {
         })
     }
 
-    fn checked_sections(&self) -> Result<(), EditError> {
+    fn checked_letters(&self) -> Result<(), EditError> {
         if self.sections.len() > MAX_SECTION_VIEWS {
             return Err(EditError::DrawingTooManySections {
                 name: self.name.clone(),
                 sections: self.sections.len(),
             });
         }
-        for (index, section) in self.sections.iter().enumerate() {
-            let letter = section.letter;
+        let letters = self.sections.iter().map(|section| section.letter);
+        for (index, letter) in letters.clone().enumerate() {
             if !SECTION_LETTERS.contains(&letter) {
                 return Err(EditError::SectionLetterUnusable(letter));
             }
-            if self
-                .sections
-                .iter()
-                .take(index)
-                .any(|other| other.letter == letter)
-            {
+            if letters.clone().take(index).any(|other| other == letter) {
                 return Err(EditError::SectionLetterRepeated(letter));
             }
+        }
+        Ok(())
+    }
+
+    fn checked_sections(&self, document: &Document) -> Result<(), EditError> {
+        for section in &self.sections {
+            let letter = section.letter;
             if !section.plane.is_edge_on_in(section.parent) {
                 return Err(EditError::SectionPlaneFacesParent {
                     letter,
@@ -470,13 +491,25 @@ impl Drawing {
                     view: section.parent.name(),
                 });
             }
-            if let SectionPlace::Offset(offset) = section.place
-                && !(offset.is_finite() && offset.abs() <= MAX_SECTION_OFFSET)
+            if let SectionPlace::Offset(offset) = &section.place
+                && offset
+                    .parameters()
+                    .into_iter()
+                    .any(|id| document.parameter(id).is_none())
             {
-                return Err(EditError::SectionOffsetOutOfRange { letter });
+                return Err(EditError::MissingParameter);
             }
         }
         Ok(())
+    }
+
+    fn parameters(&self) -> impl Iterator<Item = ParameterId> + '_ {
+        self.sections
+            .iter()
+            .flat_map(|section| match &section.place {
+                SectionPlace::Centre => Vec::new(),
+                SectionPlace::Offset(offset) => offset.parameters().into_iter().collect(),
+            })
     }
 }
 
@@ -561,7 +594,11 @@ impl Drawings {
             .sum()
     }
 
-    pub(crate) fn checked(self) -> Result<Self, EditError> {
+    pub fn parameters(&self) -> impl Iterator<Item = ParameterId> + '_ {
+        self.drawings.iter().flat_map(Drawing::parameters)
+    }
+
+    pub(crate) fn checked(self, document: &Document) -> Result<Self, EditError> {
         let drawings = self.normalized();
         if drawings.drawings.len() > MAX_DRAWINGS {
             return Err(EditError::TooManyDrawings);
@@ -598,13 +635,40 @@ impl Drawings {
                     model: ratio.model,
                 });
             }
-            drawing.checked_sections()?;
+            drawing.checked_letters()?;
+            drawing.checked_sections(document)?;
         }
         Ok(drawings)
     }
 }
 
 impl Document {
+    pub(crate) fn drawing_user_ids(&self, parameter: ParameterId) -> Vec<ParameterUser> {
+        self.drawings()
+            .drawings
+            .iter()
+            .filter(|drawing| drawing.parameters().any(|used| used == parameter))
+            .map(|drawing| ParameterUser::Drawing(drawing.id))
+            .collect()
+    }
+
+    pub(crate) fn drawing_users(&self, parameter: ParameterId) -> Vec<String> {
+        self.drawing_user_ids(parameter)
+            .into_iter()
+            .filter_map(|user| self.drawing_user_name(user))
+            .collect()
+    }
+
+    pub fn drawing_user_name(&self, user: ParameterUser) -> Option<String> {
+        match user {
+            ParameterUser::Drawing(id) => self.drawing(id).map(|drawing| drawing.name.clone()),
+            ParameterUser::Parameter(_)
+            | ParameterUser::Feature(_)
+            | ParameterUser::Configuration(_)
+            | ParameterUser::Configurations => None,
+        }
+    }
+
     pub fn drawings(&self) -> &Drawings {
         &self.drawings
     }
@@ -659,9 +723,10 @@ impl Document {
                 name: drawing.name.clone(),
                 sections: drawing.sections.len().saturating_add(1),
             })?;
+        let letter = section.letter;
         drawing.sections.push(section);
         let transaction = self.drawings_changed("New section view", drawings)?;
-        Ok((transaction, section.letter))
+        Ok((transaction, letter))
     }
 
     pub fn deleting_drawing(&self, id: DrawingId) -> Result<Transaction, EditError> {

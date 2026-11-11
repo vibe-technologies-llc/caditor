@@ -40,7 +40,7 @@ pub(super) fn sectioned_drawings_of(base: FeatureId) -> Drawings {
                 letter: 'C',
                 parent: StandardView::Left,
                 plane: SectionPlane::Xy,
-                place: SectionPlace::Offset(-2.5),
+                place: SectionPlace::offset(-2.5),
                 reversed: true,
             },
         ];
@@ -220,7 +220,7 @@ fn section_views_that_cannot_be_read_are_repaired_and_reported() {
 
     assert_eq!(letters, ['A', 'B', 'C']);
     assert_eq!(sections[0].plane, SectionPlane::Yz);
-    assert_eq!(sections[0].place, SectionPlace::Offset(3.0));
+    assert_eq!(sections[0].place, SectionPlace::offset(3.0));
     assert_eq!(sections[1].parent, StandardView::Front);
     assert_eq!(sections[1].place, SectionPlace::Centre);
     assert!(sections[1].reversed);
@@ -239,4 +239,61 @@ fn section_views_that_cannot_be_read_are_repaired_and_reported() {
         &loaded,
         "A section view of the drawing “Shop” could not be read"
     ));
+}
+
+pub(super) fn parameter_offset_document() -> (Document, Transaction) {
+    let (document, base, _) = solid_model();
+    let offset = document.parse("depth + 2 mm").unwrap();
+    let mut drawings = drawings_of(base);
+    if let Some(workshop) = drawings.drawings.first_mut() {
+        workshop.sections = vec![SectionView {
+            letter: 'D',
+            parent: StandardView::Top,
+            plane: SectionPlane::Xz,
+            place: SectionPlace::Offset(offset),
+            reversed: false,
+        }];
+    }
+    let change = Transaction::single(
+        "Section views",
+        Edit::SetDrawings {
+            drawings: Box::new(drawings),
+        },
+    );
+    (document, change)
+}
+
+#[test]
+fn a_section_offset_naming_a_parameter_survives_saving_and_the_journal() {
+    let (mut document, change) = parameter_offset_document();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+
+    assert!(text.contains("\"expression\":\"$0 + 2 mm\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn a_section_offset_naming_a_missing_parameter_is_repaired_and_reported() {
+    let (document, _, _) = solid_model();
+    let drawings = r#"{"drawings":{"drawings":[{"id":1,"name":"Shop","views":["front"],"sections":[{"letter":"A","parent":"front","plane":"xz","place":{"expression":"$7 + 2 mm"}},{"letter":"B","parent":"front","plane":"xz","place":{"expression":"(("}},{"letter":"C","parent":"front","plane":"xz","place":{"expression":"$0 * 2"}}]}],"next_id":2}}"#;
+    let text = format!("{}\n{drawings}", encode(&document).unwrap());
+
+    let loaded = decode_text(&text);
+    let sections = &loaded.document.drawings().drawings[0].sections;
+
+    assert_eq!(sections[0].place, SectionPlace::Centre);
+    assert_eq!(sections[1].place, SectionPlace::Centre);
+    assert!(matches!(sections[2].place, SectionPlace::Offset(_)));
+    assert!(issues_mention(&loaded, "Where section A\u{2013}A cuts"));
+    assert!(issues_mention(&loaded, "Where section B\u{2013}B cuts"));
 }

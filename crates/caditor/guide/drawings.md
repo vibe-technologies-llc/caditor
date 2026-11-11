@@ -33,8 +33,10 @@ are left out, as ISO 128 advises); a drawing holds up to 23.
 - **Plane** is the principal plane the cut runs along: the two that the chosen view sees as a
   line are offered (on the front view, YZ across X and XY across Z).
 - **Through** cuts through the middle of the drawn bodies, or at an **Offset**: the plane's
-  **Distance** from the origin along its axis, which takes units and parameters like any value
-  (the value is kept, not the expression).
+  **Distance** from the origin along its axis, which takes units and parameters like any value.
+  The expression is kept, so the plane follows a parameter edited later; a distance that cannot
+  be worked out (a parameter that fails, a division by zero) is named in the panel and the section
+  is left undrawn until it can.
 - **Look the other way** keeps the bodies on the other side of the plane and looks at them from
   this side.
 

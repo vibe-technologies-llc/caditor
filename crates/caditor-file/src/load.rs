@@ -574,7 +574,7 @@ fn restore_document_drawings(
     let Some(record) = record else {
         return;
     };
-    let drawings = restore_drawings(record, issues);
+    let drawings = restore_drawings(record, &|id| document.parameter(id).is_some(), issues);
     let edit = Edit::SetDrawings {
         drawings: Box::new(drawings),
     };

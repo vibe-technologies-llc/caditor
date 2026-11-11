@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use caditor_geometry::{Aabb2, Point2};
+use caditor_expression::{Expression, ParameterId};
+use caditor_geometry::{Aabb2, Point2, Point3};
 use caditor_kernel::Visibility;
 
 use crate::{
@@ -400,7 +401,10 @@ fn section_lines(pair: &Pair, section: &SectionView) -> Result<ViewLines, Drawin
     let drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
     let evaluation = evaluate(&pair.document, &mut Recompute::default());
     let bodies = drawn_bodies(&pair.document, &evaluation, &drawing);
-    section_view(section, &bodies.solids())
+    let place = section
+        .place
+        .resolve(&ParameterValues::evaluate(&pair.document))?;
+    section_view(section, place, &bodies.solids())
 }
 
 #[test]
@@ -438,12 +442,16 @@ fn section_views_are_checked() {
         document.changing_drawing(id, "Section", |drawing| drawing.sections = vec![change])
     };
     let facing = section('A', SectionPlane::Xz, SectionPlace::Centre);
-    let far = section('A', SectionPlane::Yz, SectionPlace::Offset(f64::INFINITY));
+    let unknown = section(
+        'A',
+        SectionPlane::Yz,
+        SectionPlace::Offset(Expression::Parameter(ParameterId::from_raw(99))),
+    );
     let unlettered = section('O', SectionPlane::Yz, SectionPlace::Centre);
     let twice = document.changing_drawing(id, "Sections", |drawing| {
         drawing.sections = vec![
             section('A', SectionPlane::Yz, SectionPlace::Centre),
-            section('A', SectionPlane::Xy, SectionPlace::Offset(2.0)),
+            section('A', SectionPlane::Xy, SectionPlace::offset(2.0)),
         ];
     });
     let too_many = document.changing_drawing(id, "Sections", |drawing| {
@@ -456,10 +464,7 @@ fn section_views_are_checked() {
         with(facing).unwrap_err(),
         EditError::SectionPlaneFacesParent { letter: 'A', .. }
     ));
-    assert_eq!(
-        with(far).unwrap_err(),
-        EditError::SectionOffsetOutOfRange { letter: 'A' }
-    );
+    assert_eq!(with(unknown).unwrap_err(), EditError::MissingParameter);
     assert_eq!(
         with(unlettered).unwrap_err(),
         EditError::SectionLetterUnusable('O')
@@ -469,14 +474,14 @@ fn section_views_are_checked() {
         too_many.unwrap_err(),
         EditError::DrawingTooManySections { .. }
     ));
-    assert!(with(section('A', SectionPlane::Xy, SectionPlace::Offset(2.0))).is_ok());
+    assert!(with(section('A', SectionPlane::Xy, SectionPlace::offset(2.0))).is_ok());
 }
 
 #[test]
 fn a_section_cuts_the_bodies_and_hatches_what_the_plane_cuts() {
     let pair = pair();
-    let through_both = section('A', SectionPlane::Yz, SectionPlace::Offset(17.0));
-    let through_plate = section('B', SectionPlane::Yz, SectionPlace::Offset(5.0));
+    let through_both = section('A', SectionPlane::Yz, SectionPlace::offset(17.0));
+    let through_plate = section('B', SectionPlane::Yz, SectionPlace::offset(5.0));
 
     let both = section_lines(&pair, &through_both).unwrap();
     let plate = section_lines(&pair, &through_plate).unwrap();
@@ -509,10 +514,10 @@ fn a_section_cuts_the_bodies_and_hatches_what_the_plane_cuts() {
 fn a_section_through_the_centre_follows_the_bodies_and_one_missing_them_says_so() {
     let pair = pair();
     let centred = section('A', SectionPlane::Xy, SectionPlace::Centre);
-    let missing = section('B', SectionPlane::Yz, SectionPlace::Offset(60.0));
+    let missing = section('B', SectionPlane::Yz, SectionPlace::offset(60.0));
     let reversed = SectionView {
         reversed: true,
-        ..section('C', SectionPlane::Yz, SectionPlace::Offset(17.0))
+        ..section('C', SectionPlane::Yz, SectionPlace::offset(17.0))
     };
 
     let lines = section_lines(&pair, &centred).unwrap();
@@ -525,7 +530,7 @@ fn a_section_through_the_centre_follows_the_bodies_and_one_missing_them_says_so(
     );
     assert!(close(back.section.unwrap().cutting.normal().x, 1.0));
     assert_eq!(
-        section_view(&centred, &[]).unwrap_err(),
+        section_view(&centred, ResolvedPlace::Centre, &[]).unwrap_err(),
         DrawingViewError::NoBodies
     );
 }
@@ -637,4 +642,139 @@ fn section_views_stand_beside_the_others_labelled_and_cut_on_their_parent() {
     ));
     assert!(close(line.chain.0.x, line.chain.1.x));
     assert_eq!(layout.unmarked, vec!['B']);
+}
+
+fn offset_parameter(document: &mut Document, expression: &str) -> ParameterId {
+    let mut transaction = document.transaction("Offset");
+    let parsed = document.parse(expression).unwrap();
+    let id = transaction.add_parameter("cut", parsed);
+    document.apply(transaction.finish()).unwrap();
+    id
+}
+
+fn cut_with(document: &mut Document, id: DrawingId, parameter: ParameterId) {
+    let change = document
+        .changing_drawing(id, "Section", |drawing| {
+            drawing.sections = vec![section(
+                'A',
+                SectionPlane::Yz,
+                SectionPlace::Offset(Expression::Parameter(parameter)),
+            )];
+        })
+        .unwrap();
+    document.apply(change).unwrap();
+}
+
+#[test]
+fn a_section_offset_follows_the_parameter_it_names() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let cut = offset_parameter(&mut document, "5 mm");
+    cut_with(&mut document, id, cut);
+    let place = |document: &Document| {
+        let values = ParameterValues::evaluate(document);
+        document.drawing(id).unwrap().sections[0]
+            .place
+            .resolve(&values)
+    };
+
+    let before = place(&document);
+    let edit = Transaction::single(
+        "Move",
+        Edit::SetParameterExpression {
+            id: cut,
+            expression: document.parse("1.5 cm").unwrap(),
+        },
+    );
+    document.apply(edit).unwrap();
+    let after = place(&document);
+
+    assert_eq!(before, Ok(ResolvedPlace::Offset(5.0)));
+    assert_eq!(after, Ok(ResolvedPlace::Offset(15.0)));
+}
+
+#[test]
+fn a_parameter_a_section_offset_names_is_in_use_and_inlines_into_it() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let cut = offset_parameter(&mut document, "5 mm");
+    cut_with(&mut document, id, cut);
+
+    let users = document.parameter_user_ids(cut);
+    let refused = document.can_remove_parameter(cut);
+    let inlining = document.inline_parameter(cut).unwrap();
+    document.apply(inlining).unwrap();
+
+    assert_eq!(users, vec![ParameterUser::Drawing(id)]);
+    assert_eq!(document.parameter_users(cut), Vec::<String>::new());
+    assert!(matches!(
+        refused.unwrap_err(),
+        EditError::ParameterInUse { .. }
+    ));
+    assert!(document.parameter(cut).is_none());
+    let values = ParameterValues::evaluate(&document);
+    assert_eq!(
+        document.drawing(id).unwrap().sections[0]
+            .place
+            .resolve(&values),
+        Ok(ResolvedPlace::Offset(5.0))
+    );
+}
+
+#[test]
+fn an_offset_that_cannot_be_worked_out_is_a_typed_error() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let cut = offset_parameter(&mut document, "5 mm");
+    cut_with(&mut document, id, cut);
+    let broken = Transaction::single(
+        "Break",
+        Edit::SetParameterExpression {
+            id: cut,
+            expression: document.parse("1 mm / 0").unwrap(),
+        },
+    );
+    document.apply(broken).unwrap();
+    let far = SectionPlace::offset(1e300);
+
+    let values = ParameterValues::evaluate(&document);
+    let place = &document.drawing(id).unwrap().sections[0].place;
+
+    assert!(matches!(
+        place.resolve(&values),
+        Err(DrawingViewError::Offset(_))
+    ));
+    assert_eq!(
+        far.resolve(&values),
+        Err(DrawingViewError::OffsetOutOfRange)
+    );
+}
+
+#[test]
+fn scaling_the_model_moves_a_section_offset_with_it() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let change = document
+        .changing_drawing(id, "Section", |drawing| {
+            drawing.sections = vec![section('A', SectionPlane::Yz, SectionPlace::offset(10.0))];
+        })
+        .unwrap();
+    document.apply(change).unwrap();
+
+    let scaled = document
+        .scaled(&ModelScale {
+            factor: 2.0,
+            centre: Point3::new(1.0, 0.0, 0.0),
+            values: ScaledValues::Plain,
+        })
+        .unwrap();
+    document.apply(scaled.transaction).unwrap();
+    let values = ParameterValues::evaluate(&document);
+
+    assert_eq!(
+        document.drawing(id).unwrap().sections[0]
+            .place
+            .resolve(&values),
+        Ok(ResolvedPlace::Offset(19.0))
+    );
 }

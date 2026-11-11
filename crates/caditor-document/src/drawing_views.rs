@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use caditor_expression::EvalError;
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector3};
 use caditor_kernel::{
     BooleanError, HiddenLineError, HiddenLineView, MeshQuality, Solid, ViewEdgeKind, ViewPiece,
@@ -33,6 +34,13 @@ pub enum DrawingViewError {
     CuttingSpace(HalfSpaceError),
     #[error("a body could not be cut along the plane: {0}")]
     Cut(BooleanError),
+    #[error("where it cuts could not be worked out: {0}")]
+    Offset(EvalError),
+    #[error(
+        "the plane is more than {} mm from the origin",
+        crate::drawings::MAX_SECTION_OFFSET
+    )]
+    OffsetOutOfRange,
 }
 
 impl From<HiddenLineError> for DrawingViewError {

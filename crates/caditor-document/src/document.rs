@@ -22,7 +22,7 @@ use crate::{
     },
     delete_face::DeleteFace,
     draft::Draft,
-    drawings::Drawings,
+    drawings::{DrawingId, Drawings},
     edit::{Edit, Transaction},
     emboss::Emboss,
     feature_list::FeatureList,
@@ -1909,6 +1909,7 @@ pub enum ParameterUser {
     Feature(FeatureId),
     Configuration(ConfigurationId),
     Configurations,
+    Drawing(DrawingId),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -2311,6 +2312,7 @@ impl Document {
         by_parameters
             .chain(by_features)
             .chain(self.configurations.parameters_named())
+            .chain(self.drawings.parameters())
             .collect()
     }
 
@@ -2328,6 +2330,7 @@ impl Document {
         parameters
             .chain(features)
             .chain(self.configuration_user_ids(parameter))
+            .chain(self.drawing_user_ids(parameter))
             .collect()
     }
 
@@ -2345,6 +2348,7 @@ impl Document {
         parameters
             .chain(features)
             .chain(self.configuration_users(parameter))
+            .chain(self.drawing_users(parameter))
             .collect()
     }
 

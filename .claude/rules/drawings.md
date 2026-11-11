@@ -36,10 +36,15 @@ lines, never a picture of the 3D view.
   or a `ScaleRatio` of whole terms up to `MAX_SCALE_TERM`; `ScaleRatio::PREFERRED` are ISO 5455's
   ratios from 50:1 to 1:1000), `views` (a set of `StandardView`s), `bodies` (empty draws every
   shown body; at most `MAX_DRAWING_BODIES`), `hidden_lines` and `sections` (`SectionView`s, below).
-  At most `MAX_DRAWINGS` per model. `Drawing` and `Drawings` are `PartialEq` only, since a section's
-  offset is an `f64`.
-  `checked` refuses the rest in words (`EditError::Drawing*`); a body id is stored like any (its
-  maker storable) and raises the feature counter like a selection set's.
+  At most `MAX_DRAWINGS` per model. `checked` (given the document) refuses the rest in words
+  (`EditError::Drawing*`), and an offset naming a parameter the model lacks (`MissingParameter`); a
+  body id is stored like any (its maker storable) and raises the feature counter like a selection
+  set's.
+- A parameter a section's offset names is in use like one a feature names: `used_parameters`,
+  `parameter_user_ids` (`ParameterUser::Drawing`) and `parameter_users` count it, so
+  `RemoveParameter` refuses it, `inline_parameter` substitutes its expression into the offset in
+  one `SetDrawings`, and `Document::scaled` rewrites the offset as a placed length (scaled about
+  the centre, shifted along the plane's axis).
 - Builders, each one checked transaction: `adding_drawing(bodies)` ("Drawing N", returns its id),
   `changing_drawing(id, label, change)`, `deleting_drawing(id)`, `adding_section_view(id)` (returns
   its letter); the app changes and deletes a section through `changing_drawing`.
@@ -48,7 +53,11 @@ lines, never a picture of the 3D view.
   first free one and is the drawing's key for the view), its `parent` (`StandardView::SECTIONED`:
   front, top, right or left), a `plane` (`SectionPlane`: YZ, XZ or XY through a point on its
   axis), a `place` (`SectionPlace::Centre` of the drawn bodies' box, or `Offset`, the plane's
-  distance from the origin along its axis, finite and at most `MAX_SECTION_OFFSET`) and `reversed`.
+  distance from the origin along its axis, an `Expression` of length kept as typed so it follows
+  the parameters it names) and `reversed`. `SectionPlace::resolve` evaluates it against
+  `ParameterValues` when the views are worked out, to a `ResolvedPlace` (`Centre` or `Offset(mm)`)
+  or a `DrawingViewError::Offset` (the evaluation error) or `OffsetOutOfRange` (not finite or past
+  `MAX_SECTION_OFFSET`), so a value only a parameter can change is never refused when stored.
   The plane must be seen as a line in the parent (`SectionPlane::is_edge_on_in`), else
   `SectionPlaneFacesParent`. It looks like the standard view along the plane's axis (YZ as the right
   view, XZ as the front, XY as the top), the other way when `reversed`; the kept bodies are on the
@@ -67,7 +76,8 @@ lines, never a picture of the 3D view.
 
 ## Sections (`drawing_sections.rs`)
 
-- `section_view(section, solids)` places the cutting plane (`cutting_plane`, normal along the look),
+- `section_view(section, place, solids)` places the cutting plane (`cutting_plane` from the
+  `ResolvedPlace`, normal along the look),
   sorts each body by its box's heights over it (`split::heights`): wholly in front is left out,
   wholly behind kept whole, across it cut by `split::half_space_solid` under the reserved id
   `SECTION_CUT` and kernel `boolean` intersection (empty left out). No body cut is `PlaneMisses`;
@@ -118,6 +128,10 @@ lines, never a picture of the 3D view.
   unusable scale fits, unknown views and unstorable bodies are dropped; `next_id` becomes at least
   `first_free_id`. Models from before drawings read with none (the corpus holds
   `model-1/drawings.caditor` and `journal-1/drawings.journal`).
+- A section's place is written `offset` (a number) when the expression is a plain number, which
+  older readers still read, else `expression` in stored text; loading repairs an expression that
+  does not read or names a missing parameter (`restore_drawings` is given what exists) to the
+  centre, with a report. The corpus holds `model-1/section-parameter-offsets.caditor`.
 - Each drawing's `sections` is a field written only when it has any, each section `Lenient`, so
   drawings stored before section views read with none and an older reader drops them (losing only
   the section views; nothing computed depends on them). Loading repairs a section as
@@ -149,7 +163,8 @@ lines, never a picture of the 3D view.
   sheet… (opens the panel and exports once the views are ready). Every setting in the panel is one
   undoable `changing_drawing`; Delete is undoable.
 - `DrawingViews` works out each wanted view (standard and section) on its own `drawing views`
-  thread, keyed by the view (a section by its whole `SectionView`) and the drawn bodies' result
+  thread, keyed by the view (a section by its whole `SectionView` and its resolved place, so a
+  parameter edit redoes it and a failing offset is its outcome) and the drawn bodies' result
   `Arc`s, so a view is redone only when a body it draws or its section settings change; a newer
   basis bumps a shared ticket that interrupts the view in flight. A panic becomes `Panicked`. A
   failing view is a callout naming it and why; the others draw as usual. Closing the panel or a

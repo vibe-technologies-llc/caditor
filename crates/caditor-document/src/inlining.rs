@@ -4,6 +4,7 @@ use crate::{
     body_appearance::BodyAppearance,
     configurations::{Configurations, ConfiguredValue, Setting},
     document::{Document, FeatureKind, Parameter},
+    drawings::SectionPlace,
     edit::{Edit, EditError, Transaction},
     pattern::PatternKind,
     solid::{ExtrudeExtent, SolidFeature, SolidStart},
@@ -116,11 +117,38 @@ impl Document {
             }
         }
         edits.extend(self.inlined_in_configurations(parameter)?);
+        edits.extend(self.inlined_in_drawings(parameter)?);
         edits.push(Edit::RemoveParameter { id });
         Ok(Transaction::new(
             format!("Delete {}", parameter.name),
             edits,
         ))
+    }
+
+    fn inlined_in_drawings(&self, parameter: &Parameter) -> Result<Option<Edit>, EditError> {
+        let id = parameter.id();
+        let mut drawings = self.drawings().clone();
+        let mut changed = false;
+        for drawing in &mut drawings.drawings {
+            for section in &mut drawing.sections {
+                let SectionPlace::Offset(offset) = &mut section.place else {
+                    continue;
+                };
+                if !offset.uses(id) {
+                    continue;
+                }
+                *offset = offset.inlining(id, &parameter.expression).map_err(|_| {
+                    EditError::InliningTooLong {
+                        name: parameter.name.clone(),
+                        user: drawing.name.clone(),
+                    }
+                })?;
+                changed = true;
+            }
+        }
+        Ok(changed.then(|| Edit::SetDrawings {
+            drawings: Box::new(drawings),
+        }))
     }
 
     fn inlined_in_configurations(&self, parameter: &Parameter) -> Result<Option<Edit>, EditError> {

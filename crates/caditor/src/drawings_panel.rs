@@ -6,7 +6,7 @@ use caditor_document::{
     SectionPlane, SectionView, SheetMark, SheetOrientation, SheetPlan, SheetSize, StandardView,
     TextAnchor, TitleFields, Transaction, ViewLines, hatch_lines, lay_out_sheet,
 };
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
 use caditor_kernel::{Curve2, ViewPiece, Visibility};
 use egui::{Align2, FontId, Id, Key, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui, Vec2, vec2};
@@ -525,10 +525,8 @@ pub fn offset_field_id(drawing: DrawingId, letter: char) -> Id {
     Id::unique(("drawing-section-offset", drawing.raw(), letter))
 }
 
-fn offset_text(model: &Model, offset: f64) -> String {
-    model
-        .document()
-        .expression_text(&model.units().measured(offset))
+fn offset_text(model: &Model, offset: &Expression) -> String {
+    model.document().expression_text(offset)
 }
 
 fn offset_row(
@@ -536,7 +534,7 @@ fn offset_row(
     model: &Model,
     drawing: DrawingId,
     section: &SectionView,
-    offset: f64,
+    offset: &Expression,
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
@@ -550,8 +548,8 @@ fn offset_row(
         &offset_text(model, offset),
         widgets::FIELD_WIDTH,
         false,
-        |text| -> Result<f64, ExpressionError> {
-            let parsed = field::parse_expression(
+        |text| -> Result<Expression, ExpressionError> {
+            field::parse_expression(
                 document,
                 parameters,
                 text,
@@ -560,11 +558,7 @@ fn offset_row(
                     non_negative: false,
                 },
                 units,
-            )?;
-            Ok(parameters
-                .evaluate_expression(&parsed)
-                .map_err(ExpressionError::Unevaluable)?
-                .value)
+            )
         },
     );
     field.response.on_hover_text(format!(
@@ -667,7 +661,7 @@ fn section_settings(
                 (CENTRE, "Through the middle of the drawn bodies"),
                 (AT_OFFSET, "At a distance from the origin"),
             ];
-            let selected = match section.place {
+            let selected = match &section.place {
                 SectionPlace::Centre => 0,
                 SectionPlace::Offset(_) => 1,
             };
@@ -676,15 +670,15 @@ fn section_settings(
                     section.place = SectionPlace::Centre;
                 }),
                 Some(1) => {
-                    let start = cut_at.unwrap_or(0.0);
+                    let start = model.units().measured(cut_at.unwrap_or(0.0));
                     edit("Move section plane", actions, &|section| {
-                        section.place = SectionPlace::Offset(start);
+                        section.place = SectionPlace::Offset(start.clone());
                     });
                 }
                 _ => {}
             }
         });
-        if let SectionPlace::Offset(offset) = section.place {
+        if let SectionPlace::Offset(offset) = &section.place {
             offset_row(ui, model, drawing, section, offset, actions);
         }
     });
@@ -813,6 +807,9 @@ fn reason(error: &DrawingViewError) -> String {
                                           bodies: cut through the centre, or choose an offset \
                                           that crosses them"
             .to_owned(),
+        DrawingViewError::Offset(_) | DrawingViewError::OffsetOutOfRange => {
+            format!("{error}; correct the Distance or the parameters it uses")
+        }
         other => format!("{other}; change the model slightly or leave this view out"),
     }
 }

@@ -29,7 +29,7 @@ use crate::{
     },
     drawings::{
         Drawings, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SCALE_TERM,
-        MAX_SECTION_OFFSET, MAX_SECTION_VIEWS,
+        MAX_SECTION_VIEWS,
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
@@ -528,10 +528,6 @@ pub enum EditError {
         plane: &'static str,
         view: &'static str,
     },
-    #[error(
-        "The offset of section {letter}\u{2013}{letter} must be a number of at most {MAX_SECTION_OFFSET} mm either way"
-    )]
-    SectionOffsetOutOfRange { letter: char },
     #[error("A configuration needs a name")]
     ConfigurationNameEmpty,
     #[error(
@@ -1817,7 +1813,7 @@ impl Document {
     }
 
     fn set_drawings(&mut self, drawings: Drawings) -> Result<Edit, EditError> {
-        let mut drawings = drawings.checked()?;
+        let mut drawings = drawings.checked(self)?;
         for body in drawings.bodies() {
             check_storable(body.maker().raw())?;
         }

@@ -850,7 +850,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
             place: if input.arbitrary::<bool>()? {
                 SectionPlace::Centre
             } else {
-                SectionPlace::Offset(f64::from(input.int_in_range(-60i32..=60)?))
+                SectionPlace::offset(f64::from(input.int_in_range(-60i32..=60)?))
             },
             reversed: input.arbitrary()?,
         });

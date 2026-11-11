@@ -11,7 +11,8 @@ use std::{
 
 use caditor_document::{
     Drawing, DrawingId, DrawingViewError, DrawnBodies, DrawnView, FeatureId, FeatureResult,
-    SectionView, StandardView, ViewLines, drawing_view, drawn_bodies, section_view,
+    ParameterValues, ResolvedPlace, SectionView, StandardView, ViewLines, drawing_view,
+    drawn_bodies, section_view,
 };
 use caditor_geometry::Plane;
 use caditor_kernel::interruptible;
@@ -20,17 +21,20 @@ use crate::model::{Model, Waker};
 
 pub type ViewOutcome = Arc<Result<ViewLines, DrawingViewError>>;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum ViewJob {
     Standard(StandardView),
-    Section(SectionView),
+    Section {
+        section: SectionView,
+        place: Result<ResolvedPlace, DrawingViewError>,
+    },
 }
 
 impl ViewJob {
-    fn view(self) -> DrawnView {
+    fn view(&self) -> DrawnView {
         match self {
-            Self::Standard(view) => DrawnView::Standard(view),
-            Self::Section(section) => DrawnView::Section(section.letter),
+            Self::Standard(view) => DrawnView::Standard(*view),
+            Self::Section { section, .. } => DrawnView::Section(section.letter),
         }
     }
 }
@@ -77,7 +81,10 @@ fn work_out(key: &ViewKey) -> Result<ViewLines, DrawingViewError> {
         .collect();
     panic::catch_unwind(AssertUnwindSafe(|| match &key.job {
         ViewJob::Standard(view) => drawing_view(*view, &solids),
-        ViewJob::Section(section) => section_view(section, &solids),
+        ViewJob::Section { section, place } => match place {
+            Ok(place) => section_view(section, *place, &solids),
+            Err(error) => Err(error.clone()),
+        },
     }))
     .unwrap_or_else(|_| {
         log::error!("working out a drawing view panicked");
@@ -188,12 +195,15 @@ pub struct DrawingViews {
     done: Vec<(ViewKey, ViewOutcome)>,
 }
 
-fn keys_of(drawing: &Drawing, bodies: &DrawnBodies) -> Vec<ViewKey> {
+fn keys_of(drawing: &Drawing, bodies: &DrawnBodies, values: &ParameterValues) -> Vec<ViewKey> {
     drawing
         .views
         .iter()
         .map(|view| ViewJob::Standard(*view))
-        .chain(drawing.sections.iter().copied().map(ViewJob::Section))
+        .chain(drawing.sections.iter().map(|section| ViewJob::Section {
+            section: section.clone(),
+            place: section.place.resolve(values),
+        }))
         .map(|job| ViewKey {
             job,
             bodies: bodies.results.clone(),
@@ -205,7 +215,7 @@ impl DrawingViews {
     pub fn refresh(&mut self, model: &Model, drawing: &Drawing) -> SheetViews {
         self.poll();
         let bodies = drawn_bodies(model.document(), model.evaluation(), drawing);
-        let wanted = keys_of(drawing, &bodies);
+        let wanted = keys_of(drawing, &bodies, model.parameters());
         if wanted != self.wanted {
             if self.in_flight.iter().any(|key| !wanted.contains(key)) {
                 self.ticket = self.ticket.wrapping_add(1);
@@ -215,7 +225,7 @@ impl DrawingViews {
             let same_bodies = |key: &ViewKey| {
                 wanted.iter().any(|kept| {
                     ViewKey {
-                        job: key.job,
+                        job: key.job.clone(),
                         bodies: kept.bodies.clone(),
                     } == *key
                 })

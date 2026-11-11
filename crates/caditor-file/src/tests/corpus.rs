@@ -36,7 +36,7 @@ use serde_json::Value;
 
 use super::{
     configurations::configured_model,
-    drawings::{with_drawings, with_section_views},
+    drawings::{parameter_offset_document, with_drawings, with_section_views},
     seeds::seed_journal_by_reference,
     selection_sets::sets_of,
     *,
@@ -60,7 +60,11 @@ const ENTITY_FLAGS: [&str; 2] = ["construction", "split_from"];
 const SLICE: usize = 512;
 const STEP_PART: &str = include_str!("../../../../fuzz/seeds/step/horn_torus.step");
 
-const KEPT: [(&str, &str); 84] = [
+const KEPT: [(&str, &str); 85] = [
+    (
+        "model-1/section-parameter-offsets.caditor",
+        "52c762639902bc4c43c1f340a6a768f0a9fcf7187d2ce958292486c11faf2684",
+    ),
     (
         "journal-1/section-views.journal",
         "3f7fd2af7cf0adfc7f2fb4e8dc71993e4831e6368be5c3611541664de5c86ab6",
@@ -1119,6 +1123,10 @@ fn corpus_of_this_version() -> Vec<(String, Vec<u8>)> {
             saved(&sectioned_model(), "Section views"),
         ),
         (journal("section-views"), section_views_journal()),
+        (
+            model("section-parameter-offsets"),
+            saved(&parameter_offset_sections(), "Section parameter offsets"),
+        ),
         (parameters("exported"), exported_parameters().into_bytes()),
     ];
     files.sort();
@@ -1889,6 +1897,12 @@ fn drawings_journal() -> Vec<u8> {
 
 fn sectioned_model() -> Document {
     let (mut document, change) = with_section_views();
+    document.apply(change).unwrap();
+    document
+}
+
+fn parameter_offset_sections() -> Document {
+    let (mut document, change) = parameter_offset_document();
     document.apply(change).unwrap();
     document
 }

@@ -6720,7 +6720,7 @@ fn restore_edit(record: EditRecord, texts: &mut ImportTexts) -> Option<Edit> {
             sets: Box::new(restore_selection_sets(sets, &mut Vec::new())),
         },
         EditRecord::SetDrawings { drawings } => Edit::SetDrawings {
-            drawings: Box::new(restore_drawings(drawings, &mut Vec::new())),
+            drawings: Box::new(restore_drawings(drawings, &|_| true, &mut Vec::new())),
         },
         EditRecord::SetConfigurations { configurations } => {
             let mut issues = Vec::new();
