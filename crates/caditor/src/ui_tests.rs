@@ -2008,10 +2008,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     rectangle(&mut plate, Point2::new(0.0, 0.0), Point2::new(20.0, 10.0));
     plate.add_circle(Point2::new(10.0, 5.0), 2.5);
     let mut peg = Sketch::new(Plane::XY);
-    peg.add_circle(
-        Point2::new(10.0000079169858, 5.000001340737086),
-        2.5000077585717273,
-    );
+    peg.add_circle(Point2::new(9.99999942597485, 5.000001385819298), 2.500001);
     for (name, outline) in [("Plate", plate), ("Peg", peg)] {
         let sketch = transaction.add_feature(format!("{name} sketch"), FeatureKind::from(outline));
         bodies.push(transaction.add_feature(
@@ -2034,7 +2031,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
         FeatureKind::Combine(caditor_document::Combine::new(
             bodies[0],
             bodies[1],
-            caditor_document::CombineOperation::Join,
+            caditor_document::CombineOperation::Cut,
         )),
     );
     harness.perform(Action::Apply(transaction.finish()));

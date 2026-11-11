@@ -10,18 +10,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the survey's
   seed (`boolean::tests::random_placements_of_every_fixture`, ignored), and the failures other seeds
   (`Random::new(n)`, 7 to 19, 48, 52, 57, 76, 79, 82, 85, 160, 161, 163, 178, 214, 255, 291, 325,
-  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1214, 1225, 1272, 1344, 1383 and 1402) gave are
-  pinned by tests and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed before
-  the last marching change and not again. Of seeds 1115 to 1420, one still fails, as it did on the
-  build before that change: 1136 (a torus and its copy turned 0.25 radians and 3e-3 off, draw 890,
-  union and difference) is `Invalid`, a face's boundary crossing itself in its domain. Their outer
-  equators cross near (7.65, 2.33, 0) with the surfaces nearly tangent, and the section there passes
-  the first torus's equator seam twice, at u 0.2953 and 0.2968, reaching 8e-6 past it between them,
-  while imprinting pools one vertex on the seam, at u 0.2962, off the section; healing then joins the
-  seam's two pieces across that vertex, and the section's pcurve crosses the seam's. No fix was
-  tried. Seeds 1115 to 1420 were not surveyed again after the fixes for 1135 and the others; the
-  survey's own seed 2 and seed 1422 combine throughout on this build, and seeds beyond 1422 are
-  unsurveyed.
+  403, 405, 432, 486, 632, 724, 767, 1115, 1135, 1136, 1214, 1225, 1272, 1344, 1383 and 1402) gave
+  are pinned by tests and combine. Seeds 20 to 1114 all combine, those from 61 to 985 surveyed
+  before the last marching change and not again. Seeds 1115 to 1420 were not surveyed again after
+  the fixes for 1135, 1136 and the others; the survey's own seed 2 and seed 1422 combined
+  throughout on the build before the fix for 1136 and were not run again since, and seeds beyond
+  1422 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
   combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
@@ -49,9 +43,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   start face in the intersection (it combined with the C library's results moved one ulp up or at
   random), and `a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`
   fails `Open` with every result moved one ulp up or down, so such tori still turn on the last
-  bit. The combine tests of a failing place use a plug 8.03e-6 off at about 9.6 degrees and
-  7.76e-6 wider, so its wall dips just inside the bore's near where they touch (`Split` at the
-  plate's start face), whose outcome survived every result moved one ulp up, down or at random. A
+  bit. The combine tests of a failing place cut a plug 1.5e-6 off at 112.5 degrees and 1e-6 wider
+  from the plate, its wall 5e-7 inside the bore's over a wide arc on the near side (`Split` at the
+  plate's start face), whose outcome survived every result moved one ulp up, down or at random; the
+  plug they used before (8.03e-6 off, 7.76e-6 wider, its rim dipping 2.7e-7 through the bore's wall)
+  combines now that such a dip is two crossings. Plugs 8e-6 to 2e-5 off with their wall dipping
+  2.7e-7 to 9e-7 inside the bore's failed `Split` in every operation at 9.6 to 80 degrees; they now
+  combine, but at 45 degrees their intersection is `NonManifold` at mid-height, as it already was for
+  plugs 5e-6 off at every angle and for walls just clear of the bore's. A
   combine failing `NonManifold` names no place, whatever the reason, since
   `CombineCause::Edgewise` drops the kernel's `BooleanSite`.
 - [medium · hard] Shell cannot split a corner whose offsets do not meet when its convex and concave

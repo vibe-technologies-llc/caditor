@@ -31,10 +31,14 @@ paths:
   parameter; a closed curve's wrap point is reported once. `tangent` flags touches (no sign change,
   or parallel tangent). Clusters of roots closer than the resolution collapse to one tangent
   point, except a cluster with exactly one distinct root (a sign change) is a crossing at that
-  root, so a grazing crossing is met where it crosses. A curve-surface cluster holding a range end
-  within the resolution of the surface and a single crossing farther than the resolution from it
-  (a circle running within the resolution of a wall from its seam to where it crosses it) reports
-  both, the end as a touch. Branches shorter than `MIN_BRANCH_LENGTH`
+  root, so a grazing crossing is met where it crosses, and a cluster of several distinct roots
+  farther apart than the resolution (a curve dipping through a surface by less than the resolution)
+  is a crossing at each of them, not one touch between: a torus's equator seam passing 3.8e-7
+  through its copy turned 0.25 radians, its roots 0.012 apart, was pooled at the dip's bottom,
+  5e-4 off the section crossing it at both roots, and the result was `Invalid`. A curve-surface
+  cluster holding a range end within the resolution of the surface and a single crossing farther
+  than the resolution from it (a circle running within the resolution of a wall from its seam to
+  where it crosses it) reports both, the end as a touch. Branches shorter than `MIN_BRANCH_LENGTH`
   are dropped.
 - Every search is budgeted; exhausting one is `IntersectionError::TooComplex`. Sorting a curve
   pair's candidates into points and overlaps polls `interrupt::check` every `POLL_EVERY`
@@ -49,7 +53,9 @@ paths:
   needs no projection), brackets sign changes of the signed distance and minimises it for touches
   (Brent's method). The minimisation stops once the distance is below minus the tolerance (a
   crossing, bracketed on both sides) or above the tolerance by twice the curve's reach across the
-  bracket, since the distance changes no faster than the curve moves.
+  bracket, since the distance changes no faster than the curve moves. A minimum past the surface
+  but within the tolerance is bracketed on both sides too, and is two roots when they lie farther
+  apart than the resolution, else a touch: a leaf's samples step over such a dip.
   - A spline piece holding fewer than `MAX_TIGHT_SPANS` knots is boxed by the tight bounds of each
     span part, not the control hull of every span it touches; otherwise a helix just off a cylinder
     over hundreds of spans halves at every knot and ends `TooComplex`.

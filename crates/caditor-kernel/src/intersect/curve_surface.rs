@@ -730,30 +730,47 @@ fn solve_leaf_locally(probe: &Probe, piece: Interval) -> Vec<Candidate> {
             high.at,
             settled,
         );
-        if (-TOLERANCE..=TOLERANCE).contains(&value) {
-            if probe.distance(extremum) <= TOLERANCE {
-                candidates.push(Candidate::Touch(extremum));
-            }
-        } else if value < -TOLERANCE {
+        let crossings_beside = |extremum: f64| {
             let middle = signed_from(extremum, sample.foot);
             let foot = probe.hint.get();
+            let mut roots = Vec::with_capacity(2);
             if (low.signed < 0.0) != (middle < 0.0) {
-                candidates.push(Candidate::Root(root_from(
-                    foot, low.at, extremum, low.signed, middle,
-                )));
+                roots.push(root_from(foot, low.at, extremum, low.signed, middle));
             }
             if (high.signed < 0.0) != (middle < 0.0) {
-                candidates.push(Candidate::Root(root_from(
-                    foot,
-                    extremum,
-                    high.at,
-                    middle,
-                    high.signed,
-                )));
+                roots.push(root_from(foot, extremum, high.at, middle, high.signed));
+            }
+            roots
+        };
+        if value < -TOLERANCE {
+            candidates.extend(crossings_beside(extremum).into_iter().map(Candidate::Root));
+        } else if value <= TOLERANCE {
+            let dipped = if value < 0.0 {
+                crossings_beside(extremum)
+            } else {
+                Vec::new()
+            };
+            if crosses_apart(probe, &dipped) {
+                candidates.extend(dipped.into_iter().map(Candidate::Root));
+            } else if probe.distance(extremum) <= TOLERANCE {
+                candidates.push(Candidate::Touch(extremum));
             }
         }
     }
     candidates
+}
+
+fn crosses_apart(probe: &Probe, roots: &[f64]) -> bool {
+    match roots {
+        [first, second] => {
+            probe
+                .curve
+                .point(*first)
+                .distance(probe.curve.point(*second))
+                > TOLERANCE
+        }
+        _ => false,
+    }
 }
 
 fn connected(probe: &Probe, low: f64, high: f64) -> bool {
@@ -812,7 +829,7 @@ fn distinct(probe: &Probe, cluster: &[Candidate]) -> usize {
     count
 }
 
-fn single_crossing(probe: &Probe, cluster: &[Candidate]) -> Option<f64> {
+fn distinct_roots(probe: &Probe, cluster: &[Candidate]) -> Vec<f64> {
     let mut roots: Vec<(f64, Point3)> = Vec::new();
     for candidate in cluster {
         if let Candidate::Root(at) = candidate {
@@ -825,10 +842,7 @@ fn single_crossing(probe: &Probe, cluster: &[Candidate]) -> Option<f64> {
             }
         }
     }
-    match roots.as_slice() {
-        [(at, _)] => Some(*at),
-        _ => None,
-    }
+    roots.into_iter().map(|(at, _)| at).collect()
 }
 
 enum Outcome {
@@ -913,12 +927,24 @@ fn finish(
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map_or(low, |(at, _)| at);
-        let crossing = single_crossing(probe, cluster);
+        let roots = distinct_roots(probe, cluster);
+        let crossing = match roots.as_slice() {
+            [root] => Some(*root),
+            _ => None,
+        };
         if let (Some(end), Some(root)) = (at_end, crossing)
             && probe.curve.point(end).distance(probe.curve.point(root)) > TOLERANCE
         {
             outcomes.push(Outcome::Point(end, true));
             outcomes.push(Outcome::Point(root, probe.sine(root) <= TANGENT_SINE));
+            continue;
+        }
+        if at_end.is_none() && roots.len() > 1 {
+            outcomes.extend(
+                roots
+                    .into_iter()
+                    .map(|root| Outcome::Point(root, probe.sine(root) <= TANGENT_SINE)),
+            );
             continue;
         }
         let parameter = at_end.or(crossing).or(touch).unwrap_or(nearest);

@@ -1872,6 +1872,22 @@ fn a_plug_beside_its_bores_axis_by_a_few_resolutions_combines() {
 }
 
 #[test]
+fn a_plug_whose_rim_dips_through_its_bores_wall_by_less_than_the_resolution_combines() {
+    let plate = bored_plate();
+
+    for (center, radius) in [
+        ((10.0000079169858, 5.000001340737086), 2.5000077585717273),
+        ((10.000011831952445, 5.000002001224961), 2.5000111),
+    ] {
+        combine_within_the_resolution(
+            &format!("a plug of radius {radius} at {center:?}"),
+            &plate,
+            &extruded_plug(center, radius),
+        );
+    }
+}
+
+#[test]
 fn a_plug_off_its_bores_axis_away_from_its_seams_combines() {
     let plate = bored_plate();
 
@@ -3042,4 +3058,25 @@ fn a_torus_and_its_copy_shifted_a_hundred_thousandth_along_x_combine_exactly() {
             "{operation:?}: {found} against {expected}"
         );
     }
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_quarter_radian_with_equators_nearly_tangent_combine() {
+    let ring = crate::fixtures::torus(6.0, 2.0);
+    let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
+    let axis = Vector3::new(0.705604240481839, 0.2026195935592816, -0.08026485866875466);
+    let offset = (
+        -0.0006359107783743979,
+        0.0020939921776319164,
+        0.0023297709293031996,
+    );
+
+    let placed = moved(rotated(ring.clone(), axis, 6.036962929843223), offset);
+
+    check_every_operation(
+        "tori nearly tangent at their equators",
+        &ring,
+        &placed,
+        (torus_volume, torus_volume),
+    );
 }
