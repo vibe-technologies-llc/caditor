@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::Vector3;
+use caditor_geometry::{Point2, Vector3};
 use caditor_kernel::MAX_SIZE;
 
 use crate::{
@@ -14,13 +14,18 @@ pub const MAX_DRAWINGS: usize = 32;
 pub const MAX_DRAWING_NAME_CHARS: usize = 60;
 pub const MAX_DRAWING_BODIES: usize = 4096;
 pub const MAX_SCALE_TERM: u32 = 1000;
-pub const SECTION_LETTERS: [char; 23] = [
+pub const VIEW_LETTERS: [char; 23] = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P', 'R', 'S', 'T', 'U', 'V',
     'W', 'X', 'Y', 'Z',
 ];
-pub const MAX_SECTION_VIEWS: usize = SECTION_LETTERS.len();
+pub const MAX_SECTION_VIEWS: usize = VIEW_LETTERS.len();
+pub const MAX_DETAIL_VIEWS: usize = VIEW_LETTERS.len();
+pub const MIN_DETAIL_RADIUS: f64 = 0.01;
+pub const MAX_DETAIL_EXTENT: f64 = MAX_SIZE;
 pub const MAX_SECTION_OFFSET: f64 = MAX_SIZE;
 const NUMBERED_NAME: &str = "Drawing";
+const ENLARGEMENT: f64 = 2.0;
+const RATIO_SLACK: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DrawingId(u64);
@@ -310,6 +315,7 @@ impl SectionView {
 pub enum DrawnView {
     Standard(StandardView),
     Section(char),
+    Detail(char),
 }
 
 impl DrawnView {
@@ -317,6 +323,22 @@ impl DrawnView {
         match self {
             Self::Standard(view) => format!("{} view", view.name().to_lowercase()),
             Self::Section(letter) => format!("section view {letter}\u{2013}{letter}"),
+            Self::Detail(letter) => format!("detail view {letter}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DetailParent {
+    Standard(StandardView),
+    Section(char),
+}
+
+impl DetailParent {
+    pub fn drawn(self) -> DrawnView {
+        match self {
+            Self::Standard(view) => DrawnView::Standard(view),
+            Self::Section(letter) => DrawnView::Section(letter),
         }
     }
 }
@@ -361,6 +383,15 @@ impl ScaleRatio {
     pub fn is_usable(self) -> bool {
         (1..=MAX_SCALE_TERM).contains(&self.sheet) && (1..=MAX_SCALE_TERM).contains(&self.model)
     }
+
+    pub fn enlarging(factor: f64) -> Self {
+        let wanted = factor * ENLARGEMENT;
+        Self::PREFERRED
+            .into_iter()
+            .rev()
+            .find(|ratio| ratio.factor() >= wanted * (1.0 - RATIO_SLACK))
+            .unwrap_or(Self::PREFERRED[0])
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -379,6 +410,48 @@ impl DrawingScale {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum DetailScale {
+    #[default]
+    Enlarged,
+    Ratio(ScaleRatio),
+}
+
+impl DetailScale {
+    pub fn ratio_at(self, sheet_scale: f64) -> ScaleRatio {
+        match self {
+            Self::Enlarged => ScaleRatio::enlarging(sheet_scale),
+            Self::Ratio(ratio) => ratio,
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self {
+            Self::Enlarged => "Twice the sheet scale".to_owned(),
+            Self::Ratio(ratio) => ratio.label(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetailView {
+    pub letter: char,
+    pub parent: DetailParent,
+    pub centre: Point2,
+    pub radius: f64,
+    pub scale: DetailScale,
+}
+
+impl DetailView {
+    pub fn label_at(&self, sheet_scale: f64) -> String {
+        format!(
+            "{} ({})",
+            self.letter,
+            self.scale.ratio_at(sheet_scale).label()
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Drawing {
     pub id: DrawingId,
@@ -391,6 +464,7 @@ pub struct Drawing {
     pub bodies: Vec<FeatureId>,
     pub hidden_lines: bool,
     pub sections: Vec<SectionView>,
+    pub details: Vec<DetailView>,
 }
 
 impl Drawing {
@@ -413,6 +487,7 @@ impl Drawing {
             bodies: Vec::new(),
             hidden_lines: true,
             sections: Vec::new(),
+            details: Vec::new(),
         }
     }
 
@@ -426,6 +501,7 @@ impl Drawing {
                 .iter()
                 .map(|section| section.place.heap_size())
                 .sum::<usize>()
+            + size_of_val(self.details.as_slice())
     }
 
     pub fn section(&self, letter: char) -> Option<&SectionView> {
@@ -440,14 +516,28 @@ impl Drawing {
             .find(|section| section.letter == letter)
     }
 
-    pub fn unused_section_letter(&self) -> Option<char> {
-        SECTION_LETTERS
+    pub fn detail(&self, letter: char) -> Option<&DetailView> {
+        self.details.iter().find(|detail| detail.letter == letter)
+    }
+
+    pub fn detail_mut(&mut self, letter: char) -> Option<&mut DetailView> {
+        self.details
+            .iter_mut()
+            .find(|detail| detail.letter == letter)
+    }
+
+    pub fn letter_taken(&self, letter: char) -> bool {
+        self.section(letter).is_some() || self.detail(letter).is_some()
+    }
+
+    pub fn unused_letter(&self) -> Option<char> {
+        VIEW_LETTERS
             .into_iter()
-            .find(|letter| self.section(*letter).is_none())
+            .find(|letter| !self.letter_taken(*letter))
     }
 
     pub fn new_section(&self) -> Option<SectionView> {
-        let letter = self.unused_section_letter()?;
+        let letter = self.unused_letter()?;
         let parent = StandardView::SECTIONED
             .into_iter()
             .find(|view| self.views.contains(view))
@@ -462,6 +552,29 @@ impl Drawing {
         })
     }
 
+    pub fn default_detail_parent(&self) -> DetailParent {
+        let standard = StandardView::ALL
+            .into_iter()
+            .find(|view| self.views.contains(view))
+            .unwrap_or(StandardView::Front);
+        DetailParent::Standard(standard)
+    }
+
+    pub fn new_detail(
+        &self,
+        parent: DetailParent,
+        centre: Point2,
+        radius: f64,
+    ) -> Option<DetailView> {
+        Some(DetailView {
+            letter: self.unused_letter()?,
+            parent,
+            centre,
+            radius,
+            scale: DetailScale::Enlarged,
+        })
+    }
+
     fn checked_letters(&self) -> Result<(), EditError> {
         if self.sections.len() > MAX_SECTION_VIEWS {
             return Err(EditError::DrawingTooManySections {
@@ -469,13 +582,52 @@ impl Drawing {
                 sections: self.sections.len(),
             });
         }
-        let letters = self.sections.iter().map(|section| section.letter);
+        if self.details.len() > MAX_DETAIL_VIEWS {
+            return Err(EditError::DrawingTooManyDetails {
+                name: self.name.clone(),
+                details: self.details.len(),
+            });
+        }
+        let letters = self
+            .sections
+            .iter()
+            .map(|section| section.letter)
+            .chain(self.details.iter().map(|detail| detail.letter));
         for (index, letter) in letters.clone().enumerate() {
-            if !SECTION_LETTERS.contains(&letter) {
-                return Err(EditError::SectionLetterUnusable(letter));
+            if !VIEW_LETTERS.contains(&letter) {
+                return Err(EditError::ViewLetterUnusable(letter));
             }
             if letters.clone().take(index).any(|other| other == letter) {
-                return Err(EditError::SectionLetterRepeated(letter));
+                return Err(EditError::ViewLetterRepeated(letter));
+            }
+        }
+        Ok(())
+    }
+
+    fn checked_details(&self) -> Result<(), EditError> {
+        for detail in &self.details {
+            let letter = detail.letter;
+            if let DetailParent::Section(parent) = detail.parent
+                && self.section(parent).is_none()
+            {
+                return Err(EditError::DetailParentMissing { letter, parent });
+            }
+            let centre_usable = detail.centre.is_finite()
+                && detail.centre.x.abs() <= MAX_DETAIL_EXTENT
+                && detail.centre.y.abs() <= MAX_DETAIL_EXTENT;
+            let radius_usable = detail.radius.is_finite()
+                && (MIN_DETAIL_RADIUS..=MAX_DETAIL_EXTENT).contains(&detail.radius);
+            if !(centre_usable && radius_usable) {
+                return Err(EditError::DetailOutOfRange { letter });
+            }
+            if let DetailScale::Ratio(ratio) = detail.scale
+                && !ratio.is_usable()
+            {
+                return Err(EditError::DetailScaleOutOfRange {
+                    letter,
+                    sheet: ratio.sheet,
+                    model: ratio.model,
+                });
             }
         }
         Ok(())
@@ -637,6 +789,7 @@ impl Drawings {
             }
             drawing.checked_letters()?;
             drawing.checked_sections(document)?;
+            drawing.checked_details()?;
         }
         Ok(drawings)
     }
@@ -726,6 +879,27 @@ impl Document {
         let letter = section.letter;
         drawing.sections.push(section);
         let transaction = self.drawings_changed("New section view", drawings)?;
+        Ok((transaction, letter))
+    }
+
+    pub fn adding_detail_view(
+        &self,
+        id: DrawingId,
+        parent: DetailParent,
+        centre: Point2,
+        radius: f64,
+    ) -> Result<(Transaction, char), EditError> {
+        let mut drawings = self.drawings().clone();
+        let drawing = drawings.get_mut(id).ok_or(EditError::MissingDrawing)?;
+        let detail = drawing.new_detail(parent, centre, radius).ok_or_else(|| {
+            EditError::DrawingTooManyDetails {
+                name: drawing.name.clone(),
+                details: drawing.details.len().saturating_add(1),
+            }
+        })?;
+        let letter = detail.letter;
+        drawing.details.push(detail);
+        let transaction = self.drawings_changed("New detail view", drawings)?;
         Ok((transaction, letter))
     }
 

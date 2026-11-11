@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_expression::EvalError;
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector3};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2, Vector3};
 use caditor_kernel::{
     BooleanError, HiddenLineError, HiddenLineView, MeshQuality, Solid, ViewEdgeKind, ViewPiece,
     ViewSource, Visibility, hidden_lines,
@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use crate::{
     document::{Document, FeatureId},
+    drawing_sheet::PlacedView,
     drawings::{Drawing, DrawnView, StandardView},
     recompute::{Evaluation, FeatureResult},
     split::HalfSpaceError,
@@ -41,6 +42,10 @@ pub enum DrawingViewError {
         crate::drawings::MAX_SECTION_OFFSET
     )]
     OffsetOutOfRange,
+    #[error("the view it enlarges could not be drawn")]
+    ParentFailed,
+    #[error("the view it enlarges is not on the sheet")]
+    ParentNotDrawn,
 }
 
 impl From<HiddenLineError> for DrawingViewError {
@@ -69,6 +74,46 @@ impl StandardView {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Disc {
+    pub centre: Point2,
+    pub radius: f64,
+}
+
+impl Disc {
+    pub fn bounds(&self) -> Aabb2 {
+        let reach = Vector2::splat(self.radius);
+        Aabb2::from_point(self.centre - reach).including(self.centre + reach)
+    }
+
+    pub fn contains(&self, point: Point2) -> bool {
+        (point - self.centre).length_squared() <= self.radius * self.radius
+    }
+
+    pub fn clip_segment(&self, from: Point2, to: Point2) -> Option<(Point2, Point2)> {
+        let along = to - from;
+        let offset = from - self.centre;
+        let a = along.dot(along);
+        let b = 2.0 * along.dot(offset);
+        let c = offset.dot(offset) - self.radius * self.radius;
+        let discriminant = b * b - 4.0 * a * c;
+        if a <= 0.0 || discriminant <= 0.0 {
+            return None;
+        }
+        let root = discriminant.sqrt();
+        let entering = ((-b - root) / (2.0 * a)).max(0.0);
+        let leaving = ((-b + root) / (2.0 * a)).min(1.0);
+        (entering < leaving).then(|| (from + along * entering, from + along * leaving))
+    }
+
+    pub fn scaled_onto(&self, placed: &PlacedView) -> Self {
+        Self {
+            centre: placed.on_sheet(self.centre),
+            radius: self.radius * placed.scale,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HatchRegion {
     pub edges: Vec<(Point2, Point2)>,
@@ -88,6 +133,7 @@ pub struct ViewLines {
     pub bounds: Option<Aabb2>,
     pub undecided: usize,
     pub section: Option<SectionLines>,
+    pub clip: Option<Disc>,
 }
 
 impl ViewLines {
@@ -143,6 +189,7 @@ pub(crate) fn lines_seen(
         bounds,
         undecided: lines.undecided,
         section: None,
+        clip: None,
     })
 }
 

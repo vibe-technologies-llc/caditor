@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Aabb2, Point2, Point3};
-use caditor_kernel::Visibility;
+use caditor_kernel::{Curve2, ViewPiece, Visibility};
 
 use crate::{
     combine_tests::{Pair, evaluate, pair},
@@ -467,9 +467,9 @@ fn section_views_are_checked() {
     assert_eq!(with(unknown).unwrap_err(), EditError::MissingParameter);
     assert_eq!(
         with(unlettered).unwrap_err(),
-        EditError::SectionLetterUnusable('O')
+        EditError::ViewLetterUnusable('O')
     );
-    assert_eq!(twice.unwrap_err(), EditError::SectionLetterRepeated('A'));
+    assert_eq!(twice.unwrap_err(), EditError::ViewLetterRepeated('A'));
     assert!(matches!(
         too_many.unwrap_err(),
         EditError::DrawingTooManySections { .. }
@@ -777,4 +777,417 @@ fn scaling_the_model_moves_a_section_offset_with_it() {
             .resolve(&values),
         Ok(ResolvedPlace::Offset(19.0))
     );
+}
+
+fn detail(letter: char, parent: DetailParent, centre: Point2, radius: f64) -> DetailView {
+    DetailView {
+        letter,
+        parent,
+        centre,
+        radius,
+        scale: DetailScale::Enlarged,
+    }
+}
+
+fn front_detail(letter: char, centre: Point2, radius: f64) -> DetailView {
+    detail(
+        letter,
+        DetailParent::Standard(StandardView::Front),
+        centre,
+        radius,
+    )
+}
+
+fn plate_front(pair: &Pair) -> ViewLines {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    drawing.bodies = vec![pair.plate];
+    view_lines(pair, StandardView::Front, &drawing)
+}
+
+fn endpoints(lines: &ViewLines) -> Vec<Point2> {
+    lines
+        .drawn_pieces(false)
+        .flat_map(|piece| {
+            [
+                piece.curve.point(piece.range.start()),
+                piece.curve.point(piece.range.end()),
+            ]
+        })
+        .collect()
+}
+
+#[test]
+fn a_detail_view_is_added_undoably_with_a_letter_shared_with_the_sections() {
+    let pair = pair();
+    let mut editor = Editor::new(pair.document.clone());
+    let id = {
+        let (transaction, id) = editor.document().adding_drawing(Vec::new()).unwrap();
+        editor.apply(transaction).unwrap();
+        id
+    };
+    let parent = DetailParent::Standard(StandardView::Front);
+
+    let (section, a) = editor.document().adding_section_view(id).unwrap();
+    editor.apply(section).unwrap();
+    let (first, b) = editor
+        .document()
+        .adding_detail_view(id, parent, Point2::new(3.0, 1.0), 2.0)
+        .unwrap();
+    editor.apply(first).unwrap();
+    let (next_section, c) = editor.document().adding_section_view(id).unwrap();
+    editor.apply(next_section).unwrap();
+    let details = editor.document().drawing(id).unwrap().details.clone();
+    editor.undo().unwrap();
+    editor.undo().unwrap();
+
+    assert_eq!((a, b, c), ('A', 'B', 'C'));
+    assert_eq!(details.len(), 1);
+    assert_eq!(details[0].parent, parent);
+    assert_eq!(details[0].centre, Point2::new(3.0, 1.0));
+    assert_eq!(details[0].radius, 2.0);
+    assert_eq!(details[0].scale, DetailScale::Enlarged);
+    assert!(editor.document().drawing(id).unwrap().details.is_empty());
+    assert_eq!(editor.redo_label(), Some("New detail view"));
+}
+
+#[test]
+fn detail_views_are_checked() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let with = |details: Vec<DetailView>| {
+        document.changing_drawing(id, "Detail", |drawing| drawing.details = details)
+    };
+    let centre = Point2::new(1.0, 1.0);
+    let missing_parent = front_detail('B', centre, 1.0);
+    let missing_parent = DetailView {
+        parent: DetailParent::Section('A'),
+        ..missing_parent
+    };
+    let sections_and_details = document.changing_drawing(id, "Detail", |drawing| {
+        drawing.sections = vec![section('A', SectionPlane::Yz, SectionPlace::Centre)];
+        drawing.details = vec![front_detail('A', centre, 1.0)];
+    });
+    let too_many = document.changing_drawing(id, "Detail", |drawing| {
+        drawing.details = (0..=MAX_DETAIL_VIEWS)
+            .map(|_| front_detail('A', centre, 1.0))
+            .collect();
+    });
+
+    assert_eq!(
+        with(vec![missing_parent]).unwrap_err(),
+        EditError::DetailParentMissing {
+            letter: 'B',
+            parent: 'A'
+        }
+    );
+    assert_eq!(
+        with(vec![front_detail('B', centre, 0.0)]).unwrap_err(),
+        EditError::DetailOutOfRange { letter: 'B' }
+    );
+    assert_eq!(
+        with(vec![front_detail('B', Point2::new(f64::NAN, 0.0), 1.0)]).unwrap_err(),
+        EditError::DetailOutOfRange { letter: 'B' }
+    );
+    assert_eq!(
+        with(vec![DetailView {
+            scale: DetailScale::Ratio(ScaleRatio::new(0, 1)),
+            ..front_detail('B', centre, 1.0)
+        }])
+        .unwrap_err(),
+        EditError::DetailScaleOutOfRange {
+            letter: 'B',
+            sheet: 0,
+            model: 1
+        }
+    );
+    assert_eq!(
+        with(vec![front_detail('O', centre, 1.0)]).unwrap_err(),
+        EditError::ViewLetterUnusable('O')
+    );
+    assert_eq!(
+        with(vec![
+            front_detail('B', centre, 1.0),
+            front_detail('B', centre, 2.0)
+        ])
+        .unwrap_err(),
+        EditError::ViewLetterRepeated('B')
+    );
+    assert_eq!(
+        sections_and_details.unwrap_err(),
+        EditError::ViewLetterRepeated('A')
+    );
+    assert!(matches!(
+        too_many.unwrap_err(),
+        EditError::DrawingTooManyDetails { .. }
+    ));
+    assert!(with(vec![front_detail('B', centre, 1.0)]).is_ok());
+}
+
+#[test]
+fn a_detail_scale_defaults_to_twice_the_sheet_scale_as_a_preferred_ratio() {
+    assert_eq!(ScaleRatio::enlarging(1.0), ScaleRatio::new(2, 1));
+    assert_eq!(ScaleRatio::enlarging(0.5), ScaleRatio::new(1, 1));
+    assert_eq!(ScaleRatio::enlarging(0.2), ScaleRatio::new(1, 2));
+    assert_eq!(ScaleRatio::enlarging(0.3), ScaleRatio::new(1, 1));
+    assert_eq!(ScaleRatio::enlarging(2.0), ScaleRatio::new(5, 1));
+    assert_eq!(ScaleRatio::enlarging(40.0), ScaleRatio::new(50, 1));
+    assert_eq!(DetailScale::Enlarged.ratio_at(1.0), ScaleRatio::new(2, 1));
+    assert_eq!(
+        DetailScale::Ratio(ScaleRatio::new(10, 1)).ratio_at(1.0),
+        ScaleRatio::new(10, 1)
+    );
+}
+
+#[test]
+fn a_detail_keeps_exactly_the_parent_lines_inside_its_circle() {
+    let pair = pair();
+    let parent = plate_front(&pair);
+    let corner = front_detail('B', Point2::new(0.0, 0.0), 3.0);
+
+    let lines = detail_view(&corner, &parent).unwrap();
+
+    assert_eq!(lines.view, DrawnView::Detail('B'));
+    assert_eq!(lines.drawn_pieces(false).count(), 2);
+    for piece in lines.drawn_pieces(false) {
+        assert!(close(piece.length(), 3.0));
+    }
+    let ends = endpoints(&lines);
+    assert_eq!(
+        ends.iter().filter(|end| close(end.length(), 3.0)).count(),
+        2
+    );
+    assert_eq!(ends.iter().filter(|end| end.length() < 1e-6).count(), 2);
+    let bounds = lines.bounds.unwrap();
+    assert!(close(bounds.size().x, 6.0) && close(bounds.size().y, 6.0));
+    assert!(close(bounds.center().x, 0.0) && close(bounds.center().y, 0.0));
+    assert_eq!(lines.clip.unwrap().radius, 3.0);
+}
+
+#[test]
+fn a_detail_keeps_a_whole_line_inside_and_nothing_outside() {
+    let pair = pair();
+    let parent = plate_front(&pair);
+
+    let around = detail_view(&front_detail('B', Point2::new(10.0, 2.0), 30.0), &parent).unwrap();
+    let away = detail_view(&front_detail('C', Point2::new(100.0, 100.0), 5.0), &parent).unwrap();
+    let inside_a_face =
+        detail_view(&front_detail('D', Point2::new(10.0, 2.0), 1.0), &parent).unwrap();
+
+    assert_eq!(around.pieces, parent.pieces);
+    assert!(away.pieces.is_empty());
+    assert!(inside_a_face.pieces.is_empty());
+}
+
+#[test]
+fn a_detail_clips_an_arc_at_the_circle_exactly() {
+    let pair = pair();
+    let parent = plate_front(&pair);
+    let template = parent.pieces[0].clone();
+    let ring = caditor_kernel::Circle2::new(Point2::new(10.0, 10.0), 5.0).unwrap();
+    let arcs = ViewLines {
+        pieces: vec![ViewPiece {
+            curve: Curve2::Circle(ring),
+            range: caditor_kernel::Interval::FULL_TURN,
+            visibility: Visibility::Visible,
+            ..template
+        }],
+        ..parent
+    };
+    let disc = Disc {
+        centre: Point2::new(15.0, 10.0),
+        radius: 2.0,
+    };
+
+    let lines = detail_view(&front_detail('B', disc.centre, disc.radius), &arcs).unwrap();
+    let whole = detail_view(&front_detail('C', Point2::new(10.0, 10.0), 6.0), &arcs).unwrap();
+    let apart = detail_view(&front_detail('D', Point2::new(10.0, 10.0), 2.0), &arcs).unwrap();
+
+    let seam = Point2::new(15.0, 10.0);
+    assert_eq!(lines.pieces.len(), 2);
+    for end in endpoints(&lines) {
+        let on_circle = close((end - disc.centre).length(), 2.0);
+        assert!(on_circle || (end - seam).length() < 1e-9);
+    }
+    for piece in &lines.pieces {
+        for step in 0..=20 {
+            let at = piece.range.at(f64::from(step) / 20.0);
+            assert!((piece.curve.point(at) - disc.centre).length() <= 2.0 + 1e-9);
+        }
+    }
+    let kept: f64 = lines.pieces.iter().map(|piece| piece.range.length()).sum();
+    let half_angle = 0.92_f64.acos();
+    assert!(close(kept, 2.0 * half_angle));
+    assert_eq!(whole.pieces.len(), 1);
+    assert!(close(
+        whole.pieces[0].range.length(),
+        caditor_kernel::Interval::FULL_TURN.length()
+    ));
+    assert!(apart.pieces.is_empty());
+}
+
+#[test]
+fn a_detail_of_a_section_keeps_its_hatching_inside_the_circle() {
+    let pair = pair();
+    let cut = section_lines(
+        &pair,
+        &section('A', SectionPlane::Yz, SectionPlace::offset(5.0)),
+    )
+    .unwrap();
+    let corner = DetailView {
+        parent: DetailParent::Section('A'),
+        ..front_detail('B', cut.bounds.unwrap().min(), 2.0)
+    };
+
+    let lines = detail_view(&corner, &cut).unwrap();
+    let placed = PlacedView {
+        view: DrawnView::Detail('B'),
+        origin: Point2::new(100.0, 100.0),
+        scale: 4.0,
+    };
+    let disc = lines.clip.unwrap().scaled_onto(&placed);
+    let whole = hatch_lines(&lines.hatching()[0], &placed);
+    let clipped = drawn_hatching(&lines, &placed);
+
+    assert!(!lines.hatching().is_empty());
+    assert!(lines.section.is_some());
+    assert!(!clipped.is_empty());
+    assert!(clipped.len() <= whole.len());
+    for (from, to) in clipped {
+        assert!((from - disc.centre).length() <= disc.radius + 1e-9);
+        assert!((to - disc.centre).length() <= disc.radius + 1e-9);
+    }
+    assert_eq!(
+        drawn_hatching(&cut, &placed).len(),
+        hatch_lines(&cut.hatching()[0], &placed).len()
+    );
+}
+
+fn extents_with_detail(radius: f64) -> BTreeMap<DrawnView, Aabb2> {
+    let mut extents = extents_of_a_box(100.0, 60.0, 40.0);
+    extents.insert(
+        DrawnView::Detail('A'),
+        Aabb2::from_point(Point2::new(10.0, 10.0) - Point2::splat(radius))
+            .including(Point2::new(10.0, 10.0) + Point2::splat(radius)),
+    );
+    extents
+}
+
+#[test]
+fn detail_views_stand_in_the_side_column_labelled_with_their_scale_and_circled_on_their_parent() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    drawing.details = vec![front_detail('A', Point2::new(10.0, 10.0), 8.0)];
+    let extents = extents_with_detail(8.0);
+
+    let layout = lay_out_sheet(
+        &drawing,
+        &TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+    let front = placed(&layout, StandardView::Front);
+    let enlarged = placed_as(&layout, DrawnView::Detail('A'));
+    let isometric = placed(&layout, StandardView::Isometric);
+    let circles: Vec<(Point2, f64)> = layout
+        .marks
+        .iter()
+        .filter_map(|mark| match mark {
+            SheetMark::Circle { center, radius } => Some((*center, *radius)),
+            SheetMark::Line(..) => None,
+        })
+        .collect();
+    let contents: Vec<&str> = layout
+        .texts
+        .iter()
+        .map(|text| text.content.as_str())
+        .collect();
+
+    assert!(layout.fits);
+    assert!(close(enlarged.scale, 2.0 * front.scale));
+    assert!(enlarged.origin.x > isometric.origin.x);
+    assert!(
+        layout
+            .view_area
+            .contains(enlarged.on_sheet(Point2::new(2.0, 2.0)))
+    );
+    assert!(
+        layout
+            .view_area
+            .contains(enlarged.on_sheet(Point2::new(18.0, 18.0)))
+    );
+    assert!(contents.contains(&"A (2:1)"));
+    assert!(contents.contains(&"A"));
+    assert!(circles.iter().any(|(centre, radius)| {
+        (*centre - front.on_sheet(Point2::new(10.0, 10.0))).length() < 1e-6
+            && close(*radius, 8.0 * front.scale)
+    }));
+    assert!(circles.iter().any(|(centre, radius)| {
+        (*centre - enlarged.on_sheet(Point2::new(10.0, 10.0))).length() < 1e-6
+            && close(*radius, 8.0 * enlarged.scale)
+    }));
+}
+
+#[test]
+fn a_chosen_detail_scale_is_kept_and_labelled_and_fitting_leaves_room_for_it() {
+    let mut drawing = Drawing::new(DrawingId::from_raw(0), "Drawing 1".into());
+    drawing.details = vec![DetailView {
+        scale: DetailScale::Ratio(ScaleRatio::new(10, 1)),
+        ..front_detail('A', Point2::new(10.0, 10.0), 8.0)
+    }];
+    let extents = extents_with_detail(8.0);
+
+    let layout = lay_out_sheet(
+        &drawing,
+        &TitleFields::default(),
+        &extents,
+        &BTreeMap::new(),
+    );
+    let enlarged = placed_as(&layout, DrawnView::Detail('A'));
+
+    assert!(close(enlarged.scale, 10.0));
+    assert!(layout.texts.iter().any(|text| text.content == "A (10:1)"));
+    assert!(layout.fits);
+    assert!(
+        layout
+            .view_area
+            .contains(enlarged.on_sheet(Point2::new(18.0, 18.0)))
+    );
+}
+
+#[test]
+fn deleting_the_section_a_detail_enlarges_is_refused_and_scaling_the_model_moves_a_circle() {
+    let mut document = pair().document;
+    let id = new_drawing(&mut document);
+    let change = document
+        .changing_drawing(id, "Detail", |drawing| {
+            drawing.sections = vec![section('A', SectionPlane::Yz, SectionPlace::Centre)];
+            drawing.details = vec![
+                front_detail('B', Point2::new(3.0, 4.0), 2.0),
+                detail('C', DetailParent::Section('A'), Point2::new(1.0, 2.0), 1.0),
+            ];
+        })
+        .unwrap();
+    document.apply(change).unwrap();
+
+    let refused = document.changing_drawing(id, "Delete", |drawing| drawing.sections.clear());
+    let scaled = document
+        .scaled(&ModelScale {
+            factor: 2.0,
+            centre: Point3::new(1.0, 0.0, 0.0),
+            values: ScaledValues::Plain,
+        })
+        .unwrap();
+    document.apply(scaled.transaction).unwrap();
+    let details = &document.drawing(id).unwrap().details;
+
+    assert_eq!(
+        refused.unwrap_err(),
+        EditError::DetailParentMissing {
+            letter: 'C',
+            parent: 'A'
+        }
+    );
+    assert_eq!(details[0].centre, Point2::new(5.0, 8.0));
+    assert_eq!(details[0].radius, 4.0);
+    assert_eq!(details[1].radius, 2.0);
+    assert_eq!(details[1].centre, Point2::new(2.0, 4.0));
 }

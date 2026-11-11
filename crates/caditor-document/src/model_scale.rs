@@ -6,7 +6,8 @@ use std::{
 use caditor_expression::{
     BinaryOperator, Dimension, EvalError, Expression, ParameterId, Quantity, Unit, format_number,
 };
-use caditor_geometry::{Point3, Similarity, Vector3};
+use caditor_geometry::{Point2, Point3, Similarity, Vector3};
+use caditor_kernel::HiddenLineView;
 use caditor_sketch::{Constraint, Entity};
 
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
         PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     },
     document::{Document, Feature, FeatureId, FeatureKind},
-    drawings::SectionPlace,
+    drawings::{DetailParent, SectionPlace, SectionView},
     edit::{Edit, Transaction},
     hole::{HoleDepth, HoleShape, HoleStyle},
     mate::{AngleSides, AxisMate, FaceAxisMate, Mate, MatePair, PointMate, PointTarget},
@@ -841,10 +842,30 @@ impl Rescaler {
                     changed |= *offset != before;
                 }
             }
+            let sections = &drawing.sections;
+            for detail in &mut drawing.details {
+                let shift = self.view_shift(detail.parent, sections);
+                detail.centre = detail.centre * self.factor + shift;
+                detail.radius *= self.factor;
+                changed = true;
+            }
         }
         Ok(changed.then(|| Edit::SetDrawings {
             drawings: Box::new(scaled),
         }))
+    }
+
+    fn view_shift(&self, parent: DetailParent, sections: &[SectionView]) -> Point2 {
+        let looking = match parent {
+            DetailParent::Standard(view) => Some(view.look_and_up()),
+            DetailParent::Section(letter) => sections
+                .iter()
+                .find(|section| section.letter == letter)
+                .map(SectionView::look_and_up),
+        };
+        looking
+            .and_then(|(look, up)| HiddenLineView::new(look, up).ok())
+            .map_or(Point2::ZERO, |view| view.frame().to_local(self.shift))
     }
 
     fn views(&self, document: &Document) -> Option<Edit> {

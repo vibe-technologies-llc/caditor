@@ -49,6 +49,27 @@ are drawn as in the other views, but without hidden lines, which sections leave 
 crosses none of the bodies says so in the panel. When the view a section is cut on is not on the
 sheet, the panel says its cutting line is not drawn.
 
+## Detail views
+
+A detail view enlarges a part of another view. **Add a detail view** in the panel adds one, with a
+circle on the lower left corner of the first view; it takes the next letter, shared with the
+section views (A, B, C and so on without I, O and Q), so a drawing holds up to 23 section and
+detail views together.
+
+- **Enlarges** is the view the circle is on: one of the views the drawing shows, or a section view.
+- **Centre across**, **Centre up** and **Radius** place the circle in the view's own model
+  lengths, so it stays on the same part of the model when the sheet scale changes. They take units
+  and parameters like any value; the value is kept as a length.
+- **Scale** is twice the scale of the sheet by default (the nearest ISO 5455 ratio at least that
+  large, for example 2:1 on a sheet at 1:1), or any ISO 5455 ratio.
+
+The circle is drawn on its view as a thin line with the letter beside it. The detail view stands
+in the column right of the other views, under the label **B (2:1)**: the letter and its scale. It
+shows the lines of the view inside the circle, clipped exactly to it, and the circle round them;
+the hatching of a section carries on inside it. A detail of a view that is not on the sheet, or
+that could not be drawn, says so in the panel. Deleting a section view also deletes the details of
+it.
+
 The title block takes the title, part number, revision, author and organisation from
 [model properties](templates) (the title falls back to the model's file name), and shows the scale,
 sheet size, projection with its ISO symbol, the units (mm) and the drawing's name.

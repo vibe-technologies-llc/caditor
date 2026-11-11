@@ -3,13 +3,14 @@ use std::collections::BTreeMap;
 use arbitrary::{Result, Unstructured};
 use caditor_document::{
     Between, BodyAppearance, Configuration, ConfigurationId, Configurations, ConfiguredValue,
-    Datum, DatumPoint, Drawing, DrawingId, DrawingScale, Drawings, Edit, FaceColour, FeatureId,
-    FeatureKind, Finish, MeasuredItem, Measurement, ModelProperties, ModelProperty, NamedView,
-    Outline, ParameterOwner, PieceStandIns, Pieces, PlaneReference, PointReference, PrincipalAxis,
-    PrincipalGeometry, PrincipalPlane, PrincipalShowing, Projection, ProjectionSource, Reading,
-    Rgb, RollbackBar, SECTION_LETTERS, SavedView, SavedViews, ScaleRatio, SectionPlace,
-    SectionPlane, SectionView, SelectionSet, SelectionSets, SetMember, Setting, SheetOrientation,
-    SheetSize, SketchAttachment, StandardView, Transaction,
+    Datum, DatumPoint, DetailParent, DetailScale, DetailView, Drawing, DrawingId, DrawingScale,
+    Drawings, Edit, FaceColour, FeatureId, FeatureKind, Finish, MeasuredItem, Measurement,
+    ModelProperties, ModelProperty, NamedView, Outline, ParameterOwner, PieceStandIns, Pieces,
+    PlaneReference, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    PrincipalShowing, Projection, ProjectionSource, Reading, Rgb, RollbackBar, SavedView,
+    SavedViews, ScaleRatio, SectionPlace, SectionPlane, SectionView, SelectionSet, SelectionSets,
+    SetMember, Setting, SheetOrientation, SheetSize, SketchAttachment, StandardView, Transaction,
+    VIEW_LETTERS,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Rotation3, Vector2};
@@ -844,7 +845,7 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
     drawing.hidden_lines = input.arbitrary()?;
     for _ in 0..input.int_in_range(0u8..=2)? {
         drawing.sections.push(SectionView {
-            letter: *input.choose(&SECTION_LETTERS)?,
+            letter: *input.choose(&VIEW_LETTERS)?,
             parent: *input.choose(&StandardView::ALL)?,
             plane: *input.choose(&SectionPlane::ALL)?,
             place: if input.arbitrary::<bool>()? {
@@ -853,6 +854,29 @@ fn drawing(input: &mut Unstructured, scene: &Scene) -> Result<Drawing> {
                 SectionPlace::offset(f64::from(input.int_in_range(-60i32..=60)?))
             },
             reversed: input.arbitrary()?,
+        });
+    }
+    for _ in 0..input.int_in_range(0u8..=2)? {
+        let parent = match drawing.sections.last() {
+            Some(section) if input.arbitrary::<bool>()? => DetailParent::Section(section.letter),
+            _ => DetailParent::Standard(*input.choose(&StandardView::ALL)?),
+        };
+        drawing.details.push(DetailView {
+            letter: *input.choose(&VIEW_LETTERS)?,
+            parent,
+            centre: Vector2::new(
+                f64::from(input.int_in_range(-60i32..=60)?),
+                f64::from(input.int_in_range(-60i32..=60)?),
+            ),
+            radius: f64::from(input.int_in_range(0i32..=40)?) / 2.0,
+            scale: if input.arbitrary::<bool>()? {
+                DetailScale::Enlarged
+            } else {
+                DetailScale::Ratio(ScaleRatio::new(
+                    input.int_in_range(0u32..=60)?,
+                    input.int_in_range(0u32..=1200)?,
+                ))
+            },
         });
     }
     Ok(drawing)

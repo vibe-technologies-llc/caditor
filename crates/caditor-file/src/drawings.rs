@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Document, Drawing, DrawingId, DrawingScale, Drawings, FIRST_UNSTORABLE_ID, FeatureId,
-    MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET,
-    MAX_SECTION_VIEWS, Projection, SECTION_LETTERS, ScaleRatio, SectionPlace, SectionPlane,
-    SectionView, SheetOrientation, SheetSize, StandardView, drawing_name,
+    DetailParent, DetailScale, DetailView, Document, Drawing, DrawingId, DrawingScale, Drawings,
+    FIRST_UNSTORABLE_ID, FeatureId, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES,
+    MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SECTION_OFFSET, MAX_SECTION_VIEWS, MIN_DETAIL_RADIUS,
+    Projection, ScaleRatio, SectionPlace, SectionPlane, SectionView, SheetOrientation, SheetSize,
+    StandardView, VIEW_LETTERS, drawing_name,
 };
 use caditor_expression::{EvalError, Expression, ParameterId};
+use caditor_geometry::Point2;
 use serde::{Deserialize, Serialize};
 
 use crate::format::Lenient;
@@ -44,6 +46,38 @@ pub(crate) struct DrawingRecord {
     pub hidden_lines: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<Lenient<SectionRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<Lenient<DetailRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DetailRecord {
+    pub letter: String,
+    pub parent: Lenient<ParentRecord>,
+    #[serde(default)]
+    pub centre: [f64; 2],
+    #[serde(default)]
+    pub radius: f64,
+    #[serde(default = "enlarged")]
+    pub scale: Lenient<DetailScaleRecord>,
+}
+
+fn enlarged() -> Lenient<DetailScaleRecord> {
+    Lenient::Read(DetailScaleRecord::Enlarged)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ParentRecord {
+    Standard(String),
+    Section(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DetailScaleRecord {
+    Enlarged,
+    Ratio { sheet: u32, model: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +130,25 @@ fn section_record(section: &SectionView) -> SectionRecord {
     }
 }
 
+fn detail_record(detail: &DetailView) -> DetailRecord {
+    DetailRecord {
+        letter: detail.letter.to_string(),
+        parent: Lenient::Read(match detail.parent {
+            DetailParent::Standard(view) => ParentRecord::Standard(view.key().to_owned()),
+            DetailParent::Section(letter) => ParentRecord::Section(letter.to_string()),
+        }),
+        centre: [detail.centre.x, detail.centre.y],
+        radius: detail.radius,
+        scale: Lenient::Read(match detail.scale {
+            DetailScale::Enlarged => DetailScaleRecord::Enlarged,
+            DetailScale::Ratio(ratio) => DetailScaleRecord::Ratio {
+                sheet: ratio.sheet,
+                model: ratio.model,
+            },
+        }),
+    }
+}
+
 fn fit() -> Lenient<ScaleRecord> {
     Lenient::Read(ScaleRecord::Fit)
 }
@@ -132,6 +185,11 @@ fn drawing_record(drawing: &Drawing) -> DrawingRecord {
             .sections
             .iter()
             .map(|section| Lenient::Read(section_record(section)))
+            .collect(),
+        details: drawing
+            .details
+            .iter()
+            .map(|detail| Lenient::Read(detail_record(detail)))
             .collect(),
     }
 }
@@ -269,18 +327,14 @@ fn restored_bodies(raws: &[u64], name: &str, issues: &mut Vec<String>) -> Vec<Fe
     bodies
 }
 
-fn section_letter(record: &str, taken: &[SectionView]) -> Option<char> {
+fn view_letter(record: &str, taken: impl Fn(char) -> bool) -> Option<char> {
     let mut characters = record.chars();
     let letter = characters
         .next()
         .filter(|_| characters.next().is_none())
-        .filter(|letter| SECTION_LETTERS.contains(letter))
-        .filter(|letter| taken.iter().all(|section| section.letter != *letter));
-    letter.or_else(|| {
-        SECTION_LETTERS
-            .into_iter()
-            .find(|letter| taken.iter().all(|section| section.letter != *letter))
-    })
+        .filter(|letter| VIEW_LETTERS.contains(letter))
+        .filter(|letter| !taken(*letter));
+    letter.or_else(|| VIEW_LETTERS.into_iter().find(|letter| !taken(*letter)))
 }
 
 fn restored_place(
@@ -328,7 +382,9 @@ fn restored_section(
     exists: &dyn Fn(ParameterId) -> bool,
     issues: &mut Vec<String>,
 ) -> Option<SectionView> {
-    let letter = section_letter(&record.letter, taken)?;
+    let letter = view_letter(&record.letter, |letter| {
+        taken.iter().any(|section| section.letter == letter)
+    })?;
     let label = format!("{letter}\u{2013}{letter}");
     if record.letter != letter.to_string() {
         issues.push(format!(
@@ -393,6 +449,133 @@ fn restored_sections(
     sections
 }
 
+fn restored_scale_of_detail(
+    record: &Lenient<DetailScaleRecord>,
+    label: char,
+    issues: &mut Vec<String>,
+) -> DetailScale {
+    let ratio = match record {
+        Lenient::Read(DetailScaleRecord::Enlarged) => return DetailScale::Enlarged,
+        Lenient::Read(DetailScaleRecord::Ratio { sheet, model }) => ScaleRatio::new(*sheet, *model),
+        Lenient::Unreadable(_) => {
+            issues.push(format!(
+                "The scale of detail view {label} was not understood, so it is twice the scale \
+                 of the sheet."
+            ));
+            return DetailScale::Enlarged;
+        }
+    };
+    if ratio.is_usable() {
+        return DetailScale::Ratio(ratio);
+    }
+    issues.push(format!(
+        "The scale {} of detail view {label} cannot be used, so it is twice the scale of the \
+         sheet.",
+        ratio.label()
+    ));
+    DetailScale::Enlarged
+}
+
+fn restored_parent(
+    record: &Lenient<ParentRecord>,
+    sections: &[SectionView],
+) -> Option<DetailParent> {
+    match record {
+        Lenient::Read(ParentRecord::Standard(key)) => {
+            StandardView::from_key(key).map(DetailParent::Standard)
+        }
+        Lenient::Read(ParentRecord::Section(letter)) => {
+            let mut characters = letter.chars();
+            let letter = characters
+                .next()
+                .filter(|_| characters.next().is_none())
+                .filter(|letter| sections.iter().any(|section| section.letter == *letter))?;
+            Some(DetailParent::Section(letter))
+        }
+        Lenient::Unreadable(_) => None,
+    }
+}
+
+fn restored_detail(
+    record: &DetailRecord,
+    sections: &[SectionView],
+    taken: &[DetailView],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Option<DetailView> {
+    let Some(letter) = view_letter(&record.letter, |letter| {
+        sections.iter().any(|section| section.letter == letter)
+            || taken.iter().any(|detail| detail.letter == letter)
+    }) else {
+        issues.push(format!(
+            "Every letter of the drawing “{name}” is taken by a section or detail view, so a \
+             detail view was left out."
+        ));
+        return None;
+    };
+    if record.letter != letter.to_string() {
+        issues.push(format!(
+            "A detail view of the drawing “{name}” had no letter of its own, so it is {letter}."
+        ));
+    }
+    let Some(parent) = restored_parent(&record.parent, sections) else {
+        issues.push(format!(
+            "The view detail {letter} enlarges was not understood or is not in the drawing “{name}”, \
+             so the detail view was left out."
+        ));
+        return None;
+    };
+    let [x, y] = record.centre;
+    let centre = Point2::new(x, y);
+    let usable = centre.is_finite()
+        && x.abs() <= MAX_DETAIL_EXTENT
+        && y.abs() <= MAX_DETAIL_EXTENT
+        && record.radius.is_finite()
+        && (MIN_DETAIL_RADIUS..=MAX_DETAIL_EXTENT).contains(&record.radius);
+    if !usable {
+        issues.push(format!(
+            "The circle of detail view {letter} in the drawing “{name}” cannot be used, so the \
+             detail view was left out."
+        ));
+        return None;
+    }
+    Some(DetailView {
+        letter,
+        parent,
+        centre,
+        radius: record.radius,
+        scale: restored_scale_of_detail(&record.scale, letter, issues),
+    })
+}
+
+fn restored_details(
+    records: &[Lenient<DetailRecord>],
+    sections: &[SectionView],
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Vec<DetailView> {
+    let mut details = Vec::new();
+    for record in records {
+        let Lenient::Read(record) = record else {
+            issues.push(format!(
+                "A detail view of the drawing “{name}” could not be read, so it was left out."
+            ));
+            continue;
+        };
+        if details.len() >= MAX_DETAIL_VIEWS {
+            issues.push(format!(
+                "A drawing holds at most {MAX_DETAIL_VIEWS} detail views, so the rest of those of \
+                 “{name}” were left out."
+            ));
+            break;
+        }
+        if let Some(detail) = restored_detail(record, sections, &details, name, issues) {
+            details.push(detail);
+        }
+    }
+    details
+}
+
 pub(crate) fn restore_drawings(
     record: DrawingsRecord,
     exists: &dyn Fn(ParameterId) -> bool,
@@ -422,6 +605,8 @@ pub(crate) fn restore_drawings(
             continue;
         }
         let name = fitting_name(&drawing.name, &drawings, issues);
+        let sections = restored_sections(&drawing.sections, &name, exists, issues);
+        let details = restored_details(&drawing.details, &sections, &name, issues);
         let restored = Drawing {
             id,
             size: understood(
@@ -452,7 +637,8 @@ pub(crate) fn restore_drawings(
             views: restored_views(&drawing.views, &name, issues),
             bodies: restored_bodies(&drawing.bodies, &name, issues),
             hidden_lines: drawing.hidden_lines,
-            sections: restored_sections(&drawing.sections, &name, exists, issues),
+            sections,
+            details,
             name,
         };
         drawings.drawings.push(restored);

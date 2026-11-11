@@ -28,8 +28,8 @@ use crate::{
         list_names,
     },
     drawings::{
-        Drawings, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS, MAX_DRAWINGS, MAX_SCALE_TERM,
-        MAX_SECTION_VIEWS,
+        Drawings, MAX_DETAIL_EXTENT, MAX_DETAIL_VIEWS, MAX_DRAWING_BODIES, MAX_DRAWING_NAME_CHARS,
+        MAX_DRAWINGS, MAX_SCALE_TERM, MAX_SECTION_VIEWS, MIN_DETAIL_RADIUS,
     },
     feature_list::Unindexed,
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
@@ -515,11 +515,31 @@ pub enum EditError {
     )]
     DrawingTooManySections { name: String, sections: usize },
     #[error(
-        "A section view cannot be lettered '{0}'; it takes a capital letter other than I, O and Q"
+        "A drawing holds at most {MAX_DETAIL_VIEWS} detail views, and '{name}' would have {details}. Delete one first."
     )]
-    SectionLetterUnusable(char),
-    #[error("Two section views of one drawing are both lettered '{0}'")]
-    SectionLetterRepeated(char),
+    DrawingTooManyDetails { name: String, details: usize },
+    #[error(
+        "A section or detail view cannot be lettered '{0}'; it takes a capital letter other than I, O and Q"
+    )]
+    ViewLetterUnusable(char),
+    #[error("Two section or detail views of one drawing are both lettered '{0}'")]
+    ViewLetterRepeated(char),
+    #[error(
+        "Detail view {letter} enlarges section {parent}\u{2013}{parent}, which the drawing does not have. Choose another view to enlarge."
+    )]
+    DetailParentMissing { letter: char, parent: char },
+    #[error(
+        "The circle of detail view {letter} must have its centre and radius within {MAX_DETAIL_EXTENT} mm, with a radius of at least {MIN_DETAIL_RADIUS} mm"
+    )]
+    DetailOutOfRange { letter: char },
+    #[error(
+        "Detail view {letter} cannot be drawn at {sheet}:{model}; each term of a scale is a whole number from 1 to {MAX_SCALE_TERM}"
+    )]
+    DetailScaleOutOfRange {
+        letter: char,
+        sheet: u32,
+        model: u32,
+    },
     #[error(
         "Section {letter}\u{2013}{letter} cannot cut along the {plane}, since the {view} view sees that plane face on rather than as a line. Choose another plane or parent view."
     )]
