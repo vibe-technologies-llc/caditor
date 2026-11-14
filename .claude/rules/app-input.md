@@ -50,7 +50,9 @@ paths:
   (`viewport::feature_prompt`, "Click edges to fillet…"), else where in its panel to look, per
   datum and pattern kind, and every one ends with `Esc: done`, preceded by `0–9: set <field>`
   when a typed value reaches the feature's main value (`manipulator::primary_typing`,
-  `app-modelling.md`); Select in an edited sketch has
+  `app-modelling.md`) and, before that, by `Drag: an arrow to change its value` while the
+  feature's manipulator stands in the view (left out where the prompt itself begins with Drag, as
+  a move's does); Select in an edited sketch has
   `SELECT_PROMPT` with Esc finishing or clearing.
 - An empty model (no feature, nothing open, no plane being chosen, no drag) shows the start card
   at the prompt's place (`start_card.rs`, look and placement in `app-look.md`): Start with a

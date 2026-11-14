@@ -132,6 +132,8 @@ pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const DONE_HINT: &str = "Esc: done";
 const TYPED_VALUE_KEYS: &str = "0–9";
+const DRAG_WORD: &str = "Drag";
+const DRAG_HINT: &str = "Drag: an arrow to change its value";
 pub const SELECT_PROMPT: &str = "Choose a tool to draw, or click geometry to select it";
 const PROJECT_PROMPT: &str = "Click an edge, corner or face of a body, a curve or point of another \
      sketch, an axis, a datum point or the origin, to project it";
@@ -6340,15 +6342,22 @@ impl ViewportState {
             ))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
-            let keys = match manipulator::primary_typing(model, feature) {
-                Some(typing) => HintList::parsed(&format!(
-                    "{TYPED_VALUE_KEYS}: set {}{}{DONE_HINT}",
-                    typing.label,
-                    canvas::HINT_SEPARATOR
-                )),
-                None => HintList::parsed(DONE_HINT),
-            };
-            Some((feature_prompt(kind).to_owned(), keys))
+            let text = feature_prompt(kind);
+            let dragged = self
+                .manipulator
+                .as_ref()
+                .filter(|standing| standing.feature() == feature && !text.starts_with(DRAG_WORD))
+                .map(|_| DRAG_HINT.to_owned());
+            let typed = manipulator::primary_typing(model, feature)
+                .map(|typing| format!("{TYPED_VALUE_KEYS}: set {}", typing.label));
+            let keys: Vec<String> = [dragged, typed, Some(DONE_HINT.to_owned())]
+                .into_iter()
+                .flatten()
+                .collect();
+            Some((
+                text.to_owned(),
+                HintList::parsed(&keys.join(canvas::HINT_SEPARATOR)),
+            ))
         } else if editing
             .active()
             .is_some_and(|active| active.tool.intersects())

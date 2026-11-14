@@ -440,7 +440,9 @@ fn one_sided(harness: &Harness, extrude: FeatureId) -> (bool, f64) {
 fn a_value_typed_with_no_arrow_under_the_pointer_sets_the_open_feature_s_main_value() {
     let mut harness = Harness::new();
     let extrude = open_new_extrusion(&mut harness);
-    let hinted = harness.shows("set Distance") && harness.shows("done");
+    let hinted = harness.shows("an arrow to change its value")
+        && harness.shows("set Distance")
+        && harness.shows("done");
 
     harness.type_text("25");
     let previewed = harness.model.draft_kind(extrude).is_some();
