@@ -14,7 +14,7 @@ use crate::{
     files::FileCommand,
     import,
     import::Placement,
-    import_options::{Arrangement, ImportOptionsCommand, PlaneChoice},
+    import_options::{Arrangement, ImportOptionsCommand, PlaneChoice, StartingPlacement},
     model::Action,
 };
 
@@ -164,6 +164,60 @@ fn the_import_options_scale_centre_and_place_a_drawing_before_it_is_added() {
     assert!(harness.shows("You scaled the drawing by 2."));
     harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.files.is_blocking());
+}
+
+#[test]
+fn the_next_drawing_starts_centred_and_on_the_plane_of_the_last_but_in_its_own_unit_and_scale() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let square = dir.path().join("bracket.dxf");
+    square_drawing(&square);
+    let features = harness.document().features().len();
+    let placed = StartingPlacement {
+        recentre: true,
+        plane: PlaneChoice::Xz,
+    };
+
+    harness.answer_dialog(Some(square));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the options are shown", |harness| {
+        harness.shows("Import “bracket.dxf”")
+    });
+    for command in [
+        ImportOptionsCommand::Scale(2.0),
+        ImportOptionsCommand::Recentre(true),
+        ImportOptionsCommand::Plane(PlaneChoice::Xz),
+    ] {
+        harness.command(FileCommand::ImportOptions(command));
+    }
+    harness.click("Import");
+    harness.wait_until("the drawing is imported", |harness| {
+        harness.document().features().len() == features + 1
+    });
+    harness.click_button(crate::widgets::CLOSE_DIALOG);
+    harness.frame();
+    let remembered = harness.workspace.preferences.import_placement;
+    let stored = StartingPlacement::from_settings(&harness.workspace.preferences.settings());
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the options are shown again", |harness| {
+        harness.shows("Import “bracket.dxf”")
+    });
+    let starts_unscaled = harness.shows("4 curves drawn, 30.000 mm wide and 30.000 mm high.");
+    harness.click("Import");
+    harness.wait_until("the second drawing is imported", |harness| {
+        harness.document().features().len() == features + 2
+    });
+    let sketch = harness.document().features().last().unwrap().id();
+    let imported = harness.sketch(sketch);
+
+    assert_eq!(remembered, placed);
+    assert_eq!(stored, placed);
+    assert!(starts_unscaled);
+    assert_eq!(imported.plane(), Plane::XZ);
+    for position in sketch_positions(imported) {
+        assert!((position.x.abs() - 15.0).abs() < 1e-9, "{position}");
+        assert!((position.y.abs() - 15.0).abs() < 1e-9, "{position}");
+    }
 }
 
 #[test]

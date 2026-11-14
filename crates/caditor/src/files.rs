@@ -69,7 +69,7 @@ use crate::{
     },
     image_tools::ImageTarget,
     import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
-    import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
+    import_options::{self, Arrangement, Arranging, ImportOptionsCommand, StartingPlacement},
     import_unit::{self, ImportUnitCommand, Scaling},
     menu_bar::{self, MenuEntries},
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
@@ -1178,6 +1178,8 @@ pub struct Files {
     sheet: Option<Box<SheetJob>>,
     drawing_construction: Construction,
     sheet_format: SheetFormat,
+    import_placement: StartingPlacement,
+    placement_to_remember: Option<StartingPlacement>,
     history: VersionHistory,
     picking: Option<(u64, Purpose, Since)>,
     pick_ticket: u64,
@@ -1247,6 +1249,8 @@ impl Files {
             sheet: None,
             drawing_construction: Construction::LeftOut,
             sheet_format: SheetFormat::default(),
+            import_placement: StartingPlacement::default(),
+            placement_to_remember: None,
             history: VersionHistory::default(),
             picking: None,
             pick_ticket: 0,
@@ -1714,6 +1718,11 @@ impl Files {
         match command {
             ImportOptionsCommand::Cancel => self.arranging = None,
             ImportOptionsCommand::Confirm => {
+                if let Some(arranging) = &self.arranging {
+                    let placement = arranging.placement();
+                    self.import_placement = placement;
+                    self.placement_to_remember = Some(placement);
+                }
                 if let Some(Arranging {
                     path,
                     into,
@@ -2359,7 +2368,8 @@ impl Files {
                 }
                 self.importing = None;
                 if session == model.session() {
-                    self.arranging = Some(Arranging::new(path, into, *drawing));
+                    let placement = self.import_placement;
+                    self.arranging = Some(Arranging::new(path, into, *drawing, placement));
                 }
             }
             Event::ReplacementRefused {
@@ -3593,6 +3603,7 @@ impl Files {
         self.read_default_template(&settings);
         self.read_habits(&settings);
         self.read_slicer_program(&settings);
+        self.import_placement = StartingPlacement::from_settings(&settings);
         if ExportMemory::read(&settings, remembered::REMEMBER_KEY) == ExportMemory::Remembered {
             self.restore_exports(&RememberedExports::from_settings(&settings));
         }
@@ -3636,6 +3647,10 @@ impl Files {
 
     pub fn take_backdrop_chosen(&mut self) -> Option<PathBuf> {
         self.backdrop_to_remember.take()
+    }
+
+    pub fn take_placement_to_remember(&mut self) -> Option<StartingPlacement> {
+        self.placement_to_remember.take()
     }
 
     pub fn take_exports_to_remember(&mut self) -> Option<RememberedExports> {

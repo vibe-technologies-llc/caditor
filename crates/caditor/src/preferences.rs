@@ -34,6 +34,7 @@ use crate::{
     },
     graphics::{CurveQuality, FrameLimit, Graphics},
     icons,
+    import_options::StartingPlacement,
     inference::{Inference, Inferences},
     last_values::{LastValues, Remembered},
     layout::{PanelLayout, WindowPlacement},
@@ -518,6 +519,7 @@ pub struct Preferences {
     pub palette_recent: Vec<Command>,
     pub recent_colours: Vec<Rgb>,
     pub last_values: LastValues,
+    pub import_placement: StartingPlacement,
     loaded_keymap: Keymap,
     raw: Settings,
 }
@@ -639,6 +641,7 @@ pub enum PreferencesCommand {
     RememberRecent(Vec<Command>),
     RememberLast(Vec<(Remembered, String)>),
     RememberExports(RememberedExports),
+    RememberImport(StartingPlacement),
     Search(String),
     Undo,
 }
@@ -818,6 +821,7 @@ impl Preferences {
             palette_recent: palette_recent(&raw),
             recent_colours: recent_colours(&raw),
             last_values: LastValues::from_settings(&raw),
+            import_placement: StartingPlacement::from_settings(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -888,6 +892,7 @@ impl Preferences {
             settings.set_texts(RECENT_COLOURS_KEY, &hexes);
         }
         self.last_values.write(&mut settings);
+        self.import_placement.write(&mut settings);
         settings
     }
 
@@ -1431,6 +1436,8 @@ mod tests {
         ] {
             odd.set_text(key, "from a newer caditor");
         }
+        odd.set_text("import.drawing.plane", "from a newer caditor");
+        odd.set_text("import.drawing.recentre", "from a newer caditor");
         odd.set_text(OUTLINES_KEY, "yes");
         odd.set_number(GLYPHS_KEY, 3.0);
         let odd = Preferences::from_settings(odd);
@@ -1445,6 +1452,7 @@ mod tests {
             assert_eq!(read.recent_listed, RecentListed::Ten);
             assert_eq!(read.double_click, DoubleClick::Edit);
             assert_eq!(read.new_bodies, NewBodies::OneBody);
+            assert_eq!(read.import_placement, StartingPlacement::default());
         }
 
         let mut preferences = Preferences::default();

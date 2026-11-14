@@ -409,7 +409,12 @@ paths:
   the origin, for a new sketch the plane (`Arrangement`), and for several layers which to import
   (Import disabled while none). It shows the resulting size and warns when the chosen layers pass
   `MAX_DRAWING_CURVES` (`Drawing::chosen_curve_count`); Cancel adds nothing, a queue of dropped files
-  waits behind it.
+  waits behind it. The dialog starts from the centring and plane the last confirmed import used
+  (`StartingPlacement`, `Files::import_placement`, kept in the preferences under
+  `import.drawing.recentre` and `import.drawing.plane` through
+  `PreferencesCommand::RememberImport`, read leniently). Unit and scale always start from the file:
+  a `Drawing` does not say whether its file named a unit, so a remembered override would silently
+  misread the next file that does.
 - A new STL or OBJ import whose read came back with a guessed unit (`UnitReading::is_guess`, a
   longest side that is implausible in millimetres, `file-import-export.md`) opens the unit offer
   (`import_unit.rs`, `Files::scaling`, `Scaling`) instead of placing the bodies: an info callout

@@ -10,7 +10,9 @@ them will do.
 A drawing becomes sketch geometry: in the sketch being edited, else in a new sketch named after the
 file. Before it is added, a dialog asks the unit to read it in (as the file says, by default), a
 scale, whether to centre it on the origin, the plane for a new sketch and, for a drawing of several
-layers, which layers to take. It shows the size the drawing will have. Dashed lines come in as
+layers, which layers to take. It shows the size the drawing will have. The centring and the plane
+start as the last import left them, also after caditor is closed; the unit and scale start from
+the file each time, since they belong to the drawing. Dashed lines come in as
 construction geometry. A DXF spline given only by the points it passes through comes in as a
 [fit-point spline](spline) through those points, open or closed as the file says, so you can drag
 and constrain them.

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use caditor_document::FeatureId;
 use caditor_file::{
-    Drawing, DrawingOptions, DrawingUnit, MAX_DRAWING_CURVES, MAX_SCALE, MIN_SCALE,
+    Drawing, DrawingOptions, DrawingUnit, MAX_DRAWING_CURVES, MAX_SCALE, MIN_SCALE, Settings,
 };
 use caditor_geometry::Plane;
 use egui::{Id, Label, ScrollArea, Ui};
@@ -16,6 +16,8 @@ use crate::{
 };
 
 const LAYER_LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Short;
+const RECENTRE_KEY: &str = "import.drawing.recentre";
+const PLANE_KEY: &str = "import.drawing.plane";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PlaneChoice {
@@ -33,6 +35,14 @@ impl PlaneChoice {
             Self::Xy => Plane::XY,
             Self::Xz => Plane::XZ,
             Self::Yz => Plane::YZ,
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Xy => "xy",
+            Self::Xz => "xz",
+            Self::Yz => "yz",
         }
     }
 
@@ -59,6 +69,47 @@ pub struct Arrangement {
     pub plane: PlaneChoice,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StartingPlacement {
+    pub recentre: bool,
+    pub plane: PlaneChoice,
+}
+
+impl StartingPlacement {
+    pub fn from_settings(settings: &Settings) -> Self {
+        Self {
+            recentre: settings.flag(RECENTRE_KEY).unwrap_or_default(),
+            plane: PlaneChoice::ALL
+                .into_iter()
+                .find(|plane| settings.text(PLANE_KEY) == Some(plane.key()))
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn write(self, settings: &mut Settings) {
+        if self.recentre {
+            settings.set_flag(RECENTRE_KEY, true);
+        } else {
+            settings.remove(RECENTRE_KEY);
+        }
+        if self.plane == PlaneChoice::default() {
+            settings.remove(PLANE_KEY);
+        } else {
+            settings.set_text(PLANE_KEY, self.plane.key());
+        }
+    }
+
+    fn arrangement(self) -> Arrangement {
+        Arrangement {
+            options: DrawingOptions {
+                recentre: self.recentre,
+                ..DrawingOptions::default()
+            },
+            plane: self.plane,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ImportOptionsCommand {
     Unit(DrawingUnit),
@@ -80,12 +131,24 @@ pub struct Arranging {
 }
 
 impl Arranging {
-    pub fn new(path: PathBuf, into: Option<FeatureId>, drawing: Drawing) -> Self {
+    pub fn new(
+        path: PathBuf,
+        into: Option<FeatureId>,
+        drawing: Drawing,
+        placement: StartingPlacement,
+    ) -> Self {
         Self {
             path,
             into,
             drawing,
-            arrangement: Arrangement::default(),
+            arrangement: placement.arrangement(),
+        }
+    }
+
+    pub fn placement(&self) -> StartingPlacement {
+        StartingPlacement {
+            recentre: self.arrangement.options.recentre,
+            plane: self.arrangement.plane,
         }
     }
 

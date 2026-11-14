@@ -532,6 +532,12 @@ impl Workspace {
                     files.store_settings(preferences.settings());
                 }
             }
+            PreferencesCommand::RememberImport(placement) => {
+                if self.preferences.import_placement != placement {
+                    self.preferences.import_placement = placement;
+                    files.store_settings(self.preferences.settings());
+                }
+            }
             PreferencesCommand::RememberRecent(recent) => {
                 self.preferences.palette_recent = recent;
                 files.store_settings(self.preferences.settings());
@@ -1914,6 +1920,9 @@ pub fn perform(
             model,
             files,
         );
+    }
+    if let Some(placement) = files.take_placement_to_remember() {
+        workspace.preferences_command(PreferencesCommand::RememberImport(placement), model, files);
     }
     if let Some(exports) = files.take_exports_to_remember() {
         workspace.preferences_command(PreferencesCommand::RememberExports(exports), model, files);
