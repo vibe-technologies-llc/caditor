@@ -443,8 +443,9 @@ paths:
   rows would take more than `MOST_LABELLED_SHARE` of the window's height
   (`ribbon::labelled_too_tall`), judged from labelled widths remembered apart from compact ones (a
   second ribbon name). Compact buttons are icon-only `ToolButton`s named by their label for screen
-  readers. Buttons explain themselves on hover with `ribbon::explained` (name, what it does with its
-  shortcut, or why it is unavailable).
+  readers. Buttons explain themselves on hover with `ribbon::explained` (name, what it does or why
+  it is unavailable, either followed by its shortcut, so a tool that cannot run now still teaches
+  its keys).
 - The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum: History, Sketch,
   Solid (Extrude, Revolve, Sweep, Hole), Modify, Pattern, Reference, Analyse (Measure,
   Interference); compact through `toolbar::tool_button`. While a plane is being chosen for a new

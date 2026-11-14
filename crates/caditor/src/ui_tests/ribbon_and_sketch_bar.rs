@@ -172,7 +172,18 @@ fn every_ribbon_group_is_captioned_under_its_buttons() {
     }
     harness.hover("Undo");
     assert_eq!(harness.count_shown("Undo"), 2);
-    assert!(harness.shows("Nothing to undo"));
+    assert!(harness.shows("Nothing to undo (Ctrl+Z)"));
+}
+
+#[test]
+fn a_tool_that_cannot_run_still_names_its_keys_beside_the_reason() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    harness.hover("Fillet");
+
+    assert!(harness.shows_containing(crate::blend_tools::NOTHING_TO_BLEND));
+    assert!(harness.shows_containing("then click here (Alt+F)"));
 }
 
 #[test]

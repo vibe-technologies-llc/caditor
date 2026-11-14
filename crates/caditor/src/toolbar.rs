@@ -429,7 +429,13 @@ fn tool<R: Display>(
             }
             response
         }
-        _ => ribbon::explained(ui.add_enabled(help.is_ok(), button), label, help),
+        Err(blocked) => {
+            let reason = blocked.to_string();
+            let refused =
+                Err::<String, _>(commands.with_keys(command, reason.trim_end_matches('.')));
+            ribbon::explained(ui.add_enabled(false, button), label, &refused)
+        }
+        Ok(_) => ribbon::explained(ui.add(button), label, help),
     }
 }
 

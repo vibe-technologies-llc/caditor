@@ -1062,7 +1062,7 @@ impl Bar<'_, '_> {
                 let verb = command.title();
                 let help = match step {
                     Some(step) => Ok(self.commands.with_keys(command, &format!("{verb} {step}"))),
-                    None => Err(idle.to_owned()),
+                    None => Err(self.commands.with_keys(command, idle)),
                 };
                 let button = ToolButton::new(icons::command(command), &verb).compact();
                 let response = explained(ui.add_enabled(help.is_ok(), button), &verb, &help);
@@ -1607,7 +1607,10 @@ impl Bar<'_, '_> {
                 .commands
                 .with_keys(Command::DeleteSelection, DELETE_HELP))
         } else {
-            Err(Unavailable::NothingToDelete.to_string())
+            Err(self.commands.with_keys(
+                Command::DeleteSelection,
+                &Unavailable::NothingToDelete.to_string(),
+            ))
         };
         let response = explained(response, DELETE_LABEL, &help);
         if response.clicked() || invoked {
