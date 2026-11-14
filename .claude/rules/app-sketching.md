@@ -818,8 +818,12 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   constraints on the settled geometry (`sketch-solver.md`), so a rectangle's width across from its
   dimensioned side is determined while the rectangle still moves. It is added inactive in the same
   transaction ("Add reference ...") with a notice, and takes no focus (`sketch_tools::determines`).
-- Smart dimension (`Tool::Dimension`, `dimensioning.rs`) takes the geometry clicked after it, not the
-  selection: the selection is cleared when it starts, holds its picks, and is cleared when it ends. A
+- Smart dimension (`Tool::Dimension`, `dimensioning.rs`) takes the geometry clicked after it and
+  what was selected when it started: the selection holds its picks, keeps only what the tool can
+  pick (`dimensioning::picks`: the edited sketch's entities and body items) when it starts, and is
+  cleared when it ends. A selection that already makes a dimension without a placing click adds it
+  at once, as a second click would, one it refuses is let go
+  (`ViewportState::dimension_selection`, run once after the tool starts). A
   click on a sketch item picks it (again lets it go); `dimensioning::fitting` chooses the dimension: a
   line's length, circle's diameter or arc's radius for one pick, the angle between two non-parallel
   lines, otherwise the distance between two picks (origin and axes included). A second pick adds its

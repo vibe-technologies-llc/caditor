@@ -507,6 +507,7 @@ pub struct ViewportState {
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     dimensioning: Option<FeatureId>,
+    dimension_of_selection: Option<FeatureId>,
     body_snaps: Arc<BodySnaps>,
     body_hovered: Option<Pickable>,
     more_keys: bool,
@@ -943,6 +944,7 @@ impl ViewportState {
             manipulator: None,
             manipulator_hover: None,
             dimensioning: None,
+            dimension_of_selection: None,
             body_snaps: Arc::default(),
             body_hovered: None,
             more_keys: false,
@@ -1641,6 +1643,7 @@ impl ViewportState {
             manipulator::publish_dragged(ui.ctx(), self.dragged_feature());
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
+            self.dimension_selection(model, actions);
             self.type_points(ui, rect, model, editing, keys_free, actions);
             self.navigate(ui, &response, rect);
             self.drag_primary(ui, &response, model, editing, actions);
@@ -3181,8 +3184,14 @@ impl ViewportState {
             .filter(|active| active.tool.dimensions())
             .map(|active| active.feature);
         if dimensioning != self.dimensioning {
-            self.selection.clear();
+            match dimensioning {
+                Some(feature) => self
+                    .selection
+                    .retain(|pickable| dimensioning::picks(pickable, feature)),
+                None => self.selection.clear(),
+            }
             self.dimensioning = dimensioning;
+            self.dimension_of_selection = dimensioning;
         }
         let selected = editing
             .feature()
@@ -3608,6 +3617,26 @@ impl ViewportState {
             dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {
                 self.selection.toggle(pickable);
             }
+        }
+    }
+
+    fn dimension_selection(&mut self, model: &Model, actions: &mut Vec<Action>) {
+        let Some(feature) = self.dimension_of_selection.take() else {
+            return;
+        };
+        let Ok(staged) = self.staged_picks(model, feature, None) else {
+            self.selection.clear();
+            return;
+        };
+        match dimensioning::fitting(&staged.shown, &staged.picks) {
+            dimensioning::Fit::Refused(_) => self.selection.clear(),
+            dimensioning::Fit::Ready(_)
+                if staged.picks.len() > 1
+                    && !dimensioning::awaits_placement(&staged.shown, &staged.picks) =>
+            {
+                self.place_dimension(model, feature, &staged, actions);
+            }
+            dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {}
         }
     }
 

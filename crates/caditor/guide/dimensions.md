@@ -15,6 +15,10 @@ for example `width / 2` or `30 deg`.
   an end give the angle between them.
 - Anything else gives the distance between the two items, the origin and axes included.
 
+What is already selected when the tool starts counts as clicked: with one item selected it waits
+for the second, and with two that make a dimension it adds that dimension at once and opens its
+value. A selection it cannot dimension is let go.
+
 Smart dimension also takes a corner, the centre of a round edge or an edge of a body made before
 the sketch, where it falls on the sketch plane, labelled for example "Edge of Base", clicked or
 reached with {command:view.highlight_next} and picked with {command:view.activate_highlighted}. It is

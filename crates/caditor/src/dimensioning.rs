@@ -8,6 +8,7 @@ use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Reference, Sketc
 use crate::{
     body_picks::Staged,
     model::Model,
+    selection::Pickable,
     sketch_tools::{self, Added, ConstraintOfferError, ConstraintTool},
 };
 
@@ -67,6 +68,14 @@ fn kind(sketch: &Sketch, id: EntityId) -> Option<Kind> {
         Entity::Spline { .. } => Kind::Spline,
         Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Kind::Ellipse,
     })
+}
+
+pub fn picks(pickable: Pickable, sketch: FeatureId) -> bool {
+    match pickable {
+        Pickable::SketchEntity { feature, .. } => feature == sketch,
+        Pickable::BodyItem { sketch: owner, .. } => owner == sketch,
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

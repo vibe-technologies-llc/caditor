@@ -185,11 +185,9 @@ fn the_smart_dimension_takes_a_line_clicked_after_it_and_enter_dimensions_its_le
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 40.0));
-    let other = sketch.add_point(Point2::new(40.0, 0.0));
     let feature = edit_free_sketch(&mut harness, sketch);
     let (start, end) = line_ends(harness.sketch(feature), line);
     let label = harness.sketch(feature).entity_label(line);
-    harness.select([sketch_entity(feature, other)]);
 
     harness.use_tool(Key::D);
     assert_eq!(harness.tool(), Some(Tool::Dimension));
@@ -246,6 +244,48 @@ fn the_smart_dimension_takes_a_line_clicked_after_it_and_enter_dimensions_its_le
     harness.settle();
     let (from, to) = harness.shown(feature).line_endpoints(line).unwrap();
     assert!((from.distance(to) - 25.0).abs() < 1e-6);
+}
+
+#[test]
+fn the_smart_dimension_starts_from_what_is_selected() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
+    let slanted = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(20.0, 25.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let label = harness.sketch(feature).entity_label(level);
+    harness.select([sketch_entity(feature, level)]);
+
+    harness.use_tool(Key::D);
+    harness.frame();
+    let kept = harness
+        .workspace
+        .viewport
+        .selection()
+        .contains(sketch_entity(feature, level));
+    let waiting = harness.shows(&format!(
+        "Click a second item to dimension against it, or press Enter for the length of {label}"
+    ));
+    let before = harness.sketch(feature).constraints().count();
+    harness.use_tool(Key::Escape);
+    harness.use_tool(Key::Escape);
+    let left = harness.tool();
+    harness.select([
+        sketch_entity(feature, level),
+        sketch_entity(feature, slanted),
+    ]);
+    harness.use_tool(Key::D);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(left, Some(Tool::Select));
+    assert!(kept);
+    assert!(waiting);
+    assert_eq!(before, 0);
+    assert_eq!(harness.sketch(feature).constraints().count(), 1);
+    assert_eq!(harness.model.undo_label(), Some("Add Angle"));
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
 }
 
 #[test]
