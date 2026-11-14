@@ -68,8 +68,7 @@ With a drawing tool active, start typing a number to open the point field:
 
 Values are [expressions](expressions), so parameters and units work. Letters choose tools, so to
 start with a parameter's name type `=` first, as in `=width, 20`, or put the name in brackets, as
-in `(width), 20`. The same works in the value field of Offset, Sketch fillet, the patterns and
-Tangent circle. {command:sketch.type_value} opens the field without typing anything first.
+in `(width), 20`. The same works in the value field of Offset, Sketch fillet and Tangent circle. {command:sketch.type_value} opens the field without typing anything first.
 
 While the text reads as a point, the shape being drawn follows it and shows its size, but nothing
 is placed until you press Enter. Clicking elsewhere keeps the text, shown dimmed: click the field

@@ -15,7 +15,7 @@ use crate::{
     mirroring::{MirrorRefusal, Mirroring},
     model::Model,
     offsetting::{self, Offsetting, OffsettingError},
-    patterning::{PatternKind, Patterning, PatterningError},
+    patterning::{PatternKind, PatternSettings, Patterning, PatterningError},
     shape_modes::{ShapeMode, ShapeModes},
     sketch_tools,
     snap::{Pointer, Screen},
@@ -66,6 +66,8 @@ pub enum Refusal {
     Gearing(#[from] GearingError),
     #[error(transparent)]
     Texting(#[from] TextingError),
+    #[error(transparent)]
+    Patterning(#[from] PatterningError),
     #[error(transparent)]
     BlendCurving(#[from] BlendCurvingError),
     #[error(transparent)]
@@ -131,8 +133,6 @@ pub enum EntryError {
     Filleting(#[from] FilletingError),
     #[error(transparent)]
     Offsetting(crate::offsetting::OffsettingError),
-    #[error(transparent)]
-    Patterning(#[from] PatterningError),
     #[error(transparent)]
     Tangent(crate::tangent_circling::TangentCirclingError),
 }
@@ -270,6 +270,7 @@ pub struct Modifying {
     last: LastSizes,
     gear: GearSettings,
     text: TextSettings,
+    pattern: PatternSettings,
 }
 
 impl Modifying {
@@ -279,6 +280,20 @@ impl Modifying {
 
     pub fn text_settings(&mut self) -> &mut TextSettings {
         &mut self.text
+    }
+
+    pub fn pattern_parts(&mut self) -> Option<(&mut PatternSettings, &mut Patterning)> {
+        match &mut self.state {
+            State::Pattern(patterning) => Some((&mut self.pattern, patterning)),
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => None,
+        }
     }
 
     pub fn is_active(&self) -> bool {
@@ -426,7 +441,10 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.hover(sketch, screen, pointer),
             State::Mirror(mirroring) => mirroring.hover(sketch, screen, pointer, faceting),
-            State::Pattern(patterning) => patterning.hover(sketch, screen, pointer, faceting),
+            State::Pattern(patterning) => {
+                patterning.set_spec(self.pattern.spec(patterning.kind()));
+                patterning.hover(sketch, screen, pointer, faceting);
+            }
             State::Fillet(filleting) => filleting.hover(sketch, version, screen, pointer),
             State::Tangent(tangent) => tangent.hover(sketch, screen, pointer),
             State::Blend(blend) => blend.hover(sketch, screen, pointer),
@@ -514,11 +532,13 @@ impl Modifying {
         match &self.state {
             State::Offset(_) => Some(offsetting::FIELD),
             State::Fillet(filleting) => Some(filleting.field()),
-            State::Pattern(patterning) => Some(patterning.field()),
             State::Tangent(tangent) => Some(tangent.field()),
-            State::Mirror(_) | State::Blend(_) | State::Gear(_) | State::Text(_) | State::Idle => {
-                None
-            }
+            State::Mirror(_)
+            | State::Pattern(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Text(_)
+            | State::Idle => None,
         }
     }
 
@@ -538,11 +558,11 @@ impl Modifying {
 
     pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
         match &mut self.state {
-            State::Pattern(patterning) => patterning.show_text(model, text),
             State::Fillet(filleting) => filleting.show_text(model, text),
             State::Tangent(tangent) => tangent.show_text(model, text),
             State::Offset(_)
             | State::Mirror(_)
+            | State::Pattern(_)
             | State::Blend(_)
             | State::Gear(_)
             | State::Text(_)
@@ -557,12 +577,6 @@ impl Modifying {
 
     pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, EntryError> {
         match &mut self.state {
-            State::Pattern(patterning) => match self.context {
-                Some((feature, _)) => patterning
-                    .enter_text(model, feature, text)
-                    .map_err(EntryError::Patterning),
-                None => Ok(Outcome::Nothing),
-            },
             State::Fillet(filleting) => match self.context {
                 Some((feature, _)) => Ok(filleting.enter_text(model, feature, text)?),
                 None => Ok(Outcome::Nothing),
@@ -575,6 +589,7 @@ impl Modifying {
             },
             State::Offset(_)
             | State::Mirror(_)
+            | State::Pattern(_)
             | State::Blend(_)
             | State::Gear(_)
             | State::Text(_)
@@ -642,7 +657,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.click(model, feature, sketch),
             State::Mirror(mirroring) => mirroring.finish(model, feature),
-            State::Pattern(patterning) => patterning.finish(),
+            State::Pattern(patterning) => patterning.finish(model, feature),
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),

@@ -17,7 +17,7 @@ use tempfile::TempDir;
 
 use super::{
     CAMERA_SETTLE, Harness, Painted, Wheel, add_block, add_peg, combine_nearly_touching_blocks,
-    extruded_plate, run_from_palette, top_edge_along_x,
+    entity_pickables, extruded_plate, run_from_palette, top_edge_along_x,
 };
 use crate::{
     app::Workspace,
@@ -616,6 +616,26 @@ fn screenshots() {
                 model.key(Key::Escape, Modifiers::NONE);
                 model.frame();
             }
+            let entities: Vec<_> = model.sketch(sketch).entities().map(|(id, _)| id).collect();
+            model.select(entity_pickables(sketch, &entities));
+            for (query, scene) in [
+                (
+                    "repeat sketch geometry in a grid",
+                    "sketch-pattern-rectangular",
+                ),
+                (
+                    "repeat sketch geometry about a point",
+                    "sketch-pattern-circular",
+                ),
+            ] {
+                run_from_palette(&mut model, query);
+                model.frame();
+                model.frame();
+                shoot(&mut model, &gpu, &out, scene, look);
+            }
+            model.key(Key::Escape, Modifiers::NONE);
+            model.frame();
+            model.select([]);
             run_from_palette(&mut model, "slice the bodies at the sketch plane");
             model.frame();
             model.frame();

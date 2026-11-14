@@ -9,6 +9,7 @@ paths:
   - "crates/caditor/src/offsetting.rs"
   - "crates/caditor/src/mirroring.rs"
   - "crates/caditor/src/patterning.rs"
+  - "crates/caditor/src/sketch_pattern_panel.rs"
   - "crates/caditor/src/filleting.rs"
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
@@ -450,15 +451,24 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   what was gathered (`Modifying::lets_go_of_selection`), then leaves the tool; started with a
   selection they go straight to the line or centre and Escape leaves the tool keeping it.
 - Rectangular and Circular pattern (`Tool::RectangularPattern`, `CircularPattern`, `patterning.rs`;
-  Mirror's arrow menu) repeat the selection (`sketch.md`, Patterns). Numbers go in the typed-point
-  field ("Repeat"), opened by a digit or `=`, previewed live while the text parses; Enter makes one
-  "Pattern geometry" transaction and an error keeps the field open. Rectangular reads
-  `count x spacing`, optionally `< angle`, and a second term after a comma for rows (square to the
-  first unless it has its own angle): `4 x 10`, `4 x 10, 3 x 15`, `3 x 12 < 45`. Circular reads
-  `count` (a full turn) or `count over angle`. Counts are whole numbers; spacings and angles are
-  expressions with parameters, kept as typed. Circular first needs its centre: the one selected point
-  no selected curve uses, else a point clicked or highlighted (origin included), shown highlighted
-  until Escape lets it go.
+  Mirror's arrow menu) repeat the selection (`sketch.md`, Patterns). While either is active the
+  sketch pattern panel (`sketch_pattern_panel.rs`, a right-hand panel closing back to Select) holds
+  a Shape segmented control switching between the two tools, the values as text fields and a
+  Repeats row counting what is repeated; the values are `PatternSettings` in `Modifying`, kept
+  while caditor runs, evaluated each frame by the panel (`PatternSettings::evaluate`: counts are
+  whole numbers, spacings and angles `patterning::quantity` expressions with parameters, kept as
+  typed, a field's problem on its row and "Mend the … first" in an error callout) into the `Spec`
+  `Modifying::hover` hands the tool, which previews it live. Rectangular has Count, Spacing and
+  Angle along the first direction and Rows; with Rows other than 1, Row spacing and Row angle
+  (empty: square to the first, `square_to`). Circular has a Centre row (the chosen or selected
+  centre named, with Use the origin), Count and Total angle (360°, the default, is
+  `Spread::FullTurn`; any other angle runs from the original to the last copy), with an info
+  callout saying so. Make the copies, or Enter in the view (`Patterning::finish`, which first takes
+  a highlighted point as the centre), makes one "Pattern geometry" transaction
+  (`Patterning::make`); a sketch error shows in the panel's callout and the button stays disabled.
+  There is no typed field. Circular first needs its centre: the one selected point no selected
+  curve uses, else a point clicked or highlighted (origin included), shown highlighted until
+  Escape lets it go.
 - Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Offset's arrow menu) takes the
   lines, circles and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two
   selected at start, then each one clicked or highlighted and chosen with Space or Enter (axes

@@ -1,4 +1,4 @@
-use caditor_document::FeatureId;
+use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
@@ -12,47 +12,42 @@ use crate::{
     feature_tree::count,
     field::{self, Expected, ExpressionError},
     model::Model,
-    modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError, ValueField},
+    modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError},
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
-    typed_point,
     units::attach_unit,
 };
 
 pub const TRANSACTION: &str = "Pattern geometry";
-pub const RECTANGULAR_SELECT_FIRST: &str =
-    "Select what to repeat: click it or drag a box around it, then type how many and how far apart";
+pub const RECTANGULAR_SELECT_FIRST: &str = "Select what to repeat: click it or drag a box around \
+                                            it, then set how many and how far apart in the panel";
 pub const CIRCULAR_SELECT_FIRST: &str =
     "Select what to repeat: click it or drag a box around it, then press Enter";
 pub const CIRCULAR_SELECT_MORE: &str = "Click or drag a box to add to what is repeated, then press Enter to choose the point to repeat it about";
 pub const RECTANGULAR_PROMPT: &str =
-    "Type how many and how far apart, such as 4 x 10, or 4 x 10, 3 x 15 for a grid";
+    "Set how many and how far apart in the panel, then press Enter to make the copies";
 pub const CIRCULAR_PROMPT: &str =
-    "Type how many, such as 6 over a full turn, or 5 over 120 for part of one";
+    "Set how many and over what angle in the panel, then press Enter to make the copies";
 pub const CENTRE_PROMPT: &str = "Click the point to repeat the selection about";
 pub const RECTANGULAR_GATHER_KEYS: &str =
     "Click: add or remove   Drag: add what the box takes   Esc: back to Select";
 pub const CIRCULAR_GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the point to repeat about   Esc: back to Select";
 pub const CIRCULAR_GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the point to repeat about   Esc: let go of the selection";
-pub const RECTANGULAR_KEYS: &str = "Count x spacing, then < angle for a slanted direction; a second term adds rows   Click or drag a box: change what is repeated   Esc: back to Select";
-pub const RECTANGULAR_GATHERED_KEYS: &str = "Count x spacing, then < angle for a slanted direction; a second term adds rows   Click or drag a box: change what is repeated   Esc: let go of the selection";
-pub const CIRCULAR_KEYS: &str = "A count alone spaces them over a full turn; count over angle spreads them across it   Esc: choose another point";
+pub const RECTANGULAR_KEYS: &str =
+    "Enter: make the copies   Click or drag a box: change what is repeated   Esc: back to Select";
+pub const RECTANGULAR_GATHERED_KEYS: &str = "Enter: make the copies   Click or drag a box: change what is repeated   Esc: let go of the selection";
+pub const CIRCULAR_KEYS: &str =
+    "Enter: make the copies   Click another point: repeat about it   Esc: choose another point";
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
-pub const RECTANGULAR_FIELD: ValueField = ValueField {
-    label: "Repeat",
-    placeholder: "4 x 10, 3 x 15",
-    action: "repeat",
-};
-pub const CIRCULAR_FIELD: ValueField = ValueField {
-    label: "Repeat",
-    placeholder: "6  or  5 over 120",
-    action: "repeat",
-};
 const CENTRE_FIRST: &str = "click the point to repeat the selection about first";
+const VALUES_FIRST: &str = "mend the values in the panel first";
 const QUARTER_TURN_DEGREES: f64 = 90.0;
+const FULL_TURN_DEGREES: f64 = 360.0;
 const WHOLE_NUMBER_TOLERANCE: f64 = 1e-9;
+const FULL_TURN_TOLERANCE: f64 = 1e-9;
+const SINGLE_ROW: usize = 1;
 const COUNT: Expected = Expected {
     dimension: Some(Dimension::NONE),
     non_negative: false,
@@ -65,12 +60,9 @@ const ANGLE: Expected = Expected {
     dimension: Some(Dimension::ANGLE),
     non_negative: false,
 };
-const OVER: &str = "over";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PatternTextError {
-    #[error("Type a count and a spacing such as 4 x 10, and a second pair such as 3 x 15 for rows")]
-    RectangularForms,
     #[error("The {label} is missing")]
     MissingValue { label: String },
     #[error("{label}: {source}")]
@@ -80,20 +72,20 @@ pub enum PatternTextError {
     },
     #[error("{label}: {}", field::sentence(&.source.to_string()))]
     Unevaluable { label: String, source: EvalError },
-    #[error("count: Use a whole number such as 4")]
-    NotWholeCount,
+    #[error("{label}: Use a whole number such as 4")]
+    NotWholeCount { label: String },
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PatterningError {
-    #[error(transparent)]
-    Text(#[from] PatternTextError),
     #[error(transparent)]
     SketchGone(#[from] trimming::SketchGone),
     #[error("{}: {source}.", .tool.label())]
     Pattern { tool: Tool, source: PatternError },
     #[error("{}: {CENTRE_FIRST}.", .tool.label())]
     CentreFirst { tool: Tool },
+    #[error("{}: {VALUES_FIRST}.", .tool.label())]
+    ValuesFirst { tool: Tool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,28 +95,310 @@ pub enum PatternKind {
 }
 
 impl PatternKind {
-    fn tool(self) -> Tool {
+    pub const ALL: [Self; 2] = [Self::Rectangular, Self::Circular];
+
+    pub fn tool(self) -> Tool {
         match self {
             Self::Rectangular => Tool::RectangularPattern,
             Self::Circular => Tool::CircularPattern,
         }
     }
 
-    pub fn field(self) -> ValueField {
+    pub fn label(self) -> &'static str {
         match self {
-            Self::Rectangular => RECTANGULAR_FIELD,
-            Self::Circular => CIRCULAR_FIELD,
+            Self::Rectangular => "Rectangular",
+            Self::Circular => "Circular",
+        }
+    }
+
+    pub fn about(self) -> &'static str {
+        match self {
+            Self::Rectangular => "Repeat in a row, or in a grid of rows",
+            Self::Circular => "Repeat about a point",
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternField {
+    Count,
+    Spacing,
+    Angle,
+    Rows,
+    RowSpacing,
+    RowAngle,
+    Copies,
+    TotalAngle,
+}
+
+impl PatternField {
+    pub const RECTANGULAR: [Self; 4] = [Self::Count, Self::Spacing, Self::Angle, Self::Rows];
+    pub const ROWS: [Self; 2] = [Self::RowSpacing, Self::RowAngle];
+    pub const CIRCULAR: [Self; 2] = [Self::Copies, Self::TotalAngle];
+    const ALL: [Self; 8] = [
+        Self::Count,
+        Self::Spacing,
+        Self::Angle,
+        Self::Rows,
+        Self::RowSpacing,
+        Self::RowAngle,
+        Self::Copies,
+        Self::TotalAngle,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Count | Self::Copies => "Count",
+            Self::Spacing => "Spacing",
+            Self::Angle => "Angle",
+            Self::Rows => "Rows",
+            Self::RowSpacing => "Row spacing",
+            Self::RowAngle => "Row angle",
+            Self::TotalAngle => "Total angle",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Count => "count",
+            Self::Spacing => "spacing",
+            Self::Angle => "angle",
+            Self::Rows => "rows",
+            Self::RowSpacing => "row-spacing",
+            Self::RowAngle => "row-angle",
+            Self::Copies => "copies",
+            Self::TotalAngle => "total-angle",
+        }
+    }
+
+    pub fn about(self) -> &'static str {
+        match self {
+            Self::Count => "How many along the row, the original included",
+            Self::Spacing => "How far apart the copies along the row are",
+            Self::Angle => "Which way the row runs, from the sketch's horizontal axis",
+            Self::Rows => "How many rows, the original's included; 1 makes a single row",
+            Self::RowSpacing => "How far apart the rows are",
+            Self::RowAngle => {
+                "Which way the rows step, from the sketch's horizontal axis; left empty, square \
+                 to the row"
+            }
+            Self::Copies => "How many in all, the original included",
+            Self::TotalAngle => {
+                "360° spaces the copies evenly over a full turn; a smaller angle runs from the \
+                 original to the last copy"
+            }
+        }
+    }
+
+    pub fn placeholder(self) -> &'static str {
+        match self {
+            Self::RowAngle => "Square to the row",
+            Self::Count
+            | Self::Spacing
+            | Self::Angle
+            | Self::Rows
+            | Self::RowSpacing
+            | Self::Copies
+            | Self::TotalAngle => "",
+        }
+    }
+
+    fn initial(self) -> &'static str {
+        match self {
+            Self::Count => "3",
+            Self::Spacing | Self::RowSpacing => "10 mm",
+            Self::Angle => "0°",
+            Self::Rows => "1",
+            Self::RowAngle => "",
+            Self::Copies => "6",
+            Self::TotalAngle => "360°",
+        }
+    }
+
+    fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|field| *field == self)
+            .unwrap_or_default()
+    }
+
+    fn noun(self) -> String {
+        self.label().to_lowercase()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SpecProblem {
+    #[error("Mend the {} first", .field.noun())]
+    MendFirst { field: PatternField },
+}
+
 #[derive(Debug, Clone, PartialEq)]
-enum Spec {
+pub struct PatternEvaluation {
+    pub problems: Vec<(PatternField, PatternTextError)>,
+    pub spec: Result<Spec, SpecProblem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PatternSettings {
+    texts: [String; 8],
+    evaluated: Option<Spec>,
+}
+
+impl Default for PatternSettings {
+    fn default() -> Self {
+        Self {
+            texts: PatternField::ALL.map(|field| field.initial().to_owned()),
+            evaluated: None,
+        }
+    }
+}
+
+impl PatternSettings {
+    pub fn text(&self, field: PatternField) -> &str {
+        self.texts.get(field.index()).map_or("", String::as_str)
+    }
+
+    pub fn text_mut(&mut self, field: PatternField) -> Option<&mut String> {
+        self.texts.get_mut(field.index())
+    }
+
+    pub fn spec(&self, kind: PatternKind) -> Option<&Spec> {
+        self.evaluated.as_ref().filter(|spec| spec.kind() == kind)
+    }
+
+    pub fn shows_rows(&self, model: &Model) -> bool {
+        whole_count(model, self.text(PatternField::Rows), "rows")
+            .is_ok_and(|rows| rows != SINGLE_ROW)
+    }
+
+    pub fn evaluate(&mut self, model: &Model, kind: PatternKind) -> PatternEvaluation {
+        let mut problems = Vec::new();
+        let spec = match kind {
+            PatternKind::Rectangular => self.rectangular(model, &mut problems),
+            PatternKind::Circular => self.circular(model, &mut problems),
+        };
+        let spec = match (problems.first(), spec) {
+            (None, Some(spec)) => Ok(spec),
+            (Some((field, _)), _) => Err(SpecProblem::MendFirst { field: *field }),
+            (None, None) => Err(SpecProblem::MendFirst {
+                field: match kind {
+                    PatternKind::Rectangular => PatternField::Count,
+                    PatternKind::Circular => PatternField::Copies,
+                },
+            }),
+        };
+        self.evaluated = spec.as_ref().ok().cloned();
+        PatternEvaluation { problems, spec }
+    }
+
+    fn rectangular(
+        &self,
+        model: &Model,
+        problems: &mut Vec<(PatternField, PatternTextError)>,
+    ) -> Option<Spec> {
+        let count = noted(
+            problems,
+            PatternField::Count,
+            whole_count(model, self.text(PatternField::Count), "count"),
+        );
+        let spacing = noted(
+            problems,
+            PatternField::Spacing,
+            quantity(model, self.text(PatternField::Spacing), SPACING, "spacing"),
+        );
+        let angle = noted(
+            problems,
+            PatternField::Angle,
+            degrees(model, self.text(PatternField::Angle)),
+        );
+        let rows = noted(
+            problems,
+            PatternField::Rows,
+            whole_count(model, self.text(PatternField::Rows), "rows"),
+        );
+        let second = match rows {
+            Some(SINGLE_ROW) => Some(None),
+            Some(rows) => {
+                let spacing = noted(
+                    problems,
+                    PatternField::RowSpacing,
+                    quantity(
+                        model,
+                        self.text(PatternField::RowSpacing),
+                        SPACING,
+                        "row spacing",
+                    ),
+                );
+                let typed = self.text(PatternField::RowAngle);
+                let angle = match (typed.trim().is_empty(), &angle) {
+                    (true, Some(first)) => Some(square_to(first)),
+                    (true, None) => None,
+                    (false, _) => noted(problems, PatternField::RowAngle, degrees(model, typed)),
+                };
+                spacing.zip(angle).map(|(spacing, angle)| {
+                    Some(PatternRow {
+                        count: rows,
+                        spacing,
+                        angle,
+                    })
+                })
+            }
+            None => None,
+        };
+        let first = PatternRow {
+            count: count?,
+            spacing: spacing?,
+            angle: angle?,
+        };
+        Some(Spec::Rectangular(RectangularPattern {
+            first,
+            second: second?,
+        }))
+    }
+
+    fn circular(
+        &self,
+        model: &Model,
+        problems: &mut Vec<(PatternField, PatternTextError)>,
+    ) -> Option<Spec> {
+        let count = noted(
+            problems,
+            PatternField::Copies,
+            whole_count(model, self.text(PatternField::Copies), "count"),
+        );
+        let total = noted(
+            problems,
+            PatternField::TotalAngle,
+            degrees(model, self.text(PatternField::TotalAngle)),
+        );
+        let total = total?;
+        let full = (total.value.abs() - FULL_TURN_DEGREES).abs() <= FULL_TURN_TOLERANCE;
+        Some(Spec::Circular(CircularPattern {
+            count: count?,
+            spread: if full {
+                Spread::FullTurn
+            } else {
+                Spread::Total(total)
+            },
+        }))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Spec {
     Rectangular(RectangularPattern),
     Circular(CircularPattern),
 }
 
 impl Spec {
+    fn kind(&self) -> PatternKind {
+        match self {
+            Self::Rectangular(_) => PatternKind::Rectangular,
+            Self::Circular(_) => PatternKind::Circular,
+        }
+    }
+
     fn extra_instances(&self) -> usize {
         match self {
             Self::Rectangular(pattern) => {
@@ -146,7 +420,7 @@ pub struct Patterning {
     chosen: Option<EntityId>,
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
-    spec: Option<Result<Spec, PatternTextError>>,
+    spec: Option<Spec>,
     image: Option<Result<PatternImage, PatternError>>,
 }
 
@@ -166,8 +440,37 @@ impl Patterning {
         }
     }
 
-    pub fn field(&self) -> ValueField {
-        self.kind.field()
+    pub fn kind(&self) -> PatternKind {
+        self.kind
+    }
+
+    pub fn set_spec(&mut self, spec: Option<&Spec>) {
+        self.spec = spec.filter(|spec| spec.kind() == self.kind).cloned();
+    }
+
+    pub fn repeated(&self) -> usize {
+        let centre = self.centre();
+        self.selected
+            .iter()
+            .filter(|item| Some(**item) != centre)
+            .count()
+    }
+
+    pub fn chosen_centre(&self) -> Option<EntityId> {
+        match self.kind {
+            PatternKind::Rectangular => None,
+            PatternKind::Circular => self.chosen.or(self.selected_centre),
+        }
+    }
+
+    pub fn choose_centre(&mut self, point: EntityId) {
+        self.chosen = Some(point);
+        self.highlight = None;
+        self.gathering = false;
+    }
+
+    pub fn problem(&self) -> Option<&PatternError> {
+        self.image.as_ref().and_then(|image| image.as_ref().err())
     }
 
     pub fn gathers(&self) -> bool {
@@ -210,7 +513,9 @@ impl Patterning {
             }
         };
         self.image = self.spec.as_ref().and_then(|spec| {
-            let spec = spec.as_ref().ok()?;
+            if self.selected.is_empty() {
+                return None;
+            }
             match spec {
                 Spec::Rectangular(pattern) => {
                     Some(sketch.rectangular_image(&self.selected, pattern, faceting))
@@ -224,7 +529,7 @@ impl Patterning {
 
     pub fn leave(&mut self) {
         self.hover = None;
-        if self.centre().is_none() {
+        if self.kind == PatternKind::Circular && self.centre().is_none() {
             self.image = None;
         }
     }
@@ -234,12 +539,6 @@ impl Patterning {
             .or(self.highlight)
             .or(self.hover)
             .or(self.selected_centre)
-    }
-
-    pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
-        self.spec = text
-            .filter(|text| !text.trim().is_empty())
-            .map(|text| parse(model, self.kind, text));
     }
 
     pub fn preview(&self) -> Preview {
@@ -260,15 +559,10 @@ impl Patterning {
 
     pub fn label(&self, sketch: &Sketch) -> Option<String> {
         let centre = self.centre();
-        let items = self
-            .selected
-            .iter()
-            .filter(|item| Some(**item) != centre)
-            .count();
+        let items = self.repeated();
         match (self.spec.as_ref()?, &self.image) {
-            (Err(_), _) => None,
-            (Ok(Spec::Circular(_)), None) if centre.is_none() => Some(capitalized(CENTRE_PROMPT)),
-            (Ok(spec), Some(Ok(_))) => {
+            (Spec::Circular(_), None) if centre.is_none() => Some(capitalized(CENTRE_PROMPT)),
+            (spec, Some(Ok(_))) => {
                 let about = centre
                     .filter(|_| self.kind == PatternKind::Circular)
                     .map(|point| format!(" about {}", sketch.entity_label(point)))
@@ -279,8 +573,8 @@ impl Patterning {
                     count(spec.extra_instances(), "more time", "more times"),
                 ))
             }
-            (Ok(_), Some(Err(error))) => Some(capitalized(&error.to_string())),
-            (Ok(_), None) => None,
+            (_, Some(Err(error))) => Some(capitalized(&error.to_string())),
+            (_, None) => None,
         }
     }
 
@@ -315,17 +609,21 @@ impl Patterning {
         Outcome::Nothing
     }
 
-    pub fn finish(&mut self) -> Outcome {
+    pub fn finish(&mut self, model: &Model, feature: FeatureId) -> Outcome {
         if self.selected.is_empty() {
             return Outcome::Refused(Refusal::NothingToRepeat {
                 tool: self.kind.tool(),
             });
         }
-        if self.kind == PatternKind::Rectangular || !self.gathering {
-            return self.activate();
+        if self.kind == PatternKind::Circular && self.gathering {
+            self.gathering = false;
+            return Outcome::Nothing;
         }
-        self.gathering = false;
-        Outcome::Nothing
+        if let Some(point) = self.highlight.take() {
+            self.chosen = Some(point);
+            return Outcome::Nothing;
+        }
+        self.make(model, feature).into()
     }
 
     pub fn activate(&mut self) -> Outcome {
@@ -335,32 +633,28 @@ impl Patterning {
         Outcome::Nothing
     }
 
-    pub fn enter_text(
-        &mut self,
-        model: &Model,
-        feature: FeatureId,
-        text: &str,
-    ) -> Result<Outcome, PatterningError> {
+    pub fn make(&self, model: &Model, feature: FeatureId) -> Result<Transaction, PatterningError> {
         let tool = self.kind.tool();
-        let spec = parse(model, self.kind, text)?;
+        let spec = self
+            .spec
+            .clone()
+            .ok_or(PatterningError::ValuesFirst { tool })?;
         let selected = self.selected.clone();
         let centre = self.centre();
         let reason = |source| PatterningError::Pattern { tool, source };
-        let transaction =
-            trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
-                match (&spec, centre) {
-                    (Spec::Rectangular(pattern), _) => sketch
-                        .rectangular_pattern(&selected, pattern)
-                        .map(|_| ())
-                        .map_err(reason),
-                    (Spec::Circular(pattern), Some(centre)) => sketch
-                        .circular_pattern(&selected, centre, pattern)
-                        .map(|_| ())
-                        .map_err(reason),
-                    (Spec::Circular(_), None) => Err(PatterningError::CentreFirst { tool }),
-                }
-            })?;
-        Ok(Outcome::Apply(transaction))
+        trimming::reshape(model, feature, TRANSACTION.to_owned(), |sketch| {
+            match (&spec, centre) {
+                (Spec::Rectangular(pattern), _) => sketch
+                    .rectangular_pattern(&selected, pattern)
+                    .map(|_| ())
+                    .map_err(reason),
+                (Spec::Circular(pattern), Some(centre)) => sketch
+                    .circular_pattern(&selected, centre, pattern)
+                    .map(|_| ())
+                    .map_err(reason),
+                (Spec::Circular(_), None) => Err(PatterningError::CentreFirst { tool }),
+            }
+        })
     }
 
     pub fn steps_targets(&self) -> bool {
@@ -471,72 +765,22 @@ fn point_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
         .map(|(_, id)| id)
 }
 
-fn parse(model: &Model, kind: PatternKind, text: &str) -> Result<Spec, PatternTextError> {
-    match kind {
-        PatternKind::Rectangular => parse_rectangular(model, text).map(Spec::Rectangular),
-        PatternKind::Circular => parse_circular(model, text).map(Spec::Circular),
-    }
+fn noted<T>(
+    problems: &mut Vec<(PatternField, PatternTextError)>,
+    field: PatternField,
+    read: Result<T, PatternTextError>,
+) -> Option<T> {
+    read.map_err(|problem| problems.push((field, problem))).ok()
 }
 
-fn parse_rectangular(model: &Model, text: &str) -> Result<RectangularPattern, PatternTextError> {
-    let terms = typed_point::coordinates(text);
-    let (first, second) = match terms.as_slice() {
-        [first] => (first, None),
-        [first, second] => (first, Some(second)),
-        _ => return Err(PatternTextError::RectangularForms),
-    };
-    let first = parse_row(model, first, None)?;
-    let second = second
-        .map(|term| parse_row(model, term, Some(&first.angle)))
-        .transpose()?;
-    Ok(RectangularPattern { first, second })
-}
-
-fn parse_row(
-    model: &Model,
-    term: &str,
-    beside: Option<&Dimensioned>,
-) -> Result<PatternRow, PatternTextError> {
-    let (body, angle) = match typed_point::polar(term).as_slice() {
-        [body] => (*body, None),
-        [body, angle] => (*body, Some(*angle)),
-        _ => return Err(PatternTextError::RectangularForms),
-    };
-    let (count, spacing) =
-        split_top_level(body, is_times).ok_or(PatternTextError::RectangularForms)?;
-    let count = whole_count(model, count)?;
-    let spacing = quantity(model, spacing, SPACING, "spacing")?;
-    let angle = match (angle, beside) {
-        (Some(angle), _) => degrees(model, angle)?,
-        (None, None) => turned(0.0),
-        (None, Some(first)) => square_to(first),
-    };
-    Ok(PatternRow {
-        count,
-        spacing,
-        angle,
-    })
-}
-
-fn parse_circular(model: &Model, text: &str) -> Result<CircularPattern, PatternTextError> {
-    match split_top_level(text, is_over) {
-        None => Ok(CircularPattern {
-            count: whole_count(model, text)?,
-            spread: Spread::FullTurn,
-        }),
-        Some((count, angle)) => Ok(CircularPattern {
-            count: whole_count(model, count)?,
-            spread: Spread::Total(degrees(model, angle)?),
-        }),
-    }
-}
-
-fn whole_count(model: &Model, text: &str) -> Result<usize, PatternTextError> {
-    let counted = quantity(model, text, COUNT, "count")?;
+fn whole_count(model: &Model, text: &str, label: &str) -> Result<usize, PatternTextError> {
+    let counted = quantity(model, text, COUNT, label)?;
     let rounded = counted.value.round();
     let whole = (counted.value - rounded).abs() <= WHOLE_NUMBER_TOLERANCE;
     if !whole || rounded < 0.0 || rounded > f64::from(u32::MAX) {
-        return Err(PatternTextError::NotWholeCount);
+        return Err(PatternTextError::NotWholeCount {
+            label: label.to_owned(),
+        });
     }
     Ok(rounded as usize)
 }
@@ -612,84 +856,9 @@ pub(crate) fn quantity(
     Ok(Dimensioned { expression, value })
 }
 
-fn is_times(previous: Option<char>, rest: &str) -> Option<usize> {
-    let mut characters = rest.chars();
-    let mark = characters
-        .next()
-        .filter(|mark| matches!(mark, 'x' | 'X' | '×'))?;
-    let before = previous
-        .is_none_or(|before| before.is_ascii_digit() || before.is_whitespace() || before == ')');
-    let after = characters.next().is_none_or(|after| {
-        after.is_whitespace() || after.is_ascii_digit() || matches!(after, '(' | '-' | '+' | '.')
-    });
-    (before && after).then_some(mark.len_utf8())
-}
-
-fn is_over(previous: Option<char>, rest: &str) -> Option<usize> {
-    let word = rest.get(..OVER.len())?;
-    if !word.eq_ignore_ascii_case(OVER) {
-        return None;
-    }
-    let before = previous
-        .is_none_or(|before| before.is_ascii_digit() || before.is_whitespace() || before == ')');
-    let after = rest
-        .get(OVER.len()..)?
-        .chars()
-        .next()
-        .is_none_or(|after| after.is_whitespace() || after.is_ascii_digit() || after == '(');
-    (before && after).then_some(OVER.len())
-}
-
-fn split_top_level(
-    text: &str,
-    separator: impl Fn(Option<char>, &str) -> Option<usize>,
-) -> Option<(&str, &str)> {
-    let mut depth = 0_usize;
-    let mut previous = None;
-    for (index, character) in text.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            _ if depth == 0 => {
-                if let Some(length) = text.get(index..).and_then(|rest| separator(previous, rest)) {
-                    return Some((text.get(..index)?, text.get(index + length..)?));
-                }
-            }
-            _ => {}
-        }
-        previous = Some(character);
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_times_sign_separates_a_count_from_a_spacing_only_between_numbers_and_spaces() {
-        assert_eq!(split_top_level("4 x 10", is_times), Some(("4 ", " 10")));
-        assert_eq!(split_top_level("4x10", is_times), Some(("4", "10")));
-        assert_eq!(
-            split_top_level("4 X (2 + 3)", is_times),
-            Some(("4 ", " (2 + 3)"))
-        );
-        assert_eq!(split_top_level("4 × 10", is_times), Some(("4 ", " 10")));
-        assert_eq!(split_top_level("4 max(x, 2)", is_times), None);
-        assert_eq!(split_top_level("4 xs", is_times), None);
-        assert_eq!(split_top_level("max_x", is_times), None);
-    }
-
-    #[test]
-    fn over_separates_a_count_from_an_angle_and_nothing_else_does() {
-        assert_eq!(split_top_level("5 over 120", is_over), Some(("5 ", " 120")));
-        assert_eq!(
-            split_top_level("5 OVER 90 deg", is_over),
-            Some(("5 ", " 90 deg"))
-        );
-        assert_eq!(split_top_level("6", is_over), None);
-        assert_eq!(split_top_level("moreover", is_over), None);
-    }
 
     #[test]
     fn a_second_direction_defaults_to_square_to_the_first() {

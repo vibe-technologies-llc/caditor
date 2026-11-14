@@ -9,10 +9,11 @@ use super::{
 };
 use crate::{
     editing::Tool,
-    filleting, mirroring, patterning,
+    filleting, mirroring,
+    patterning::{self, PatternField},
     preferences::{PreferenceChange, PreferencesCommand},
     selection::Pickable,
-    sketch_status, sketch_toolbar,
+    sketch_pattern_panel, sketch_status, sketch_toolbar,
 };
 
 fn arc_radii(sketch: &Sketch) -> Vec<f64> {
@@ -210,7 +211,10 @@ fn a_circular_pattern_selects_in_the_tool_then_takes_its_centre_after_enter() {
     harness.key(Key::Space, Modifiers::NONE);
     harness.frame();
     assert!(harness.shows(patterning::CIRCULAR_PROMPT));
-    type_point(&mut harness, "4");
+    harness.type_into_field(sketch_pattern_panel::field_id(PatternField::Copies), "4");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.settle();
 
     assert_eq!(entities_of_kind(harness.sketch(feature), "Circle").len(), 4);
     assert_eq!(harness.model.undo_label(), Some(patterning::TRANSACTION));
@@ -229,7 +233,11 @@ fn a_rectangular_pattern_takes_what_a_box_drawn_in_the_tool_holds() {
     let to = harness.on_screen(Point2::new(7.4, 2.6));
     drag_screen(&mut harness, from, to);
     assert!(harness.shows(patterning::RECTANGULAR_PROMPT));
-    type_point(&mut harness, "3 x 20");
+    harness.type_into_field(sketch_pattern_panel::field_id(PatternField::Count), "3");
+    harness.type_into_field(sketch_pattern_panel::field_id(PatternField::Spacing), "20");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.settle();
 
     assert_eq!(entities_of_kind(harness.sketch(feature), "Circle").len(), 3);
 }

@@ -95,7 +95,7 @@ use crate::{
     selection_sets::{self, SetsDraft},
     shell_tools,
     shortcut_editor::{self, ShortcutEditor},
-    sketch_toolbar, sketch_tools,
+    sketch_pattern_panel, sketch_toolbar, sketch_tools,
     startup_check::StartupCheck,
     status_bar::{self, StatusContext},
     system_settings, text_panel,
@@ -1102,6 +1102,16 @@ pub fn show(
             room,
         ));
     }
+    if let Some(feature) = editing.feature().filter(|_| patterning_open(editing))
+        && let Some(parts) = viewport.pattern_parts()
+    {
+        let context = sketch_pattern_panel::Context {
+            model,
+            feature,
+            sketch: editing::edited_sketch(model.document(), feature),
+        };
+        actions.extend(sketch_pattern_panel::show(ui, &context, parts, room));
+    }
     let mut previewed = tidied.previewed;
     previewed.extend(panels.reference_rows.take_previewed());
     viewport.preview_entities(previewed);
@@ -1524,6 +1534,15 @@ fn gearing_open(editing: &SketchEditing) -> bool {
     editing
         .active()
         .is_some_and(|active| active.tool == Tool::Gear)
+}
+
+fn patterning_open(editing: &SketchEditing) -> bool {
+    editing.active().is_some_and(|active| {
+        matches!(
+            active.tool,
+            Tool::RectangularPattern | Tool::CircularPattern
+        )
+    })
 }
 
 fn texting_open(editing: &SketchEditing) -> bool {

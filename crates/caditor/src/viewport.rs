@@ -825,6 +825,15 @@ impl ViewportState {
         self.modifying.text_settings()
     }
 
+    pub fn pattern_parts(
+        &mut self,
+    ) -> Option<(
+        &mut crate::patterning::PatternSettings,
+        &mut crate::patterning::Patterning,
+    )> {
+        self.modifying.pattern_parts()
+    }
+
     pub fn new() -> Self {
         Self {
             camera: Camera::new(initial_viewpoint()),
