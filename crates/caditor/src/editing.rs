@@ -9,7 +9,7 @@ use caditor_sketch::Sketch;
 use crate::{
     combine_tools,
     commands::{Command, Reason},
-    model::{Action, Model, Notice, NoticeKind},
+    model::{Action, Model, Notice, NoticeAction, NoticeKind},
     queued::{Queued, Rerun},
     reference_picking::{Picking, Slot},
     selection::{Pickable, PrincipalPlane},
@@ -707,7 +707,7 @@ impl SketchEditing {
                 session: model.session(),
             });
         model.perform(Action::Inform(Notice {
-            undo,
+            action: undo.map(NoticeAction::SwitchBack),
             ..Notice::info(format!("Finished {closed_name} to {next}."))
         }));
     }

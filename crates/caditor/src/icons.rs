@@ -151,6 +151,7 @@ pub fn command(command: Command) -> &'static str {
         Command::SaveAsTemplate => phosphor::BOOKMARK_SIMPLE,
         Command::RevertToSaved => phosphor::ARROW_U_DOWN_LEFT,
         Command::ExportAgain => phosphor::REPEAT_ONCE,
+        Command::ShowExportInFolder => phosphor::FOLDER_NOTCH_OPEN,
         Command::OpenInSlicer => phosphor::PRINTER,
         Command::OpenInFusionApp => phosphor::ARROW_SQUARE_OUT,
         Command::Open => phosphor::FOLDER_OPEN,

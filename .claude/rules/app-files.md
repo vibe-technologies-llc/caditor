@@ -7,6 +7,7 @@ paths:
   - "crates/caditor/src/system_settings.rs"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
+  - "crates/caditor/src/reveal.rs"
   - "crates/caditor/src/configuration_export.rs"
   - "crates/caditor/src/image_export.rs"
   - "crates/caditor/src/drawing_export.rs"
@@ -214,6 +215,18 @@ paths:
   theirs from the name the same way.
 - A path lacking the format's extension gets it appended, so an export never replaces a model file;
   an existing appended name asks "Replace …?" as Save As does, and Cancel returns to the dialog.
+- A finished export's success notice offers Show in folder (`NoticeAction::ShowInFolder`,
+  `Files::offering_folder`: model, image, sketch, face, nested and sheet exports; not the ones a
+  slicer, the cloud or Fusion takes on), and the file exported last in this run is shown again by
+  Show the last export in its folder (`Command::ShowExportInFolder`, File › Export and the
+  palette; refused in words before any export). `FileCommand::ShowInFolder` runs `reveal::show`
+  on the files worker and a failure becomes a notice naming the folder (`Event::ShownInFolder`).
+  `reveal.rs` is a `cfg` pair with no dependency of its own: on Unix the freedesktop
+  `org.freedesktop.FileManager1.ShowItems` call over the session bus, with the file as an escaped
+  `file://` URI, falling back to opening the folder (`browser::launch`) when no file manager
+  answers or the file is gone; on Windows `explorer.exe /select,"<path>"` as one raw argument,
+  since Explorer does not take the quoting `Command::arg` writes. Tests never start a file
+  manager: the harness replaces the revealer (`Files::reveal_with`) and records the paths.
 - Every model export records a `LastExport` in `Files` (path, `ExportChoices`, model session) and, on
   success, each written file's size and modification time (`Stamp`, `ExportReport::written`). Export
   again (`Command::ExportAgain`, titled through `Command::title_with`) restores the choices and

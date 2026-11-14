@@ -415,6 +415,7 @@ struct Harness {
     hovered_files: Vec<egui::HoveredFile>,
     clipboard: Option<String>,
     repaint_after: Duration,
+    revealed: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 struct Painted {
@@ -492,6 +493,12 @@ impl Harness {
         };
         let mut model = Model::new(document, services);
         let mut files = Files::new(config, Box::new(dialogs.clone()), no_wake());
+        let revealed = Arc::new(Mutex::new(Vec::new()));
+        let shown = Arc::clone(&revealed);
+        files.reveal_with(Arc::new(move |path: &Path| {
+            shown.lock().push(path.to_path_buf());
+            Ok(())
+        }));
         prepare(&mut files);
         files.start(None, &mut model);
         let mut harness = Self {
@@ -519,6 +526,7 @@ impl Harness {
             hovered_files: Vec::new(),
             clipboard: None,
             repaint_after: Duration::MAX,
+            revealed,
         };
         harness.settle();
         harness

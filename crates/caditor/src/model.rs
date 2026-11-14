@@ -76,6 +76,10 @@ impl Reason for SavedVersionError {
 #[derive(Debug, Clone)]
 pub enum Action {
     Apply(Transaction),
+    ApplyTold {
+        transaction: Transaction,
+        told: Notice,
+    },
     Undo,
     Redo,
     Recompute,
@@ -87,6 +91,7 @@ pub enum Action {
     ShowThreadsAsCosmetic(bool),
     DismissNotice,
     Inform(Notice),
+    UndoStep(StepBack),
     Drag(DragCommand),
     Trial(ConstraintTrial),
     Queue(Box<Queued>),
@@ -171,6 +176,8 @@ fn named_constraints(sketch: &Sketch, constraints: &[ConstraintId]) -> Option<St
 const MAX_RECORDED_NOTICES: usize = 100;
 const HISTORY_KEPT: &str =
     "The model and its history are as they were; Edit › Undo history lists the steps.";
+pub const STEP_NOT_LAST: &str = "That change is no longer the last one, so it was not undone here. \
+                                 Edit › Undo history takes the model back to before it.";
 const JOIN_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,10 +185,36 @@ pub struct Notice {
     pub kind: NoticeKind,
     pub text: String,
     pub outlasts_edits: bool,
-    pub undo: Option<SwitchBack>,
+    pub action: Option<NoticeAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoticeAction {
+    SwitchBack(SwitchBack),
+    UndoStep(StepBack),
+    ShowInFolder(PathBuf),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StepBack {
+    since: UndoMark,
+    session: u64,
 }
 
 impl Notice {
+    #[must_use]
+    pub fn offering(mut self, action: NoticeAction) -> Self {
+        self.action = Some(action);
+        self
+    }
+
+    fn without_action(&self) -> Self {
+        Self {
+            action: None,
+            ..self.clone()
+        }
+    }
+
     pub fn info(text: impl Into<String>) -> Self {
         Self::of(NoticeKind::Info, text)
     }
@@ -199,7 +232,7 @@ impl Notice {
             kind,
             text: text.into(),
             outlasts_edits: false,
-            undo: None,
+            action: None,
         }
     }
 
@@ -212,7 +245,7 @@ impl Notice {
             kind: NoticeKind::Error,
             text: text.into(),
             outlasts_edits: true,
-            undo: None,
+            action: None,
         }
     }
 }
@@ -765,6 +798,29 @@ impl Model {
         self.editor.undo_steps_since(mark)
     }
 
+    pub fn holds(&self, back: StepBack) -> bool {
+        back.session == self.session()
+            && self
+                .undo_steps_since(back.since)
+                .is_some_and(|steps| steps.len() == 1)
+    }
+
+    pub fn offers(&self, action: &NoticeAction) -> bool {
+        match action {
+            NoticeAction::UndoStep(back) => self.holds(*back),
+            NoticeAction::SwitchBack(_) | NoticeAction::ShowInFolder(_) => true,
+        }
+    }
+
+    fn undo_step(&mut self, back: StepBack) {
+        if self.holds(back) {
+            self.notice = None;
+            self.perform(Action::Undo);
+        } else {
+            self.set_notice(Notice::warning(STEP_NOT_LAST));
+        }
+    }
+
     pub fn status(&self) -> RecomputeStatus {
         self.status
     }
@@ -798,13 +854,14 @@ impl Model {
             NoticeKind::Info | NoticeKind::Success => log::info!("{}", notice.text),
             NoticeKind::Warning | NoticeKind::Error => log::warn!("{}", notice.text),
         }
+        let recorded = notice.without_action();
         let repeats = self
             .recorded_notices
             .front()
-            .is_some_and(|recorded| recorded.notice == notice);
+            .is_some_and(|last| last.notice == recorded);
         if !repeats {
             self.recorded_notices.push_front(RecordedNotice {
-                notice: notice.clone(),
+                notice: recorded,
                 at: SystemTime::now(),
             });
             self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
@@ -1211,6 +1268,21 @@ impl Model {
             }
             Action::Inform(notice) => {
                 self.set_notice(notice);
+                Ok(None)
+            }
+            Action::ApplyTold { transaction, told } => {
+                let back = StepBack {
+                    since: self.undo_mark(),
+                    session: self.session(),
+                };
+                self.perform(Action::Apply(transaction));
+                if self.holds(back) {
+                    self.set_notice(told.offering(NoticeAction::UndoStep(back)));
+                }
+                Ok(None)
+            }
+            Action::UndoStep(back) => {
+                self.undo_step(back);
                 Ok(None)
             }
             Action::Drag(command) => {

@@ -42,12 +42,12 @@ pub fn create_actions(document: &Document, body: FeatureId) -> Vec<Action> {
         )))];
     }
     let removed = document.body_name(body).unwrap_or_default();
-    vec![
-        Action::Apply(transaction),
-        Action::Inform(Notice::info(format!(
+    vec![Action::ApplyTold {
+        transaction,
+        told: Notice::info(format!(
             "Removed {removed} with {name}. Undo, or suppress or delete {name}, to bring it back."
-        ))),
-    ]
+        )),
+    }]
 }
 
 fn change(model: &Model, feature: FeatureId, remove: Remove) -> Result<Transaction, RemovalError> {

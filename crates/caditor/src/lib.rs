@@ -183,6 +183,7 @@ mod removal;
 mod repeating;
 mod replace_face_panel;
 mod replace_face_tools;
+mod reveal;
 mod reversing;
 mod rib_panel;
 mod rib_tools;

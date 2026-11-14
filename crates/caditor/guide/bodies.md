@@ -64,4 +64,4 @@ The density gives the body's mass in [Measure](measure).
 made it, or renames the body when [Preferences](preferences) set double-clicking to rename.
 {command:model.remove_body} adds a Remove feature that
 takes the body away from the model from that point on; deleting or suppressing that feature brings
-it back.
+it back, as does **Undo** on the message that follows.

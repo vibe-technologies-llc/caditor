@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, Sketch};
 use egui::{Id, Key, Modifiers};
 use tempfile::TempDir;
 
-use super::{CAMERA_SETTLE, Harness, add_peg, extruded_plate, rectangle, run_from_palette};
+use super::{CAMERA_SETTLE, Harness, add_peg, extruded_plate, offer, rectangle, run_from_palette};
 use crate::{
     commands::Command,
     export::ExportCommand,
@@ -15,6 +15,8 @@ use crate::{
     image_export::ImageCommand,
     model::Action,
     preferences::{PreferenceChange, PreferencesCommand},
+    reveal::RevealError,
+    status_bar,
 };
 
 #[test]
@@ -92,6 +94,58 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let step = std::fs::read_to_string(dir.path().join("plate.stp")).unwrap();
     assert!(step.starts_with("ISO-10303-21;"));
     assert!(step.contains("MANIFOLD_SOLID_BREP("));
+}
+
+#[test]
+fn an_export_s_notice_and_a_command_show_the_exported_file_in_its_folder() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.frame();
+    let before = offer(&harness, Command::ShowExportInFolder).availability;
+
+    harness.key(Key::E, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.click("STEP");
+    harness.answer_dialog(Some(dir.path().join("plate.step")));
+    harness.click("Export…");
+    harness.wait_until("the STEP file is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text == "Exported 1 body to “plate.step”.")
+    });
+    harness.frame();
+    harness.click(status_bar::SHOW_IN_FOLDER);
+    harness.wait_until("the file is shown in its folder", |harness| {
+        !harness.revealed.lock().is_empty()
+    });
+    let from_the_notice = harness.revealed.lock().clone();
+    run_from_palette(&mut harness, "Show the last export in its folder");
+    harness.wait_until("the file is shown again", |harness| {
+        harness.revealed.lock().len() == 2
+    });
+    harness.files.reveal_with(Arc::new(|path: &Path| {
+        Err(RevealError::NoFolder(path.to_path_buf()))
+    }));
+    run_from_palette(&mut harness, "Show the last export in its folder");
+    harness.wait_until("the failure is told", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Could not show “plate.step”"))
+    });
+
+    assert!(before.is_err());
+    assert_eq!(from_the_notice, vec![dir.path().join("plate.step")]);
+    assert_eq!(harness.revealed.lock().len(), 2);
+    assert!(
+        harness
+            .model
+            .recorded_notices()
+            .all(|recorded| recorded.notice.action.is_none())
+    );
 }
 
 #[test]

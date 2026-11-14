@@ -581,6 +581,16 @@ paths:
   `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`) lists them,
   each icon described by `NoticeKind::label`; its Copy all puts every one on the clipboard as a
   line of kind, text and age (`messages::copied`), newest first.
+- A notice may carry one action (`Notice::action`, a `NoticeAction`), drawn as a button before
+  Recent messages: `SwitchBack` (`app-sketching.md`), `UndoStep` and `ShowInFolder`
+  (`app-files.md`). `Action::ApplyTold` applies a change and tells it with Undo: the model takes a
+  `StepBack` (undo mark and session) just before applying and posts the notice only when the
+  change went in. The button is drawn only while that step is the single next undo
+  (`Model::holds`, `Model::offers`), and `Action::UndoStep` checks again, undoing nothing and
+  warning (`model::STEP_NOT_LAST`) when it no longer is, so a notice never undoes something else.
+  Deleting features (`feature_tree::deleting`, "Deleted Fillet 2.", with or without the dialog)
+  and removing a body (`removal::create_actions`) use it. Recent messages records a notice
+  without its action (`Notice::without_action`), since the step or file may be gone by then.
 - Edit › Undo and Redo name the step they would take ("Undo Extrude 1 distance", from
   `Model::undo_label` and `redo_label`, as the ribbon's hover does) while available.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
@@ -879,7 +889,8 @@ paths:
   on a piece hides the feature's other pieces (`visibility::hide_others`).
   Right-clicking a row offers Rename body… (the card below with its Body name field focused), Select
   the whole body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body,
-  which adds a `Remove` feature at the bar with a notice saying how to bring the body back; the same
+  which adds a `Remove` feature at the bar with a notice saying how to bring the body back and an
+  Undo button; the same
   act from the palette and Model menu on the tree's body, else the selection's (`RenameBody`,
   `RemoveBody`; `app-modelling.md`, "What a command acts on").
 - Bodies sit in nested groups (`body_groups.rs`, the document's `body_folders.rs`):

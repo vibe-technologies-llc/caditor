@@ -77,6 +77,7 @@ pub enum Command {
     Export,
     ExportImage,
     ExportAgain,
+    ShowExportInFolder,
     OpenInSlicer,
     OpenInFusionApp,
     ImportParameters,
@@ -778,6 +779,7 @@ plain_commands! {
     Export,
     ExportImage,
     ExportAgain,
+    ShowExportInFolder,
     OpenInSlicer,
     OpenInFusionApp,
     ImportParameters,
@@ -1084,6 +1086,7 @@ impl Command {
             Self::SaveAsTemplate => "file.save_as_template",
             Self::RevertToSaved => "file.revert",
             Self::ExportAgain => "file.export_again",
+            Self::ShowExportInFolder => "file.show_export_in_folder",
             Self::OpenInSlicer => "file.open_in_slicer",
             Self::OpenInFusionApp => "file.open_in_fusion_app",
             Self::Open => "file.open",
@@ -1454,6 +1457,7 @@ impl Command {
             Self::SaveAsTemplate => "Save as template…",
             Self::RevertToSaved => "Revert to the saved version",
             Self::ExportAgain => "Export again",
+            Self::ShowExportInFolder => "Show the last export in its folder",
             Self::OpenInSlicer => "Open in OrcaSlicer",
             Self::OpenInFusionApp => "Open in Fusion 360",
             Self::Open => "Open…",
@@ -1940,6 +1944,7 @@ impl Command {
             Self::Section(SectionCommand::Toggle) => &["cross section", "clipping", "cut away"],
             Self::ExportImage => &["screenshot", "png", "picture"],
             Self::Export => &["stl", "3mf", "step", "save as stl"],
+            Self::ShowExportInFolder => &["reveal", "file manager", "explorer", "open folder"],
             Self::OpenInSlicer => &[
                 "slicer",
                 "orcaslicer",
@@ -2039,6 +2044,7 @@ impl Command {
             | Self::ForgetRecent(_)
             | Self::RevertToSaved
             | Self::ExportAgain
+            | Self::ShowExportInFolder
             | Self::OpenInSlicer
             | Self::OpenInFusionApp
             | Self::ClearRecent
@@ -2563,6 +2569,7 @@ impl Command {
             | Self::ForgetRecent(_)
             | Self::RevertToSaved
             | Self::ExportAgain
+            | Self::ShowExportInFolder
             | Self::OpenInSlicer
             | Self::OpenInFusionApp
             | Self::ClearRecent

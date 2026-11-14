@@ -72,10 +72,14 @@ use crate::{
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand, StartingPlacement},
     import_unit::{self, ImportUnitCommand, Scaling},
     menu_bar::{self, MenuEntries},
-    model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
+    model::{
+        Action, FileEvent, Model, Notice, NoticeAction, NoticeKind, RecomputeStatus, WakerFactory,
+        display_name,
+    },
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
     preferences::{self, Choice, ExportMemory, PreferencesCommand, RecentListed, Startup},
+    reveal::{self, RevealError, Revealer},
     samples::Sample,
     scene_palette::Canvas,
     sheet_export::{self, SheetJob},
@@ -120,6 +124,8 @@ const NO_RECENT: &str = "No model has been opened or saved yet";
 const NOT_FOUND: &str = "(not found)";
 pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was last exported to, \
                                      with the same format and choices, without asking for a file";
+const SHOW_EXPORT_HINT: &str =
+    "Open the folder holding the file exported last, with the file chosen";
 const REVERT_HINT: &str = "Undo every change made since the model was last saved, as one step \
                            that Undo takes back";
 const RESTORED_SUPPRESSED: &str = "Restored with every feature suppressed. Unsuppress them one at \
@@ -212,6 +218,7 @@ pub enum FileCommand {
     LoadRecentPicture(PathBuf),
     RevertToSaved,
     ExportAgain,
+    ShowInFolder(PathBuf),
     OpenInSlicer(Vec<FeatureId>),
     OpenInFusionApp(Vec<FeatureId>),
     FindSlicer,
@@ -545,6 +552,16 @@ impl Stamp {
             length: metadata.len(),
             modified: metadata.modified().ok(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Nothing has been exported since caditor started. Export something first")]
+pub struct NothingToShow;
+
+impl Reason for NothingToShow {
+    fn reason(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
     }
 }
 
@@ -914,6 +931,10 @@ enum Event {
         path: PathBuf,
         result: Result<History, LoadError>,
     },
+    ShownInFolder {
+        path: PathBuf,
+        result: Result<(), RevealError>,
+    },
     VersionLoaded {
         path: PathBuf,
         state: SavedState,
@@ -1202,6 +1223,8 @@ pub struct Files {
     saved_folder: Option<PathBuf>,
     folders: BTreeMap<Folder, PathBuf>,
     last_export: Option<LastExport>,
+    shown_export: Option<PathBuf>,
+    revealer: Revealer,
     exports_to_remember: Option<RememberedExports>,
     missing_recent: BTreeSet<PathBuf>,
     recent_pictures: RecentPictures,
@@ -1273,6 +1296,8 @@ impl Files {
             saved_folder: None,
             folders: BTreeMap::new(),
             last_export: None,
+            shown_export: None,
+            revealer: Arc::new(reveal::show),
             exports_to_remember: None,
             missing_recent: BTreeSet::new(),
             recent_pictures: RecentPictures::default(),
@@ -1398,6 +1423,38 @@ impl Files {
             return Err(ExportAgainError::WouldReplaceModel);
         }
         Ok(last)
+    }
+
+    #[cfg(test)]
+    pub fn reveal_with(&mut self, revealer: Revealer) {
+        self.revealer = revealer;
+    }
+
+    pub fn export_to_show(&self) -> Result<&Path, NothingToShow> {
+        self.shown_export.as_deref().ok_or(NothingToShow)
+    }
+
+    fn offering_folder(&mut self, notice: Notice, path: &Path) -> Notice {
+        if notice.kind != NoticeKind::Success || notice.action.is_some() {
+            return notice;
+        }
+        self.shown_export = Some(path.to_owned());
+        notice.offering(NoticeAction::ShowInFolder(path.to_owned()))
+    }
+
+    fn show_in_folder(&mut self, path: PathBuf) {
+        let revealer = Arc::clone(&self.revealer);
+        let failed = path.clone();
+        self.spawn(
+            move || {
+                let result = revealer(&path);
+                Event::ShownInFolder { path, result }
+            },
+            move || Event::ShownInFolder {
+                path: failed,
+                result: Err(RevealError::Unavailable(io::ErrorKind::Other)),
+            },
+        );
     }
 
     pub fn export_again_name(&self, model: &Model) -> Result<String, ExportAgainError> {
@@ -1667,6 +1724,7 @@ impl Files {
             FileCommand::LoadRecentPicture(path) => self.load_recent_picture(path),
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
+            FileCommand::ShowInFolder(path) => self.show_in_folder(path),
             FileCommand::OpenInSlicer(only) => self.open_in_slicer(model, only),
             FileCommand::OpenInFusionApp(only) => self.open_in_fusion_app(model, only),
             FileCommand::FindSlicer => self.find_slicer(),
@@ -2238,7 +2296,8 @@ impl Files {
                 let slicer = self.sent_to_slicer(&path);
                 let cloud = self.sent_to_cloud(&path);
                 let fusion_app = self.sent_to_fusion_app(&path);
-                let wrote = !report.written(&path).is_empty();
+                let first_written = report.written(&path).first().map(|file| file.to_path_buf());
+                let wrote = first_written.is_some();
                 let notice = self.exporter.reported(&path, report);
                 let notice = match (slicer, cloud) {
                     (Some(installation), _) if wrote => {
@@ -2248,7 +2307,10 @@ impl Files {
                         self.exported_for_cloud(destination, &path, wrote, notice)
                     }
                     _ if fusion_app && wrote => self.open_exported_in_fusion_app(&path, notice),
-                    _ => notice,
+                    _ => match first_written {
+                        Some(file) => self.offering_folder(notice, &file),
+                        None => notice,
+                    },
                 };
                 model.set_notice(notice);
             }
@@ -2285,20 +2347,36 @@ impl Files {
             ))),
             Event::ImageExported { path, result } => {
                 let notice = self.image.finished(&path, result);
+                let notice = self.offering_folder(notice, &path);
                 model.set_notice(notice);
+            }
+            Event::ShownInFolder { path, result } => {
+                if let Err(error) = result {
+                    model.set_notice(Notice::failure(format!(
+                        "Could not show “{}” in its folder: {error}. It is in {}.",
+                        display_name(Some(&path)),
+                        path.parent().unwrap_or(&path).display()
+                    )));
+                }
             }
             Event::SketchExported {
                 path,
                 sketch,
                 result,
-            } => model.set_notice(drawing_export::finished(&path, &sketch, result)),
+            } => {
+                let notice = drawing_export::finished(&path, &sketch, result);
+                let notice = self.offering_folder(notice, &path);
+                model.set_notice(notice);
+            }
             Event::FaceExported {
                 path,
                 face,
                 nested,
                 result,
             } => {
-                model.set_notice(drawing_export::face_finished(&path, &face, nested, result));
+                let notice = drawing_export::face_finished(&path, &face, nested, result);
+                let notice = self.offering_folder(notice, &path);
+                model.set_notice(notice);
             }
             Event::BothExported {
                 path,
@@ -2306,10 +2384,14 @@ impl Files {
                 nested,
                 result,
             } => {
-                model.set_notice(drawing_export::both_finished(&path, &name, nested, result));
+                let notice = drawing_export::both_finished(&path, &name, nested, result);
+                let notice = self.offering_folder(notice, &path);
+                model.set_notice(notice);
             }
             Event::SheetExported { path, name, result } => {
-                model.set_notice(sheet_export::finished(&path, &name, result));
+                let notice = sheet_export::finished(&path, &name, result);
+                let notice = self.offering_folder(notice, &path);
+                model.set_notice(notice);
             }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
             Event::VersionLoaded {
@@ -4174,6 +4256,7 @@ pub fn menu(
                 availability,
                 Some(EXPORT_AGAIN_HINT),
             );
+            entries.hinted(ui, Command::ShowExportInFolder, SHOW_EXPORT_HINT);
             entries.hinted(ui, Command::OpenInSlicer, slicing::HINT);
             entries.hinted(ui, Command::OpenInFusionApp, fusion_app::HINT);
             if cloud {
@@ -4226,6 +4309,13 @@ pub fn menu(
         || chosen.contains(&Command::ExportAgain)
     {
         actions.push(Action::File(FileCommand::ExportAgain));
+    }
+    let shown = files.export_to_show().map(Path::to_path_buf);
+    if (commands.invoke(Command::ShowExportInFolder, &shown)
+        || chosen.contains(&Command::ShowExportInFolder))
+        && let Ok(path) = shown
+    {
+        actions.push(Action::File(FileCommand::ShowInFolder(path)));
     }
     if commands.invoke(Command::RevertToSaved, &revertible)
         || chosen.contains(&Command::RevertToSaved)

@@ -64,6 +64,7 @@ pub const REPLACE_FROM_FILE: &str = "Replace from file…";
 const REPLACE_HINT: &str = "Read a STEP or mesh file again, or a newer one, in place of this body; \
                             features using it keep it";
 const NOT_AN_IMPORT: &str = "Choose an imported body in the feature tree";
+const DELETE_LABEL: &str = "Delete";
 const NO_KEPT_FILE: &str = "This body was imported before caditor kept where files came from";
 pub const RELOAD_FROM_FILE: &str = "Reload";
 const RELOAD_HINT: &str = "Read the file this body came from again, keeping what uses its faces:";
@@ -2284,12 +2285,21 @@ enum Deletion {
     Ask(Vec<FeatureId>),
 }
 
+fn deleting(transaction: Transaction) -> Action {
+    let deleted = transaction
+        .label()
+        .strip_prefix(DELETE_LABEL)
+        .unwrap_or(transaction.label());
+    let told = Notice::info(format!("Deleted{deleted}."));
+    Action::ApplyTold { transaction, told }
+}
+
 impl Deletion {
     fn perform(self, state: &mut PanelState, actions: &mut Vec<Action>) {
         match self {
             Self::Now(transaction) => {
                 state.selected = None;
-                actions.push(Action::Apply(transaction));
+                actions.push(deleting(transaction));
             }
             Self::Ask(features) => state.deleting = Some(features),
         }
@@ -2302,7 +2312,7 @@ fn delete_request(document: &Document, targets: &[&Feature]) -> Result<Deletion,
     }
     let ids: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
     if document.dependents_of(&ids).is_empty() {
-        let label = format!("Delete {}", described(targets));
+        let label = format!("{DELETE_LABEL} {}", described(targets));
         return Ok(Deletion::Now(document.deletion(&ids, label)));
     }
     Ok(Deletion::Ask(ids))
@@ -2374,16 +2384,19 @@ pub fn delete_dialog(
             let whose = if targets.len() == 1 { "its" } else { "their" };
             document.deletion(
                 &everything,
-                format!("Delete {} and {whose} dependents", described(&targets)),
+                format!(
+                    "{DELETE_LABEL} {} and {whose} dependents",
+                    described(&targets)
+                ),
             )
         }
         DeleteChoice::KeepDependents => {
-            document.deletion(&ids, format!("Delete {}", described(&targets)))
+            document.deletion(&ids, format!("{DELETE_LABEL} {}", described(&targets)))
         }
         DeleteChoice::Cancel => return,
     };
     state.selected = None;
-    actions.push(Action::Apply(transaction));
+    actions.push(deleting(transaction));
 }
 
 fn delete_footer(ui: &mut Ui) -> Option<DeleteChoice> {

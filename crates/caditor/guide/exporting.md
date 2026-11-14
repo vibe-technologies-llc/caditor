@@ -15,6 +15,10 @@ The file takes the chosen format's extension when the name has none. A name you 
 of these extensions, such as `part.stl` while STEP is chosen, is written in that format instead,
 and the dialog keeps it for the next export.
 
+When an export is done, its message in the status bar has **Show in folder**, which opens the
+folder with the exported file chosen; {command:file.show_export_in_folder} does the same later
+for the file exported last.
+
 {command:file.export_again} writes the same bodies again to the file the last export wrote, in the
 same format and with the same choices, without asking for a file: handy after each change while
 printing. It asks before replacing only when the file was changed by something else since, or for

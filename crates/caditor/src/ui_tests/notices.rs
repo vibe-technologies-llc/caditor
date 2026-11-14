@@ -1,9 +1,10 @@
 use egui::{Key, Modifiers, accesskit::Role};
 
-use super::{Harness, feature_named, run_from_palette};
+use super::{Harness, extruded_plate, feature_named, run_from_palette};
 use crate::{
-    model::{Action, Notice, RecomputeStatus},
+    model::{Action, Notice, NoticeAction, RecomputeStatus},
     panels::Focus,
+    status_bar,
 };
 
 #[test]
@@ -154,6 +155,56 @@ fn the_failed_pill_is_a_button_that_shows_the_first_failed_feature() {
         harness.workspace.panels.selected,
         Some(feature_named(&harness, "Side sketch"))
     );
+}
+
+#[test]
+fn a_deleted_feature_is_named_in_a_notice_whose_undo_brings_it_back_while_it_is_the_last_change() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let name = harness.document().feature(plate).unwrap().name.clone();
+    let before = harness.document().features().count();
+
+    harness.workspace.panels.selected = Some(plate);
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let told = harness.model.notice().map(|notice| notice.text.clone());
+    let after = harness.document().features().count();
+    harness.click_button(status_bar::UNDO_SWITCH);
+    harness.settle();
+    let restored = harness.document().features().count();
+
+    harness.workspace.panels.selected = Some(plate);
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let offered = harness
+        .model
+        .notice()
+        .and_then(|notice| notice.action.clone());
+    harness.edit_width("61 mm");
+    harness.perform(Action::Inform(Notice {
+        action: offered.clone(),
+        ..Notice::info("Deleted it.")
+    }));
+    harness.frame();
+    let offers_a_stale_step = offered
+        .as_ref()
+        .is_some_and(|action| harness.model.offers(action));
+    let Some(NoticeAction::UndoStep(stale)) = offered else {
+        panic!("a delete offers to undo its step");
+    };
+    harness.perform(Action::UndoStep(stale));
+    harness.frame();
+
+    assert_eq!(told, Some(format!("Deleted {name}.")));
+    assert_eq!((after, restored), (before - 1, before));
+    assert!(!offers_a_stale_step);
+    assert!(harness.shows(crate::model::STEP_NOT_LAST));
+    assert_eq!(harness.document().features().count(), before - 1);
 }
 
 #[test]

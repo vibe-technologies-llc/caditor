@@ -12,9 +12,9 @@ use crate::{
     editing::EditingCommand,
     feature_clipboard,
     feature_tree::count,
-    files::{self, Files},
+    files::{self, FileCommand, Files},
     icons,
-    model::{Action, Model, Notice, NoticeKind, RecomputeStatus},
+    model::{Action, Model, Notice, NoticeAction, NoticeKind, RecomputeStatus},
     offers::Offers,
     outlining,
     panels::{Focus, PanelState},
@@ -46,7 +46,11 @@ pub const SHOW_MESSAGES: &str = "Show recent messages";
 pub const UNDO_SWITCH: &str = "Undo";
 const UNDO_SWITCH_HOVER: &str =
     "Take back what came with the switch and go back to what was being edited";
-const UNDO_SWITCH_ID: &str = "status-notice-undo";
+const UNDO_STEP_HOVER: &str = "Take this change back; Redo brings it again";
+pub const SHOW_IN_FOLDER: &str = "Show in folder";
+const SHOW_IN_FOLDER_HOVER: &str =
+    "Open the folder holding the exported file, with the file chosen";
+const NOTICE_ACTION_ID: &str = "status-notice-action";
 const STOP_PREPARING_HOVER: &str =
     "Stop preparing bodies for display; the ones not shown yet stay hidden until Show the rest";
 const STOPPED_PREPARING_HOVER: &str =
@@ -537,9 +541,15 @@ fn notice_width(ui: &Ui, model: &Model) -> Option<f32> {
         TextStyle::Body,
     );
     let icons = 3.0 * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
-    let undo = notice.undo.map_or(0.0, |_| {
-        widgets::remembered_width(ui, Id::unique(UNDO_SWITCH_ID)) + ui.spacing().item_spacing.x
-    });
+    let offered = notice
+        .action
+        .as_ref()
+        .is_some_and(|action| model.offers(action));
+    let undo = if offered {
+        widgets::remembered_width(ui, Id::unique(NOTICE_ACTION_ID)) + ui.spacing().item_spacing.x
+    } else {
+        0.0
+    };
     Some(text.size().x + icons + undo + divider_room(ui))
 }
 
@@ -560,13 +570,24 @@ fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>
         let response = ui.add(if wrap { label.wrap() } else { label.truncate() });
         widgets::announced(ui, &response, notice.kind.is_urgent());
     });
-    if let Some(back) = notice.undo {
-        let undo = ui
-            .add(widgets::button(UNDO_SWITCH))
-            .on_hover_text(UNDO_SWITCH_HOVER);
-        widgets::remember_width(ui, Id::unique(UNDO_SWITCH_ID), undo.rect.width());
-        if undo.clicked() {
-            actions.push(Action::Editing(EditingCommand::SwitchBack(back)));
+    if let Some(offered) = notice.action.as_ref().filter(|action| model.offers(action)) {
+        let (label, hover, taken) = match offered {
+            NoticeAction::SwitchBack(back) => (
+                UNDO_SWITCH,
+                UNDO_SWITCH_HOVER,
+                Action::Editing(EditingCommand::SwitchBack(*back)),
+            ),
+            NoticeAction::UndoStep(back) => (UNDO_SWITCH, UNDO_STEP_HOVER, Action::UndoStep(*back)),
+            NoticeAction::ShowInFolder(path) => (
+                SHOW_IN_FOLDER,
+                SHOW_IN_FOLDER_HOVER,
+                Action::File(FileCommand::ShowInFolder(path.clone())),
+            ),
+        };
+        let button = ui.add(widgets::button(label)).on_hover_text(hover);
+        widgets::remember_width(ui, Id::unique(NOTICE_ACTION_ID), button.rect.width());
+        if button.clicked() {
+            actions.push(taken);
         }
     }
     let messages = widgets::icon_button(ui, icons::command(Command::Messages), &hovers.messages);

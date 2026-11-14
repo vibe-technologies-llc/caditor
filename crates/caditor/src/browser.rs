@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     io,
     process::{Command, Stdio},
     thread,
@@ -20,10 +21,14 @@ pub fn open(address: &str) -> Result<(), OpenError> {
     launch(address).map_err(|error| OpenError::Unavailable(error.kind()))
 }
 
-fn start(program: &str, leading: &[&str], address: &str) -> io::Result<()> {
-    let mut child = Command::new(program)
-        .args(leading)
-        .arg(address)
+fn start(program: &str, leading: &[&str], address: &OsStr) -> io::Result<()> {
+    let mut command = Command::new(program);
+    command.args(leading).arg(address);
+    detach(command)
+}
+
+pub(crate) fn detach(mut command: Command) -> io::Result<()> {
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -42,13 +47,18 @@ fn start(program: &str, leading: &[&str], address: &str) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-pub(crate) fn launch(address: &str) -> io::Result<()> {
+pub(crate) fn launch(address: impl AsRef<OsStr>) -> io::Result<()> {
+    let address = address.as_ref();
     start("xdg-open", &[], address).or_else(|_| start("gio", &["open"], address))
 }
 
 #[cfg(windows)]
-pub(crate) fn launch(address: &str) -> io::Result<()> {
-    start("rundll32", &["url.dll,FileProtocolHandler"], address)
+pub(crate) fn launch(address: impl AsRef<OsStr>) -> io::Result<()> {
+    start(
+        "rundll32",
+        &["url.dll,FileProtocolHandler"],
+        address.as_ref(),
+    )
 }
 
 #[cfg(test)]

@@ -26,7 +26,9 @@ changed; the card says why and offers Unsuppress or Roll forward to here.
 - {command:model.suppress_feature} switches a feature off without deleting it. Suppressed rows are
   struck through.
 - {command:model.delete_feature} deletes the chosen rows. When others depend on them, a dialog
-  lists those and lets you delete them too or keep them.
+  lists those and lets you delete them too or keep them. The status bar then names what was
+  deleted, with an **Undo** button that brings it back for as long as the delete is the last
+  change.
 
 Click a row to choose it; Ctrl-click and Shift-click choose several. While the tree is filtered,
 Shift-click takes only the rows shown. Escape with nothing selected in the view, or a click on
