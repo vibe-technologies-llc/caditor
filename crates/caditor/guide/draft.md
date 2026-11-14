@@ -11,7 +11,8 @@ walls of a block, a pocket or a boss, then choose Draft. It has no ribbon button
 {command:palette}.
 
 - **Draft angle** is how far each face leans from the pull direction, narrowing the body toward it;
-  a negative angle widens it instead. 3 deg to start with. The arrow on the first chosen face turns
+  a negative angle widens it instead. 3 deg to start with, then the angle last used on a draft,
+  kept between sessions. The arrow on the first chosen face turns
   it about the line where it meets the neutral plane when dragged.
 - **Own angle** lists the faces drafted at an angle of their own instead of the draft angle. **Choose
   faces** starts choosing in the view: each click on a flat or round face of the body gives it its

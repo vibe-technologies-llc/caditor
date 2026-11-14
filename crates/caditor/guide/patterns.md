@@ -6,8 +6,9 @@ it along a curve of a sketch or a chain of edges of a body, and {command:model.p
 a sketch (the points of a [circular sketch pattern](sketch-patterns) count, its centre does not).
 
 A new linear or circular pattern starts from the count last used on one, kept between sessions,
-and a linear one from the spacing last typed or dragged; until a spacing has been set, it starts
-from one that clears the body.
+a linear one from the spacing last typed or dragged and a circular one from the total angle last
+set; until a spacing has been set, it starts from one that clears the body, and until an angle has
+been set from a full turn.
 
 ## What is repeated
 

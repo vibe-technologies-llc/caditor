@@ -188,7 +188,8 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   distance or angle, shell thickness, hole diameter and blind depth, extrusion distance, linear and
   circular pattern counts, a linear pattern's first spacing between copies, a one-sided revolve's
   angle, a thin wall's thickness, a pipe's size and bend radius, a rib's thickness, an offset
-  face's distance). `app::perform` hands every applied transaction to `last_values::changes`,
+  face's distance, a draft's angle, a moved face's distance, a circular pattern's total angle).
+  `app::perform` hands every applied transaction to `last_values::changes`,
   which keeps slots a `SetFeatureKind` changed (a tool's insert changes nothing, so open-and-cancel
   never overwrites, and a spacing worked out from the body stays the start until the user edits
   one), and `PreferencesCommand::RememberLast` stores their text with the document's parameter
@@ -197,10 +198,12 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`solid_tools::starting_turn`). The creators (`blend_tools::create`, `shell_tools::create`,
   `solid_tools::create` and `create_on_faces`, `solid_tools::default_wall` for the Fill switch too,
   `hole_tools::new_hole`, `pattern_tools::kind_for` and `direction`, `pipe_tools::create`,
-  `rib_tools::create`, `offset_face_tools::create`) take a `last_values::Starts` from
+  `rib_tools::create`, `offset_face_tools::create`, `draft_tools::create`,
+  `move_face_tools::create`) take a `last_values::Starts` from
   `Model::last_values` against the current document (`Starts::of`): a text that no longer parses,
   evaluates, has the slot's dimension or the slot's sign (above zero; zero or more for a bend; not
-  zero for an offset distance, which keeps its sign) gives way to the default for that slot alone.
+  zero for an offset or moved face's distance, which keeps its sign) gives way to the default for
+  that slot alone.
   Twist, end scale and loft weights are not remembered: their defaults are the common case.
 
 ## Cancelling an open feature

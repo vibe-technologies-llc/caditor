@@ -7,7 +7,8 @@ an [imported](imported-bodies) one with no history included. Select the faces, t
 It has no ribbon button; use the Model menu or {command:palette}.
 
 - **Distance** shifts the faces; a negative distance shifts them the other way. Typing previews it,
-  and the arrow on the first chosen face, along the direction, drags it.
+  and the arrow on the first chosen face, along the direction, drags it. A new move starts from
+  the distance last used on one, kept between sessions.
 - **Direction** is what they shift along: square to the first flat face chosen (out of the body
   for a positive distance), or an axis, a straight edge, a round face's axis or a sketch line, from
   the list or with **Choose in the view**.

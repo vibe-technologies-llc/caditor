@@ -364,7 +364,7 @@ fn kind_for(
         Shape::Circular | Shape::Curve | Shape::Points => PatternKind::Circular(CircularPattern {
             axis,
             count: Starts::of(model).count(Remembered::CircularCount, DEFAULT_CIRCULAR_COUNT),
-            angle: solid_tools::degrees(FULL_TURN),
+            angle: Starts::of(model).angle(Remembered::CircularAngle, FULL_TURN),
             reversed: false,
         }),
     }

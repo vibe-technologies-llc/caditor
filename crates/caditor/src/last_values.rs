@@ -5,7 +5,7 @@ use caditor_document::{
     HoleDepth, LinearSpacing, ParameterValues, PatternKind, Pieces, RevolveExtent, SolidFeature,
     Transaction,
 };
-use caditor_expression::{Dimension, Expression};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_file::Settings;
 
 use crate::{
@@ -37,6 +37,9 @@ pub enum Remembered {
     OffsetDistance,
     LinearSpacing,
     EmbossDepth,
+    DraftAngle,
+    MoveFaceDistance,
+    CircularAngle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +60,7 @@ impl Sign {
 }
 
 impl Remembered {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 22] = [
         Self::FilletSize,
         Self::ChamferSize,
         Self::ChamferForm,
@@ -77,6 +80,9 @@ impl Remembered {
         Self::OffsetDistance,
         Self::LinearSpacing,
         Self::EmbossDepth,
+        Self::DraftAngle,
+        Self::MoveFaceDistance,
+        Self::CircularAngle,
     ];
 
     fn name(self) -> &'static str {
@@ -100,6 +106,9 @@ impl Remembered {
             Self::OffsetDistance => "offset_distance",
             Self::LinearSpacing => "linear_spacing",
             Self::EmbossDepth => "emboss_depth",
+            Self::DraftAngle => "draft_angle",
+            Self::MoveFaceDistance => "move_face_distance",
+            Self::CircularAngle => "circular_angle",
         }
     }
 
@@ -110,7 +119,9 @@ impl Remembered {
     fn dimension(self) -> Option<Dimension> {
         match self {
             Self::ChamferForm => None,
-            Self::ChamferAngle | Self::RevolveAngle => Some(Dimension::ANGLE),
+            Self::ChamferAngle | Self::RevolveAngle | Self::DraftAngle | Self::CircularAngle => {
+                Some(Dimension::ANGLE)
+            }
             Self::LinearCount | Self::CircularCount => Some(Dimension::NONE),
             Self::FilletSize
             | Self::ChamferSize
@@ -125,6 +136,7 @@ impl Remembered {
             | Self::RibThickness
             | Self::OffsetDistance
             | Self::EmbossDepth
+            | Self::MoveFaceDistance
             | Self::LinearSpacing => Some(Dimension::LENGTH),
         }
     }
@@ -132,7 +144,7 @@ impl Remembered {
     fn sign(self) -> Sign {
         match self {
             Self::PipeBend => Sign::ZeroOrMore,
-            Self::OffsetDistance => Sign::NotZero,
+            Self::OffsetDistance | Self::MoveFaceDistance => Sign::NotZero,
             _ => Sign::AboveZero,
         }
     }
@@ -250,6 +262,11 @@ impl Starts {
         self.expressions.get(&slot).cloned()
     }
 
+    pub fn angle(&self, slot: Remembered, default_degrees: f64) -> Expression {
+        self.remembered(slot)
+            .unwrap_or(Expression::Measure(default_degrees, Unit::Degree))
+    }
+
     pub fn count(&self, slot: Remembered, default: f64) -> Expression {
         self.remembered(slot).unwrap_or(Expression::Number(default))
     }
@@ -343,6 +360,10 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
         value(Remembered::OffsetDistance, &offset.distance);
     } else if let Some(emboss) = kind.emboss() {
         value(Remembered::EmbossDepth, &emboss.depth);
+    } else if let Some(draft) = kind.draft() {
+        value(Remembered::DraftAngle, &draft.angle);
+    } else if let Some(moved) = kind.move_face() {
+        value(Remembered::MoveFaceDistance, &moved.distance);
     } else if let Some(pattern) = kind.pattern() {
         match &pattern.kind {
             PatternKind::Linear { first, .. } => {
@@ -351,7 +372,10 @@ fn held(kind: &FeatureKind) -> Vec<(Remembered, Held)> {
                     value(Remembered::LinearSpacing, &first.spacing);
                 }
             }
-            PatternKind::Circular(circular) => value(Remembered::CircularCount, &circular.count),
+            PatternKind::Circular(circular) => {
+                value(Remembered::CircularCount, &circular.count);
+                value(Remembered::CircularAngle, &circular.angle);
+            }
             PatternKind::Curve(_) | PatternKind::Points(_) => {}
         }
     }
@@ -414,9 +438,9 @@ fn value_text(document: &Document, expression: &Expression) -> String {
 #[cfg(test)]
 mod tests {
     use caditor_document::{
-        AxisReference, BodyOperation, FeatureId, LinearDirection, OffsetFace, Pattern,
-        PatternOutcome, Pipe, PrincipalAxis, RegionChoice, Revolve, RevolveAxis, Rib, SweepPath,
-        Wall,
+        AxisReference, BodyOperation, CircularPattern, Draft, FeatureId, LinearDirection, MoveFace,
+        OffsetFace, Pattern, PatternOutcome, Pipe, PlaneReference, PrincipalAxis, PrincipalPlane,
+        RegionChoice, Revolve, RevolveAxis, Rib, SweepPath, Wall,
     };
     use caditor_expression::Unit;
     use caditor_kernel::WallSide;
@@ -522,6 +546,62 @@ mod tests {
             Expression::Number(3.0)
         );
         assert_eq!(overall.remembered(Remembered::LinearSpacing), None);
+    }
+
+    #[test]
+    fn a_draft_s_angle_a_moved_face_s_distance_and_a_circular_pattern_s_angle_are_remembered() {
+        let quarter = Expression::measure(90.0, Unit::Degree);
+        let five = Expression::measure(5.0, Unit::Degree);
+        let draft = FeatureKind::Draft(Draft {
+            body: FeatureId::from_raw(1),
+            faces: Vec::new(),
+            neutral: PlaneReference::Principal(PrincipalPlane::Xy),
+            angle: five.clone(),
+            flipped: false,
+            tangent: false,
+            beyond: None,
+            own: Vec::new(),
+        });
+        let moved = |distance: f64| {
+            FeatureKind::MoveFace(MoveFace {
+                body: FeatureId::from_raw(1),
+                faces: Vec::new(),
+                distance: mm(distance),
+                direction: None,
+                angle: Expression::measure(0.0, Unit::Degree),
+                axis: None,
+            })
+        };
+        let circular = FeatureKind::from(Pattern {
+            body: FeatureId::from_raw(1),
+            kind: PatternKind::Circular(CircularPattern {
+                axis: None,
+                count: Expression::Number(4.0),
+                angle: quarter.clone(),
+                reversed: false,
+            }),
+            skipped: Default::default(),
+            repeated: Vec::new(),
+            outcome: PatternOutcome::AddToBody,
+        });
+
+        let drafted = remembered_from(&draft);
+        let pushed = remembered_from(&moved(-4.0));
+        let turned_only = remembered_from(&moved(0.0));
+        let arrayed = remembered_from(&circular);
+        let fresh = Starts::defaults(LengthUnit::default());
+
+        assert_eq!(drafted.angle(Remembered::DraftAngle, 3.0), five);
+        assert_eq!(pushed.length(Remembered::MoveFaceDistance, 1.0), mm(-4.0));
+        assert_eq!(
+            turned_only.length(Remembered::MoveFaceDistance, 1.0),
+            mm(1.0)
+        );
+        assert_eq!(arrayed.angle(Remembered::CircularAngle, 360.0), quarter);
+        assert_eq!(
+            fresh.angle(Remembered::CircularAngle, 360.0),
+            Expression::Measure(360.0, Unit::Degree)
+        );
     }
 
     #[test]

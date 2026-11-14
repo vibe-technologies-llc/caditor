@@ -4,7 +4,6 @@ use caditor_document::{
     Document, Draft, Edit, Evaluation, FaceAngle, FeatureId, FeatureKind, PlaneReference,
     PrincipalPlane, Transaction, default_neutral, displayed_plane, flipped_toward,
 };
-use caditor_expression::{Expression, Unit};
 use caditor_kernel::{FaceId, FaceReference, Solid, Surface, tangent_faces};
 
 use crate::{
@@ -14,6 +13,7 @@ use crate::{
     datum_tools::{self, OneChoiceError},
     editing::{self, EditingCommand},
     field::{self, CheckError},
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     offset_face_tools::{self, FacePurpose, FaceToolError},
     queued::{self, Pending, Rerun},
@@ -66,6 +66,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    starts: &Starts,
 ) -> Result<(Transaction, FeatureId), FaceToolError> {
     let shown = bodies::shown(evaluation, source.body).ok_or(FaceToolError::NoShape)?;
     let ids: Vec<FaceId> = source
@@ -89,7 +90,7 @@ pub fn create(
             body: source.body,
             faces,
             neutral,
-            angle: Expression::Measure(DEFAULT_ANGLE, Unit::Degree),
+            angle: starts.angle(Remembered::DraftAngle, DEFAULT_ANGLE),
             flipped,
             tangent: false,
             beyond: None,
@@ -103,8 +104,9 @@ pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    starts: &Starts,
 ) -> Vec<Action> {
-    match create(document, evaluation, source) {
+    match create(document, evaluation, source, starts) {
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(

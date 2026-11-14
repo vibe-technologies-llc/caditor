@@ -970,6 +970,7 @@ fn draft_offer(
             model.document(),
             model.evaluation(),
             source,
+            &Starts::of(model),
         ));
     }
 }
@@ -1006,6 +1007,7 @@ fn move_face_offer(
             model.document(),
             model.evaluation(),
             source,
+            &Starts::of(model),
         ));
     }
 }

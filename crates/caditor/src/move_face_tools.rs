@@ -14,6 +14,7 @@ use crate::{
     editing::{self, EditingCommand},
     feature_fields::ChoiceRefusal,
     field::{self, CheckError},
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     offset_face_tools::{self, FacePurpose, FaceToolError},
     queued,
@@ -74,6 +75,7 @@ pub fn create(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    starts: &Starts,
 ) -> Result<(Transaction, FeatureId), FaceToolError> {
     let shown = bodies::shown(evaluation, source.body).ok_or(FaceToolError::NoShape)?;
     let faces: Vec<FaceReference> = source
@@ -91,7 +93,7 @@ pub fn create(
         FeatureKind::MoveFace(MoveFace {
             body: source.body,
             faces,
-            distance: Expression::Measure(DEFAULT_DISTANCE, Unit::Millimetre),
+            distance: starts.length(Remembered::MoveFaceDistance, DEFAULT_DISTANCE),
             direction: None,
             angle: Expression::Measure(0.0, Unit::Degree),
             axis: None,
@@ -104,8 +106,9 @@ pub fn create_actions(
     document: &Document,
     evaluation: &Evaluation,
     source: &FaceSource,
+    starts: &Starts,
 ) -> Vec<Action> {
-    match create(document, evaluation, source) {
+    match create(document, evaluation, source, starts) {
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(
