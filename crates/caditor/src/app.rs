@@ -1627,6 +1627,7 @@ fn home_chosen(
     let leaves = !matches!(
         choice,
         Choice::ClearRecent
+            | Choice::ForgetRecent(_)
             | Choice::LoadRecentPicture(_)
             | Choice::Cloud(_)
             | Choice::ManageCloud(_)
@@ -1642,6 +1643,7 @@ fn home_chosen(
             actions.push(Action::File(FileCommand::LoadRecentPicture(path)));
         }
         Choice::ClearRecent => actions.push(Action::File(FileCommand::ClearRecent)),
+        Choice::ForgetRecent(path) => actions.push(Action::File(FileCommand::ForgetRecent(path))),
         Choice::Sample(sample) => actions.push(Action::File(FileCommand::OpenSample(sample))),
         Choice::Cloud(command) => actions.push(Action::Cloud(command)),
         Choice::ManageCloud(project) => {

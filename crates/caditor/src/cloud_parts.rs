@@ -1,7 +1,8 @@
 use caditor_cloud::{Service, UploadFormat};
 use egui::{
-    Align, CornerRadius, FontId, Frame, Image, Label, Layout, RichText, Sense, Stroke, StrokeKind,
-    TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, load::SizedTexture, vec2,
+    Align, CornerRadius, FontId, Frame, Image, Label, Layout, Popup, Rect, Response, RichText,
+    Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, Vec2,
+    load::SizedTexture, pos2, vec2,
 };
 use jiff::Timestamp;
 
@@ -77,6 +78,34 @@ pub struct Tile<'a> {
 }
 
 pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
+    let response = drawn_tile(ui, width, tile, 0.0);
+    tile.enabled && response.clicked()
+}
+
+pub fn tile_with_menu(
+    ui: &mut Ui,
+    width: f32,
+    tile: &Tile<'_>,
+    more: &str,
+    mut menu: impl FnMut(&mut Ui),
+) -> bool {
+    let side = ui.spacing().interact_size.y;
+    let response = drawn_tile(ui, width, tile, side);
+    let place = Rect::from_center_size(
+        pos2(
+            response.rect.right() - SPACE_S - side / 2.0,
+            response.rect.center().y,
+        ),
+        Vec2::splat(side),
+    );
+    let mut over = ui.new_child(UiBuilder::new().max_rect(place));
+    let button = widgets::named(widgets::icon_button(&mut over, icons::MORE, more), more);
+    Popup::menu(&button).show(|ui| widgets::fitted_menu(ui, &mut menu));
+    response.context_menu(|ui| widgets::fitted_menu(ui, &mut menu));
+    tile.enabled && response.clicked()
+}
+
+fn drawn_tile(ui: &mut Ui, width: f32, tile: &Tile<'_>, trailing: f32) -> Response {
     let tokens = appearance::tokens(ui);
     let sense = if tile.enabled {
         Sense::click()
@@ -105,7 +134,10 @@ pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
         }
         let mut child = ui.new_child(
             UiBuilder::new()
-                .max_rect(rect.shrink2(vec2(SPACE_L, SPACE_S)))
+                .max_rect(
+                    rect.shrink2(vec2(SPACE_L, SPACE_S))
+                        .with_max_x(rect.right() - SPACE_L - trailing),
+                )
                 .layout(Layout::left_to_right(Align::Center)),
         );
         child.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
@@ -156,7 +188,7 @@ pub fn tile(ui: &mut Ui, width: f32, tile: &Tile<'_>) -> bool {
     if response.has_focus() {
         widgets::paint_focus_ring(ui, rect);
     }
-    tile.enabled && response.clicked()
+    response
 }
 
 pub fn tiles(

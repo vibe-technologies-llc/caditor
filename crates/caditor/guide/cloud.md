@@ -9,7 +9,8 @@ any time. From top to bottom it holds:
 - the ways to start: a sketch, a box, an import, or opening a model;
 - your recent files, newest first, each with a small picture of its bodies when the model was
   saved by this version of caditor (older files and models without bodies keep a file icon until
-  they are saved again);
+  they are saved again); the **⋯** button on a file, or a right-click, opens it, removes it from
+  the list (the file itself stays) or copies where it is;
 - your Fusion 360 and Onshape projects, when cloud services are on;
 - the samples, to see how a model is built.
 

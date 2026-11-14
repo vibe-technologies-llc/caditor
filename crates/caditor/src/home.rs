@@ -58,6 +58,12 @@ pub const WAITING_FOR_BROWSER: &str =
 pub const ONSHAPE_WAITING_FOR_BROWSER: &str =
     "Waiting for you to finish signing in on Onshape's page in your browser…";
 pub const COPY_LINK: &str = "Copy the sign-in link";
+pub const OPEN_RECENT: &str = "Open";
+pub const FORGET_RECENT: &str = "Remove from the list";
+const FORGET_RECENT_HOVER: &str = "Forget this file here; the file itself stays where it is";
+pub const COPY_LOCATION: &str = "Copy location";
+const COPY_LOCATION_HOVER: &str =
+    "Copy where the file is, to paste into a file manager or a message";
 pub const OPEN_PREFERENCES: &str = "Open preferences";
 pub const REFRESH: &str = "Refresh cloud projects";
 pub const SIGN_OUT: &str = "Sign out";
@@ -175,6 +181,7 @@ pub enum Choice {
     Start(Command),
     Open,
     OpenRecent(PathBuf),
+    ForgetRecent(PathBuf),
     LoadRecentPicture(PathBuf),
     ClearRecent,
     Sample(Sample),
@@ -361,19 +368,33 @@ fn recent(ui: &mut Ui, files: &Files, choices: &mut Vec<Choice>) {
         {
             wanted.push(Choice::LoadRecentPicture(path.clone()));
         }
-        cloud_parts::tile(
-            ui,
-            width,
-            &Tile {
-                glyph: icons::FILE,
-                title: &name,
-                detail: &detail,
-                name: &format!("Open {name}"),
-                hover: &path.display().to_string(),
-                enabled: true,
-                picture,
-            },
-        )
+        let tile = Tile {
+            glyph: icons::FILE,
+            title: &name,
+            detail: &detail,
+            name: &format!("Open {name}"),
+            hover: &path.display().to_string(),
+            enabled: true,
+            picture,
+        };
+        let more = format!("More for {name}");
+        cloud_parts::tile_with_menu(ui, width, &tile, &more, |ui| {
+            if widgets::menu_item(ui, icons::FILE, OPEN_RECENT, None).clicked() {
+                wanted.push(Choice::OpenRecent(path.clone()));
+            }
+            if widgets::menu_item(ui, icons::REMOVE, FORGET_RECENT, None)
+                .on_hover_text(FORGET_RECENT_HOVER)
+                .clicked()
+            {
+                wanted.push(Choice::ForgetRecent(path.clone()));
+            }
+            if widgets::menu_item(ui, icons::COPY, COPY_LOCATION, None)
+                .on_hover_text(COPY_LOCATION_HOVER)
+                .clicked()
+            {
+                ui.ctx().copy_text(path.display().to_string());
+            }
+        })
     });
     choices.append(&mut wanted);
     if let Some(path) = chosen.and_then(|at| recent.get(at)) {

@@ -364,6 +364,10 @@ PKCE, so whether its server takes this has not been verified (`docs/DECISIONS.md
   icon and never shows a callout. The tile's picture box is `TILE_PICTURE_WIDTH` by
   `TILE_PICTURE_SIDE` and the picture is fitted into it, so a square Fusion picture and a 4:3
   preview both keep their proportions.
+- A recent tile is `cloud_parts::tile_with_menu`: the tile leaves room at its right for an icon
+  button named "More for <file>", which opens the same menu as a right-click of the tile (Open,
+  Remove from the list as `Choice::ForgetRecent` and `FileCommand::ForgetRecent`, Copy location to
+  the clipboard). Removing and copying keep Home open.
 - Order: header, starts (New sketch primary, box, import, open), Recent files (the history, tiles
   from `Files::recent`), Fusion 360, Onshape, samples, footer. Signed out, a service is an advert
   card: what it does, three honest lines about what it sends, Sign in (or the no-app callout); the

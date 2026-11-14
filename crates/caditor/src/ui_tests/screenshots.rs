@@ -751,7 +751,21 @@ fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     shoot(harness, gpu, out, "ghost", look);
 }
 
+fn recent_menu_scene(gpu: &Gpu, out: &Path, look: Look) {
+    let dir = TempDir::new().expect("a temporary directory");
+    super::home::seed_recent(dir.path());
+    let mut harness = Harness::styled(look, dir.path(), false);
+    harness.wait_until("the recent files are read", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    super::home::open_home(&mut harness);
+    harness.click_button("More for kept.caditor");
+    harness.frame();
+    shoot(&mut harness, gpu, out, "home-recent-menu", look);
+}
+
 fn cloud_scenes(gpu: &Gpu, out: &Path, look: Look) {
+    recent_menu_scene(gpu, out, look);
     let dir = TempDir::new().expect("a temporary directory");
     let provider = super::home::fusion_provider_with_pictures();
     let mut harness = Harness::styled(look, dir.path(), false);

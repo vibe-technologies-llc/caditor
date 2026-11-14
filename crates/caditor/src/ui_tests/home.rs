@@ -293,7 +293,7 @@ fn top_of(harness: &Harness, text: &str) -> f32 {
         .unwrap_or_else(|| panic!("{text:?} is not shown"))
 }
 
-fn seed_recent(dir: &Path) {
+pub(super) fn seed_recent(dir: &Path) {
     let path = dir.join("kept.caditor");
     caditor_file::save(&sample_document().unwrap(), &path, false).unwrap();
     let mut earlier = Harness::with_directories(Some(dir));
@@ -336,6 +336,35 @@ fn home_is_a_page_over_the_view_with_starts_recent_files_and_samples() {
     assert!(harness.accessible_named(Role::Button, home::CLOSE));
     assert!(!harness.shows(start_card::TITLE));
     assert!(!harness.shows(start_card::DONT_SHOW_AGAIN));
+}
+
+#[test]
+fn a_recent_file_s_menu_on_home_copies_where_it_is_and_takes_it_off_the_list() {
+    let dir = TempDir::new().unwrap();
+    seed_recent(dir.path());
+    let provider = fusion_provider(b"");
+    let mut harness = with_cloud(dir.path(), &provider);
+    harness.wait_until("the recent files are read", |harness| {
+        !harness.files.recent().is_empty()
+    });
+    let listed = harness.files.recent()[0].clone();
+    open_home(&mut harness);
+
+    harness.click_button("More for kept.caditor");
+    harness.click(home::COPY_LOCATION);
+    harness.frame();
+    let copied = harness.clipboard.clone();
+    harness.click_button("More for kept.caditor");
+    harness.click(home::FORGET_RECENT);
+    harness.wait_until("the file is off the list", |harness| {
+        harness.files.recent().is_empty()
+    });
+    harness.frame();
+
+    assert_eq!(copied, Some(listed.display().to_string()));
+    assert!(listed.exists());
+    assert!(harness.shows(home::RECENT_TITLE));
+    assert!(!harness.shows("kept.caditor"));
 }
 
 #[test]
