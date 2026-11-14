@@ -124,7 +124,10 @@ pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
 pub enum TreeError {
     #[error("Select a feature in the tree, or open one, first")]
     NoFeatureChosen,
-    #[error("Select geometry in an edited sketch, or a feature in the tree, to delete it")]
+    #[error(
+        "Select geometry in an edited sketch, or a feature in the tree, to delete it. Delete face \
+         takes a selected face away and Remove body a body"
+    )]
     NothingSelected,
     #[error("Every reference it holds is found as it was chosen")]
     NothingHealed,

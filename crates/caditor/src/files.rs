@@ -108,6 +108,10 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
 const OPEN_SAMPLE: &str = "Open sample";
 const NOT_IMPORTING: &str = "No import is running";
 const HISTORY_AND_DETAILS: &str = "Versions and details";
+const IMPORT_RUNNING: &str = "An import is already running. Wait for it to finish, or stop it with \
+                              Cancel in the status bar, then import again.";
+pub const EXPORT_RUNNING: &str = "An export is already running. Wait for it to finish, or stop it \
+                                  with Cancel in the status bar, then try again";
 const IMPORT_MENU: &str = "Import";
 const EXPORT_MENU: &str = "Export";
 const CLOUD_MENU: &str = "Cloud";
@@ -550,7 +554,7 @@ pub enum ExportAgainError {
          that export"
     )]
     NothingExported,
-    #[error("An export is already running")]
+    #[error("{EXPORT_RUNNING}")]
     ExportRunning,
     #[error("Waiting for the model to finish recomputing")]
     WaitingForRecompute,
@@ -1609,7 +1613,7 @@ impl Files {
             FileCommand::History(command) => self.history_command(command, model),
             FileCommand::Import { into } => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::warning("An import is already running."));
+                    model.set_notice(Notice::warning(IMPORT_RUNNING));
                     return;
                 }
                 if self.picking.is_some() {
@@ -1620,7 +1624,7 @@ impl Files {
             }
             FileCommand::ReplaceImport(feature) => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::warning("An import is already running."));
+                    model.set_notice(Notice::warning(IMPORT_RUNNING));
                     return;
                 }
                 if self.picking.is_some() {
@@ -1631,7 +1635,7 @@ impl Files {
             }
             FileCommand::ReloadImport(feature) => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::warning("An import is already running."));
+                    model.set_notice(Notice::warning(IMPORT_RUNNING));
                     return;
                 }
                 match import::kept_source(model.document(), feature) {
@@ -2240,7 +2244,10 @@ impl Files {
                 self.fusion_app_ready(session, result, model)
             }
             Event::SlicerFound { chosen, result } => self.slicer_found(chosen, result),
-            Event::SlicerSearchFailed => log::error!("looking for the slicer failed"),
+            Event::SlicerSearchFailed => {
+                log::error!("looking for the slicer failed");
+                model.set_notice(Notice::failure(slicing::SEARCH_FAILED));
+            }
             Event::CloudSendPrepared {
                 session,
                 destination,
@@ -2890,7 +2897,7 @@ impl Files {
         model: &mut Model,
     ) {
         if self.exporter.is_running() {
-            model.set_notice(Notice::warning("An export is already running."));
+            model.set_notice(Notice::warning(format!("{EXPORT_RUNNING}.")));
             return;
         }
         self.last_export = Some(LastExport {
@@ -3854,7 +3861,10 @@ fn drawn_sketches(features: &[FeatureId], model: &mut Model) -> Option<Vec<(Stri
     let mut sketches = Vec::with_capacity(features.len());
     for feature in features {
         let Some(feature) = document.feature(*feature) else {
-            model.set_notice(Notice::failure("The sketch no longer exists."));
+            model.set_notice(Notice::failure(
+                "A sketch chosen for the export is no longer in the model, so nothing was \
+                 written. Choose the sketches again and export once more.",
+            ));
             return None;
         };
         let Some(sketch) = model

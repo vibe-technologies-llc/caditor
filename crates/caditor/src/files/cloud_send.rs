@@ -7,7 +7,7 @@ use std::{
 use caditor_file::ExportFormat;
 use egui::{Id, Key, TextEdit};
 
-use super::{Event, Files};
+use super::{EXPORT_RUNNING, Event, Files};
 use crate::{
     appearance::SPACE_S,
     cloud::{self, Destination, Shipment},
@@ -37,7 +37,7 @@ pub enum CloudSendRefusal {
     NoBodies,
     #[error("Every body is left out in the Export dialog. Include one there to send it")]
     AllLeftOut,
-    #[error("An export is already running")]
+    #[error("{EXPORT_RUNNING}")]
     ExportRunning,
     #[error("Waiting for the model to finish recomputing")]
     WaitingForRecompute,

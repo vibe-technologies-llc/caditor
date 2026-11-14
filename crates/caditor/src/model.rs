@@ -169,6 +169,8 @@ fn named_constraints(sketch: &Sketch, constraints: &[ConstraintId]) -> Option<St
     }
 }
 const MAX_RECORDED_NOTICES: usize = 100;
+const HISTORY_KEPT: &str =
+    "The model and its history are as they were; Edit › Undo history lists the steps.";
 const JOIN_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1150,14 +1152,14 @@ impl Model {
                 self.editor
                     .undo()
                     .map(|undone| undone.and(entry))
-                    .map_err(|error| format!("Undo failed: {error}"))
+                    .map_err(|error| format!("Could not undo: {error}. {HISTORY_KEPT}"))
             }
             Action::Redo => {
                 let entry = self.editor.next_redo().cloned().map(JournalEntry::Redo);
                 self.editor
                     .redo()
                     .map(|redone| redone.and(entry))
-                    .map_err(|error| format!("Redo failed: {error}"))
+                    .map_err(|error| format!("Could not redo: {error}. {HISTORY_KEPT}"))
             }
             Action::Recompute => {
                 self.recompute(Retry::Failures);
@@ -1702,7 +1704,10 @@ impl Model {
 
     fn send_save(&mut self, path: PathBuf, replace_outside_changes: bool) {
         if self.is_saving() {
-            self.set_notice(Notice::warning("A save is already in progress."));
+            self.set_notice(Notice::warning(
+                "The model is still being saved. Save again once that has finished to keep \
+                 what changed since.",
+            ));
             return;
         }
         if self.storage.is_none() {

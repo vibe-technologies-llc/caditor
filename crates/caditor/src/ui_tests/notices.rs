@@ -145,3 +145,21 @@ fn the_failed_pill_is_a_button_that_shows_the_first_failed_feature() {
         Some(feature_named(&harness, "Side sketch"))
     );
 }
+
+#[test]
+fn delete_with_nothing_to_delete_names_the_tools_that_take_faces_and_bodies_away() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    harness.key(Key::Delete, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+
+    let notice = harness.model.notice().map(|notice| notice.text.clone());
+    assert!(
+        notice
+            .as_deref()
+            .is_some_and(|text| text.contains("Delete face") && text.contains("Remove body")),
+        "{notice:?}"
+    );
+}

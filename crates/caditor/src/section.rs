@@ -74,7 +74,8 @@ pub enum Problem {
 const NOTHING_GIVES_A_PLANE: &str =
     "Select a plane, a datum plane, a flat face or a sketch to put the section on.";
 const CLOSED: &str = "Open the section view to change its planes";
-const NO_PLANE: &str = "There is no section plane. Add one first.";
+const NO_PLANE: &str =
+    "There is no section plane yet. Add a section plane (View › Inspect, or the palette) first.";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Refusal {

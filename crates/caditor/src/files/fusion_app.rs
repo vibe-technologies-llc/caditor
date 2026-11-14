@@ -7,7 +7,7 @@ use std::{
 use caditor_document::FeatureId;
 use caditor_file::ExportFormat;
 
-use super::{Event, Files};
+use super::{EXPORT_RUNNING, Event, Files};
 use crate::{
     commands::Reason,
     export::{self, ExportCommand, Exporter},
@@ -29,7 +29,7 @@ pub enum FusionAppRefusal {
         "Every body is left out in the Export dialog. Include one there to open it in Fusion 360"
     )]
     AllLeftOut,
-    #[error("An export is already running")]
+    #[error("{EXPORT_RUNNING}")]
     ExportRunning,
     #[error("Waiting for the model to finish recomputing")]
     WaitingForRecompute,

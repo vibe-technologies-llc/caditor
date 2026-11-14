@@ -7,7 +7,7 @@ use std::{
 use caditor_document::FeatureId;
 use caditor_file::{ExportFormat, Settings};
 
-use super::{Event, Files};
+use super::{EXPORT_RUNNING, Event, Files};
 use crate::{
     commands::Reason,
     export::{self, ExportCommand, Exporter},
@@ -15,6 +15,9 @@ use crate::{
     slicer::{self, FindError, Finder, Installation, Launcher, PrepareError, Prepared, Slicer},
 };
 
+pub const SEARCH_FAILED: &str = "Looking for OrcaSlicer on this computer failed, so Open in \
+                                 OrcaSlicer cannot find it. Name its program in Preferences › \
+                                 General › Exports, or export a 3MF file and open that.";
 pub const HINT: &str = "Export the selected bodies, else the ones chosen in the Export dialog, as 3MF, \
                         without asking for a file, and open them in OrcaSlicer";
 
@@ -26,7 +29,7 @@ pub enum SlicerRefusal {
     NoBodies(Slicer),
     #[error("Every body is left out in the Export dialog. Include one there to open it in {0}")]
     AllLeftOut(Slicer),
-    #[error("An export is already running")]
+    #[error("{EXPORT_RUNNING}")]
     ExportRunning,
     #[error("Waiting for the model to finish recomputing")]
     WaitingForRecompute,
