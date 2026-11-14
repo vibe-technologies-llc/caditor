@@ -74,10 +74,13 @@ jobs:
           components: clippy
           run-as: as-builder
 
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
       - name: Test
         env:
           CADITOR_REQUIRE_GPU: "1"
-        run: as-builder cargo test --workspace --locked
+        run: as-builder cargo nextest run --workspace --locked --profile ci
 
       - name: Install the OpenGL drivers
         run: |
@@ -89,7 +92,7 @@ jobs:
           CADITOR_REQUIRE_GPU: "1"
           WGPU_BACKEND: gl
           LIBGL_ALWAYS_SOFTWARE: "1"
-        run: as-builder cargo test --locked -p caditor-render --lib offscreen_tests
+        run: as-builder cargo nextest run --locked --profile ci -p caditor-render --lib -E 'test(/^offscreen_tests::/)'
 
       - name: Check that the tests left the checkout clean
         run: |
@@ -153,10 +156,13 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
       - name: Run the property suites over many more cases
         env:
           CADITOR_CASES: "10000"
-        run: cargo test --release --locked -p caditor-checks
+        run: cargo nextest run --release --locked --profile ci -p caditor-checks
 
       - name: Run the kernel surveys
         run: |
@@ -320,10 +326,13 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy
 
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
       - name: Test
         env:
           CADITOR_REQUIRE_GPU: "1"
-        run: cargo test --workspace --locked --no-fail-fast
+        run: cargo nextest run --workspace --locked --profile ci
 
       - name: Check that the tests left the checkout clean
         run: |

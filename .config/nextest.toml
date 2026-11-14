@@ -1,0 +1,19 @@
+nextest-version.recommended = "0.9.152"
+
+[test-groups]
+gpu.max-threads = 4
+
+[profile.default]
+slow-timeout.period = "60s"
+
+[[profile.default.overrides]]
+filter = "package(caditor-render) & test(/^offscreen_tests::/)"
+test-group = "gpu"
+
+[[profile.default.overrides]]
+filter = "package(caditor) & test(/^ui_tests::(screenshots|import_costs)::/)"
+test-group = "gpu"
+
+[profile.ci]
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 10 }

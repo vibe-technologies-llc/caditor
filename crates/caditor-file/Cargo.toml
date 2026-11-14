@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lib]
+doctest = false
+
 [lints]
 workspace = true
 
@@ -37,6 +40,7 @@ xxhash-rust.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true, features = ["fs", "std"] }
+signal-hook.workspace = true
 xattr.workspace = true
 
 [target.'cfg(windows)'.dependencies]

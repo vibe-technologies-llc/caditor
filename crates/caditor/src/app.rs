@@ -2303,7 +2303,7 @@ fn own_the_window(window: &Arc<Window>) {
     match window.window_handle().map(|handle| handle.as_raw()) {
         Ok(RawWindowHandle::Win32(handle)) => {
             crate::portal::own_dialogs(handle.hwnd);
-            crate::crash::flush_when_the_session_ends(handle.hwnd);
+            caditor_file::crash::flush_when_the_session_ends(handle.hwnd);
             offer_snap_layouts(handle.hwnd, Arc::clone(window));
         }
         _ => log::warn!(

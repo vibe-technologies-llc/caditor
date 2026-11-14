@@ -8,6 +8,8 @@ paths:
   - "crates/caditor-file/src/recovery.rs"
   - "crates/caditor-file/src/paths.rs"
   - "crates/caditor-file/src/logs.rs"
+  - "crates/caditor-file/src/crash.rs"
+  - "crates/caditor-file/tests/**"
   - "crates/caditor-file/src/os/**"
 ---
 
@@ -72,7 +74,14 @@ paths:
 - Windows locks are mandatory: only the holder reads a locked journal, through its own handle.
   Identity is `os::FileKey` (dev and inode on Unix, `FileId` on Windows).
 - A spawned child shares locked descriptors until it execs, so unit tests never spawn processes;
-  the one that does is the app's `tests/crash_flush.rs`, in a binary of its own.
+  the one that does is `tests/crash_flush.rs`, in a binary of its own.
+- `crash::protect` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler that flush the
+  journal through a `PanicFlush` before exit; on Windows a console close handler, plus
+  `crash::flush_when_the_session_ends` once the app has a window (`windows.md`). It lives here, not
+  in the app, so `tests/crash_flush.rs` links only this crate and a test build never compiles the
+  app crate a second time outside test mode (`build.md`). The test re-runs its binary as a child
+  that panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every
+  change, running a real storage worker.
 - A journal is put in place only by linking where none exists, or renaming over the inode the
   writer holds locked and has checked is still at that path, so two windows cannot take one path
   from each other. The owner rechecks the path after every sync, else reports itself unprotected

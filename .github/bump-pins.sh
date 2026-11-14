@@ -109,6 +109,14 @@ bump_binary() {
 bump_binary CARGO_DENY EmbarkStudios/cargo-deny cargo-deny
 bump_binary CARGO_FUZZ rust-fuzz/cargo-fuzz cargo-fuzz
 
+nextest=$(fetch "https://api.github.com/repos/nextest-rs/nextest/releases?per_page=100" |
+    sed -n 's/^ *"tag_name": *"cargo-nextest-\([0-9][0-9.]*\)".*/\1/p' | sort -V | tail -n 1)
+[ -n "$nextest" ] || fail "could not read the latest cargo-nextest"
+nextest_release="https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$nextest"
+set_pin CARGO_NEXTEST_VERSION "$nextest"
+set_pin CARGO_NEXTEST_SHA256 "$(sha256_of "$nextest_release/cargo-nextest-$nextest-x86_64-unknown-linux-musl.tar.gz")"
+set_pin CARGO_NEXTEST_WINDOWS_SHA256 "$(sha256_of "$nextest_release/cargo-nextest-$nextest-x86_64-pc-windows-msvc.tar.gz")"
+
 wix=$(fetch https://api.nuget.org/v3-flatcontainer/wix/index.json |
     tr ',' '\n' | sed -n 's/^.*"\(5\.[0-9]*\.[0-9]*\)".*$/\1/p' | tail -n 1)
 [ -n "$wix" ] || fail "could not read the latest WiX 5"

@@ -2,6 +2,7 @@
 paths:
   - "crates/caditor-windows/**"
   - "crates/caditor-file/src/os/**"
+  - "crates/caditor-file/src/crash.rs"
   - "crates/caditor/src/portal/windows.rs"
   - "crates/caditor/build.rs"
   - "crates/caditor/src/defender.rs"
@@ -95,7 +96,7 @@ so call sites stay platform-free.
 - File dialogs are rfd's (`portal/windows.rs`), owned by the main window once it exists
   (`portal::own_dialogs`). rfd's `common-controls-v6` feature stays off: it imports
   `TaskDialogIndirect`, which unmanifested test binaries cannot load.
-- `crash.rs` flushes the journal and ends the log on a console close and when Windows ends the
+- `caditor-file`'s `crash.rs` flushes the journal and ends the log on a console close and when Windows ends the
   session.
 - After the first save (`Files::saved_folder`), `defender.rs` shows once a tip-like card saying
   Microsoft Defender's real-time scanning slows the atomic saves, journal and kept versions, how to

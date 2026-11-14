@@ -15,9 +15,10 @@ paths:
   timeout; a newer push to a pull request cancels its older run. The concurrency group is `ci-<ref>`,
   not the workflow's name: inside a called workflow `github.workflow` is the caller's, and GitHub
   would take the release's own group as a deadlock and cancel it.
-- Tests run `--locked` with `CADITOR_REQUIRE_GPU=1` on lavapipe (without it the offscreen render tests
-  skip). Clippy runs `--all-features` so the `fuzzing` modules are linted. Also: `rust-formatter
-  --check`, `cargo deny` on the root and fuzz workspaces, a snapshot archive checked by
+- Tests run under cargo-nextest (`cargo nextest run --profile ci`, `build.md`), `--locked`, with
+  `CADITOR_REQUIRE_GPU=1` on lavapipe (without it the offscreen render tests skip). The `ci` profile
+  never stops at the first failure and ends a test still running after twenty minutes. Clippy runs
+  `--all-features` so the `fuzzing` modules are linted. Also: `rust-formatter --check`, `cargo deny` on the root and fuzz workspaces, a snapshot archive checked by
   `packaging/check-install.sh`, the `.deb`, `.rpm` and AppImage built from it by
   `packaging/build-packages.sh` and checked (every file of the archive, `THIRD-PARTY-NOTICES.txt`
   included, must be in each), the `.deb` installed and removed with `apt-get` by
@@ -35,7 +36,7 @@ paths:
   `LIBGL_ALWAYS_SOFTWARE=1` and `CADITOR_REQUIRE_GPU=1` on llvmpipe through surfaceless EGL, since
   `packaging/INSTALL.md` promises OpenGL; a test in that file asserts the adapter is the backend asked
   for, so the step cannot pass on Vulkan by accident.
-- `windows` tests every crate even after one fails (`--no-fail-fast`, `CADITOR_REQUIRE_GPU=1` on the
+- `windows` tests every crate even after one fails (the `ci` profile, `CADITOR_REQUIRE_GPU=1` on the
   software adapter), checks the tree stays clean and lints, the only place `cfg(windows)` code is
   compiled in CI. `package-windows` builds a snapshot MSI
   (`packaging/windows/build-release.ps1 -Snapshot`) and runs `check-install.ps1` on it. Windows jobs
@@ -61,8 +62,9 @@ paths:
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the property
   suites of `caditor-checks` over `CADITOR_CASES=10000` cases in release, the ignored
   kernel and sketch surveys and the large STEP import benchmark (`app-tests.md`) in release, each
-  through `.github/run-ignored.sh`, which runs the named ignored tests with `--exact` and fails when
-  fewer ran than were named, so a renamed test cannot leave the job green running nothing.
+  through `.github/run-ignored.sh`, which runs the named ignored tests with libtest's `--exact` (a
+  handful of named release runs gain nothing from a process each) and fails when fewer ran than were
+  named, so a renamed test cannot leave the job green running nothing.
   `random_placements_of_every_fixture` asserts every boolean of its seed succeeds. An ignored test
   pinning a known failure (`vertical_edges_are_rounded_after_the_top_rim_is_chamfered`) or only
   timing (`display_mesh_costs`) is left out.
@@ -84,8 +86,8 @@ paths:
   by both workflows. Never copy a pin into a workflow's `env`.
 - Rust comes from `.github/actions/install-rust`, which verifies `rustup-init` (`rustup-init.exe` on
   Windows, `RUSTUP_WINDOWS_SHA256`) against its pinned checksum; never `curl | sh`. Tool binaries
-  (`cargo-deny`, `cargo-fuzz`, WiX) are checked against pinned SHA-256 sums; `rust-formatter` is built
-  from `RUST_FORMATTER_REV`.
+  (`cargo-deny`, `cargo-fuzz`, `cargo-nextest` through `.github/actions/install-nextest`, WiX) are
+  checked against pinned SHA-256 sums; `rust-formatter` is built from `RUST_FORMATTER_REV`.
 - Actions are pinned by commit with their version in the step name. `conventions_tests.rs` checks
   that every `uses:` is a full commit with its version in the step name, that no workflow holds a
   value of `versions.env`, and that the fuzz matrix, `fuzz/Cargo.toml` and `fuzz/fuzz_targets` list the

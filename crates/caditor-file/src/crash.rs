@@ -1,8 +1,10 @@
 use std::{backtrace::Backtrace, sync::Arc, time::Duration};
 
-use caditor_file::SessionLog;
+use parking_lot::Mutex;
 
-pub use crate::model::PanicFlush;
+use crate::{Flusher, SessionLog};
+
+pub type PanicFlush = Arc<Mutex<Option<Flusher>>>;
 
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(unix)]

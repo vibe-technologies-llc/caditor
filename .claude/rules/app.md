@@ -5,7 +5,6 @@ paths:
   - "crates/caditor/src/main.rs"
   - "crates/caditor/src/lib.rs"
   - "crates/caditor/src/fuzzing.rs"
-  - "crates/caditor/src/crash.rs"
   - "crates/caditor/src/logging.rs"
   - "crates/caditor/src/headless.rs"
   - "crates/caditor/src/snapshot.rs"
@@ -15,7 +14,6 @@ paths:
   - "crates/caditor/src/samples.rs"
   - "crates/caditor/src/about.rs"
   - "crates/caditor/src/logo.rs"
-  - "crates/caditor/tests/**"
   - "packaging/**"
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
@@ -167,11 +165,9 @@ paths:
 - IDs restart per document, so a new session clears everything holding them: viewport selection,
   hover, highlight and drawing state (`Workspace::sync`), the tree's selection and rename, the
   export dialog's left-out bodies. Anything new that holds IDs must be cleared there.
-- `crash::protect` installs the panic hook and a SIGTERM/SIGHUP/SIGINT handler that flush the
-  journal before exit; on Windows a console close handler, plus `crash::flush_when_the_session_ends`
-  once the window exists (`windows.md`). `tests/crash_flush.rs` re-runs its binary as a child that
-  panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every change;
-  it runs a real storage worker, not the app, which `packaging/check-run.sh` kills (`ci.md`).
+- `run` and the MCP server call `caditor_file::crash::protect` before anything else
+  (`file-journal.md`), and on Windows `crash::flush_when_the_session_ends` once the window exists
+  (`windows.md`). The app itself is killed by `packaging/check-run.sh` (`ci.md`).
 - `startup_check.rs` is the app's hook for that script. Every run logs "the first frame was drawn"
   and `Files::offer` logs "recovery offered for <journal> with N recoverable changes".
   `CADITOR_STARTUP_CHECK` (`Mode::parse`), acting on the first frame not blocked by a dialog or an

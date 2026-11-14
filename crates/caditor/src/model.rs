@@ -12,14 +12,14 @@ use caditor_document::{
     Pivot, Prepared, Progress, Recomputer, Rgb, SketchResult, Stale, Transaction,
     TransactionBuilder, TurnCentre, UndoMark, displayed_axis, displayed_frame,
 };
+pub use caditor_file::crash::PanicFlush;
 use caditor_file::{
-    Closing, FileDigest, Flusher, Handover, JournalEntry, JournalFailure, KeepRequest,
-    PreviewDrawing, Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
+    Closing, FileDigest, Handover, JournalEntry, JournalFailure, KeepRequest, PreviewDrawing,
+    Recovered, Report, Retention, SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
 use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
-use parking_lot::Mutex;
 
 use crate::{
     bodies::{self, ShownCut},
@@ -51,7 +51,6 @@ use crate::{
 
 pub type Waker = Box<dyn Fn() + Send>;
 pub type WakerFactory = Box<dyn Fn() -> Waker>;
-pub type PanicFlush = Arc<Mutex<Option<Flusher>>>;
 
 pub const UNTITLED: &str = "Untitled";
 

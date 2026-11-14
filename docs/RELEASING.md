@@ -157,7 +157,7 @@ variables use. Never add a client secret.
 
 1. On an up-to-date `master`, run the checks:
    `rust-formatter --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` (as CI runs it,
-   so the `fuzzing` modules are linted) and `cargo test --workspace --locked`.
+   so the `fuzzing` modules are linted) and `cargo nextest run --workspace --locked`.
 2. Set the version in `[workspace.package]` in the root `Cargo.toml` if it is not already the
    one being released, then `cargo build` so `Cargo.lock` follows.
 3. Preview the archive with `packaging/build-release.sh --snapshot` (it needs

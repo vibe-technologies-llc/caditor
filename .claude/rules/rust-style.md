@@ -25,7 +25,7 @@ paths:
   of the workspace clippy lints, and expected (`#[expect(unsafe_code, reason = "…")]`) only at the
   exact item. `conventions_tests.rs` checks both.
 - Platform code is whole `cfg(unix)` and `cfg(windows)` items behind one interface
-  (`caditor-file`'s `os` module; `portal`, `crash` in `caditor`), with a `cfg` at a call site only
+  (`caditor-file`'s `os` and `crash` modules; `portal` in `caditor`), with a `cfg` at a call site only
   for a step one platform alone takes; Windows details are in `windows.md`.
 - Tests bound cost by work done, never by time: a count a test can read (interrupt polls through the
   kernel's `test_support::polls_during`, or a `tally` of work units in `caditor-kernel`,

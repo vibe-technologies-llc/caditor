@@ -107,7 +107,7 @@ and keeps its name and role.
 
 ## Checks
 
-Run by `cargo test --workspace`:
+Run by `cargo nextest run --workspace` (and `cargo test --workspace`):
 
 - `ui_tests/accessibility.rs`: names, live regions, the 3D view's list and its activation, the
   rollback slider, contrast following the system, motion following the preference and the system,

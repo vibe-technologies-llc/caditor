@@ -4,6 +4,7 @@ mod checked_texts;
 mod clipboard;
 mod configuration_table;
 mod configurations;
+pub mod crash;
 mod csv;
 mod drawings;
 mod environment;

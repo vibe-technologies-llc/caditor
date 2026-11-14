@@ -44,7 +44,6 @@ mod configurations;
 mod constraint_trial;
 #[cfg(test)]
 mod conventions_tests;
-pub mod crash;
 mod curve_track;
 mod datum_panel;
 mod datum_tools;
@@ -315,7 +314,7 @@ pub fn run() -> Result<ExitCode> {
 
 fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logging) -> Result<()> {
     let panic_flush = PanicFlush::default();
-    crash::protect(&panic_flush, logging.ending());
+    caditor_file::crash::protect(&panic_flush, logging.ending());
 
     match &state_dir {
         Some(dir) => caditor_file::remember_checked_imports(dir),

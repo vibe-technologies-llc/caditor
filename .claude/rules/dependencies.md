@@ -56,11 +56,12 @@ paths:
   `simd-adler32`) and the kernel's `nalgebra`, `spade`, `robust`. Unoptimised, font rasterising
   dominated every UI test. A crate topping a profile of the UI tests joins the list.
 - The workspace's own model crates (`caditor-kernel`, `-sketch`, `-document`, `-file`, `-geometry`,
-  `-expression`, `-step`, `-lettering`) are built at `opt-level = 1` and the dev profile keeps
-  `debug = "line-tables-only"`: unoptimised, the kernel suite took 100 s and the whole workspace
-  209 s; at level 1 they take 10 s and 54 s, and the app's test binary shrinks from 1.5 GB to 0.5 GB
-  with line tables instead of full debug info. The app and render crates stay unoptimised, since
-  their tests spend their time in egui and the GPU.
+  `-expression`, `-step`, `-lettering`) are built at `opt-level = 3` and the dev profile keeps
+  `debug = "line-tables-only"` for workspace crates and none for dependencies (`build.md`, with the
+  measurements): unoptimised, the kernel suite took 100 s and the whole workspace 209 s; at level 1
+  they took 10 s and 54 s, and level 3 cut the test run's CPU time by another third. Line tables
+  instead of full debug info shrink the app's test binary from 1.5 GB to 0.5 GB. The app and render
+  crates stay unoptimised, since their tests spend their time in egui and the GPU.
 - `libm` (default features, so its exactly rounded `sqrt`, `fma` and rounding may use the CPU's
   instructions) is pure Rust and supplies the kernel's and the geometry crate's transcendental maths
   (`kernel.md`); `caditor-geometry` also turns on `glam`'s `libm` feature, which `glam` already

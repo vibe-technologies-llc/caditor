@@ -8,10 +8,12 @@ use std::{
     time::Duration,
 };
 
-use caditor::crash::{self, PanicFlush};
 use caditor_document::Document;
 use caditor_expression::Expression;
-use caditor_file::{JournalEntry, SessionLog, Start, Storage, StorageConfig};
+use caditor_file::{
+    JournalEntry, SessionLog, Start, Storage, StorageConfig,
+    crash::{self, PanicFlush},
+};
 use parking_lot::Mutex;
 
 const MODE: &str = "CADITOR_CRASH_CHILD";

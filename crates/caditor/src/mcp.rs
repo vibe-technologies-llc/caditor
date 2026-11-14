@@ -65,11 +65,10 @@ use std::{
 };
 
 use anyhow::Result;
-use caditor_file::{SessionLog, StorageConfig};
+use caditor_file::{SessionLog, StorageConfig, crash};
 
 use crate::{
     cli::Serving,
-    crash,
     logging::Logging,
     mcp::session::{Opening, Session},
     model::{PanicFlush, display_name},

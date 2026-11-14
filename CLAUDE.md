@@ -13,8 +13,8 @@ User experience and never losing the user's work outrank everything else; see
 
 ```sh
 cargo run -p caditor
-cargo test --workspace
-cargo test -p <crate> <test_name>
+cargo nextest run --workspace
+cargo nextest run -p <crate> <test_name>
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo xwin clippy --target x86_64-pc-windows-msvc --workspace --all-targets --all-features -- -D warnings
 rust-formatter
@@ -25,8 +25,10 @@ packaging/build-release.sh --snapshot
 `rust-formatter` formats `.rs` and `.toml` and replaces `cargo fmt`. `cargo xwin` lints the Windows
 build from Linux; its wine tests cannot rename over an open file (journals rely on it), so Windows
 CI is the real check. Offscreen render tests skip without a GPU adapter unless
-`CADITOR_REQUIRE_GPU=1`. Interface screenshots: the `ui-screenshots` skill. CI, cargo-deny and
-fuzzing: `ci.md`.
+`CADITOR_REQUIRE_GPU=1`. Tests run under cargo-nextest (`cargo install cargo-nextest --locked`,
+`.config/nextest.toml`), one process per test, binaries overlapping; plain `cargo test --workspace`
+still passes but runs the binaries one after another. Build profiles and what a test build compiles:
+`build.md`. Interface screenshots: the `ui-screenshots` skill. CI, cargo-deny and fuzzing: `ci.md`.
 
 ## Architecture
 
@@ -94,6 +96,7 @@ rule's `paths:` covers, a rules file with nothing under its title and one missin
 | --- | --- |
 | `ux.md`, `reliability.md` | UX requirements and the FreeCAD failure modes to avoid; crash and data-loss policy (always loaded). |
 | `rust-style.md`, `dependencies.md`, `ci.md` | Formatting, imports, collections, `unsafe`; dependency declaration; CI, cargo-deny, fuzzing. |
+| `build.md` | Build profiles, what a test build compiles and why, the nextest runner, its groups and overrides. |
 | `expression.md`, `zstd.md`, `windows.md`, `wayland.md` | Quantities, units and the expression language; the zstd wrapper's `unsafe` boundary; Windows: the Win32 boundary, files, app and MSI; the Wayland boundary and files dropped on Wayland. |
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
 | `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md`, `kernel-hidden-lines.md` | Kernel base (the geometry crate, tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns; vector hidden lines, silhouettes and a body's outer outline. |
