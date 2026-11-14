@@ -18,7 +18,6 @@ mod units;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
     panic,
     sync::{
         Arc,
@@ -28,7 +27,9 @@ use std::{
 };
 
 use caditor_geometry::Similarity;
-use caditor_kernel::{Solid, check_interrupt, current_interrupt, interruptible};
+use caditor_kernel::{
+    HelperThreads, Solid, available_threads, check_interrupt, current_interrupt, interruptible,
+};
 
 pub use crate::read::{
     fault::Fault,
@@ -888,10 +889,9 @@ fn built_together(
         built: 0,
         solids: total,
     });
-    let threads = thread::available_parallelism()
-        .map_or(1, NonZeroUsize::get)
-        .min(jobs.len());
-    if threads <= 1 {
+    let threads = available_threads().min(jobs.len());
+    let helpers = HelperThreads::take(threads);
+    if helpers.count() <= 1 {
         let mut geometries = Vec::new();
         return jobs
             .iter()
@@ -906,7 +906,7 @@ fn built_together(
     let interrupt = current_interrupt();
     let mut built: Vec<Option<Result<Built, Problem>>> = jobs.iter().map(|_| None).collect();
     thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
+        let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
                 let (next, work, count, interrupt) = (&next, &work, &count, interrupt.clone());
                 scope.spawn(move || {

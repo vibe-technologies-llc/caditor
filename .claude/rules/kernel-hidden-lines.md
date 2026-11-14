@@ -18,8 +18,8 @@ paths:
   between splits judged at its middle (`visibility::verdict`), neighbours of one class merged, a
   closed conic's last and first pieces joined round its seam so a whole circle is one piece. Every
   piece of a curve keeps one `Curve2`; a fold makes separate tracks, so nothing merges across one.
-- Both halves of the work are fanned out with `fan_out::each_in_order` (scoped threads up to the
-  available parallelism, at least a few items each, each worker taking the next item, the caller's
+- Both halves of the work are fanned out with `fan_out::each_in_order` (scoped threads up to what the
+  helper budget spares, `kernel.md`, at least a few items each, each worker taking the next item, the caller's
   interrupt installed on every one); each item's result is its own, kept in item order and joined
   after, so the pieces, the `undecided` count and the first error (a cancel from any thread) are
   those of one thread whatever the thread count; `hidden_lines_on` and `outer_outline_on` take the

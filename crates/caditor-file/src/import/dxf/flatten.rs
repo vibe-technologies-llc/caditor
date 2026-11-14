@@ -1,13 +1,14 @@
 use std::{
     collections::BTreeSet,
-    num::NonZeroUsize,
     panic,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     thread,
 };
 
 use caditor_geometry::{Point2, Point3, Vector2};
-use caditor_kernel::{check_interrupt, current_interrupt, interruptible};
+use caditor_kernel::{
+    HelperThreads, available_threads, check_interrupt, current_interrupt, interruptible,
+};
 use caditor_sketch::{BSpline, FittedSpline, SplineKind};
 use parking_lot::Mutex;
 
@@ -147,12 +148,13 @@ fn flatten_all(shapes: &[Shape], tolerance: f64, fitting: &Fitting) -> Flattened
     let Some(interrupt) = interrupt else {
         return flatten_from(shapes, &next, tolerance, fitting);
     };
-    let helpers = thread::available_parallelism()
-        .map_or(1, NonZeroUsize::get)
-        .min(shapes.len() / SHAPES_PER_WORKER)
-        .saturating_sub(1);
+    let helpers = HelperThreads::take(
+        available_threads()
+            .min(shapes.len() / SHAPES_PER_WORKER)
+            .saturating_sub(1),
+    );
     thread::scope(|scope| {
-        let spawned: Vec<_> = (0..helpers)
+        let spawned: Vec<_> = (0..helpers.count())
             .filter_map(|_| {
                 let interrupt = interrupt.clone();
                 let next = &next;

@@ -1,7 +1,10 @@
 use std::{
     num::NonZeroUsize,
     panic,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
 };
 
@@ -9,8 +12,53 @@ use crate::interrupt;
 
 pub(crate) const FACES_PER_THREAD: usize = 8;
 
-pub(crate) fn available_threads() -> usize {
+static SPARE_THREADS: OnceLock<AtomicUsize> = OnceLock::new();
+
+pub fn available_threads() -> usize {
     thread::available_parallelism().map_or(1, NonZeroUsize::get)
+}
+
+fn spare_threads() -> &'static AtomicUsize {
+    SPARE_THREADS.get_or_init(|| AtomicUsize::new(available_threads().saturating_sub(1)))
+}
+
+#[derive(Debug)]
+pub struct HelperThreads {
+    count: usize,
+}
+
+impl HelperThreads {
+    pub fn take(wanted: usize) -> Self {
+        let spare = spare_threads();
+        let mut left = spare.load(Ordering::Relaxed);
+        loop {
+            let count = wanted.min(left);
+            if count == 0 {
+                return Self { count };
+            }
+            match spare.compare_exchange_weak(
+                left,
+                left.saturating_sub(count),
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Self { count },
+                Err(now) => left = now,
+            }
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
+    }
+}
+
+impl Drop for HelperThreads {
+    fn drop(&mut self) {
+        if self.count > 0 {
+            spare_threads().fetch_add(self.count, Ordering::AcqRel);
+        }
+    }
 }
 
 pub(crate) fn both<A, B: Send>(
@@ -18,7 +66,8 @@ pub(crate) fn both<A, B: Send>(
     first: impl FnOnce() -> A,
     second: impl Fn() -> B + Sync,
 ) -> (A, B) {
-    if threads <= 1 {
+    let helpers = HelperThreads::take(threads.saturating_sub(1).min(1));
+    if helpers.count() == 0 {
         return (first(), second());
     }
     thread::scope(|scope| {
@@ -43,7 +92,8 @@ pub(crate) fn each_in_order<T: Send>(
     make: impl Fn(usize) -> T + Sync,
 ) -> Vec<T> {
     let threads = most_threads.min(count.div_ceil(least_each.max(1)));
-    if threads <= 1 {
+    let helpers = HelperThreads::take(threads.saturating_sub(1));
+    if helpers.count() == 0 {
         return (0..count).map(make).collect();
     }
     let next = AtomicUsize::new(0);
@@ -58,7 +108,7 @@ pub(crate) fn each_in_order<T: Send>(
         }
     };
     let mut made = thread::scope(|scope| {
-        let helpers: Vec<_> = (1..threads)
+        let spawned: Vec<_> = (0..helpers.count())
             .filter_map(|_| {
                 let interrupt = interrupt::current();
                 thread::Builder::new()
@@ -68,7 +118,7 @@ pub(crate) fn each_in_order<T: Send>(
             })
             .collect();
         let mut made = take();
-        for helper in helpers {
+        for helper in spawned {
             match helper.join() {
                 Ok(more) => made.extend(more),
                 Err(payload) => panic::resume_unwind(payload),

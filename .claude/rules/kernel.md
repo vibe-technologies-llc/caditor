@@ -54,6 +54,17 @@ paths:
   tree nodes visited, intersection-curve segments handed to a closest-point search, half-edges of
   the cycles `Arrangement::contains` tests. Never by time (`rust-style.md`).
 
+## Helper threads (`fan_out.rs`)
+
+- Every fan-out onto scoped threads draws its helpers from one process-wide budget,
+  `HelperThreads::take`, which starts at the available parallelism less one and hands back what it
+  took when dropped; the work runs on the calling thread when nothing is spare. Kernel fan-outs
+  (`fan_out::both`, `each_in_order`, `crossing.rs`'s `probed`), the STEP reader's solid builds and
+  `caditor-file`'s `in_parallel` and DXF flattening all take it, so recompute workers each
+  tessellating, or tests running side by side, share the cores instead of each starting one thread
+  per core. Results never depend on how many helpers came: work is taken by index and put back in
+  order.
+
 ## Curves and surfaces
 
 - `Surface` boxes its extrusion, revolution and B-spline variants, so it is sized by a cone or

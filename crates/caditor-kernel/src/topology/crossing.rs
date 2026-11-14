@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
     panic,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
@@ -10,6 +9,7 @@ use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 
 use crate::{
     box_tree::BoxTree,
+    fan_out::{HelperThreads, available_threads},
     interrupt::{self, Interrupted, interruptible},
     intersect::{
         SurfaceIntersection, SurfacePatch, intersect_curve_surface, intersect_curves,
@@ -415,10 +415,9 @@ fn probed<T: Sync>(
     items: &[T],
     probe: impl Fn(&T) -> Result<Probe, Interrupted> + Sync,
 ) -> Result<Vec<Probe>, Interrupted> {
-    let threads = thread::available_parallelism()
-        .map_or(1, NonZeroUsize::get)
-        .min(items.len() / PAIRS_PER_THREAD);
-    if threads <= 1 {
+    let threads = available_threads().min(items.len() / PAIRS_PER_THREAD);
+    let helpers = HelperThreads::take(threads);
+    if helpers.count() <= 1 {
         let mut found = Vec::with_capacity(items.len());
         for item in items {
             let probe = probe(item)?;
@@ -435,7 +434,7 @@ fn probed<T: Sync>(
     let mut found: Vec<Option<Probe>> = vec![None; items.len()];
     let mut interrupted = false;
     thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
+        let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
                 let (next, crossed, probe, interrupt) =
                     (&next, &crossed, &probe, interrupt.clone());

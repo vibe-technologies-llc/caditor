@@ -78,6 +78,7 @@ pub use crate::{
         FaceMesh, FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES,
         MeshRepairs, TriangleMesh, faceted_solids,
     },
+    fan_out::{HelperThreads, available_threads},
     hidden_lines::{
         HiddenLineError, HiddenLineView, HiddenLines, OutlinePiece, ViewEdgeKind, ViewPiece,
         ViewSource, Visibility, hidden_lines, outer_outline,

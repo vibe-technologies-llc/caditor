@@ -2,26 +2,26 @@
 mod tests;
 
 use std::{
-    num::NonZeroUsize,
     panic,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
 };
 
-use caditor_kernel::{check_interrupt, current_interrupt, interruptible};
+use caditor_kernel::{
+    HelperThreads, available_threads, check_interrupt, current_interrupt, interruptible,
+};
 
 pub(crate) fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let threads = thread::available_parallelism()
-        .map_or(1, NonZeroUsize::get)
-        .min(items.len());
-    if threads <= 1 {
+    let threads = available_threads().min(items.len());
+    let helpers = HelperThreads::take(threads);
+    if helpers.count() <= 1 {
         return items.iter().map(&work).collect();
     }
     let next = AtomicUsize::new(0);
     let interrupt = current_interrupt();
     let mut results: Vec<Option<R>> = items.iter().map(|_| None).collect();
     thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
+        let workers: Vec<_> = (0..helpers.count())
             .map(|_| {
                 let (next, work, interrupt) = (&next, &work, interrupt.clone());
                 scope.spawn(move || {
