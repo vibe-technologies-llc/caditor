@@ -21,10 +21,10 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
     harness.show_new_windows();
     assert!(harness.workspace.palette.is_open());
 
-    harness.type_text("fillet");
+    harness.type_text("thread");
     assert!(harness.shows(&format!(
-        "Fillet is not available: {}.",
-        crate::blend_tools::NOTHING_TO_BLEND
+        "Thread is not available: {}.",
+        crate::thread_tools::ThreadToolError::ChooseFace
     )));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
@@ -34,7 +34,7 @@ fn the_command_palette_runs_what_fits_the_context_and_explains_the_rest() {
         harness
             .model
             .notice()
-            .is_some_and(|notice| notice.text.starts_with("Fillet is not available"))
+            .is_some_and(|notice| notice.text.starts_with("Thread is not available"))
     );
 
     harness.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);

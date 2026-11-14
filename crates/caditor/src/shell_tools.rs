@@ -8,7 +8,7 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
-    body_selection,
+    body_selection::{self, Standing},
     commands::{Command, Reason},
     editing::{self, EditingCommand},
     field::{self, CheckError},
@@ -29,6 +29,13 @@ pub enum ShellError {
     SeveralBodies,
     #[error("Select the faces of a body to leave open")]
     NoFaces,
+    #[error(
+        "Select the faces of a body to leave open; with one body shown, they can be clicked \
+         after the tool is started"
+    )]
+    NoFacesOfSeveral,
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error(
         "Only flat faces and cylinder, cone, sphere or torus faces can be left open, so select \
          those only"
@@ -84,7 +91,17 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
             left_out.push(pickable);
         }
     }
-    let body = body.ok_or(ShellError::NoFaces)?;
+    let body = match body {
+        Some(body) => body,
+        None => match body_selection::standing_bodies(model) {
+            Standing::Only(body) => {
+                bodies::shown(model.evaluation(), body).ok_or(ShellError::NoShape { body })?;
+                body
+            }
+            Standing::Several => return Err(ShellError::NoFacesOfSeveral),
+            Standing::None => return Err(ShellError::NoBodyShown),
+        },
+    };
     let shown = bodies::shown(model.evaluation(), body).ok_or(ShellError::NoFaces)?;
     let openable = faces.iter().all(|face| {
         bodies::find_face(shown, *face).is_some_and(|face| openable_face(&shown.solid, face))

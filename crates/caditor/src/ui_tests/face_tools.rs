@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
-use super::{CAMERA_SETTLE, Harness, click_with, extruded_plate, rectangle};
+use super::{CAMERA_SETTLE, Harness, add_peg, click_with, extruded_plate, rectangle};
 use crate::{
     blend_tools, bodies, look_at, measure,
     model::Action,
@@ -150,6 +150,15 @@ fn a_fillet_takes_faces_of_one_body_and_says_what_it_leaves_out() {
     assert_eq!(source.body, plate);
     assert_eq!(source.edges.len(), 4);
     assert_eq!(source.left_out, vec![corner]);
+    let unselected =
+        blend_tools::selected_edges(&harness.model, &Selection::default(), &[]).unwrap();
+
+    assert_eq!(unselected.body, plate);
+    assert!(unselected.edges.is_empty());
+
+    add_peg(&mut harness);
+    harness.settle();
+
     assert_eq!(
         blend_tools::selected_edges(&harness.model, &Selection::default(), &[]),
         Err(blend_tools::BlendError::NothingToBlend)

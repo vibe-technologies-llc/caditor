@@ -13,7 +13,7 @@ use caditor_kernel::{
 use crate::{
     blend_panel,
     bodies::{self, FaceKey},
-    body_selection,
+    body_selection::{self, Standing},
     commands::{Command, Reason},
     editing::{self, EditingCommand},
     field::{self, CheckError},
@@ -67,13 +67,16 @@ pub struct EdgeSource {
     pub left_out: Vec<Pickable>,
 }
 
-pub const NOTHING_TO_BLEND: &str =
-    "Select edges or faces of a body, or choose a body in the tree, first";
+pub const NOTHING_TO_BLEND: &str = "Select edges or faces of a body, or choose a body in the tree, \
+                                   first; with one body shown, edges can be clicked after the \
+                                   tool is started";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum BlendError {
     #[error("{}", NOTHING_TO_BLEND)]
     NothingToBlend,
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error("Select edges or faces of one body only")]
     SeveralBodies,
     #[error("{}", Pending::BodyShape)]
@@ -165,6 +168,23 @@ fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, BlendErro
     })
 }
 
+fn edges_clicked_after(model: &Model, left_out: Vec<Pickable>) -> Result<EdgeSource, BlendError> {
+    match body_selection::standing_bodies(model) {
+        Standing::Only(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(BlendError::NoShape { body })?;
+            Ok(EdgeSource {
+                body,
+                edges: Vec::new(),
+                picked: Vec::new(),
+                groups: Vec::new(),
+                left_out,
+            })
+        }
+        Standing::Several => Err(BlendError::NothingToBlend),
+        Standing::None => Err(BlendError::NoBodyShown),
+    }
+}
+
 fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource, BlendError> {
     let mut body = None;
     let mut around = Vec::new();
@@ -198,7 +218,9 @@ fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource
             _ => {}
         }
     }
-    let body = body.ok_or(BlendError::NothingToBlend)?;
+    let Some(body) = body else {
+        return edges_clicked_after(model, left_out);
+    };
     let mut seen: BTreeSet<EdgeName> = around.iter().copied().collect();
     picked.retain(|edge| seen.insert(*edge));
     let mut listed = BTreeSet::new();
@@ -254,7 +276,8 @@ pub fn create(
             GroupSource::Body => Some(EdgeGroup::Body),
         })
         .collect();
-    if located.is_empty() && groups.is_empty() {
+    let asked = source.picked.len() + source.groups.len();
+    if asked > 0 && located.is_empty() && groups.is_empty() {
         return Err(BlendError::EdgesGone);
     }
     if located.len() < source.picked.len() {

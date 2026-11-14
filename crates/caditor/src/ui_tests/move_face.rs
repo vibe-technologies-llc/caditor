@@ -8,8 +8,9 @@ use caditor_kernel::Surface;
 use egui::{Event, Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, delete_face::holed_plate, drag_value_arrow, extruded_plate,
-    length_value, volume_about,
+    CAMERA_SETTLE, Harness,
+    delete_face::{delete_face_of, holed_plate},
+    drag_value_arrow, extruded_plate, length_value, volume_about,
 };
 use crate::{
     editing::EditingCommand,
@@ -118,6 +119,62 @@ fn move_face_raises_a_top_and_takes_or_leaves_faces_clicked_in_the_view() {
     harness.frame();
     harness.settle();
     assert!(volume_about(&harness, plate, PLATE - BORE));
+}
+
+#[test]
+fn move_face_and_delete_face_start_on_the_only_body_and_take_the_faces_clicked_after() {
+    let mut harness = Harness::new();
+    let (plate, bore, _) = holed_plate(&mut harness);
+    let Pickable::Face { face: bore_key, .. } = bore else {
+        panic!("the bore is a face");
+    };
+    harness.select([]);
+
+    harness.use_tool_with(Key::J, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let moving = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the move face is open");
+    let moved_at_first = move_face_of(&harness, moving).faces.len();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::ShellFace {
+            feature: moving,
+            face: bore_key,
+        },
+    );
+    harness.settle();
+    let moved_after = move_face_of(&harness, moving).faces.len();
+    harness.perform(Action::Editing(EditingCommand::CancelSolid));
+    harness.settle();
+
+    harness.select([]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let deleting = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the delete face is open");
+    let deleted_at_first = delete_face_of(&harness, deleting).faces.len();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::ShellFace {
+            feature: deleting,
+            face: bore_key,
+        },
+    );
+    harness.settle();
+
+    assert_eq!((moved_at_first, moved_after), (0, 1));
+    assert!(harness.document().feature(moving).is_none());
+    assert_eq!(deleted_at_first, 0);
+    assert_eq!(delete_face_of(&harness, deleting).body, plate);
+    assert_eq!(delete_face_of(&harness, deleting).faces.len(), 1);
 }
 
 #[test]

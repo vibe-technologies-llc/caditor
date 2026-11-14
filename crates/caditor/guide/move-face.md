@@ -3,7 +3,8 @@
 {command:model.move_face} shifts faces of a body along a direction and tilts them about an axis, the
 faces around them extending or trimming to follow, so a wall at the wrong angle, a hole in the wrong
 place or a boss on the wrong spot is put right without remodelling the body. It works on any body,
-an [imported](imported-bodies) one with no history included. Select the faces, then choose Move face.
+an [imported](imported-bodies) one with no history included. Select the faces, then choose Move face; with only one body shown, it can be chosen first and the
+faces clicked after.
 It has no ribbon button; use the Model menu or {command:palette}.
 
 - **Distance** shifts the faces; a negative distance shifts them the other way. Typing previews it,

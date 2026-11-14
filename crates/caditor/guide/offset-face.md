@@ -1,7 +1,8 @@
 # Offset face
 
 {command:model.offset_face} moves faces of a body along their normals, growing or shrinking it.
-Select the faces, of any shape, then choose Offset face. It has no ribbon button; use the Model
+Select the faces, of any shape, then choose Offset face; with only one body shown, it can be
+chosen first and the faces clicked after. It has no ribbon button; use the Model
 menu or {command:palette}.
 
 - **Distance** moves the faces out; a negative distance moves them in. Typing previews it, and

@@ -1,6 +1,6 @@
 use caditor_document::{
-    BodyOperation, EdgeGroup, EdgeRule, Edit, ExtrudeExtent, FeatureKind, RegionChoice,
-    SolidFeature,
+    BodyOperation, EdgeGroup, EdgeRule, Edit, ExtrudeExtent, FeatureKind, FeatureState,
+    MissingInput, RegionChoice, SolidFeature,
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
@@ -95,6 +95,48 @@ fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
         (opened.min.x - view.min.x).abs() < 0.5,
         "{view:?} became {opened:?}"
     );
+}
+
+#[test]
+fn a_fillet_started_with_nothing_selected_waits_on_the_only_body_for_the_edges_clicked_after() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let back = top_edge_along_x(&harness, plate, 40.0);
+    harness.select([]);
+
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    let started_with = blend_of(&harness, fillet).edges.len();
+    let waiting = matches!(
+        harness
+            .model
+            .evaluation()
+            .feature(fillet)
+            .map(|status| &status.state),
+        Some(FeatureState::Waiting(MissingInput::Edges { .. }))
+    );
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::BlendEdge {
+            feature: fillet,
+            edge: back,
+        },
+    );
+    harness.settle();
+
+    assert_eq!(started_with, 0);
+    assert!(waiting);
+    assert_eq!(blend_of(&harness, fillet).body, plate);
+    assert_eq!(blend_of(&harness, fillet).edges.len(), 1);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 #[test]

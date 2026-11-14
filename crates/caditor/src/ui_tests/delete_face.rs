@@ -6,12 +6,15 @@ use caditor_kernel::Surface;
 use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
-use super::{Harness, rectangle, volume_about};
-use crate::{bodies, selection::Pickable};
+use super::{Harness, add_peg, rectangle, volume_about};
+use crate::{bodies, model::Action, selection::Pickable};
 
 const PLATE: f64 = 40.0 * 40.0 * 10.0;
 
-fn delete_face_of(harness: &Harness, feature: FeatureId) -> &caditor_document::DeleteFace {
+pub(super) fn delete_face_of(
+    harness: &Harness,
+    feature: FeatureId,
+) -> &caditor_document::DeleteFace {
     harness
         .document()
         .feature(feature)
@@ -149,11 +152,15 @@ fn the_delete_face_command_needs_faces_of_a_body_and_undoes_in_one_step() {
     let mut harness = Harness::new();
     let (plate, bore, _) = holed_plate(&mut harness);
 
+    add_peg(&mut harness);
+    harness.settle();
     harness.select([]);
     harness.use_tool_with(Key::Q, Modifiers::ALT | Modifiers::SHIFT);
     harness.settle();
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_ne!(harness.model.undo_label(), Some("Create Delete face 1"));
+    harness.perform(Action::Undo);
+    harness.settle();
 
     harness.select([bore]);
     harness.use_tool_with(Key::Q, Modifiers::ALT | Modifiers::SHIFT);

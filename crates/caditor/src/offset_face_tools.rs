@@ -11,7 +11,7 @@ use caditor_kernel::{FaceId, FaceReference, Solid, tangent_faces};
 
 use crate::{
     bodies::{self, FaceKey},
-    body_selection,
+    body_selection::{self, Standing},
     commands::{Command, Reason},
     editing::{self, EditingCommand},
     last_values::{Remembered, Starts},
@@ -32,6 +32,15 @@ pub enum FacePurpose {
     Replace,
 }
 
+impl FacePurpose {
+    fn starts_before_its_faces(self) -> bool {
+        match self {
+            Self::Move | Self::Delete => true,
+            Self::Draft | Self::Replace => false,
+        }
+    }
+}
+
 impl Display for FacePurpose {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -49,6 +58,13 @@ pub enum FaceToolError {
     SeveralBodies,
     #[error("Select the faces of a body to {purpose}")]
     NoFaces { purpose: FacePurpose },
+    #[error(
+        "Select the faces of a body to {purpose}; with one body shown, they can be clicked after \
+         the tool is started"
+    )]
+    NoFacesOfSeveral { purpose: FacePurpose },
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error("{}", Pending::BodyShape)]
     NoShape,
     #[error("Some of the selected faces are no longer part of the model")]
@@ -67,6 +83,20 @@ impl Reason for FaceToolError {
 
 pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, FaceToolError> {
     faces_of_one_body(model, selection, FacePurpose::Move)
+}
+
+fn only_body(model: &Model, purpose: FacePurpose) -> Result<FeatureId, FaceToolError> {
+    if !purpose.starts_before_its_faces() {
+        return Err(FaceToolError::NoFaces { purpose });
+    }
+    match body_selection::standing_bodies(model) {
+        Standing::Only(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoShape)?;
+            Ok(body)
+        }
+        Standing::Several => Err(FaceToolError::NoFacesOfSeveral { purpose }),
+        Standing::None => Err(FaceToolError::NoBodyShown),
+    }
 }
 
 pub fn faces_of_one_body(
@@ -88,9 +118,13 @@ pub fn faces_of_one_body(
             left_out.push(pickable);
         }
     }
-    let no_faces = FaceToolError::NoFaces { purpose };
-    let body = body.ok_or(no_faces)?;
-    bodies::shown(model.evaluation(), body).ok_or(no_faces)?;
+    let body = match body {
+        Some(body) => {
+            bodies::shown(model.evaluation(), body).ok_or(FaceToolError::NoFaces { purpose })?;
+            body
+        }
+        None => only_body(model, purpose)?,
+    };
     Ok(FaceSource {
         body,
         faces,

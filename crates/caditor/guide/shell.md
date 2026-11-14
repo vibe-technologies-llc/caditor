@@ -1,7 +1,8 @@
 # Shell
 
 {command:model.shell} hollows a body, leaving walls of a thickness and opening the faces you
-choose. Select the faces to open, then choose Shell.
+choose. Select the faces to open, then choose Shell. With only one body shown, Shell can be
+chosen first: the body is hollowed closed, and each face clicked after is opened.
 
 A [pattern](patterns) or [mirror](mirror) placed right after the shell and repeating the shell
 with the features whose faces it opens opens and hollows every copy too.

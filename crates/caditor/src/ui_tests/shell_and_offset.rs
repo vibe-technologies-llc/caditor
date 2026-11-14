@@ -4,10 +4,10 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    CAMERA_SETTLE, Harness, draft_volume, extruded_plate, offset_of, open_combo,
+    CAMERA_SETTLE, Harness, add_peg, draft_volume, extruded_plate, offset_of, open_combo,
     pickable_described, removed_about, run_from_palette, shell_of, volume_about,
 };
-use crate::selection::Pickable;
+use crate::{editing::EditingCommand, model::Action, selection::Pickable};
 
 #[test]
 fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
@@ -154,11 +154,15 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
         .find(|pickable| matches!(pickable, Pickable::Face { .. }) && *pickable != top)
         .expect("the plate has other faces");
 
+    add_peg(&mut harness);
+    harness.settle();
     harness.select([]);
     harness.click("Shell");
     harness.settle();
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_ne!(harness.model.undo_label(), Some("Create Shell 1"));
+    harness.perform(Action::Undo);
+    harness.settle();
 
     harness.select([top, side]);
     harness.click("Shell");
@@ -170,6 +174,58 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
         .expect("the shell is open");
     assert_eq!(shell_of(&harness, shell).open.len(), 2);
     assert!(harness.body_volume(plate) < 16000.0 - 38.0 * 38.0 * 9.0);
+}
+
+#[test]
+fn shell_and_offset_face_start_on_the_only_body_and_take_the_faces_clicked_after() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+
+    harness.click("Shell");
+    harness.settle();
+    let shell = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the shell is open");
+    let closed = shell_of(&harness, shell).open.len();
+    let hollow = harness.body_volume(plate);
+    let bottom = pickable_described(
+        &mut harness,
+        "Extrude 1 start face: click to open it in Shell 1 or close it again",
+    );
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+    let opened = shell_of(&harness, shell).open.len();
+    harness.perform(Action::Editing(EditingCommand::CancelSolid));
+    harness.settle();
+
+    harness.select([]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT);
+    harness.settle();
+    let offset = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the offset face is open");
+    let waiting = offset_of(&harness, offset).faces.len();
+    let untouched = harness.body_volume(plate);
+    let bottom = pickable_described(
+        &mut harness,
+        "Extrude 1 start face: click to move it with Offset face 1 or leave it out",
+    );
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+
+    assert_eq!((closed, opened), (0, 1));
+    assert!(hollow < 16000.0);
+    assert_eq!(waiting, 0);
+    assert!((untouched - 16000.0).abs() < 1.0);
+    assert_eq!(offset_of(&harness, offset).faces.len(), 1);
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 11.0));
 }
 
 #[test]
@@ -480,11 +536,15 @@ fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() 
         .find(|pickable| matches!(pickable, Pickable::Face { .. }) && *pickable != top)
         .expect("the plate has other faces");
 
+    add_peg(&mut harness);
+    harness.settle();
     harness.select([]);
     harness.use_tool_with(Key::Q, Modifiers::ALT);
     harness.settle();
     assert_eq!(harness.workspace.editing.solid(), None);
     assert_ne!(harness.model.undo_label(), Some("Create Offset face 1"));
+    harness.perform(Action::Undo);
+    harness.settle();
 
     harness.select([top, side]);
     harness.use_tool_with(Key::Q, Modifiers::ALT);

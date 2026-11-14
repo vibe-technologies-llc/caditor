@@ -696,6 +696,16 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 
 ## Fillets, chamfers and shells
 
+- Fillet, Chamfer, Shell, Offset face, Move face and Delete face start before anything is selected
+  when one body stands shown (`body_selection::standing_bodies`): the source names that body with
+  no edges or faces (`blend_tools::edges_clicked_after`, `shell_tools::selected_faces`,
+  `offset_face_tools::faces_of_one_body` for `FacePurpose::Move` and `Delete`), the feature opens in
+  the waiting state the document already has (`MissingInput::Edges`, `FacesToMove`,
+  `FacesToDelete`; a shell with no open face is a closed hollow) and its edges or faces are
+  clicked in the view after. With several bodies shown they refuse in words saying a lone body can
+  be started first, with none they say to make or show one (`body_selection::NO_BODY_SHOWN`).
+  Thread, Hole, Draft, Replace face and Split face still need their first pick: each stores
+  something only that pick gives (the face, the pull direction, the pick order, the plane).
 - Fillet, Chamfer and Shell take the selected edges (or faces) of one body and create a feature
   that opens. Fillet and Chamfer also take selected faces, each standing for its boundary edges, and a
   lone body chosen in the tree for every edge of it (`blend_tools::selected_edges`, `Offers::blend`, an

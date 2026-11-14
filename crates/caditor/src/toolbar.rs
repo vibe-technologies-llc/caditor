@@ -752,6 +752,13 @@ fn blend_buttons(
         };
         let invoked = commands.invoke(command, source);
         let help = match source {
+            Ok(source) if source.edges.is_empty() => Ok(commands.with_keys(
+                command,
+                &format!(
+                    "{}; click its edges once it is open",
+                    blend_panel::describe_kind(kind)
+                ),
+            )),
             Ok(source) => Ok(commands.with_keys(
                 command,
                 &format!(
@@ -887,6 +894,13 @@ fn shell_button(
     let source = &context.offers.shell;
     let invoked = commands.invoke(Command::Shell, source);
     let help = match source {
+        Ok(source) if source.faces.is_empty() => Ok(commands.with_keys(
+            Command::Shell,
+            &format!(
+                "{}; click the faces to leave open once it has started",
+                shell_tools::DESCRIPTION
+            ),
+        )),
         Ok(source) => Ok(commands.with_keys(
             Command::Shell,
             &format!(

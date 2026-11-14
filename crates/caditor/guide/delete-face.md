@@ -3,7 +3,8 @@
 {command:model.delete_face} removes faces of a body and closes the gap they leave by extending the
 faces around them until they meet, so a fillet, a chamfer, a hole or a boss goes without remodelling
 the body. It works on any body, an [imported](imported-bodies) one with no history included. Select
-the faces, then choose Delete face. It has no ribbon button; use the Model menu or
+the faces, then choose Delete face; with only one body shown, it can be chosen first and the
+faces clicked after. It has no ribbon button; use the Model menu or
 {command:palette}.
 
 - A fillet or chamfer goes when its faces are chosen: the faces on either side grow back to the sharp
