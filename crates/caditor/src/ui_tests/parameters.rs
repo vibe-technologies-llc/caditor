@@ -1,4 +1,4 @@
-use caditor_document::{ExtrudeExtent, SolidFeature};
+use caditor_document::{Document, ExtrudeExtent, SolidFeature};
 use egui::{Event, Id, Key, Modifiers, PointerButton};
 
 use super::{
@@ -6,8 +6,23 @@ use super::{
     run_from_palette,
 };
 use crate::{
-    commands::Command, editing::EditingCommand, files::FileCommand, model::Action, panels::Focus,
+    app::Workspace, commands::Command, editing::EditingCommand, files::FileCommand, model::Action,
+    panels::Focus, parameter_table,
 };
+
+#[test]
+fn the_empty_parameters_section_says_what_a_parameter_is_and_adds_the_first() {
+    let mut harness = Harness::starting(None, Document::default(), Workspace::new());
+    harness.frame();
+
+    assert!(harness.shows(parameter_table::NONE_YET));
+
+    harness.click(parameter_table::ADD_LABEL);
+    harness.settle();
+
+    assert_eq!(harness.document().parameters().len(), 1);
+    assert!(!harness.shows(parameter_table::NONE_YET));
+}
 
 #[test]
 fn editing_parameters_breaking_a_feature_and_undoing_it_works_through_the_panels() {

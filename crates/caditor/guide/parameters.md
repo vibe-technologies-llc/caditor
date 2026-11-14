@@ -6,7 +6,8 @@ Change one and every sketch and feature using it follows.
 ## The Parameters section
 
 The Parameters section of the model panel lists them with a name, an
-[expression](expressions) and the value it gives. {command:model.add_parameter} adds one.
+[expression](expressions) and the value it gives. {command:model.add_parameter} adds one. While
+the model has none, the section says what a parameter is and offers the same button.
 
 - Type a name and an expression, such as `wall` and `2.5 mm`. An expression may use other
   parameters: `inner = outer - 2 * wall`.

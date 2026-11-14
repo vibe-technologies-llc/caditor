@@ -24,6 +24,10 @@ use crate::{
 };
 
 pub const ADD_LABEL: &str = "Add parameter";
+pub const NONE_YET: &str = "The model has no parameters yet. A parameter is a named value, such as \
+     width = 40 mm, that any size or dimension can use by name. Typing depth = 20 mm in a \
+     dimension or a feature's field names that value too.";
+const ADD_HOVER: &str = "Add a named value and type its name";
 pub const MODEL_PARAMETERS: &str = "Model parameters";
 const MODEL_PARAMETERS_EXPLANATION: &str = "Dimensions and feature values given a name by typing \
                                             name = value in their field. Other expressions use \
@@ -136,10 +140,12 @@ enum ValueEditError {
 pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
     let document = model.document();
     if document.parameters().is_empty() {
-        let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
-        if ui.add(button).clicked() {
-            add(model, state, actions);
-        }
+        widgets::empty_state(ui, icons::PARAMETERS, NONE_YET, |ui| {
+            let button = widgets::small_button(ui, icons::ADD, ADD_LABEL);
+            if ui.add(button).on_hover_text(ADD_HOVER).clicked() {
+                add(model, state, actions);
+            }
+        });
         return;
     }
     let query = filter_field(ui, state, document.parameters().len());
