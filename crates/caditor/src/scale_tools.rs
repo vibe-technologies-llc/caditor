@@ -66,7 +66,9 @@ pub fn selected_body(
     selection: &Selection,
     tree: &[FeatureId],
 ) -> Result<FeatureId, ScaleError> {
-    Ok(move_tools::chosen_body(model, selection, tree, NO_BODY)?)
+    Ok(move_tools::chosen_or_only_body(
+        model, selection, tree, None, NO_BODY,
+    )?)
 }
 
 pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {

@@ -3,7 +3,7 @@
 ## Scale body
 
 {command:model.scale} scales one body by a factor about a centre. Select the body, then choose the
-command; it starts at a factor of 1. The panel sets the **Factor**, a plain number above zero, and
+command (with only one body shown, nothing needs selecting); it starts at a factor of 1. The panel sets the **Factor**, a plain number above zero, and
 the **Centre**, its three coordinates measured in the world or in a
 [coordinate system](coordinate-systems).
 

@@ -191,7 +191,7 @@ pub fn source(
         });
     }
     let face = chosen.as_ref().and_then(|(_, face)| *face);
-    let body = move_tools::chosen_body_beside(model, selection, tree, face, NO_BODY)?;
+    let body = move_tools::chosen_or_only_body(model, selection, tree, face, NO_BODY)?;
     Ok(SplitSource {
         body,
         along: chosen.map(|(along, _)| along),

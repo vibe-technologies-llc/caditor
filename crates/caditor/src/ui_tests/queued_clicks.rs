@@ -2,7 +2,7 @@ use caditor_geometry::{Plane, Point2};
 use caditor_sketch::Sketch;
 use egui::{Key, Modifiers};
 
-use super::{Harness, extruded_plate, offer, pickable_described, rectangle, shell_of};
+use super::{Harness, add_peg, extruded_plate, offer, pickable_described, rectangle, shell_of};
 use crate::{commands::Command, reference_picking::Slot};
 
 const WAITING: &str = "waiting for the model to recompute";
@@ -90,6 +90,8 @@ fn a_menu_item_blocked_only_by_the_recompute_queues_its_command() {
 fn a_ribbon_button_blocked_for_another_reason_stays_disabled() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    harness.settle();
     harness.select([]);
     harness.frame();
 

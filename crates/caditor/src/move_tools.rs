@@ -6,7 +6,8 @@ use caditor_document::{
 };
 
 use crate::{
-    bodies, body_selection,
+    bodies,
+    body_selection::{self, Standing},
     commands::Reason,
     datum_tools,
     editing::{self, EditingCommand},
@@ -30,6 +31,8 @@ const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one bod
 pub enum BodyChoiceError {
     #[error("{instruction}")]
     Nothing { instruction: &'static str },
+    #[error("{}", body_selection::NO_BODY_SHOWN)]
+    NoBodyShown,
     #[error("{SEVERAL_BODIES}")]
     Several,
     #[error("{}", Pending::BodyShape)]
@@ -40,6 +43,7 @@ impl Reason for BodyChoiceError {
     fn reason(&self) -> Cow<'static, str> {
         match self {
             Self::Nothing { instruction } => Cow::Borrowed(*instruction),
+            Self::NoBodyShown => Cow::Borrowed(body_selection::NO_BODY_SHOWN),
             Self::Several => Cow::Borrowed(SEVERAL_BODIES),
             Self::NoShape => Cow::Owned(self.to_string()),
         }
@@ -71,7 +75,26 @@ pub fn selected_body(
     selection: &Selection,
     tree: &[FeatureId],
 ) -> Result<FeatureId, BodyChoiceError> {
-    chosen_body(model, selection, tree, NO_BODY)
+    chosen_or_only_body(model, selection, tree, None, NO_BODY)
+}
+
+pub fn chosen_or_only_body(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+    reference: Option<Pickable>,
+    none: &'static str,
+) -> Result<FeatureId, BodyChoiceError> {
+    match chosen_body_beside(model, selection, tree, reference, none) {
+        Err(BodyChoiceError::Nothing { instruction }) => {
+            match body_selection::standing_bodies(model) {
+                Standing::Only(only) => chosen_body(model, &Selection::default(), &[only], none),
+                Standing::Several => Err(BodyChoiceError::Nothing { instruction }),
+                Standing::None => Err(BodyChoiceError::NoBodyShown),
+            }
+        }
+        chosen => chosen,
+    }
 }
 
 pub fn chosen_body(

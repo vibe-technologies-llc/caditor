@@ -7,17 +7,18 @@ use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{
-    Harness, add_peg, choose, extruded, extruded_plate, pickable_described, plate_bounds,
+    Harness, add_peg, choose, extruded, extruded_plate, offer, pickable_described, plate_bounds,
     rectangle, run_from_palette, top_edge_along_x, vertex_at, volume_about,
 };
 use crate::{
+    commands::Command,
     editing::EditingCommand,
     mate_panel, mirror_panel, mirror_tools,
     model::Action,
     pattern_panel,
     reference_picking::{Picking, Slot},
     selection::Pickable,
-    solid_panel, split_panel,
+    solid_panel, split_panel, visibility,
 };
 
 fn any_edge(harness: &Harness, body: FeatureId) -> Pickable {
@@ -695,6 +696,71 @@ fn the_bodies_a_cut_changes_are_clicked_in_the_view() {
     assert_eq!(harness.solid(cut).operation(), BodyOperation::Remove(first));
     assert!(harness.workspace.editing.picking().is_none());
     assert!(volume_about(&harness, second, 16000.0));
+}
+
+fn open_kind(harness: &Harness) -> Option<&FeatureKind> {
+    let open = harness.workspace.editing.solid()?;
+    Some(&harness.document().feature(open)?.kind)
+}
+
+#[test]
+fn move_scale_and_split_take_the_only_body_shown_when_nothing_is_selected() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.frame();
+
+    harness.click("Move body");
+    harness.settle();
+    let moved = match open_kind(&harness) {
+        Some(FeatureKind::Move(moving)) => Some(moving.body),
+        _ => None,
+    };
+    harness.perform(Action::Editing(EditingCommand::CancelSolid));
+    harness.settle();
+    harness.select([]);
+    run_from_palette(&mut harness, "Scale body");
+    harness.settle();
+    let scaled = match open_kind(&harness) {
+        Some(FeatureKind::Scale(scale)) => Some(scale.body),
+        _ => None,
+    };
+    harness.perform(Action::Editing(EditingCommand::CancelSolid));
+    harness.settle();
+    harness.select([]);
+    run_from_palette(&mut harness, "Split body");
+    harness.settle();
+    let split = match open_kind(&harness) {
+        Some(FeatureKind::Split(split)) => Some(split.body),
+        _ => None,
+    };
+
+    assert_eq!(moved, Some(plate));
+    assert_eq!(scaled, Some(plate));
+    assert_eq!(split, Some(plate));
+}
+
+#[test]
+fn move_body_with_nothing_selected_asks_for_a_body_when_two_are_shown_and_takes_the_one_left() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    harness.settle();
+    harness.select([]);
+    harness.frame();
+    let refused = offer(&harness, Command::Move).availability.is_err();
+
+    let hide = visibility::toggle_body(harness.document(), plate).unwrap();
+    harness.perform(Action::Apply(hide));
+    harness.settle();
+    harness.click("Move body");
+    harness.settle();
+
+    assert!(refused);
+    assert!(matches!(
+        open_kind(&harness),
+        Some(FeatureKind::Move(moving)) if moving.body == peg
+    ));
 }
 
 #[test]

@@ -140,6 +140,28 @@ impl Kind {
     }
 }
 
+pub const NO_BODY_SHOWN: &str = "Make a body first, or show a hidden one";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standing {
+    None,
+    Only(FeatureId),
+    Several,
+}
+
+pub fn standing_bodies(model: &Model) -> Standing {
+    let document = model.document();
+    let standing = document.bodies_standing_in(model.evaluation());
+    let mut shown = standing
+        .into_iter()
+        .filter(|body| visibility::is_shown(document, *body));
+    match (shown.next(), shown.next()) {
+        (None, _) => Standing::None,
+        (Some(only), None) => Standing::Only(only),
+        (Some(_), Some(_)) => Standing::Several,
+    }
+}
+
 fn shown_bodies(model: &Model) -> impl Iterator<Item = (FeatureId, &SolidResult)> {
     let document = model.document();
     let evaluation = model.evaluation();

@@ -1260,7 +1260,10 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
 ## Move
 
 - Move body (Alt+M) takes the one body whose faces, edges or vertices are selected and creates a `Move`
-  of zero turns and distances, then opens it. Copy body (Alt+Shift+C, also a body's right-click menu)
+  of zero turns and distances, then opens it. With nothing naming a body (no selection of one, no
+  tree row), Move, Copy, Scale and Split body take the only body standing and shown
+  (`move_tools::chosen_or_only_body`, `body_selection::standing_bodies`): with several they ask for
+  one as before, with none they say to make or show one (`body_selection::NO_BODY_SHOWN`). Copy body (Alt+Shift+C, also a body's right-click menu)
   does the same with `copy` set, named Copy N. The panel's Result row (`move_panel::RESULT`, Move
   body or New body, the same `feature_fields::segmented_row` as a mirror's) switches `copy`, one
   "Edit <move>" change, a copy others use refused in a notice (`BodyInUse`). New moves turn about the body's centre; Turn about
