@@ -731,7 +731,8 @@ fn ghost_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         body: plate,
         edge: rounded,
     }]);
-    harness.click("Fillet");
+    harness.key(Key::F, Modifiers::ALT);
+    harness.frame();
     harness.settle();
     let Some(fillet) = harness.workspace.editing.solid() else {
         return;
