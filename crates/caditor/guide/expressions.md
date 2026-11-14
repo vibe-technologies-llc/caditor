@@ -52,6 +52,10 @@ take away one unit of its last digit, and Shift with them ten: from 25.4 mm to 2
 13. An open feature previews each step like typing. A field holding an expression or a name is left
 alone and says so; press Enter to keep the stepped value.
 
+The values of the [Gear](gear), sketch [Pattern](sketch-patterns) and [Text](text) panels and the
+factor of [Scale model](scale) are value fields too: they step, suggest parameter names and show
+what an expression comes to below the field, and they apply as you type, with no Enter needed.
+
 ## Suggestions and clicking a dimension or a parameter
 
 While you type a name in a value field, a list under the field shows the parameters whose names

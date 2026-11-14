@@ -190,6 +190,14 @@ impl PatternField {
         }
     }
 
+    pub fn expected(self) -> Expected {
+        match self {
+            Self::Count | Self::Rows | Self::Copies => COUNT,
+            Self::Spacing | Self::RowSpacing => SPACING,
+            Self::Angle | Self::RowAngle | Self::TotalAngle => ANGLE,
+        }
+    }
+
     pub fn placeholder(self) -> &'static str {
         match self {
             Self::RowAngle => "Square to the row",

@@ -4,16 +4,18 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, EvalError, ParseError, format_number};
 use caditor_geometry::Point3;
-use egui::{Id, Key, TextEdit, Ui};
+use egui::{Id, Key, Ui};
 
 use crate::{
     appearance::SPACE_S,
+    field::{self, Expected},
     model::Model,
     widgets::{self, DialogWidth, Tone},
 };
 
 pub const TITLE: &str = "Scale model";
 pub const FACTOR: &str = "Factor";
+const FACTOR_HINT: &str = "2";
 pub const CENTRE: &str = "Centre";
 pub const VALUES: &str = "Scale";
 pub const ORIGIN: &str = "Origin";
@@ -324,22 +326,25 @@ fn fields(ui: &mut Ui, model: &Model, draft: &mut ScaleDraft) -> bool {
     let focus = std::mem::take(&mut draft.focus_pending);
     widgets::properties(ui, DIALOG_ID, |ui| {
         let entered = widgets::property(ui, FACTOR, |ui| {
-            let field = widgets::text_field(ui, |ui| {
-                ui.add(
-                    TextEdit::singleline(&mut draft.factor)
-                        .id(factor_field_id())
-                        .hint_text("2")
-                        .desired_width(f32::INFINITY),
-                )
-            });
-            widgets::tie_to_caption(ui, &field);
             if focus {
-                field.request_focus();
+                field::ask_focus(ui.ctx(), factor_field_id());
             }
-            if field.changed() {
-                draft.problem = None;
-            }
-            field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter))
+            ui.vertical(|ui| {
+                let live =
+                    field::live_value_field(ui, factor_field_id(), &mut draft.factor, FACTOR_HINT);
+                if live.changed {
+                    draft.problem = None;
+                }
+                if let Some(refusal) = &live.refusal {
+                    widgets::error_text(ui, refusal);
+                } else if let Some(preview) =
+                    field::typed_preview(model, &draft.factor, Expected::ANYTHING)
+                {
+                    ui.label(widgets::muted(preview, ui));
+                }
+                live.left && ui.input(|input| input.key_pressed(Key::Enter))
+            })
+            .inner
         });
         widgets::property(ui, CENTRE, |ui| {
             widgets::combo((DIALOG_ID, "centre"), centre_name(document, draft.centre)).show(

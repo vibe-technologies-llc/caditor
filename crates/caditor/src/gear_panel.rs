@@ -1,10 +1,11 @@
 use caditor_document::{FeatureId, Transaction};
 use caditor_sketch::{ChainSize, EntityId, GearCentre, Sketch};
-use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
+use egui::{Id, Label, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
+    field::{self, LiveValue},
     gearing::{self, FieldProblem, GearField, GearKind, GearSettings, GearingError, Part},
     guide::Page,
     icons,
@@ -136,7 +137,7 @@ pub fn show(
                     kinds(ui, settings);
                     ui.add_space(SPACE_S);
                 }
-                fields(ui, settings, &evaluation.problems, context.model.units());
+                fields(ui, context.model, settings, &evaluation.problems);
                 ui.add_space(SPACE_M);
                 match &evaluation.part {
                     Ok(part) => circles(ui, part, context.model.units()),
@@ -229,10 +230,11 @@ fn kinds(ui: &mut Ui, settings: &mut GearSettings) {
 
 fn fields(
     ui: &mut Ui,
+    model: &Model,
     settings: &mut GearSettings,
     problems: &[(GearField, FieldProblem)],
-    unit: Units,
 ) {
+    let unit = model.units();
     let kind = settings.kind();
     widgets::properties(ui, "spur-gear-values", |ui| {
         if kind == GearKind::Sprocket {
@@ -240,23 +242,20 @@ fn fields(
         }
         for field in kind.fields() {
             let field = *field;
-            widgets::property(ui, field.label(), |ui| {
-                let Some(text) = settings.text_mut(field) else {
-                    return;
-                };
-                let response = widgets::text_field(ui, |ui| {
-                    ui.add(
-                        TextEdit::singleline(text)
-                            .id(field_id(field))
-                            .hint_text(field.hint())
-                            .desired_width(f32::INFINITY),
-                    )
-                });
-                widgets::tie_to_caption(ui, &response);
-                response.on_hover_text(field.about());
+            let value = LiveValue {
+                id: field_id(field),
+                hint: field.hint(),
+                about: field.about(),
+                expected: field.expected(),
+            };
+            let refusal = widgets::property(ui, field.label(), |ui| {
+                let text = settings.text_mut(field)?;
+                field::live_value(ui, model, text, &value)
             });
             if let Some((_, problem)) = problems.iter().find(|(wrong, _)| *wrong == field) {
                 widgets::error_row(ui, &problem.to_string());
+            } else if let Some(refusal) = refusal {
+                widgets::error_row(ui, &refusal);
             }
         }
     });

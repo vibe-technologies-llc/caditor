@@ -63,8 +63,12 @@ impl TextField {
         }
     }
 
-    pub fn multiline(self) -> bool {
-        self == Self::Content
+    pub fn expected(self) -> Option<Expected> {
+        match self {
+            Self::Content => None,
+            Self::Height => Some(LENGTH),
+            Self::Angle => Some(ANGLE),
+        }
     }
 
     fn initial(self) -> &'static str {

@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt::Display};
+use std::{collections::BTreeSet, convert::Infallible, fmt::Display};
 
 use caditor_document::{
     Document, Edit, EditError, FeatureId, Parameter, ParameterOwner, ParameterValues, Transaction,
@@ -6,7 +6,8 @@ use caditor_document::{
 use caditor_expression::{Dimension, EvalError, Expression, Naming, ParameterId, ParseError};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
-    Align, Event, Id, Key, Margin, Modifiers, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
+    Align, Event, Id, Key, Label, Margin, Modifiers, Rect, Response, Stroke, StrokeKind, TextEdit,
+    Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
@@ -14,6 +15,7 @@ use egui::{
 use crate::{
     appearance::WIDGET_RADIUS,
     completion::{self, Candidate, PopupKey},
+    model::Model,
     stepping::{self, Direction, Refusal},
     units::{Units, attach_unit},
     widgets,
@@ -137,6 +139,14 @@ fn take_step(ui: &Ui) -> Option<Step> {
     })
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Behaviour<'a> {
+    focus: bool,
+    value: bool,
+    hint: &'a str,
+    reverts: bool,
+}
+
 pub fn commit_field<T, E: Display>(
     ui: &mut Ui,
     id: Id,
@@ -145,7 +155,13 @@ pub fn commit_field<T, E: Display>(
     focus: bool,
     validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
-    field(ui, id, stored, width, focus, false, validate)
+    let behaviour = Behaviour {
+        focus,
+        value: false,
+        hint: "",
+        reverts: true,
+    };
+    field(ui, id, stored, width, behaviour, validate)
 }
 
 pub fn value_field<T, E: Display>(
@@ -156,7 +172,82 @@ pub fn value_field<T, E: Display>(
     focus: bool,
     validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
-    field(ui, id, stored, width, focus, true, validate)
+    let behaviour = Behaviour {
+        focus,
+        value: true,
+        hint: "",
+        reverts: true,
+    };
+    field(ui, id, stored, width, behaviour, validate)
+}
+
+pub struct LiveField {
+    pub response: Response,
+    pub refusal: Option<String>,
+    pub changed: bool,
+    pub left: bool,
+}
+
+pub fn live_value_field(ui: &mut Ui, id: Id, text: &mut String, hint: &str) -> LiveField {
+    let stored = text.clone();
+    let width = ui.available_width();
+    let behaviour = Behaviour {
+        focus: false,
+        value: true,
+        hint,
+        reverts: false,
+    };
+    let kept_as_typed = |typed: &str| Ok::<_, Infallible>(typed.to_owned());
+    let field = field(ui, id, &stored, width, behaviour, kept_as_typed);
+    let typed = field.edited.or(field.committed);
+    let changed = typed.is_some();
+    if let Some(typed) = typed {
+        *text = typed;
+    }
+    LiveField {
+        response: field.response,
+        refusal: field.error,
+        changed,
+        left: field.left,
+    }
+}
+
+pub struct LiveValue<'a> {
+    pub id: Id,
+    pub hint: &'a str,
+    pub about: &'a str,
+    pub expected: Expected,
+}
+
+pub fn live_value(
+    ui: &mut Ui,
+    model: &Model,
+    text: &mut String,
+    value: &LiveValue<'_>,
+) -> Option<String> {
+    ui.vertical(|ui| {
+        let live = live_value_field(ui, value.id, text, value.hint);
+        live.response.on_hover_text(value.about);
+        if live.refusal.is_none()
+            && let Some(preview) = typed_preview(model, text, value.expected)
+        {
+            ui.add(Label::new(widgets::muted(preview, ui)).wrap());
+        }
+        live.refusal
+    })
+    .inner
+}
+
+pub fn typed_preview(model: &Model, text: &str, expected: Expected) -> Option<String> {
+    let expression = parse_expression(
+        model.document(),
+        model.parameters(),
+        text.trim(),
+        expected,
+        model.units(),
+    )
+    .ok()?;
+    value_preview(model.parameters(), &expression, model.units())
 }
 
 fn field<T, E: Display>(
@@ -164,10 +255,15 @@ fn field<T, E: Display>(
     id: Id,
     stored: &str,
     width: f32,
-    focus: bool,
-    value: bool,
+    behaviour: Behaviour<'_>,
     validate: impl FnOnce(&str) -> Result<T, E>,
 ) -> FieldResponse<T> {
+    let Behaviour {
+        focus,
+        value,
+        hint,
+        reverts,
+    } = behaviour;
     let focus = focus || asked_focus(ui.ctx(), id);
     let editing = ui.memory(|memory| memory.has_focus(id));
     let editing_parameter = completion::take_editing(ui, id);
@@ -209,6 +305,7 @@ fn field<T, E: Display>(
         ui.add(
             TextEdit::singleline(&mut text)
                 .id(id)
+                .hint_text(hint)
                 .desired_width(width)
                 .margin(FIELD_MARGIN)
                 .min_size(vec2(width, 0.0))
@@ -263,7 +360,8 @@ fn field<T, E: Display>(
     let left = response.lost_focus() && !completed.held;
     let mut committed = None;
     if left {
-        let reverted = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
+        let reverted =
+            reverts && ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape));
         if reverted || text.trim() == stored {
             draft = None;
         } else {

@@ -98,6 +98,12 @@ paths:
   previews it. Anything else (expression, name, `name = value`, unknown suffix, empty) shows
   `stepping::Refusal::message` inline until the text changes. Arrows are taken from the frame's
   events (`field::take_step`) ahead of the text edit; Ctrl and Alt with them go to the text edit.
+- A panel that keeps its values as text and reads them every frame (the Gear, sketch Pattern and
+  Text panels' values, `field::live_value`; Scale model's factor, `field::live_value_field`) draws
+  the same value field over its own `String`: every edit and step is written back at once, nothing
+  waits for a commit, so Escape is left to the panel or dialog (`Behaviour::reverts` off) and the
+  panel's own problem row stays the error shown, a stepping refusal taking its place only when the
+  value itself reads. `field::typed_preview` shows `= value` under a text that is an expression.
 - Value fields complete parameter names (`completion.rs`). `completion::publish` builds the
   candidates and the `DependencyGraph` once per revision, evaluation and unit while a widget has
   focus, in egui temp data. The identifier before the caret (`completion::token_at`: starts with a

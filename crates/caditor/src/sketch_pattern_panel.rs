@@ -1,11 +1,12 @@
 use caditor_document::FeatureId;
 use caditor_sketch::{EntityId, Sketch};
-use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
+use egui::{Id, Label, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
     feature_tree::count,
+    field::{self, LiveValue},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -106,7 +107,7 @@ pub fn show(
                         PatternKind::Circular => PatternField::CIRCULAR.to_vec(),
                     };
                     for field in fields {
-                        field_row(ui, settings, field, &evaluation);
+                        field_row(ui, context.model, settings, field, &evaluation);
                     }
                     widgets::property(ui, REPEATS, |ui| match patterning.repeated() {
                         0 => wrapped(ui, widgets::muted(NOTHING_REPEATED, ui)),
@@ -174,24 +175,20 @@ fn centre_row(ui: &mut Ui, sketch: Option<&Sketch>, centre: Option<EntityId>) ->
 
 fn field_row(
     ui: &mut Ui,
+    model: &Model,
     settings: &mut PatternSettings,
     field: PatternField,
     evaluation: &PatternEvaluation,
 ) {
-    widgets::property(ui, field.label(), |ui| {
-        let Some(text) = settings.text_mut(field) else {
-            return;
-        };
-        let response = widgets::text_field(ui, |ui| {
-            ui.add(
-                TextEdit::singleline(text)
-                    .id(field_id(field))
-                    .hint_text(field.placeholder())
-                    .desired_width(f32::INFINITY),
-            )
-        });
-        widgets::tie_to_caption(ui, &response);
-        response.on_hover_text(field.about());
+    let value = LiveValue {
+        id: field_id(field),
+        hint: field.placeholder(),
+        about: field.about(),
+        expected: field.expected(),
+    };
+    let refusal = widgets::property(ui, field.label(), |ui| {
+        let text = settings.text_mut(field)?;
+        field::live_value(ui, model, text, &value)
     });
     if let Some((_, problem)) = evaluation
         .problems
@@ -199,6 +196,8 @@ fn field_row(
         .find(|(wrong, _)| *wrong == field)
     {
         widgets::error_row(ui, &problem.to_string());
+    } else if let Some(refusal) = refusal {
+        widgets::error_row(ui, &refusal);
     }
 }
 

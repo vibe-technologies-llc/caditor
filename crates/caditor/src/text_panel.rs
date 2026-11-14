@@ -6,6 +6,7 @@ use egui::{Id, Label, TextEdit, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     editing::{EditingCommand, Tool},
+    field::{self, LiveValue},
     guide::Page,
     icons,
     layout::RightPanel,
@@ -137,7 +138,7 @@ pub fn show(
                 };
                 wrapped(ui, widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
-                fields(ui, settings, &evaluation.problems);
+                fields(ui, context.model, settings, &evaluation.problems);
                 ui.add_space(SPACE_S);
                 styles(ui, settings);
                 ui.add_space(SPACE_M);
@@ -180,26 +181,45 @@ fn applied(outcome: Result<Transaction, TextingError>) -> Action {
     }
 }
 
-fn fields(ui: &mut Ui, settings: &mut TextSettings, problems: &[(TextField, FieldProblem)]) {
+fn fields(
+    ui: &mut Ui,
+    model: &Model,
+    settings: &mut TextSettings,
+    problems: &[(TextField, FieldProblem)],
+) {
     widgets::properties(ui, "sketch-text-values", |ui| {
         for field in TextField::ALL {
-            widgets::property(ui, field.label(), |ui| {
-                let Some(text) = settings.text_mut(field) else {
-                    return;
-                };
-                let response = widgets::text_field(ui, |ui| {
-                    let edit = if field.multiline() {
-                        TextEdit::multiline(text).desired_rows(CONTENT_ROWS)
-                    } else {
-                        TextEdit::singleline(text)
-                    };
-                    ui.add(edit.id(field_id(field)).desired_width(f32::INFINITY))
-                });
-                widgets::tie_to_caption(ui, &response);
-                response.on_hover_text(field.about());
+            let refusal = widgets::property(ui, field.label(), |ui| {
+                let text = settings.text_mut(field)?;
+                match field.expected() {
+                    Some(expected) => {
+                        let value = LiveValue {
+                            id: field_id(field),
+                            hint: "",
+                            about: field.about(),
+                            expected,
+                        };
+                        field::live_value(ui, model, text, &value)
+                    }
+                    None => {
+                        let response = widgets::text_field(ui, |ui| {
+                            ui.add(
+                                TextEdit::multiline(text)
+                                    .desired_rows(CONTENT_ROWS)
+                                    .id(field_id(field))
+                                    .desired_width(f32::INFINITY),
+                            )
+                        });
+                        widgets::tie_to_caption(ui, &response);
+                        response.on_hover_text(field.about());
+                        None
+                    }
+                }
             });
             if let Some((_, problem)) = problems.iter().find(|(wrong, _)| *wrong == field) {
                 widgets::error_row(ui, &problem.to_string());
+            } else if let Some(refusal) = refusal {
+                widgets::error_row(ui, &refusal);
             }
         }
         widgets::property(ui, ALIGN, |ui| {

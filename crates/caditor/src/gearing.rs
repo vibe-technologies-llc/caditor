@@ -203,7 +203,7 @@ impl GearField {
         }
     }
 
-    fn expected(self) -> Expected {
+    pub fn expected(self) -> Expected {
         match self {
             Self::Module | Self::RootFillet | Self::Bore | Self::PairBore => LENGTH,
             Self::PressureAngle | Self::Turn | Self::Direction => ANGLE,

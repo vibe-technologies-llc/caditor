@@ -24,6 +24,25 @@ fn only_gear(sketch: &Sketch) -> EntityId {
 }
 
 #[test]
+fn a_gear_s_values_step_with_the_arrows_and_show_what_an_expression_comes_to() {
+    let mut harness = Harness::new();
+    edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
+    run_from_palette(&mut harness, SPUR_GEAR);
+
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "6 * 4");
+    let previewed = harness.shows("= 24");
+    harness.type_into_field(gear_panel::field_id(GearField::Teeth), "20");
+    harness.focus_field(gear_panel::field_id(GearField::Teeth));
+    harness.key(Key::ArrowUp, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.point_at(CENTRE);
+
+    assert!(previewed);
+    assert!(harness.shows_containing("Spur gear of 21 teeth"));
+}
+
+#[test]
 fn a_gear_is_drawn_where_clicked_after_too_few_teeth_are_refused_in_words() {
     let mut harness = Harness::new();
     let feature = edit_free_sketch(&mut harness, Sketch::new(Plane::XY));
