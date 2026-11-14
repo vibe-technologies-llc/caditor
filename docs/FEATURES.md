@@ -211,6 +211,31 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · small] A value field says an expression is wrong only once it is entered: the shared
+  field (`field.rs`) shows what a typed expression comes to while it is typed, but an unknown
+  name, a unit of the wrong kind or an unfinished expression is told only on Enter.
+- [medium · small] A wrong pick is taken back only from the panel's list: an open fillet, shell or
+  face tool has no one-click "leave this edge out" on the callout naming the edge or face that
+  made it fail, though the failure knows which one it is.
+- [medium · medium] A conflict or redundancy notice names its constraints but offers no remedy
+  button (delete it, disable it, select it): no `Action` sets the view's selection, and the
+  refusal carries the constraints' names, not their ids.
+- [medium · medium] Thread, Hole, Draft, Replace face and Split face cannot be started before
+  anything is selected, as Fillet, Shell and the other face tools can with one body shown
+  (`app-modelling.md`): each stores something only its first pick gives (the face, the pull
+  direction, the pick order, the plane), so each needs a waiting state for that pick first.
+- [medium · medium] A numeric field cannot be changed by dragging on it or its caption; values
+  change by typing, the arrow keys and the view's arrows only.
+- [low · small] An import's unit and scale are not remembered with its centring and plane
+  (`app-files.md`): a read drawing does not say whether its file named a unit, so a remembered
+  override could silently misread the next file. It needs the reader to report that first.
+- [low · small] Drawing does not infer equal length with a nearby line, as it infers parallel and
+  perpendicular.
+- [low · medium] No isolate that only changes the view: showing one body alone hides the others
+  through the document, as undoable changes, rather than for the session.
+- [low · medium] No selection filters inside a sketch (points only, curves only, constraints
+  only), as the model view has for faces, edges and bodies.
+- [low · medium] No zoom to a dragged box; the view zooms by the wheel, the keys and Fit only.
 - [low · medium] Onshape's folders are not browsed: the documented REST API lists documents only,
   by view (`/documents` with `filter`, `owner` and `parentId`), and a folder tree needs the
   web client's own `globaltreenodes` endpoints, which are not part of the published API.
