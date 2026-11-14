@@ -5,6 +5,30 @@ use super::{CAMERA_SETTLE, Harness, run_from_palette, sample_document};
 use crate::{app::Workspace, model::Action};
 
 #[test]
+fn a_model_never_saved_is_proposed_under_its_title_with_file_name_characters_cleaned() {
+    use crate::{files::FileCommand, model_properties::SAVE_LABEL};
+
+    let mut harness = Harness::new();
+    harness.command(FileCommand::SaveAs);
+    harness.frame();
+    let untitled = harness.last_proposed_name();
+
+    run_from_palette(&mut harness, "model properties");
+    harness.frame();
+    harness.type_text("Bracket 3/4: left.");
+    harness.click(SAVE_LABEL);
+    harness.frame();
+    harness.command(FileCommand::SaveAs);
+    harness.frame();
+
+    assert_eq!(untitled.as_deref(), Some("Untitled.caditor"));
+    assert_eq!(
+        harness.last_proposed_name().as_deref(),
+        Some("Bracket 3_4_ left.caditor")
+    );
+}
+
+#[test]
 fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     use caditor_document::ModelProperty;
 

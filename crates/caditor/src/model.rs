@@ -893,6 +893,18 @@ impl Model {
         display_label(self.path())
     }
 
+    pub fn proposed_stem(&self) -> String {
+        if let Some(stem) = self.path().and_then(Path::file_stem) {
+            return stem.to_string_lossy().into_owned();
+        }
+        let titled = file_name_stem(&self.document().properties().title);
+        if titled.is_empty() {
+            UNTITLED.to_owned()
+        } else {
+            titled
+        }
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -2100,6 +2112,20 @@ impl Model {
 
 pub fn display_name(path: Option<&Path>) -> String {
     display_label(path).into_owned()
+}
+
+pub fn file_name_stem(text: &str) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            control if control.is_control() => ' ',
+            other => other,
+        })
+        .collect();
+    cleaned
+        .trim_matches(|character: char| character.is_whitespace() || character == '.')
+        .to_owned()
 }
 
 pub fn display_label(path: Option<&Path>) -> Cow<'_, str> {

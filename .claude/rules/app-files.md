@@ -55,6 +55,10 @@ paths:
   A save waiting to continue (`after_save`) waits only for a save that was sent or a Save as pick that
   started (`pick`, `pick_save_path` drops the continuation otherwise); only the Save as pick's cancel
   drops it, so a later save never quits or opens for a long-answered prompt.
+- A model with a file is proposed under that file's name; one never saved under
+  `Model::proposed_stem`: the Title of its properties cleaned of file-name characters
+  (`model::file_name_stem`, shared with the drawing sheet's name), else `UNTITLED`. Save as, Save as
+  template, the model export and the image export all take it.
 - Unix filters match either case (`*.[sS][tT][eE][pP]`; GTK's portal is case-sensitive); Open and
   Import end with All files (`Filter::any`), the content check deciding. Every save dialog confirms
   replacing itself (zenity gets `--confirm-overwrite`).

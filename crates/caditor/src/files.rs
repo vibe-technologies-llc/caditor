@@ -3294,7 +3294,7 @@ impl Files {
                 let folder = self.templates.folder().map(Path::to_path_buf);
                 let file_name = match model.path() {
                     Some(_) => model.display_name(),
-                    None => format!("{}.{FILE_EXTENSION}", model.display_name()),
+                    None => format!("{}.{FILE_EXTENSION}", model.proposed_stem()),
                 };
                 self.dialogs
                     .pick_template_path(folder.or(directory), file_name, respond);
@@ -3302,7 +3302,7 @@ impl Files {
             Purpose::SaveAs => {
                 let file_name = match model.path() {
                     Some(_) => model.display_name(),
-                    None => format!("{}.{FILE_EXTENSION}", model.display_name()),
+                    None => format!("{}.{FILE_EXTENSION}", model.proposed_stem()),
                 };
                 self.dialogs.pick_save_path(directory, file_name, respond);
             }

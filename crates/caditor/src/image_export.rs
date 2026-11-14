@@ -241,11 +241,7 @@ impl ImageExporter {
     }
 
     pub fn file_name(model: &Model) -> String {
-        let name = display_name(model.path());
-        let stem = Path::new(&name)
-            .file_stem()
-            .map_or(name.clone(), |stem| stem.to_string_lossy().into_owned());
-        format!("{stem}.{PNG_EXTENSION}")
+        format!("{}.{PNG_EXTENSION}", model.proposed_stem())
     }
 
     pub fn pick_cancelled(&mut self) {

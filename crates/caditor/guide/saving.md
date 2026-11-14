@@ -3,7 +3,9 @@
 ## Saving
 
 {command:file.save} writes the model to its `.caditor` file; {command:file.save_as} writes it under
-a new name. The title shows Unsaved, and the window's title a `*`, while there are changes not yet
+a new name. A model never saved is proposed under the Title set in
+{command:file.properties}, "Untitled" without one, and its exports are proposed the same way. The
+title shows Unsaved, and the window's title a `*`, while there are changes not yet
 saved. Closing, opening another model or quitting asks first: Save, Cancel, or close without saving.
 Quitting while an export is being written waits for it: **Don't quit** (or Escape) keeps caditor
 open, and an export that can be stopped offers to cancel it and quit. If writing to the disk takes

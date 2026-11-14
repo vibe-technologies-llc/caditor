@@ -771,11 +771,7 @@ impl Exporter {
 }
 
 pub fn named_for(model: &Model, format: ExportFormat) -> String {
-    let name = display_name(model.path());
-    let stem = Path::new(&name)
-        .file_stem()
-        .map_or(name.clone(), |stem| stem.to_string_lossy().into_owned());
-    format!("{stem}.{}", format.extension())
+    format!("{}.{}", model.proposed_stem(), format.extension())
 }
 
 pub fn moved_note(moved: Vector3) -> String {

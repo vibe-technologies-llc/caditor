@@ -9,7 +9,7 @@ use caditor_file::{ExportError, SheetExported, SheetFormat, SheetView};
 
 use crate::{
     feature_tree::count,
-    model::{Notice, display_name},
+    model::{Notice, display_name, file_name_stem},
 };
 
 pub const KIND: &str = "PDF, SVG or DXF drawing sheet";
@@ -25,15 +25,8 @@ pub struct SheetJob {
 
 impl SheetJob {
     pub fn file_name(&self, format: SheetFormat) -> String {
-        let stem: String = self
-            .name
-            .chars()
-            .map(|character| match character {
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                other => other,
-            })
-            .collect();
-        format!("{}.{}", stem.trim(), format.extension())
+        let stem = file_name_stem(&self.name);
+        format!("{stem}.{}", format.extension())
     }
 
     pub fn write(&self, path: &Path, cancel: &CancelToken) -> Result<SheetExported, ExportError> {
