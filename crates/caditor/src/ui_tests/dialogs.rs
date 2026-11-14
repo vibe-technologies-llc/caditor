@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use egui::{Key, Modifiers};
 
 use super::{Harness, extruded_plate, feature_names};
-use crate::{files::FileCommand, model::Action, preferences::PreferencesCommand};
+use crate::{
+    export::ExportCommand, files::FileCommand, guide::Page, model::Action,
+    preferences::PreferencesCommand, widgets,
+};
 
 #[test]
 fn a_file_dialog_left_open_says_so_and_can_be_stopped_from_the_window() {
@@ -30,6 +33,72 @@ fn a_file_dialog_left_open_says_so_and_can_be_stopped_from_the_window() {
     assert!(!harness.files.is_picking());
     assert!(!harness.files.is_importing());
     assert!(!harness.shows("Waiting for the file dialog…"));
+}
+
+#[test]
+fn a_dialog_s_help_button_closes_it_and_opens_its_page_of_the_guide() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::ShowMessages));
+    harness.show_new_windows();
+    let shown = harness.workspace.messages_open;
+
+    harness.click_button(&widgets::dialog_help_hover(Page::Window));
+    harness.frame();
+    harness.frame();
+
+    assert!(shown);
+    assert!(!harness.workspace.messages_open);
+    assert!(harness.workspace.guide.open);
+    assert_eq!(harness.workspace.guide.page(), Some(Page::Window));
+}
+
+#[test]
+fn the_guide_key_in_a_dialog_opens_its_page_and_does_nothing_in_one_without_a_page() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowAbout));
+    harness.show_new_windows();
+    harness.key(Key::F1, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let about_kept = harness.shows("About caditor") && !harness.workspace.guide.open;
+    harness.perform(Action::Preferences(PreferencesCommand::CloseAbout));
+    harness.frame();
+
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.show_new_windows();
+    let exporting = harness.files.is_blocking();
+    harness.key(Key::F1, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+
+    assert!(about_kept);
+    assert!(exporting);
+    assert!(!harness.files.is_blocking());
+    assert_eq!(harness.workspace.guide.page(), Some(Page::Exporting));
+}
+
+#[test]
+fn help_in_keyboard_shortcuts_closes_preferences_under_it_but_not_while_a_key_is_recorded() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Show));
+    harness.show_new_windows();
+    harness.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    harness.show_new_windows();
+    let both = harness.workspace.preferences_open && harness.workspace.shortcut_editor.is_some();
+
+    harness.key(Key::F1, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+
+    assert!(both);
+    assert!(harness.workspace.shortcut_editor.is_none());
+    assert!(!harness.workspace.preferences_open);
+    assert_eq!(harness.workspace.guide.page(), Some(Page::Keyboard));
 }
 
 #[test]

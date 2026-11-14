@@ -4,6 +4,7 @@ use egui::Label;
 use crate::{
     appearance::SPACE_M,
     feature_tree::count,
+    guide::Page,
     model::Model,
     widgets::{self, DialogWidth},
 };
@@ -26,46 +27,53 @@ pub enum Jump {
 }
 
 pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
-    let response = widgets::dialog(ctx, "undo-history", TITLE, DialogWidth::Medium, |ui| {
-        ui.label(widgets::muted(
-            "Choose a change to go to the model as it was just after it.",
-            ui,
-        ));
-        ui.add_space(SPACE_M);
-        let document = model.document();
-        let undone: Vec<&Transaction> = model.redo_steps().collect();
-        let done: Vec<&Transaction> = model.undo_steps().collect();
-        let mut jump = None;
-        widgets::DialogBody::default()
-            .list(ui.ctx(), LIST_HEIGHT)
-            .show(ui, |ui| {
-                if !undone.is_empty() {
-                    ui.label(widgets::muted(UNDONE, ui));
-                }
-                for (index, step) in undone.iter().enumerate().rev() {
-                    if step_button(ui, document, step).clicked() {
-                        jump = Some(Jump::Redo(index + 1));
+    let response = widgets::helped_dialog(
+        ctx,
+        "undo-history",
+        TITLE,
+        DialogWidth::Medium,
+        Page::Undo,
+        |ui| {
+            ui.label(widgets::muted(
+                "Choose a change to go to the model as it was just after it.",
+                ui,
+            ));
+            ui.add_space(SPACE_M);
+            let document = model.document();
+            let undone: Vec<&Transaction> = model.redo_steps().collect();
+            let done: Vec<&Transaction> = model.undo_steps().collect();
+            let mut jump = None;
+            widgets::DialogBody::default()
+                .list(ui.ctx(), LIST_HEIGHT)
+                .show(ui, |ui| {
+                    if !undone.is_empty() {
+                        ui.label(widgets::muted(UNDONE, ui));
                     }
-                }
-                ui.separator();
-                current_marker(ui, document, done.first().copied());
-                if done.is_empty() && undone.is_empty() {
-                    ui.label(widgets::muted(NOTHING_YET, ui));
-                }
-                for (index, step) in done.iter().enumerate().skip(1) {
-                    if step_button(ui, document, step).clicked() {
-                        jump = Some(Jump::Undo(index));
+                    for (index, step) in undone.iter().enumerate().rev() {
+                        if step_button(ui, document, step).clicked() {
+                            jump = Some(Jump::Redo(index + 1));
+                        }
                     }
-                }
-                if !done.is_empty() {
-                    let before = ui.add(widgets::button(BEFORE)).on_hover_text(BEFORE_HOVER);
-                    if before.clicked() {
-                        jump = Some(Jump::Undo(done.len()));
+                    ui.separator();
+                    current_marker(ui, document, done.first().copied());
+                    if done.is_empty() && undone.is_empty() {
+                        ui.label(widgets::muted(NOTHING_YET, ui));
                     }
-                }
-            });
-        jump
-    });
+                    for (index, step) in done.iter().enumerate().skip(1) {
+                        if step_button(ui, document, step).clicked() {
+                            jump = Some(Jump::Undo(index));
+                        }
+                    }
+                    if !done.is_empty() {
+                        let before = ui.add(widgets::button(BEFORE)).on_hover_text(BEFORE_HOVER);
+                        if before.clicked() {
+                            jump = Some(Jump::Undo(done.len()));
+                        }
+                    }
+                });
+            jump
+        },
+    );
     response
         .inner
         .or(response.should_close().then_some(Jump::Close))

@@ -3133,6 +3133,49 @@ pub fn pressed_shortcut(event: &Event) -> Option<KeyboardShortcut> {
     }
 }
 
+pub fn pressed(ctx: &egui::Context, keymap: &Keymap, command: Command, typing: bool) -> bool {
+    let shortcuts = keymap.shortcuts(command);
+    let mut found = false;
+    ctx.input_mut(|input| {
+        input.events.retain(|event| {
+            let Some(pressed) = pressed_shortcut(event) else {
+                return true;
+            };
+            let chorded = pressed.modifiers.command || pressed.modifiers.alt;
+            let typed = typing
+                && (!chorded || TEXT_EDITING_KEYS.contains(&pressed.logical_key))
+                && !is_function_key(pressed.logical_key);
+            let matched = !typed
+                && !WIDGET_KEYS.contains(&pressed.logical_key)
+                && shortcuts.iter().any(|shortcut| {
+                    shortcut.logical_key == pressed.logical_key
+                        && normalized(shortcut.modifiers) == pressed.modifiers
+                });
+            found |= matched;
+            !matched
+        });
+    });
+    found
+}
+
+fn is_function_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::F1
+            | Key::F2
+            | Key::F3
+            | Key::F4
+            | Key::F5
+            | Key::F6
+            | Key::F7
+            | Key::F8
+            | Key::F9
+            | Key::F10
+            | Key::F11
+            | Key::F12
+    )
+}
+
 pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> Vec<Command> {
     let mut triggered = Vec::new();
     ctx.input_mut(|input| {

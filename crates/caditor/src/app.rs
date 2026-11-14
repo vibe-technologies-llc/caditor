@@ -109,6 +109,7 @@ use crate::{
     version_preview::PICTURE_SIZE,
     viewport::ViewportState,
     visibility::{self, Needs},
+    widgets,
     window_export::WindowExport,
     window_frame::{self, Chrome},
 };
@@ -716,7 +717,16 @@ pub fn show(
     let deferred = std::mem::take(deferred_commands);
     let awaited = awaiting_paste.take().filter(|_| !blocked);
     let clipboard = read_clipboard(ui.ctx(), awaited.is_some(), copied.as_deref());
+    let recording = shortcut_editor
+        .as_ref()
+        .is_some_and(ShortcutEditor::is_recording);
     let mut triggered = if blocked {
+        if !palette_open
+            && !recording
+            && commands::pressed(ui.ctx(), &preferences.keymap, Command::Guide, text_focused)
+        {
+            widgets::ask_dialog_help(ui.ctx());
+        }
         Vec::new()
     } else {
         commands::dispatch(ui.ctx(), &preferences.keymap, &situation)
@@ -1352,6 +1362,14 @@ pub fn show(
             )
         {
             actions.push(Action::Preferences(command));
+        }
+        if shortcut_editor.is_some() && *preferences_open && guide::is_asked(ui.ctx()) {
+            actions.extend(
+                preferences::pending_changes(ui.ctx(), preferences)
+                    .into_iter()
+                    .map(|change| Action::Preferences(PreferencesCommand::Change(change))),
+            );
+            actions.push(Action::Preferences(PreferencesCommand::Hide));
         }
         if open_palette && !dialog_open {
             palette.open();

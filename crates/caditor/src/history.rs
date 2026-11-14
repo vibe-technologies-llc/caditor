@@ -8,7 +8,9 @@ use egui::Ui;
 use jiff::{Timestamp, tz::TimeZone};
 
 use crate::{
-    appearance, canvas, icons,
+    appearance, canvas,
+    guide::Page,
+    icons,
     model::{Model, display_name},
     scene_palette::Canvas,
     version_preview::{self, Preview, Started},
@@ -225,35 +227,42 @@ pub fn dialog(
 ) -> Option<HistoryCommand> {
     let (path, listing) = history.shown.as_ref()?;
     let name = display_name(Some(path));
-    let response = widgets::dialog(ctx, "version-history", TITLE, DialogWidth::Wide, |ui| {
-        ui.label(widgets::muted(
-            format!(
-                "Every save keeps the state it replaces inside “{name}”, so you can go back to \
+    let response = widgets::helped_dialog(
+        ctx,
+        "version-history",
+        TITLE,
+        DialogWidth::Wide,
+        Page::VersionHistory,
+        |ui| {
+            ui.label(widgets::muted(
+                format!(
+                    "Every save keeps the state it replaces inside “{name}”, so you can go back to \
                  it even after closing caditor. Restoring is one change that Undo reverses. Old \
                  versions are thinned out as they age, except the ones you keep. Preview shows \
                  what a version holds before you restore it."
-            ),
-            ui,
-        ));
-        let mut command = None;
-        widgets::dialog_body(ui, |ui| match listing {
-            Listing::Loading => {
-                ui.horizontal(|ui| {
-                    widgets::spinner(ui);
-                    ui.label("Reading the saved versions…");
-                });
-            }
-            Listing::Failed(error) => {
-                widgets::callout(ui, Tone::Error, |ui| {
-                    ui.label(format!("The versions could not be read: {error}."));
-                });
-            }
-            Listing::Loaded(listed) => {
-                command = versions(ui, model, history, listed);
-            }
-        });
-        command
-    });
+                ),
+                ui,
+            ));
+            let mut command = None;
+            widgets::dialog_body(ui, |ui| match listing {
+                Listing::Loading => {
+                    ui.horizontal(|ui| {
+                        widgets::spinner(ui);
+                        ui.label("Reading the saved versions…");
+                    });
+                }
+                Listing::Failed(error) => {
+                    widgets::callout(ui, Tone::Error, |ui| {
+                        ui.label(format!("The versions could not be read: {error}."));
+                    });
+                }
+                Listing::Loaded(listed) => {
+                    command = versions(ui, model, history, listed);
+                }
+            });
+            command
+        },
+    );
     let closed = response.should_close().then_some(HistoryCommand::Hide);
     response.inner.or(closed)
 }

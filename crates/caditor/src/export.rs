@@ -31,6 +31,7 @@ use crate::{
     configuration_export::{self, ConfigurationExported, ConfigurationFile, ConfigurationJob},
     feature_tree::count,
     files::{FileCommand, cloud_send},
+    guide::Page,
     icons,
     image_export::ReadPixels,
     model::{Action, Model, Notice, NoticeKind, RecomputeStatus, display_name},
@@ -869,70 +870,77 @@ pub fn dialog(
     slicer_missing: Option<&FindError>,
     fusion: Option<Result<(), &str>>,
 ) -> Option<ExportCommand> {
-    let response = widgets::dialog(ctx, DIALOG_ID, "Export", DialogWidth::Medium, |ui| {
-        let bodies = Exporter::bodies(model);
-        if bodies.is_empty() {
-            widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
-            return None;
-        }
-        let mut command = None;
-        widgets::dialog_body(ui, |ui| {
-            format_choice(ui, exporter, &mut command);
-            if exporter.format == ExportFormat::Stl {
-                stl_choice(ui, exporter, &mut command);
+    let response = widgets::helped_dialog(
+        ctx,
+        DIALOG_ID,
+        "Export",
+        DialogWidth::Medium,
+        Page::Exporting,
+        |ui| {
+            let bodies = Exporter::bodies(model);
+            if bodies.is_empty() {
+                widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
+                return None;
             }
-            if exporter.format.is_mesh() {
-                resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
-            }
-            threads_choice(ui, model, exporter, &mut command);
-            configuration_choice(ui, model, exporter, &mut command);
-            body_choice(ui, exporter, &bodies, &mut command);
-        });
-        let blocker = if exporter.is_running() {
-            Some("An export is already running.")
-        } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
-            Some("Waiting for the model to finish recomputing…")
-        } else if bodies
-            .iter()
-            .all(|body| exporter.left_out.contains(&body.id))
-        {
-            Some("Choose at least one body to export.")
-        } else {
-            None
-        };
-        warnings(ui, model, FAILED_OUTCOME, blocker);
-        widgets::footer(ui, |ui| {
-            ui.with_layout(
-                Layout::right_to_left(Align::Center).with_main_wrap(true),
-                |ui| {
-                    let export = widgets::primary_button(ui, "Export…");
-                    let response = ui.add_enabled(blocker.is_none(), export);
-                    let response = match blocker {
-                        Some(blocker) => response.on_disabled_hover_text(blocker),
-                        None => response,
-                    };
-                    if response.clicked() {
-                        command = Some(ExportCommand::Choose);
-                    }
-                    if slicer_button(ui, blocker, slicer_missing) {
-                        command = Some(ExportCommand::OpenInSlicer);
-                    }
-                    if fusion_app_button(ui, blocker) {
-                        command = Some(ExportCommand::OpenInFusionApp);
-                    }
-                    if let Some(offer) = fusion
-                        && fusion_button(ui, blocker, offer)
-                    {
-                        command = Some(ExportCommand::OpenInFusion);
-                    }
-                    if ui.add(widgets::button("Cancel")).clicked() {
-                        command = Some(ExportCommand::Hide);
-                    }
-                },
-            );
-        });
-        command
-    });
+            let mut command = None;
+            widgets::dialog_body(ui, |ui| {
+                format_choice(ui, exporter, &mut command);
+                if exporter.format == ExportFormat::Stl {
+                    stl_choice(ui, exporter, &mut command);
+                }
+                if exporter.format.is_mesh() {
+                    resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
+                }
+                threads_choice(ui, model, exporter, &mut command);
+                configuration_choice(ui, model, exporter, &mut command);
+                body_choice(ui, exporter, &bodies, &mut command);
+            });
+            let blocker = if exporter.is_running() {
+                Some("An export is already running.")
+            } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
+                Some("Waiting for the model to finish recomputing…")
+            } else if bodies
+                .iter()
+                .all(|body| exporter.left_out.contains(&body.id))
+            {
+                Some("Choose at least one body to export.")
+            } else {
+                None
+            };
+            warnings(ui, model, FAILED_OUTCOME, blocker);
+            widgets::footer(ui, |ui| {
+                ui.with_layout(
+                    Layout::right_to_left(Align::Center).with_main_wrap(true),
+                    |ui| {
+                        let export = widgets::primary_button(ui, "Export…");
+                        let response = ui.add_enabled(blocker.is_none(), export);
+                        let response = match blocker {
+                            Some(blocker) => response.on_disabled_hover_text(blocker),
+                            None => response,
+                        };
+                        if response.clicked() {
+                            command = Some(ExportCommand::Choose);
+                        }
+                        if slicer_button(ui, blocker, slicer_missing) {
+                            command = Some(ExportCommand::OpenInSlicer);
+                        }
+                        if fusion_app_button(ui, blocker) {
+                            command = Some(ExportCommand::OpenInFusionApp);
+                        }
+                        if let Some(offer) = fusion
+                            && fusion_button(ui, blocker, offer)
+                        {
+                            command = Some(ExportCommand::OpenInFusion);
+                        }
+                        if ui.add(widgets::button("Cancel")).clicked() {
+                            command = Some(ExportCommand::Hide);
+                        }
+                    },
+                );
+            });
+            command
+        },
+    );
     let closed = response.should_close().then_some(ExportCommand::Hide);
     response.inner.or(closed)
 }

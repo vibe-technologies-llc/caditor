@@ -3,7 +3,9 @@ use egui::{Align, Event, Grid, Key, KeyboardShortcut, Label, Layout, Modifiers, 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
     commands::{self, Category, Command, Keymap, Scope},
-    dialog_parts, icons, palette,
+    dialog_parts,
+    guide::Page,
+    icons, palette,
     preferences::{PreferenceChange, PreferencesCommand},
     widgets::{self, DialogBody, DialogWidth, Tone},
 };
@@ -165,98 +167,106 @@ pub fn dialog(
     {
         editor.confirm_reset = false;
     }
-    let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Wide, |ui| {
-        ui.label(widgets::muted(
-            "Add… records the next keys you press, and the cross beside a shortcut removes it. \
+    let response = widgets::helped_dialog(
+        ctx,
+        DIALOG_ID,
+        TITLE,
+        DialogWidth::Wide,
+        Page::Keyboard,
+        |ui| {
+            ui.label(widgets::muted(
+                "Add… records the next keys you press, and the cross beside a shortcut removes it. \
              Sketch and constraint shortcuts only act while a sketch is edited.",
-            ui,
-        ));
-        let mut command = None;
-        conflict(ui, editor, &mut command);
-        reset_conflict(ui, editor, &mut command);
-        if let Some(message) = &editor.message {
-            widgets::callout(ui, Tone::Warning, |ui| {
-                ui.label(message);
-            });
-        }
-        let filter = ui
-            .horizontal(|ui| {
-                let muted = appearance::tokens(ui).text_muted;
-                widgets::icon_label(ui, icons::SEARCH, muted);
-                widgets::text_field(ui, |ui| {
-                    widgets::spoken_as(
-                        ui.add(
-                            TextEdit::singleline(&mut editor.query)
-                                .hint_text(FILTER_HINT)
-                                .desired_width(f32::INFINITY),
-                        ),
-                        FILTER_HINT,
-                    )
+                ui,
+            ));
+            let mut command = None;
+            conflict(ui, editor, &mut command);
+            reset_conflict(ui, editor, &mut command);
+            if let Some(message) = &editor.message {
+                widgets::callout(ui, Tone::Warning, |ui| {
+                    ui.label(message);
+                });
+            }
+            let filter = ui
+                .horizontal(|ui| {
+                    let muted = appearance::tokens(ui).text_muted;
+                    widgets::icon_label(ui, icons::SEARCH, muted);
+                    widgets::text_field(ui, |ui| {
+                        widgets::spoken_as(
+                            ui.add(
+                                TextEdit::singleline(&mut editor.query)
+                                    .hint_text(FILTER_HINT)
+                                    .desired_width(f32::INFINITY),
+                            ),
+                            FILTER_HINT,
+                        )
+                    })
                 })
-            })
-            .inner;
-        if std::mem::take(&mut editor.focus_filter) {
-            filter.request_focus();
-        }
-        widgets::checkbox(ui, &mut editor.changed_only, CHANGED_ONLY)
-            .on_hover_text("List only the commands whose shortcuts differ from caditor's own");
-        let columns = Columns::of(ui);
-        header(ui, columns);
-        let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
-        DialogBody::default()
-            .min_height(height)
-            .list(ui.ctx(), LIST_HEIGHT)
-            .show(ui, |ui| list(ui, editor, keymap, columns, &mut command));
-        if reset_undoable
-            && dialog_parts::undo_note(
-                ui,
-                "Every shortcut is back to the one caditor starts with.",
-                "Put back the shortcuts as they were before",
-            )
-        {
-            command = Some(PreferencesCommand::Undo);
-        }
-        if editor.confirm_reset {
-            ui.add_space(SPACE_M);
-            dialog_parts::confirmation(
-                ui,
-                "Reset all shortcuts?",
-                "Every command goes back to the shortcuts caditor starts with; the ones you \
+                .inner;
+            if std::mem::take(&mut editor.focus_filter) {
+                filter.request_focus();
+            }
+            widgets::checkbox(ui, &mut editor.changed_only, CHANGED_ONLY)
+                .on_hover_text("List only the commands whose shortcuts differ from caditor's own");
+            let columns = Columns::of(ui);
+            header(ui, columns);
+            let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
+            DialogBody::default()
+                .min_height(height)
+                .list(ui.ctx(), LIST_HEIGHT)
+                .show(ui, |ui| list(ui, editor, keymap, columns, &mut command));
+            if reset_undoable
+                && dialog_parts::undo_note(
+                    ui,
+                    "Every shortcut is back to the one caditor starts with.",
+                    "Put back the shortcuts as they were before",
+                )
+            {
+                command = Some(PreferencesCommand::Undo);
+            }
+            if editor.confirm_reset {
+                ui.add_space(SPACE_M);
+                dialog_parts::confirmation(
+                    ui,
+                    "Reset all shortcuts?",
+                    "Every command goes back to the shortcuts caditor starts with; the ones you \
                  added, removed or moved are lost.",
-            );
-            if let Some(confirmed) = dialog_parts::confirm_footer(ui, RESET_ALL, "Cancel") {
-                editor.confirm_reset = false;
-                if confirmed {
-                    command = Some(PreferencesCommand::Change(PreferenceChange::ResetShortcuts));
+                );
+                if let Some(confirmed) = dialog_parts::confirm_footer(ui, RESET_ALL, "Cancel") {
+                    editor.confirm_reset = false;
+                    if confirmed {
+                        command =
+                            Some(PreferencesCommand::Change(PreferenceChange::ResetShortcuts));
+                    }
+                }
+            } else {
+                let all_default = keymap.is_all_default();
+                let chosen = widgets::footer_split(
+                    ui,
+                    |ui| {
+                        ui.add_enabled(!all_default, widgets::danger_button(RESET_ALL))
+                            .on_hover_text("Go back to the shortcuts caditor starts with")
+                            .on_disabled_hover_text(
+                                "Every shortcut is already the one caditor starts with",
+                            )
+                            .clicked()
+                            .then_some(false)
+                    },
+                    |ui| {
+                        ui.add(widgets::primary_button(ui, "Close"))
+                            .clicked()
+                            .then_some(true)
+                    },
+                );
+                match chosen {
+                    Some(true) => command = Some(PreferencesCommand::HideShortcuts),
+                    Some(false) => editor.confirm_reset = true,
+                    None => {}
                 }
             }
-        } else {
-            let all_default = keymap.is_all_default();
-            let chosen = widgets::footer_split(
-                ui,
-                |ui| {
-                    ui.add_enabled(!all_default, widgets::danger_button(RESET_ALL))
-                        .on_hover_text("Go back to the shortcuts caditor starts with")
-                        .on_disabled_hover_text(
-                            "Every shortcut is already the one caditor starts with",
-                        )
-                        .clicked()
-                        .then_some(false)
-                },
-                |ui| {
-                    ui.add(widgets::primary_button(ui, "Close"))
-                        .clicked()
-                        .then_some(true)
-                },
-            );
-            match chosen {
-                Some(true) => command = Some(PreferencesCommand::HideShortcuts),
-                Some(false) => editor.confirm_reset = true,
-                None => {}
-            }
-        }
-        command
-    });
+            command
+        },
+    );
     let closed = (!editor.is_recording() && response.should_close())
         .then_some(PreferencesCommand::HideShortcuts);
     captured.or(response.inner).or(closed)

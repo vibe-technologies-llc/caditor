@@ -34,7 +34,9 @@ computer stops, the next start offers to restore what was not saved. Every chang
 ## Finding your way
 
 Press {command:palette} to find any command by name. Press {command:help.guide} at any time for the
-page about the tool or panel in use. {command:help.welcome} opens finished samples to look at.
+page about the tool or panel in use; in a dialog the same key, or the **?** button beside its close
+button, closes the dialog and opens its page. {command:help.welcome} opens finished samples to
+look at.
 
 Read on with [the window](window), [moving around the view](navigation) and
 [selecting](selection).

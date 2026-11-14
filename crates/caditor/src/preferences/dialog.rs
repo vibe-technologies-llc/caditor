@@ -19,6 +19,7 @@ use crate::{
     defender, dialog_parts,
     files::templates::{self, Templates},
     graphics::{self, Hardware},
+    guide::Page,
     icons, lighting_panel,
     scene_palette::{self, Canvas, Contrast},
     slicer::{FindError, Installation, Slicer},
@@ -70,75 +71,85 @@ pub fn dialog(
     view: &PreferencesView<'_>,
 ) -> Option<PreferencesCommand> {
     let confirm = Id::unique(CONFIRM_KEY);
-    let response = widgets::dialog(ctx, "preferences", "Preferences", DialogWidth::Wide, |ui| {
-        let mut command = None;
-        let tabs = PreferencesTab::ALL.map(|tab| Tab {
-            glyph: tab.icon(),
-            label: tab.label(),
-        });
-        let mut tab = view.tab;
-        if let Some(chosen) = widgets::tabs(ui, "preferences", &tabs, tab.index(), view.switch_keys)
-            .and_then(|index| PreferencesTab::ALL.get(index).copied())
-        {
-            tab = chosen;
-            command = Some(PreferencesCommand::Tab(chosen));
-            ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
-        }
-        if let Some(search) = search_field(ui, view.search) {
-            command = Some(search);
-        }
-        let searching = !view.search.trim().is_empty();
-        body(ui, preferences, view, tab, &mut command);
-        if let Some(section) = take_reset(ui) {
-            command = Some(PreferencesCommand::Change(
-                PreferenceChange::SectionDefaults(section),
-            ));
-        }
-        if let Some(restoring) = view.restored.and_then(Restored::restoring)
-            && (searching || restoring.tab() == tab)
-            && undo_restoring(ui, restoring)
-        {
-            command = Some(PreferencesCommand::Undo);
-        }
-        let confirming = ui.data(|data| data.get_temp::<PreferencesTab>(confirm)) == Some(tab);
-        if confirming {
-            ui.add_space(SPACE_M);
-            dialog_parts::confirmation(
-                ui,
-                &format!("Restore the defaults of the {} tab?", tab.label()),
-                tab.defaults(),
-            );
-            if let Some(confirmed) = dialog_parts::confirm_footer(ui, RESTORE_DEFAULTS, "Cancel") {
+    let response = widgets::helped_dialog(
+        ctx,
+        "preferences",
+        "Preferences",
+        DialogWidth::Wide,
+        Page::Preferences,
+        |ui| {
+            let mut command = None;
+            let tabs = PreferencesTab::ALL.map(|tab| Tab {
+                glyph: tab.icon(),
+                label: tab.label(),
+            });
+            let mut tab = view.tab;
+            if let Some(chosen) =
+                widgets::tabs(ui, "preferences", &tabs, tab.index(), view.switch_keys)
+                    .and_then(|index| PreferencesTab::ALL.get(index).copied())
+            {
+                tab = chosen;
+                command = Some(PreferencesCommand::Tab(chosen));
                 ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
-                if confirmed {
-                    command = Some(PreferencesCommand::Change(PreferenceChange::Defaults(tab)));
+            }
+            if let Some(search) = search_field(ui, view.search) {
+                command = Some(search);
+            }
+            let searching = !view.search.trim().is_empty();
+            body(ui, preferences, view, tab, &mut command);
+            if let Some(section) = take_reset(ui) {
+                command = Some(PreferencesCommand::Change(
+                    PreferenceChange::SectionDefaults(section),
+                ));
+            }
+            if let Some(restoring) = view.restored.and_then(Restored::restoring)
+                && (searching || restoring.tab() == tab)
+                && undo_restoring(ui, restoring)
+            {
+                command = Some(PreferencesCommand::Undo);
+            }
+            let confirming = ui.data(|data| data.get_temp::<PreferencesTab>(confirm)) == Some(tab);
+            if confirming {
+                ui.add_space(SPACE_M);
+                dialog_parts::confirmation(
+                    ui,
+                    &format!("Restore the defaults of the {} tab?", tab.label()),
+                    tab.defaults(),
+                );
+                if let Some(confirmed) =
+                    dialog_parts::confirm_footer(ui, RESTORE_DEFAULTS, "Cancel")
+                {
+                    ui.data_mut(|data| data.remove::<PreferencesTab>(confirm));
+                    if confirmed {
+                        command = Some(PreferencesCommand::Change(PreferenceChange::Defaults(tab)));
+                    }
+                }
+            } else {
+                let chosen = widgets::footer_split(
+                    ui,
+                    |ui| {
+                        ui.add(widgets::danger_button(RESTORE_DEFAULTS))
+                            .on_hover_text(tab.defaults())
+                            .clicked()
+                            .then_some(false)
+                    },
+                    |ui| {
+                        ui.add(widgets::primary_button(ui, "Close"))
+                            .clicked()
+                            .then_some(true)
+                    },
+                );
+                match chosen {
+                    Some(true) => command = Some(PreferencesCommand::Hide),
+                    Some(false) => ui.data_mut(|data| {
+                        data.insert_temp(confirm, tab);
+                    }),
+                    None => {}
                 }
             }
-        } else {
-            let chosen = widgets::footer_split(
-                ui,
-                |ui| {
-                    ui.add(widgets::danger_button(RESTORE_DEFAULTS))
-                        .on_hover_text(tab.defaults())
-                        .clicked()
-                        .then_some(false)
-                },
-                |ui| {
-                    ui.add(widgets::primary_button(ui, "Close"))
-                        .clicked()
-                        .then_some(true)
-                },
-            );
-            match chosen {
-                Some(true) => command = Some(PreferencesCommand::Hide),
-                Some(false) => ui.data_mut(|data| {
-                    data.insert_temp(confirm, tab);
-                }),
-                None => {}
-            }
-        }
-        command
-    });
+            command
+        },
+    );
     let closed = response.should_close().then_some(PreferencesCommand::Hide);
     let command = response.inner.or(closed);
     if command == Some(PreferencesCommand::Hide) {

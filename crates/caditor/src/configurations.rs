@@ -11,6 +11,7 @@ use crate::{
     completion,
     field::{self, ExpressionError},
     files::{FileCommand, configurations as table_files},
+    guide::Page,
     icons,
     model::Model,
     widgets::{self, DialogWidth, Tone},
@@ -167,21 +168,28 @@ pub fn dialog(
     model: &Model,
     draft: &mut ConfigurationsDraft,
 ) -> Option<Outcome> {
-    let response = widgets::dialog(ctx, DIALOG_ID, TITLE, DialogWidth::Wide, |ui| {
-        ui.label(widgets::muted(EXPLANATION, ui));
-        ui.add_space(SPACE_S);
-        let outcome = widgets::dialog_body(ui, |ui| body(ui, model, draft));
-        let footer = widgets::footer_split(
-            ui,
-            |ui| file_buttons(ui, model.document()),
-            |ui| {
-                ui.add(widgets::primary_button(ui, CLOSE_LABEL))
-                    .clicked()
-                    .then_some(Outcome::Close)
-            },
-        );
-        outcome.or(footer)
-    });
+    let response = widgets::helped_dialog(
+        ctx,
+        DIALOG_ID,
+        TITLE,
+        DialogWidth::Wide,
+        Page::Configurations,
+        |ui| {
+            ui.label(widgets::muted(EXPLANATION, ui));
+            ui.add_space(SPACE_S);
+            let outcome = widgets::dialog_body(ui, |ui| body(ui, model, draft));
+            let footer = widgets::footer_split(
+                ui,
+                |ui| file_buttons(ui, model.document()),
+                |ui| {
+                    ui.add(widgets::primary_button(ui, CLOSE_LABEL))
+                        .clicked()
+                        .then_some(Outcome::Close)
+                },
+            );
+            outcome.or(footer)
+        },
+    );
     let closed = response.should_close().then_some(Outcome::Close);
     response.inner.or(closed)
 }

@@ -21,6 +21,8 @@ use crate::{
     widgets,
 };
 
+const TAB_PRESSES_ROUND_THE_DIALOG: usize = 16;
+
 #[test]
 fn the_gear_in_the_menu_bar_opens_the_preferences() {
     let mut harness = Harness::new();
@@ -270,7 +272,7 @@ fn preferences_tabs_switch_by_mouse_and_keyboard_and_the_last_one_stays_open() {
     open_preferences(&mut harness);
     assert!(harness.shows("Anti-aliasing"));
 
-    for _ in 0..12 {
+    for _ in 0..TAB_PRESSES_ROUND_THE_DIALOG {
         if focused_tab(&harness).is_some() {
             break;
         }

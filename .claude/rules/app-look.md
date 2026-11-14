@@ -331,6 +331,13 @@ paths:
     A dialog whose only action would be Close has no footer: its title bar's close button (named
     `CLOSE_DIALOG`) and Escape are enough (the load report, recent messages, undo history, saved
     views, selection sets, version history).
+  - A dialog with a page of the guide is a `widgets::helped_dialog` (Export, Export image, Export
+    sketch, Preferences, Keyboard shortcuts, Version history, Configurations, Undo history, Recent
+    messages): a help button left of Close, named `dialog_help_hover` ("Close this dialog and open
+    “<page>” in the user guide"), and the User guide key do the same thing. A dialog is a modal
+    that blocks the guide panel behind it, so help closes the dialog through its own close path
+    (`DialogResponse::should_close`) and asks for the page (`guide::ask`, `app.md`). Import options
+    has none: closing it would drop the drawing already read.
   - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab and
     Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
   - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so nothing

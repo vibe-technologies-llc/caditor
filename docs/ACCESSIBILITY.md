@@ -85,7 +85,9 @@ and keeps its name and role.
 - 11.x: the WCAG rows above. 11.7 User preferences: contrast and motion follow the system; the
   interface size is the user's own.
 - 12.1 Product documentation: the user guide is inside the application and uses the same widgets,
-  so it is as accessible as the rest; `guide/accessibility.md` describes the features.
+  so it is as accessible as the rest; `guide/accessibility.md` describes the features. Panels and
+  the dialogs with a page have a named help button, and the User guide key works in those dialogs
+  too, so context help never needs the pointer.
 - 502.3 and 503 Interoperability and applications: AccessKit's tree for assistive technology.
 - Not applicable: closed functionality (5.1), biometrics (5.3), two-way voice (6), video (7) and
   hardware (8).

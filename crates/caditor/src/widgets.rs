@@ -26,7 +26,7 @@ use crate::{
         SPACE_XS, TITLE_SIZE, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
     },
     fonts,
-    guide::Page,
+    guide::{self, Page},
     guide_panel, icons,
     layout::RightPanel,
     window_frame,
@@ -2305,6 +2305,39 @@ impl<T> DialogResponse<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HelpAsked {
+    pass: u64,
+}
+
+fn help_asked_key() -> Id {
+    Id::unique("dialog-help-asked")
+}
+
+pub fn ask_dialog_help(ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|data| data.insert_temp(help_asked_key(), HelpAsked { pass }));
+}
+
+fn take_help_asked(ui: &Ui) -> bool {
+    let top = ui.memory(|memory| memory.top_modal_layer()) == Some(ui.layer_id());
+    let pass = ui.ctx().cumulative_pass_nr();
+    let asked = ui
+        .data(|data| data.get_temp::<HelpAsked>(help_asked_key()))
+        .is_some_and(|asked| asked.pass == pass);
+    if top && asked {
+        ui.data_mut(|data| data.remove::<HelpAsked>(help_asked_key()));
+    }
+    top && asked
+}
+
+pub fn dialog_help_hover(page: Page) -> String {
+    format!(
+        "Close this dialog and open “{}” in the user guide",
+        page.title()
+    )
+}
+
 pub fn dialog<T>(
     ctx: &egui::Context,
     id: &str,
@@ -2312,21 +2345,54 @@ pub fn dialog<T>(
     width: DialogWidth,
     add: impl FnOnce(&mut Ui) -> T,
 ) -> DialogResponse<T> {
+    closable_dialog(ctx, id, title, width, None, add)
+}
+
+pub fn helped_dialog<T>(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    width: DialogWidth,
+    page: Page,
+    add: impl FnOnce(&mut Ui) -> T,
+) -> DialogResponse<T> {
+    closable_dialog(ctx, id, title, width, Some(page), add)
+}
+
+fn closable_dialog<T>(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    width: DialogWidth,
+    help: Option<Page>,
+    add: impl FnOnce(&mut Ui) -> T,
+) -> DialogResponse<T> {
     let mut closed = false;
+    let mut opened_help = false;
     let response = titled_dialog(
         ctx,
         id,
         width,
         |ui| {
+            let by_key = help.is_some() && take_help_asked(ui);
             Sides::new().show(
                 ui,
                 |ui| ui.heading(title),
-                |ui| closed = icon_button(ui, icons::CLOSE, CLOSE_DIALOG).clicked(),
+                |ui| {
+                    closed = icon_button(ui, icons::CLOSE, CLOSE_DIALOG).clicked();
+                    if let Some(page) = help {
+                        let hover = dialog_help_hover(page);
+                        opened_help = icon_button(ui, icons::HELP, &hover).clicked() || by_key;
+                    }
+                },
             );
         },
         add,
     );
-    let close = closed || response.should_close();
+    if let Some(page) = help.filter(|_| opened_help) {
+        guide::ask(ctx, page);
+    }
+    let close = closed || opened_help || response.should_close();
     DialogResponse {
         inner: response.inner,
         close,

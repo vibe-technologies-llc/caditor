@@ -21,6 +21,7 @@ use crate::{
     commands::{Command, CommandFrame},
     export, field,
     files::FileCommand,
+    guide::Page,
     model::{Action, Model, Notice, display_name},
     preferences,
     widgets::{self, DialogWidth},
@@ -534,52 +535,59 @@ pub fn dialog(
     exporter: &ImageExporter,
     view: Option<SurfaceSize>,
 ) -> Option<ImageCommand> {
-    let response = widgets::dialog(ctx, "export-image", TITLE, DialogWidth::Medium, |ui| {
-        let mut command = None;
-        let size = exporter
-            .base_size(view)
-            .ok_or(SizeBlocked::NoView)
-            .and_then(|size| scaled(size, exporter.scale));
-        let blocker = if exporter.is_running() {
-            Err(SizeBlocked::Running)
-        } else {
-            size
-        };
-        let blocked = blocker.as_ref().err().map(ToString::to_string);
-        widgets::dialog_body(ui, |ui| {
-            size_choice(ui, exporter, view, &mut command);
-            scale_choice(ui, exporter, &mut command);
-            background_choice(ui, exporter, &mut command);
-            body_choice(ui, model, exporter, &mut command);
-            ui.add_space(SPACE_M);
-            ui.label(widgets::muted(LEFT_OUT, ui));
-            if let Ok(size) = &blocker {
-                ui.add_space(SPACE_M);
-                ui.label(format!(
-                    "The image will be {} × {} pixels.",
-                    size.width, size.height
-                ));
-            }
-        });
-        export::warnings(ui, model, FAILED_OUTCOME, blocked.as_deref());
-        widgets::footer(ui, |ui| {
-            let export = widgets::primary_button(ui, "Export…");
-            let response = ui.add_enabled(blocker.is_ok(), export);
-            let response = match &blocker {
-                Err(blocker) => response.on_disabled_hover_text(blocker.to_string()),
-                Ok(_) => response,
+    let response = widgets::helped_dialog(
+        ctx,
+        "export-image",
+        TITLE,
+        DialogWidth::Medium,
+        Page::Exporting,
+        |ui| {
+            let mut command = None;
+            let size = exporter
+                .base_size(view)
+                .ok_or(SizeBlocked::NoView)
+                .and_then(|size| scaled(size, exporter.scale));
+            let blocker = if exporter.is_running() {
+                Err(SizeBlocked::Running)
+            } else {
+                size
             };
-            if response.clicked()
-                && let Ok(size) = blocker
-            {
-                command = Some(ImageCommand::Choose(size));
-            }
-            if ui.add(widgets::button("Cancel")).clicked() {
-                command = Some(ImageCommand::Hide);
-            }
-        });
-        command
-    });
+            let blocked = blocker.as_ref().err().map(ToString::to_string);
+            widgets::dialog_body(ui, |ui| {
+                size_choice(ui, exporter, view, &mut command);
+                scale_choice(ui, exporter, &mut command);
+                background_choice(ui, exporter, &mut command);
+                body_choice(ui, model, exporter, &mut command);
+                ui.add_space(SPACE_M);
+                ui.label(widgets::muted(LEFT_OUT, ui));
+                if let Ok(size) = &blocker {
+                    ui.add_space(SPACE_M);
+                    ui.label(format!(
+                        "The image will be {} × {} pixels.",
+                        size.width, size.height
+                    ));
+                }
+            });
+            export::warnings(ui, model, FAILED_OUTCOME, blocked.as_deref());
+            widgets::footer(ui, |ui| {
+                let export = widgets::primary_button(ui, "Export…");
+                let response = ui.add_enabled(blocker.is_ok(), export);
+                let response = match &blocker {
+                    Err(blocker) => response.on_disabled_hover_text(blocker.to_string()),
+                    Ok(_) => response,
+                };
+                if response.clicked()
+                    && let Ok(size) = blocker
+                {
+                    command = Some(ImageCommand::Choose(size));
+                }
+                if ui.add(widgets::button("Cancel")).clicked() {
+                    command = Some(ImageCommand::Hide);
+                }
+            });
+            command
+        },
+    );
     let closed = response.should_close().then_some(ImageCommand::Hide);
     response.inner.or(closed)
 }

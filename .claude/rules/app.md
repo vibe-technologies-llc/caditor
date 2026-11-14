@@ -631,6 +631,12 @@ paths:
   `app::guide_commands` next frame). A new tool, feature kind or side panel gets a page (the
   exhaustive `Page::of_tool`, `of_feature` and `of_panel` fail to compile otherwise), and a change
   to what a tool does updates its page in the same commit.
+- A dialog with a page has a help button too (`widgets::helped_dialog`, `app-look.md`). While a
+  dialog blocks the shortcuts the frame still reads the User guide key (`commands::pressed`, left
+  alone while the palette is open, a shortcut is being recorded or the key would type into a
+  focused field) and flags it for that pass (`widgets::ask_dialog_help`); only the top modal with a
+  page takes the flag (`Memory::top_modal_layer`), so a dialog without one ignores the key. Help
+  asked in Keyboard shortcuts also closes Preferences under it (`guide::is_asked`).
 
 ## About, command line, accessibility, packaging
 

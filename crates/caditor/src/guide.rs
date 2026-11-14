@@ -942,6 +942,12 @@ pub fn ask(ctx: &egui::Context, page: Page) {
     ctx.request_repaint();
 }
 
+pub fn is_asked(ctx: &egui::Context) -> bool {
+    ctx.data(|data| data.get_temp::<Option<Page>>(asked_key()))
+        .flatten()
+        .is_some()
+}
+
 pub fn take_asked(ctx: &egui::Context) -> Option<Page> {
     ctx.data_mut(|data| data.remove_temp::<Option<Page>>(asked_key()))
         .flatten()
