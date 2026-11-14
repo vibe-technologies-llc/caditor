@@ -58,6 +58,7 @@ use crate::{
         self, DrawingCommand, DrawingExporter, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH,
         SKETCH_HINT,
     },
+    drop_target,
     editing::{self, SketchEditing},
     export::{self, ExportChoices, ExportCommand, ExportReport, Exporter, ThumbnailJob},
     fonts,
@@ -107,11 +108,11 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
                                           it out";
 const OPEN_SAMPLE: &str = "Open sample";
 const NOT_IMPORTING: &str = "No import is running";
-const HISTORY_AND_DETAILS: &str = "Versions and details";
 const IMPORT_RUNNING: &str = "An import is already running. Wait for it to finish, or stop it with \
                               Cancel in the status bar, then import again.";
 pub const EXPORT_RUNNING: &str = "An export is already running. Wait for it to finish, or stop it \
                                   with Cancel in the status bar, then try again";
+const HISTORY_AND_DETAILS: &str = "Versions and details";
 const IMPORT_MENU: &str = "Import";
 const EXPORT_MENU: &str = "Export";
 const CLOUD_MENU: &str = "Cloud";
@@ -1701,9 +1702,7 @@ impl Files {
                 self.import_next(model);
             }
             (1, [path]) => self.request(Intent::Open(Some(path.clone())), model),
-            _ => model.set_notice(Notice::warning(
-                "Drop a single model to open it, or drawings and STEP files to import them.",
-            )),
+            _ => model.set_notice(Notice::warning(drop_target::MIXED)),
         }
     }
 

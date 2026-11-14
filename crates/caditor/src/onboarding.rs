@@ -31,7 +31,6 @@ const HOME_KEY: &str = "onboarding.home";
 const TIP_TITLE: &str = "Tip";
 const DISMISS_TIP: &str = "Dismiss the tip";
 const RECENT_TITLE: &str = "Recent files";
-const RECENT_SHOWN: usize = 5;
 const HINT_WIDTH: f32 = 360.0;
 const HINT_BOTTOM_CLEARANCE: f32 = 16.0;
 const SAMPLE_ICON_SIZE: f32 = 24.0;
@@ -397,7 +396,7 @@ fn recent_files(ui: &mut Ui, recent: &[PathBuf]) -> Option<WelcomeChoice> {
         },
     );
     widgets::card(ui, |ui| {
-        for path in recent.iter().take(RECENT_SHOWN) {
+        for path in recent {
             if recent_row(ui, path) {
                 choice = Some(WelcomeChoice::OpenRecent(path.clone()));
             }

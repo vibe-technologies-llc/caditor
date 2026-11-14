@@ -19,8 +19,10 @@ const FRAME_WIDTH: f32 = 2.0;
 const BLOCKED: &str = "Finish with the open dialog before dropping files on caditor.";
 const IMPORT_RUNNING: &str =
     "An import is already running. Drop the files again once it has finished.";
-const MIXED: &str = "Drop a single model to open it, or drawings and STEP files to import them.";
-const ANYTHING: &str = "A model opens; DXF and SVG drawings and STEP files are imported.";
+pub const MIXED: &str =
+    "Drop a single model to open it, or drawings, STEP files and meshes to import them.";
+const ANYTHING: &str =
+    "A model opens; DXF and SVG drawings, STEP files and STL, OBJ and 3MF meshes are imported.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Situation {
@@ -84,7 +86,7 @@ fn importing(paths: &[PathBuf], situation: Situation) -> Verdict {
     if let Some(unknown) = paths.iter().find(|path| !has_importable_extension(path)) {
         return Verdict::warning(
             format!(
-                "{} may not be a drawing or a STEP file",
+                "{} may not be a drawing, a STEP file or a mesh",
                 display_name(Some(unknown))
             ),
             "Dropping it reads it, then imports it or says why it cannot be imported.",
@@ -170,7 +172,10 @@ mod tests {
         let step = verdict(&[dir.path().join("PART.STP")], situation);
 
         assert_eq!(judged.tone, Tone::Warning);
-        assert_eq!(judged.title, "part.txt may not be a drawing or a STEP file");
+        assert_eq!(
+            judged.title,
+            "part.txt may not be a drawing, a STEP file or a mesh"
+        );
         assert_eq!(step.title, "Drop to import PART.STP");
     }
 }

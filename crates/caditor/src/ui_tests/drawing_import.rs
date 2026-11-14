@@ -423,7 +423,7 @@ fn files_dragged_over_the_window_say_what_dropping_them_does() {
     harness.hovered_files = hovering(&[Path::new("/tmp/notes.txt")]);
     harness.frame();
     harness.frame();
-    assert!(harness.shows("notes.txt may not be a drawing or a STEP file"));
+    assert!(harness.shows("notes.txt may not be a drawing, a STEP file or a mesh"));
 
     harness.hovered_files = vec![egui::HoveredFile::default()];
     harness.frame();
@@ -484,7 +484,7 @@ fn dropped_drawings_are_imported_one_after_another_and_a_dropped_model_opens() {
     });
     assert_eq!(
         harness.model.notice().unwrap().text,
-        "Drop a single model to open it, or drawings and STEP files to import them."
+        "Drop a single model to open it, or drawings, STEP files and meshes to import them."
     );
     assert_eq!(harness.model.path(), None);
 

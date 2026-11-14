@@ -315,6 +315,20 @@ fn started_with(
 }
 
 #[test]
+fn the_welcome_lists_every_recent_file_the_preference_shows() {
+    let dir = TempDir::new().unwrap();
+    model_files(&dir, 7);
+    let mut harness = started_with(&dir, sample_document().unwrap(), &Preferences::default());
+
+    harness.perform(Action::Preferences(PreferencesCommand::ShowWelcome));
+    harness.read_screen();
+
+    assert_eq!(harness.files.recent().len(), 7);
+    assert!(harness.accessible_named(Role::Button, "Open Model 0.caditor"));
+    assert!(harness.accessible_named(Role::Button, "Open Model 6.caditor"));
+}
+
+#[test]
 fn startup_recent_files_and_double_click_preferences_do_what_they_say_and_are_remembered() {
     let dir = TempDir::new().unwrap();
     let paths = model_files(&dir, 5);
