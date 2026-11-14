@@ -103,8 +103,10 @@ impl Hint {
                 input_mode.navigation_tip()
             ),
             Self::Palette => format!(
-                "Press {} to find any command by name, including ones without a button.",
-                keys(Command::Palette, "the Search commands button")
+                "Press {} to find any command by name, including ones without a button, and {} \
+                 to list every shortcut and change it.",
+                keys(Command::Palette, "the Search commands button"),
+                keys(Command::KeyboardShortcuts, "Help › Keyboard shortcuts")
             ),
         }
     }

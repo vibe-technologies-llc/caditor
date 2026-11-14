@@ -297,3 +297,14 @@ fn recent_models_notices_and_recompute_are_commands() {
     harness.settle();
     assert_eq!(harness.model.status(), RecomputeStatus::UpToDate);
 }
+
+#[test]
+fn the_shortcut_list_opens_from_its_own_default_key() {
+    let mut harness = Harness::new();
+    harness.frame();
+
+    harness.key(Key::Slash, Modifiers::COMMAND);
+    harness.show_new_windows();
+
+    assert!(harness.shows(crate::shortcut_editor::TITLE));
+}

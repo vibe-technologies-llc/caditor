@@ -2395,6 +2395,7 @@ impl Command {
             Self::Export => vec![command(Key::E)],
             Self::ExportImage => vec![command_shift(Key::E)],
             Self::Preferences => vec![command(Key::Comma)],
+            Self::KeyboardShortcuts => vec![command(Key::Slash)],
             Self::Quit => vec![command(Key::Q)],
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
@@ -2507,7 +2508,6 @@ impl Command {
             | Self::Drawings
             | Self::NewDrawing
             | Self::ModelProperties
-            | Self::KeyboardShortcuts
             | Self::ExportSketch
             | Self::ExportFace
             | Self::ExportDrawingSheet
