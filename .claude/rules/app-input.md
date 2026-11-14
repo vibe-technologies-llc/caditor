@@ -43,11 +43,14 @@ paths:
   (`ViewportState::more_keys`). The prompt is a polite live region reading what is shown and how
   many keys are folded (`HintList::spoken_folded`), all of them once expanded. Navigation and
   keyboard-highlight hints never fold.
+- A plain key that runs a command never also types: `commands::dispatch` drops the frame's
+  `Event::Text` of every key it took without Ctrl or Alt (`types_a_taken_key`), so a digit the
+  user bound to a command does not open a typed value as well.
 - Prompts (`canvas_guidance::show_prompt`): an open feature's says what a click does
-  (`viewport::feature_prompt`, "Click edges to fillet…") with `Esc: done` only where clicks act
-  (blend, shell, offset, delete and split faces, extrude, revolve and sweep regions, pattern
-  copies),
-  else where in its panel to look, per datum and pattern kind; Select in an edited sketch has
+  (`viewport::feature_prompt`, "Click edges to fillet…"), else where in its panel to look, per
+  datum and pattern kind, and every one ends with `Esc: done`, preceded by `0–9: set <field>`
+  when a typed value reaches the feature's main value (`manipulator::primary_typing`,
+  `app-modelling.md`); Select in an edited sketch has
   `SELECT_PROMPT` with Esc finishing or clearing.
 - An empty model (no feature, nothing open, no plane being chosen, no drag) shows the start card
   at the prompt's place (`start_card.rs`, look and placement in `app-look.md`): Start with a

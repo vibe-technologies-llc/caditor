@@ -1,4 +1,6 @@
-use caditor_document::{Document, Edit, FeatureId, FeatureKind, ParameterOwner, Transaction};
+use caditor_document::{
+    Document, Edit, FeatureId, FeatureKind, ParameterOwner, SolidFeature, Transaction,
+};
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Ray, Vector2};
 use caditor_render::{Batch, View};
@@ -12,13 +14,14 @@ use crate::{
     hole_handles::{self, HoleDrag, HoleHandles},
     image_handles::{self, ImageDrag, ImageHandles},
     model::Model,
-    move_manipulator::{self, Handle, HandleSegment, MoveDrag, MoveHandles},
+    move_manipulator::{self, Handle, HandleSegment, MoveDrag, MoveHandles, Reach},
     place_handles::{self, PlaceDrag, PlaceHandles},
     reach_handles::{self, ReachDrag, ReachHandles},
     scene_palette::ScenePalette,
-    turn_handles::{self, TurnDrag, TurnHandles},
+    turn_handles::{self, TurnDrag, TurnEnd, TurnHandles},
     typed_point,
     units::Units,
+    value_gauges::Measured,
     value_handles::{self, ValueDrag, ValueHandles},
 };
 
@@ -292,17 +295,14 @@ impl Manipulator {
         let feature = self.feature();
         let (label, dimension, rules) = match (handle, primary) {
             (Handle::Value(measured), _) => {
-                let typing = values?.typing(model, measured)?;
-                let dimension = measured.amount().dimension();
-                (typing.caption, dimension, vec![typing.rule])
+                values?;
+                return value_typing(model, feature, measured);
             }
             (Handle::Reach(reach), Some(Primary::Reach(_))) => {
-                let caption = reach.field_caption().to_owned();
-                (caption, Dimension::LENGTH, vec![reach.field_rule()])
+                return Some(reach_typing(feature, reach));
             }
             (Handle::Revolve(end), Some(Primary::Revolve(_))) => {
-                let rule = turn_handles::field_rule(model, feature, end);
-                (end.field_caption().to_owned(), Dimension::ANGLE, vec![rule])
+                return Some(turn_typing(model, feature, end));
             }
             (Handle::Place(grip), Some(Primary::Place(handles))) => {
                 let (label, count) = handles.typing(grip)?;
@@ -333,6 +333,50 @@ impl Manipulator {
             manipulator: self.clone(),
             highlighted,
         }
+    }
+}
+
+fn value_typing(model: &Model, feature: FeatureId, measured: Measured) -> Option<Typing> {
+    let typing = value_handles::typing(model, feature, measured)?;
+    Some(Typing {
+        feature,
+        handle: Handle::Value(measured),
+        label: typing.caption,
+        dimension: measured.amount().dimension(),
+        rules: vec![typing.rule],
+    })
+}
+
+fn reach_typing(feature: FeatureId, reach: Reach) -> Typing {
+    Typing {
+        feature,
+        handle: Handle::Reach(reach),
+        label: reach.field_caption().to_owned(),
+        dimension: Dimension::LENGTH,
+        rules: vec![reach.field_rule()],
+    }
+}
+
+fn turn_typing(model: &Model, feature: FeatureId, end: TurnEnd) -> Typing {
+    Typing {
+        feature,
+        handle: Handle::Revolve(end),
+        label: end.field_caption().to_owned(),
+        dimension: Dimension::ANGLE,
+        rules: vec![turn_handles::field_rule(model, feature, end)],
+    }
+}
+
+pub fn primary_typing(model: &Model, feature: FeatureId) -> Option<Typing> {
+    match &model.document().feature(feature)?.kind {
+        FeatureKind::Solid(SolidFeature::Extrude(_)) => {
+            reach_handles::primary(model, feature).map(|reach| reach_typing(feature, reach))
+        }
+        FeatureKind::Solid(SolidFeature::Revolve(_)) => {
+            turn_handles::primary(model, feature).map(|end| turn_typing(model, feature, end))
+        }
+        _ => value_handles::primary(model, feature)
+            .and_then(|measured| value_typing(model, feature, measured)),
     }
 }
 

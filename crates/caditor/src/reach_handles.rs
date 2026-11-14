@@ -179,6 +179,16 @@ fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Poin
     Some((plane.to_world(bounds.center()) + normal * start, normal))
 }
 
+pub fn primary(model: &Model, feature: FeatureId) -> Option<Reach> {
+    let extrude = committed_extrude(model, feature)?;
+    let (reach, ..) = reaches(model.parameters(), &extrude.extent)
+        .into_iter()
+        .flatten()
+        .next()?;
+    let free = held(model, feature, extrude, reach)?.driven().is_none();
+    free.then_some(reach)
+}
+
 pub fn reach_lines(model: &Model, feature: FeatureId) -> Vec<(Reach, [Point3; 2])> {
     let Some(extrude) = committed_extrude(model, feature) else {
         return Vec::new();

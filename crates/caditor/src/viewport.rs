@@ -131,6 +131,7 @@ const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy or cut sketch geometry 
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const DONE_HINT: &str = "Esc: done";
+const TYPED_VALUE_KEYS: &str = "0–9";
 pub const SELECT_PROMPT: &str = "Choose a tool to draw, or click geometry to select it";
 const PROJECT_PROMPT: &str = "Click an edge, corner or face of a body, a curve or point of another \
      sketch, an axis, a datum point or the origin, to project it";
@@ -5007,7 +5008,12 @@ impl ViewportState {
             };
             let typing = held
                 .zip(self.manipulator.as_ref())
-                .and_then(|(handle, manipulator)| manipulator.typing(model, handle));
+                .and_then(|(handle, manipulator)| manipulator.typing(model, handle))
+                .or_else(|| {
+                    let unheld = self.primary.is_none() && held.is_none();
+                    open.filter(|_| unheld)
+                        .and_then(|feature| manipulator::primary_typing(model, feature))
+                });
             let Some(typing) = typing else {
                 self.typed_point.close();
                 return;
@@ -6334,12 +6340,15 @@ impl ViewportState {
             ))
         } else if let Some(feature) = editing.solid() {
             let kind = document.feature(feature).map(|feature| &feature.kind);
-            let (text, clicks) = feature_prompt(kind);
-            let keys = match clicks {
-                Clicks::InTheView => HintList::parsed(DONE_HINT),
-                Clicks::InThePanel => HintList::default(),
+            let keys = match manipulator::primary_typing(model, feature) {
+                Some(typing) => HintList::parsed(&format!(
+                    "{TYPED_VALUE_KEYS}: set {}{}{DONE_HINT}",
+                    typing.label,
+                    canvas::HINT_SEPARATOR
+                )),
+                None => HintList::parsed(DONE_HINT),
             };
-            Some((text.to_owned(), keys))
+            Some((feature_prompt(kind).to_owned(), keys))
         } else if editing
             .active()
             .is_some_and(|active| active.tool.intersects())
@@ -6578,57 +6587,39 @@ fn top_band(rect: Rect, cube: Rect, display: Rect) -> Rect {
     )
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Clicks {
-    InTheView,
-    InThePanel,
-}
-
-fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
-    let in_view = |text| (text, Clicks::InTheView);
-    let in_panel = |text| (text, Clicks::InThePanel);
+fn feature_prompt(kind: Option<&FeatureKind>) -> &'static str {
     match kind {
         Some(FeatureKind::Blend(blend)) => match blend.kind {
-            BlendKind::Fillet => in_view("Click edges to fillet, and again to leave one out"),
-            BlendKind::Chamfer => in_view("Click edges to chamfer, and again to leave one out"),
+            BlendKind::Fillet => "Click edges to fillet, and again to leave one out",
+            BlendKind::Chamfer => "Click edges to chamfer, and again to leave one out",
         },
         Some(FeatureKind::Shell(_)) => {
-            in_view("Click a face to shell the body open there, and again to close it")
+            "Click a face to shell the body open there, and again to close it"
         }
-        Some(FeatureKind::OffsetFace(_)) => {
-            in_view("Click faces to move them, and again to leave one out")
-        }
-        Some(FeatureKind::MoveFace(_)) => {
-            in_view("Click faces to move them, and again to leave one out")
-        }
-        Some(FeatureKind::Draft(_)) => {
-            in_view("Click faces to draft them, and again to leave one out")
-        }
+        Some(FeatureKind::OffsetFace(_)) => "Click faces to move them, and again to leave one out",
+        Some(FeatureKind::MoveFace(_)) => "Click faces to move them, and again to leave one out",
+        Some(FeatureKind::Draft(_)) => "Click faces to draft them, and again to leave one out",
         Some(FeatureKind::ReplaceFace(_)) => {
-            in_view("Click faces to replace them, and again to leave one out")
+            "Click faces to replace them, and again to leave one out"
         }
-        Some(FeatureKind::DeleteFace(_)) => {
-            in_view("Click faces to delete them, and again to keep one")
-        }
+        Some(FeatureKind::DeleteFace(_)) => "Click faces to delete them, and again to keep one",
         Some(FeatureKind::Emboss(emboss)) => match emboss.regions {
-            RegionChoice::All => in_view("Click faces to emboss, and again to leave one out"),
-            RegionChoice::Chosen(_) => in_view(
-                "Click faces and regions of the sketch to emboss, and again to leave one out",
-            ),
+            RegionChoice::All => "Click faces to emboss, and again to leave one out",
+            RegionChoice::Chosen(_) => {
+                "Click faces and regions of the sketch to emboss, and again to leave one out"
+            }
         },
-        Some(FeatureKind::SplitFace(_)) => {
-            in_view("Click faces to split, and again to leave one out")
-        }
+        Some(FeatureKind::SplitFace(_)) => "Click faces to split, and again to leave one out",
         Some(FeatureKind::Solid(SolidFeature::Extrude(_))) => {
-            in_view("Click regions of the sketch to extrude, and again to leave one out")
+            "Click regions of the sketch to extrude, and again to leave one out"
         }
         Some(FeatureKind::Solid(SolidFeature::Revolve(_))) => {
-            in_view("Click regions of the sketch to revolve, and again to leave one out")
+            "Click regions of the sketch to revolve, and again to leave one out"
         }
         Some(FeatureKind::Solid(SolidFeature::Sweep(_))) => {
-            in_view("Click regions of the sketch to sweep, and again to leave one out")
+            "Click regions of the sketch to sweep, and again to leave one out"
         }
-        Some(FeatureKind::Pattern(pattern)) => in_view(match pattern.kind {
+        Some(FeatureKind::Pattern(pattern)) => match pattern.kind {
             PatternKind::Linear { .. } => {
                 "Click a copy to leave it out; set the direction, count and spacing in the panel"
             }
@@ -6642,8 +6633,8 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
                 "Click a copy to leave it out; set the sketch whose points the copies go to in \
                  the panel"
             }
-        }),
-        Some(FeatureKind::Datum(datum)) => in_panel(match datum {
+        },
+        Some(FeatureKind::Datum(datum)) => match datum {
             Datum::Plane(_) => "Choose in the panel the plane or flat face the plane starts from",
             Datum::PlaneThrough(_) => {
                 "Choose in the panel the points, planes or edges the plane passes through"
@@ -6655,48 +6646,38 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
                 "Choose in the panel the corner, edge or point where the point goes"
             }
             Datum::Frame(_) => "Choose in the panel the frame's origin, X axis and XY plane",
-        }),
-        Some(FeatureKind::Combine(_)) => {
-            in_panel("Choose the operation and the two bodies in the panel")
-        }
+        },
+        Some(FeatureKind::Combine(_)) => "Choose the operation and the two bodies in the panel",
         Some(FeatureKind::Move(_)) => {
-            in_panel("Drag an arrow or a square, or type the turns and distances in the panel")
+            "Drag an arrow or a square, or type the turns and distances in the panel"
         }
-        Some(FeatureKind::Scale(_)) => {
-            in_panel("Type the factor and choose the centre in the panel")
-        }
+        Some(FeatureKind::Scale(_)) => "Type the factor and choose the centre in the panel",
         Some(FeatureKind::Mirror(mirror)) if mirror.mirrors_whole_body() => {
-            in_view("Click a plane to mirror across, or choose it and the bodies in the panel")
+            "Click a plane to mirror across, or choose it and the bodies in the panel"
         }
-        Some(FeatureKind::Mirror(_)) => in_panel("Choose the plane to mirror across in the panel"),
-        Some(FeatureKind::Split(_)) => in_panel("Choose what to split along in the panel"),
-        Some(FeatureKind::Mate(_)) => in_panel("Choose the faces or axes to mate in the panel"),
+        Some(FeatureKind::Mirror(_)) => "Choose the plane to mirror across in the panel",
+        Some(FeatureKind::Split(_)) => "Choose what to split along in the panel",
+        Some(FeatureKind::Mate(_)) => "Choose the faces or axes to mate in the panel",
         Some(FeatureKind::Hole(_)) => {
-            in_panel("Choose the hole's style and sizes, and where it goes, in the panel")
+            "Choose the hole's style and sizes, and where it goes, in the panel"
         }
         Some(FeatureKind::Primitive(_)) => {
-            in_panel("Type the sizes and choose where the shape goes in the panel")
+            "Type the sizes and choose where the shape goes in the panel"
         }
-        Some(FeatureKind::Pipe(_)) => {
-            in_panel("Choose the path, the section and its sizes in the panel")
+        Some(FeatureKind::Pipe(_)) => "Choose the path, the section and its sizes in the panel",
+        Some(FeatureKind::Loft(_)) => {
+            "Choose the profiles in order, where it ends and how its sides run in the panel"
         }
-        Some(FeatureKind::Loft(_)) => in_panel(
-            "Choose the profiles in order, where it ends and how its sides run in the panel",
-        ),
-        Some(FeatureKind::Coil(_)) => {
-            in_panel("Choose the axis, the turns and the section in the panel")
+        Some(FeatureKind::Coil(_)) => "Choose the axis, the turns and the section in the panel",
+        Some(FeatureKind::Helix(_)) => "Choose the axis, the diameter and the turns in the panel",
+        Some(FeatureKind::Rib(_)) => {
+            "Choose the sketch, the body, which way it runs and its thickness in the panel"
         }
-        Some(FeatureKind::Helix(_)) => {
-            in_panel("Choose the axis, the diameter and the turns in the panel")
-        }
-        Some(FeatureKind::Rib(_)) => in_panel(
-            "Choose the sketch, the body, which way it runs and its thickness in the panel",
-        ),
         Some(FeatureKind::Thread(_)) => {
-            in_panel("Choose the face to thread, its size and its length in the panel")
+            "Choose the face to thread, its size and its length in the panel"
         }
         Some(FeatureKind::ReferenceImage(_)) => {
-            in_panel("Choose where the picture lies, its size and how it shows in the panel")
+            "Choose where the picture lies, its size and how it shows in the panel"
         }
         Some(
             FeatureKind::Sketch(_)
@@ -6704,7 +6685,7 @@ fn feature_prompt(kind: Option<&FeatureKind>) -> (&'static str, Clicks) {
             | FeatureKind::Remove(_)
             | FeatureKind::Measurement(_),
         )
-        | None => in_panel("Change the feature in its panel"),
+        | None => "Change the feature in its panel",
     }
 }
 

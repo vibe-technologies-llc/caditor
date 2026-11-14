@@ -1195,6 +1195,17 @@ and a Model menu row, and is in the right-click menu of selected sketch curves
   (`Typing::parse`, rules from `Measured::rule`, `Reach::field_rule` and `turn_handles::field_rule`,
   none for positions and moves), since the trial apply checks no ranges: a refusal stays in the field in
   the panel's words, Escape drops the preview. A driven value opens no field.
+- With no handle hovered or held and no drag running, the same typing reaches the open feature's
+  main value (`manipulator::primary_typing`), chosen from the feature's kind and never from the
+  arrows the view happens to show, so looking along an extrusion still sets its distance: an
+  extrusion's first distance (`reach_handles::primary`), a revolve's first angle
+  (`turn_handles::primary`), else `value_gauges::primary`, an exhaustive match a new kind must
+  answer (a hole's diameter, or depth when sized by circles; a fillet's or chamfer's size; a
+  shell's thickness; an offset or moved face's distance; a draft's angle; an emboss's depth; a
+  primitive's first size; a pipe's size; a coil's or helix's diameter; a rib's thickness; a datum
+  plane's offset, else its angle; a linear pattern's first spacing, a circular one's count, a
+  curve one's spacing or count). Every other kind, an end that is not a distance or an angle, and
+  a driven value take no typing, and the prompt then names no field (`app-input.md`).
 
 ## Thread
 

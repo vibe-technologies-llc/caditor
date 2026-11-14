@@ -300,6 +300,21 @@ fn grips(model: &Model, feature: FeatureId, extent: &RevolveExtent) -> [Option<G
     }
 }
 
+pub fn primary(model: &Model, feature: FeatureId) -> Option<TurnEnd> {
+    let revolve = committed_revolve(model, feature)?;
+    let end = grips(model, feature, &revolve.extent)
+        .into_iter()
+        .flatten()
+        .next()?
+        .end;
+    let mut extent = revolve.extent.clone();
+    let slot = end.slot(&mut extent)?;
+    let free = Held::of(model.document(), feature, end.caption(), slot)
+        .driven()
+        .is_none();
+    free.then_some(end)
+}
+
 pub fn turn_arcs(model: &Model, feature: FeatureId) -> Vec<(TurnEnd, Vec<Point3>)> {
     let Some(revolve) = committed_revolve(model, feature) else {
         return Vec::new();

@@ -12,6 +12,7 @@ use super::{
     rectangle, run_from_palette, top_edge_along_x,
 };
 use crate::{
+    commands::Command,
     field,
     model::Action,
     move_manipulator::{Handle, PlaceGrip, Reach},
@@ -433,6 +434,65 @@ fn one_sided(harness: &Harness, extrude: FeatureId) -> (bool, f64) {
         panic!("the extrusion keeps one distance");
     };
     (*reversed, value_of(harness, distance))
+}
+
+#[test]
+fn a_value_typed_with_no_arrow_under_the_pointer_sets_the_open_feature_s_main_value() {
+    let mut harness = Harness::new();
+    let extrude = open_new_extrusion(&mut harness);
+    let hinted = harness.shows("set Distance") && harness.shows("done");
+
+    harness.type_text("25");
+    let previewed = harness.model.draft_kind(extrude).is_some();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert!(hinted);
+    assert!(previewed);
+    assert_eq!(one_sided(&harness, extrude), (false, 25.0));
+}
+
+#[test]
+fn a_value_typed_while_a_fillet_is_open_sets_its_radius() {
+    let mut harness = Harness::new();
+    let fillet = filleted_plate(&mut harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    harness.type_text("3");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(
+        length_value(&harness, &blend_of(&harness, fillet).size),
+        3.0
+    );
+}
+
+#[test]
+fn a_digit_bound_to_a_command_runs_it_and_types_nothing_into_the_open_feature() {
+    let mut harness = Harness::new();
+    let extrude = open_new_extrusion(&mut harness);
+    let bound = egui::KeyboardShortcut::new(Modifiers::NONE, Key::Num5);
+    harness
+        .workspace
+        .preferences
+        .keymap
+        .bind(Command::FitView, bound);
+
+    harness.key(Key::Num5, Modifiers::NONE);
+    harness.events.push(Event::Text("5".to_owned()));
+    harness.frame();
+    harness.frame();
+    let typed = harness.model.draft_kind(extrude).is_some();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert!(!typed);
+    assert_eq!(one_sided(&harness, extrude), (false, 10.0));
 }
 
 #[test]

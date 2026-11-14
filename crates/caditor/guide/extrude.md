@@ -58,7 +58,8 @@ sketch from the panel's **Sketch** list does the same.
   face it passes, flat or curved, stopping where its line meets the face (on a
   cylinder, the side nearer the pointer); the readout says what it stopped at. Hold Ctrl to drag
   freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
-  it is previewed as you type, and Escape leaves it as it was. A value the field itself would
+  with the pointer anywhere else, typing sets the distance, as the line under the view says. It
+  is previewed as you type, and Escape leaves it as it was. A value the field itself would
   refuse, such as zero, is refused there too, saying why.
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.

@@ -141,6 +141,52 @@ pub enum Measured {
     EmbossDepth,
 }
 
+pub fn primary(kind: &FeatureKind) -> Option<Measured> {
+    let candidates: &[Measured] = match kind {
+        FeatureKind::Hole(hole) if hole.sizing.by_circles() => &[Measured::HoleDepth],
+        FeatureKind::Hole(_) => &[Measured::HoleDiameter, Measured::HoleDepth],
+        FeatureKind::Blend(_) => &[Measured::BlendSize],
+        FeatureKind::Shell(_) => &[Measured::ShellThickness],
+        FeatureKind::OffsetFace(_) => &[Measured::OffsetDistance],
+        FeatureKind::MoveFace(_) => &[Measured::MoveDistance],
+        FeatureKind::Draft(_) => &[Measured::DraftAngle],
+        FeatureKind::Emboss(_) => &[Measured::EmbossDepth],
+        FeatureKind::Primitive(_) => &[Measured::PrimitiveSize(0)],
+        FeatureKind::Pipe(_) => &[Measured::PipeSize],
+        FeatureKind::Coil(_) | FeatureKind::Helix(_) => &[Measured::CoilDiameter],
+        FeatureKind::Rib(_) => &[Measured::RibThickness],
+        FeatureKind::Datum(_) => &[Measured::PlaneOffset, Measured::PlaneAngle],
+        FeatureKind::Pattern(_) => &[
+            Measured::PatternSpacing(0),
+            Measured::CircularCount,
+            Measured::CurveSpacing,
+            Measured::CurveCount,
+        ],
+        FeatureKind::Sketch(_)
+        | FeatureKind::Solid(_)
+        | FeatureKind::ReplaceFace(_)
+        | FeatureKind::DeleteFace(_)
+        | FeatureKind::SplitFace(_)
+        | FeatureKind::Loft(_)
+        | FeatureKind::Combine(_)
+        | FeatureKind::Move(_)
+        | FeatureKind::Mate(_)
+        | FeatureKind::Mirror(_)
+        | FeatureKind::Split(_)
+        | FeatureKind::Scale(_)
+        | FeatureKind::Import(_)
+        | FeatureKind::Remove(_)
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_)
+        | FeatureKind::ReferenceImage(_) => &[],
+    };
+    let mut probe = kind.clone();
+    candidates
+        .iter()
+        .copied()
+        .find(|measured| measured.caption(kind).is_some() && measured.slot(&mut probe).is_some())
+}
+
 fn reached_side(reach: Reach) -> ReachedSide {
     match reach {
         Reach::Only | Reach::Symmetric => ReachedSide::Only,

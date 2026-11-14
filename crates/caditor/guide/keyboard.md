@@ -48,6 +48,11 @@ adds a [constraint](constraints), such as {command:constraint.horizontal}.
   shown on the model the same way.
 - With a drawing tool active, type a number, or `=` before a parameter's name, to place a point
   exactly, or use {command:sketch.type_value}; see [sketches](sketches).
+- While a feature is open, typing a number sets its main value, which the line under the view
+  names: an extrusion's distance, a revolve's angle, a fillet's radius, a shell's thickness, a
+  hole's diameter, a pattern's spacing or count and so on. It is previewed as you type; Enter
+  keeps it and Escape drops it. With the pointer on one of the feature's arrows, typing sets that
+  arrow's value instead.
 - A command that needs a shape the model is still recomputing, or a constraint run while the last
   one is being checked, waits instead of being refused, whether it came from a key, the palette, a
   menu or its ribbon button, as does a click giving a face of a shell its own thickness: the status

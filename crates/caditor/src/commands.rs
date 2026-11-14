@@ -3178,6 +3178,7 @@ fn is_function_key(key: Key) -> bool {
 
 pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> Vec<Command> {
     let mut triggered = Vec::new();
+    let mut taken_plain = Vec::new();
     ctx.input_mut(|input| {
         input.events.retain(|event| {
             let Some(pressed) = pressed_shortcut(event) else {
@@ -3192,13 +3193,28 @@ pub fn dispatch(ctx: &egui::Context, keymap: &Keymap, situation: &Situation) -> 
                     if !repeated || command.repeats() {
                         triggered.push(command);
                     }
+                    if !pressed.modifiers.command && !pressed.modifiers.alt {
+                        taken_plain.push(pressed.logical_key);
+                    }
                     false
                 }
                 None => true,
             }
         });
+        input
+            .events
+            .retain(|event| !types_a_taken_key(event, &taken_plain));
     });
     triggered
+}
+
+fn types_a_taken_key(event: &Event, taken: &[Key]) -> bool {
+    let Event::Text(text) = event else {
+        return false;
+    };
+    taken
+        .iter()
+        .any(|key| text.eq_ignore_ascii_case(key.symbol_or_name()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -16,7 +16,7 @@ use crate::{
     scene_palette::ScenePalette,
     turn_handles::Swing,
     units::Units,
-    value_gauges::{Builder, Gauge, Mapping, Measured, Track},
+    value_gauges::{self, Builder, Gauge, Mapping, Measured, Track},
 };
 
 const ARROW_SHARE: f64 = 0.7;
@@ -227,16 +227,23 @@ impl ValueHandles {
             .add_to(batch, colour);
         }
     }
+}
 
-    pub fn typing(&self, model: &Model, measured: Measured) -> Option<Typing> {
-        let kind = committed_kind(model.document(), self.feature)?;
-        Some(Typing {
-            feature: self.feature,
-            measured,
-            caption: measured.caption(kind)?,
-            rule: measured.rule(kind),
-        })
-    }
+pub fn typing(model: &Model, feature: FeatureId, measured: Measured) -> Option<Typing> {
+    let kind = committed_kind(model.document(), feature)?;
+    Some(Typing {
+        feature,
+        measured,
+        caption: measured.caption(kind)?,
+        rule: measured.rule(kind),
+    })
+}
+
+pub fn primary(model: &Model, feature: FeatureId) -> Option<Measured> {
+    let document = model.document();
+    let measured = value_gauges::primary(committed_kind(document, feature)?)?;
+    let free = held(document, feature, measured)?.driven().is_none();
+    free.then_some(measured)
 }
 
 fn held(document: &Document, feature: FeatureId, measured: Measured) -> Option<Held> {
