@@ -4,7 +4,10 @@ Every change to the model can be undone: sketch edits, feature values, parameter
 hiding and restoring an older version alike.
 
 - {command:edit.undo} takes back the last change and {command:edit.redo} brings it back. The Edit
-  menu names the step each would take, such as Undo Extrude 1 distance.
+  menu names the step each would take, such as Undo Extrude 1 distance, and the status bar then
+  says what was undone or redone.
+- A message about a delete or a removed body has an **Undo** button of its own, which takes that
+  change back for as long as it is the last one.
 - {command:edit.repeat} runs the last modelling or sketch command again, such as Fillet, a datum
   plane or a hole, on whatever is selected now. The Edit menu, the palette and the view's
   right-click menu name it, such as Repeat Fillet.

@@ -839,8 +839,12 @@ impl Harness {
     }
 
     fn perform(&mut self, action: Action) {
+        self.perform_all(vec![action]);
+    }
+
+    fn perform_all(&mut self, actions: Vec<Action>) {
         app::perform(
-            vec![action],
+            actions,
             &mut self.model,
             &mut self.files,
             &mut self.workspace,

@@ -301,6 +301,7 @@ pub struct Model {
     services: Services,
     status: RecomputeStatus,
     notice: Option<Notice>,
+    notice_passes: bool,
     save_failure: Option<Notice>,
     drag_blocking: Blocking,
     recorded_notices: VecDeque<RecordedNotice>,
@@ -361,6 +362,7 @@ impl Model {
             services,
             status: RecomputeStatus::UpToDate,
             notice: None,
+            notice_passes: false,
             save_failure: None,
             drag_blocking: Blocking::Clear,
             recorded_notices: VecDeque::new(),
@@ -867,6 +869,15 @@ impl Model {
             self.recorded_notices.truncate(MAX_RECORDED_NOTICES);
         }
         self.notice = Some(notice);
+        self.notice_passes = false;
+    }
+
+    pub fn show_passing(&mut self, notice: Notice) {
+        if self.notice.is_none() || self.notice_passes {
+            log::info!("{}", notice.text);
+            self.notice = Some(notice);
+            self.notice_passes = true;
+        }
     }
 
     fn fail_save(&mut self, notice: Notice) {

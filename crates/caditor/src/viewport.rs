@@ -5379,7 +5379,7 @@ impl ViewportState {
             return;
         }
         if self.drawing.remove_last(model.undo_label()) {
-            actions.push(Action::Undo);
+            actions.push(Action::Editing(EditingCommand::TakeBackSegment));
         }
     }
 

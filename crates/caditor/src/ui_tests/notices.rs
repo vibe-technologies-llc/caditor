@@ -208,6 +208,45 @@ fn a_deleted_feature_is_named_in_a_notice_whose_undo_brings_it_back_while_it_is_
 }
 
 #[test]
+fn undo_and_redo_name_the_step_they_took_without_filling_recent_messages_or_hiding_a_failure() {
+    let mut harness = Harness::new();
+    harness.edit_width("61 mm");
+    harness.edit_width("62 mm");
+    harness.perform(Action::DismissNotice);
+    harness.frame();
+    let label = harness.model.undo_label().unwrap().to_owned();
+    let recorded = harness.model.recorded_notices().count();
+
+    harness.perform(Action::Undo);
+    harness.frame();
+    let undone = harness.model.notice().map(|notice| notice.text.clone());
+    harness.perform(Action::Redo);
+    harness.frame();
+    let redone = harness.model.notice().map(|notice| notice.text.clone());
+    harness.perform_all(vec![Action::Undo, Action::Undo]);
+    harness.frame();
+    let jumped = harness.model.notice().map(|notice| notice.text.clone());
+    let recorded_after = harness.model.recorded_notices().count();
+
+    harness.perform(Action::Inform(Notice::failure(
+        "Saving “plate” failed: the disk is full.",
+    )));
+    harness.perform(Action::Redo);
+    harness.frame();
+
+    assert_eq!(undone, Some(format!("Undid “{label}”.")));
+    assert_eq!(redone, Some(format!("Redid “{label}”.")));
+    assert!(
+        jumped
+            .as_deref()
+            .is_some_and(|text| text.starts_with("Undid 2 steps, back to before “")),
+        "{jumped:?}"
+    );
+    assert_eq!(recorded_after, recorded);
+    assert!(harness.shows("Saving “plate” failed: the disk is full."));
+}
+
+#[test]
 fn delete_with_nothing_to_delete_names_the_tools_that_take_faces_and_bodies_away() {
     let mut harness = Harness::new();
     harness.frame();

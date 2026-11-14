@@ -114,6 +114,13 @@ fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
     harness.frame();
     assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
     assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
+    let told = harness.model.notice().map(|notice| notice.text.clone());
+    assert!(
+        !told
+            .as_deref()
+            .is_some_and(|text| text.starts_with("Undid")),
+        "{told:?}"
+    );
 
     harness.click_at(Point2::new(60.0, 30.0));
     let sketch = harness.sketch(feature);

@@ -1892,6 +1892,44 @@ fn route_dimension_focus(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Way {
+    Undone,
+    Redone,
+}
+
+#[derive(Debug, Default)]
+struct Stepped {
+    steps: Option<(Way, usize, String)>,
+}
+
+impl Stepped {
+    fn note(&mut self, way: Way, label: Option<String>) {
+        let Some(label) = label else {
+            return;
+        };
+        let count = match &self.steps {
+            Some((before, count, _)) if *before == way => count + 1,
+            _ => 1,
+        };
+        self.steps = Some((way, count, label));
+    }
+
+    fn forget(&mut self) {
+        self.steps = None;
+    }
+
+    fn told(&self) -> Option<String> {
+        let (way, count, label) = self.steps.as_ref()?;
+        Some(match (way, count) {
+            (Way::Undone, 1) => format!("Undid “{label}”."),
+            (Way::Redone, 1) => format!("Redid “{label}”."),
+            (Way::Undone, _) => format!("Undid {count} steps, back to before “{label}”."),
+            (Way::Redone, _) => format!("Redid {count} steps, up to “{label}”."),
+        })
+    }
+}
+
 pub fn perform(
     actions: Vec<Action>,
     model: &mut Model,
@@ -1901,6 +1939,7 @@ pub fn perform(
     let since = model.undo_mark();
     let notice_before = model.notice().cloned();
     let mut queue = VecDeque::from(actions);
+    let mut stepped = Stepped::default();
     if let Some(shipment) = files.take_cloud_shipment() {
         queue.push_back(Action::Cloud(CloudCommand::Send(shipment)));
     }
@@ -1930,8 +1969,32 @@ pub fn perform(
                     );
                 }
             }
-            other => model.perform(other),
+            Action::Undo => {
+                let label = model.undo_label().map(str::to_owned);
+                let before = model.revision();
+                model.perform(Action::Undo);
+                stepped.note(Way::Undone, label.filter(|_| model.revision() != before));
+            }
+            Action::UndoStep(back) => {
+                let label = model.undo_label().map(str::to_owned);
+                let before = model.revision();
+                model.perform(Action::UndoStep(back));
+                stepped.note(Way::Undone, label.filter(|_| model.revision() != before));
+            }
+            Action::Redo => {
+                let label = model.redo_label().map(str::to_owned);
+                let before = model.revision();
+                model.perform(Action::Redo);
+                stepped.note(Way::Redone, label.filter(|_| model.revision() != before));
+            }
+            other => {
+                stepped.forget();
+                model.perform(other);
+            }
         }
+    }
+    if let Some(told) = stepped.told() {
+        model.show_passing(Notice::info(told));
     }
     if let Some(path) = files.take_backdrop_chosen() {
         workspace.backdrop.reload();

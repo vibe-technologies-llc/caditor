@@ -593,6 +593,15 @@ paths:
   without its action (`Notice::without_action`), since the step or file may be gone by then.
 - Edit › Undo and Redo name the step they would take ("Undo Extrude 1 distance", from
   `Model::undo_label` and `redo_label`, as the ribbon's hover does) while available.
+- An undo or redo the user asked for says what it took: `app::perform` (not `Model::perform`,
+  whose undos inside Cancel feature, a switch back and a discard stay quiet) notes each
+  `Action::Undo`, `Redo` and `UndoStep` that moved the revision (`Stepped`) and, after the batch,
+  posts "Undid “Create Fillet 2”.", "Redid …", or one line for several ("Undid 3 steps, back to
+  before “…”.", a jump in Undo history). It is a passing notice (`Model::show_passing`): shown
+  only when no notice stands or the one standing is itself passing, so a failed save is never
+  replaced, and never recorded in Recent messages. Any other model action later in the batch
+  drops it. A drawing tool's Backspace takes its segment back through
+  `EditingCommand::TakeBackSegment` and says nothing.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary undoable
   journal step. The current step is a label beside Now, not a button; a last row, Before these

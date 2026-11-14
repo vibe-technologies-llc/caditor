@@ -294,6 +294,7 @@ pub enum EditingCommand {
     Finish,
     CancelSketch,
     SwitchBack(SwitchBack),
+    TakeBackSegment,
     SetTool(Tool),
     SetMode(ShapeMode),
     DrawConstruction(bool),
@@ -596,6 +597,7 @@ impl SketchEditing {
             EditingCommand::Finish => self.finish(model),
             EditingCommand::CancelSketch => self.cancel_sketch(model),
             EditingCommand::SwitchBack(back) => self.switch_back(back, model),
+            EditingCommand::TakeBackSegment => model.perform(Action::Undo),
             EditingCommand::SetTool(tool) => {
                 if let Some(active) = &mut self.active {
                     active.tool = tool;

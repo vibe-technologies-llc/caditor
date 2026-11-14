@@ -236,9 +236,10 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   too few points keeps them and is refused (`Refusal::SplinePoints`, `ClosedSplinePoints`). Backspace
   or Delete (`KEPT_WHILE_DRAWING`) takes back the last point; `Command::TakeBackPoint`, `FinishShape`
   (chains and splines only, `Drawing::finishable`) and `CancelShape` do the same without keys. Each
-  continuing segment records its anchor (`ChainStep`); taking back undoes the last segment when it is
-  the newest undo step, and when the anchor's point is gone the chain steps back to the newest anchor
-  still there rather than ending.
+  continuing segment records its anchor (`ChainStep`); taking back undoes the last segment
+  (`EditingCommand::TakeBackSegment`, an undo without the message a plain Undo posts,
+  `app-look.md`) when it is the newest undo step, and when the anchor's point is gone the chain
+  steps back to the newest anchor still there rather than ending.
 - A tool change drops the shape in progress but a line chain whose last segment is the newest undo
   step is kept at rest (`Drawing::resting`, `Resting`: the end, the steps and the `UndoMark`). Back
   in the Line or Tangent arc tool with nothing placed, Backspace (`Drawing::resume_chain`, from
