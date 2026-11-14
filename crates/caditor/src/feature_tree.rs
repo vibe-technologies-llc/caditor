@@ -1126,6 +1126,19 @@ fn open_feature(
     }
 }
 
+pub fn open_made_by(document: &Document, made_by: FeatureId, actions: &mut Vec<Action>) {
+    let Some(feature) = document.feature(made_by) else {
+        return;
+    };
+    let Some(command) = edit_command(feature, false) else {
+        return;
+    };
+    match editable(document, feature) {
+        Ok(()) => actions.push(Action::Editing(command)),
+        Err(reason) => actions.push(Action::Inform(Notice::warning(reason.to_string()))),
+    }
+}
+
 fn choose(state: &mut PanelState, id: FeatureId, modifiers: Modifiers) -> Option<FeatureId> {
     if modifiers.command {
         state.toggle_chosen(id);

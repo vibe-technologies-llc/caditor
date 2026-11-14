@@ -3,7 +3,11 @@ use egui::{Id, Key, Modifiers};
 use super::{
     Harness, add_peg, choose, extruded_plate, feature_named, hidden, rows_named, run_from_palette,
 };
-use crate::{model::Action, selection::Pickable};
+use crate::{
+    model::Action,
+    preferences::{DoubleClick, PreferenceChange, PreferencesCommand},
+    selection::Pickable,
+};
 
 #[test]
 fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
@@ -218,6 +222,48 @@ fn the_bodies_group_lists_every_body_and_hides_or_selects_one() {
     harness.perform(Action::Undo);
     harness.settle();
     assert!(!hidden(&harness, peg));
+}
+
+fn body_row(harness: &Harness, name: &str) -> egui::Rect {
+    rows_named(harness, name)
+        .into_iter()
+        .min_by(|one, other| one.top().total_cmp(&other.top()))
+        .expect("the body is listed")
+}
+
+#[test]
+fn a_double_click_on_a_body_row_opens_its_feature_or_renames_the_body_as_the_preference_says() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    harness.settle();
+    harness.click("Bodies (2)");
+    harness.settle();
+    let listed = body_row(&harness, "Peg");
+
+    harness.click_screen(listed.center());
+    harness.press(listed.center());
+    harness.settle();
+    let opened = harness.workspace.editing.solid();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::DoubleClick(DoubleClick::Rename),
+    )));
+    harness.frame();
+    let listed = body_row(&harness, "Peg");
+    harness.click_screen(listed.center());
+    harness.press(listed.center());
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(opened, Some(peg));
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_eq!(
+        harness.focused(),
+        Some(crate::body_appearance::name_field_id(peg))
+    );
+    assert!(harness.document().feature(plate).is_some());
 }
 
 #[test]

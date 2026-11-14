@@ -14,6 +14,7 @@ use crate::{
     model::{Action, Model, Notice},
     move_tools,
     panels::{Painting, PanelState},
+    preferences::DoubleClick,
     removal,
     selection::Selection,
     split_tools,
@@ -267,6 +268,18 @@ fn item(
     } else if row_name.gained_focus() {
         state.choose_only(body);
         state.body_group = None;
+    }
+    if row_name.double_clicked() {
+        match state.double_click {
+            DoubleClick::Rename => {
+                state.painting = Some(Painting {
+                    body,
+                    focus_pending: true,
+                    naming: true,
+                });
+            }
+            DoubleClick::Edit => feature_tree::open_made_by(model.document(), body, actions),
+        }
     }
     row_name.context_menu(|ui| {
         widgets::fitted_menu(ui, |ui| {

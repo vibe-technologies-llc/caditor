@@ -859,7 +859,10 @@ paths:
   lists the bodies standing at the end of the model, by their own name or else the name of the
   feature that made each; a body a Combine or Remove consumed is not listed. A click or tab chooses
   that feature (Ctrl+click toggles and Shift+click extends over the listed bodies, through
-  `feature_tree::choose_among`) and the eye hides or shows it like the feature's own.
+  `feature_tree::choose_among`) and the eye hides or shows it like the feature's own. A
+  double-click follows the tree's preference (`PanelState::double_click`): it opens the feature
+  that made the body (`feature_tree::open_made_by`, nothing for a separate piece, whose id is no
+  feature's), or with rename opens the card below with its Body name field focused.
   A separating feature lists each piece as a row of its own (`Document::body_name`: its own name,
   else "<feature> (<curve>)"), whose eye toggles only that piece (`visibility::toggle_body`, which
   also shows the feature when it was hidden) and whose card edits only its look; choosing a piece row

@@ -26,7 +26,8 @@ match, for example `zoom`, `grid` or `view cube`. Choosing a tab clears the sear
   card on empty models** brings back the [start card](start) after Don't show this again, and
   **Show Home when caditor starts** decides whether [Home](cloud) opens first.
 - **New models**: the [template](templates) a new model starts from.
-- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it, and
+- **Feature tree**: what double-clicking a feature does, edit it (as Enter does) or rename it
+  (a body's row in the Bodies list follows it: its feature opens, or the body is renamed), and
   **New bodies from separate pieces**: whether a new extrusion, revolve or sweep of shapes that do
   not touch makes **One body** of them all (as before) or **A body each**; each feature can still
   be switched in its panel's Separate pieces row.
