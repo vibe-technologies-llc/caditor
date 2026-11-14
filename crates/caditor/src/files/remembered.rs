@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use caditor_file::{
-    Construction, ExportFormat, MeshResolution, Settings, SketchFormat, StlEncoding,
+    Construction, ExportFormat, MeshResolution, Settings, SheetFormat, SketchFormat, StlEncoding,
 };
 use caditor_render::{Background, SurfaceSize};
 
@@ -17,6 +17,7 @@ const RESOLUTION_KEY: &str = "export.model.resolution";
 const STL_KEY: &str = "export.model.stl";
 const THREADS_KEY: &str = "export.model.threads";
 const DRAWING_FORMAT_KEY: &str = "export.drawing.format";
+const SHEET_FORMAT_KEY: &str = "export.sheet.format";
 const LAYOUT_KEY: &str = "export.drawing.layout";
 const SHEET_WIDTH_KEY: &str = "export.drawing.sheet_width";
 const SPACING_KEY: &str = "export.drawing.spacing";
@@ -39,6 +40,7 @@ pub struct RememberedExports {
     pub model: ExportChoices,
     pub drawing: DrawingChoices,
     pub construction: Construction,
+    pub sheet: SheetFormat,
     pub image: ImageChoices,
     pub folders: ExportFolders,
 }
@@ -118,6 +120,10 @@ impl RememberedExports {
                 Some(true) => Construction::OnLayer,
                 Some(false) | None => Construction::LeftOut,
             },
+            sheet: SheetFormat::ALL
+                .into_iter()
+                .find(|format| text(SHEET_FORMAT_KEY) == Some(format.extension()))
+                .unwrap_or_default(),
             image: ImageChoices {
                 size: match text(IMAGE_SIZE_KEY) {
                     Some("custom") => SizeChoice::Custom,
@@ -180,6 +186,11 @@ impl RememberedExports {
             LAYOUT_KEY,
             layout_key(drawing.layout),
             layout_key(defaults.drawing.layout),
+        );
+        text(
+            SHEET_FORMAT_KEY,
+            self.sheet.extension(),
+            defaults.sheet.extension(),
         );
         let image = self.image;
         text(
@@ -325,6 +336,7 @@ mod tests {
                 annotations: true,
             },
             construction: Construction::OnLayer,
+            sheet: SheetFormat::Dxf,
             image: ImageChoices {
                 size: SizeChoice::Custom,
                 custom: SurfaceSize {
@@ -346,6 +358,7 @@ mod tests {
         assert_eq!(RememberedExports::from_settings(&settings), remembered);
         assert_eq!(settings.text(MODEL_FORMAT_KEY), Some("3mf"));
         assert_eq!(settings.text(DRAWING_FORMAT_KEY), Some("svg"));
+        assert_eq!(settings.text(SHEET_FORMAT_KEY), Some("dxf"));
         assert_eq!(settings.text(IMAGE_FOLDER_KEY), None);
 
         RememberedExports::default().write(&mut settings);
@@ -353,6 +366,7 @@ mod tests {
 
         let mut odd = Settings::default();
         odd.set_text(MODEL_FORMAT_KEY, "from a newer caditor");
+        odd.set_text(SHEET_FORMAT_KEY, "png");
         odd.set_number(SHEET_WIDTH_KEY, -3.0);
         odd.set_number(IMAGE_WIDTH_KEY, 1.5);
         odd.set_text(IMAGE_SCALE_KEY, "16");

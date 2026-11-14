@@ -266,6 +266,7 @@ struct ScriptedDialogs {
     no_portal: Arc<Mutex<bool>>,
     held: Arc<Mutex<Option<Vec<Respond>>>>,
     asked_in: Arc<Mutex<Vec<Option<PathBuf>>>>,
+    proposed: Arc<Mutex<Vec<String>>>,
 }
 
 impl ScriptedDialogs {
@@ -294,7 +295,8 @@ impl Dialogs for ScriptedDialogs {
         self.respond(directory, respond);
     }
 
-    fn pick_save_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+    fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+        self.proposed.lock().push(file_name);
         self.respond(directory, respond);
     }
 
@@ -334,7 +336,8 @@ impl Dialogs for ScriptedDialogs {
         self.respond(directory, respond);
     }
 
-    fn pick_sheet_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+    fn pick_sheet_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+        self.proposed.lock().push(file_name);
         self.respond(directory, respond);
     }
 
@@ -847,6 +850,10 @@ impl Harness {
         for _ in 0..WINDOW_SETTLE_FRAMES {
             self.frame();
         }
+    }
+
+    fn last_proposed_name(&self) -> Option<String> {
+        self.dialogs.proposed.lock().last().cloned()
     }
 
     fn answer_dialog(&self, path: Option<PathBuf>) {

@@ -333,11 +333,13 @@ paths:
 
 - Export choices outlast a restart through the preferences file (`files/remembered.rs`,
   `RememberedExports`: the model export's format, resolution, STL encoding and threads, never Every
-  configuration; the drawing's `DrawingChoices` and construction choice; the image's
-  `ImageChoices`; and the folder each kind last exported to), under `export.*` keys written only
+  configuration; the drawing's `DrawingChoices` and construction choice; the drawing sheet's
+  `SheetFormat` (`export.sheet.format`, `Files::sheet_format`, which names the proposed file and
+  the extension a bare name gets); the image's `ImageChoices`; and the folder each kind last
+  exported to), under `export.*` keys written only
   where they differ from the defaults and read leniently (an unknown value, a size or sheet out of
   range is the default).
-- Each pick of a model, drawing or image export path (`Files::picked` through `note_export`)
+- Each pick of a model, drawing, drawing sheet or image export path (`Files::picked` through `note_export`)
   snapshots the choices into `Files::take_exports_to_remember`; `app::perform` hands it to the
   workspace as `PreferencesCommand::RememberExports`, which stores it when it changed and
   `Preferences::export_memory` (`export.remember`: `always` by default, or `session`) allows.

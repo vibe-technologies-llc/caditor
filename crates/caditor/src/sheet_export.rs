@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub const KIND: &str = "PDF, SVG or DXF drawing sheet";
+const UNNAMED: &str = "Drawing";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SheetJob {
@@ -23,7 +24,7 @@ pub struct SheetJob {
 }
 
 impl SheetJob {
-    pub fn file_name(&self) -> String {
+    pub fn file_name(&self, format: SheetFormat) -> String {
         let stem: String = self
             .name
             .chars()
@@ -32,7 +33,7 @@ impl SheetJob {
                 other => other,
             })
             .collect();
-        format!("{}.{}", stem.trim(), SheetFormat::default().extension())
+        format!("{}.{}", stem.trim(), format.extension())
     }
 
     pub fn write(&self, path: &Path, cancel: &CancelToken) -> Result<SheetExported, ExportError> {
@@ -51,13 +52,17 @@ impl SheetJob {
     }
 }
 
-pub fn with_format_extension(path: PathBuf) -> PathBuf {
+pub fn unnamed_file_name(format: SheetFormat) -> String {
+    format!("{UNNAMED}.{}", format.extension())
+}
+
+pub fn with_format_extension(path: PathBuf, format: SheetFormat) -> PathBuf {
     if SheetFormat::of(&path).is_some() {
         return path;
     }
     let mut named = OsString::from(path.as_os_str());
     named.push(".");
-    named.push(SheetFormat::default().extension());
+    named.push(format.extension());
     PathBuf::from(named)
 }
 

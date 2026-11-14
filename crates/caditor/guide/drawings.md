@@ -95,5 +95,8 @@ size in millimetres as:
   layer `Hidden`, section hatching on `Hatching`, cutting lines on a dash-dot layer `Cutting` and
   the frame and title block on `Frame`.
 
+The file dialog proposes the format the last sheet was written in, PDF at first; type another of
+the three extensions to change it.
+
 Lines, circles, arcs and ellipses stay exact; other curves are written as short straight pieces,
 and the notice says how many.

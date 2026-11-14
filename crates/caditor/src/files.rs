@@ -663,6 +663,7 @@ enum Output {
     },
     Sheet {
         path: PathBuf,
+        format: SheetFormat,
     },
     Template {
         path: PathBuf,
@@ -681,7 +682,7 @@ impl Output {
             Self::Export { path, .. }
             | Self::Image { path }
             | Self::Drawing { path }
-            | Self::Sheet { path }
+            | Self::Sheet { path, .. }
             | Self::Template { path }
             | Self::Parameters { path }
             | Self::Configurations { path } => path,
@@ -705,8 +706,9 @@ impl Output {
             Self::Drawing { path } => Self::Drawing {
                 path: drawing_export::with_format_extension(path),
             },
-            Self::Sheet { path } => Self::Sheet {
-                path: sheet_export::with_format_extension(path),
+            Self::Sheet { path, format } => Self::Sheet {
+                path: sheet_export::with_format_extension(path, format),
+                format,
             },
             Self::Template { path } => Self::Template {
                 path: with_extension(path),
@@ -1175,6 +1177,7 @@ pub struct Files {
     drawing: DrawingExporter,
     sheet: Option<Box<SheetJob>>,
     drawing_construction: Construction,
+    sheet_format: SheetFormat,
     history: VersionHistory,
     picking: Option<(u64, Purpose, Since)>,
     pick_ticket: u64,
@@ -1243,6 +1246,7 @@ impl Files {
             drawing: DrawingExporter::default(),
             sheet: None,
             drawing_construction: Construction::LeftOut,
+            sheet_format: SheetFormat::default(),
             history: VersionHistory::default(),
             picking: None,
             pick_ticket: 0,
@@ -2698,7 +2702,7 @@ impl Files {
             } => self.export(path, format, configurations, model),
             Output::Image { path } => self.image.picked(path),
             Output::Drawing { path } => self.export_drawing(path, model),
-            Output::Sheet { path } => self.export_sheet(path),
+            Output::Sheet { path, .. } => self.export_sheet(path),
             Output::Template { path } => self.save_template(path, model),
             Output::Parameters { path } => self.export_parameters(path, model),
             Output::Configurations { path } => self.export_configurations(path, model),
@@ -3180,7 +3184,8 @@ impl Files {
                 self.check_output(Output::Drawing { path }, since.session);
             }
             (Purpose::Sheet, Some(path)) => {
-                self.check_output(Output::Sheet { path }, since.session);
+                let format = self.sheet_format;
+                self.check_output(Output::Sheet { path, format }, since.session);
             }
             (Purpose::Sheet, None) => self.sheet = None,
             (Purpose::ExportParameters, Some(path)) => {
@@ -3314,10 +3319,11 @@ impl Files {
                     .pick_drawing_path(title, directory, file_name, respond);
             }
             Purpose::Sheet => {
-                let file_name = self
-                    .sheet
-                    .as_ref()
-                    .map_or_else(|| "Drawing.pdf".to_owned(), |job| job.file_name());
+                let format = self.sheet_format;
+                let file_name = self.sheet.as_ref().map_or_else(
+                    || sheet_export::unnamed_file_name(format),
+                    |job| job.file_name(format),
+                );
                 self.dialogs.pick_sheet_path(directory, file_name, respond);
             }
             Purpose::Import => self.dialogs.pick_import(directory, respond),
@@ -3597,6 +3603,7 @@ impl Files {
         self.exporter.restore(remembered.model);
         self.drawing.restore(remembered.drawing);
         self.drawing_construction = remembered.construction;
+        self.sheet_format = remembered.sheet;
         self.image
             .restore(remembered.image, remembered.folders.image.clone());
         for (folder, path) in [
@@ -3617,6 +3624,7 @@ impl Files {
             },
             drawing: self.drawing.choices(),
             construction: self.drawing_construction,
+            sheet: self.sheet_format,
             image: self.image.choices(),
             folders: ExportFolders {
                 model: self.folders.get(&Folder::Export).cloned(),
@@ -3636,10 +3644,17 @@ impl Files {
 
     fn note_export(&mut self, purpose: Purpose, path: &Path) {
         let mut exports = match purpose {
-            Purpose::Export(_) | Purpose::Drawing | Purpose::Image => self.exports_now(),
+            Purpose::Export(_) | Purpose::Drawing | Purpose::Image | Purpose::Sheet => {
+                self.exports_now()
+            }
             _ => return,
         };
         match purpose {
+            Purpose::Sheet => {
+                let format = SheetFormat::of(path).unwrap_or(self.sheet_format);
+                self.sheet_format = format;
+                exports.sheet = format;
+            }
             Purpose::Drawing => {
                 let format = SketchFormat::of(path).unwrap_or_default();
                 self.drawing.chose_format(format);

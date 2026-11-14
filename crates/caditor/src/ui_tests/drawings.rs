@@ -81,6 +81,35 @@ fn a_drawing_is_made_from_the_palette_changed_undoably_and_exported_as_a_pdf_she
 }
 
 #[test]
+fn the_sheet_export_proposes_the_format_the_last_sheet_was_written_in() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    run_from_palette(&mut harness, "New drawing");
+    harness.frame();
+    wait_for_views(&mut harness);
+
+    harness.answer_dialog(Some(dir.path().join("first.svg")));
+    harness.click(EXPORT);
+    harness.wait_until("the SVG sheet is written", |harness| {
+        dir.path().join("first.svg").exists() && !harness.files.is_blocking()
+    });
+    let first_proposed = harness.last_proposed_name();
+    harness.answer_dialog(Some(dir.path().join("second")));
+    harness.click(EXPORT);
+    harness.wait_until("the second sheet is written", |harness| {
+        dir.path().join("second.svg").exists() && !harness.files.is_blocking()
+    });
+
+    assert_eq!(first_proposed.as_deref(), Some("Drawing 1.pdf"));
+    assert_eq!(
+        harness.last_proposed_name().as_deref(),
+        Some("Drawing 1.svg")
+    );
+    assert!(!dir.path().join("second.pdf").exists());
+}
+
+#[test]
 fn a_section_view_is_added_in_the_panel_moved_undoably_and_exported_with_the_sheet() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

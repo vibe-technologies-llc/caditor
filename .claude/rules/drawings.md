@@ -230,4 +230,5 @@ lines, never a picture of the 3D view.
   and Fit buttons zoom, arrow keys pan the focused sheet.
 - Export goes through `FileCommand::ExportSheet` with a `SheetJob` (plan plus each view's
   outcome), `Purpose::Sheet`, the drawing folder and the ordinary output confirmation, written on
-  the file worker.
+  the file worker. The picker proposes the drawing's name in the format the last sheet was written
+  in (`app-files.md`, Export memory), and the format written is the picked name's extension.
