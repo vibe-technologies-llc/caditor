@@ -95,6 +95,31 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
 }
 
 #[test]
+fn a_file_name_typed_with_another_format_s_extension_is_written_in_that_format() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    harness.answer_dialog(Some(dir.path().join("plate.stl")));
+
+    harness.click("Export…");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+    let written = std::fs::read(dir.path().join("plate.stl")).unwrap();
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.frame();
+
+    assert!(!written.starts_with(b"ISO-10303-21"));
+    assert!(!dir.path().join("plate.stl.step").exists());
+    assert!(harness.shows("Resolution"));
+}
+
+#[test]
 fn a_text_stl_is_chosen_in_the_export_dialog_and_keeps_each_body_named() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

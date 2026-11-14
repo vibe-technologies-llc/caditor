@@ -824,6 +824,16 @@ fn export_results(
     caditor_file::export_bodies(path, format, options, &bodies, properties, cancel)
 }
 
+pub fn format_typed(path: &Path, chosen: ExportFormat) -> ExportFormat {
+    if chosen.matches(path) {
+        return chosen;
+    }
+    ExportFormat::ALL
+        .into_iter()
+        .find(|format| format.matches(path))
+        .unwrap_or(chosen)
+}
+
 pub fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
     if format.matches(&path) {
         return path;
@@ -1232,6 +1242,28 @@ pub fn body_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_typed_extension_of_another_export_format_chooses_that_format() {
+        let stl = Path::new("/tmp/part.stl");
+        let stp = Path::new("/tmp/part.STP");
+        let model = Path::new("/tmp/part.caditor");
+        let bare = Path::new("/tmp/part");
+
+        assert_eq!(format_typed(stl, ExportFormat::Step), ExportFormat::Stl);
+        assert_eq!(format_typed(stp, ExportFormat::Stl), ExportFormat::Step);
+        assert_eq!(format_typed(stp, ExportFormat::Step), ExportFormat::Step);
+        assert_eq!(format_typed(model, ExportFormat::Obj), ExportFormat::Obj);
+        assert_eq!(format_typed(bare, ExportFormat::Gltf), ExportFormat::Gltf);
+        assert_eq!(
+            with_format_extension(stl.to_path_buf(), format_typed(stl, ExportFormat::Step)),
+            stl
+        );
+        assert_eq!(
+            with_format_extension(model.to_path_buf(), format_typed(model, ExportFormat::Obj)),
+            Path::new("/tmp/part.caditor.obj")
+        );
+    }
 
     #[test]
     fn a_body_exports_a_look_only_when_it_has_a_colour_a_material_or_an_opacity() {

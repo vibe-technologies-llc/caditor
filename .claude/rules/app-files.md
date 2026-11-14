@@ -204,6 +204,10 @@ paths:
   cutting). As shown exports the evaluation shown; every configuration recomputes the document as
   stored or as shown (`Exporter::exported_document`). The headless `--export` never shows threads
   as cosmetic, so it exports them modelled.
+- A picked name ending in another export format's extension is written in that format
+  (`export::format_typed` in `Files::check_export`: `part.stl` with STEP chosen is an STL), and the
+  dialog's format follows it, so the next export starts there; the drawing and sheet exports read
+  theirs from the name the same way.
 - A path lacking the format's extension gets it appended, so an export never replaces a model file;
   an existing appended name asks "Replace …?" as Save As does, and Cancel returns to the dialog.
 - Every model export records a `LastExport` in `Files` (path, `ExportChoices`, model session) and, on

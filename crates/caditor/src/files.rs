@@ -2625,7 +2625,8 @@ impl Files {
         self.check_replacing(named, renamed.into_iter().collect(), session);
     }
 
-    fn check_export(&mut self, path: PathBuf, format: ExportFormat, session: u64, model: &Model) {
+    fn check_export(&mut self, path: PathBuf, chosen: ExportFormat, session: u64, model: &Model) {
+        let format = export::format_typed(&path, chosen);
         let named = export::with_format_extension(path.clone(), format);
         let configurations = self.exporter.configuration_files(&named, format, model);
         if configurations.is_empty() {
@@ -2911,6 +2912,8 @@ impl Files {
         let finished = self.export_finished();
         self.exporter
             .start(path, format, configurations, model, finished);
+        self.exporter
+            .perform(ExportCommand::SetFormat(format), model);
         self.exporter.perform(ExportCommand::Hide, model);
     }
 

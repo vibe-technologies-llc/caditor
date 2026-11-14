@@ -11,6 +11,10 @@
   that do not know it ignore.
 - **OBJ** and **glTF** (`.glb`), for other 3D programs.
 
+The file takes the chosen format's extension when the name has none. A name you type with another
+of these extensions, such as `part.stl` while STEP is chosen, is written in that format instead,
+and the dialog keeps it for the next export.
+
 {command:file.export_again} writes the same bodies again to the file the last export wrote, in the
 same format and with the same choices, without asking for a file: handy after each change while
 printing. It asks before replacing only when the file was changed by something else since, or for
