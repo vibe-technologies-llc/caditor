@@ -25,6 +25,16 @@ fn recent_messages_keep_a_failed_save_after_a_later_notice_replaced_it() {
     assert!(harness.shows("Saving “plate” failed: the disk is full."));
     assert_eq!(harness.count_shown("Exported 1 body."), 2);
     assert!(!harness.shows(crate::messages::EMPTY));
+    harness.click(crate::messages::COPY_ALL);
+    harness.frame();
+    let copied = harness.clipboard.clone().unwrap_or_default();
+    let lines: Vec<&str> = copied.lines().collect();
+    assert_eq!(lines.len(), harness.model.recorded_notices().count());
+    assert_eq!(lines[0], "Information: Exported 1 body. (just now)");
+    assert_eq!(
+        lines[1],
+        "Error: Saving “plate” failed: the disk is full. (just now)"
+    );
     harness.click_button(crate::widgets::CLOSE_DIALOG);
     assert!(!harness.workspace.messages_open);
 

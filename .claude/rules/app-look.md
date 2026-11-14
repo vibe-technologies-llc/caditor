@@ -572,7 +572,8 @@ paths:
   `Notice::failure` from saving, opening, importing, exporting or the journal. The bar shows only
   the newest, with a Recent messages button (`status_bar::SHOW_MESSAGES`) beside Dismiss;
   `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`) lists them,
-  each icon described by `NoticeKind::label`.
+  each icon described by `NoticeKind::label`; its Copy all puts every one on the clipboard as a
+  line of kind, text and age (`messages::copied`), newest first.
 - Edit › Undo and Redo name the step they would take ("Undo Extrude 1 distance", from
   `Model::undo_label` and `redo_label`, as the ribbon's hover does) while available.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,

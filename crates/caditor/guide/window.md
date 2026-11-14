@@ -88,4 +88,5 @@ perimeter and area, and a body its size along each axis.
 
 A message's icon says what kind it is: information, done, a warning that something was not done
 or only partly, or an error. The button beside its close button opens
-{command:help.messages}, which lists earlier messages, so a failed save is never missed.
+{command:help.messages}, which lists earlier messages, so a failed save is never missed. **Copy
+all** there copies them, each with its kind and age, to paste into a report.

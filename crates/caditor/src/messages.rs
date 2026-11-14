@@ -1,13 +1,32 @@
 use crate::{
     appearance::{self, SPACE_M, SPACE_S},
     history::ago,
+    icons,
     model::Model,
     widgets::{self, DialogWidth},
 };
 
 pub const TITLE: &str = "Recent messages";
 pub const EMPTY: &str = "Nothing has been reported yet.";
+pub const COPY_ALL: &str = "Copy all";
+const COPY_ALL_HOVER: &str =
+    "Copy every message with its kind and age, newest first, to paste into a report";
 const LIST_HEIGHT: widgets::ListHeight = widgets::ListHeight::Tall;
+
+pub fn copied(model: &Model) -> String {
+    model
+        .recorded_notices()
+        .map(|recorded| {
+            format!(
+                "{}: {} ({})",
+                recorded.notice.kind.label(),
+                recorded.notice.text,
+                ago(recorded.at)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
     let response = widgets::dialog(ctx, "messages", TITLE, DialogWidth::Medium, |ui| {
@@ -39,6 +58,16 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
         if !any {
             ui.label(widgets::muted(EMPTY, ui));
         }
+        widgets::footer(ui, |ui| {
+            let button = widgets::small_button(ui, icons::COPY, COPY_ALL);
+            let copy = ui
+                .add_enabled(any, button)
+                .on_hover_text(COPY_ALL_HOVER)
+                .on_disabled_hover_text(EMPTY);
+            if copy.clicked() {
+                ui.ctx().copy_text(copied(model));
+            }
+        });
     });
     response.should_close()
 }
