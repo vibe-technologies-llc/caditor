@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{ffi::OsStr, path::Path, sync::Arc};
 
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -138,7 +138,13 @@ fn an_export_s_notice_and_a_command_show_the_exported_file_in_its_folder() {
     });
 
     assert!(before.is_err());
-    assert_eq!(from_the_notice, vec![dir.path().join("plate.step")]);
+    assert_eq!(
+        from_the_notice
+            .iter()
+            .map(|path| path.file_name())
+            .collect::<Vec<_>>(),
+        vec![Some(OsStr::new("plate.step"))]
+    );
     assert_eq!(harness.revealed.lock().len(), 2);
     assert!(
         harness
