@@ -2448,34 +2448,11 @@ fn a_cone_turned_about_the_base_centre_it_shares_with_a_cylinder_combines() {
     check_every_operation("cylinder and cone", &post, &cone, (45.0 * PI, 12.0 * PI));
 }
 
-#[test]
-fn a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine() {
+fn a_torus_and_its_turned_copies_combine(turns: &[(Vector3, f64)]) {
     let ring = crate::fixtures::torus(6.0, 2.0);
     let torus_volume = 2.0 * PI * PI * 6.0 * 4.0;
 
-    for (axis, angle) in [
-        (Vector3::new(-0.77, 0.4, 0.23), 1e-3),
-        (Vector3::new(0.3, -0.7, 0.4), 1e-3),
-        (Vector3::new(0.6, -0.39, -0.79), 1e-3),
-        (Vector3::new(-0.73, 0.777, -0.018), 3e-4),
-        (Vector3::new(-0.77, 0.4, 0.23), 3e-4),
-        (Vector3::new(-0.77, 0.4, 0.23), 1e-4),
-        (Vector3::new(0.6, -0.39, -0.79), 1e-4),
-        (Vector3::new(0.9, 0.1, 0.42), 1e-4),
-        (Vector3::X, 1e-4),
-        (Vector3::Y, 1e-4),
-        (Vector3::new(-0.22, -0.966, 0.8), 1e-4),
-        (Vector3::new(-0.174, -0.793, 0.92), 1e-4),
-        (Vector3::new(0.166, -0.095, -0.501), 1e-4),
-        (Vector3::new(-0.064, -0.344, -0.731), 1e-4),
-        (Vector3::new(0.805, 0.921, -0.847), 1e-4),
-        (Vector3::new(0.942, -0.892, -0.234), 1e-5),
-        (Vector3::new(-0.849, 0.87, -0.579), 1e-5),
-        (Vector3::new(-0.361, 0.063, 0.656), 1e-5),
-        (Vector3::new(0.147, -0.556, -0.003), 1e-5),
-        (Vector3::new(-0.4348, 0.1149, 0.2135), 1e-5),
-        (Vector3::new(-0.648, 0.2877, 0.8397), 1e-5),
-    ] {
+    for &(axis, angle) in turns {
         let placed = rotated(ring.clone(), axis, angle);
 
         let [union, difference, common] = [
@@ -2499,6 +2476,51 @@ fn a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine(
             "{axis:?}: union {union}, intersection {common}, difference {difference}"
         );
     }
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_thousandth_or_three_ten_thousandths_of_a_radian_combine() {
+    a_torus_and_its_turned_copies_combine(&[
+        (Vector3::new(-0.77, 0.4, 0.23), 1e-3),
+        (Vector3::new(0.3, -0.7, 0.4), 1e-3),
+        (Vector3::new(0.6, -0.39, -0.79), 1e-3),
+        (Vector3::new(-0.73, 0.777, -0.018), 3e-4),
+        (Vector3::new(-0.77, 0.4, 0.23), 3e-4),
+    ]);
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_about_x_y_and_three_axes_combine() {
+    a_torus_and_its_turned_copies_combine(&[
+        (Vector3::new(-0.77, 0.4, 0.23), 1e-4),
+        (Vector3::new(0.6, -0.39, -0.79), 1e-4),
+        (Vector3::new(0.9, 0.1, 0.42), 1e-4),
+        (Vector3::X, 1e-4),
+        (Vector3::Y, 1e-4),
+    ]);
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_ten_thousandth_of_a_radian_about_five_more_axes_combine() {
+    a_torus_and_its_turned_copies_combine(&[
+        (Vector3::new(-0.22, -0.966, 0.8), 1e-4),
+        (Vector3::new(-0.174, -0.793, 0.92), 1e-4),
+        (Vector3::new(0.166, -0.095, -0.501), 1e-4),
+        (Vector3::new(-0.064, -0.344, -0.731), 1e-4),
+        (Vector3::new(0.805, 0.921, -0.847), 1e-4),
+    ]);
+}
+
+#[test]
+fn a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_combine() {
+    a_torus_and_its_turned_copies_combine(&[
+        (Vector3::new(0.942, -0.892, -0.234), 1e-5),
+        (Vector3::new(-0.849, 0.87, -0.579), 1e-5),
+        (Vector3::new(-0.361, 0.063, 0.656), 1e-5),
+        (Vector3::new(0.147, -0.556, -0.003), 1e-5),
+        (Vector3::new(-0.4348, 0.1149, 0.2135), 1e-5),
+        (Vector3::new(-0.648, 0.2877, 0.8397), 1e-5),
+    ]);
 }
 
 #[test]

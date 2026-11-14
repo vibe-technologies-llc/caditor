@@ -18,7 +18,7 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   1422 are unsurveyed.
   Tori that nearly coincide are surveyed only down to turns of 1e-5 radians: a torus and its
   copy turned 1e-4 about nine chosen axes, X and Y, and 1e-5 about six more,
-  combine (`a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`), as
+  combine (the four `a_torus_and_its_copy_turned_…_combine` tests), as
   they do about all ten axes `Random::new(7)` draws (components in -1 to 1) at 1e-4 and the next
   ten at 1e-5. At 1e-6, seven of the ten axes `Random::new(11)` draws fail (`Split`, `Open`), and
   the other three combine into wrong volumes: their union plus intersection falls 4.6e-5 to 6.8e-5
@@ -41,8 +41,8 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   geometry crate now take their maths from `libm`, so Linux and Windows agree bit for bit, but a
   plug 2e-6 off its bore's axis at 45 degrees and 3e-6 wider still fails as `Open` at the plate's
   start face in the intersection (it combined with the C library's results moved one ulp up or at
-  random), and `a_torus_and_its_copy_turned_a_hundred_thousandth_of_a_radian_or_more_combine`
-  fails `Open` with every result moved one ulp up or down, so such tori still turn on the last
+  random), and the turned tori tests (`a_torus_and_its_turned_copies_combine`)
+  fail `Open` with every result moved one ulp up or down, so such tori still turn on the last
   bit. The combine tests of a failing place cut a plug 1.5e-6 off at 112.5 degrees and 1e-6 wider
   from the plate, its wall 5e-7 inside the bore's over a wide arc on the near side (`Split` at the
   plate's start face), whose outcome survived every result moved one ulp up, down or at random; the
