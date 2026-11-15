@@ -539,7 +539,20 @@ impl Exporter {
         })
     }
 
-    pub fn thumbnail_rendered(&mut self, pixels: Option<ReadPixels>) {
+    pub fn thumbnail_rendered(&mut self, rows: Result<ReadPixels, ImageError>) {
+        if matches!(rows, Err(ImageError::Busy)) {
+            if let Some(waiting) = self.waiting.as_mut() {
+                waiting.rendering = false;
+            }
+            return;
+        }
+        let pixels = match rows {
+            Ok(rows) => Some(rows),
+            Err(error) => {
+                log::warn!("the 3MF thumbnail could not be drawn: {error}");
+                None
+            }
+        };
         if let Some(waiting) = self.waiting.take() {
             self.spawn(waiting.job, pixels);
         }

@@ -1331,7 +1331,9 @@ impl Files {
         self.find_slicer();
         self.open_last = open.is_none() && self.startup == Startup::LastModel;
         match open {
-            Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
+            Some(path) if !is_model_file(&path) && has_importable_extension(&path) => {
+                self.dropped(vec![path], None, model)
+            }
             Some(path) => self.perform(FileCommand::OpenPath(path), model),
             None => {}
         }
@@ -2039,8 +2041,8 @@ impl Files {
         self.exporter.thumbnail_job()
     }
 
-    pub fn thumbnail_rendered(&mut self, pixels: Option<ReadPixels>) {
-        self.exporter.thumbnail_rendered(pixels);
+    pub fn thumbnail_rendered(&mut self, rows: Result<ReadPixels, ImageError>) {
+        self.exporter.thumbnail_rendered(rows);
     }
 
     #[cfg(test)]
@@ -4129,7 +4131,7 @@ fn check_save_target(picked: &Path, current: Option<&Path>, journals: &Journals<
     }
 }
 
-fn canonical_location(path: &Path) -> PathBuf {
+pub(crate) fn canonical_location(path: &Path) -> PathBuf {
     let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
         return path.to_path_buf();
     };
@@ -4502,10 +4504,6 @@ fn import_text(path: &Path, stage: ReadingStage) -> String {
             format!("Importing “{file}”: {stored} of {parts} parts stored…")
         }
     }
-}
-
-pub fn is_importable_file(path: &Path) -> bool {
-    !is_model_file(path) && (is_drawing_file(path) || import::is_model(path))
 }
 
 pub fn has_importable_extension(path: &Path) -> bool {

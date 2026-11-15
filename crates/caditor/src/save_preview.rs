@@ -55,6 +55,22 @@ impl SavePreviews {
         (waiting.revision == revision && waiting.drawing.is_wanted()).then_some(waiting.drawing)
     }
 
+    pub fn drawn(
+        &mut self,
+        revision: u64,
+        drawing: PreviewDrawing,
+        rows: Result<ReadPixels, ImageError>,
+    ) {
+        match rows {
+            Ok(rows) => finish(drawing, rows),
+            Err(ImageError::Busy) => self.waiting = Some(Waiting { revision, drawing }),
+            Err(error) => {
+                log::info!("the model is saved without a picture: {error}");
+                drawing.decline();
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn is_waiting(&self) -> bool {
         self.waiting.is_some()
@@ -161,6 +177,33 @@ mod tests {
         let preview = slot.wait_at_most(PATIENCE).unwrap();
         assert!(preview.png().starts_with(&[0x89, b'P', b'N', b'G']));
         assert!(previews.take(4).is_none());
+    }
+
+    #[test]
+    fn a_picture_the_renderer_was_too_busy_to_draw_is_asked_for_again() {
+        let mut previews = enabled();
+        let slot = previews.request(3, true).unwrap();
+
+        let drawing = previews.take(3).unwrap();
+        previews.drawn(3, drawing, Err(ImageError::Busy));
+        let again = previews.take(3).unwrap();
+        previews.drawn(3, again, Ok(flat()));
+
+        let preview = slot.wait_at_most(PATIENCE).unwrap();
+        assert!(preview.png().starts_with(&[0x89, b'P', b'N', b'G']));
+        assert!(!previews.is_waiting());
+    }
+
+    #[test]
+    fn a_picture_that_failed_to_draw_declines_and_is_not_asked_for_again() {
+        let mut previews = enabled();
+        let slot = previews.request(3, true).unwrap();
+
+        let drawing = previews.take(3).unwrap();
+        previews.drawn(3, drawing, Err(ImageError::DeviceLost));
+
+        assert_eq!(slot.wait_at_most(PATIENCE), None);
+        assert!(!previews.is_waiting());
     }
 
     #[test]

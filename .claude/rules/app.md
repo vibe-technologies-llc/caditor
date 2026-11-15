@@ -190,7 +190,8 @@ paths:
   (`caditor_file::SessionLog`, `MAX_LOG_SIZE`, `LOGS_KEPT` newest kept), with an end line on a
   normal exit, reported failure or termination signal. At start a log whose process is gone and
   which has no end line is named in a notice, then marked reported.
-- A failure `run` returns is logged and, when stderr is not a terminal, shown through `zenity`,
+- A refused command line (`Invocation::Refused`) is logged and shown the same way (`refusal_text`,
+  "caditor was not started: …") and exits with a failure status; a failure `run` returns is logged and, when stderr is not a terminal, shown through `zenity`,
   `kdialog` or `notify-send` (a message box on Windows); `failure_text` names the cause, the log,
   and for a `RenderError` the `WGPU_BACKEND` workaround (`gl` on Linux, `vulkan` or `gl` on
   Windows).
@@ -640,8 +641,9 @@ paths:
 
 ## About, command line, accessibility, packaging
 
-- `cli.rs`: `caditor [FILE]`; a `.dxf` or STEP file (by extension or header) goes to import as if
-  dropped, anything else to Open. `caditor --export OUT [--resolution ...] [--size WxH]
+- `cli.rs`: `caditor [FILE]`; a file with a drawing, STEP or mesh extension goes to import as if
+  dropped (decided by extension, never read on the UI thread before the window exists), anything
+  else to Open. `caditor --export OUT [--resolution ...] [--size WxH]
   [--configuration NAME | --all-configurations] MODEL` (`headless.rs`) opens no window: it loads a
   caditor model or imports a STEP file, recomputes without display work, exports every body that
   built to the format `OUT`'s extension names and prints a summary. A `.png` instead recomputes with
@@ -650,7 +652,9 @@ paths:
   `--size` is refused for any other format. Load issues and left-out bodies are warnings, a failed
   feature a warning that also makes the exit status 2 (`PARTIAL_EXIT_STATUS`); a model with no body,
   a DXF or SVG drawing, an unreadable file or an unknown extension is an error that writes nothing.
-  The writing half is `headless::deliver`, which the MCP server's export shares.
+  The writing half is `headless::deliver`, which the MCP server's export shares. An output naming
+  the model's own file (canonical paths, `ExportRefused::WouldReplaceModel`) is refused before
+  anything is written.
 - `caditor mcp MODEL [--folder DIR]...` (`cli::Serving`, a first argument `mcp`; a file of that
   name is opened as `./mcp` or after `--`) serves the model to an AI assistant without a window
   (`mcp.md`). Its pictures come from `snapshot::looking_from`, the headless PNG's path with a

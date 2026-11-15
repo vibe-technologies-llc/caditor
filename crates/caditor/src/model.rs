@@ -19,6 +19,7 @@ use caditor_file::{
 };
 use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
+use caditor_render::ImageError;
 use caditor_sketch::{Constraint, ConstraintId, Entity, Sketch, SketchSolution};
 
 use crate::{
@@ -31,6 +32,7 @@ use crate::{
     drag_solver::{self, Blocking, DragCommand, Finished, Join, Polled},
     editing::{EditingCommand, SwitchBack},
     files::FileCommand,
+    image_export::ReadPixels,
     image_textures::ImageTextures,
     last_values::LastValues,
     outlining::{self, OutlineFinished, OutlineRequest, Outlines},
@@ -1849,6 +1851,11 @@ impl Model {
     pub fn take_preview_job(&mut self) -> Option<PreviewDrawing> {
         let revision = self.revision();
         self.save_previews.take(revision)
+    }
+
+    pub fn preview_drawn(&mut self, drawing: PreviewDrawing, rows: Result<ReadPixels, ImageError>) {
+        let revision = self.revision();
+        self.save_previews.drawn(revision, drawing, rows);
     }
 
     pub fn keep_version(&mut self, path: PathBuf, index: usize, kept: bool) -> bool {

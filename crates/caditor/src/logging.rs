@@ -118,6 +118,10 @@ pub fn failure_text(error: &anyhow::Error, log: Option<&Path>) -> String {
     text
 }
 
+pub fn refusal_text(reason: &str) -> String {
+    format!("caditor was not started: {reason}")
+}
+
 #[cfg(windows)]
 pub fn show_failure(text: &str) {
     if io::stderr().is_terminal() {
@@ -193,6 +197,16 @@ mod tests {
         assert!(text.contains("WGPU_BACKEND=gl"));
         assert!(text.contains(GRAPHICS_ADVICE));
         assert!(text.ends_with("What caditor logged is in /state/logs/caditor-1-2.log."));
+    }
+
+    #[test]
+    fn a_refused_command_line_is_worded_as_not_started() {
+        let text = refusal_text("--export needs the model to export");
+
+        assert_eq!(
+            text,
+            "caditor was not started: --export needs the model to export"
+        );
     }
 
     #[test]

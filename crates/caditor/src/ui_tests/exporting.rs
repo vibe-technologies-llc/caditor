@@ -20,6 +20,38 @@ use crate::{
 };
 
 #[test]
+fn a_3mf_export_waits_for_the_renderer_to_be_free_and_keeps_its_picture() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.renders_busy = true;
+
+    harness.key(Key::E, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    harness.click("3MF");
+    harness.answer_dialog(Some(dir.path().join("plate")));
+    harness.click("Export…");
+    for _ in 0..10 {
+        harness.frame();
+    }
+    let waited = harness.files.exports_running() && !dir.path().join("plate.3mf").exists();
+
+    harness.renders_busy = false;
+    harness.wait_until("the 3MF is written", |harness| {
+        dir.path().join("plate.3mf").exists() && !harness.files.exports_running()
+    });
+    let package = std::fs::read(dir.path().join("plate.3mf")).unwrap();
+
+    assert!(waited);
+    assert!(
+        package
+            .windows(b"Metadata/thumbnail.png".len())
+            .any(|name| name == b"Metadata/thumbnail.png")
+    );
+}
+
+#[test]
 fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

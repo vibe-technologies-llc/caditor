@@ -27,6 +27,22 @@ const PROMPT_MARGIN: f32 = 16.0;
 const PROMPT_MAX_WIDTH: f32 = 720.0;
 const MORE_KEYS_ID: &str = "more keys";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    Animated,
+    Reduced,
+}
+
+impl Motion {
+    pub fn of(ui: &Ui) -> Self {
+        if ui.style().animation_time > 0.0 {
+            Self::Animated
+        } else {
+            Self::Reduced
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RefusalNote {
     text: String,
@@ -53,7 +69,7 @@ impl RefusalNote {
         &self.text
     }
 
-    pub fn opacity(&self, now: f64, time: NoticeTime) -> Option<f32> {
+    pub fn opacity(&self, now: f64, time: NoticeTime, motion: Motion) -> Option<f32> {
         if time.stays() {
             return Some(1.0);
         }
@@ -61,21 +77,23 @@ impl RefusalNote {
         if !(0.0..NOTE_SECONDS).contains(&age) {
             return None;
         }
+        if motion == Motion::Reduced {
+            return Some(1.0);
+        }
         let fading_for = NOTE_SECONDS - age;
         Some((fading_for / NOTE_FADE_SECONDS).min(1.0) as f32)
     }
 
-    pub fn repaint_after(&self, now: f64, time: NoticeTime) -> Option<f64> {
+    pub fn repaint_after(&self, now: f64, time: NoticeTime, motion: Motion) -> Option<f64> {
         if time.stays() {
             return None;
         }
         let age = now - self.since;
-        let fade_starts = NOTE_SECONDS - NOTE_FADE_SECONDS;
-        Some(if age < fade_starts {
-            fade_starts - age
-        } else {
-            0.0
-        })
+        let next = match motion {
+            Motion::Reduced => NOTE_SECONDS,
+            Motion::Animated => NOTE_SECONDS - NOTE_FADE_SECONDS,
+        };
+        Some(if age < next { next - age } else { 0.0 })
     }
 }
 
@@ -331,10 +349,30 @@ mod tests {
     fn a_timed_note_fades_out_after_its_seconds() {
         let note = RefusalNote::new("Not here", 10.0);
 
-        assert_eq!(note.opacity(10.0, NoticeTime::Timed), Some(1.0));
-        assert!(note.opacity(10.0 + NOTE_SECONDS - 0.1, NoticeTime::Timed) < Some(0.2));
-        assert_eq!(note.opacity(10.0 + NOTE_SECONDS, NoticeTime::Timed), None);
-        assert!(note.repaint_after(10.0, NoticeTime::Timed).is_some());
+        let timed = NoticeTime::Timed;
+        let animated = Motion::Animated;
+
+        assert_eq!(note.opacity(10.0, timed, animated), Some(1.0));
+        assert!(note.opacity(10.0 + NOTE_SECONDS - 0.1, timed, animated) < Some(0.2));
+        assert_eq!(note.opacity(10.0 + NOTE_SECONDS, timed, animated), None);
+        assert!(note.repaint_after(10.0, timed, animated).is_some());
+    }
+
+    #[test]
+    fn a_timed_note_under_reduced_motion_ends_without_a_fade() {
+        let note = RefusalNote::new("Not here", 10.0);
+        let timed = NoticeTime::Timed;
+        let reduced = Motion::Reduced;
+        let late = 10.0 + NOTE_SECONDS - 0.1;
+
+        assert_eq!(note.opacity(late, timed, reduced), Some(1.0));
+        assert_eq!(note.opacity(10.0 + NOTE_SECONDS, timed, reduced), None);
+        assert_eq!(note.repaint_after(10.0, timed, reduced), Some(NOTE_SECONDS));
+        assert_eq!(
+            note.repaint_after(late, timed, reduced)
+                .map(|wait| wait > 0.0),
+            Some(true)
+        );
     }
 
     #[test]
@@ -342,10 +380,17 @@ mod tests {
         let note = RefusalNote::new("Not here", 10.0);
 
         assert_eq!(
-            note.opacity(10.0 + NOTE_SECONDS * 100.0, NoticeTime::UntilDismissed),
+            note.opacity(
+                10.0 + NOTE_SECONDS * 100.0,
+                NoticeTime::UntilDismissed,
+                Motion::Animated
+            ),
             Some(1.0)
         );
-        assert_eq!(note.repaint_after(10.0, NoticeTime::UntilDismissed), None);
+        assert_eq!(
+            note.repaint_after(10.0, NoticeTime::UntilDismissed, Motion::Animated),
+            None
+        );
     }
 
     #[test]

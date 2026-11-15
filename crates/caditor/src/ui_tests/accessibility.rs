@@ -66,6 +66,10 @@ fn animation_time(harness: &Harness) -> f32 {
     harness.context.global_style().animation_time
 }
 
+fn scroll_animation(harness: &Harness) -> egui::style::ScrollAnimation {
+    harness.context.global_style().scroll_animation
+}
+
 fn choose_transitions(harness: &mut Harness, transitions: Transitions) {
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Transitions(transitions),
@@ -80,9 +84,23 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
 
     choose_transitions(&mut harness, Transitions::Standard);
     assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
+    assert_eq!(
+        scroll_animation(&harness),
+        egui::style::ScrollAnimation::default()
+    );
 
     choose_transitions(&mut harness, Transitions::Off);
     assert_eq!(animation_time(&harness), 0.0);
+    assert_eq!(
+        scroll_animation(&harness),
+        egui::style::ScrollAnimation::none()
+    );
+
+    choose_transitions(&mut harness, Transitions::Quick);
+    assert_eq!(
+        scroll_animation(&harness),
+        egui::style::ScrollAnimation::default()
+    );
 
     choose_transitions(&mut harness, Transitions::Slow);
     assert_eq!(
@@ -93,11 +111,19 @@ fn interface_animations_follow_the_motion_preference_and_the_system() {
     system_settings::pretend(true);
     choose_transitions(&mut harness, Transitions::System);
     assert_eq!(animation_time(&harness), 0.0);
+    assert_eq!(
+        scroll_animation(&harness),
+        egui::style::ScrollAnimation::none()
+    );
 
     system_settings::pretend(false);
     harness.frame();
     harness.frame();
     assert_eq!(animation_time(&harness), appearance::ANIMATION_SECONDS);
+    assert_eq!(
+        scroll_animation(&harness),
+        egui::style::ScrollAnimation::default()
+    );
 }
 
 #[test]

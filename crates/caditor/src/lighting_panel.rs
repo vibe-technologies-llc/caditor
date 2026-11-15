@@ -55,7 +55,7 @@ pub const BACKDROP_ABOUT: &str = "The colour drawn behind the model in place of 
                                   again.";
 pub const SKY_SWATCH: &str = "Backdrop: sky";
 pub const CUSTOM_BACKDROP: &str = "Custom backdrop colour";
-pub const BACKDROP_SELECTOR: &str = "lighting-backdrop-colour";
+const BACKDROP_SELECTOR: &str = "lighting-backdrop-colour";
 const SKY_SWATCH_FILL: Color32 = Color32::from_rgb(0x6c, 0x9a, 0xe0);
 const BACKDROPS: [(&str, Rgb); 5] = [
     ("White", Rgb::new(0xff, 0xff, 0xff)),
@@ -244,19 +244,30 @@ pub fn rows(ui: &mut Ui, lighting: Lighting, command: &mut Option<PreferencesCom
     });
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BackdropPlace {
+    LightingPanel,
+    Preferences,
+}
+
+pub fn backdrop_selector(place: BackdropPlace) -> Id {
+    Id::unique((BACKDROP_SELECTOR, place))
+}
+
 pub fn backdrop_swatch_name(name: &str) -> String {
     format!("Backdrop: {name}")
 }
 
 pub fn backdrop_colour(
     ui: &mut Ui,
+    place: BackdropPlace,
     lighting: Lighting,
     body: Rgb,
     command: &mut Option<PreferencesCommand>,
 ) {
     let body = color32(body);
     let current = lighting.backdrop_colour;
-    let selector = Id::unique(BACKDROP_SELECTOR);
+    let selector = backdrop_selector(place);
     let refusal = selector.with("refused");
     let selecting = colour_selector::is_open(ui, selector);
     ui.label(widgets::section_title(BACKDROP));
@@ -432,7 +443,13 @@ pub fn show(
             ui.add_space(SPACE_M);
             sky_picture(ui, lighting, sky, &mut asked);
             ui.add_space(SPACE_M);
-            backdrop_colour(ui, lighting, body, &mut asked.command);
+            backdrop_colour(
+                ui,
+                BackdropPlace::LightingPanel,
+                lighting,
+                body,
+                &mut asked.command,
+            );
             ui.add_space(SPACE_M);
             let reset = widgets::small_button(ui, icons::RESET_SECTION, RESET);
             if ui.add(reset).clicked() {
@@ -444,4 +461,22 @@ pub fn show(
         tool.toggle();
     }
     asked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_panel_and_preferences_each_have_a_backdrop_selector_of_their_own() {
+        let panel = backdrop_selector(BackdropPlace::LightingPanel);
+        let preferences = backdrop_selector(BackdropPlace::Preferences);
+
+        assert_ne!(panel, preferences);
+        assert_eq!(panel, backdrop_selector(BackdropPlace::LightingPanel));
+        assert_ne!(
+            colour_selector::hex_id(panel),
+            colour_selector::hex_id(preferences)
+        );
+    }
 }

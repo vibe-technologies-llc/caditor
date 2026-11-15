@@ -29,7 +29,7 @@ use crate::{
     body_snap::BodySnaps,
     box_selection::{self, Catch},
     canvas::{self, HintList, KeyHint, Rank},
-    canvas_guidance::{self, HoverDelay, OrbitMark, PointerLabel, RefusalNote, Waited},
+    canvas_guidance::{self, HoverDelay, Motion, OrbitMark, PointerLabel, RefusalNote, Waited},
     clipboard,
     comb::CombDrawing,
     combine_tools,
@@ -6111,11 +6111,15 @@ impl ViewportState {
                 )
             })
         });
+        let motion = Motion::of(ui);
         if let Some(note) = &mut self.refusal {
             let dismissed = time.stays() && note.is_dismissed_by(input_arrived);
-            match note.opacity(self.clock, time).filter(|_| !dismissed) {
+            match note
+                .opacity(self.clock, time, motion)
+                .filter(|_| !dismissed)
+            {
                 Some(opacity) => {
-                    if let Some(wait) = note.repaint_after(self.clock, time) {
+                    if let Some(wait) = note.repaint_after(self.clock, time, motion) {
                         ui.ctx()
                             .request_repaint_after(Duration::from_secs_f64(wait));
                     }

@@ -80,6 +80,29 @@ fn escape_drops_a_queued_command_so_the_recompute_landing_runs_nothing() {
     assert_eq!(harness.workspace.editing.solid(), None);
 }
 
+#[test]
+fn a_queued_command_coming_due_under_an_open_dialog_runs_once_it_closes() {
+    let mut harness = Harness::new();
+    let side = side_body_without_a_shape(&mut harness);
+
+    ask_to_move(&mut harness, side);
+    harness.key(Key::Comma, Modifiers::COMMAND);
+    harness.frame();
+    harness.show_new_windows();
+    let opened = harness.workspace.preferences_open;
+
+    harness.model.hold_evaluations(false);
+    harness.settle();
+    let meanwhile = moves(&harness);
+
+    harness.workspace.preferences_open = false;
+    harness.settle();
+
+    assert!(opened);
+    assert_eq!(meanwhile, 0);
+    assert_eq!(moves(&harness), 1);
+}
+
 fn holes(harness: &Harness) -> usize {
     harness
         .document()

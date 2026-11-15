@@ -1361,7 +1361,13 @@ fn rendered_view(ui: &mut Ui, shown: &Shown<'_>, command: &mut Option<Preference
             lighting_panel::rows(ui, shown.preferences.lighting, command);
         });
         ui.add_space(SPACE_M);
-        lighting_panel::backdrop_colour(ui, shown.preferences.lighting, body, command);
+        lighting_panel::backdrop_colour(
+            ui,
+            lighting_panel::BackdropPlace::Preferences,
+            shown.preferences.lighting,
+            body,
+            command,
+        );
         ui.add_space(SPACE_S);
         ui.add(Label::new(widgets::muted(note, ui)).wrap());
     });

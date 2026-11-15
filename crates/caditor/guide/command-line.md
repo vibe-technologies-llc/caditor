@@ -1,7 +1,9 @@
 # Command line
 
 `caditor [MODEL]` starts caditor and opens a model. A `.dxf` drawing or a STEP file is imported
-instead, as if dropped on the window.
+instead, as if dropped on the window. A file is told apart by its extension, so a STEP file needs
+`.step` or `.stp` to be imported. A command line caditor cannot follow is refused in words,
+logged, and shown in a message when there is no terminal to print it on.
 
 ## Exporting without a window
 
@@ -17,6 +19,7 @@ built to `OUT`, in the format its extension names: `.step` or `.stp`, `.stl`, `.
 - `--all-configurations` writes every configuration to a file of its own beside `OUT`, named as
   Export's Every configuration names them: `--export bracket.stl` writes "bracket M4.stl",
   "bracket M8.stl" and so on, never `OUT` itself.
+- `OUT` is never the model itself: `--export a.step a.step` is refused and leaves `a.step` as it is.
 
 The exit status is 0 when everything exported, 2 when a feature failed (its body is exported as
 last computed, with a warning) or a configuration could not be exported while others were, and 1

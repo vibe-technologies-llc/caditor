@@ -271,7 +271,7 @@ mod window_frame;
 
 use std::{path::PathBuf, process::ExitCode};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use caditor_document::Document;
 use caditor_file::StorageConfig;
 use winit::event_loop::EventLoop;
@@ -300,7 +300,7 @@ pub fn run() -> Result<ExitCode> {
             print!("{}", cli::usage());
             return Ok(ExitCode::SUCCESS);
         }
-        Invocation::Refused(reason) => bail!(reason),
+        Invocation::Refused(reason) => return Ok(refused(&reason)),
     };
     let state_dir = caditor_file::state_dir();
     let logging = Logging::start(state_dir.as_deref());
@@ -311,6 +311,14 @@ pub fn run() -> Result<ExitCode> {
     }
     logging.end();
     result.map(|()| ExitCode::SUCCESS)
+}
+
+fn refused(reason: &str) -> ExitCode {
+    let logging = Logging::start(caditor_file::state_dir().as_deref());
+    log::error!("{reason}");
+    logging::show_failure(&logging::refusal_text(reason));
+    logging.end();
+    ExitCode::FAILURE
 }
 
 fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logging) -> Result<()> {

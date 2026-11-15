@@ -395,22 +395,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Commands are lost while a dialog, the palette or a file wait is open: `app.rs`
-  takes `deferred_commands` every frame and gives them back only when not blocked, and a due
-  `Rerun::Command` from `queued.rs` (`take_due` has already removed it) goes the same way, so a tool
-  clicked while the model recomputed, or a Ctrl+S deferred out of a text field, silently never runs
-  when the palette, Preferences or the recovery card is open as it comes due. Keep them queued while
-  blocked; `ui_tests/queued_actions.rs` has no case with a dialog open.
-- [medium · easy] `caditor --export a.step a.step` imports the STEP file and replaces it with the
-  export (`headless.rs` never compares output and model), where the app never lets an export
-  replace a model file. Refuse when the canonical paths match.
-- [medium · easy] Reduced motion leaves two animations running, against `ux.md`: `app.rs` sets only
-  `animation_time`, while egui 0.37 animates scrolling to a rect by `Style::scroll_animation` (focus
-  following in `widgets.rs`, the feature tree, the palette and fields), and the refusal note beside
-  the pointer fades over `NOTE_FADE_SECONDS` regardless (`canvas_guidance.rs`), asking for a frame
-  every frame. Set `scroll_animation` to none and end the note without a fade when motion is
-  reduced, checked in `ui_tests/accessibility.rs`; `docs/ACCESSIBILITY.md`'s 2.2.2 row says nothing
-  moves on its own.
 - [medium · small] A model export whose thread panics stays running for the session: `export.rs`
   runs the single and every-configuration exports without `catch_unwind` (writing contains a
   body's panic, but recomputing and the thumbnail do not), its `finished` callback is dropped and
@@ -419,23 +403,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   3MF thumbnail job and handing back its pixels (`waiting.rendering`, not reset by
   `close_dialogs`) leaves it stuck the same way. Every `Files` job is contained; one helper for the
   thread-and-slot jobs (`export.rs`, `image_export.rs`, `files.rs`) would keep them alike.
-- [low · easy] Command line refusals (`lib.rs`, `Invocation::Refused`) end through `bail!` before
-  logging starts and before `show_failure`, so a bad invocation from a file manager or a Windows
-  release build exits without a word.
 - [low · easy] `about_to_wait`'s session work (`window_export.poll`, `check_pick_fallback`,
   `redraw_when_due`) and `exiting` run outside `App::contained`, and `Session::recover` can itself
   panic in `Overlay::new`, so a panic there ends the process instead of skipping the frame
   (`reliability.md`); the hook still flushes the journal. The containment path is tested only by
   calling `after_failed_frame` directly (`ui_tests.rs`).
-- [low · easy] The model path given on the command line is read on the UI thread before the window
-  exists (`files.rs`, through `is_importable_file` to `import::starts_like_step`), so a path on a
-  hung network share stalls startup with nothing shown. Decide by extension, as drops do.
-- [low · easy] Saving, or exporting 3MF, while a multi-tile image export runs gives a file without
-  its picture: `render_image` answers `Busy`, and `app.rs` declines the preview and drops the 3MF
-  thumbnail with a log line and no retry. Keep the job for a later frame.
-- [low · easy] The backdrop colour selector uses one `Id::unique(BACKDROP_SELECTOR)` in the
-  Lighting panel and in Preferences › Rendered view (`lighting_panel.rs`), so both open at once
-  share a picker and refusal text. Salt the id per place.
 - [low · small] The Lighting panel's sun turn, sun height and picture turn are egui sliders whose
   number box takes plain numbers (`lighting_panel.rs`), not units (`0.5 rad`) as every numeric
   field should (`ux.md`).

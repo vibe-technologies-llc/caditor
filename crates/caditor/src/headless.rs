@@ -99,6 +99,21 @@ struct Written {
     failed_features: usize,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ExportRefused {
+    #[error(
+        "“{name}” is the model being exported, and an export never replaces its model. Export to \
+         another file"
+    )]
+    WouldReplaceModel { name: String },
+}
+
+fn names_the_model(model: &Path, output: &Path) -> bool {
+    let canonical =
+        |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| files::canonical_location(path));
+    canonical(model) == canonical(output)
+}
+
 struct Variant {
     name: String,
     output: PathBuf,
@@ -287,6 +302,12 @@ fn variants(document: &Document, model: &Path, output: &Path) -> Result<Vec<Vari
 }
 
 fn write(document: &Document, settings: &Settings, model: &Path, output: &Path) -> Result<Written> {
+    if names_the_model(model, output) {
+        return Err(ExportRefused::WouldReplaceModel {
+            name: display_name(Some(output)),
+        }
+        .into());
+    }
     let evaluation = match settings.target {
         Target::Mesh(format) if format != ExportFormat::ThreeMf => Recompute::default()
             .run_without_display(document, &ModelEvaluator, &CancelToken::never()),
@@ -780,6 +801,27 @@ mod tests {
                 .starts_with("Exported 1 body of “plate.step”")
         );
         assert!(std::fs::metadata(&stl).unwrap().len() > 84);
+    }
+
+    #[test]
+    fn an_export_over_its_own_model_is_refused_and_leaves_the_model() {
+        let folder = TempDir::new().unwrap();
+        let model = saved_sample(&folder);
+        let step = folder.path().join("plate.step");
+        convert(&conversion(&model, &step)).unwrap();
+        let before = std::fs::read(&step).unwrap();
+        let beside = folder.path().join(".").join("plate.step");
+
+        let refused = convert(&conversion(&step, &beside))
+            .unwrap_err()
+            .to_string();
+
+        assert_eq!(
+            refused,
+            "“plate.step” is the model being exported, and an export never replaces its model. \
+             Export to another file"
+        );
+        assert_eq!(std::fs::read(&step).unwrap(), before);
     }
 
     #[test]

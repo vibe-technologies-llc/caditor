@@ -186,8 +186,9 @@ paths:
 - A 3MF export first has its thumbnail drawn: the `Exporter` holds the job (`thumbnail_job`) until
   the session draws the chosen bodies alone, framed from the initial view on a transparent
   background at `THUMBNAIL_SIZE` (`ViewportState::thumbnail`, `snapshot::of_bodies`) with
-  `Renderer::render_image`; the export thread reads the bands before writing. A busy or failing
-  renderer means no thumbnail. The command line draws it offscreen when an adapter exists.
+  `Renderer::render_image`; the export thread reads the bands before writing. A busy renderer
+  leaves the job for a later frame (`Exporter::thumbnail_rendered`); a failing one means no
+  thumbnail. The command line draws it offscreen when an adapter exists.
 - With two or more configurations (`document.md`) the dialog adds Configurations: This configuration
   or Every configuration (`Exporter::every_configuration`), one file per configuration beside the
   chosen one, its name added to the stem (unsafe characters replaced, an empty name becoming
@@ -390,9 +391,10 @@ paths:
   while the revision is the saved one and the worker still wants it), draws
   `ViewportState::preview` with `Renderer::render_image` on the window's own renderer, and
   `save_preview::finish` reads the bands, encodes the PNG (`png_bytes`) and fills the drawing on a
-  `preview` thread. A busy or failing renderer, an edit before the frame, a panic or a picture
-  over the limit declines the drawing instead, and the file is saved without a picture; nothing
-  is reported to the user.
+  `preview` thread. A renderer busy with a multi-tile image export gives the drawing back
+  (`SavePreviews::drawn`) and the session asks for another frame, until the worker's patience
+  ends; a failing renderer, an edit before the frame, a panic or a picture over the limit declines
+  the drawing instead, and the file is saved without a picture; nothing is reported to the user.
 - The picture is the bodies alone (`snapshot::of_bodies_alone`: no sketches, datums, helices,
   principal planes or axes the model does not set to `Shown`, no grid or highlights), from the model's home
   view (`snapshot::home_viewpoint`: the saved Home view, else the initial isometric one) fitted to the

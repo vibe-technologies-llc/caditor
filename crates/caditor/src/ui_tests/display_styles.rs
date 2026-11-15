@@ -235,8 +235,9 @@ fn the_lighting_panel_offers_a_plain_backdrop_and_a_visible_floor_that_reach_the
 
     harness.click_button(crate::lighting_panel::CUSTOM_BACKDROP);
     harness.frame();
-    let hex =
-        crate::colour_selector::hex_id(egui::Id::unique(crate::lighting_panel::BACKDROP_SELECTOR));
+    let hex = crate::colour_selector::hex_id(crate::lighting_panel::backdrop_selector(
+        crate::lighting_panel::BackdropPlace::LightingPanel,
+    ));
     let hiding = crate::body_appearance::DEFAULT_COLOUR.hex();
     harness.type_into_field(hex, &hiding);
     harness.frame();

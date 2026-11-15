@@ -57,7 +57,7 @@ and keeps its name and role.
 | 2.1.2 No keyboard trap | Supported: the Tab walk comes round on every screen; Escape leaves dialogs. |
 | 2.1.4 Character key shortcuts | Supported: single keys act only when no text field has focus, and every binding can be changed or removed in the shortcut editor. |
 | 2.2.1 Timing adjustable | Supported: notices stay until the next edit or until dismissed; the one timed message, a refusal note beside the pointer, can be set to stay until a key or click (Preferences › Appearance › Interface › Refusal notes) and is also posted as a notice. |
-| 2.2.2 Pause, stop, hide | Supported: nothing moves on its own except progress indicators, which stop under reduced motion. |
+| 2.2.2 Pause, stop, hide | Supported: nothing moves on its own except progress indicators; under reduced motion they stop, scrolling to a focused control jumps instead of gliding and a refusal note beside the pointer ends without fading. |
 | 2.3.1 Three flashes | Supported: nothing flashes; the text caret does not blink. |
 | 2.4.3 Focus order | Supported: see 1.3.2. |
 | 2.4.6 Headings and labels | Supported: sections, dialogs and fields carry plain titles and captions. |

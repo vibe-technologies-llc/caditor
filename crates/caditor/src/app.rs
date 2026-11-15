@@ -10,8 +10,8 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use caditor_cloud::Service;
 use caditor_render::{
-    Background, FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
-    WindowTarget,
+    Background, FrameStart, ImageError, ImageRequest, PickPoll, Renderer, SurfaceSize,
+    ViewportFrame, Wake, WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use jiff::Timestamp;
@@ -85,7 +85,7 @@ use crate::{
     queued::{self, Rerun},
     reference_picking::{self, Slot},
     repeating::{Repeat, Repetition},
-    save_preview::{self, PREVIEW_SIZE},
+    save_preview::PREVIEW_SIZE,
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
     scene_palette::{Canvas, Contrast},
@@ -736,7 +736,9 @@ pub fn show(
         leave_text_field(ui.ctx());
         *deferred_commands = std::mem::take(&mut triggered);
     }
-    if !blocked {
+    if blocked {
+        deferred_commands.extend(deferred);
+    } else {
         triggered.extend(deferred);
     }
     triggered.extend(palette.take_chosen());
@@ -1817,7 +1819,15 @@ fn apply_appearance(
             .scale(system_settings::reduces_motion()) as f32;
     let animated = changed || workspace.applied_animation_time != Some(animation_time);
     if animated {
-        ctx.all_styles_mut(|style| style.animation_time = animation_time);
+        let scrolling = if animation_time > 0.0 {
+            egui::style::ScrollAnimation::default()
+        } else {
+            egui::style::ScrollAnimation::none()
+        };
+        ctx.all_styles_mut(|style| {
+            style.animation_time = animation_time;
+            style.scroll_animation = scrolling;
+        });
         workspace.applied_animation_time = Some(animation_time);
     }
     let skin = appearance::skin(ctx);
@@ -2678,7 +2688,8 @@ impl Session {
         delay
     }
 
-    fn export_image(&mut self, model: &mut Model, files: &mut Files) {
+    fn export_image(&mut self, model: &mut Model, files: &mut Files) -> bool {
+        let mut busy = false;
         if let Some(job) = files.image_job() {
             let workspace = &self.workspace;
             let image =
@@ -2707,30 +2718,25 @@ impl Session {
                 pixels_per_point: image.pixels_per_point,
                 background: Background::Transparent,
             });
-            let rows = match started {
-                Ok(bands) => Some(Box::new(RenderedRows(bands)) as ReadPixels),
-                Err(error) => {
-                    log::warn!("the 3MF thumbnail could not be drawn: {error}");
-                    None
-                }
-            };
-            files.thumbnail_rendered(rows);
+            busy |= matches!(started, Err(ImageError::Busy));
+            files.thumbnail_rendered(
+                started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels),
+            );
         }
         if let Some(drawing) = model.take_preview_job() {
             let image = self.workspace.viewport.preview(model, PREVIEW_SIZE);
-            match self.renderer.render_image(&ImageRequest {
+            let started = self.renderer.render_image(&ImageRequest {
                 size: PREVIEW_SIZE,
                 view: &image.view,
                 scene: &image.scene,
                 pixels_per_point: image.pixels_per_point,
                 background: Background::Viewport,
-            }) {
-                Ok(bands) => save_preview::finish(drawing, Box::new(RenderedRows(bands))),
-                Err(error) => {
-                    log::info!("the model is saved without a picture: {error}");
-                    drawing.decline();
-                }
-            }
+            });
+            busy |= matches!(started, Err(ImageError::Busy));
+            model.preview_drawn(
+                drawing,
+                started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels),
+            );
         }
         let preview = files.preview_picture().map(|picture| {
             self.renderer.render_image(&ImageRequest {
@@ -2746,6 +2752,7 @@ impl Session {
                 .preview_rendered(started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels));
         }
         self.renderer.advance_image();
+        busy
     }
 
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
@@ -2810,7 +2817,7 @@ impl Session {
             .ghosted(model, &self.workspace.editing);
         model.mesh_before(self.workspace.editing.context().solid, &ghosted);
         model.request_regions(self.workspace.editing.feature());
-        self.export_image(model, files);
+        let drawing_waits = self.export_image(model, files);
         let workspace = &mut self.workspace;
         workspace.viewport.build_scene(model, &workspace.editing);
         let was_uploading = self.renderer.is_uploading();
@@ -2876,7 +2883,8 @@ impl Session {
             model.set_notice(Notice::error(fault.to_string()));
         }
 
-        let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
+        let repaint_now =
+            changed || drawing_waits || repaint_after.is_some_and(|delay| delay.is_zero());
         let drawn = wait.is_none();
         self.pick_fallback_at = (drawn && self.renderer.is_pick_pending())
             .then(|| now.checked_add(PICK_FALLBACK))

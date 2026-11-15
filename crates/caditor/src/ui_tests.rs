@@ -410,6 +410,7 @@ struct Harness {
     window_commands: Vec<ViewportCommand>,
     image_failure: Option<ImageError>,
     renders_held: bool,
+    renders_busy: bool,
     textures: crate::overlay::TextureMirror,
     painted: Option<Painted>,
     hovered_files: Vec<egui::HoveredFile>,
@@ -521,6 +522,7 @@ impl Harness {
             window_commands: Vec::new(),
             image_failure: None,
             renders_held: false,
+            renders_busy: false,
             textures: crate::overlay::TextureMirror::default(),
             painted: None,
             hovered_files: Vec::new(),
@@ -695,12 +697,17 @@ impl Harness {
             return;
         };
         let (width, height) = (job.size.width, job.size.height);
-        self.files.thumbnail_rendered(Some(Box::new(SolidRows {
-            width,
-            height,
-            pixels: Some([90, 120, 200, 255].repeat(width as usize * height as usize)),
-            sent: Vec::new(),
-        })));
+        let pixels: Result<ReadPixels, ImageError> = if self.renders_busy {
+            Err(ImageError::Busy)
+        } else {
+            Ok(Box::new(SolidRows {
+                width,
+                height,
+                pixels: Some([90, 120, 200, 255].repeat(width as usize * height as usize)),
+                sent: Vec::new(),
+            }))
+        };
+        self.files.thumbnail_rendered(pixels);
     }
 
     fn render_save_preview(&mut self) {
@@ -711,15 +718,17 @@ impl Harness {
             return;
         };
         let size = save_preview::PREVIEW_SIZE;
-        save_preview::finish(
-            drawing,
-            Box::new(SolidRows {
+        let pixels: Result<ReadPixels, ImageError> = if self.renders_busy {
+            Err(ImageError::Busy)
+        } else {
+            Ok(Box::new(SolidRows {
                 width: size.width,
                 height: size.height,
                 pixels: Some([27, 28, 31, 255].repeat(size.width as usize * size.height as usize)),
                 sent: Vec::new(),
-            }),
-        );
+            }))
+        };
+        self.model.preview_drawn(drawing, pixels);
     }
 
     fn render_preview(&mut self) {
