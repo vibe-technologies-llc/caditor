@@ -76,7 +76,8 @@ paths:
 - Memory is bounded on hostile files: records decode one at a time (unpack, hash with
   `RecordDigest` checked against the head afterwards, parse); a load unpacks at most
   `MAX_DECOMPRESSED` in all (`Budget`); a version rebuild bounds what is alive per step
-  (`unpack_beside`). `Budget::unpack` keeps the `UnpackError`: an unknown codec reads like content
+  (`unpack_beside`: a version beside the newer one it is stored against, together at most
+  `MAX_DECOMPRESSED`). `Budget::unpack` keeps the `UnpackError`: an unknown codec reads like content
   from a newer version, running out of memory or budget says too large to load, only the rest is
   "damaged".
 - A save holds the model twice at most, uncompressed (`PriorRecords`, `NewRecords`).
@@ -666,7 +667,12 @@ Sketch entities:
   (`save_with` reads earlier ones from the session's file, so Save As carries them).
 - Version: info chunk (time, last change, blake3 digest) plus data chunk compressed with the next
   newer version as zstd prefix; every `KEYFRAME_SPACING`th stored whole, bounding a damaged chunk's
-  chain. Info belongs only to the data right after it: data with damaged info is kept (unlisted) so
+  chain. The encoder and every rebuild share one budget (`fits_beside`): a version, the replaced
+  one or a delta rewritten by thinning, is stored whole whenever it and the newer version it would
+  be stored against together exceed `MAX_DECOMPRESSED`, so a model over half of it still saves and
+  reads back, every version of it whole
+  (`the_replaced_version_is_a_delta_exactly_while_it_fits_the_budget_beside_the_new_model`). A
+  rebuild starting at a version stored whole never unpacks the head (`Parsed::rebuild`). Info belongs only to the data right after it: data with damaged info is kept (unlisted) so
   older deltas decode; info with damaged data is dropped. Rebuilt versions are checked against
   their digest before restoring.
 - `history` judges rebuildability from the chain, not by decoding (`Parsed::rebuildable`). A

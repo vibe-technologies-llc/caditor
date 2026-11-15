@@ -87,10 +87,15 @@ impl Budget {
     }
 }
 
+fn fits_beside(held: usize, length: usize) -> bool {
+    held.checked_add(length)
+        .is_some_and(|live| live <= max_decompressed())
+}
+
 fn unpack_beside(chunk: &Chunk<'_>, newer: Option<&[u8]>, held: usize) -> Unpacked {
-    held.checked_add(chunk.content_length())
-        .filter(|live| *live <= max_decompressed())
-        .ok_or(UnpackError::OverBudget)?;
+    if !fits_beside(held, chunk.content_length()) {
+        return Err(UnpackError::OverBudget);
+    }
     chunk.unpack(newer)
 }
 
@@ -372,7 +377,11 @@ impl<'a> Parsed<'a> {
 
     fn rebuild(&self, index: usize) -> Option<Vec<u8>> {
         let from = self.keyframe_at_or_before(index);
-        let mut newer = if from == 0 {
+        let starts_from_head = self
+            .versions
+            .get(from)
+            .is_some_and(|first| !first.is_keyframe());
+        let mut newer = if starts_from_head {
             self.head_snapshot(&mut Budget::default())
         } else {
             None
@@ -1107,7 +1116,7 @@ impl Candidate<'_, '_> {
 fn thinned<'p, 'a>(
     prior: Option<&'p Parsed<'a>>,
     prior_head: Option<(&'p StateRecord, &'p [u8])>,
-    adds_version: bool,
+    (adds_version, snapshot): (bool, &[u8]),
     (now, retention): (SystemTime, Retention),
     cut: usize,
 ) -> (Vec<(Candidate<'p, 'a>, bool)>, usize) {
@@ -1123,7 +1132,8 @@ fn thinned<'p, 'a>(
         .map(|(info, old)| Candidate::Replaced {
             info,
             snapshot: old,
-            whole: leading_deltas + 1 >= KEYFRAME_SPACING,
+            whole: leading_deltas + 1 >= KEYFRAME_SPACING
+                || !fits_beside(snapshot.len(), old.len()),
         });
     let candidates: Vec<Candidate<'p, 'a>> = replaced
         .into_iter()
@@ -1312,7 +1322,8 @@ fn write_versions<'a>(
     cut: usize,
 ) -> Result<Written, EncodeError> {
     let stored = prior.map_or(&[][..], |prior| prior.versions.as_slice());
-    let (mut candidates, cut_listed) = thinned(prior, prior_head, adds_version, when, cut);
+    let (mut candidates, cut_listed) =
+        thinned(prior, prior_head, (adds_version, snapshot), when, cut);
     let mut written = Written {
         kept: Vec::new(),
         cut_listed,
@@ -1356,7 +1367,10 @@ fn write_versions<'a>(
                 }
                 let rewritten = is_rewritten(candidate, after_thinning);
                 match (rewritten, content.as_ref(), base.as_ref()) {
-                    (true, Some(content), Some(base)) if !thinned_keyframe => {
+                    (true, Some(content), Some(base))
+                        if !thinned_keyframe
+                            && fits_beside(base.bytes().len(), content.bytes().len()) =>
+                    {
                         push_packed_after(
                             section.fresh(),
                             ChunkKind::VersionData,

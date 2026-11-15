@@ -7,15 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [high · medium] A model of more than about 1 GiB uncompressed (half `MAX_DECOMPRESSED`) cannot be
-  saved again once changed: the read-back (`binary/model.rs`, `rebuilds_fresh`) rebuilds the
-  replaced version, a delta in 7 saves of 8, beside the new snapshot through `unpack_beside`, whose
-  budget the two together exceed, so every save fails as `NotReadBack::Version`, Save As too since
-  it reads the session's file; only the new snapshot's size is checked before writing.
-  `Parsed::rebuild` likewise unpacks the head whenever it starts from version 0, even one stored
-  whole, so restoring that version fails as unavailable though `history` lists it. Encoder and
-  read-back need one budget (store the version whole when the pair exceeds it, or refuse such a
-  model up front as `ModelTooLarge`); the tests budget three times a small snapshot, never this.
 - [medium · small] A saved copy kept aside after a failed replace (`save::KeptAside`, named in
   the save's error) keeps its temporary's name, so once that caditor has exited, the next
   successful save to the same path removes it as an orphan (`remove_orphaned_temporaries`), with

@@ -12,7 +12,7 @@ use super::{
         as_written_by_an_earlier_build, corrupt_chunk, decompressing_at_most, files_of_at_most,
         model_chunk_count, push_foreign, records_as_json, sharing_from, with_slices_of,
     },
-    value::{from_bytes, to_bytes},
+    value::{from_bytes, push_varint, to_bytes},
     *,
 };
 use crate::{
@@ -672,8 +672,109 @@ fn snapshot_size(bytes: &[u8]) -> usize {
         .unwrap()
         .chunks()
         .filter(|chunk| chunk.kind == Some(ChunkKind::Record))
-        .map(|chunk| chunk.content_length() + 1)
+        .map(|chunk| {
+            let mut length = Vec::new();
+            push_varint(&mut length, chunk.content_length() as u64);
+            length.len() + chunk.content_length()
+        })
         .sum()
+}
+
+fn versions_stored_as_deltas(bytes: &[u8]) -> Vec<bool> {
+    parse(bytes, &MODEL_MAGIC)
+        .unwrap()
+        .chunks()
+        .filter(|chunk| chunk.kind == Some(ChunkKind::VersionData))
+        .map(|chunk| chunk.codec == Some(Codec::ZstdAfterNewer))
+        .collect()
+}
+
+#[test]
+fn the_replaced_version_is_a_delta_exactly_while_it_fits_the_budget_beside_the_new_model() {
+    let (documents, bytes) = saved_series(2);
+    let next = edited(&documents[1], 40);
+    let alone = save_bytes(&next, None, later(2), None).unwrap();
+    let pair = snapshot_size(&bytes) + snapshot_size(&alone);
+
+    let unbounded = encode_over(&next, Some(&bytes), later(2), Some("Step 2")).unwrap();
+    let over_budget = decompressing_at_most(pair - 1, || {
+        reads_back(
+            &unbounded.bytes,
+            &unbounded.digest,
+            &unbounded.fresh_versions,
+        )
+    });
+
+    assert_eq!(over_budget, Err(NotReadBack::Version { index: 0 }));
+    for (budget, delta) in [(pair, true), (pair - 1, false)] {
+        decompressing_at_most(budget, || {
+            let encoded = encode_over(&next, Some(&bytes), later(2), Some("Step 2")).unwrap();
+
+            assert_eq!(
+                reads_back(&encoded.bytes, &encoded.digest, &encoded.fresh_versions),
+                Ok(())
+            );
+            assert_eq!(
+                versions_stored_as_deltas(&encoded.bytes).first(),
+                Some(&delta)
+            );
+            assert_eq!(
+                load_version(&encoded.bytes, 0).unwrap().document,
+                documents[1]
+            );
+        });
+    }
+}
+
+#[test]
+fn a_model_over_half_the_budget_saves_again_and_restores_every_version() {
+    let (_, sample) = saved_series(2);
+    let budget = snapshot_size(&sample) * 3 / 2;
+
+    decompressing_at_most(budget, || {
+        let first = with_width(10);
+        let mut documents = vec![first.clone()];
+        let mut bytes = save_bytes(&first, None, later(0), Some("First")).unwrap();
+        for step in 1..12 {
+            let next = edited(documents.last().unwrap(), 10 + step);
+            let label = format!("Step {step}");
+            let encoded = encode_over(&next, Some(&bytes), later(step), Some(&label)).unwrap();
+
+            assert_eq!(
+                reads_back(&encoded.bytes, &encoded.digest, &encoded.fresh_versions),
+                Ok(())
+            );
+
+            bytes = encoded.bytes;
+            documents.push(next);
+        }
+
+        let listed = check_listed_versions(&bytes, &documents);
+
+        assert_eq!(listed.versions.len(), 11);
+        assert!(listed.versions.iter().all(|version| version.available));
+        assert_eq!(longest_delta_run(&bytes), 0);
+        assert_eq!(decode(&bytes).unwrap().document, documents[11]);
+    });
+}
+
+#[test]
+fn a_version_stored_whole_restores_without_unpacking_the_model_beside_it() {
+    let (documents, bytes) = saved_series(9);
+    let budget = snapshot_size(&bytes) * 3 / 2;
+
+    assert_eq!(versions_stored_as_deltas(&bytes).first(), Some(&false));
+    decompressing_at_most(budget, || {
+        let listed = history(&bytes);
+
+        assert!(
+            listed
+                .versions
+                .first()
+                .is_some_and(|version| version.available)
+        );
+        assert_eq!(load_version(&bytes, 0).unwrap().document, documents[7]);
+    });
 }
 
 #[test]
