@@ -7,6 +7,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 - [medium · medium] Windows is used by hand on a real desktop, but a model and its journal on a USB
   stick (FAT32/exFAT, no POSIX rename) and on a network share are not yet checked there.
+- [medium · medium] A journal beside a model in a folder a sync client carries to other machines
+  (OneDrive syncs Documents by default on Windows; Dropbox) is not checked: locks are local
+  (`lock.rs`) and opening or starting offers, sets aside or deletes any unlocked journal
+  (`recovery.rs`), so a second machine could offer the first one's unsaved session as its own
+  recovery, or remove it, and the client carries that back. Try it on a synced folder; a journal
+  header naming its machine and boot, and asking before touching another machine's, would settle
+  it.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
   and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
   certificate tied to an identity.

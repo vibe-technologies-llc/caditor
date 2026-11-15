@@ -70,6 +70,11 @@ decision recorded in `docs/` before work starts.
   their type through the code and the file format; the price is that a body ID is no longer always
   a feature ID. Decide whether to keep that or give bodies an ID type of their own, which reaches
   about 600 sites and the file format.
+- [low · easy] A decimal comma inside a call reads as an argument separator: typed `round(2,5)` is
+  rounding 2 to steps of 5 (0) and `max(1,5)` is 5, while a top-level `2,5` is refused with the
+  decimal-comma hint (`parse.rs`, `decimal_comma`) and `max(0,5)` is tested to parse. Decide
+  whether typed text with a comma between digits and no space inside parentheses is refused as
+  `DecimalComma`; stored text always writes `, `, so files are unaffected.
 - [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
   centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
   the quarter between a tangent line's touching point and the axis when its inside is picked: the

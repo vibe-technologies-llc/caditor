@@ -62,6 +62,36 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
+- [low · small] Unmeasured, found by reading: the boolean's union-find (`boolean/select.rs`, `root`
+  and `join`) neither compresses paths nor joins by rank, so on a body of thousands of faces the
+  tool does not touch, root lookups can cost O(F²) map probes; and the tessellation grid
+  (`tessellation/face.rs`) adds a boundary segment to every bucket of its bounding box, so one long
+  straight edge running diagonally in uv across a 1024×1024 grid fills about a million buckets.
+  Compress paths, and rasterise segments along the cells they cross.
+
+## Document
+
+- [medium · medium] Loading, restoring a version and scaling the model are quadratic in features:
+  `Measured::of` (`measurement.rs`), which scans every feature and, once any parameter is measured,
+  sorts all parameters, is rebuilt for each inserted or changed feature using parameters
+  (`edit.rs`, `check_measurement_order`, `check_reading_order` with `reading_users`) and each
+  `MoveFeature`, and loading applies every feature as one transaction (`load.rs`), re-applied
+  wholly by its halving on an error. Unmeasured at `MAX_RECORDS` (10,000); the linear-time test
+  covers parameter chains with no measurement or feature. Keep `Measured` per apply, invalidated
+  only by measurement and parameter edits, and skip the checks when nothing is measured.
+- [low · small] Every run clones all `ParameterValues` once or twice for each feature reading a
+  measurement, cached or not (`recompute.rs`, `Key::of` and `compute` through
+  `Measured::overlay`). Overlay only the parameters the feature uses, or cache the overlay per set
+  of measurements read.
+- [low · medium] Moving features rebuilds dependency sets for the whole tree three times over
+  (`edit.rs`: `check_passing` builds `Measured::of` and a relation for every other feature,
+  `check_moves` runs `check_move_order`, applies, then `check` clones and applies again), noticeable
+  when dragging folders in large trees. Use the `users_of` index and positions, and skip the second
+  check on the clone the move checks already ran on.
+- [low · medium] Unmeasured: every draft and cache task copies the cache's whole `ResultHistory`
+  (`recompute.rs`, `draft_copy`; `history.rs`'s `Holdings` holds an entry per shared kernel buffer
+  of every earlier result), and drafts are sent while a value is typed or dragged, so on the VZ330
+  each copies a large map. An `Arc` copied on write would avoid it.
 
 ## STEP import
 
@@ -73,6 +103,23 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
+- [medium · medium] `Scene::hits_through` (`caditor-render`'s `through.rs`) tests every line of
+  every batch, body edges included, with no batch bounds, and with a section shown `cap` walks
+  every triangle of every closed mesh with no bounds test (`mesh` has one); paint selection calls it
+  up to 65 times per pointer move (`paint_selection.rs`), on the UI thread, as do the late click
+  and the pick list (`viewport.rs`). Test `crosses_box` against placed bounds in `cap`, and keep CPU
+  bounds per batch (as `BatchBounds` does on upload) to skip batches the widened ray misses.
+- [medium · small] On OpenGL the pick readback thread waits with `PollType::Wait` in 50 ms slices
+  (`picking.rs`), and wgpu-hal 30's GL `Device::wait` holds the context lock for the whole
+  timeout, so the UI thread's next acquire, uploads and submit wait for the GPU while a hover pick
+  is in flight: CPU and GPU stop overlapping on the backend weaker machines fall back to.
+  `render.md` already says image export polls for exactly this reason (`image.rs`); the pick
+  thread should poll the same way.
+- [low · small] The interference panel ranks, filters and sorts every checked pair two or three
+  times per frame and joins every card's text for Copy whether or not it is pressed
+  (`interference_panel.rs`, `ranked`, `unlisted`, called from `app.rs` for `show` and `marks`),
+  while pairs grow with the square of the bodies shown. Keep the ranking, cards and marks per
+  report, and build the copied text on the click.
 - [low · hard] Each sketch is a kept part (`app.md`), but within one sketch a hover or selection
   change restyles and uploads the whole sketch, about 1.9 ms to rebuild on the 24,000-curve
   `large_sketch` in a release build (`frame_costs_on_a_large_sketch_and_a_large_model`), and each
@@ -103,6 +150,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Memory
 
+- [medium · medium] Every through or up-to hole and up-to extrusion keeps `LandingInputs` holding
+  the body before it (`solid.rs`, `hole.rs`) whether or not a pattern or mirror repeats it, so a
+  run of through holes keeps every intermediate body alive outside `EARLIER_RESULTS_BUDGET`, and
+  `result_buffers` (`history.rs`) recurses once per link, as dropping the chain does, on a
+  recompute thread of the default stack size. Keep landing inputs only for features something
+  repeats, and walk the chain iteratively; whether 2,000 holes overflow the stack is unchecked.
 - [medium · hard] The VZ330 assembly (3,967 bodies, 16.3 million triangles) holds about 5.4 GiB
   once imported (`import_costs`, `CADITOR_IMPORT_IN_THE_APP_ONLY=1`, resident after settling; a
   jemalloc heap profile attributes it). The largest part left is solids: each copy of a part keeps
@@ -112,6 +165,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   since brought a `Face` to 192 bytes (`Surface` 96, sized by cones and tori); an `Edge` is 160
   (`Curve` 96, its variants 48 to 88 bytes, nothing worth boxing). Sharing geometry between copies
   (names and placement over one solid) would save most of the rest but reaches every kernel reader.
+- [low · easy] The parameter and configuration files are read whole, up to `MAX_FILE_SIZE`
+  (2 GiB), before their 16 MiB limits are compared (`parameters.rs`, `configuration_table.rs`),
+  where `read_picture_file` checks the size first. Check the metadata before reading.
+- [low · easy] While the journal cannot be written (locked by another window, a full disk),
+  `storage.rs`'s `retry` re-encodes the whole snapshot and every entry every `RETRY_INTERVAL` (5 s)
+  before finding out that no location is usable. Check a location can be locked first, and back
+  off.
+- [low · small] Every `Recompute::default()` builds a rayon pool of `available_parallelism` threads
+  (`recompute.rs`, `pool.rs`), so the short runs of version previews, analysis, display and the
+  every-configuration export start and stop one each beside the worker's. One process-wide pool
+  as the default would avoid the churn.
 
 ## Sketch solver
 
@@ -126,3 +190,20 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   2,095), so the part goes `STIFF` and the frame costs 250 million. Cutting it needs a settling
   that copes with a far less pressed pose, or a `FROZEN` step that does not crawl along the
   chain's slow modes.
+- [low · easy] `with_lengths_scaled` (`caditor-expression`'s `scaling.rs`) evaluates a node's
+  whole subtree at every node it visits, recursively, so scaling the largest stored expression
+  (64k characters) costs up to about 10^7 evaluations. Work out dimensions once, bottom up.
+- [low · medium] Unmeasured: adding a constraint asks `Sketch::determines` (`solve/determined.rs`)
+  on the UI thread (`sketch_tools.rs`, `add_constraints`, from the toolbar and dimensioning), which
+  clones the sketch, builds the system and merges every measuring part with no cancellation, where
+  constraint trials and tidying run on workers. Measure with `tally` on a 2,000-line chain before
+  moving it.
+
+## Drawing and mesh import
+
+- [low · small] Unmeasured, on crafted files: a 3MF's entry lookup scans every entry per part read
+  (`zip_read.rs`, up to 65,535² comparisons, cancellable), the DXF fit cache scans every entry of
+  the same degree and knots (`dxf/fit_cache.rs`, quadratic in distinct same-knot splines when an
+  interrupt lifts the fit limit), and SVG text keys glyph outlines by any whole weight from 100 to
+  900 (`caditor-lettering`'s `font.rs`), each miss merged through a kernel profile in a walker that
+  polls no interrupt. Index entries by lower-case name, bucket the fit cache, and round weights.
