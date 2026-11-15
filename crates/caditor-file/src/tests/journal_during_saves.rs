@@ -11,7 +11,8 @@ use super::{
     JobGate, WAIT, config, crash, edit_width, only_file_in, sample, save_request, untitled,
 };
 use crate::{
-    Inspection, JournalEntry, Recovered, Report, Storage, StorageConfig, inspect, load, scan,
+    Inspection, JournalEntry, Recovered, Report, SaveError, Storage, StorageConfig, inspect, load,
+    scan,
 };
 
 struct Session {
@@ -215,5 +216,55 @@ fn a_failed_save_leaves_the_journal_every_change_including_those_made_while_it_r
     assert_eq!(recovered[0].file, None);
     assert_eq!(recovered[0].base, base);
     assert_eq!(recovered[0].changes(), 2);
+    assert_eq!(recovered[0].editor.document(), &edited);
+}
+
+#[test]
+fn a_save_that_panics_fails_alone_and_the_journal_and_later_saves_carry_on() {
+    let mut session = Session::untitled();
+    let path = session.model();
+    let copied = session.dir.path().join("copied");
+    fs::create_dir(&copied).unwrap();
+    session.change_width("50 mm");
+
+    session.gate.panic_in_next(1);
+    session.save(1, &path);
+    session.change_width("60 mm");
+    let failed = session.reports(1);
+    let flushed = session.storage.flusher().flush(WAIT);
+    let journal = only_file_in(&session.recovery());
+    let crashed = copied.join(journal.file_name().unwrap());
+    fs::copy(&journal, &crashed).unwrap();
+    let before_failure = session.editor.document().clone();
+
+    session.save(2, &path);
+    let at_second_save = session.editor.document().clone();
+    session.change_width("70 mm");
+    let saved_again = session.reports(1);
+    let edited = session.editor.document().clone();
+    let (_dir, recovered) = session.crash();
+
+    assert!(
+        matches!(
+            &failed[0],
+            Report::SaveFailed {
+                ticket: 1,
+                error: SaveError::StoppedUnexpectedly,
+                ..
+            }
+        ),
+        "{failed:?}"
+    );
+    assert!(flushed);
+    let Inspection::Recoverable(kept) = inspect(&crashed).unwrap() else {
+        panic!("the journal after the failed save should be recoverable");
+    };
+    assert_eq!(kept.changes(), 2);
+    assert_eq!(kept.editor.document(), &before_failure);
+    assert!(saved(&saved_again[0], 2), "{saved_again:?}");
+    assert_eq!(load(&path).unwrap().document, at_second_save);
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].base, at_second_save);
+    assert_eq!(recovered[0].changes(), 1);
     assert_eq!(recovered[0].editor.document(), &edited);
 }

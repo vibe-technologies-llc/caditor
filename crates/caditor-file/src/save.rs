@@ -70,6 +70,11 @@ pub enum SaveError {
     #[error("it was changed by another program since it was opened")]
     ChangedOnDisk,
     #[error(
+        "the save stopped unexpectedly and the file was left as it was; your changes are still \
+         kept for recovery, so save again"
+    )]
+    StoppedUnexpectedly,
+    #[error(
         "the saved copy could not take the file's place, so the model and its earlier versions \
          are kept in the hidden file “{}” in the same folder; rename it to open it",
         kept.file_name().unwrap_or(kept.as_os_str()).display()
@@ -118,6 +123,8 @@ pub enum KeepVersionError {
     NotTheOpenModel,
     #[error("the file's versions could not be converted")]
     Unconvertible,
+    #[error("the change stopped unexpectedly; try it again")]
+    StoppedUnexpectedly,
     #[error(
         "the rewritten copy could not take the file's place, so it is kept in the hidden file \
          “{}” in the same folder; rename it to open it",

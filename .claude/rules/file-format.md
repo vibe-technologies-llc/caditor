@@ -677,7 +677,7 @@ Sketch entities:
   `Storage::keep_version`), not a document one: it neither dirties the model nor enters undo. It
   rewrites only the one info chunk (as a JSON-like map, so unknown fields survive), copies every
   other chunk as stored, then goes through the same atomic replace and read-back as a save. It runs
-  on the storage worker in order with saves, and is refused with `KeepVersionError::ChangedOnDisk`
+  as a storage job in order with saves (`file-journal.md`), and is refused with `KeepVersionError::ChangedOnDisk`
   when the head is not the one the session loaded or saved, and for a damaged file, a newer-version
   file or one holding a must-understand chunk (a save keeps a `.damaged` copy for those).
 - Retention (`binary/retention.rs`), on each save adding a version: the newest stay, older thin by

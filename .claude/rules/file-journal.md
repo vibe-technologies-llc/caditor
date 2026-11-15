@@ -113,11 +113,15 @@ paths:
   included, so a crash at any point restores them all; a failed or refused save changes nothing in
   it. A crash after the model was replaced but before the rename leaves a journal whose `on_disk`
   differs from the file, offered as after any outside change, still with every edit.
+- A job runs under `catch_unwind` (`Job::run_contained`), so a panic in it never leaves the worker
+  waiting: it finishes as `Finished::Stopped`, reported as `SaveError::StoppedUnexpectedly` or
+  `KeepVersionError::StoppedUnexpectedly`; a rebase that stops leaves the journal as it is and
+  waits for another `rebase_journal_after` of appends before trying again.
 - A job reports back as `Command::Finished` on the worker's own channel. The worker holds a sender
   for that until the `Storage` is dropped (`Command::Released`), so it still stops once the
   `Storage` and every `Flusher` are gone.
-- Tests hold jobs at a `JobGate` (`StorageConfig::jobs`, test builds only) to record, flush, save
-  again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
+- Tests hold jobs at a `JobGate` (`StorageConfig::jobs`, test builds only), or make the next ones
+  panic, to record, flush, save again or fail while a save is in flight (`src/tests/journal_during_saves.rs`).
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites
   the whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`). A
   replaced journal is removed only once the new one is written.

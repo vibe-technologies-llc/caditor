@@ -2,6 +2,7 @@ use std::{
     collections::VecDeque,
     fs::{self, File, OpenOptions, Permissions},
     io::{self, Write},
+    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -441,9 +442,41 @@ enum Finished {
         document: Document,
         prepared: Option<PreparedJournal>,
     },
+    Stopped(Stopped),
+}
+
+enum Stopped {
+    Save { ticket: u64, path: PathBuf },
+    Keep { path: PathBuf },
+    Rebase,
 }
 
 impl Job {
+    fn stopped(&self) -> Stopped {
+        match self {
+            Self::Save(job) => Stopped::Save {
+                ticket: job.request.ticket,
+                path: job.request.path.clone(),
+            },
+            Self::Keep { request, .. } => Stopped::Keep {
+                path: request.path.clone(),
+            },
+            Self::Rebase(_) => Stopped::Rebase,
+        }
+    }
+
+    fn run_contained(self, before: impl FnOnce()) -> Finished {
+        let stopped = self.stopped();
+        let ran = panic::catch_unwind(AssertUnwindSafe(|| {
+            before();
+            self.run()
+        }));
+        ran.unwrap_or_else(|_| {
+            log::error!("a background save, version change or journal rebase panicked");
+            Finished::Stopped(stopped)
+        })
+    }
+
     fn run(self) -> Finished {
         match self {
             Self::Save(job) => job.run(),
@@ -673,15 +706,14 @@ impl Worker {
         let slot = Arc::new(Mutex::new(Some(job)));
         let spawned = self.jobs.clone().map(|finished| {
             let slot = Arc::clone(&slot);
-            #[cfg(test)]
-            let gate = self.gate.clone();
+            let before = self.before_job();
             thread::Builder::new()
                 .name("saving".to_owned())
                 .spawn(move || {
-                    #[cfg(test)]
-                    gate.pass();
-                    if let Some(job) = slot.lock().take() {
-                        let _ = finished.send(Command::Finished(Box::new(job.run())));
+                    let job = slot.lock().take();
+                    if let Some(job) = job {
+                        let done = job.run_contained(before);
+                        let _ = finished.send(Command::Finished(Box::new(done)));
                     }
                 })
         });
@@ -695,8 +727,20 @@ impl Worker {
         }
         let job = slot.lock().take();
         if let Some(job) = job {
-            self.complete(job.run(), Vec::new());
+            let done = job.run_contained(self.before_job());
+            self.complete(done, Vec::new());
         }
+    }
+
+    #[cfg(test)]
+    fn before_job(&self) -> impl FnOnce() + Send + 'static {
+        let gate = self.gate.clone();
+        move || gate.pass()
+    }
+
+    #[cfg(not(test))]
+    fn before_job(&self) -> impl FnOnce() + Send + 'static {
+        || {}
     }
 
     fn finish(&mut self, finished: Finished) -> Flow {
@@ -779,6 +823,18 @@ impl Worker {
                     base: document,
                 });
             }
+            Finished::Stopped(Stopped::Save { ticket, path }) => {
+                self.report(Report::SaveFailed {
+                    ticket,
+                    path,
+                    error: SaveError::StoppedUnexpectedly,
+                });
+            }
+            Finished::Stopped(Stopped::Keep { path }) => self.report(Report::KeepFailed {
+                path,
+                error: KeepVersionError::StoppedUnexpectedly,
+            }),
+            Finished::Stopped(Stopped::Rebase) => self.appended = 0,
         }
     }
 

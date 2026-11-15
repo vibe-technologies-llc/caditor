@@ -43,6 +43,7 @@ pub(crate) struct JobGate(Arc<GateState>);
 struct GateState {
     held: Mutex<bool>,
     changed: Condvar,
+    panics: Mutex<usize>,
 }
 
 impl JobGate {
@@ -55,11 +56,22 @@ impl JobGate {
         self.0.changed.notify_all();
     }
 
+    pub(crate) fn panic_in_next(&self, jobs: usize) {
+        *self.0.panics.lock() = jobs;
+    }
+
     pub(crate) fn pass(&self) {
         let mut held = self.0.held.lock();
         self.0
             .changed
             .wait_while_for(&mut held, |held| *held, GATE_PATIENCE);
+        drop(held);
+        let mut panics = self.0.panics.lock();
+        if *panics > 0 {
+            *panics -= 1;
+            drop(panics);
+            panic!("a job stopped as the test asked");
+        }
     }
 }
 
