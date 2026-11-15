@@ -51,7 +51,10 @@ paths:
   first on Windows). `WGPU_BACKEND` limits the backends tried, also for `OffscreenRenderer` and the
   offscreen tests (`new_without_display_handle_from_env`), so CI runs them on GL (`ci.md`); a test
   needing a Vulkan-only capability (the linear resolve) reads `linear_resolve()` and skips without
-  it. Each adapter gets its own limits, then defaults, then WebGL2-level ones.
+  it. Both ways a test opens a device (`device`, `opened_device`) record the adapter's resolve for
+  `linear_resolve()`, which refuses to guess: under nextest each test is its own process, and a
+  guessed linear resolve on GL has its targets refused, so the frame draws and picks nothing. Each
+  adapter gets its own limits, then defaults, then WebGL2-level ones.
 - `AdapterPreference` is Auto (default), Power saving or Performance; `WGPU_POWER_PREF`, when set,
   overrides all (`gpu::power_preference`). Auto resolves by `AdapterPreference::resolved` from
   `Machine::detect()` (`machine.rs`): a desktop is Performance, a portable or undetectable computer

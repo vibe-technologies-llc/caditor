@@ -4,15 +4,6 @@ Tests, CI and tooling that are missing or need attention.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
-- [high · small] CI's `check` job fails at "Run the offscreen render tests on the OpenGL backend":
-  `a_lost_device_is_reported_and_a_new_one_draws` and
-  `every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_picks_exact`
-  (`caditor-render`'s `offscreen_tests.rs`) panic with "the pick should be read back" there, on
-  the runs of 2026-11-14 from "Compile less for tests…" on, while the Vulkan run of the same tests
-  in the Test step passes. The steps after it (the clean-checkout check, Lint, cargo-deny) are
-  skipped with it, so a push is linted only on the machine that made it. The cause is not looked
-  into yet; a lead (unconfirmed): the pick readback thread waits with `PollType::Wait`, which on
-  GL holds the context (`PERFORMANCE.md`, Interface), while the tests poll on their own thread.
 - [medium · small] The fuzz jobs run into their 20 minute limit (`ci.yml`): `journal` and
   `journal_torn` on one run of 2026-11-14 and `svg` on the next were cancelled at 20m, a failed
   run though no input failed.

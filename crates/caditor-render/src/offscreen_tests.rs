@@ -52,7 +52,14 @@ const REQUIRE_GPU: &str = "CADITOR_REQUIRE_GPU";
 static LINEAR_RESOLVE: OnceLock<bool> = OnceLock::new();
 
 fn linear_resolve() -> bool {
-    LINEAR_RESOLVE.get().copied().unwrap_or(true)
+    LINEAR_RESOLVE
+        .get()
+        .copied()
+        .expect("a test opens its device through device or opened_device, which record its resolve")
+}
+
+fn remember_linear_resolve(adapter: &wgpu::Adapter) {
+    LINEAR_RESOLVE.get_or_init(|| gpu::resolves_linearly(adapter));
 }
 
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
@@ -77,7 +84,7 @@ fn device(limits: wgpu::Limits) -> Option<(wgpu::Device, wgpu::Queue)> {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
-    LINEAR_RESOLVE.get_or_init(|| gpu::resolves_linearly(&adapter));
+    remember_linear_resolve(&adapter);
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         required_limits: limits,
         ..wgpu::DeviceDescriptor::default()
@@ -578,7 +585,9 @@ fn opened_device(instance: &wgpu::Instance) -> Option<gpu::OpenedDevice> {
         crate::AdapterPreference::default(),
     ))
     .ok();
-    if opened.is_none() {
+    if let Some(opened) = &opened {
+        remember_linear_resolve(&opened.adapter);
+    } else {
         assert!(
             std::env::var_os(REQUIRE_GPU).is_none(),
             "no graphics adapter is available, and {REQUIRE_GPU} says the offscreen tests must run"
