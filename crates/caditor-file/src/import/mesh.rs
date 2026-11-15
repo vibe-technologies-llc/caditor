@@ -105,10 +105,10 @@ pub fn parse_mesh_in(
     name: &str,
     chosen: Option<MeshUnit>,
 ) -> Result<ModelImport, ImportError> {
-    let mesh = match format {
+    let (mesh, reading_notes) = match format {
         MeshFormat::Stl => read_stl(bytes)?,
-        MeshFormat::Obj => read_obj(bytes)?,
-        MeshFormat::ThreeMf => read_three_mf(bytes)?,
+        MeshFormat::Obj => (read_obj(bytes)?, Vec::new()),
+        MeshFormat::ThreeMf => (read_three_mf(bytes)?, Vec::new()),
     };
     if !mesh.positions.iter().all(|position| position.is_finite()) {
         return Err(damaged(format));
@@ -129,6 +129,7 @@ pub fn parse_mesh_in(
         }
         FacetedError::Cancelled(_) => ImportError::Cancelled,
     })?;
+    notes.extend(reading_notes);
     notes.extend(repair_notes(&built.repairs));
     let name = if name.is_empty() { "Mesh" } else { name };
     let mut bodies = Vec::with_capacity(built.solids.len());
@@ -226,44 +227,58 @@ fn repair_notes(repairs: &MeshRepairs) -> Vec<String> {
     notes
 }
 
-fn read_stl(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
+fn read_stl(bytes: &[u8]) -> Result<(TriangleMesh, Vec<String>), ImportError> {
     let count = bytes
         .get(STL_HEADER..STL_HEADER + 4)
         .and_then(|count| <[u8; 4]>::try_from(count).ok())
         .map(u32::from_le_bytes)
         .and_then(|count| usize::try_from(count).ok());
-    let binary = count.is_some_and(|count| {
+    let exact = count.is_some_and(|count| {
         count
             .checked_mul(STL_TRIANGLE)
             .and_then(|size| size.checked_add(STL_HEADER + 4))
             == Some(bytes.len())
     });
-    if binary {
-        return count
-            .and_then(|count| read_binary_stl(bytes, count))
-            .ok_or_else(|| damaged(MeshFormat::Stl));
+    let text = std::str::from_utf8(bytes)
+        .ok()
+        .filter(|text| text.trim_start().starts_with("solid"));
+    if let (false, Some(text)) = (exact, text) {
+        match read_text_stl(text) {
+            Ok(mesh) => return Ok((mesh, Vec::new())),
+            Err(ImportError::DamagedMesh(_)) if count.is_some() => {}
+            Err(error) => return Err(error),
+        }
     }
-    let text = std::str::from_utf8(bytes).map_err(|_| damaged(MeshFormat::Stl))?;
-    if text.trim_start().starts_with("solid") {
-        read_text_stl(text)
-    } else {
-        count
-            .and_then(|count| read_binary_stl(bytes, count))
-            .ok_or_else(|| damaged(MeshFormat::Stl))
-    }
+    let count = count.ok_or_else(|| damaged(MeshFormat::Stl))?;
+    read_binary_stl(bytes, count)
 }
 
 fn damaged(format: MeshFormat) -> ImportError {
     ImportError::DamagedMesh(format)
 }
 
-fn read_binary_stl(bytes: &[u8], count: usize) -> Option<TriangleMesh> {
-    let body = bytes.get(STL_HEADER + 4..)?;
+fn read_binary_stl(bytes: &[u8], count: usize) -> Result<(TriangleMesh, Vec<String>), ImportError> {
+    within_budget(count.saturating_mul(3), count)?;
+
+    let body = bytes
+        .get(STL_HEADER + 4..)
+        .ok_or_else(|| damaged(MeshFormat::Stl))?;
+    let (records, _) = body.as_chunks::<STL_TRIANGLE>();
+    let held = records.len();
+    let used = count.min(held);
+
     let mut mesh = TriangleMesh::default();
-    for record in body.as_chunks::<STL_TRIANGLE>().0.iter().take(count) {
-        let float = |at: usize| -> Option<f64> {
-            let raw = <[u8; 4]>::try_from(record.get(at..at + 4)?).ok()?;
-            Some(f64::from(f32::from_le_bytes(raw)))
+    mesh.positions.reserve(used.saturating_mul(3));
+    mesh.triangles.reserve(used);
+    for (index, record) in records.iter().take(used).enumerate() {
+        poll_between_lines(index)?;
+
+        let float = |at: usize| -> Result<f64, ImportError> {
+            record
+                .get(at..at + 4)
+                .and_then(|raw| <[u8; 4]>::try_from(raw).ok())
+                .map(|raw| f64::from(f32::from_le_bytes(raw)))
+                .ok_or_else(|| damaged(MeshFormat::Stl))
         };
         let start = mesh.positions.len();
         for corner in 0..3 {
@@ -273,7 +288,19 @@ fn read_binary_stl(bytes: &[u8], count: usize) -> Option<TriangleMesh> {
         }
         mesh.triangles.push([start, start + 1, start + 2]);
     }
-    (!mesh.triangles.is_empty()).then_some(mesh)
+    if mesh.triangles.is_empty() {
+        return Err(damaged(MeshFormat::Stl));
+    }
+
+    let mut notes = Vec::new();
+    if count > held {
+        notes.push(format!(
+            "Its header counts {count} triangles but its data holds {held}, so those were read."
+        ));
+    } else if body.len() > used * STL_TRIANGLE {
+        notes.push(format!("Data after its {count} triangles was left out."));
+    }
+    Ok((mesh, notes))
 }
 
 fn poll_between_lines(line: usize) -> Result<(), ImportError> {
@@ -445,7 +472,7 @@ fn unit_scale(unit: Option<&str>) -> Option<f64> {
     }
 }
 
-fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
+pub(super) fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
     let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
     let archive = zip_read::Archive::new(bytes).ok_or_else(damaged)?;
     let mut package = Package {
@@ -570,7 +597,14 @@ impl Package<'_> {
         let read = |node: Node<'_, '_>| read_reference(node, scale, directory);
 
         let mut objects = UntrustedMap::new();
-        for object in root.descendants().filter(|node| node.name() == "object") {
+        let declared = root
+            .children()
+            .filter(|node| node.name() == "resources")
+            .flat_map(Node::children)
+            .filter(|node| node.name() == "object");
+        for (index, object) in declared.enumerate() {
+            poll_between_lines(index)?;
+
             let Some(id) = object.attribute("id") else {
                 continue;
             };
@@ -581,12 +615,26 @@ impl Package<'_> {
                 .children()
                 .find(|child| child.name() == "mesh")
                 .map(|shape| read_shape(shape, scale));
-            let components = object
-                .descendants()
-                .filter(|child| child.name() == "component")
-                .map(read)
-                .collect();
-            objects.insert(id.to_owned(), Object { shape, components });
+            if matches!(shape, Some(Err(ImportError::Cancelled))) {
+                return Err(ImportError::Cancelled);
+            }
+            let mut components = Vec::new();
+            let declared_components = object
+                .children()
+                .filter(|child| child.name() == "components")
+                .flat_map(Node::children)
+                .filter(|child| child.name() == "component");
+            for (index, component) in declared_components.enumerate() {
+                poll_between_lines(index)?;
+                components.push(read(component));
+            }
+            objects.insert(
+                id.to_owned(),
+                Object {
+                    shape,
+                    components: components.into(),
+                },
+            );
         }
         let build = root
             .children()
@@ -636,32 +684,39 @@ fn read_shape(shape: Node<'_, '_>, scale: f64) -> Result<Shape, ImportError> {
             .map(|value| value * scale)
             .ok_or_else(damaged)
     };
-    let positions = shape
-        .descendants()
-        .filter(|child| child.name() == "vertex")
-        .map(|vertex| {
-            Ok(Point3::new(
-                coordinate(vertex, "x")?,
-                coordinate(vertex, "y")?,
-                coordinate(vertex, "z")?,
-            ))
-        })
-        .collect::<Result<Vec<_>, ImportError>>()?;
+    let mut positions = Vec::new();
+    let vertices = shape
+        .children()
+        .filter(|child| child.name() == "vertices")
+        .flat_map(Node::children)
+        .filter(|child| child.name() == "vertex");
+    for (index, vertex) in vertices.enumerate() {
+        poll_between_lines(index)?;
+        positions.push(Point3::new(
+            coordinate(vertex, "x")?,
+            coordinate(vertex, "y")?,
+            coordinate(vertex, "z")?,
+        ));
+    }
+
     let count = positions.len();
-    let triangles = shape
-        .descendants()
-        .filter(|child| child.name() == "triangle")
-        .map(|triangle| {
-            let corner = |name: &str| -> Result<usize, ImportError> {
-                triangle
-                    .attribute(name)
-                    .and_then(|index| index.parse::<usize>().ok())
-                    .filter(|&index| index < count)
-                    .ok_or_else(damaged)
-            };
-            Ok([corner("v1")?, corner("v2")?, corner("v3")?])
-        })
-        .collect::<Result<Vec<_>, ImportError>>()?;
+    let mut triangles = Vec::new();
+    let declared = shape
+        .children()
+        .filter(|child| child.name() == "triangles")
+        .flat_map(Node::children)
+        .filter(|child| child.name() == "triangle");
+    for (index, triangle) in declared.enumerate() {
+        poll_between_lines(index)?;
+        let corner = |name: &str| -> Result<usize, ImportError> {
+            triangle
+                .attribute(name)
+                .and_then(|index| index.parse::<usize>().ok())
+                .filter(|&index| index < count)
+                .ok_or_else(damaged)
+        };
+        triangles.push([corner("v1")?, corner("v2")?, corner("v3")?]);
+    }
     Ok(Shape {
         positions,
         triangles,

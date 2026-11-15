@@ -383,23 +383,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Drawing and mesh import
 
-- [high · easy] A 3MF of nested objects multiplies its vertices in memory: `mesh.rs` reads every
-  `object` anywhere in a part, its components through `descendants()`, and `read_shape` gathers
-  every `vertex` and `triangle` below the mesh through `descendants()`, those of objects nested
-  inside it included, while `import/xml.rs` allows nesting to 1024; 500 levels over 4 million
-  vertices ask for about 48 GB from a file of a few hundred KiB, an abort no `catch_unwind` catches,
-  and these loops poll no interrupt. Read the spec's fixed paths with `children()`
-  (`resources/object`, `mesh/vertices/vertex`, `components/component`); the nesting test
-  (`mesh_tests.rs`) only covers depth past 1024.
-- [medium · easy] Binary STL is not charged against `MAX_MODEL_ELEMENTS`: `read_binary_stl` pushes
-  every triangle, only text STL and OBJ calling `within_budget`, so a 2 GiB file holds about 43
-  million triangles, around 4 GB before `faceted_solids` refuses it. Check the count first and
-  refuse as `ModelTooManyElements`.
-- [medium · easy] A binary STL whose length is not exactly `84 + 50 × count` (trailing bytes or
-  padding some exporters write) is refused as damaged: `read_stl` falls to `std::str::from_utf8`,
-  which binary data fails before the binary fallback is reached. Read text only when the bytes are
-  UTF-8 starting with `solid`, else binary with the smaller of the count and what the body holds,
-  noting the difference.
 - [medium · easy] An SVG of one long path and many `textPath`s naming it (or a `use` repeating one)
   hangs import past Cancel: `svg/lettering.rs`'s `track` parses the target's whole `d` again for
   every `textPath` and use instance, bypassing the outline cache, `text_path.rs`'s `samples`

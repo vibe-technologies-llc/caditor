@@ -6,7 +6,8 @@ use caditor_kernel::{SamplingTolerance, Solid, interruptible};
 use crate::{
     export::zip::{ZipEntry, archive},
     import::{
-        ImportError, MeshFormat, MeshUnit, ModelImport, UnitBasis, mesh::MAX_MODEL_ELEMENTS,
+        ImportError, MeshFormat, MeshUnit, ModelImport, UnitBasis,
+        mesh::{MAX_MODEL_ELEMENTS, read_three_mf},
         parse_mesh, parse_mesh_in, read_mesh_file,
     },
 };
@@ -769,4 +770,119 @@ fn a_3mf_declares_its_units_so_it_is_neither_guessed_nor_offered_a_scale() {
 
     assert_eq!(imported.unit, None);
     assert!(imported.notes.iter().all(|note| !note.contains("no units")));
+}
+
+fn nested_cube_objects(depth: usize) -> String {
+    let mut model = String::from("<model unit=\"millimeter\"><resources>");
+    for level in 1..=depth {
+        write!(model, "<object id=\"{level}\"><mesh><vertices>").unwrap();
+        for [x, y, z] in CORNERS {
+            write!(model, "<vertex x=\"{x}\" y=\"{y}\" z=\"{z}\"/>").unwrap();
+        }
+        model.push_str("</vertices><triangles>");
+        for [a, b, c] in TRIANGLES {
+            write!(model, "<triangle v1=\"{a}\" v2=\"{b}\" v3=\"{c}\"/>").unwrap();
+        }
+        model.push_str("</triangles></mesh>");
+    }
+    model.push_str(&"</object>".repeat(depth));
+    model.push_str("</resources><build><item objectid=\"1\"/></build></model>");
+    model
+}
+
+#[test]
+fn a_3mf_of_objects_nested_in_each_other_reads_only_the_vertices_of_the_object_placed() {
+    let package = model_package(&nested_cube_objects(500));
+
+    let mesh = read_three_mf(&package).unwrap();
+
+    assert_eq!(mesh.positions.len(), CORNERS.len());
+    assert_eq!(mesh.triangles.len(), TRIANGLES.len());
+}
+
+#[test]
+fn a_3mf_with_objects_nested_inside_a_resource_object_does_not_declare_them() {
+    let package = model_package(&nested_cube_objects(3).replace(
+        "<build><item objectid=\"1\"/>",
+        "<build><item objectid=\"2\"/>",
+    ));
+
+    assert_eq!(
+        parse_mesh(&package, MeshFormat::ThreeMf, "nested.3mf", "nested"),
+        Err(ImportError::DamagedMesh(MeshFormat::ThreeMf))
+    );
+}
+
+#[test]
+fn cancelling_stops_a_3mf_mesh_between_its_vertices() {
+    let mut model =
+        String::from("<model unit=\"millimeter\"><resources><object id=\"1\"><mesh><vertices>");
+    model.push_str(&"<vertex x=\"0\" y=\"0\" z=\"0\"/>".repeat(10_000));
+    model.push_str("</vertices><triangles/></mesh></object></resources>");
+    model.push_str("<build><item objectid=\"1\"/></build></model>");
+
+    let stopped = interruptible(Arc::new(|| true), || {
+        parse_mesh(
+            &model_package(&model),
+            MeshFormat::ThreeMf,
+            "points.3mf",
+            "points",
+        )
+    });
+
+    assert_eq!(stopped.map(|_| ()), Err(ImportError::Cancelled));
+}
+
+#[test]
+fn a_binary_stl_claiming_more_triangles_than_the_limit_is_refused_by_its_count() {
+    let mut bytes = vec![0u8; 80];
+    bytes.extend(u32::MAX.to_le_bytes());
+    bytes.extend([0u8; 50]);
+
+    assert_eq!(
+        parse_mesh(&bytes, MeshFormat::Stl, "huge.stl", "huge").map(|_| ()),
+        Err(ImportError::ModelTooManyElements)
+    );
+}
+
+#[test]
+fn a_binary_stl_with_bytes_after_its_triangles_imports_and_says_so() {
+    let mut bytes = binary_stl();
+    bytes.extend([0u8; 7]);
+
+    let imported = parse_mesh(&bytes, MeshFormat::Stl, "cube.stl", "cube").unwrap();
+
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    assert!(
+        imported
+            .notes
+            .contains(&"Data after its 12 triangles was left out.".to_owned())
+    );
+}
+
+#[test]
+fn a_binary_stl_whose_body_is_shorter_than_its_count_reads_what_it_holds() {
+    let mut bytes = binary_stl();
+    bytes.truncate(bytes.len() - 50);
+
+    let imported = parse_mesh(&bytes, MeshFormat::Stl, "cube.stl", "cube").unwrap();
+
+    assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    assert!(imported.notes.contains(
+        &"Its header counts 12 triangles but its data holds 11, so those were read.".to_owned()
+    ));
+}
+
+#[test]
+fn a_binary_stl_whose_header_starts_with_solid_is_read_as_binary() {
+    let mut exact = binary_stl();
+    exact[..10].copy_from_slice(b"solid cube");
+    let mut padded = exact.clone();
+    padded.extend([0u8; 13]);
+
+    for bytes in [exact, padded] {
+        let imported = parse_mesh(&bytes, MeshFormat::Stl, "cube.stl", "cube").unwrap();
+
+        assert!((only_volume(&imported) - 1000.0).abs() < 1e-6);
+    }
 }

@@ -245,7 +245,9 @@ paths:
 ## Mesh import (`import/mesh.rs`)
 
 - `read_mesh_file` picks the format by extension (`MeshFormat`): STL (binary when its size matches
-  the triangle count, else text), OBJ (`v` and `f`, polygons fanned, `/` parts and negative
+  the triangle count; else text when UTF-8 starting with `solid` and not damaged; else binary with
+  the smaller of the header count and the records the body holds, trailing bytes or a short body
+  noted in the import report), OBJ (`v` and `f`, polygons fanned, `/` parts and negative
   indices) and 3MF (`zip_read.rs`: stored and deflated entries, no ZIP64, `Archive::read` telling a
   missing entry from a damaged or oversized one, `EntryError`; model part from `_rels/.rels`, build
   items and nested components placed by their transforms). Every model part and `_rels/.rels` is
@@ -259,7 +261,11 @@ paths:
   each part is read at most once and only when something placed refers to it, so an absent one is
   `MissingModelPart` only then. Each part's `unit` converts its vertices and transform translations
   to millimetres. A part is parsed once into owned objects (`Shape`, `Reference`), failures kept per
-  object and component and raised only when placed.
+  object and component and raised only when placed. Objects, vertices, triangles and components are
+  read by the spec's fixed paths through `children()` (`resources/object`, `mesh/vertices/vertex`,
+  `mesh/triangles/triangle`, `components/component`), never `descendants()`, so an object nested
+  inside another is not declared and its vertices are not gathered again; each loop polls the
+  kernel interrupt every `LINES_BETWEEN_INTERRUPT_POLLS` items.
 - 3MF budgets belong to the package: inflated bytes of every part (and `_rels/.rels`) come out of
   one `MAX_FILE_SIZE` (`UnpacksTooLarge`), every part's elements out of one `MAX_MODEL_ELEMENTS`
   (`ModelTooManyElements`). Component expansion is charged across parts: every placed object against
@@ -269,7 +275,8 @@ paths:
   being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
   damage.
 - Text STL and OBJ are charged the same way: vertices and triangles each against `MAX_MODEL_ELEMENTS`
-  (`ModelTooManyElements`), an OBJ face counted before its fan is made, and the kernel interrupt is
+  (`ModelTooManyElements`), an OBJ face counted before its fan is made, a binary STL's header count
+  before any triangle is read, and the kernel interrupt is
   polled every `LINES_BETWEEN_INTERRUPT_POLLS` lines, so Cancel stops a crafted file's parse.
 - STL and OBJ have no units (`import/mesh_unit.rs`). `UnitReading` on `ModelImport::unit` (none for
   3MF and STEP) says which `MeshUnit` (micrometres, millimetres, centimetres, metres) scaled the
