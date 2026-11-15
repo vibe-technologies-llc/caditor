@@ -834,7 +834,10 @@ impl Patterning {
     }
 
     pub fn gathers(&self) -> bool {
-        (self.kind == PatternKind::Rectangular && self.picking.is_none()) || self.gathering
+        match self.kind {
+            PatternKind::Rectangular => self.picking.is_none(),
+            PatternKind::Circular => self.gathering,
+        }
     }
 
     pub fn gathered(&self) -> bool {

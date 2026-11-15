@@ -447,3 +447,31 @@ fn a_symmetric_circular_pattern_turns_the_copies_both_ways() {
     assert!(has_centre(&shown, Point2::new(0.0, -10.0)));
     assert!(solves(&harness, feature));
 }
+
+#[test]
+fn a_direction_is_chosen_after_gathering_what_to_repeat_in_the_tool() {
+    let mut harness = Harness::new();
+    let (feature, circle, guide) = slanted_fixture(&mut harness);
+    let guide_label = harness.sketch(feature).entity_label(guide);
+    run_from_palette(&mut harness, RECTANGULAR);
+    harness.select(entity_pickables(feature, &[circle]));
+    harness.frame();
+    assert!(harness.shows("1 item"));
+
+    harness.click(Direction::First.choose_label());
+    harness.frame();
+    harness.click_at(Point2::new(-20.0, -20.0));
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows(&guide_label));
+    assert!(harness.shows("1 item"));
+    set(&mut harness, PatternField::Count, "2");
+    set(&mut harness, PatternField::Spacing, "10");
+    make(&mut harness);
+    let step = 10.0 / 2.0_f64.sqrt();
+    assert!(has_centre(
+        harness.sketch(feature),
+        CIRCLE_CENTRE + Point2::new(step, step)
+    ));
+}
