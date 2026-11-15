@@ -104,6 +104,13 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
+- [medium · medium] The sketch patterns' panel (`sketch_pattern_panel.rs`) takes every value as
+  text, a direction from a line, sides, flips and extent, but two things a pattern dialog in other
+  CAD offers are missing: leaving out single copies (clicking a previewed copy to suppress it,
+  with the kept copies then tied to the nearest kept one by a multiple of the step, and a copy
+  whose row and column toward the original are both left out tied some other way), and arrows on
+  the canvas dragging the distance of each direction with small count and distance fields beside
+  them, as the body pattern's handles do (`curve_pattern_handles`).
 - [medium · hard] Body items (`body_snap.rs`) are snapped to by drawing and grabs, pulled by the
   held snap and picked by Select and Smart dimension, from the pointer or the highlight keys, but
   they are not acquired for tracks and never crossed by a direction or track, since they are not in

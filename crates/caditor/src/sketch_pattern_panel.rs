@@ -1,5 +1,5 @@
 use caditor_document::FeatureId;
-use caditor_sketch::{EntityId, Sketch};
+use caditor_sketch::{EntityId, Sides, Sketch};
 use egui::{Id, Label, TextWrapMode, Ui};
 
 use crate::{
@@ -11,12 +11,20 @@ use crate::{
     icons,
     layout::RightPanel,
     model::{Action, Model, Notice},
-    patterning::{PatternEvaluation, PatternField, PatternKind, PatternSettings, Patterning},
+    patterning::{
+        DISTRIBUTIONS, Direction, PatternEvaluation, PatternField, PatternKind, PatternSettings,
+        Patterning, SIDES, TurnKind,
+    },
     trimming::capitalized,
     widgets::{self, PanelTitle, Tone},
 };
 
 pub const SHAPE: &str = "Shape";
+pub const DISTRIBUTION: &str = "Distribution";
+pub const SPREAD: &str = "Spread";
+pub const BY_ANGLE: &str = "The angle below";
+pub const CHOOSING: &str = "Choosing: click a line or axis in the view";
+pub const STOP_CHOOSING: &str = "Stop choosing";
 pub const CENTRE: &str = "Centre";
 pub const REPEATS: &str = "Repeats";
 pub const NO_CENTRE: &str = "None chosen";
@@ -31,8 +39,6 @@ pub const RECTANGULAR_ABOUT: &str = "Repeat the selection in a row, or in a grid
 pub const CIRCULAR_ABOUT: &str = "Repeat the selection about a point. Every value takes units \
                                   and expressions using your parameters; the copies keep \
                                   following them.";
-pub const FULL_TURN_NOTE: &str = "A total angle of 360° spaces the copies evenly; a smaller angle \
-                                  runs from the original to the last copy.";
 const PANEL: RightPanel = RightPanel {
     id: "sketch-pattern",
 };
@@ -59,8 +65,10 @@ pub fn show(
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let kind = patterning.kind();
-    let evaluation = settings.evaluate(context.model, kind);
+    let lines = patterning.directions();
+    let evaluation = settings.evaluate(context.model, kind, lines);
     let rows = settings.shows_rows(context.model);
+    let fields = settings.shown_fields(context.model, kind, lines);
     let centre = patterning.chosen_centre();
     let ready = evaluation.spec.is_ok()
         && patterning.repeated() > 0
@@ -96,18 +104,45 @@ pub fn show(
                 ui.add_space(SPACE_S);
                 widgets::properties(ui, "sketch-pattern-values", |ui| {
                     chosen.kind = shapes(ui, kind);
-                    if kind == PatternKind::Circular {
-                        chosen.origin = centre_row(ui, context.sketch, centre);
-                    }
-                    let fields = match kind {
-                        PatternKind::Rectangular if rows => {
-                            [PatternField::RECTANGULAR.as_slice(), &PatternField::ROWS].concat()
+                    match kind {
+                        PatternKind::Rectangular => {
+                            distribution_row(ui, settings);
+                            let shown = Shown {
+                                model: context.model,
+                                sketch: context.sketch,
+                                fields: &fields,
+                                evaluation: &evaluation,
+                            };
+                            let first = [PatternField::Count, PatternField::Spacing];
+                            direction_rows(
+                                ui,
+                                &shown,
+                                (settings, patterning),
+                                Direction::First,
+                                &first,
+                            );
+                            field_rows(ui, &shown, settings, &[PatternField::Rows]);
+                            if rows {
+                                direction_rows(
+                                    ui,
+                                    &shown,
+                                    (settings, patterning),
+                                    Direction::Second,
+                                    &[PatternField::RowSpacing],
+                                );
+                            }
                         }
-                        PatternKind::Rectangular => PatternField::RECTANGULAR.to_vec(),
-                        PatternKind::Circular => PatternField::CIRCULAR.to_vec(),
-                    };
-                    for field in fields {
-                        field_row(ui, context.model, settings, field, &evaluation);
+                        PatternKind::Circular => {
+                            chosen.origin = centre_row(ui, context.sketch, centre);
+                            turn_row(ui, settings);
+                            let shown = Shown {
+                                model: context.model,
+                                sketch: context.sketch,
+                                fields: &fields,
+                                evaluation: &evaluation,
+                            };
+                            field_rows(ui, &shown, settings, &PatternField::CIRCULAR);
+                        }
                     }
                     widgets::property(ui, REPEATS, |ui| match patterning.repeated() {
                         0 => wrapped(ui, widgets::muted(NOTHING_REPEATED, ui)),
@@ -115,7 +150,7 @@ pub fn show(
                     });
                 });
                 ui.add_space(SPACE_M);
-                outcome(ui, kind, &evaluation, patterning);
+                outcome(ui, (kind, settings.turn()), &evaluation, patterning);
             });
             pressed
         },
@@ -144,6 +179,13 @@ struct Chosen {
     origin: bool,
 }
 
+struct Shown<'a> {
+    model: &'a Model,
+    sketch: Option<&'a Sketch>,
+    fields: &'a [PatternField],
+    evaluation: &'a PatternEvaluation,
+}
+
 fn shapes(ui: &mut Ui, kind: PatternKind) -> Option<PatternKind> {
     widgets::property(ui, SHAPE, |ui| {
         let choices = PatternKind::ALL.map(|kind| (kind.label(), kind.about()));
@@ -154,6 +196,113 @@ fn shapes(ui: &mut Ui, kind: PatternKind) -> Option<PatternKind> {
         widgets::segmented(ui, &choices, current)
             .and_then(|index| PatternKind::ALL.get(index).copied())
     })
+}
+
+fn distribution_row(ui: &mut Ui, settings: &mut PatternSettings) {
+    let current = settings.distribution();
+    let picked = widgets::property(ui, DISTRIBUTION, |ui| {
+        let choices = DISTRIBUTIONS.map(|(_, label, hover)| (label, hover));
+        let index = DISTRIBUTIONS
+            .iter()
+            .position(|(shown, ..)| *shown == current)
+            .unwrap_or(usize::MAX);
+        widgets::segmented(ui, &choices, index)
+            .and_then(|index| DISTRIBUTIONS.get(index).map(|(choice, ..)| *choice))
+    });
+    if let Some(picked) = picked {
+        settings.set_distribution(picked);
+    }
+}
+
+fn turn_row(ui: &mut Ui, settings: &mut PatternSettings) {
+    let current = settings.turn();
+    let picked = widgets::property(ui, SPREAD, |ui| {
+        let choices = TurnKind::ALL.map(|turn| (turn.label(), turn.about()));
+        let index = TurnKind::ALL
+            .iter()
+            .position(|shown| *shown == current)
+            .unwrap_or(usize::MAX);
+        widgets::segmented(ui, &choices, index).and_then(|index| TurnKind::ALL.get(index).copied())
+    });
+    if let Some(picked) = picked {
+        settings.set_turn(picked);
+    }
+}
+
+fn direction_rows(
+    ui: &mut Ui,
+    shown: &Shown<'_>,
+    (settings, patterning): (&mut PatternSettings, &mut Patterning),
+    direction: Direction,
+    leading: &[PatternField],
+) {
+    field_rows(ui, shown, settings, leading);
+    let line = patterning
+        .directions()
+        .get(direction.index())
+        .copied()
+        .flatten();
+    let picking = patterning.picking() == Some(direction);
+    let asked = widgets::property(ui, direction.label(), |ui| {
+        ui.vertical(|ui| {
+            let named = line
+                .zip(shown.sketch)
+                .map(|(line, sketch)| sketch.entity_label(line));
+            match (picking, named) {
+                (true, _) => wrapped(ui, widgets::muted(CHOOSING, ui)),
+                (false, Some(name)) => wrapped(ui, name),
+                (false, None) => wrapped(ui, widgets::muted(BY_ANGLE, ui)),
+            }
+            if picking {
+                return ui
+                    .add(widgets::button(STOP_CHOOSING))
+                    .clicked()
+                    .then_some(DirectionAsk::Stop);
+            }
+            let choose = ui.add(widgets::button(direction.choose_label()));
+            if choose.clicked() {
+                choose.surrender_focus();
+            }
+            let choose = choose.clicked().then_some(DirectionAsk::Choose);
+            let angle =
+                line.is_some() && ui.add(widgets::button(direction.angle_label())).clicked();
+            choose.or(angle.then_some(DirectionAsk::Angle))
+        })
+        .inner
+    });
+    match asked {
+        Some(DirectionAsk::Choose) => patterning.pick_direction(direction),
+        Some(DirectionAsk::Stop) => patterning.stop_picking(),
+        Some(DirectionAsk::Angle) => patterning.use_angle(direction),
+        None => {}
+    }
+    field_rows(ui, shown, settings, &[direction.angle_field()]);
+    let current = settings.sides(direction);
+    let sides = widgets::property(ui, direction.sides_label(), |ui| {
+        let choices = SIDES.map(|(_, label, hover)| (label, hover));
+        let index = SIDES
+            .iter()
+            .position(|(sides, ..)| *sides == current)
+            .unwrap_or(usize::MAX);
+        widgets::segmented(ui, &choices, index)
+            .and_then(|index| SIDES.get(index).map(|(sides, ..)| *sides))
+    });
+    if let Some(sides) = sides {
+        settings.set_sides(direction, sides);
+    }
+    let reversed = settings.reversed(direction);
+    if current == Sides::One
+        && let Some(flipped) =
+            crate::feature_fields::reverse_row(ui, direction.flip_label(), reversed)
+    {
+        settings.set_reversed(direction, flipped);
+    }
+}
+
+enum DirectionAsk {
+    Choose,
+    Stop,
+    Angle,
 }
 
 fn centre_row(ui: &mut Ui, sketch: Option<&Sketch>, centre: Option<EntityId>) -> bool {
@@ -173,24 +322,33 @@ fn centre_row(ui: &mut Ui, sketch: Option<&Sketch>, centre: Option<EntityId>) ->
     })
 }
 
-fn field_row(
+fn field_rows(
     ui: &mut Ui,
-    model: &Model,
+    shown: &Shown<'_>,
     settings: &mut PatternSettings,
-    field: PatternField,
-    evaluation: &PatternEvaluation,
+    fields: &[PatternField],
 ) {
+    for field in fields {
+        if shown.fields.contains(field) {
+            field_row(ui, shown, settings, *field);
+        }
+    }
+}
+
+fn field_row(ui: &mut Ui, shown: &Shown<'_>, settings: &mut PatternSettings, field: PatternField) {
+    let wording = settings.wording();
     let value = LiveValue {
         id: field_id(field),
         hint: field.placeholder(),
-        about: field.about(),
+        about: wording.about(field),
         expected: field.expected(),
     };
-    let refusal = widgets::property(ui, field.label(), |ui| {
+    let refusal = widgets::property(ui, wording.caption(field), |ui| {
         let text = settings.text_mut(field)?;
-        field::live_value(ui, model, text, &value)
+        field::live_value(ui, shown.model, text, &value)
     });
-    if let Some((_, problem)) = evaluation
+    if let Some((_, problem)) = shown
+        .evaluation
         .problems
         .iter()
         .find(|(wrong, _)| *wrong == field)
@@ -203,7 +361,7 @@ fn field_row(
 
 fn outcome(
     ui: &mut Ui,
-    kind: PatternKind,
+    (kind, turn): (PatternKind, TurnKind),
     evaluation: &PatternEvaluation,
     patterning: &Patterning,
 ) {
@@ -218,7 +376,9 @@ fn outcome(
         return;
     }
     if kind == PatternKind::Circular {
-        widgets::callout(ui, Tone::Info, |ui| wrapped(ui, FULL_TURN_NOTE));
+        widgets::callout(ui, Tone::Info, |ui| {
+            wrapped(ui, format!("{}.", turn.about()))
+        });
     }
 }
 

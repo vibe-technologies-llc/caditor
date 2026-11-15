@@ -19,6 +19,7 @@ pub const MAX_PATTERN_INSTANCES: usize = 200;
 const TOLERANCE: f64 = 1e-7;
 const AXIS_TOLERANCE: f64 = 1e-9;
 const FULL_TURN_DEGREES: f64 = 360.0;
+const HALF_TURN_DEGREES: f64 = 180.0;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PatternError {
@@ -32,18 +33,28 @@ pub enum PatternError {
     TooManyInstances { count: usize, most: usize },
     #[error("the spacing cannot be zero")]
     ZeroSpacing,
+    #[error("the extent cannot be zero")]
+    ZeroExtent,
     #[error("a value is too large to use")]
     NotFinite,
     #[error("the two directions run along one line, so their copies would overlap")]
     ParallelDirections,
     #[error("{label} is not a point, so nothing can be patterned about it")]
     NotAPoint { entity: EntityId, label: String },
+    #[error("{label} is not a line, so it gives the pattern no direction")]
+    NotALine { entity: EntityId, label: String },
+    #[error("{label} has no length, so it gives the pattern no direction")]
+    NoDirection { entity: EntityId, label: String },
     #[error("everything selected lies on the centre, so turning it makes no copies")]
     NothingToTurn,
     #[error(
         "the angle must be more than 0° and less than 360°; leave it out to space the copies over a full turn"
     )]
     SpreadOutsideTurn,
+    #[error(
+        "a symmetric pattern turns more than 0° and less than 180° each way, or the copies of the two sides would meet"
+    )]
+    SymmetricSpreadOutsideHalfTurn,
     #[error("the pattern reaches further than {} m from the origin", MAX_LENGTH / 1_000.0)]
     OutOfReach,
     #[error(transparent)]
@@ -57,28 +68,110 @@ pub struct Dimensioned {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Heading {
+    Angle(Dimensioned),
+    Along { line: EntityId, square: bool },
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Sides {
+    #[default]
+    One,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Distribution {
+    #[default]
+    Spacing,
+    Extent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PatternRow {
     pub count: usize,
-    pub spacing: Dimensioned,
-    pub angle: Dimensioned,
+    pub distance: Dimensioned,
+    pub heading: Heading,
+    pub reversed: bool,
+    pub sides: Sides,
+}
+
+impl PatternRow {
+    pub fn along(count: usize, spacing: Dimensioned, angle: Dimensioned) -> Self {
+        Self {
+            count,
+            distance: spacing,
+            heading: Heading::Angle(angle),
+            reversed: false,
+            sides: Sides::One,
+        }
+    }
+
+    pub fn instances(&self) -> usize {
+        match self.sides {
+            Sides::One => self.count,
+            Sides::Both => self.count.saturating_mul(2).saturating_sub(1),
+        }
+    }
+
+    fn spacing(&self, distribution: Distribution) -> Dimensioned {
+        let gaps = self.count.saturating_sub(1).max(1);
+        match distribution {
+            Distribution::Extent if gaps > 1 => Dimensioned {
+                expression: Expression::binary(
+                    BinaryOperator::Divide,
+                    self.distance.expression.clone(),
+                    Expression::Number(gaps as f64),
+                ),
+                value: self.distance.value / gaps as f64,
+            },
+            Distribution::Spacing | Distribution::Extent => self.distance.clone(),
+        }
+    }
+
+    fn slots(&self) -> std::ops::RangeInclusive<i64> {
+        let last = i64::try_from(self.count.saturating_sub(1)).unwrap_or(i64::MAX);
+        match self.sides {
+            Sides::One => 0..=last,
+            Sides::Both => -last..=last,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RectangularPattern {
     pub first: PatternRow,
     pub second: Option<PatternRow>,
+    pub distribution: Distribution,
+}
+
+impl RectangularPattern {
+    pub fn instances(&self) -> usize {
+        let rows = self.second.as_ref().map_or(1, PatternRow::instances);
+        self.first.instances().saturating_mul(rows)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Spread {
     FullTurn,
     Total(Dimensioned),
+    Symmetric(Dimensioned),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CircularPattern {
     pub count: usize,
     pub spread: Spread,
+}
+
+impl CircularPattern {
+    pub fn instances(&self) -> usize {
+        match self.spread {
+            Spread::FullTurn | Spread::Total(_) => self.count,
+            Spread::Symmetric(_) => self.count.saturating_mul(2).saturating_sub(1),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -105,8 +198,15 @@ impl Motion {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct Course {
+    spacing: Dimensioned,
+    heading: Heading,
+    vector: Vector2,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum Step {
-    Shift { row: PatternRow, vector: Vector2 },
+    Shift(Course),
     Turn(Expression),
 }
 
@@ -242,7 +342,12 @@ impl Sketch {
         pattern: &RectangularPattern,
     ) -> Result<Plan, PatternError> {
         let chosen = self.pattern_items(items, None)?;
-        let instances = rectangular_instances(pattern)?;
+        let first = self.pattern_course(&pattern.first, pattern.distribution)?;
+        let second = match &pattern.second {
+            Some(row) => Some((row, self.pattern_course(row, pattern.distribution)?)),
+            None => None,
+        };
+        let instances = rectangular_instances(pattern, &first, second.as_ref())?;
         let plan = Plan {
             points: self.points_of(&chosen.curves, &chosen.lone),
             curves: chosen.curves,
@@ -295,6 +400,74 @@ impl Sketch {
         };
         plan.positions_stay_in_reach(self)?;
         Ok(plan)
+    }
+
+    fn pattern_course(
+        &self,
+        row: &PatternRow,
+        distribution: Distribution,
+    ) -> Result<Course, PatternError> {
+        counted(row.count)?;
+        let spacing = row.spacing(distribution);
+        if !spacing.value.is_finite() {
+            return Err(PatternError::NotFinite);
+        }
+        if spacing.value.abs() <= AXIS_TOLERANCE {
+            return Err(match distribution {
+                Distribution::Spacing => PatternError::ZeroSpacing,
+                Distribution::Extent => PatternError::ZeroExtent,
+            });
+        }
+        let unit = self.heading_direction(&row.heading)?;
+        let unit = if row.reversed { -unit } else { unit };
+        Ok(Course {
+            vector: unit * spacing.value,
+            spacing,
+            heading: row.heading.clone(),
+        })
+    }
+
+    fn heading_direction(&self, heading: &Heading) -> Result<Vector2, PatternError> {
+        let (line, square) = match heading {
+            Heading::Angle(angle) => {
+                if !angle.value.is_finite() {
+                    return Err(PatternError::NotFinite);
+                }
+                return Ok(Vector2::from_angle(angle.value.to_radians()));
+            }
+            Heading::Along { line, square } => (*line, *square),
+        };
+        let not_a_line = || PatternError::NotALine {
+            entity: line,
+            label: self.entity_label(line),
+        };
+        let along = match line.reference() {
+            Some(Reference::HorizontalAxis) => Vector2::X,
+            Some(Reference::VerticalAxis) => Vector2::Y,
+            Some(Reference::Origin) => return Err(not_a_line()),
+            None => match self.entity(line) {
+                Some(&Entity::Line { start, end }) => {
+                    let (Some(start), Some(end)) = (self.point(start), self.point(end)) else {
+                        return Err(not_a_line());
+                    };
+                    let reach = start
+                        .abs()
+                        .max_element()
+                        .max(end.abs().max_element())
+                        .max(1.0);
+                    let run = end - start;
+                    if run.length() <= TOLERANCE * reach {
+                        return Err(PatternError::NoDirection {
+                            entity: line,
+                            label: self.entity_label(line),
+                        });
+                    }
+                    run.normalize()
+                }
+                _ => return Err(not_a_line()),
+            },
+        };
+        Ok(if square { along.perp() } else { along })
     }
 
     fn centre_position(&self, centre: EntityId) -> Result<Point2, PatternError> {
@@ -500,7 +673,7 @@ impl Sketch {
         implied: &BTreeMap<EntityId, Vec<Vector2>>,
     ) -> Result<(), SketchError> {
         for (instance, map) in plan.instances.iter().zip(maps) {
-            let Step::Shift { row, vector } = &instance.step else {
+            let Step::Shift(course) = &instance.step else {
                 continue;
             };
             let previous = instance.from.and_then(|index| maps.get(index));
@@ -511,8 +684,8 @@ impl Sketch {
                 ) else {
                     continue;
                 };
-                let ties = shift_constraints(row, *vector, earlier, later);
-                let kept = kept_rows(implied.get(point), [Vector2::X, Vector2::Y]);
+                let ties = shift_constraints(course, earlier, later);
+                let kept = kept_rows(implied.get(point), tie_directions(course));
                 for (index, constraint) in ties.into_iter().enumerate() {
                     if kept.contains(&index) {
                         self.add_constraint(constraint)?;
@@ -624,74 +797,54 @@ fn counted(count: usize) -> Result<(), PatternError> {
     Ok(())
 }
 
-fn rectangular_instances(pattern: &RectangularPattern) -> Result<Vec<Instance>, PatternError> {
-    counted(pattern.first.count)?;
-    let first = row_vector(&pattern.first)?;
-    let second = match &pattern.second {
-        Some(row) => {
-            counted(row.count)?;
-            Some((row, row_vector(row)?))
-        }
-        None => None,
-    };
-    let columns = pattern.first.count;
-    let rows = pattern.second.as_ref().map_or(1, |row| row.count);
-    let total = columns.saturating_mul(rows);
+fn rectangular_instances(
+    pattern: &RectangularPattern,
+    first: &Course,
+    second: Option<&(&PatternRow, Course)>,
+) -> Result<Vec<Instance>, PatternError> {
+    let total = pattern.instances();
     if total > MAX_PATTERN_INSTANCES {
         return Err(PatternError::TooManyInstances {
             count: total,
             most: MAX_PATTERN_INSTANCES,
         });
     }
-    if let Some((_, across)) = &second
+    if let Some((_, across)) = second
         && first
+            .vector
             .normalize_or_zero()
-            .perp_dot(across.normalize_or_zero())
+            .perp_dot(across.vector.normalize_or_zero())
             .abs()
             <= AXIS_TOLERANCE
     {
         return Err(PatternError::ParallelDirections);
     }
-    let slot = |column: usize, row: usize| (row * columns + column).checked_sub(1);
-    let mut instances = Vec::with_capacity(total.saturating_sub(1));
-    for row in 0..rows {
-        for column in 0..columns {
-            if column == 0 && row == 0 {
-                continue;
-            }
-            let across = second.as_ref().map_or(Vector2::ZERO, |(_, vector)| *vector);
-            let motion = Motion::Shift(first * column as f64 + across * row as f64);
-            let (from, step) = match (column.checked_sub(1), row.checked_sub(1), &second) {
-                (Some(before), _, _) => (
-                    slot(before, row),
-                    Step::Shift {
-                        row: pattern.first.clone(),
-                        vector: first,
-                    },
-                ),
-                (None, Some(above), Some((spacing, vector))) => (
-                    slot(column, above),
-                    Step::Shift {
-                        row: (*spacing).clone(),
-                        vector: *vector,
-                    },
-                ),
-                (None, _, _) => continue,
-            };
-            instances.push(Instance { motion, from, step });
-        }
+    let rows = second.map_or(0..=0, |(row, _)| row.slots());
+    let slots: Vec<(i64, i64)> = rows
+        .flat_map(|row| pattern.first.slots().map(move |column| (column, row)))
+        .filter(|slot| *slot != (0, 0))
+        .collect();
+    let index: BTreeMap<(i64, i64), usize> = slots
+        .iter()
+        .enumerate()
+        .map(|(index, slot)| (*slot, index))
+        .collect();
+    let across = second.map_or(Vector2::ZERO, |(_, course)| course.vector);
+    let mut instances = Vec::with_capacity(slots.len());
+    for (column, row) in slots {
+        let motion = Motion::Shift(first.vector * column as f64 + across * row as f64);
+        let (before, course) = match (column, second) {
+            (0, Some((_, course))) => ((0, row - row.signum()), course),
+            (0, None) => continue,
+            _ => ((column - column.signum(), row), first),
+        };
+        instances.push(Instance {
+            motion,
+            from: index.get(&before).copied(),
+            step: Step::Shift(course.clone()),
+        });
     }
     Ok(instances)
-}
-
-fn row_vector(row: &PatternRow) -> Result<Vector2, PatternError> {
-    if !row.spacing.value.is_finite() || !row.angle.value.is_finite() {
-        return Err(PatternError::NotFinite);
-    }
-    if row.spacing.value.abs() <= AXIS_TOLERANCE {
-        return Err(PatternError::ZeroSpacing);
-    }
-    Ok(Vector2::from_angle(row.angle.value.to_radians()) * row.spacing.value)
 }
 
 fn circular_instances(
@@ -699,9 +852,10 @@ fn circular_instances(
     pattern: &CircularPattern,
 ) -> Result<Vec<Instance>, PatternError> {
     counted(pattern.count)?;
-    if pattern.count > MAX_PATTERN_INSTANCES {
+    let total = pattern.instances();
+    if total > MAX_PATTERN_INSTANCES {
         return Err(PatternError::TooManyInstances {
-            count: pattern.count,
+            count: total,
             most: MAX_PATTERN_INSTANCES,
         });
     }
@@ -721,38 +875,91 @@ fn circular_instances(
             if total.value == 0.0 || total.value.abs() >= FULL_TURN_DEGREES {
                 return Err(PatternError::SpreadOutsideTurn);
             }
-            let gaps = (pattern.count - 1) as f64;
-            let angle = if pattern.count == 2 {
-                total.expression.clone()
-            } else {
-                Expression::binary(
-                    BinaryOperator::Divide,
-                    total.expression.clone(),
-                    Expression::Number(gaps),
-                )
-            };
-            (total.value.to_radians() / gaps, angle)
+            spread_step(pattern.count, total)
+        }
+        Spread::Symmetric(each) => {
+            if !each.value.is_finite() {
+                return Err(PatternError::NotFinite);
+            }
+            if each.value == 0.0 || each.value.abs() >= HALF_TURN_DEGREES {
+                return Err(PatternError::SymmetricSpreadOutsideHalfTurn);
+            }
+            spread_step(pattern.count, each)
         }
     };
-    Ok((1..pattern.count)
+    let last = i64::try_from(pattern.count - 1).unwrap_or(i64::MAX);
+    let turns: Vec<i64> = match pattern.spread {
+        Spread::FullTurn | Spread::Total(_) => (1..=last).collect(),
+        Spread::Symmetric(_) => (1..=last).chain((1..=last).map(|turn| -turn)).collect(),
+    };
+    let index: BTreeMap<i64, usize> = turns
+        .iter()
+        .enumerate()
+        .map(|(index, turn)| (*turn, index))
+        .collect();
+    let backwards = Expression::Negate(Box::new(step_angle.clone()));
+    Ok(turns
+        .iter()
         .map(|turn| Instance {
             motion: Motion::Turn {
                 centre,
-                radians: step_radians * turn as f64,
+                radians: step_radians * *turn as f64,
             },
-            from: turn.checked_sub(2),
-            step: Step::Turn(step_angle.clone()),
+            from: index.get(&(turn - turn.signum())).copied(),
+            step: Step::Turn(if *turn < 0 {
+                backwards.clone()
+            } else {
+                step_angle.clone()
+            }),
         })
         .collect())
 }
 
-fn shift_constraints(
-    row: &PatternRow,
-    vector: Vector2,
-    earlier: EntityId,
-    later: EntityId,
-) -> Vec<Constraint> {
-    let literal = row.angle.expression.is_literal();
+fn spread_step(count: usize, spread: &Dimensioned) -> (f64, Expression) {
+    let gaps = (count - 1) as f64;
+    let angle = if count == 2 {
+        spread.expression.clone()
+    } else {
+        Expression::binary(
+            BinaryOperator::Divide,
+            spread.expression.clone(),
+            Expression::Number(gaps),
+        )
+    };
+    (spread.value.to_radians() / gaps, angle)
+}
+
+fn tie_directions(course: &Course) -> [Vector2; 2] {
+    match course.heading {
+        Heading::Angle(_) => [Vector2::X, Vector2::Y],
+        Heading::Along { .. } => {
+            let unit = course.vector.normalize_or_zero();
+            [unit, unit.perp()]
+        }
+    }
+}
+
+fn shift_constraints(course: &Course, earlier: EntityId, later: EntityId) -> Vec<Constraint> {
+    let angle = match &course.heading {
+        Heading::Angle(angle) => angle,
+        Heading::Along { line, square } => {
+            return vec![
+                Constraint::Distance {
+                    from: earlier,
+                    to: later,
+                    value: magnitude(&course.spacing),
+                },
+                Constraint::OnDirection {
+                    point: later,
+                    through: earlier.into(),
+                    line: *line,
+                    square: *square,
+                },
+            ];
+        }
+    };
+    let vector = course.vector;
+    let literal = angle.expression.is_literal();
     let tolerance = AXIS_TOLERANCE * vector.length();
     let vertical = literal && vector.x.abs() <= tolerance;
     let horizontal = literal && vector.y.abs() <= tolerance;
@@ -763,9 +970,9 @@ fn shift_constraints(
             from: earlier,
             to: later,
             value: if horizontal {
-                magnitude(&row.spacing)
+                magnitude(&course.spacing)
             } else {
-                component(row, Function::Cos)
+                component(&course.spacing, angle, Function::Cos)
             },
         }
     };
@@ -776,22 +983,22 @@ fn shift_constraints(
             from: earlier,
             to: later,
             value: if vertical {
-                magnitude(&row.spacing)
+                magnitude(&course.spacing)
             } else {
-                component(row, Function::Sin)
+                component(&course.spacing, angle, Function::Sin)
             },
         }
     };
     vec![across, up]
 }
 
-fn component(row: &PatternRow, function: Function) -> Expression {
+fn component(spacing: &Dimensioned, angle: &Dimensioned, function: Function) -> Expression {
     Expression::Call(
         Function::Abs,
         vec![Expression::binary(
             BinaryOperator::Multiply,
-            row.spacing.expression.clone(),
-            Expression::Call(function, vec![row.angle.expression.clone()]),
+            spacing.expression.clone(),
+            Expression::Call(function, vec![angle.expression.clone()]),
         )],
     )
 }

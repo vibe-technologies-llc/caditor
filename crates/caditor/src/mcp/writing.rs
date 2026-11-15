@@ -230,6 +230,10 @@ pub enum SketchingError {
     NotAPoint { sketch: String, entity: EntityName },
     #[error(transparent)]
     Conflicting(crate::constraint_trial::Refusal),
+    #[error("a pattern's direction is an angle or a line to run along, not both")]
+    AngleAndAlong,
+    #[error("a symmetric circular pattern needs the angle it turns each way")]
+    SymmetricWithoutAngle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

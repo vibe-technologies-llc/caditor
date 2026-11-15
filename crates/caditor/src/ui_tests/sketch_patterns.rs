@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     editing::Tool,
-    patterning::{self, PatternField, PatternKind},
+    patterning::{self, Direction, PatternField, PatternKind, TurnKind},
     sketch_pattern_panel,
 };
 
@@ -244,6 +244,9 @@ fn a_circular_pattern_works_from_the_keyboard_alone_over_a_total_angle() {
     harness.key(Key::Space, Modifiers::NONE);
     harness.frame();
     assert!(harness.shows(patterning::CIRCULAR_PROMPT));
+    assert!(!harness.shows(PatternField::TotalAngle.label()));
+    harness.click(TurnKind::Angle.label());
+    harness.frame();
     set(&mut harness, PatternField::Copies, "3");
     set(&mut harness, PatternField::TotalAngle, "90");
     enter(&mut harness);
@@ -294,7 +297,8 @@ fn the_panels_shape_switches_between_the_two_patterns_and_the_origin_can_be_the_
     harness.click(PatternKind::Circular.label());
     harness.frame();
     assert_eq!(harness.tool(), Some(Tool::CircularPattern));
-    assert!(harness.shows(PatternField::TotalAngle.label()));
+    assert!(harness.shows(sketch_pattern_panel::SPREAD));
+    assert!(harness.shows(TurnKind::FullTurn.label()));
     assert!(harness.shows(sketch_pattern_panel::NO_CENTRE));
 
     harness.click(sketch_pattern_panel::USE_ORIGIN);
@@ -309,4 +313,137 @@ fn the_panels_shape_switches_between_the_two_patterns_and_the_origin_can_be_the_
     harness.frame();
     assert_eq!(harness.tool(), Some(Tool::RectangularPattern));
     assert!(harness.shows(PatternField::Spacing.label()));
+}
+
+fn slanted_fixture(harness: &mut Harness) -> (FeatureId, EntityId, EntityId) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(CIRCLE_CENTRE, 1.0);
+    let guide = sketch.add_line(Point2::new(-30.0, -30.0), Point2::new(-10.0, -10.0));
+    (edit_free_sketch(harness, sketch), circle, guide)
+}
+
+#[test]
+fn a_line_clicked_in_the_view_sets_the_direction_the_copies_follow() {
+    let mut harness = Harness::new();
+    let (feature, circle, guide) = slanted_fixture(&mut harness);
+    let guide_label = harness.sketch(feature).entity_label(guide);
+    harness.select(entity_pickables(feature, &[circle]));
+    run_from_palette(&mut harness, RECTANGULAR);
+    assert!(harness.shows(sketch_pattern_panel::BY_ANGLE));
+    assert!(harness.shows(PatternField::Angle.label()));
+
+    harness.click(Direction::First.choose_label());
+    harness.frame();
+    assert!(harness.shows(sketch_pattern_panel::CHOOSING));
+    assert!(harness.shows(patterning::DIRECTION_PROMPT));
+    harness.click_at(Point2::new(-20.0, -20.0));
+    harness.frame();
+    assert!(harness.shows(&guide_label));
+    assert!(!harness.shows(PatternField::Angle.label()));
+    set(&mut harness, PatternField::Count, "3");
+    set(&mut harness, PatternField::Spacing, "10");
+    make(&mut harness);
+
+    let sketch = harness.sketch(feature);
+    let step = 10.0 / 2.0_f64.sqrt();
+    for steps in [1.0, 2.0] {
+        let expected = CIRCLE_CENTRE + Point2::new(step * steps, step * steps);
+        assert!(has_centre(sketch, expected), "{expected}");
+    }
+    assert_eq!(constraints_of_kind(sketch, "Parallel through").len(), 2);
+    assert!(solves(&harness, feature));
+
+    harness.click(Direction::First.angle_label());
+    harness.frame();
+    assert!(harness.shows(sketch_pattern_panel::BY_ANGLE));
+    assert!(harness.shows(PatternField::Angle.label()));
+}
+
+#[test]
+fn a_direction_is_chosen_from_the_keyboard_and_escape_stops_choosing() {
+    let mut harness = Harness::new();
+    let (feature, circle, _) = slanted_fixture(&mut harness);
+    harness.select(entity_pickables(feature, &[circle]));
+    run_from_palette(&mut harness, RECTANGULAR);
+
+    harness.click(Direction::First.choose_label());
+    harness.frame();
+    assert!(
+        harness.shows(sketch_pattern_panel::CHOOSING),
+        "choosing first"
+    );
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::RectangularPattern));
+    assert!(harness.shows(sketch_pattern_panel::BY_ANGLE));
+
+    harness.click(Direction::First.choose_label());
+    harness.frame();
+    harness.key(Key::N, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::N, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Space, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert!(harness.shows("Vertical axis"));
+    set(&mut harness, PatternField::Count, "2");
+    set(&mut harness, PatternField::Spacing, "10");
+    make(&mut harness);
+
+    assert!(has_centre(
+        harness.sketch(feature),
+        CIRCLE_CENTRE + Point2::new(0.0, 10.0)
+    ));
+    assert!(solves(&harness, feature));
+}
+
+#[test]
+fn both_sides_and_an_extent_spread_the_copies_either_way_of_the_original() {
+    let mut harness = Harness::new();
+    let (feature, circle, _) = row_fixture(&mut harness);
+    harness.select(entity_pickables(feature, &[circle]));
+    run_from_palette(&mut harness, RECTANGULAR);
+
+    harness.click("Both sides");
+    harness.frame();
+    assert!(!harness.shows(Direction::First.flip_label()));
+    harness.click("Extent");
+    harness.frame();
+    set(&mut harness, PatternField::Count, "3");
+    set(&mut harness, PatternField::Spacing, "20");
+    assert!(harness.shows("Repeat 1 item 4 more times"));
+    make(&mut harness);
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Circle").len(), 5);
+    for x in [-15.0, -5.0, 15.0, 25.0] {
+        assert!(has_centre(sketch, Point2::new(x, 5.0)), "{x}");
+    }
+    assert!(solves(&harness, feature));
+}
+
+#[test]
+fn a_symmetric_circular_pattern_turns_the_copies_both_ways() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(10.0, 0.0), 1.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.select(entity_pickables(feature, &[circle]));
+    run_from_palette(&mut harness, CIRCULAR);
+    harness.click(sketch_pattern_panel::USE_ORIGIN);
+    harness.frame();
+
+    harness.click(TurnKind::Symmetric.label());
+    harness.frame();
+    assert!(harness.shows("Angle each way"));
+    set(&mut harness, PatternField::Copies, "2");
+    set(&mut harness, PatternField::TotalAngle, "90");
+    make(&mut harness);
+
+    let shown = harness.shown(feature);
+    assert!(has_centre(&shown, Point2::new(0.0, 10.0)));
+    assert!(has_centre(&shown, Point2::new(0.0, -10.0)));
+    assert!(solves(&harness, feature));
 }

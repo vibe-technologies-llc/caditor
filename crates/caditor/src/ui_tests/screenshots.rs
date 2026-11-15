@@ -633,6 +633,22 @@ fn screenshots() {
                 model.frame();
                 shoot(&mut model, &gpu, &out, scene, look);
             }
+            run_from_palette(&mut model, "repeat sketch geometry in a grid");
+            model.frame();
+            for choice in ["Both sides", "Extent"] {
+                model.click(choice);
+                model.frame();
+            }
+            model.type_into_field(
+                crate::sketch_pattern_panel::field_id(crate::patterning::PatternField::Rows),
+                "2",
+            );
+            model.click(crate::patterning::Direction::First.choose_label());
+            model.frame();
+            model.frame();
+            shoot(&mut model, &gpu, &out, "sketch-pattern-choosing", look);
+            model.key(Key::Escape, Modifiers::NONE);
+            model.frame();
             model.key(Key::Escape, Modifiers::NONE);
             model.frame();
             model.select([]);

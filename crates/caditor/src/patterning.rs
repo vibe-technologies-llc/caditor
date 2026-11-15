@@ -2,8 +2,8 @@ use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{BinaryOperator, Dimension, EvalError, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    CircularPattern, Dimensioned, Entity, EntityId, Faceting, PatternError, PatternImage,
-    PatternRow, RectangularPattern, Sketch, Spread,
+    CircularPattern, Dimensioned, Distribution, Entity, EntityId, Faceting, Heading, PatternError,
+    PatternImage, PatternRow, RectangularPattern, Sides, Sketch, Spread,
 };
 
 use crate::{
@@ -11,6 +11,7 @@ use crate::{
     editing::Tool,
     feature_tree::count,
     field::{self, Expected, ExpressionError},
+    mirroring,
     model::Model,
     modifying::{HighlightNeeded, Hint, Outcome, Prompt, Refusal, StepError},
     snap::{self, Pointer, Screen},
@@ -41,6 +42,10 @@ pub const CIRCULAR_KEYS: &str =
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
 pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
+pub const DIRECTION_PROMPT: &str = "Click the line or axis the copies run along";
+pub const ROW_DIRECTION_PROMPT: &str = "Click the line or axis the rows step along";
+pub const DIRECTION_KEYS: &str =
+    "Click a line, or Highlight the next item in the view and press Space   Esc: stop choosing";
 const CENTRE_FIRST: &str = "click the point to repeat the selection about first";
 const VALUES_FIRST: &str = "mend the values in the panel first";
 const QUARTER_TURN_DEGREES: f64 = 90.0;
@@ -120,6 +125,173 @@ impl PatternKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    First,
+    Second,
+}
+
+impl Direction {
+    pub fn index(self) -> usize {
+        match self {
+            Self::First => 0,
+            Self::Second => 1,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::First => "Direction",
+            Self::Second => "Row direction",
+        }
+    }
+
+    pub fn sides_label(self) -> &'static str {
+        match self {
+            Self::First => "Sides",
+            Self::Second => "Row sides",
+        }
+    }
+
+    pub fn flip_label(self) -> &'static str {
+        match self {
+            Self::First => "Flip the direction",
+            Self::Second => "Flip the row direction",
+        }
+    }
+
+    pub fn choose_label(self) -> &'static str {
+        match self {
+            Self::First => "Choose a line in the view",
+            Self::Second => "Choose a line for the rows",
+        }
+    }
+
+    pub fn angle_label(self) -> &'static str {
+        match self {
+            Self::First => "Use an angle instead",
+            Self::Second => "Use a row angle instead",
+        }
+    }
+
+    pub fn angle_field(self) -> PatternField {
+        match self {
+            Self::First => PatternField::Angle,
+            Self::Second => PatternField::RowAngle,
+        }
+    }
+
+    fn prompt(self) -> &'static str {
+        match self {
+            Self::First => DIRECTION_PROMPT,
+            Self::Second => ROW_DIRECTION_PROMPT,
+        }
+    }
+
+    fn runs(self) -> &'static str {
+        match self {
+            Self::First => "Run the copies along",
+            Self::Second => "Step the rows along",
+        }
+    }
+}
+
+pub const SIDES: [(Sides, &str, &str); 2] = [
+    (
+        Sides::One,
+        "One side",
+        "The copies run from the original one way",
+    ),
+    (
+        Sides::Both,
+        "Both sides",
+        "The copies run from the original both ways, Count on each side",
+    ),
+];
+
+pub const DISTRIBUTIONS: [(Distribution, &str, &str); 2] = [
+    (
+        Distribution::Spacing,
+        "Spacing",
+        "The distance is how far apart neighbouring copies are",
+    ),
+    (
+        Distribution::Extent,
+        "Extent",
+        "The distance runs from the original to the last copy, the copies spread evenly over it",
+    ),
+];
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TurnKind {
+    #[default]
+    FullTurn,
+    Angle,
+    Symmetric,
+}
+
+impl TurnKind {
+    pub const ALL: [Self; 3] = [Self::FullTurn, Self::Angle, Self::Symmetric];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FullTurn => "Full",
+            Self::Angle => "Angle",
+            Self::Symmetric => "Symmetric",
+        }
+    }
+
+    pub fn about(self) -> &'static str {
+        match self {
+            Self::FullTurn => "The copies are spaced evenly over a whole turn",
+            Self::Angle => {
+                "The total angle runs from the original to the last copy; a negative angle turns \
+                 clockwise"
+            }
+            Self::Symmetric => {
+                "The copies turn both ways from the original, Count on each side, the angle \
+                 running from the original to the last copy each way"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wording {
+    distribution: Distribution,
+    turn: TurnKind,
+}
+
+impl Wording {
+    pub fn caption(self, field: PatternField) -> &'static str {
+        match (field, self.distribution, self.turn) {
+            (PatternField::Spacing, Distribution::Extent, _) => "Extent",
+            (PatternField::RowSpacing, Distribution::Extent, _) => "Row extent",
+            (PatternField::TotalAngle, _, TurnKind::Symmetric) => "Angle each way",
+            _ => field.label(),
+        }
+    }
+
+    pub fn about(self, field: PatternField) -> &'static str {
+        match (field, self.distribution, self.turn) {
+            (PatternField::Spacing, Distribution::Extent, _) => {
+                "How far from the original the last copy along the row is"
+            }
+            (PatternField::RowSpacing, Distribution::Extent, _) => {
+                "How far from the original's row the last row is"
+            }
+            (PatternField::TotalAngle, _, TurnKind::Symmetric) => {
+                "How far each way the last copy turns from the original"
+            }
+            _ => field.about(),
+        }
+    }
+
+    fn noun(self, field: PatternField) -> String {
+        self.caption(field).to_lowercase()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternField {
     Count,
     Spacing,
@@ -132,8 +304,6 @@ pub enum PatternField {
 }
 
 impl PatternField {
-    pub const RECTANGULAR: [Self; 4] = [Self::Count, Self::Spacing, Self::Angle, Self::Rows];
-    pub const ROWS: [Self; 2] = [Self::RowSpacing, Self::RowAngle];
     pub const CIRCULAR: [Self; 2] = [Self::Copies, Self::TotalAngle];
     const ALL: [Self; 8] = [
         Self::Count,
@@ -173,20 +343,25 @@ impl PatternField {
 
     pub fn about(self) -> &'static str {
         match self {
-            Self::Count => "How many along the row, the original included",
+            Self::Count => {
+                "How many along the row, the original included; on each side when both sides \
+                 are chosen"
+            }
             Self::Spacing => "How far apart the copies along the row are",
             Self::Angle => "Which way the row runs, from the sketch's horizontal axis",
-            Self::Rows => "How many rows, the original's included; 1 makes a single row",
+            Self::Rows => {
+                "How many rows, the original's included; 1 makes a single row; on each side when \
+                 both sides are chosen"
+            }
             Self::RowSpacing => "How far apart the rows are",
             Self::RowAngle => {
                 "Which way the rows step, from the sketch's horizontal axis; left empty, square \
                  to the row"
             }
-            Self::Copies => "How many in all, the original included",
-            Self::TotalAngle => {
-                "360° spaces the copies evenly over a full turn; a smaller angle runs from the \
-                 original to the last copy"
+            Self::Copies => {
+                "How many, the original included; on each side when the copies turn both ways"
             }
+            Self::TotalAngle => "How far the last copy turns from the original",
         }
     }
 
@@ -219,7 +394,7 @@ impl PatternField {
             Self::Rows => "1",
             Self::RowAngle => "",
             Self::Copies => "6",
-            Self::TotalAngle => "360°",
+            Self::TotalAngle => "90°",
         }
     }
 
@@ -229,16 +404,15 @@ impl PatternField {
             .position(|field| *field == self)
             .unwrap_or_default()
     }
-
-    fn noun(self) -> String {
-        self.label().to_lowercase()
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SpecProblem {
-    #[error("Mend the {} first", .field.noun())]
-    MendFirst { field: PatternField },
+    #[error("Mend the {} first", .wording.noun(*.field))]
+    MendFirst {
+        field: PatternField,
+        wording: Wording,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -250,6 +424,10 @@ pub struct PatternEvaluation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PatternSettings {
     texts: [String; 8],
+    distribution: Distribution,
+    sides: [Sides; 2],
+    reversed: [bool; 2],
+    turn: TurnKind,
     evaluated: Option<Spec>,
 }
 
@@ -257,12 +435,65 @@ impl Default for PatternSettings {
     fn default() -> Self {
         Self {
             texts: PatternField::ALL.map(|field| field.initial().to_owned()),
+            distribution: Distribution::Spacing,
+            sides: [Sides::One; 2],
+            reversed: [false; 2],
+            turn: TurnKind::FullTurn,
             evaluated: None,
         }
     }
 }
 
 impl PatternSettings {
+    pub fn wording(&self) -> Wording {
+        Wording {
+            distribution: self.distribution,
+            turn: self.turn,
+        }
+    }
+
+    pub fn distribution(&self) -> Distribution {
+        self.distribution
+    }
+
+    pub fn set_distribution(&mut self, distribution: Distribution) {
+        self.distribution = distribution;
+    }
+
+    pub fn sides(&self, direction: Direction) -> Sides {
+        self.sides
+            .get(direction.index())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_sides(&mut self, direction: Direction, sides: Sides) {
+        if let Some(kept) = self.sides.get_mut(direction.index()) {
+            *kept = sides;
+        }
+    }
+
+    pub fn reversed(&self, direction: Direction) -> bool {
+        self.reversed
+            .get(direction.index())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_reversed(&mut self, direction: Direction, reversed: bool) {
+        if let Some(kept) = self.reversed.get_mut(direction.index()) {
+            *kept = reversed;
+        }
+    }
+
+    pub fn turn(&self) -> TurnKind {
+        self.turn
+    }
+
+    pub fn set_turn(&mut self, turn: TurnKind) {
+        self.turn = turn;
+    }
+
     pub fn text(&self, field: PatternField) -> &str {
         self.texts.get(field.index()).map_or("", String::as_str)
     }
@@ -280,31 +511,75 @@ impl PatternSettings {
             .is_ok_and(|rows| rows != SINGLE_ROW)
     }
 
-    pub fn evaluate(&mut self, model: &Model, kind: PatternKind) -> PatternEvaluation {
+    pub fn evaluate(
+        &mut self,
+        model: &Model,
+        kind: PatternKind,
+        lines: [Option<EntityId>; 2],
+    ) -> PatternEvaluation {
         let mut problems = Vec::new();
         let spec = match kind {
-            PatternKind::Rectangular => self.rectangular(model, &mut problems),
+            PatternKind::Rectangular => self.rectangular(model, lines, &mut problems),
             PatternKind::Circular => self.circular(model, &mut problems),
         };
+        let wording = self.wording();
         let spec = match (problems.first(), spec) {
             (None, Some(spec)) => Ok(spec),
-            (Some((field, _)), _) => Err(SpecProblem::MendFirst { field: *field }),
+            (Some((field, _)), _) => Err(SpecProblem::MendFirst {
+                field: *field,
+                wording,
+            }),
             (None, None) => Err(SpecProblem::MendFirst {
                 field: match kind {
                     PatternKind::Rectangular => PatternField::Count,
                     PatternKind::Circular => PatternField::Copies,
                 },
+                wording,
             }),
         };
         self.evaluated = spec.as_ref().ok().cloned();
         PatternEvaluation { problems, spec }
     }
 
+    pub fn shown_fields(
+        &self,
+        model: &Model,
+        kind: PatternKind,
+        lines: [Option<EntityId>; 2],
+    ) -> Vec<PatternField> {
+        let typed_angle = |direction: Direction| {
+            lines
+                .get(direction.index())
+                .is_none_or(Option::is_none)
+                .then_some(direction.angle_field())
+        };
+        match kind {
+            PatternKind::Rectangular => {
+                let mut fields = vec![PatternField::Count, PatternField::Spacing];
+                fields.extend(typed_angle(Direction::First));
+                fields.push(PatternField::Rows);
+                if self.shows_rows(model) {
+                    fields.push(PatternField::RowSpacing);
+                    fields.extend(typed_angle(Direction::Second));
+                }
+                fields
+            }
+            PatternKind::Circular => match self.turn {
+                TurnKind::FullTurn => vec![PatternField::Copies],
+                TurnKind::Angle | TurnKind::Symmetric => {
+                    vec![PatternField::Copies, PatternField::TotalAngle]
+                }
+            },
+        }
+    }
+
     fn rectangular(
         &self,
         model: &Model,
+        lines: [Option<EntityId>; 2],
         problems: &mut Vec<(PatternField, PatternTextError)>,
     ) -> Option<Spec> {
+        let wording = self.wording();
         let count = noted(
             problems,
             PatternField::Count,
@@ -313,13 +588,25 @@ impl PatternSettings {
         let spacing = noted(
             problems,
             PatternField::Spacing,
-            quantity(model, self.text(PatternField::Spacing), SPACING, "spacing"),
+            quantity(
+                model,
+                self.text(PatternField::Spacing),
+                SPACING,
+                &wording.noun(PatternField::Spacing),
+            ),
         );
-        let angle = noted(
-            problems,
-            PatternField::Angle,
-            degrees(model, self.text(PatternField::Angle)),
-        );
+        let heading = match lines[0] {
+            Some(line) => Some(Heading::Along {
+                line,
+                square: false,
+            }),
+            None => noted(
+                problems,
+                PatternField::Angle,
+                degrees(model, self.text(PatternField::Angle)),
+            )
+            .map(Heading::Angle),
+        };
         let rows = noted(
             problems,
             PatternField::Rows,
@@ -335,20 +622,35 @@ impl PatternSettings {
                         model,
                         self.text(PatternField::RowSpacing),
                         SPACING,
-                        "row spacing",
+                        &wording.noun(PatternField::RowSpacing),
                     ),
                 );
                 let typed = self.text(PatternField::RowAngle);
-                let angle = match (typed.trim().is_empty(), &angle) {
-                    (true, Some(first)) => Some(square_to(first)),
-                    (true, None) => None,
-                    (false, _) => noted(problems, PatternField::RowAngle, degrees(model, typed)),
+                let across = match (lines[1], typed.trim().is_empty(), &heading) {
+                    (Some(line), _, _) => Some(Heading::Along {
+                        line,
+                        square: false,
+                    }),
+                    (None, true, Some(Heading::Angle(first))) => {
+                        Some(Heading::Angle(square_to(first)))
+                    }
+                    (None, true, Some(Heading::Along { line, .. })) => Some(Heading::Along {
+                        line: *line,
+                        square: true,
+                    }),
+                    (None, true, None) => None,
+                    (None, false, _) => {
+                        noted(problems, PatternField::RowAngle, degrees(model, typed))
+                            .map(Heading::Angle)
+                    }
                 };
-                spacing.zip(angle).map(|(spacing, angle)| {
+                spacing.zip(across).map(|(distance, heading)| {
                     Some(PatternRow {
                         count: rows,
-                        spacing,
-                        angle,
+                        distance,
+                        heading,
+                        reversed: self.reversed(Direction::Second),
+                        sides: self.sides(Direction::Second),
                     })
                 })
             }
@@ -356,12 +658,15 @@ impl PatternSettings {
         };
         let first = PatternRow {
             count: count?,
-            spacing: spacing?,
-            angle: angle?,
+            distance: spacing?,
+            heading: heading?,
+            reversed: self.reversed(Direction::First),
+            sides: self.sides(Direction::First),
         };
         Some(Spec::Rectangular(RectangularPattern {
             first,
             second: second?,
+            distribution: self.distribution,
         }))
     }
 
@@ -375,20 +680,27 @@ impl PatternSettings {
             PatternField::Copies,
             whole_count(model, self.text(PatternField::Copies), "count"),
         );
-        let total = noted(
-            problems,
-            PatternField::TotalAngle,
-            degrees(model, self.text(PatternField::TotalAngle)),
-        );
-        let total = total?;
-        let full = (total.value.abs() - FULL_TURN_DEGREES).abs() <= FULL_TURN_TOLERANCE;
+        let spread = match self.turn {
+            TurnKind::FullTurn => Some(Spread::FullTurn),
+            TurnKind::Angle | TurnKind::Symmetric => {
+                let angle = noted(
+                    problems,
+                    PatternField::TotalAngle,
+                    degrees(model, self.text(PatternField::TotalAngle)),
+                );
+                angle.map(|angle| {
+                    let full = (angle.value.abs() - FULL_TURN_DEGREES).abs() <= FULL_TURN_TOLERANCE;
+                    match self.turn {
+                        TurnKind::Symmetric => Spread::Symmetric(angle),
+                        TurnKind::Angle | TurnKind::FullTurn if full => Spread::FullTurn,
+                        TurnKind::Angle | TurnKind::FullTurn => Spread::Total(angle),
+                    }
+                })
+            }
+        };
         Some(Spec::Circular(CircularPattern {
             count: count?,
-            spread: if full {
-                Spread::FullTurn
-            } else {
-                Spread::Total(total)
-            },
+            spread: spread?,
         }))
     }
 }
@@ -409,11 +721,8 @@ impl Spec {
 
     fn extra_instances(&self) -> usize {
         match self {
-            Self::Rectangular(pattern) => {
-                let rows = pattern.second.as_ref().map_or(1, |row| row.count);
-                pattern.first.count.saturating_mul(rows).saturating_sub(1)
-            }
-            Self::Circular(pattern) => pattern.count.saturating_sub(1),
+            Self::Rectangular(pattern) => pattern.instances().saturating_sub(1),
+            Self::Circular(pattern) => pattern.instances().saturating_sub(1),
         }
     }
 }
@@ -428,6 +737,8 @@ pub struct Patterning {
     chosen: Option<EntityId>,
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
+    directions: [Option<EntityId>; 2],
+    picking: Option<Direction>,
     spec: Option<Spec>,
     image: Option<Result<PatternImage, PatternError>>,
 }
@@ -443,9 +754,50 @@ impl Patterning {
             chosen: None,
             hover: None,
             highlight: None,
+            directions: [None; 2],
+            picking: None,
             spec: None,
             image: None,
         }
+    }
+
+    pub fn directions(&self) -> [Option<EntityId>; 2] {
+        self.directions
+    }
+
+    pub fn picking(&self) -> Option<Direction> {
+        self.picking
+    }
+
+    pub fn pick_direction(&mut self, direction: Direction) {
+        self.picking = Some(direction);
+        self.highlight = None;
+        self.hover = None;
+    }
+
+    pub fn stop_picking(&mut self) {
+        self.picking = None;
+        self.highlight = None;
+        self.hover = None;
+    }
+
+    pub fn use_angle(&mut self, direction: Direction) {
+        if let Some(line) = self.directions.get_mut(direction.index()) {
+            *line = None;
+        }
+        if self.picking == Some(direction) {
+            self.stop_picking();
+        }
+    }
+
+    fn choose_line(&mut self, line: EntityId) {
+        if let Some(direction) = self.picking.take()
+            && let Some(kept) = self.directions.get_mut(direction.index())
+        {
+            *kept = Some(line);
+        }
+        self.highlight = None;
+        self.hover = None;
     }
 
     pub fn kind(&self) -> PatternKind {
@@ -482,7 +834,7 @@ impl Patterning {
     }
 
     pub fn gathers(&self) -> bool {
-        self.kind == PatternKind::Rectangular || self.gathering
+        (self.kind == PatternKind::Rectangular && self.picking.is_none()) || self.gathering
     }
 
     pub fn gathered(&self) -> bool {
@@ -503,7 +855,15 @@ impl Patterning {
         };
         let exists = |point: &EntityId| is_centre(sketch, *point);
         self.chosen = self.chosen.filter(exists);
-        self.highlight = self.highlight.filter(exists);
+        for line in &mut self.directions {
+            *line = line.filter(|line| mirroring::is_mirror(sketch, *line));
+        }
+        self.highlight = match self.picking {
+            Some(_) => self
+                .highlight
+                .filter(|line| mirroring::is_mirror(sketch, *line)),
+            None => self.highlight.filter(exists),
+        };
     }
 
     pub fn hover(
@@ -514,6 +874,9 @@ impl Patterning {
         faceting: Faceting,
     ) {
         self.hover = match self.kind {
+            PatternKind::Rectangular if self.picking.is_some() => {
+                pointer.and_then(|pointer| mirroring::line_under(sketch, screen, pointer))
+            }
             PatternKind::Rectangular => None,
             PatternKind::Circular if self.gathering => None,
             PatternKind::Circular => {
@@ -559,13 +922,27 @@ impl Patterning {
     }
 
     pub fn highlighted_entities(&self) -> Vec<EntityId> {
-        self.centre()
-            .into_iter()
-            .filter(|point| !point.is_reference())
+        let aims = match self.picking {
+            Some(_) => self
+                .highlight
+                .or(self.hover)
+                .into_iter()
+                .chain(self.directions.into_iter().flatten())
+                .collect(),
+            None => self.centre().into_iter().collect::<Vec<_>>(),
+        };
+        aims.into_iter()
+            .filter(|item| !item.is_reference())
             .collect()
     }
 
     pub fn label(&self, sketch: &Sketch) -> Option<String> {
+        if let Some(direction) = self.picking {
+            return Some(match self.highlight.or(self.hover) {
+                Some(line) => format!("{} {}", direction.runs(), sketch.entity_label(line)),
+                None => capitalized(direction.prompt()),
+            });
+        }
         let centre = self.centre();
         let items = self.repeated();
         match (self.spec.as_ref()?, &self.image) {
@@ -587,6 +964,12 @@ impl Patterning {
     }
 
     pub fn prompt(&self) -> Prompt {
+        if let Some(direction) = self.picking {
+            return Prompt {
+                text: direction.prompt(),
+                hint: Hint::Keys(DIRECTION_KEYS),
+            };
+        }
         let (text, keys) = match (self.kind, self.selected.is_empty()) {
             (PatternKind::Rectangular, true) => (RECTANGULAR_SELECT_FIRST, RECTANGULAR_GATHER_KEYS),
             (PatternKind::Rectangular, false) if self.gathered => {
@@ -610,6 +993,12 @@ impl Patterning {
     }
 
     pub fn click(&mut self) -> Outcome {
+        if self.picking.is_some() {
+            if let Some(line) = self.hover {
+                self.choose_line(line);
+            }
+            return Outcome::Nothing;
+        }
         if let Some(point) = self.hover.filter(|_| self.kind == PatternKind::Circular) {
             self.chosen = Some(point);
             self.highlight = None;
@@ -618,6 +1007,12 @@ impl Patterning {
     }
 
     pub fn finish(&mut self, model: &Model, feature: FeatureId) -> Outcome {
+        if self.picking.is_some()
+            && let Some(line) = self.highlight
+        {
+            self.choose_line(line);
+            return Outcome::Nothing;
+        }
         if self.selected.is_empty() {
             return Outcome::Refused(Refusal::NothingToRepeat {
                 tool: self.kind.tool(),
@@ -635,6 +1030,12 @@ impl Patterning {
     }
 
     pub fn activate(&mut self) -> Outcome {
+        if self.picking.is_some() {
+            if let Some(line) = self.highlight {
+                self.choose_line(line);
+            }
+            return Outcome::Nothing;
+        }
         if let Some(point) = self.highlight.take() {
             self.chosen = Some(point);
         }
@@ -666,7 +1067,7 @@ impl Patterning {
     }
 
     pub fn steps_targets(&self) -> bool {
-        self.kind == PatternKind::Circular && !self.gathering
+        (self.kind == PatternKind::Circular && !self.gathering) || self.picking.is_some()
     }
 
     pub fn steppable(&self) -> Result<(), StepError> {
@@ -674,17 +1075,26 @@ impl Patterning {
     }
 
     pub fn step(&mut self, sketch: &Sketch, step: isize) {
-        if self.kind != PatternKind::Circular {
-            return;
-        }
-        let points: Vec<EntityId> = std::iter::once(EntityId::ORIGIN)
-            .chain(
-                sketch
-                    .entities()
-                    .filter(|(_, entity)| matches!(entity, Entity::Point(_)))
-                    .map(|(id, _)| id),
-            )
-            .collect();
+        let points: Vec<EntityId> = match (self.picking, self.kind) {
+            (Some(_), _) => [EntityId::HORIZONTAL_AXIS, EntityId::VERTICAL_AXIS]
+                .into_iter()
+                .chain(
+                    sketch
+                        .entities()
+                        .filter(|(_, entity)| matches!(entity, Entity::Line { .. }))
+                        .map(|(id, _)| id),
+                )
+                .collect(),
+            (None, PatternKind::Circular) => std::iter::once(EntityId::ORIGIN)
+                .chain(
+                    sketch
+                        .entities()
+                        .filter(|(_, entity)| matches!(entity, Entity::Point(_)))
+                        .map(|(id, _)| id),
+                )
+                .collect(),
+            (None, PatternKind::Rectangular) => return,
+        };
         let total = points.len() as isize;
         let current = self
             .highlight
@@ -702,9 +1112,10 @@ impl Patterning {
     }
 
     pub fn highlight_needed(&self) -> Result<(), HighlightNeeded> {
-        match self.highlight {
-            Some(_) => Ok(()),
-            None => Err(HighlightNeeded::Point),
+        match (self.highlight, self.picking) {
+            (Some(_), _) => Ok(()),
+            (None, Some(_)) => Err(HighlightNeeded::Line),
+            (None, None) => Err(HighlightNeeded::Point),
         }
     }
 
@@ -713,7 +1124,10 @@ impl Patterning {
     }
 
     pub fn can_back_out(&self) -> bool {
-        self.highlight.is_some() || self.chosen.is_some() || self.regathers()
+        self.highlight.is_some()
+            || self.picking.is_some()
+            || self.chosen.is_some()
+            || self.regathers()
     }
 
     fn regathers(&self) -> bool {
@@ -721,7 +1135,7 @@ impl Patterning {
     }
 
     pub fn back_out(&mut self) {
-        if self.highlight.take().is_some() {
+        if self.highlight.take().is_some() || self.picking.take().is_some() {
             return;
         }
         if self.chosen.take().is_none() && self.regathers() {

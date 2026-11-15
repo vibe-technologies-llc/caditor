@@ -459,13 +459,26 @@ the sketch ribbon's group menus (`app-look.md`) and, for off-ribbon tools, a par
   while caditor runs, evaluated each frame by the panel (`PatternSettings::evaluate`: counts are
   whole numbers, spacings and angles `patterning::quantity` expressions with parameters, kept as
   typed, a field's problem on its row and "Mend the … first" in an error callout) into the `Spec`
-  `Modifying::hover` hands the tool, which previews it live. Rectangular has Count, Spacing and
-  Angle along the first direction and Rows; with Rows other than 1, Row spacing and Row angle
-  (empty: square to the first, `square_to`). Circular has a Centre row (the chosen or selected
-  centre named, with Use the origin), Count and Total angle (360°, the default, is
-  `Spread::FullTurn`; any other angle runs from the original to the last copy), with an info
-  callout saying so. Make the copies, or Enter in the view (`Patterning::finish`, which first takes
-  a highlighted point as the centre), makes one "Pattern geometry" transaction
+  `Modifying::hover` hands the tool, which previews it live; the shown fields come from
+  `PatternSettings::shown_fields` and their captions from `Wording` (Spacing reads Extent, Total
+  angle Angle each way). Rectangular has a Distribution segmented control (`DISTRIBUTIONS`:
+  Spacing or Extent, `caditor_sketch::Distribution`), then per `Direction` (the row, then with
+  Rows other than 1 the rows): Count or Rows, Spacing, a Direction row naming the chosen line
+  (else "The angle below") with Choose a line in the view and Use an angle instead, the Angle
+  field while no line is chosen, Sides (`SIDES`: One side or Both sides) and, for one side, a
+  Flip checkbox. A row angle left empty is square to the first (`square_to`), or square to its
+  line (`Heading::Along` with `square`). Sides, flips, the distribution and the circular `TurnKind`
+  are kept in `PatternSettings` with the texts; the chosen lines are the tool session's
+  (`Patterning::directions`, dropped when the line goes). Choosing (`Patterning::pick_direction`,
+  the button giving up focus so Escape reaches the view) stops gathering: a click on a line or
+  axis (`mirroring::line_under`, as Mirror aims) or a highlighted one with Space or Enter
+  (`steps_targets`, stepping axes then lines) sets it, and Escape stops choosing first. Circular
+  has a Centre row (the chosen or selected centre named, with Use the origin), a Spread segmented
+  control (`TurnKind`: Full, the default, `Spread::FullTurn` with no angle field; Angle, a Total
+  angle from the original to the last copy, 360° still a full turn; Symmetric, an Angle each way
+  as `Spread::Symmetric`) and Count, with an info callout giving the spread's `about`. Make the
+  copies, or Enter in the view (`Patterning::finish`, which first takes a highlighted point as the
+  centre or a highlighted line as the direction), makes one "Pattern geometry" transaction
   (`Patterning::make`); a sketch error shows in the panel's callout and the button stays disabled.
   There is no typed field. Circular first needs its centre: the one selected point no selected
   curve uses, else a point clicked or highlighted (origin included), shown highlighted until

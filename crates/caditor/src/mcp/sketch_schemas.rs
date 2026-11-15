@@ -53,7 +53,7 @@ pub fn modify_sketch() -> Value {
                     "construction", "split", "break", "respace", "insert_control_point", "spline_degree", "tangent_handle", "tangent_circle", "blend", "gear",
                     "edit_gear", "text", "edit_text", "copy"
                 ],
-                "description": "trim takes pieces; extend takes curve and end or near; offset takes curves and distance; mirror takes items and about; rectangular_pattern takes items, count, spacing and optionally angle and rows; circular_pattern takes items, center, count and optionally angle; fillet takes corners and radius; chamfer takes corners, distance and optionally second_distance or angle; move takes items and by or to; rotate takes items and angle, optionally about; scale takes items and factor, optionally about; project takes any of: body with edges, faces, corners or outline, source_sketch (with source_curves, else the whole sketch), axes, datums, origin; intersect takes body (with a face, else the whole body), datum or plane; construction takes items and optionally construction (else switches them all the other way); split takes curve and point; break takes curves; respace takes splines; insert_control_point takes splines and optionally point (with a single spline); spline_degree takes splines (drawn from control points, open or closed) and degree (1 to 25, within one less than their points), keeping their points and letting the curve change; tangent_handle takes curve (a fit-point spline, open or closed) and point (one of its fit points) and adds a construction line from the point along the curve, held as its tangent handle, whose end sets the curve's direction and pull there; tangent_circle takes curves (two with a radius, or three) and optionally near; blend takes first and second ends and optionally continuity; gear takes optionally shape, center or at, and the gear's sizes; edit_gear takes gear (an id from get_sketch's gears) and at least one of module, teeth, pressure_angle, profile_shift, root_fillet, bore, turn, direction (a meshing gear) or chain (a sprocket), each a number or an expression naming parameters except chain; text takes content and optionally height, angle, bold, italic, align and anchor or at; edit_text takes text (an id from get_sketch's texts) and at least one of content, height, angle, bold, italic, align; remove_sketch_items removes a gear or text by its id; copy takes items, optionally from_sketch and by or to"
+                "description": "trim takes pieces; extend takes curve and end or near; offset takes curves and distance; mirror takes items and about; rectangular_pattern takes items, count, spacing and optionally angle or along, symmetric, reversed, extent and rows; circular_pattern takes items, center, count and optionally angle and symmetric; fillet takes corners and radius; chamfer takes corners, distance and optionally second_distance or angle; move takes items and by or to; rotate takes items and angle, optionally about; scale takes items and factor, optionally about; project takes any of: body with edges, faces, corners or outline, source_sketch (with source_curves, else the whole sketch), axes, datums, origin; intersect takes body (with a face, else the whole body), datum or plane; construction takes items and optionally construction (else switches them all the other way); split takes curve and point; break takes curves; respace takes splines; insert_control_point takes splines and optionally point (with a single spline); spline_degree takes splines (drawn from control points, open or closed) and degree (1 to 25, within one less than their points), keeping their points and letting the curve change; tangent_handle takes curve (a fit-point spline, open or closed) and point (one of its fit points) and adds a construction line from the point along the curve, held as its tangent handle, whose end sets the curve's direction and pull there; tangent_circle takes curves (two with a radius, or three) and optionally near; blend takes first and second ends and optionally continuity; gear takes optionally shape, center or at, and the gear's sizes; edit_gear takes gear (an id from get_sketch's gears) and at least one of module, teeth, pressure_angle, profile_shift, root_fillet, bore, turn, direction (a meshing gear) or chain (a sprocket), each a number or an expression naming parameters except chain; text takes content and optionally height, angle, bold, italic, align and anchor or at; edit_text takes text (an id from get_sketch's texts) and at least one of content, height, angle, bold, italic, align; remove_sketch_items removes a gear or text by its id; copy takes items, optionally from_sketch and by or to"
             },
             "pieces": {
                 "type": "array",
@@ -89,15 +89,28 @@ pub fn modify_sketch() -> Value {
                 "type": ["integer", "string"],
                 "description": "mirror: the line or axis to mirror about; rotate, scale: a point not part of what moves to turn or scale about (else the middle of what moves)"
             }),
-            "count": { "type": "integer", "minimum": 2, "description": "patterns: how many, counting the original" },
-            "spacing": expression("rectangular_pattern: the distance between copies, such as \"10 mm\""),
+            "count": { "type": "integer", "minimum": 2, "description": "patterns: how many, counting the original; with symmetric, how many on each side" },
+            "spacing": expression("rectangular_pattern: the distance between copies, such as \"10 mm\"; with extent, from the original to the last copy"),
+            "along": json!({
+                "type": ["integer", "string"],
+                "description": "rectangular_pattern: a line or axis the copies run along instead of an angle; the copies keep following it"
+            }),
+            "symmetric": { "type": "boolean", "description": "rectangular_pattern: copies on both sides of the original, count on each side; circular_pattern: copies turned both ways, angle being how far each way" },
+            "reversed": { "type": "boolean", "description": "rectangular_pattern: run the copies the other way" },
+            "extent": { "type": "boolean", "description": "rectangular_pattern: spacing (and the rows' spacing) is the distance from the original to the last copy, the copies spread evenly over it" },
             "angle": expression("text, edit_text: how far the baseline turns from the horizontal axis (0 by default); rectangular_pattern: the direction of the row from the horizontal axis (0 by default); circular_pattern: the angle the copies spread over (a full turn by default); rotate: the turn, counter-clockwise; chamfer: the cut's angle from the first curve"),
             "rows": {
                 "type": "object",
                 "properties": {
                     "count": { "type": "integer", "minimum": 1 },
                     "spacing": expression("The distance between rows"),
-                    "angle": expression("The rows' direction, square to the first by default")
+                    "angle": expression("The rows' direction, square to the first by default"),
+                    "along": json!({
+                        "type": ["integer", "string"],
+                        "description": "A line or axis the rows step along instead of an angle"
+                    }),
+                    "symmetric": { "type": "boolean", "description": "Rows on both sides of the original's, count on each side" },
+                    "reversed": { "type": "boolean", "description": "Step the rows the other way" }
                 },
                 "required": ["count", "spacing"],
                 "additionalProperties": false,

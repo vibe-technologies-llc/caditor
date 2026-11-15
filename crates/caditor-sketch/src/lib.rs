@@ -63,8 +63,8 @@ pub use crate::{
     mirror::{MirrorError, MirrorImage},
     offset::{Caps, Chain, OffsetError, Outline, Side},
     pattern::{
-        CircularPattern, Dimensioned, MAX_PATTERN_INSTANCES, PatternError, PatternImage,
-        PatternRow, RectangularPattern, Spread,
+        CircularPattern, Dimensioned, Distribution, Heading, MAX_PATTERN_INSTANCES, PatternError,
+        PatternImage, PatternRow, RectangularPattern, Sides, Spread,
     },
     relation::Relations,
     sketch::{DimensionValues, Sketch, SketchError},

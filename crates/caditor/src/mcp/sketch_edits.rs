@@ -4,9 +4,10 @@ use caditor_document::{Document, Evaluation, FeatureId, Transaction};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_sketch::{
     BlendError, BreakError, Caps, ChamferSize, CircularPattern, ClipError, Corner, DegreeError,
-    Dimensioned, EntityId, ExtendError, FilletError, GearError, GearValueError, InsertError,
-    MAX_LENGTH, MirrorError, OffsetError, PatternError, PatternRow, RectangularPattern, Side,
-    Sketch, SketchError, SplitError, Spread, TangentError, TextError, TrimError,
+    Dimensioned, Distribution, EntityId, ExtendError, FilletError, GearError, GearValueError,
+    Heading, InsertError, MAX_LENGTH, MirrorError, OffsetError, PatternError, PatternRow,
+    RectangularPattern, Side, Sides, Sketch, SketchError, SplitError, Spread, TangentError,
+    TextError, TrimError,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -281,6 +282,9 @@ pub struct Row {
     pub count: usize,
     pub spacing: String,
     pub angle: Option<String>,
+    pub along: Option<EntityName>,
+    pub symmetric: Option<bool>,
+    pub reversed: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -291,6 +295,10 @@ pub struct RowPatterning {
     pub count: usize,
     pub spacing: String,
     pub angle: Option<String>,
+    pub along: Option<EntityName>,
+    pub symmetric: Option<bool>,
+    pub reversed: Option<bool>,
+    pub extent: Option<bool>,
     pub rows: Option<Row>,
 }
 
@@ -302,6 +310,7 @@ pub struct TurnPatterning {
     pub center: EntityName,
     pub count: usize,
     pub angle: Option<String>,
+    pub symmetric: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -750,14 +759,44 @@ fn mirror(target: &Target<'_>, asked: &Mirroring) -> Result<Planned, ToolError> 
     Ok(Planned::of(transaction))
 }
 
-fn angle_or(
+fn heading(
     session: &Session,
-    text: Option<&String>,
-    otherwise: impl FnOnce() -> Dimensioned,
-) -> Result<Dimensioned, ToolError> {
-    match text {
-        Some(text) => amount(session, "angle", text, Dimension::ANGLE),
-        None => Ok(otherwise()),
+    target: &Target<'_>,
+    angle: Option<&String>,
+    along: Option<&EntityName>,
+    otherwise: impl FnOnce() -> Heading,
+) -> Result<Heading, ToolError> {
+    match (angle, along) {
+        (Some(_), Some(_)) => Err(SketchingError::AngleAndAlong.into()),
+        (Some(text), None) => Ok(Heading::Angle(amount(
+            session,
+            "angle",
+            text,
+            Dimension::ANGLE,
+        )?)),
+        (None, Some(line)) => Ok(Heading::Along {
+            line: target.entity(line)?,
+            square: false,
+        }),
+        (None, None) => Ok(otherwise()),
+    }
+}
+
+fn sides(symmetric: Option<bool>) -> Sides {
+    if symmetric.unwrap_or(false) {
+        Sides::Both
+    } else {
+        Sides::One
+    }
+}
+
+fn square_to(first: &Heading) -> Heading {
+    match first {
+        Heading::Angle(angle) => Heading::Angle(patterning::square_to(angle)),
+        Heading::Along { line, .. } => Heading::Along {
+            line: *line,
+            square: true,
+        },
     }
 }
 
@@ -769,8 +808,16 @@ fn rectangular_pattern(
     let items = target.entities(&asked.items)?;
     let first = PatternRow {
         count: asked.count,
-        spacing: amount(session, "spacing", &asked.spacing, Dimension::LENGTH)?,
-        angle: angle_or(session, asked.angle.as_ref(), || patterning::turned(0.0))?,
+        distance: amount(session, "spacing", &asked.spacing, Dimension::LENGTH)?,
+        heading: heading(
+            session,
+            target,
+            asked.angle.as_ref(),
+            asked.along.as_ref(),
+            || Heading::Angle(patterning::turned(0.0)),
+        )?,
+        reversed: asked.reversed.unwrap_or(false),
+        sides: sides(asked.symmetric),
     };
     let second = asked
         .rows
@@ -778,14 +825,29 @@ fn rectangular_pattern(
         .map(|row| {
             Ok::<_, ToolError>(PatternRow {
                 count: row.count,
-                spacing: amount(session, "spacing", &row.spacing, Dimension::LENGTH)?,
-                angle: angle_or(session, row.angle.as_ref(), || {
-                    patterning::square_to(&first.angle)
-                })?,
+                distance: amount(session, "spacing", &row.spacing, Dimension::LENGTH)?,
+                heading: heading(
+                    session,
+                    target,
+                    row.angle.as_ref(),
+                    row.along.as_ref(),
+                    || square_to(&first.heading),
+                )?,
+                reversed: row.reversed.unwrap_or(false),
+                sides: sides(row.symmetric),
             })
         })
         .transpose()?;
-    let pattern = RectangularPattern { first, second };
+    let distribution = if asked.extent.unwrap_or(false) {
+        Distribution::Extent
+    } else {
+        Distribution::Spacing
+    };
+    let pattern = RectangularPattern {
+        first,
+        second,
+        distribution,
+    };
     let transaction = target.reshaped(patterning::TRANSACTION.to_owned(), |sketch| {
         sketch
             .rectangular_pattern(&items, &pattern)
@@ -802,9 +864,11 @@ fn circular_pattern(
 ) -> Result<Planned, ToolError> {
     let items = target.entities(&asked.items)?;
     let centre = target.entity(&asked.center)?;
-    let spread = match &asked.angle {
-        Some(text) => Spread::Total(amount(session, "angle", text, Dimension::ANGLE)?),
-        None => Spread::FullTurn,
+    let spread = match (&asked.angle, asked.symmetric.unwrap_or(false)) {
+        (Some(text), true) => Spread::Symmetric(amount(session, "angle", text, Dimension::ANGLE)?),
+        (Some(text), false) => Spread::Total(amount(session, "angle", text, Dimension::ANGLE)?),
+        (None, true) => return Err(SketchingError::SymmetricWithoutAngle.into()),
+        (None, false) => Spread::FullTurn,
     };
     let pattern = CircularPattern {
         count: asked.count,

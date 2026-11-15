@@ -521,9 +521,16 @@ relative to the extent.
   line, or joined by `Coincident` to one that is (`symmetric_partner`), takes that image, so a
   curve mirrored after its neighbour joins the image already there.
 - Patterns (`pattern.rs`): `rectangular_pattern` repeats curves and lone points along one or two
-  directions (`PatternRow`: count including the original, spacing, angle from the x axis; the
-  second defaults to square to the first); `circular_pattern` about an existing point, the origin
-  included (`CircularPattern`: count including the original, over a full turn or a total angle).
+  directions (`PatternRow`: count including the original, a distance, a `Heading`, `reversed` and
+  `Sides`; `RectangularPattern::distribution`). The distance is the step (`Distribution::Spacing`)
+  or the reach from the original to the last copy (`Extent`, the step `distance / (count - 1)`
+  as an expression). A heading is an angle from the x axis or `Along` a line or axis (`square`
+  for square to it), its direction read from the line as drawn; the app defaults the second to
+  square to the first. `Sides::Both` puts `count - 1` copies on each side of the original, each
+  tied toward it. `circular_pattern` turns about an existing point, the origin included
+  (`CircularPattern`: count including the original, over a full turn, a total angle, or
+  `Spread::Symmetric`, `count - 1` copies each way up to the angle, the side turning clockwise
+  tied by the negated step).
   Copies get fresh IDs and the construction flag; circles and ellipses an `Equal` to the original
   (`copy_needs_equal`), added after the ties so only the ellipse's already-held major radius is the
   dependent row and no tie is reported redundant. Instances capped at `MAX_PATTERN_INSTANCES`,
@@ -533,7 +540,10 @@ relative to the extent.
     its predecessor by `HorizontalDistance` and `VerticalDistance` holding the typed spacing (a row
     along an axis with a literal angle uses the spacing itself and `HorizontalPoints` or
     `VerticalPoints` for the other component; any other angle, a parameter included, uses
-    `abs(spacing * cos(angle))` and `abs(spacing * sin(angle))`). Circular: every point tied by two
+    `abs(spacing * cos(angle))` and `abs(spacing * sin(angle))`; a heading along a line uses
+    `Distance` holding the spacing and `OnDirection` through the predecessor along or square to
+    the line, so the copies turn with it, the line among the copied items included). Circular:
+    every point tied by two
     construction lines from the centre (`Equal` and an `Angle` holding the step: total over count
     minus one, or 360° over the count), created once per point and instance; the origin as centre
     gets a point `Coincident` with it to start the lines from, since a line cannot end on a
@@ -548,8 +558,10 @@ relative to the extent.
     A `Fix` on an original does not reach the copies, so fixing the original moves them.
   - Selection points on the centre are shared by the copies and held by a `Coincident` when not
     already; a circle centred on it is its own image and left out. `PatternError` refuses nothing
-    selected, count below 2, over the cap, zero spacing, parallel directions, a centre that is not a
-    point, nothing off the centre, angle of 0° or a full turn or more, geometry past `MAX_LENGTH`.
+    selected, count below 2, over the cap (both sides counted), zero spacing or extent, a heading
+    that is no line (`NotALine`) or a line of no length (`NoDirection`), parallel directions, a
+    centre that is not a point, nothing off the centre, a total angle of 0° or a full turn or more,
+    a symmetric angle of 0° or a half turn or more each way, geometry past `MAX_LENGTH`.
     `rectangular_image` and `circular_image` give faceted copies for a preview without touching the
     sketch.
 - Ellipses as cutters (`intersect::Shape::Ellipse`, crossings by sampled roots along the ellipse as

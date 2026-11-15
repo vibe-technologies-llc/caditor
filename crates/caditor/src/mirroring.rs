@@ -240,13 +240,17 @@ impl Mirroring {
     }
 }
 
-fn is_mirror(sketch: &Sketch, line: EntityId) -> bool {
+pub(crate) fn is_mirror(sketch: &Sketch, line: EntityId) -> bool {
     line == EntityId::HORIZONTAL_AXIS
         || line == EntityId::VERTICAL_AXIS
         || matches!(sketch.entity(line), Some(Entity::Line { .. }))
 }
 
-fn line_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<EntityId> {
+pub(crate) fn line_under(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+) -> Option<EntityId> {
     let at = pointer.sketch;
     let axes = [
         (EntityId::HORIZONTAL_AXIS, Point2::new(at.x, 0.0)),
