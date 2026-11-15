@@ -23,7 +23,10 @@ happens without one, and a model with no bodies has none.
 
 A save never overwrites the file in place. caditor writes a new copy beside it, makes sure it is on
 the disk and only then puts it in place, so a crash or a full disk during a save leaves the old file
-whole. If another program changed the file since you opened it, the save asks whether to save a
+whole. If a virus scanner or a sync program holds the new copy so that it cannot be put in place,
+caditor tries again and never removes it while the old file is gone; should it still fail, the
+message names the hidden file in the same folder that holds the model and its versions, and
+renaming that file to the model's name opens it. If another program changed the file since you opened it, the save asks whether to save a
 copy or replace it; replacing keeps the other contents as a [version](version-history). If you
 open or start another model before answering, the question is dropped and the file keeps what the
 other program saved.

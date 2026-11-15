@@ -30,11 +30,13 @@ fn a_replaced_file_takes_the_new_contents_and_keeps_its_attributes() {
         .write_all(b"old")
         .unwrap();
     fs::write(&replacement, "new").unwrap();
+    let backup = dir.path().join("model.backup");
 
-    replace_file(&replacement, &target).unwrap();
+    replace_file(&replacement, &target, &backup).unwrap();
 
     let attributes = fs::metadata(&target).unwrap().file_attributes();
     assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+    assert_eq!(fs::read_to_string(&backup).unwrap(), "old");
     assert_ne!(attributes & HIDDEN_ATTRIBUTE, 0);
     assert!(!replacement.exists());
 }
@@ -45,10 +47,12 @@ fn replacing_a_missing_file_fails_and_leaves_the_replacement() {
     let target = dir.path().join("missing.caditor");
     let replacement = dir.path().join("model.tmp");
     fs::write(&replacement, "new").unwrap();
+    let backup = dir.path().join("missing.backup");
 
-    assert!(replace_file(&replacement, &target).is_err());
+    assert!(replace_file(&replacement, &target, &backup).is_err());
     assert!(replacement.exists());
     assert!(!target.exists());
+    assert!(!backup.exists());
 }
 
 #[test]

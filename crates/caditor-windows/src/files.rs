@@ -106,15 +106,16 @@ fn without_verbatim(units: &[u16]) -> Vec<u16> {
     }
 }
 
-pub fn replace_file(replacement: &Path, replaced: &Path) -> io::Result<()> {
+pub fn replace_file(replacement: &Path, replaced: &Path, backup: &Path) -> io::Result<()> {
     let replacement = verbatim(replacement)?;
     let replaced = verbatim(replaced)?;
+    let backup = verbatim(backup)?;
     #[expect(unsafe_code, reason = "the Win32 call is unsafe to make")]
     let done = unsafe {
         ReplaceFileW(
             replaced.as_ptr(),
             replacement.as_ptr(),
-            ptr::null(),
+            backup.as_ptr(),
             REPLACEFILE_IGNORE_MERGE_ERRORS,
             ptr::null(),
             ptr::null(),

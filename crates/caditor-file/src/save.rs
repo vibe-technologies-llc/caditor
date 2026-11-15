@@ -7,7 +7,8 @@ use std::{
         OnceLock,
         atomic::{AtomicU64, Ordering},
     },
-    time::SystemTime,
+    thread,
+    time::{Duration, SystemTime},
 };
 
 use caditor_document::Document;
@@ -32,6 +33,8 @@ const TAG_LENGTH: usize = 16;
 const UNKNOWN_TAG: &str = "unknown";
 const TEMPORARY_STEM_LIMIT: usize = 170;
 const BACKUP_ROOM: usize = 16;
+const RENAME_ATTEMPTS: u32 = 5;
+const RENAME_PAUSE: Duration = Duration::from_millis(100);
 
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -66,11 +69,22 @@ pub enum SaveError {
     OpenInAnotherWindow,
     #[error("it was changed by another program since it was opened")]
     ChangedOnDisk,
+    #[error(
+        "the saved copy could not take the file's place, so the model and its earlier versions \
+         are kept in the hidden file “{}” in the same folder; rename it to open it",
+        kept.file_name().unwrap_or(kept.as_os_str()).display()
+    )]
+    KeptAside { kept: PathBuf },
 }
 
 impl SaveError {
     fn writing(error: &io::Error) -> Self {
-        Self::Writing(WriteFailure::of(error))
+        match kept_aside(error) {
+            Some(kept) => Self::KeptAside {
+                kept: kept.to_path_buf(),
+            },
+            None => Self::Writing(WriteFailure::of(error)),
+        }
     }
 
     fn encoding(error: &EncodeError) -> Self {
@@ -104,11 +118,22 @@ pub enum KeepVersionError {
     NotTheOpenModel,
     #[error("the file's versions could not be converted")]
     Unconvertible,
+    #[error(
+        "the rewritten copy could not take the file's place, so it is kept in the hidden file \
+         “{}” in the same folder; rename it to open it",
+        kept.file_name().unwrap_or(kept.as_os_str()).display()
+    )]
+    KeptAside { kept: PathBuf },
 }
 
 impl KeepVersionError {
     fn writing(error: &io::Error) -> Self {
-        Self::Writing(WriteFailure::of(error))
+        match kept_aside(error) {
+            Some(kept) => Self::KeptAside {
+                kept: kept.to_path_buf(),
+            },
+            None => Self::Writing(WriteFailure::of(error)),
+        }
     }
 
     fn rewriting(error: KeepError) -> Self {
@@ -484,21 +509,59 @@ fn replace_checked(
     replace_checked_as(path, Privacy::AsTheTargetWas, fill, check)
 }
 
+type Move = fn(&Path, &Path) -> io::Result<()>;
+
+#[derive(Clone, Copy)]
+struct Moves {
+    replace: Move,
+    rescue: Move,
+}
+
+const SYSTEM_MOVES: Moves = Moves {
+    replace: os::replace,
+    rescue: put_in_place,
+};
+
+#[derive(Debug, thiserror::Error)]
+#[error("the saved copy could not take the file's place and is kept as {}", path.display())]
+pub(crate) struct KeptAside {
+    path: PathBuf,
+}
+
+pub(crate) fn kept_aside(error: &io::Error) -> Option<&Path> {
+    error
+        .get_ref()?
+        .downcast_ref::<KeptAside>()
+        .map(|kept| kept.path.as_path())
+}
+
 fn replace_checked_as(
     path: &Path,
     privacy: Privacy,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
     check: impl FnOnce(&File) -> io::Result<()>,
 ) -> io::Result<()> {
+    replace_checked_with(path, privacy, SYSTEM_MOVES, fill, check)
+}
+
+fn replace_checked_with(
+    path: &Path,
+    privacy: Privacy,
+    moves: Moves,
+    fill: impl FnOnce(&mut File) -> io::Result<()>,
+    check: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<()> {
     let target = resolve_links(path)?;
     ensure_replaceable(&target)?;
     let temporary = temporary_sibling(&target)?;
-    let written = write_and_sync(&temporary, &target, privacy, fill, check)
-        .and_then(|()| os::replace(&temporary, &target));
-    if written.is_err() {
+
+    if let Err(error) = write_and_sync(&temporary, &target, privacy, fill, check) {
         let _ = fs::remove_file(&temporary);
+        return Err(error);
     }
-    written?;
+    (moves.replace)(&temporary, &target)
+        .or_else(|error| after_failed_replace(&temporary, &target, error, moves.rescue))?;
+
     if let Err(error) = sync_parent(&target) {
         log::warn!(
             "saved {}, but its folder could not be flushed to disk: {error}",
@@ -507,6 +570,92 @@ fn replace_checked_as(
     }
     remove_orphaned_temporaries(&target);
     Ok(())
+}
+
+fn after_failed_replace(
+    temporary: &Path,
+    target: &Path,
+    error: io::Error,
+    rescue: Move,
+) -> io::Result<()> {
+    match fs::symlink_metadata(target) {
+        Ok(_) => {
+            let _ = fs::remove_file(temporary);
+            Err(error)
+        }
+        Err(_) if fs::symlink_metadata(temporary).is_err() => Err(error),
+        Err(state) => {
+            log::warn!(
+                "{} is not there after a failed replace ({error}), so the saved copy is put in \
+                 its place",
+                target.display()
+            );
+            let rescued = match state.kind() {
+                io::ErrorKind::NotFound => rescue(temporary, target),
+                _ => Err(state),
+            };
+            rescued.map_err(|rescue_error| {
+                log::error!(
+                    "the saved copy could not take the place of {}, so it is kept as {}: \
+                     {rescue_error}",
+                    target.display(),
+                    temporary.display()
+                );
+                io::Error::new(
+                    error.kind(),
+                    KeptAside {
+                        path: temporary.to_path_buf(),
+                    },
+                )
+            })
+        }
+    }
+}
+
+fn put_in_place(temporary: &Path, target: &Path) -> io::Result<()> {
+    let mut attempt = 1;
+    loop {
+        match fs::rename(temporary, target) {
+            Ok(()) => return Ok(()),
+            Err(_) if attempt < RENAME_ATTEMPTS => {
+                attempt += 1;
+                thread::sleep(RENAME_PAUSE);
+            }
+            Err(error) => {
+                log::warn!("could not rename {}: {error}", temporary.display());
+                break;
+            }
+        }
+    }
+    match fs::hard_link(temporary, target) {
+        Ok(()) => {
+            remove_placed(temporary);
+            return Ok(());
+        }
+        Err(error) => log::warn!("could not link {}: {error}", temporary.display()),
+    }
+    copy_into_place(temporary, target)
+}
+
+fn copy_into_place(temporary: &Path, target: &Path) -> io::Result<()> {
+    let mut source = File::open(temporary)?;
+    let mut placed = File::create_new(target)?;
+
+    let copied = io::copy(&mut source, &mut placed).and_then(|_| placed.sync_all());
+    drop(placed);
+
+    if copied.is_err() {
+        let _ = fs::remove_file(target);
+    }
+    copied?;
+    remove_placed(temporary);
+    Ok(())
+}
+
+fn remove_placed(temporary: &Path) {
+    if let Err(error) = fs::remove_file(temporary) {
+        log::debug!("could not remove {}: {error}", temporary.display());
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -944,6 +1093,113 @@ mod tests {
         assert_eq!(WriteFailure::of(&error), WriteFailure::NotReadBack);
         assert_eq!(fs::read(&target).unwrap(), original);
         assert_eq!(folder_contents(&dir), [OsString::from("model.caditor")]);
+    }
+
+    const UNABLE_TO_MOVE_REPLACEMENT: i32 = 1176;
+
+    fn replace_losing_the_target(_temporary: &Path, target: &Path) -> io::Result<()> {
+        fs::remove_file(target)?;
+        Err(io::Error::from_raw_os_error(UNABLE_TO_MOVE_REPLACEMENT))
+    }
+
+    fn refused(_temporary: &Path, _target: &Path) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::ResourceBusy))
+    }
+
+    fn replace_with(target: &Path, moves: Moves, contents: &[u8]) -> io::Result<()> {
+        replace_checked_with(
+            target,
+            Privacy::AsTheTargetWas,
+            moves,
+            |file| file.write_all(contents),
+            |_| Ok(()),
+        )
+    }
+
+    #[test]
+    fn a_replace_that_loses_the_target_puts_the_saved_copy_in_its_place() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        fs::write(&target, "old").unwrap();
+        let moves = Moves {
+            replace: replace_losing_the_target,
+            ..SYSTEM_MOVES
+        };
+
+        replace_with(&target, moves, b"new").unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(folder_contents(&dir), [OsString::from("model.caditor")]);
+    }
+
+    #[test]
+    fn a_saved_copy_that_cannot_take_the_lost_targets_place_is_kept_and_named() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        fs::write(&target, "old").unwrap();
+        let moves = Moves {
+            replace: replace_losing_the_target,
+            rescue: refused,
+        };
+
+        let error = replace_with(&target, moves, b"new").unwrap_err();
+        let kept = kept_aside(&error).unwrap().to_path_buf();
+
+        assert_eq!(fs::read(&kept).unwrap(), b"new");
+        assert_eq!(kept.parent(), target.parent());
+        assert!(!target.exists());
+        assert_eq!(folder_contents(&dir), [kept.file_name().unwrap()]);
+        assert_eq!(WriteFailure::of(&error), WriteFailure::KeptAside);
+        assert_eq!(
+            SaveError::writing(&error),
+            SaveError::KeptAside { kept: kept.clone() }
+        );
+        assert_eq!(
+            KeepVersionError::writing(&error),
+            KeepVersionError::KeptAside { kept: kept.clone() }
+        );
+        assert!(
+            SaveError::writing(&error)
+                .to_string()
+                .contains(&*kept.file_name().unwrap().to_string_lossy())
+        );
+    }
+
+    #[test]
+    fn a_replace_refused_with_the_target_still_there_leaves_the_file_as_it_was() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("model.caditor");
+        fs::write(&target, "old").unwrap();
+        let moves = Moves {
+            replace: refused,
+            rescue: refused,
+        };
+
+        let error = replace_with(&target, moves, b"new").unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::ResourceBusy);
+        assert!(kept_aside(&error).is_none());
+        assert_eq!(fs::read(&target).unwrap(), b"old");
+        assert_eq!(folder_contents(&dir), [OsString::from("model.caditor")]);
+    }
+
+    #[test]
+    fn a_copy_into_place_moves_the_contents_and_never_overwrites() {
+        let dir = TempDir::new().unwrap();
+        let temporary = dir.path().join(".model.caditor.tag.tmp");
+        let target = dir.path().join("model.caditor");
+        fs::write(&temporary, "new").unwrap();
+
+        copy_into_place(&temporary, &target).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert!(!temporary.exists());
+
+        fs::write(&temporary, "newer").unwrap();
+
+        assert!(copy_into_place(&temporary, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(fs::read(&temporary).unwrap(), b"newer");
     }
 
     #[test]

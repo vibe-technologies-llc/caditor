@@ -12,7 +12,7 @@ use std::{
 use caditor_windows::{FileId, HIDDEN_ATTRIBUTE};
 
 use super::cloning;
-use crate::paths;
+use crate::{paths, save};
 
 const REPLACEMENT_CHARACTER: u16 = 0xfffd;
 
@@ -142,7 +142,10 @@ pub(crate) fn replace(temporary: &Path, target: &Path) -> io::Result<()> {
     if fs::symlink_metadata(target).is_err() {
         return caditor_windows::move_file_durably(temporary, target);
     }
-    match caditor_windows::replace_file(temporary, target) {
+    let backup = save::temporary_sibling(target)?;
+    let replaced = caditor_windows::replace_file(temporary, target, &backup);
+    settle_backup(&backup, target);
+    match replaced {
         Ok(()) => Ok(()),
         Err(error) if fs::symlink_metadata(temporary).is_ok() => {
             log::debug!(
@@ -152,6 +155,29 @@ pub(crate) fn replace(temporary: &Path, target: &Path) -> io::Result<()> {
             fs::rename(temporary, target)
         }
         Err(error) => Err(error),
+    }
+}
+
+fn settle_backup(backup: &Path, target: &Path) {
+    if fs::symlink_metadata(backup).is_err() {
+        return;
+    }
+    if fs::symlink_metadata(target).is_ok() {
+        if let Err(error) = fs::remove_file(backup) {
+            log::debug!("could not remove {}: {error}", backup.display());
+        }
+        return;
+    }
+    match caditor_windows::move_file_durably(backup, target) {
+        Ok(()) => log::warn!(
+            "put {} back after it could not be replaced",
+            target.display()
+        ),
+        Err(error) => log::warn!(
+            "{} could not be replaced and its previous contents are in {}: {error}",
+            target.display(),
+            backup.display()
+        ),
     }
 }
 

@@ -709,6 +709,13 @@ Sketch entities:
   the temporary is owner-only until applied, and a new file gets the umask's mode.
   `write_privately` is the same write for secrets (the cloud sign-in when no keyring takes it): a new or replaced file is
   owner-only. A symbolic link is followed.
+- A failed replace removes the temporary only while the target is still there. With the target
+  gone (`ERROR_UNABLE_TO_MOVE_REPLACEMENT`, a scanner holding the temporary) the saved copy is put
+  in its place (`save::put_in_place`: the rename retried, then a hard link, then a copy into a new
+  file); if that fails too the temporary is kept and the error names it (`save::KeptAside`, worded
+  by `SaveError::KeptAside`, `KeepVersionError::KeptAside` and `WriteFailure::KeptAside`). The
+  replace and the rescue are `save::Moves`, swapped for fakes in `save::tests`
+  (`a_saved_copy_that_cannot_take_the_lost_targets_place_is_kept_and_named`).
 - Temporaries are `.<name>.<machine>-<boot>-<pid>-<n>.tmp`. After each write, those next to the
   file are removed when from an earlier boot of this machine, or from this boot with their process
   gone; other machines' saves on a shared folder are left alone. The recovery-directory scan

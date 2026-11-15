@@ -7,14 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Saving and recovery
 
-- [high · small] On Windows a save whose `ReplaceFileW` fails can lose the file: `os/windows.rs`'s
-  `replace` falls back to `fs::rename` while the temporary exists, and `ReplaceFileW` called
-  without a backup name fails with `ERROR_UNABLE_TO_MOVE_REPLACEMENT` (1176) after the original is
-  already gone; when the rename fails too (Defender or a sync client holding the temporary),
-  `save.rs`'s `replace_checked_as` removes the temporary, so the model and every kept version are
-  gone from disk and only the journal holds the work. Never remove the temporary when the target
-  is missing after a failed replace (retry the rename, else say where the temporary is), or pass a
-  backup name so the original survives; a fake replace answering 1176 tests it on every platform.
 - [high · medium] A crash during a save loses the edits made while it ran: the storage worker
   (`storage.rs`, `Worker::run`) handles commands one at a time, so the `Record`s the app journals
   while a save encodes, writes, reads back and rewrites the journal (2.5 to 14 s on the VZ330; the
@@ -33,6 +25,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   whole, so restoring that version fails as unavailable though `history` lists it. Encoder and
   read-back need one budget (store the version whole when the pair exceeds it, or refuse such a
   model up front as `ModelTooLarge`); the tests budget three times a small snapshot, never this.
+- [medium · small] A saved copy kept aside after a failed replace (`save::KeptAside`, named in
+  the save's error) keeps its temporary's name, so once that caditor has exited, the next
+  successful save to the same path removes it as an orphan (`remove_orphaned_temporaries`), with
+  the earlier versions only it holds. Recording the kept name (in the journal or a marker beside
+  it) and sparing it in the sweep would close it.
 - [medium · small] Keep and Restore name a version by its index (`with_version_kept`,
   `load_version`) while a save can be in flight (`history.rs` and `files.rs` allow both): Keep
   queues behind the save, which puts a new version at index 0 and may thin others, and Restore

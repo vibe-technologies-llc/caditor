@@ -22,9 +22,10 @@ so call sites stay platform-free.
   per item (`conventions_tests.rs` checks it). Root is `#![cfg(windows)]`, so only Windows CI and
   `cargo xwin` lint it. `windows-sys` with only the `Win32_*` features used; only safe functions are
   exported:
-  - `replace_file` (`ReplaceFileW`, keeps the replaced file's ACLs, attributes, streams, creation
-    time) and `move_file_durably` (`MoveFileExW`, `REPLACE_EXISTING | WRITE_THROUGH`, for a target
-    that does not exist yet). Both take verbatim `\\?\` paths.
+  - `replace_file` (`ReplaceFileW` with a backup name, keeps the replaced file's ACLs, attributes,
+    streams, creation time) and `move_file_durably` (`MoveFileExW`,
+    `REPLACE_EXISTING | WRITE_THROUGH`, for a target that does not exist yet). Both take verbatim
+    `\\?\` paths.
   - `FileId`: volume serial plus 128-bit file ID, the counterpart of `(dev, ino)`; `of_path` opens
     without access and without following a reparse point.
   - `final_path`: `GetFinalPathNameByHandleW` with the `\\?\` and `\\?\UNC\` prefix removed; fails
@@ -69,9 +70,12 @@ so call sites stay platform-free.
 
 - State in `%LOCALAPPDATA%\caditor` (recovery, logs, recent files), preferences in
   `%APPDATA%\caditor`; XDG only on Unix.
-- Saving renames over an existing target with `ReplaceFileW`; if that fails and the temporary is
-  still there it falls back to `std::fs::rename`. No directory fsync, no group or xattr copy.
-  Writable means the read-only attribute is clear.
+- Saving renames over an existing target with `ReplaceFileW`, passing a temporary-named backup so
+  the original is never just gone: on success the backup is removed, and when the replace moved the
+  original aside but could not move the temporary in (`ERROR_UNABLE_TO_MOVE_REPLACEMENT_2`) the
+  backup is moved back. If the replace fails and the temporary is still there it falls back to
+  `std::fs::rename`; a target still missing after that is `file-format.md`'s rescue. No directory
+  fsync, no group or xattr copy. Writable means the read-only attribute is clear.
 - `os::clone_range` is ReFS block cloning: it clones only the whole clusters of a range whose source
   and target offsets are both cluster aligned (`os/cloning.rs` holds the arithmetic, tested
   everywhere), in requests of at most 1 GiB, first growing the target with `set_len` to whole

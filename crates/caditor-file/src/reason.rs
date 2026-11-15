@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use crate::{
     binary::NotReadBack,
     read::{MAX_FILE_SIZE, NotAFile, TooLarge},
-    save::ReadOnly,
+    save::{KeptAside, ReadOnly},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -78,6 +78,11 @@ pub enum WriteFailure {
     IsAFolder,
     #[error("its name is longer than the system allows")]
     NameTooLong,
+    #[error(
+        "the new copy could not take the file's place and is kept beside it in a hidden file \
+         ending in “.tmp”"
+    )]
+    KeptAside,
     #[error("the system reported an error (os error {code})")]
     Os { code: i32 },
     #[error("the system reported an error ({kind})")]
@@ -98,6 +103,9 @@ impl WriteFailure {
             }
             if inner.is::<ReadOnly>() {
                 return Self::ReadOnly;
+            }
+            if inner.is::<KeptAside>() {
+                return Self::KeptAside;
             }
         }
         match error.kind() {
