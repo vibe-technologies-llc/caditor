@@ -243,6 +243,14 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   length, or the interpolation rows by 1e3, each removed the jump and left a drift of 2e-6 mm or
   moved it to the closed spline; neither is kept.
 
+## Sketching and expressions
+
+- [low · medium] A sketch's entity adders (`add_point` and the other infallible ones) still count
+  into the unstorable range once the id counter reaches `FIRST_UNSTORABLE_ID`: only
+  `add_constraint`, `add_text` and `add_parametric_gear` refuse as `SketchError::IdsExhausted`, and
+  an entity at a reserved id is refused only when the document applies it (`ReservedId`). Making
+  the entity adders fallible touches about 1,500 call sites.
+
 ## STEP import
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and
