@@ -497,7 +497,7 @@ impl Tool {
             Self::Export => {
                 "Exports the bodies to a file in the model's folder or one the user allowed: \
                  .step or .stp, .stl, .3mf, .obj, .glb, or .png (a picture, which needs a \
-                 graphics adapter). A relative path is taken from the model's folder."
+                 graphics adapter). A relative path is taken from the model's folder. A file that already exists is refused unless replace is true or this session exported it earlier."
             }
             Self::ListEdges => {
                 "Lists the edges of one body with a stable key (pass it to add_fillet, add_chamfer, measure or as an axis), a description in words naming the faces it lies between, its kind (line, circle, arc, ellipse, curve), its length and a line's ends or a round edge's centre and radius. With before, the edges as that feature received the body."
@@ -834,7 +834,8 @@ impl Tool {
                     "file": { "type": "string", "description": "The file to write, in the model's folder or an allowed one" },
                     "resolution": { "type": "string", "enum": ["coarse", "standard", "fine"], "description": "Mesh quality of STL, 3MF, OBJ and glTF" },
                     "width": { "type": "integer", "minimum": reading::SMALLEST_SIDE, "maximum": reading::LARGEST_SIDE },
-                    "height": { "type": "integer", "minimum": reading::SMALLEST_SIDE, "maximum": reading::LARGEST_SIDE }
+                    "height": { "type": "integer", "minimum": reading::SMALLEST_SIDE, "maximum": reading::LARGEST_SIDE },
+                    "replace": { "type": "boolean", "description": "Replace the file when it already exists. Without it an existing file is refused, unless this session exported it earlier. Ask only when the user wants that file replaced" }
                 }),
                 &["file"],
             ),

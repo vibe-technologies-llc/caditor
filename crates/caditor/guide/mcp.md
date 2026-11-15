@@ -110,6 +110,11 @@ window keeps them, so a crash loses at most seconds; open the model in caditor t
 Saving under another name writes a new `.caditor` file, never one that already exists, and the
 assistant goes on working on that file from then on; the original stays as it was last saved.
 
+Exporting writes a file of the chosen format, but it never replaces one that already exists unless
+the assistant asks to replace it, so a STEP file the model came from or any other file of yours in
+those folders is safe from a careless call. A file the assistant exported itself earlier in the
+session may be exported again to update it.
+
 Imports, exports and saving under another name reach only the model's folder and the folders
 below it, unless the server was started with `--folder DIR`, once for each further folder it may
 read and write. The server reaches no network.

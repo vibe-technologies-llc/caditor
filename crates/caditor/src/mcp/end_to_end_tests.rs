@@ -203,6 +203,8 @@ fn tool_calls_alone_build_a_plate_with_a_pocket_and_two_holes() {
     assert_eq!(exported["bodies"], 1);
     let outside = client.tool_error("export", json!({ "file": "../plate.step" }));
     assert!(outside.contains("lies outside the folders"), "{outside}");
+    let again = client.tool("export", json!({ "file": "plate.step" }));
+    assert_eq!(again["bodies"], 1);
     let model_summary = client.tool("get_model", json!({}));
     assert_eq!(model_summary["unsaved_changes"], false);
     client.finish();

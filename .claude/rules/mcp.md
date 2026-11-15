@@ -26,8 +26,10 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
 - A reader thread (`read_messages`) parses lines and hands them to the serving thread over a
   channel. It answers `notifications/cancelled` itself by setting the request's flag in
   `Cancellations` (registered when the request is read, so a queued request is cancelled too); a
-  cancelled request gets no response, as the protocol asks. Everything else runs in order on the
-  serving thread, the only writer of stdout.
+  cancelled request gets no response, as the protocol asks. A request whose id is still in flight is
+  refused with `-32600` (`Rejection::IdInFlight`, `Cancellations::register` returns nothing for it),
+  so one request's flag is never replaced or forgotten by another's. Everything else runs in order
+  on the serving thread, the only writer of stdout.
 - `initialize` agrees on the client's version when it is one of `PROTOCOL_VERSIONS`, else offers
   the newest; `structuredContent` is sent only from `2025-06-18` on. Offered: `ping`,
   `tools/list`, `tools/call`, `resources/list`, `resources/templates/list` (empty),
@@ -288,8 +290,10 @@ and the session log as the app does. The user guide page is `guide/mcp.md`.
 - Files: `save` writes the model's own file; `save_as` sends the same `SaveRequest` for a new
   `.caditor` path (`Session::save_to`, refusing a file that exists), and the session follows the
   saved path from the worker's report, as the window's Save as does; `export` writes
-  `headless::deliver`'s formats; `import` reads a STEP model or mesh through `import::read_model`
-  and `bodies_transaction`, or a DXF or SVG drawing through `read_drawing` and
+  `headless::deliver`'s formats and refuses an existing file (`FileError::ExportExists`) unless
+  the call says `replace: true` or the session exported that path earlier
+  (`Session::has_exported`); `import` reads a STEP model or mesh through `import::read_model` and
+  `bodies_transaction`, or a DXF or SVG drawing through `read_drawing` and
   `drawing_transaction` into a new sketch on a principal plane or an existing sketch, with the import
   dialog's `DrawingOptions` (`unit`, `scale`, `recentre`, `left_out_layers` by name, the answer
   listing the drawing's `layers`), refused as the app refuses it (`import::outgrows`, `outnumbers`, nothing imported). All of them reach only

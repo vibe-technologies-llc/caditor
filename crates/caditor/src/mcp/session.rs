@@ -1,5 +1,6 @@
 use std::{
     cell::Cell,
+    collections::BTreeSet,
     io,
     path::{Path, PathBuf},
     sync::{
@@ -183,6 +184,7 @@ struct Standing {
 pub struct Session {
     model: PathBuf,
     folders: Vec<PathBuf>,
+    exported: BTreeSet<PathBuf>,
     editor: Editor,
     saved: Option<Document>,
     on_disk: Option<FileDigest>,
@@ -244,6 +246,7 @@ impl Session {
             keep_original: !load_issues.is_empty(),
             model,
             folders,
+            exported: BTreeSet::new(),
             editor: Editor::new(document.clone()),
             saved,
             on_disk,
@@ -277,6 +280,14 @@ impl Session {
 
     pub fn folders(&self) -> &[PathBuf] {
         &self.folders
+    }
+
+    pub fn has_exported(&self, path: &Path) -> bool {
+        self.exported.contains(path)
+    }
+
+    pub fn exported(&mut self, path: PathBuf) {
+        self.exported.insert(path);
     }
 
     pub fn document(&self) -> &Document {

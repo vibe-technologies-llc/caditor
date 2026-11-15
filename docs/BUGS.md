@@ -66,12 +66,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Cloud and the MCP server
 
-- [medium · easy] The MCP `export` tool replaces an existing file without a word (`mcp/files.rs`,
-  `export`; `save_as` refuses one): a misbehaving or prompt-injected client can overwrite any STEP,
-  STL, 3MF, OBJ, glTF or PNG in the allowed folders, the STEP the model was imported from included,
-  and `guide/mcp.md` does not say it replaces. Refuse an existing target unless the call asks to
-  replace (or the session wrote it), and test it beside `allowed()`'s symbolic link cases, which
-  have no test yet.
 - [medium · small] The sign-in listener binds 127.0.0.1 (`loopback.rs`) but sends the browser to
   `http://localhost:<port>/callback`, which browsers often try as `[::1]` first, where any local
   process can listen on the same port and take the code; with PKCE that only blocks the sign-in,
@@ -92,9 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   so the session comes back unrevoked at the next start, against `cloud.md`. A forgotten
   generation the store checks on saving, and revoking a session that arrives late, close it;
   nothing tests these orders (`FakeProvider` holding the exchange and `FakeKeyring` can).
-- [low · easy] A repeated MCP request id loses its cancel flag (`mcp/server.rs`, `Cancellations`):
-  `register` replaces the first request's flag and the first request's `forget` then removes the
-  second's, so cancelling the second does nothing. Refuse an id already in flight.
 
 ## Kernel
 

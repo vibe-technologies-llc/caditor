@@ -44,6 +44,7 @@ pub struct Exporting {
     pub resolution: Option<ResolutionName>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub replace: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -155,6 +156,12 @@ pub enum FileError {
     )]
     Exists { file: String },
     #[error(
+        "“{file}” already exists; export replaces a file only when asked with replace: true or \
+         when this session wrote it, so choose a name not taken, or ask to replace it if that is \
+         what the user wants"
+    )]
+    ExportExists { file: String },
+    #[error(
         "“{file}” must end in .step, .stp, .stl, .3mf, .obj, .glb or .png, the formats caditor \
          exports"
     )]
@@ -261,6 +268,10 @@ pub fn export(
     let target = Target::of(&output).ok_or(FileError::UnknownFormat {
         file: shown.clone(),
     })?;
+    let replaces = asked.replace.unwrap_or(false) || session.has_exported(&output);
+    if output.exists() && !replaces {
+        return Err(FileError::ExportExists { file: shown }.into());
+    }
     let size = match target {
         Target::Image => Some(picture_size(asked.width, asked.height).map_err(FileError::Size)?),
         Target::Mesh(_) if asked.width.is_some() || asked.height.is_some() => {
@@ -303,6 +314,7 @@ pub fn export(
         &work.cancel_token(),
     )
     .map_err(FileError::Export)?;
+    session.exported(output.clone());
     if work.is_cancelled() {
         return Err(Cancelled.into());
     }

@@ -78,6 +78,10 @@ pub enum Rejection {
     WrongVersion,
     #[error("a request id must be a string or a number")]
     UnusableId,
+    #[error(
+        "a request with this id is still being answered; wait for its response or use another id"
+    )]
+    IdInFlight,
     #[error("the message has no method")]
     NoMethod,
     #[error("the params of a message must be an object or an array")]
@@ -92,6 +96,7 @@ impl Rejection {
             | Self::NotAnObject
             | Self::WrongVersion
             | Self::UnusableId
+            | Self::IdInFlight
             | Self::NoMethod
             | Self::UnusableParams => Code::InvalidRequest,
         }

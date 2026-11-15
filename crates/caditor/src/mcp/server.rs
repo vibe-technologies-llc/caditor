@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeMap,
+    collections::{BTreeMap, btree_map::Entry},
     io::{BufRead, Write},
     panic::{self, AssertUnwindSafe},
     sync::{
@@ -41,10 +41,15 @@ const INSTRUCTIONS: &str = "This server works on one caditor model, a parametric
 pub struct Cancellations(Arc<Mutex<BTreeMap<String, Arc<AtomicBool>>>>);
 
 impl Cancellations {
-    fn register(&self, id: &RequestId) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        self.0.lock().insert(id.key(), Arc::clone(&flag));
-        flag
+    fn register(&self, id: &RequestId) -> Option<Arc<AtomicBool>> {
+        match self.0.lock().entry(id.key()) {
+            Entry::Occupied(_) => None,
+            Entry::Vacant(vacant) => {
+                let flag = Arc::new(AtomicBool::new(false));
+                vacant.insert(Arc::clone(&flag));
+                Some(flag)
+            }
+        }
     }
 
     fn cancel(&self, params: &Value) {
@@ -181,12 +186,17 @@ fn read_messages(mut input: impl BufRead, sender: &Sender<Inbound>, cancellation
                 }
                 Ok(Some(Incoming::Notification { method, .. })) => Inbound::Notification { method },
                 Ok(Some(Incoming::Request { id, method, params })) => {
-                    let cancelled = cancellations.register(&id);
-                    Inbound::Request {
-                        id,
-                        method,
-                        params,
-                        cancelled,
+                    match cancellations.register(&id) {
+                        Some(cancelled) => Inbound::Request {
+                            id,
+                            method,
+                            params,
+                            cancelled,
+                        },
+                        None => Inbound::Rejected(Rejected {
+                            id: Some(id),
+                            reason: Rejection::IdInFlight,
+                        }),
                     }
                 }
                 Err(rejected) => Inbound::Rejected(rejected),

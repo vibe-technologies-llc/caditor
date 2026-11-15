@@ -470,6 +470,65 @@ fn a_call_reports_progress_and_a_cancelled_one_gets_no_answer() {
 }
 
 #[test]
+fn a_request_id_still_in_flight_is_refused_and_keeps_its_cancel_flag() {
+    let folder = TempDir::new().unwrap();
+    let cancellations = Cancellations::default();
+    let gate = Gate {
+        cancellations: cancellations.clone(),
+        request: json!("slow"),
+    };
+    let mut client = Client::start_gated(
+        opening(saved_plate(folder.path())),
+        cancellations,
+        Some(gate),
+    );
+    client.initialize("2025-06-18");
+
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "slow",
+        "method": "tools/call",
+        "params": { "name": "list_bodies", "arguments": {}, "_meta": { "progressToken": 5 } }
+    }));
+    let progress = client.read_message();
+    client.send(&json!({ "jsonrpc": "2.0", "id": "slow", "method": "ping" }));
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": { "requestId": "slow" }
+    }));
+    let refused = client.response_to(&json!("slow"));
+    let bodies = client.tool("list_bodies", json!({}));
+    client.finish();
+
+    assert_eq!(progress["method"], "notifications/progress");
+    assert_eq!(refused["error"]["code"], -32600);
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("still being answered"),
+        "{refused}"
+    );
+    assert!(refused.get("result").is_none());
+    assert_eq!(bodies["bodies"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn an_id_is_free_again_once_its_request_is_answered() {
+    let folder = TempDir::new().unwrap();
+    let mut client = Client::start(opening(saved_plate(folder.path())));
+    client.initialize("2025-06-18");
+
+    for _ in 0..2 {
+        client.send(&json!({ "jsonrpc": "2.0", "id": 7, "method": "ping" }));
+        let pong = client.response_to(&json!(7));
+        assert_eq!(pong["result"], json!({}));
+    }
+    client.finish();
+}
+
+#[test]
 fn resources_hold_the_model_and_the_user_guide() {
     let folder = TempDir::new().unwrap();
     let mut client = Client::start(opening(saved_plate(folder.path())));
@@ -565,6 +624,99 @@ fn files_are_written_only_inside_the_allowed_folders() {
         allowed("parts/.."),
         Err(FileError::NotAFile { .. })
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_is_never_a_target_and_a_linked_folder_is_judged_by_where_it_leads() {
+    let folder = TempDir::new().unwrap();
+    let elsewhere = TempDir::new().unwrap();
+    let model = folder.path().join("plate.caditor");
+    let folders = vec![dunce::canonicalize(folder.path()).unwrap()];
+    std::fs::write(elsewhere.path().join("secret.step"), b"secret").unwrap();
+    std::fs::create_dir(folder.path().join("inside")).unwrap();
+    std::fs::write(folder.path().join("real.step"), b"real").unwrap();
+    std::os::unix::fs::symlink(
+        elsewhere.path().join("secret.step"),
+        folder.path().join("out.step"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        folder.path().join("real.step"),
+        folder.path().join("in.step"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        folder.path().join("gone.step"),
+        folder.path().join("dead.step"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), folder.path().join("door")).unwrap();
+    std::os::unix::fs::symlink(folder.path().join("inside"), folder.path().join("room")).unwrap();
+    let allowed = |file: &str| files::allowed(&model, &folders, file);
+
+    assert!(matches!(allowed("out.step"), Err(FileError::Link { .. })));
+    assert!(matches!(allowed("in.step"), Err(FileError::Link { .. })));
+    assert!(matches!(allowed("dead.step"), Err(FileError::Link { .. })));
+    assert!(matches!(
+        allowed("door/plate.step"),
+        Err(FileError::OutsideFolders { .. })
+    ));
+    assert_eq!(
+        allowed("room/plate.step").unwrap(),
+        dunce::canonicalize(folder.path().join("inside"))
+            .unwrap()
+            .join("plate.step")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_model_reached_through_a_linked_folder_writes_where_the_link_leads() {
+    let folder = TempDir::new().unwrap();
+    let real = folder.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, folder.path().join("alias")).unwrap();
+    let folders = vec![dunce::canonicalize(&real).unwrap()];
+    let model = folder.path().join("alias").join("plate.caditor");
+
+    let target = files::allowed(&model, &folders, "plate.step").unwrap();
+
+    assert_eq!(
+        target,
+        dunce::canonicalize(&real).unwrap().join("plate.step")
+    );
+}
+
+#[test]
+fn an_export_replaces_a_file_only_when_asked_or_when_the_session_wrote_it() {
+    let folder = TempDir::new().unwrap();
+    let taken = folder.path().join("taken.step");
+    std::fs::write(&taken, b"the user's own file").unwrap();
+    let mut client = Client::start(opening(saved_plate(folder.path())));
+    client.initialize("2025-06-18");
+
+    let refused = client.tool_error("export", json!({ "file": "taken.step" }));
+    let untouched = std::fs::read(&taken).unwrap();
+    let wrongly_typed = client.call("export", json!({ "file": "taken.step", "replace": "yes" }));
+    let replaced = client.tool("export", json!({ "file": "taken.step", "replace": true }));
+    let replacement = std::fs::read(&taken).unwrap();
+    std::fs::write(&taken, b"changed since").unwrap();
+    let again = client.tool("export", json!({ "file": "taken.step" }));
+    let fresh = client.tool("export", json!({ "file": "fresh.stl", "replace": false }));
+    let fresh_again = client.tool("export", json!({ "file": "fresh.stl" }));
+    client.finish();
+
+    assert!(refused.contains("already exists"), "{refused}");
+    assert!(refused.contains("replace"), "{refused}");
+    assert_eq!(untouched, b"the user's own file");
+    assert_eq!(wrongly_typed["isError"], json!(true));
+    assert_eq!(replaced["bodies"], 1);
+    assert!(replacement.starts_with(b"ISO-10303-21;"));
+    assert_eq!(again["bodies"], 1);
+    assert!(std::fs::read(&taken).unwrap().starts_with(b"ISO-10303-21;"));
+    assert_eq!(fresh["bodies"], 1);
+    assert_eq!(fresh_again["bodies"], 1);
 }
 
 #[test]
