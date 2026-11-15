@@ -3,9 +3,12 @@ use std::f64::consts::TAU;
 use caditor_geometry::{Point2, Point3, Vector2};
 use caditor_lettering::Segment;
 
-use crate::import::{
-    dxf::geometry::{Nurbs, Shape},
-    svg::syntax::Scanner,
+use crate::{
+    import::{
+        dxf::geometry::{Nurbs, Shape},
+        svg::syntax::Scanner,
+    },
+    tally,
 };
 
 const STRAIGHTNESS: f64 = 1e-9;
@@ -234,6 +237,7 @@ pub(super) fn path_outline(data: &str) -> Outline {
         if scanner.at_end() {
             return outline;
         }
+        tally::add(1);
         let given = scanner
             .peek()
             .filter(|byte| b"MmZzLlHhVvCcSsQqTtAa".contains(byte));

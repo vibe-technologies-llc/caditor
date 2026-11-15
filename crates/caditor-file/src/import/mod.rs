@@ -19,6 +19,8 @@ mod xml;
 #[cfg(test)]
 mod xml_tests;
 mod zip_read;
+#[cfg(test)]
+mod zip_read_tests;
 
 use std::{collections::BTreeSet, path::Path};
 
@@ -57,6 +59,8 @@ pub const MAX_DRAWING_POINTS: usize = 2_000_000;
 pub const MAX_DRAWING_VALUES: usize = 16_000_000;
 pub const MAX_FIT_WORK: usize = 1_000_000;
 pub const MAX_DRAWING_ELEMENTS: usize = 4_000_000;
+pub const MAX_UNPACKED_DRAWING: usize = 256 << 20;
+pub const MAX_UNPACKED_PART: usize = 256 << 20;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawingCurve {
@@ -214,6 +218,12 @@ pub enum ImportError {
     )]
     ModelTooManyElements,
     #[error(
+        "its 3D model holds more than {} attributes in all, more than caditor reads from one mesh \
+         file; reduce its triangles in a mesh editor first",
+        xml::Budget::for_elements(mesh::MAX_MODEL_ELEMENTS).attributes
+    )]
+    ModelTooManyAttributes,
+    #[error(
         "its components place more than {} objects, {} vertices or {} triangles in all, more \
          than caditor reads from one 3MF; reduce how often its parts are reused",
         mesh::MAX_PLACED_OBJECTS,
@@ -270,10 +280,23 @@ pub enum ImportError {
     #[error("the compressed file is damaged, so it cannot be unpacked")]
     DamagedArchive,
     #[error(
+        "a part of the 3MF package unpacks to more than {} MiB, or its parts to more than {} GiB \
+         in all, more than caditor reads",
+        MAX_UNPACKED_PART >> 20,
+        crate::read::MAX_FILE_SIZE >> 30
+    )]
+    PartUnpacksTooLarge,
+    #[error(
         "the compressed file unpacks to more than {} GiB, more than caditor reads",
         crate::read::MAX_FILE_SIZE >> 30
     )]
-    UnpacksTooLarge,
+    StepUnpacksTooLarge,
+    #[error(
+        "the compressed drawing unpacks to more than {} MiB, more than caditor reads from one \
+         drawing; split it into smaller drawings",
+        MAX_UNPACKED_DRAWING >> 20
+    )]
+    DrawingUnpacksTooLarge,
     #[error("the drawing is damaged near line {0}")]
     DamagedAt(usize),
     #[error("the drawing is damaged")]
@@ -305,6 +328,12 @@ pub enum ImportError {
          drawing; split it into smaller drawings"
     )]
     TooManyElements,
+    #[error(
+        "its elements hold more than {} attributes in all, more than caditor reads from one \
+         drawing; split it into smaller drawings",
+        xml::Budget::for_elements(MAX_DRAWING_ELEMENTS).attributes
+    )]
+    TooManyAttributesInAll,
     #[error(
         "its reused elements repeat into more than {MAX_EXPANDED_OBJECTS} objects, more than \
          caditor reads from one drawing"

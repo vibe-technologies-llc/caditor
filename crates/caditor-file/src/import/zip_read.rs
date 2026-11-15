@@ -1,5 +1,7 @@
 use miniz_oxide::inflate::TINFLStatus;
 
+use crate::import::MAX_UNPACKED_PART;
+
 const END_SIGNATURE: u32 = 0x0605_4b50;
 const CENTRAL_SIGNATURE: u32 = 0x0201_4b50;
 const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
@@ -74,6 +76,7 @@ impl<'a> Archive<'a> {
     }
 
     pub fn read(&self, name: &str, limit: usize) -> Result<Vec<u8>, EntryError> {
+        let limit = limit.min(MAX_UNPACKED_PART);
         let entry = self
             .entries
             .iter()

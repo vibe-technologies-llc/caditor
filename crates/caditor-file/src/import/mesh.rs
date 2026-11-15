@@ -13,7 +13,7 @@ use crate::{
         ImportError, MAX_EXPANDED_OBJECTS, ensure_going,
         mesh_unit::{MeshUnit, UnitReading},
         model::{ImportedBody, ModelImport, canonical},
-        xml::{self, Node, XmlError},
+        xml::{self, Budget, Node, XmlError},
         zip_read::{self, EntryError},
     },
     read::{MAX_FILE_SIZE, read_file},
@@ -473,6 +473,13 @@ fn unit_scale(unit: Option<&str>) -> Option<f64> {
 }
 
 pub(super) fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
+    read_three_mf_within(bytes, Budget::for_elements(MAX_MODEL_ELEMENTS))
+}
+
+pub(super) fn read_three_mf_within(
+    bytes: &[u8],
+    budget: Budget,
+) -> Result<TriangleMesh, ImportError> {
     let damaged = || ImportError::DamagedMesh(MeshFormat::ThreeMf);
     let archive = zip_read::Archive::new(bytes).ok_or_else(damaged)?;
     let mut package = Package {
@@ -480,7 +487,7 @@ pub(super) fn read_three_mf(bytes: &[u8]) -> Result<TriangleMesh, ImportError> {
         parts: Vec::new(),
         loaded: UntrustedMap::new(),
         bytes_left: usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX),
-        elements_left: MAX_MODEL_ELEMENTS,
+        left: budget,
     };
 
     let model_path = match package.model_part()? {
@@ -515,7 +522,7 @@ struct Package<'z> {
     parts: Vec<Part>,
     loaded: UntrustedMap<String, usize>,
     bytes_left: usize,
-    elements_left: usize,
+    left: Budget,
 }
 
 struct Part {
@@ -546,7 +553,7 @@ impl Package<'_> {
     fn model_part(&mut self) -> Result<Option<String>, ImportError> {
         let relationships = match self.archive.read(THREE_MF_RELATIONSHIPS, self.bytes_left) {
             Ok(relationships) => relationships,
-            Err(EntryError::TooLarge) => return Err(ImportError::UnpacksTooLarge),
+            Err(EntryError::TooLarge) => return Err(ImportError::PartUnpacksTooLarge),
             Err(EntryError::Missing | EntryError::Damaged) => return Ok(None),
         };
         self.bytes_left = self.bytes_left.saturating_sub(relationships.len());
@@ -574,19 +581,23 @@ impl Package<'_> {
             .map_err(|error| match error {
                 EntryError::Missing => ImportError::MissingModelPart { part: name.clone() },
                 EntryError::Damaged => damaged(),
-                EntryError::TooLarge => ImportError::UnpacksTooLarge,
+                EntryError::TooLarge => ImportError::PartUnpacksTooLarge,
             })?;
         self.bytes_left = self.bytes_left.saturating_sub(bytes.len());
 
         let text = std::str::from_utf8(&bytes).map_err(|_| damaged())?;
-        let tree = xml::parse(text, self.elements_left).map_err(|error| match error {
+        let tree = xml::parse(text, self.left).map_err(|error| match error {
             XmlError::TooManyElements => ImportError::ModelTooManyElements,
+            XmlError::TooManyAttributesInAll => ImportError::ModelTooManyAttributes,
             XmlError::TooDeep => ImportError::NestedTooDeep,
             XmlError::TooManyAttributes => ImportError::TooManyAttributes,
             XmlError::Damaged { .. } => damaged(),
             XmlError::Cancelled => ImportError::Cancelled,
         })?;
-        self.elements_left = self.elements_left.saturating_sub(tree.element_count());
+        self.left = Budget {
+            elements: self.left.elements.saturating_sub(tree.element_count()),
+            attributes: self.left.attributes.saturating_sub(tree.attribute_count()),
+        };
         if tree.damaged_at.is_some() {
             return Err(damaged());
         }
@@ -826,7 +837,7 @@ fn add_mesh(mesh: &mut TriangleMesh, shape: &Shape, placed: Transform) -> Result
 
 fn model_part(relationships: &[u8]) -> Option<String> {
     let text = std::str::from_utf8(relationships).ok()?;
-    let tree = xml::parse(text, MAX_MODEL_ELEMENTS).ok()?;
+    let tree = xml::parse(text, Budget::for_elements(MAX_MODEL_ELEMENTS)).ok()?;
     let target = tree
         .nodes()
         .find(|node| {

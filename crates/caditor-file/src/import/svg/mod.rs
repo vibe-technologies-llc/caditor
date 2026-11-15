@@ -15,15 +15,16 @@ use std::{
 };
 
 use caditor_geometry::{Point2, Vector2};
+use caditor_kernel::check_interrupt;
 use caditor_lettering::Typeface;
 
 pub(super) use crate::import::svg::text::looks_like_svg;
 use crate::{
     import::{
         Drawing, ImportError, MAX_DRAWING_ELEMENTS, MAX_DRAWING_POINTS, MAX_EXPANDED_OBJECTS,
-        MAX_READ_CURVES,
+        MAX_READ_CURVES, MAX_UNPACKED_DRAWING,
         dxf::{capitalized, counted, flatten::flatten, geometry::Shape, list, were},
-        model::unpacked,
+        model::{UnpackError, unpacked},
         svg::{
             css::{MAX_STYLE_RULES, StyleSheet, without_comments},
             path::{Outline, Vertex},
@@ -32,8 +33,9 @@ use crate::{
             style::{Inherited, Properties},
             syntax::Matrix,
             text::{LATIN_1_NOTE, decoded, is_packed},
+            text_path::{Side, Track},
         },
-        xml::{Node, Tree, XmlError, parse},
+        xml::{Budget, Node, Tree, XmlError, parse},
     },
     untrusted::UntrustedMap,
 };
@@ -96,7 +98,10 @@ pub enum TextOutlines<'f> {
 pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawing, ImportError> {
     let unpacked_bytes;
     let bytes = if is_packed(bytes) {
-        unpacked_bytes = unpacked(bytes)?;
+        unpacked_bytes = unpacked(bytes, MAX_UNPACKED_DRAWING).map_err(|error| match error {
+            UnpackError::Damaged => ImportError::DamagedArchive,
+            UnpackError::TooLarge => ImportError::DrawingUnpacksTooLarge,
+        })?;
         unpacked_bytes.as_slice()
     } else {
         bytes
@@ -109,8 +114,10 @@ pub fn parse_svg(bytes: &[u8], text_outlines: TextOutlines<'_>) -> Result<Drawin
     if latin {
         notes.push(LATIN_1_NOTE.to_owned());
     }
-    let tree = parse(&text, MAX_DRAWING_ELEMENTS).map_err(|error| match error {
+    let budget = Budget::for_elements(MAX_DRAWING_ELEMENTS);
+    let tree = parse(&text, budget).map_err(|error| match error {
         XmlError::TooManyElements => ImportError::TooManyElements,
+        XmlError::TooManyAttributesInAll => ImportError::TooManyAttributesInAll,
         XmlError::TooDeep => ImportError::NestedTooDeep,
         XmlError::TooManyAttributes => ImportError::TooManyAttributes,
         XmlError::Damaged { line } => ImportError::DamagedAt(line),
@@ -178,6 +185,12 @@ fn style_text(tree: &Tree<'_>, namespace: Option<&str>) -> String {
         }
     }
     text
+}
+
+type ViewportKey = [u64; 2];
+
+fn viewport_key(viewport: Vector2) -> ViewportKey {
+    [viewport.x.to_bits(), viewport.y.to_bits()]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,7 +275,8 @@ struct Walker<'a, 't> {
     layer_parent: usize,
     properties: BTreeMap<usize, Properties<'a>>,
     marker_styles: BTreeMap<usize, Option<Inherited<'a>>>,
-    outlines: BTreeMap<usize, Rc<Outline>>,
+    outlines: BTreeMap<(usize, ViewportKey), Rc<Outline>>,
+    tracks: BTreeMap<(usize, Side, ViewportKey), Track>,
     referencing: Vec<usize>,
     shapes: Vec<Shape>,
     shape_layers: Vec<usize>,
@@ -299,6 +313,7 @@ impl<'a, 't> Walker<'a, 't> {
             properties: BTreeMap::new(),
             marker_styles: BTreeMap::new(),
             outlines: BTreeMap::new(),
+            tracks: BTreeMap::new(),
             referencing: Vec::new(),
             shapes: Vec::new(),
             shape_layers: Vec::new(),
@@ -377,6 +392,10 @@ impl<'a, 't> Walker<'a, 't> {
         if self.referencing.is_empty() {
             return Ok(());
         }
+        self.charge_expansion(count)
+    }
+
+    fn charge_expansion(&mut self, count: usize) -> Result<(), ImportError> {
         self.expanded = self.expanded.saturating_add(count);
         if self.expanded > MAX_EXPANDED_OBJECTS {
             return Err(ImportError::TooManyCopies);
@@ -448,6 +467,7 @@ impl<'a, 't> Walker<'a, 't> {
     }
 
     fn visit(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
+        check_interrupt().map_err(|_| ImportError::Cancelled)?;
         let Some(kind) = self.kind(node) else {
             return Ok(());
         };
@@ -561,14 +581,7 @@ impl<'a, 't> Walker<'a, 't> {
             self.tally.hidden += 1;
             return Ok(());
         }
-        let outline = match self.outlines.get(&node.id()) {
-            Some(outline) => Rc::clone(outline),
-            None => {
-                let outline = Rc::new(outline_of(node, context.viewport));
-                self.outlines.insert(node.id(), Rc::clone(&outline));
-                outline
-            }
-        };
+        let outline = self.outline(node, context.viewport);
         if outline.damaged {
             self.tally.damaged += 1;
         }
@@ -581,6 +594,16 @@ impl<'a, 't> Walker<'a, 't> {
             self.markers(&outline.vertices, context)?;
         }
         Ok(())
+    }
+
+    fn outline(&mut self, node: Node<'a, 't>, viewport: Vector2) -> Rc<Outline> {
+        let key = (node.id(), viewport_key(viewport));
+        if let Some(outline) = self.outlines.get(&key) {
+            return Rc::clone(outline);
+        }
+        let outline = Rc::new(outline_of(node, viewport));
+        self.outlines.insert(key, Rc::clone(&outline));
+        outline
     }
 
     fn markers(&mut self, vertices: &[Vertex], context: &Context<'a>) -> Result<(), ImportError> {

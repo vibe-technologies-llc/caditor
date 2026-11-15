@@ -7,6 +7,7 @@ use crate::tally;
 pub(super) const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 pub(super) const MAX_DEPTH: usize = 1024;
 pub(super) const MAX_ATTRIBUTES: usize = 1024;
+pub(super) const ATTRIBUTES_PER_ELEMENT: usize = 8;
 const MAX_ENTITY_DEPTH: usize = 8;
 const MAX_ENTITY_WORK: usize = 4 << 20;
 const ELEMENTS_BETWEEN_INTERRUPT_POLLS: usize = 4096;
@@ -32,6 +33,7 @@ impl Ord for NamespaceKey<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum XmlError {
     TooManyElements,
+    TooManyAttributesInAll,
     TooDeep,
     TooManyAttributes,
     Damaged { line: usize },
@@ -43,6 +45,7 @@ pub(super) struct Tree<'t> {
     elements: Vec<Element<'t>>,
     namespaces: Vec<Cow<'t, str>>,
     pub damaged_at: Option<usize>,
+    attribute_count: usize,
 }
 
 #[derive(Debug)]
@@ -183,12 +186,31 @@ impl<'t> Tree<'t> {
         self.elements.len()
     }
 
+    pub fn attribute_count(&self) -> usize {
+        self.attribute_count
+    }
+
     fn namespace(&self, index: Option<usize>) -> Option<&str> {
         self.namespaces.get(index?).map(AsRef::as_ref)
     }
 }
 
-pub(super) fn parse(text: &str, max_elements: usize) -> Result<Tree<'_>, XmlError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Budget {
+    pub elements: usize,
+    pub attributes: usize,
+}
+
+impl Budget {
+    pub const fn for_elements(elements: usize) -> Self {
+        Self {
+            elements,
+            attributes: elements.saturating_mul(ATTRIBUTES_PER_ELEMENT),
+        }
+    }
+}
+
+pub(super) fn parse(text: &str, budget: Budget) -> Result<Tree<'_>, XmlError> {
     let mut parser = Parser {
         text,
         at: 0,
@@ -202,8 +224,9 @@ pub(super) fn parse(text: &str, max_elements: usize) -> Result<Tree<'_>, XmlErro
             elements: Vec::new(),
             namespaces: Vec::new(),
             damaged_at: None,
+            attribute_count: 0,
         },
-        max_elements,
+        budget,
     };
     let ended = parser.run()?;
     parser.close_open();
@@ -252,7 +275,7 @@ struct Parser<'t> {
     interned: BTreeMap<NamespaceKey<'t>, usize>,
     open: Vec<(usize, &'t str)>,
     tree: Tree<'t>,
-    max_elements: usize,
+    budget: Budget,
 }
 
 impl<'t> Parser<'t> {
@@ -349,10 +372,18 @@ impl<'t> Parser<'t> {
         if self.open.is_empty() && !self.tree.elements.is_empty() {
             return Ok(None);
         }
-        if self.tree.elements.len() >= self.max_elements {
+        let index = self.tree.elements.len();
+        if index >= self.budget.elements {
             return Err(XmlError::TooManyElements);
         }
-        let index = self.tree.elements.len();
+        let attribute_count = self
+            .tree
+            .attribute_count
+            .saturating_add(tag.attributes.len());
+        if attribute_count > self.budget.attributes {
+            return Err(XmlError::TooManyAttributesInAll);
+        }
+        self.tree.attribute_count = attribute_count;
         if index.is_multiple_of(ELEMENTS_BETWEEN_INTERRUPT_POLLS) && check_interrupt().is_err() {
             return Err(XmlError::Cancelled);
         }

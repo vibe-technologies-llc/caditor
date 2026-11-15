@@ -374,20 +374,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Drawing and mesh import
 
-- [medium · easy] An SVG of one long path and many `textPath`s naming it (or a `use` repeating one)
-  hangs import past Cancel: `svg/lettering.rs`'s `track` parses the target's whole `d` again for
-  every `textPath` and use instance, bypassing the outline cache, `text_path.rs`'s `samples`
-  computes every shape before `take(budget)`, and the SVG walker never polls the interrupt (only
-  `xml.rs` does). Cache tracks by target, side and matrix, charge track points to the expansion
-  budget and poll in `Walker::visit`.
-- [medium · easy] XML attributes are not budgeted: `import/xml.rs` counts elements only, an
-  attribute costing about 56 bytes for 5 of text, and SVGZ, gzipped STEP and 3MF parts inflate up to
-  `MAX_FILE_SIZE` (2 GiB), so a 2 MB deflate stream of attribute-heavy XML asks for about 24 GB.
-  Charge attributes against the element budget, and inflate drawings and 3MF parts to far less.
-- [low · easy] SVG outlines are cached by node alone (`svg/mod.rs`), though `outline_of` resolves
-  percentage lengths against the viewport, which a `symbol` without a viewBox takes from each
-  `use`, so a `rect width="50%"` in a symbol used at two sizes is drawn at the first size both
-  times. Key the cache by viewport too.
 - [low · easy] Reference pictures shown by a version preview or snapshot are decoded on the calling
   thread without `catch_unwind` (`image_textures.rs`, `decoded_for`), while the background path in
   the same file wraps its decode, so a decoder panic on a crafted picture would end that thread.

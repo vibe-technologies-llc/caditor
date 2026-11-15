@@ -1,10 +1,13 @@
-use std::f64::consts::TAU;
+use std::{f64::consts::TAU, rc::Rc};
 
 use caditor_geometry::{Point2, Vector2};
 
-use crate::import::{
-    dxf::geometry::Shape,
-    svg::{path::Outline, syntax::Matrix},
+use crate::{
+    import::{
+        dxf::geometry::Shape,
+        svg::{path::Outline, syntax::Matrix},
+    },
+    tally,
 };
 
 const STEPS_PER_SPAN: usize = 32;
@@ -13,7 +16,7 @@ const LEAST_ARC_STEPS: usize = 4;
 const MAX_TRACK_POINTS: usize = 200_000;
 const STRAIGHT: f64 = 1e-9;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Side {
     Left,
     Right,
@@ -33,10 +36,15 @@ pub(super) enum Spacing {
     Auto,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(super) struct Track {
+#[derive(Debug, Default, PartialEq)]
+struct Line {
     points: Vec<Point2>,
     distances: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct Track {
+    line: Rc<Line>,
     pub start: f64,
     pub method: Method,
     pub spacing: Spacing,
@@ -47,11 +55,14 @@ impl Track {
         let mut pieces: Vec<Vec<Point2>> = Vec::new();
         let mut budget = MAX_TRACK_POINTS;
         for shape in &outline.shapes {
+            if budget == 0 {
+                break;
+            }
             let piece: Vec<Point2> = samples(shape)
-                .into_iter()
                 .take(budget)
                 .map(|point| matrix.apply(point))
                 .collect();
+            tally::add(piece.len());
             budget = budget.saturating_sub(piece.len());
             pieces.push(piece);
         }
@@ -61,19 +72,32 @@ impl Track {
                 piece.reverse();
             }
         }
-        let mut track = Self::default();
+        let mut line = Line::default();
         for piece in pieces {
             let mut points = piece.into_iter();
             if let Some(first) = points.next() {
-                track.jump(first);
+                line.jump(first);
             }
             for point in points {
-                track.extend(point);
+                line.extend(point);
             }
         }
-        track
+        Self {
+            line: Rc::new(line),
+            ..Self::default()
+        }
     }
 
+    pub fn point_count(&self) -> usize {
+        self.line.points.len()
+    }
+
+    pub fn length(&self) -> f64 {
+        self.line.length()
+    }
+}
+
+impl Line {
     fn jump(&mut self, point: Point2) {
         if self.points.last() == Some(&point) {
             return;
@@ -96,10 +120,12 @@ impl Track {
         self.distances.push(self.length() + step);
     }
 
-    pub fn length(&self) -> f64 {
+    fn length(&self) -> f64 {
         self.distances.last().copied().unwrap_or(0.0)
     }
+}
 
+impl Track {
     pub fn extended(&self, distance: f64) -> Option<(Point2, Vector2)> {
         let length = self.length();
         if distance < 0.0 {
@@ -117,9 +143,12 @@ impl Track {
         let Some((_, first)) = self.extended(from) else {
             return false;
         };
-        let inside = self.distances.partition_point(|reached| *reached <= from)
-            ..self.distances.partition_point(|reached| *reached < to);
-        let corners = self.distances.get(inside).unwrap_or_default();
+        let inside = self
+            .line
+            .distances
+            .partition_point(|reached| *reached <= from)
+            ..self.line.distances.partition_point(|reached| *reached < to);
+        let corners = self.line.distances.get(inside).unwrap_or_default();
         let ends = [from, to];
         corners
             .iter()
@@ -134,27 +163,37 @@ impl Track {
             return None;
         }
         let mut index = self
+            .line
             .distances
             .partition_point(|reached| *reached < distance)
             .max(1);
         loop {
-            let (from, to) = (self.distances.get(index - 1)?, self.distances.get(index)?);
+            let (from, to) = (
+                self.line.distances.get(index - 1)?,
+                self.line.distances.get(index)?,
+            );
             if to > from {
                 break;
             }
             index += 1;
         }
-        let (from, to) = (self.points.get(index - 1)?, self.points.get(index)?);
-        let (near, far) = (self.distances.get(index - 1)?, self.distances.get(index)?);
+        let (from, to) = (
+            self.line.points.get(index - 1)?,
+            self.line.points.get(index)?,
+        );
+        let (near, far) = (
+            self.line.distances.get(index - 1)?,
+            self.line.distances.get(index)?,
+        );
         let share = (distance - near) / (far - near);
         let tangent = (*to - *from).try_normalize()?;
         Some((*from + (*to - *from) * share, tangent))
     }
 }
 
-fn samples(shape: &Shape) -> Vec<Point2> {
+fn samples(shape: &Shape) -> Box<dyn Iterator<Item = Point2> + '_> {
     match shape {
-        Shape::Line(from, to) => vec![from.truncate(), to.truncate()],
+        Shape::Line(from, to) => Box::new([from.truncate(), to.truncate()].into_iter()),
         Shape::Conic {
             center,
             major,
@@ -163,26 +202,22 @@ fn samples(shape: &Shape) -> Vec<Point2> {
             sweep,
         } => {
             let steps = arc_steps(*sweep);
-            (0..=steps)
-                .map(|step| {
-                    let angle = start + sweep * step as f64 / steps as f64;
-                    (*center + *major * angle.cos() + *minor * angle.sin()).truncate()
-                })
-                .collect()
+            Box::new((0..=steps).map(move |step| {
+                let angle = start + sweep * step as f64 / steps as f64;
+                (*center + *major * angle.cos() + *minor * angle.sin()).truncate()
+            }))
         }
         Shape::Spline(nurbs) => {
             let Some((low, high)) = nurbs.domain() else {
-                return Vec::new();
+                return Box::new(std::iter::empty());
             };
             let steps = nurbs.spans().max(1).saturating_mul(STEPS_PER_SPAN);
-            (0..=steps)
-                .filter_map(|step| {
-                    let parameter = low + (high - low) * step as f64 / steps as f64;
-                    nurbs.point(parameter).map(|point| point.truncate())
-                })
-                .collect()
+            Box::new((0..=steps).filter_map(move |step| {
+                let parameter = low + (high - low) * step as f64 / steps as f64;
+                nurbs.point(parameter).map(|point| point.truncate())
+            }))
         }
-        Shape::Point(_) | Shape::Interpolated(_) => Vec::new(),
+        Shape::Point(_) | Shape::Interpolated(_) => Box::new(std::iter::empty()),
     }
 }
 

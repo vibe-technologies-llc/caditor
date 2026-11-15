@@ -69,26 +69,31 @@ paths:
 
 - `read_drawing` takes SVG for a `.svg`/`.svgz` file, or a file not named `.dxf` whose content
   starts with `<` (after a BOM and spaces), gzip or a UTF-16 BOM; anything else goes to `parse_dxf`.
-  `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), decodes UTF-8 or UTF-16 by BOM, else
-  Latin-1 with a note, and returns the same `Drawing` as DXF, flattened by DXF's `flatten`, so the
-  import dialog, arrangement and `drawing_transaction` are shared.
+  `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), but within `MAX_UNPACKED_DRAWING`
+  (`DrawingUnpacksTooLarge`), since a small deflate stream of attributes asks for far more memory
+  than its text; it decodes UTF-8 or UTF-16 by BOM, else Latin-1 with a note, and returns the same
+  `Drawing` as DXF, flattened by DXF's `flatten`, so the import dialog, arrangement and
+  `drawing_transaction` are shared.
 - `import/xml.rs` is caditor's own XML reader, shared with 3MF, since roxmltree's tokenizer recurses
   per nesting level and overflows the stack on hostile depth: iterative, namespaces resolved,
   attribute values decoded (named entities, character references and the DOCTYPE's own text
   entities, which Illustrator uses for `xmlns`; an entity holding markup, nested past
   `MAX_ENTITY_DEPTH` or expanding past `MAX_ENTITY_WORK` is damage). Text is kept only inside
   `style`, `text`, `tspan`, `textPath` and `a`, as pieces between the children (`Node::content`)
-  since layout needs their order. Past `MAX_DRAWING_ELEMENTS` the file is
-  `ImportError::TooManyElements`, nesting past `MAX_DEPTH` is `ImportError::NestedTooDeep` and a
-  tag with more than `MAX_ATTRIBUTES` attributes is `ImportError::TooManyAttributes` (3MF refuses
-  the same way). The reader polls the kernel interrupt every `ELEMENTS_BETWEEN_INTERRUPT_POLLS`
-  elements, so Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are
-  interned through a map whose key adds one `tally` unit per entry it compares (the XML test bounds
-  the total by the declarations made) and a prefix resolves through a stack per prefix, so a
-  hostile file costs time linear in its size; each element records the last element
-  of its subtree (`Node::encloses`), which is how a `use` tests for a loop. Damage keeps the
-  elements before it with their open ancestors and a note names the line; damage before the root is
-  `DamagedAt`.
+  since layout needs their order. The caller's `xml::Budget` counts elements and attributes apart:
+  attributes get `ATTRIBUTES_PER_ELEMENT` (8) times the elements (`Budget::for_elements`), so a file
+  of ordinary elements (a 3MF vertex or triangle has 3) fills the element budget first, while a
+  flood of attributes, about 56 bytes each for 5 of text, is still bounded. Past
+  `MAX_DRAWING_ELEMENTS` the file is `ImportError::TooManyElements`, past its attributes
+  `TooManyAttributesInAll`, nesting past `MAX_DEPTH` is `ImportError::NestedTooDeep` and a tag with
+  more than `MAX_ATTRIBUTES` attributes is `ImportError::TooManyAttributes` (3MF refuses the same
+  way). The reader polls the kernel interrupt every `ELEMENTS_BETWEEN_INTERRUPT_POLLS` elements, so
+  Cancel stops a crafted file's parse as `ImportError::Cancelled`. Namespaces are interned through a
+  map whose key adds one `tally` unit per entry it compares (the XML test bounds the total by the
+  declarations made) and a prefix resolves through a stack per prefix, so a hostile file costs time
+  linear in its size; each element records the last element of its subtree (`Node::encloses`), which
+  is how a `use` tests for a loop. Damage keeps the elements before it with their open ancestors and
+  a note names the line; damage before the root is `DamagedAt`.
 - The root `svg` sizes the drawing (`sizing.rs`): with a viewBox and a width or height, a user unit
   is that length in millimetres over the viewBox's side (`preserveAspectRatio` meet takes the
   smaller, slice the larger, none each); mm, cm, in, pt, pc, px convert and every unit but
@@ -167,13 +172,13 @@ paths:
   (`font_rise`) because the cascade has no face; a face without those metrics falls back to
   0.2 and 0.4 of the size and the size itself.
 - `textPath` (`text_path.rs`) lays letters along the referenced shape (`href`/`xlink:href`, through
-  its own `transform`) or its SVG 2 `path` data, sampled into a `Track` (at most
-  `MAX_TRACK_POINTS`); `side="right"` walks it backwards, `startOffset` is where the run starts. The
-  run is laid out straight first, then each letter's middle is put on the track and turned to the
-  tangent (`method="align"`, the default); absolute `x`/`y` are ignored inside. A letter whose
-  middle falls off either end is left out and counted. Text after the `textPath` carries on
-  straight from the last on-path letter. A reference not naming a drawn shape is counted as
-  missing and its text left out.
+  its own `transform`) or its SVG 2 `path` data, sampled into a `Track` (at most `MAX_TRACK_POINTS`,
+  each shape sampled lazily so no more is computed); `side="right"` walks it backwards,
+  `startOffset` is where the run starts. The run is laid out straight first, then each letter's
+  middle is put on the track and turned to the tangent (`method="align"`, the default); absolute
+  `x`/`y` are ignored inside. A letter whose middle falls off either end is left out and counted.
+  Text after the `textPath` carries on straight from the last on-path letter. A reference not naming
+  a drawn shape is counted as missing and its text left out.
 - `spacing="auto"` (`chorded_along`) places each letter's start where the previous letter's chord
   ended: its baseline runs a chord of its advance along the track (`chord_end`, found by stepping
   and bisecting) turned to that chord rather than to the tangent at its middle, so letters on a
@@ -196,14 +201,20 @@ paths:
 - Glyphs come from `caditor-lettering` (`lettering.md`): its `Typeface` reads the faces handed in,
   kerns, and gives each glyph merged into one outline, which `path::traced` turns into the same
   exact splines and lines `path` makes. `read_drawing` installs its `CancelToken` as the kernel
-  interrupt around `parse_svg`. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is
-  counted without being merged.
+  interrupt around `parse_svg`, which `Walker::visit` polls for every element it visits, so Cancel
+  ends the walk as `Cancelled`. Outlines are cached by node and viewport (a `symbol` without viewBox
+  takes percentages from each `use`), and tracks by source node (the target, or the `textPath` with
+  its own `path`), side and viewport, sharing their points (`Rc`), the target's transform being its
+  own; every `textPath` laid out, inside a use or not, charges its track's points against
+  `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), so many `textPath`s or uses of one long path are refused
+  instead of hanging. Letters are charged like shapes; past `MAX_READ_CURVES` a glyph is counted
+  without being merged.
 
 ## STEP import (`import/model.rs`)
 
 - `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic) within `MAX_FILE_SIZE`, trailer
-  CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text reads as Latin-1
-  with a note.
+  CRC and size checked, else `DamagedArchive` or `StepUnpacksTooLarge`. Non-UTF-8 text reads as
+  Latin-1 with a note.
 - `read_step_file`, `read_mesh_file`, `read_dxf` and `read_drawing` take a `CancelToken`, checked
   between stages and installed as the kernel interrupt around parsing and building (STEP stops
   between solids with `ReadError::Cancelled`, meshing inside a shell). A cancelled read is
@@ -267,12 +278,14 @@ paths:
   inside another is not declared and its vertices are not gathered again; each loop polls the
   kernel interrupt every `LINES_BETWEEN_INTERRUPT_POLLS` items.
 - 3MF budgets belong to the package: inflated bytes of every part (and `_rels/.rels`) come out of
-  one `MAX_FILE_SIZE` (`UnpacksTooLarge`), every part's elements out of one `MAX_MODEL_ELEMENTS`
-  (`ModelTooManyElements`). Component expansion is charged across parts: every placed object against
-  `MAX_EXPANDED_OBJECTS`, placed vertices and triangles each against `MAX_MODEL_ELEMENTS`, counted
-  before any vertex is pushed (`add_mesh`); past any the file is `ModelPlacesTooMuch`, and each
-  placed object polls the kernel interrupt. An object reached again while its own components are
-  being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
+  one `MAX_FILE_SIZE`, and `zip_read::Archive::read` inflates any one part to at most
+  `MAX_UNPACKED_PART` (`PartUnpacksTooLarge` for either), every part's elements and attributes out
+  of one `Budget::for_elements(MAX_MODEL_ELEMENTS)` (`ModelTooManyElements`,
+  `ModelTooManyAttributes`). Component expansion is charged across parts: every placed object
+  against `MAX_EXPANDED_OBJECTS`, placed vertices and triangles each against `MAX_MODEL_ELEMENTS`,
+  counted before any vertex is pushed (`add_mesh`); past any the file is `ModelPlacesTooMuch`, and
+  each placed object polls the kernel interrupt. An object reached again while its own components
+  are being placed is `ComponentCycle` naming object and part; nesting past `MAX_COMPONENT_DEPTH` is
   damage.
 - Text STL and OBJ are charged the same way: vertices and triangles each against `MAX_MODEL_ELEMENTS`
   (`ModelTooManyElements`), an OBJ face counted before its fan is made, a binary STL's header count

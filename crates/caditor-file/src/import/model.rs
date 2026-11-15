@@ -138,7 +138,11 @@ pub fn read_step_file_reporting(
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
     let bytes = if bytes.starts_with(&GZIP_MAGIC) {
-        unpacked(&bytes)?
+        let limit = usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX);
+        unpacked(&bytes, limit).map_err(|error| match error {
+            UnpackError::Damaged => ImportError::DamagedArchive,
+            UnpackError::TooLarge => ImportError::StepUnpacksTooLarge,
+        })?
     } else {
         bytes
     };
@@ -163,8 +167,14 @@ pub fn read_step_file_reporting(
     imported
 }
 
-pub(super) fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
-    let damaged = || ImportError::DamagedArchive;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UnpackError {
+    Damaged,
+    TooLarge,
+}
+
+pub(super) fn unpacked(bytes: &[u8], limit: usize) -> Result<Vec<u8>, UnpackError> {
+    let damaged = || UnpackError::Damaged;
     let Some([_, _, method, flags, ..]) = bytes.get(..GZIP_FIXED_HEADER) else {
         return Err(damaged());
     };
@@ -197,11 +207,10 @@ pub(super) fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
     }
     let end = bytes.len().checked_sub(GZIP_TRAILER).ok_or_else(damaged)?;
     let packed = bytes.get(at..end).ok_or_else(damaged)?;
-    let limit = usize::try_from(MAX_FILE_SIZE).unwrap_or(usize::MAX);
     let unpacked =
         miniz_oxide::inflate::decompress_to_vec_with_limit(packed, limit).map_err(|error| {
             match error.status {
-                miniz_oxide::inflate::TINFLStatus::HasMoreOutput => ImportError::UnpacksTooLarge,
+                miniz_oxide::inflate::TINFLStatus::HasMoreOutput => UnpackError::TooLarge,
                 _ => damaged(),
             }
         })?;

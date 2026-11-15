@@ -7,8 +7,10 @@ use crate::{
     export::zip::{ZipEntry, archive},
     import::{
         ImportError, MeshFormat, MeshUnit, ModelImport, UnitBasis,
-        mesh::{MAX_MODEL_ELEMENTS, read_three_mf},
+        mesh::{MAX_MODEL_ELEMENTS, read_three_mf, read_three_mf_within},
         parse_mesh, parse_mesh_in, read_mesh_file,
+        xml::{self, Budget},
+        xml_tests::NO_LIMIT,
     },
 };
 
@@ -614,6 +616,59 @@ fn the_parts_of_a_project_share_one_element_limit() {
 
     assert_eq!(
         read_package(&package).map(|_| ()),
+        Err(ImportError::ModelTooManyElements)
+    );
+}
+
+fn two_parts_holding(filler: &str) -> Vec<u8> {
+    let root = production_model(
+        &format!(
+            "{filler}<object id=\"2\" type=\"model\"><components>\
+             <component prod:path=\"/3D/Objects/object_1.model\" objectid=\"1\"/>\
+             </components></object>"
+        ),
+        "<item objectid=\"2\"/>",
+    );
+    let object = production_model(&format!("{filler}{}", cube_object(1, 10.0)), "");
+    parts_package(&[
+        ("3D/3dmodel.model", &root),
+        ("3D/Objects/object_1.model", &object),
+    ])
+}
+
+#[test]
+fn the_parts_of_a_project_share_one_attribute_budget() {
+    let elements = 1_000;
+    let budget = Budget::for_elements(elements);
+    let attributes_per_filler = 90;
+    let fillers = budget.attributes / (2 * attributes_per_filler) + 1;
+    let list: String = (0..attributes_per_filler)
+        .map(|attribute| format!(" a{attribute}=\"\""))
+        .collect();
+    let package = two_parts_holding(&format!("<a{list}/>").repeat(fillers));
+    let roomier = Budget {
+        attributes: 2 * budget.attributes,
+        ..budget
+    };
+
+    assert!(fillers * attributes_per_filler < budget.attributes);
+    assert!(2 * fillers < elements);
+    assert_eq!(
+        read_three_mf_within(&package, budget).map(|_| ()),
+        Err(ImportError::ModelTooManyAttributes)
+    );
+    assert!(read_three_mf_within(&package, roomier).is_ok());
+}
+
+#[test]
+fn a_mesh_of_three_attributes_to_each_element_reads_up_to_the_element_limit() {
+    let model = production_model(&cube_object(1, 10.0), "<item objectid=\"1\"/>");
+    let package = model_package(&model);
+    let elements = xml::parse(&model, NO_LIMIT).unwrap().element_count();
+
+    assert!(read_three_mf_within(&package, Budget::for_elements(elements)).is_ok());
+    assert_eq!(
+        read_three_mf_within(&package, Budget::for_elements(elements - 1)).map(|_| ()),
         Err(ImportError::ModelTooManyElements)
     );
 }

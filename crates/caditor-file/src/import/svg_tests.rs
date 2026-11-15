@@ -1,14 +1,23 @@
-use std::{collections::BTreeSet, io::Write};
+use std::{
+    collections::BTreeSet,
+    io::Write,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use caditor_document::CancelToken;
 use caditor_geometry::{Plane, Point2, Vector2};
+use caditor_kernel::interruptible;
 use caditor_sketch::{ArcGeometry, BSpline, Sketch};
 use tempfile::TempDir;
 
 use crate::{
     export::{Construction, SketchFormat, export_sketch},
     import::{
-        self, Drawing, DrawingCurve, DrawingOptions, ImportError, TextOutlines, read_drawing,
+        self, Drawing, DrawingCurve, DrawingOptions, ImportError, MAX_UNPACKED_DRAWING,
+        TextOutlines, read_drawing, zip_read_tests::deflated_zeros,
     },
 };
 
@@ -1093,4 +1102,64 @@ fn a_marker_drawing_itself_is_left_out() {
         "{:?}",
         drawing.notes
     );
+}
+
+#[test]
+fn a_packed_drawing_unpacking_past_its_limit_is_refused_in_words() {
+    let gzip_header = [0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    let unread_trailer = [0; 8];
+    let mut packed = gzip_header.to_vec();
+    packed.extend(deflated_zeros(MAX_UNPACKED_DRAWING + 1));
+    packed.extend(unread_trailer);
+
+    let error = parse_svg(&packed).unwrap_err();
+
+    assert_eq!(error, ImportError::DrawingUnpacksTooLarge);
+    assert!(
+        error
+            .to_string()
+            .starts_with("the compressed drawing unpacks to more than 256 MiB"),
+        "{error}"
+    );
+}
+
+#[test]
+fn cancelling_stops_the_walk_through_the_drawing() {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let polled = Arc::clone(&polls);
+    let cancelled_after_parsing = Arc::new(move || polled.fetch_add(1, Ordering::Relaxed) > 0);
+    let body = r#"<line x1="0" y1="0" x2="1" y2="0"/>"#.repeat(10);
+
+    let drawing = interruptible(cancelled_after_parsing, || parse_svg(&svg(&body)));
+
+    assert_eq!(drawing, Err(ImportError::Cancelled));
+    assert_eq!(polls.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn a_symbol_without_a_view_box_takes_percentages_from_each_use() {
+    let drawing = read(
+        r##"<defs><symbol id="half"><rect width="50%" height="50%"/></symbol></defs>
+            <use href="#half" width="10" height="10"/>
+            <use href="#half" x="50" width="20" height="20"/>"##,
+    );
+
+    let ends: Vec<Point2> = drawing
+        .curves
+        .iter()
+        .flat_map(|curve| match curve {
+            DrawingCurve::Line { start, end } => [*start, *end],
+            other => panic!("a rectangle drew {other:?}"),
+        })
+        .collect();
+    let widest = |range: std::ops::Range<f64>| {
+        ends.iter()
+            .filter(|point| range.contains(&point.x))
+            .map(|point| point.x - range.start)
+            .fold(0.0, f64::max)
+    };
+
+    assert_eq!(drawing.curves.len(), 8);
+    assert_eq!(widest(0.0..40.0), 5.0);
+    assert_eq!(widest(50.0..100.0), 10.0);
 }

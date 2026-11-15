@@ -10,7 +10,10 @@ use skrifa::{
     raw::TableProvider,
 };
 
-use crate::import::{Drawing, DrawingCurve, ImportError, TextOutlines, parse_svg};
+use crate::{
+    import::{Drawing, DrawingCurve, ImportError, TextOutlines, parse_svg},
+    tally,
+};
 
 const INTER: &[u8] = include_bytes!("../../../caditor/assets/fonts/InterVariable.ttf");
 const INTER_ITALIC: &[u8] =
@@ -757,4 +760,68 @@ fn auto_spacing_matches_exact_on_a_straight_path_and_spreads_letters_round_a_cur
         auto[4] - auto[0] > exact[4] - exact[0],
         "{auto:?} against {exact:?}"
     );
+}
+
+const ON_THE_LONG_PATH: &str =
+    r##"<text font-size="2"><textPath href="#long">I</textPath></text>"##;
+
+fn long_path(segments: usize) -> String {
+    let mut data = String::from("M 10 50");
+    for segment in 1..=segments {
+        let x = 10.0 + segment as f64 * 0.01;
+        let y = if segment % 2 == 0 { 50 } else { 51 };
+        data.push_str(&format!(" L {x} {y}"));
+    }
+    format!(r#"<defs><path id="long" d="{data}"/></defs>"#)
+}
+
+fn measured(body: &str) -> (Result<Drawing, ImportError>, usize) {
+    let in_inter = TextOutlines::InFont {
+        upright: INTER,
+        italic: Some(INTER_ITALIC),
+    };
+    tally::measure(|| parse_svg(&svg(body), in_inter))
+}
+
+#[test]
+fn text_paths_naming_one_long_path_trace_it_once() {
+    let segments = 4_000;
+    let texts = 100;
+    let traced_once = segments * 3;
+
+    let (one, _) = measured(&format!("{}{ON_THE_LONG_PATH}", long_path(segments)));
+    let (many, steps) = measured(&format!(
+        "{}{}",
+        long_path(segments),
+        ON_THE_LONG_PATH.repeat(texts)
+    ));
+
+    assert_eq!(
+        many.unwrap().curves.len(),
+        one.unwrap().curves.len() * texts
+    );
+    assert!(steps < 2 * traced_once, "{steps}");
+}
+
+#[test]
+fn text_paths_and_uses_repeating_a_long_path_past_the_copy_limit_are_refused_quickly() {
+    let segments = 4_000;
+    let repeats = 300;
+    let traced_once = segments * 3;
+
+    let (named, named_steps) = measured(&format!(
+        "{}{}",
+        long_path(segments),
+        ON_THE_LONG_PATH.repeat(repeats)
+    ));
+    let (used, used_steps) = measured(&format!(
+        r##"{}<defs><g id="label">{ON_THE_LONG_PATH}</g></defs>{}"##,
+        long_path(segments),
+        r##"<use href="#label"/>"##.repeat(repeats)
+    ));
+
+    assert_eq!(named.unwrap_err(), ImportError::TooManyCopies);
+    assert_eq!(used.unwrap_err(), ImportError::TooManyCopies);
+    assert!(named_steps < 2 * traced_once, "{named_steps}");
+    assert!(used_steps < 2 * traced_once, "{used_steps}");
 }

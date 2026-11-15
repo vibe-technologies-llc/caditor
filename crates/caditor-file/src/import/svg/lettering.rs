@@ -6,11 +6,12 @@ use crate::import::{
     svg::{
         Context, MAX_NAMED_ELEMENTS, MAX_NESTING, Walker, XLINK_NAMESPACE,
         path::{path_outline, traced},
-        shapes::{Axis, outline_of},
+        shapes::Axis,
         style::Inherited,
         syntax::{Length, Matrix, numbers, transform_list},
         text_path::{Method, Side, Spacing, Track},
         text_style::{Anchor, FontShift, TextStyle},
+        viewport_key,
     },
     xml::{Content, Node},
 };
@@ -211,7 +212,7 @@ impl<'a, 't> Walker<'a, 't> {
             after_space: true,
             viewport: context.viewport,
         };
-        self.gather(node, context.style, context.depth, &mut gathered);
+        self.gather(node, context.style, context.depth, &mut gathered)?;
         gathered.trim_end();
         let Gathered {
             letters,
@@ -297,7 +298,7 @@ impl<'a, 't> Walker<'a, 't> {
         style: Inherited<'a>,
         depth: usize,
         gathered: &mut Gathered<'a, 't>,
-    ) {
+    ) -> Result<(), ImportError> {
         let slot = gathered.spans.len();
         let start = gathered.letters.len();
         gathered.spans.push(Span {
@@ -309,7 +310,7 @@ impl<'a, 't> Walker<'a, 't> {
             match content {
                 Content::Text(text) => gathered.push_text(text, style),
                 Content::Element(child) if self.is_svg(child) => {
-                    self.gather_child(child, style, depth, gathered);
+                    self.gather_child(child, style, depth, gathered)?;
                 }
                 Content::Element(_) => {}
             }
@@ -318,6 +319,7 @@ impl<'a, 't> Walker<'a, 't> {
         if let Some(span) = gathered.spans.get_mut(slot) {
             span.end = end;
         }
+        Ok(())
     }
 
     fn gather_child(
@@ -326,36 +328,37 @@ impl<'a, 't> Walker<'a, 't> {
         style: Inherited<'a>,
         depth: usize,
         gathered: &mut Gathered<'a, 't>,
-    ) {
+    ) -> Result<(), ImportError> {
         let on_path = child.name() == "textPath";
         if !on_path && !matches!(child.name(), "tspan" | "a") {
-            return;
+            return Ok(());
         }
         if depth >= MAX_NESTING {
             self.tally.too_deep += 1;
-            return;
+            return Ok(());
         }
         let properties = self.properties(child);
         if properties.hidden {
             self.tally.hidden += 1;
-            return;
+            return Ok(());
         }
         let style = style.under(&properties);
         if !on_path || gathered.track.is_some() {
-            self.gather(child, style, depth + 1, gathered);
-            return;
+            return self.gather(child, style, depth + 1, gathered);
         }
         let Some(track) = self.track(child, gathered.viewport) else {
             self.tally.missing += 1;
-            return;
+            return Ok(());
         };
+        self.charge_expansion(track.point_count())?;
         gathered.track = Some(gathered.tracks.len());
         gathered.tracks.push(track);
-        self.gather(child, style, depth + 1, gathered);
+        let gathering = self.gather(child, style, depth + 1, gathered);
         gathered.track = None;
+        gathering
     }
 
-    fn track(&self, text_path: Node<'a, 't>, viewport: Vector2) -> Option<Track> {
+    fn track(&mut self, text_path: Node<'a, 't>, viewport: Vector2) -> Option<Track> {
         let side = match text_path.attribute("side").map(str::trim) {
             Some("right") => Side::Right,
             _ => Side::Left,
@@ -368,22 +371,26 @@ impl<'a, 't> Walker<'a, 't> {
             Some("auto") => Spacing::Auto,
             _ => Spacing::Exact,
         };
-        let mut track = match text_path.attribute("path") {
-            Some(data) => Track::of(&path_outline(data), &Matrix::IDENTITY, side),
+        let inline = text_path.attribute("path");
+        let source = match inline {
+            Some(_) => text_path,
+            None => text_path
+                .attribute("href")
+                .or_else(|| text_path.attribute_in(XLINK_NAMESPACE, "href"))
+                .and_then(|reference| reference.trim().strip_prefix('#'))
+                .and_then(|id| self.ids.get(id).copied())
+                .filter(|target| self.is_svg(*target) && TRACK_SHAPES.contains(&target.name()))?,
+        };
+        let key = (source.id(), side, viewport_key(viewport));
+        let mut track = match self.tracks.get(&key) {
+            Some(track) => track.clone(),
             None => {
-                let target = text_path
-                    .attribute("href")
-                    .or_else(|| text_path.attribute_in(XLINK_NAMESPACE, "href"))
-                    .and_then(|reference| reference.trim().strip_prefix('#'))
-                    .and_then(|id| self.ids.get(id).copied())
-                    .filter(|target| {
-                        self.is_svg(*target) && TRACK_SHAPES.contains(&target.name())
-                    })?;
-                let matrix = target
-                    .attribute("transform")
-                    .and_then(transform_list)
-                    .unwrap_or(Matrix::IDENTITY);
-                Track::of(&outline_of(target, viewport), &matrix, side)
+                let track = match inline {
+                    Some(data) => Track::of(&path_outline(data), &Matrix::IDENTITY, side),
+                    None => self.target_track(source, viewport, side),
+                };
+                self.tracks.insert(key, track.clone());
+                track
             }
         };
         let length = track.length();
@@ -396,6 +403,14 @@ impl<'a, 't> Walker<'a, 't> {
             .filter(|offset| offset.is_finite())
             .unwrap_or(0.0);
         Some(track)
+    }
+
+    fn target_track(&mut self, target: Node<'a, 't>, viewport: Vector2, side: Side) -> Track {
+        let matrix = target
+            .attribute("transform")
+            .and_then(transform_list)
+            .unwrap_or(Matrix::IDENTITY);
+        Track::of(&self.outline(target, viewport), &matrix, side)
     }
 
     fn note_style(&mut self, letters: &[Letter<'a>], italic_carried: bool) {

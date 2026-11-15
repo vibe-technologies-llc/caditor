@@ -3,11 +3,14 @@ use std::sync::Arc;
 use caditor_kernel::interruptible;
 
 use crate::{
-    import::xml::{MAX_ATTRIBUTES, MAX_DEPTH, XmlError, parse},
+    import::xml::{Budget, MAX_ATTRIBUTES, MAX_DEPTH, XmlError, parse},
     tally,
 };
 
-const NO_LIMIT: usize = usize::MAX;
+pub(super) const NO_LIMIT: Budget = Budget {
+    elements: usize::MAX,
+    attributes: usize::MAX,
+};
 const BTREE_NODE_KEYS: usize = 11;
 const BTREE_FANOUT: usize = 6;
 
@@ -28,7 +31,7 @@ fn a_hundred_thousand_distinct_namespaces_are_interned_without_scanning_them_all
 
     let last = tree.nodes().last().unwrap();
     assert_eq!(last.namespace(), Some("urn:namespace:99999"));
-    assert_eq!(tree.element_count(), siblings + 1);
+    assert_eq!(tree.nodes().count(), siblings + 1);
 
     let tree_height = siblings.ilog(BTREE_FANOUT) as usize + 2;
     let searches_per_declaration = 2;
@@ -56,7 +59,7 @@ fn a_prefix_is_undeclared_again_once_its_element_closes() {
     let tree = parse(r#"<r><x xmlns:p="urn:inner"/><p:y/></r>"#, NO_LIMIT).unwrap();
 
     assert_eq!(tree.damaged_at, Some(1));
-    assert_eq!(tree.element_count(), 2);
+    assert_eq!(tree.nodes().count(), 2);
 }
 
 #[test]
@@ -118,4 +121,69 @@ fn a_cancelled_parse_stops_with_cancelled() {
     let parsed = interruptible(Arc::new(|| true), || parse(&text, NO_LIMIT));
 
     assert_eq!(parsed.err(), Some(XmlError::Cancelled));
+}
+
+fn elements_of(elements: usize, attributes: usize) -> String {
+    let list: String = (0..attributes)
+        .map(|attribute| format!(" a{attribute}=\"\""))
+        .collect();
+    format!("<r>{}</r>", format!("<e{list}/>").repeat(elements))
+}
+
+#[test]
+fn elements_and_attributes_are_each_refused_one_past_their_own_budget() {
+    let text = elements_of(100, 100);
+    let elements = 1 + 100;
+    let attributes = 100 * 100;
+    let exact = Budget {
+        elements,
+        attributes,
+    };
+
+    assert!(parse(&text, exact).is_ok());
+    assert_eq!(
+        parse(
+            &text,
+            Budget {
+                elements: elements - 1,
+                ..exact
+            }
+        )
+        .map(|_| ()),
+        Err(XmlError::TooManyElements)
+    );
+    assert_eq!(
+        parse(
+            &text,
+            Budget {
+                attributes: attributes - 1,
+                ..exact
+            }
+        )
+        .map(|_| ()),
+        Err(XmlError::TooManyAttributesInAll)
+    );
+}
+
+#[test]
+fn elements_of_three_attributes_each_fill_the_element_budget_before_the_attribute_one() {
+    let elements = 1 + 10_000;
+    let text = elements_of(elements - 1, 3);
+
+    assert!(parse(&text, Budget::for_elements(elements)).is_ok());
+    assert_eq!(
+        parse(&text, Budget::for_elements(elements - 1)).map(|_| ()),
+        Err(XmlError::TooManyElements)
+    );
+}
+
+#[test]
+fn an_attribute_flood_within_the_element_budget_is_refused() {
+    let elements = 1_000;
+    let text = elements_of(elements - 1, MAX_ATTRIBUTES);
+
+    assert_eq!(
+        parse(&text, Budget::for_elements(elements)).map(|_| ()),
+        Err(XmlError::TooManyAttributesInAll)
+    );
 }
